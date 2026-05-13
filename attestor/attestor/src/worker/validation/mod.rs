@@ -106,6 +106,7 @@ pub struct Config {
 
     validation_sender: attestation_pool::AttestationPoolSender,
     validation_receiver: attestation_pool::AttestationPoolReceiver,
+    attestation_latest_cc3: std::sync::Arc<std::sync::atomic::AtomicU64>,
     can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
@@ -127,6 +128,7 @@ pub(crate) struct WorkerAttestationValidation {
     watch_submission: future::OptionFuture<(AttestationSubmission, attestor_primitives::Height)>,
     validation_sender: attestation_pool::AttestationPoolSender,
     validation_receiver: attestation_pool::AttestationPoolReceiver,
+    attestation_latest_cc3: std::sync::Arc<std::sync::atomic::AtomicU64>,
     can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     // CHAIN DATA
@@ -148,6 +150,7 @@ impl WorkerAttestationValidation {
             watch_submission: future::OptionFuture::default(),
             validation_receiver: config.validation_receiver,
             validation_sender: config.validation_sender,
+            attestation_latest_cc3: config.attestation_latest_cc3,
             can_attest: config.can_attest,
 
             api_calls: config.api_calls,
@@ -560,9 +563,16 @@ impl WorkerAttestationValidation {
             .first()
             .expect("Invariant violated: quorum must always contain at least one vote");
 
+        let attestation_latest_cc3 = self
+            .attestation_latest_cc3
+            .load(std::sync::atomic::Ordering::Acquire);
+
         // Every attestation must have a continuity proof except for the first attestation in the
         // chain
-        if attestation.continuity_proof.is_empty() && height != self.start_height {
+        if attestation.continuity_proof.is_empty()
+            && height != attestation_latest_cc3.saturating_add(1)
+            && height != self.start_height
+        {
             tracing::error!(?digest, height, "⛔ Empty continuity proof");
             return Err(Interrupt::Cont(Error::InvalidAttestation(
                 InvalidCause::EmptyContinuityProof,

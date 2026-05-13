@@ -106,7 +106,7 @@ pub struct Config {
     sender_validation: attestation_pool::AttestationPoolSender,
 
     interval_attestation: std::num::NonZero<attestor_primitives::Height>,
-    attestation_latest_cc3: stream::util::AttestationInfo,
+    attestation_latest_cc3: std::sync::Arc<std::sync::atomic::AtomicU64>,
     can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     start_height: attestor_primitives::Height,
@@ -129,7 +129,7 @@ pub(crate) struct WorkerAttestationProduction {
 
     // ATTESTATION DATA
     attestation_local: attestor_primitives::Height,
-    attestation_latest_cc3: stream::util::AttestationInfo,
+    attestation_latest_cc3: std::sync::Arc<std::sync::atomic::AtomicU64>,
     attestation_interval: std::num::NonZero<attestor_primitives::Height>,
 
     // METRICS
@@ -223,8 +223,6 @@ impl WorkerAttestationProduction {
             "📡 Generated attestation"
         );
 
-        let attestation_latest_cc3 = self.attestation_latest_cc3.height;
-
         self.metrics
             .update_attestation_delay_production(now.elapsed());
 
@@ -237,7 +235,8 @@ impl WorkerAttestationProduction {
         );
         self.metrics.update_attestation_lag_cc3(
             attestation.header_number(),
-            attestation_latest_cc3,
+            self.attestation_latest_cc3
+                .load(std::sync::atomic::Ordering::Acquire),
             self.attestation_interval,
         );
 
@@ -283,8 +282,13 @@ impl WorkerAttestationProduction {
 
                     tracing::info!(height, ?digest, "💾 New execution chain attestation");
 
-                    if attestation_latest_cc3.height > self.attestation_latest_cc3.height {
-                        self.attestation_latest_cc3 = attestation_latest_cc3;
+                    if attestation_latest_cc3.height
+                        > self
+                            .attestation_latest_cc3
+                            .load(std::sync::atomic::Ordering::Acquire)
+                    {
+                        self.attestation_latest_cc3
+                            .store(height, std::sync::atomic::Ordering::Release);
 
                         // 1. Chain Listener - Eth
                         //
@@ -345,7 +349,9 @@ impl WorkerAttestationProduction {
                         return Ok(());
                     };
 
-                    let attestation_latest_cc3 = self.attestation_latest_cc3.height;
+                    let attestation_latest_cc3 = self
+                        .attestation_latest_cc3
+                        .load(std::sync::atomic::Ordering::Acquire);
 
                     // 1. Chain listener - Eth
                     //
@@ -492,7 +498,8 @@ impl WorkerAttestationProduction {
 
                     tracing::info!(height, ?digest, "💾 Attestation chain reversion detected!");
 
-                    self.attestation_latest_cc3 = attestation_latest_cc3;
+                    self.attestation_latest_cc3
+                        .store(height, std::sync::atomic::Ordering::Release);
                     self.attestation_local = height;
 
                     // 1. Update the attestation pool
