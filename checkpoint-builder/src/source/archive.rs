@@ -44,7 +44,7 @@ impl ArchiveSource {
     }
 
     fn fetch_range(&self, from: u64, to: u64) -> Result<Vec<RootInfo>> {
-        let url = format!("{}/roots?from={}&to={}", self.base_url, from, to);
+        let url = format!("{}roots?from={}&to={}", self.base_url, from, to);
         let entries: Vec<RootEntry> = self
             .client
             .get(&url)
@@ -102,7 +102,7 @@ impl RootSource for ArchiveSource {
     }
 
     fn first(&self) -> Result<Option<RootInfo>> {
-        let url = format!("{}/status", self.base_url);
+        let url = format!("{}status", self.base_url);
         let status: StatusResponse = self
             .client
             .get(&url)
@@ -123,7 +123,7 @@ impl RootSource for ArchiveSource {
     }
 
     fn last(&self) -> Result<Option<RootInfo>> {
-        let url = format!("{}/roots/latest", self.base_url);
+        let url = format!("{}roots/latest", self.base_url);
         let latest: LatestResponse = self
             .client
             .get(&url)
