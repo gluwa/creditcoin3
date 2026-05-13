@@ -267,9 +267,11 @@ impl StreamAttestation {
         );
 
         let continuity_proof = attestor_primitives::block::ContinuityProof::from_blocks(blocks);
-
-        let prev_digest = (!continuity_proof.is_empty())
-            .then(|| continuity_proof.compute_continuity_digest(block_first));
+        let prev_digest = if self.attestation_interval.get() == 1 {
+            Some(self.attestation_prev.digest)
+        } else {
+            Some(continuity_proof.compute_continuity_digest(block_first))
+        };
 
         let attestation_data = attestor_primitives::AttestationData::new(
             self.chain_key,
