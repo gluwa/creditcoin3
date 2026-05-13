@@ -8990,6 +8990,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
 
 [[package]]
+name = "p2p"
+version = "3.121.0"
+dependencies = [
+ "alloy",
+ "anyhow",
+ "assert_matches",
+ "attestation_pool",
+ "attestor-primitives",
+ "axum",
+ "bip39",
+ "bls-signatures",
+ "builder",
+ "cc-client",
+ "clap",
+ "common",
+ "eth",
+ "futures 0.3.31",
+ "hex",
+ "libp2p 0.56.0",
+ "metrics",
+ "parity-scale-codec",
+ "rand 0.9.0",
+ "rstest 0.26.1",
+ "serde",
+ "serde_yaml",
+ "sp-core",
+ "sp-io",
+ "stream",
+ "subxt",
+ "supported-chains-primitives",
+ "tokio",
+ "tokio-retry",
+ "tokio-test",
+ "tokio-tungstenite 0.26.2",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
+ "url",
+ "usc-abi-encoding",
+ "user",
+ "zeroize",
+]
+
+[[package]]
 name = "pairing"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
