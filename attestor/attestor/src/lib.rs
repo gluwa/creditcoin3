@@ -373,12 +373,17 @@ impl Attestor {
         tracing::info!("⏳ [2/4] Starting attestation validation worker");
 
         let can_attest = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let attestation_latest_cc3 = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(
+            start_attestation.map(|info| info.height).unwrap_or(genesis),
+        ));
+
         let config = worker::validation::ConfigBuilder::new()
             .with_stream_cc3(stream_cc3_validation)
             .with_cc3(client_cc3.clone())
             .with_signer(signer)
             .with_validation_receiver(receiver_validation)
             .with_validation_sender(sender_validation.clone())
+            .with_attestation_latest_cc3(std::sync::Arc::clone(&attestation_latest_cc3))
             .with_can_attest(std::sync::Arc::clone(&can_attest))
             .with_api_calls(cc_client::Client::runtime_api())
             .with_start_height(start_height)
@@ -409,34 +414,33 @@ impl Attestor {
 
         // --------------------------------------* Genesis *------------------------------------ //
 
-        let attestation_latest_cc3 = match start_attestation {
-            Some(info) => info,
-            None => {
-                tracing::info!(genesis, "👶 Generating genesis attestation");
+        if start_attestation.is_none() {
+            tracing::info!(genesis, "👶 Generating genesis attestation");
 
-                match wait_for_genesis(
-                    genesis,
-                    &client_eth,
-                    &account_id,
-                    &mut stream_cc3_genesis,
-                    &mut stream_attestation,
-                    &mut sender_validation,
-                    &sender_p2p,
-                )
-                .await
-                {
-                    Ok(info) => info,
-                    Err(Interrupt::Stop) => {
-                        tracing::info!("🔌 Received shutdown signal");
-                        return Ok(());
-                    }
-                    Err(Interrupt::Cont(err)) => {
-                        tracing::error!(%err, "⛔ Failed to submit genesis attestation");
-                        return Err(err);
-                    }
+            match wait_for_genesis(
+                genesis,
+                &client_eth,
+                &account_id,
+                &mut stream_cc3_genesis,
+                &mut stream_attestation,
+                &mut sender_validation,
+                &sender_p2p,
+            )
+            .await
+            {
+                Ok(info) => {
+                    attestation_latest_cc3.store(info.height, std::sync::atomic::Ordering::Release);
                 }
-            }
-        };
+                Err(Interrupt::Stop) => {
+                    tracing::info!("🔌 Received shutdown signal");
+                    return Ok(());
+                }
+                Err(Interrupt::Cont(err)) => {
+                    tracing::error!(%err, "⛔ Failed to submit genesis attestation");
+                    return Err(err);
+                }
+            };
+        }
 
         // ------------------------------------* Production *----------------------------------- //
 
