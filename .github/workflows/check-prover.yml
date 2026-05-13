@@ -26,6 +26,14 @@ jobs:
             indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
             chainKey: 4
 
+          # CC3 Devnet, BSC Testnet
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            chainKey: 5
+            GO_BACK_BLOCKS: '96000'
+            STEP_THROUGH_BLOCKS: '137'
+
           # CC3 Testnet, Sepolia Full Archive
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
@@ -70,7 +78,7 @@ jobs:
       - name: Execute prover-check.ts on checkpoint boundaries
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: '3600'
+          GO_BACK_BLOCKS: ${{ matrix.GO_BACK_BLOCKS || '3600' }}
         run: |
           node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} ${{ matrix.indexerUrl }}
 
@@ -78,9 +86,8 @@ jobs:
         working-directory: ./cli
         env:
           # LAST_SOURCE_BLOCK: '1000000'
-          # > 12hrs worth of blocks on the source chain
-          GO_BACK_BLOCKS: '4000'
-          STEP_THROUGH_BLOCKS: '7'
+          GO_BACK_BLOCKS: ${{ matrix.GO_BACK_BLOCKS || '4000' }}
+          STEP_THROUGH_BLOCKS: ${{ matrix.STEP_THROUGH_BLOCKS || '7' }}
         run: |
           node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }}
 
