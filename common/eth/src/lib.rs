@@ -88,6 +88,42 @@ pub enum Error {
     UnsupportedUrl(String),
 }
 
+impl Error {
+    /// If this error is [`Error::BlockHeaderRootsMismatch`], returns the block number.
+    pub fn block_header_roots_mismatch_block(&self) -> Option<u64> {
+        match self {
+            Error::BlockHeaderRootsMismatch(n) => Some(*n),
+            _ => None,
+        }
+    }
+
+    /// True when the payload returned for a block (from a single RPC peer) cannot be reconciled
+    /// with the block header or expected shape. Callers should try another endpoint instead of
+    /// treating this as a transient transport failure.
+    pub fn inconsistent_block_payload_for_fallback(&self) -> bool {
+        matches!(
+            self,
+            Error::BlockHeaderRootsMismatch(_)
+                | Error::TransactionsReceiptsMismatch(_)
+                | Error::NotFullTransactionsFetched(_)
+                | Error::FailedToGetBlock(_)
+                | Error::FailedToGetReceipts(_)
+        )
+    }
+
+    /// Block number associated with [`Error::inconsistent_block_payload_for_fallback`] errors, if any.
+    pub fn inconsistent_block_number_hint(&self) -> Option<u64> {
+        match self {
+            Error::BlockHeaderRootsMismatch(n)
+            | Error::TransactionsReceiptsMismatch(n)
+            | Error::NotFullTransactionsFetched(n)
+            | Error::FailedToGetBlock(n)
+            | Error::FailedToGetReceipts(n) => Some(*n),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "block_cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct TxRx {
@@ -296,9 +332,11 @@ pub enum ConnectionTransport {
 ///
 /// The [`Client`] always tries its primary URL first; on `Ok(None)` or
 /// transport errors it walks `fallback_providers` in declared order and
-/// uses the first non-empty answer. All fallback URLs must point to a
-/// node that reports the same `chain_id` as the primary URL — this is
-/// verified when the [`Client`] is constructed.
+/// uses the first non-empty answer. For full blocks, `eth_getBlockByNumber(full)`
+/// and `eth_getBlockReceipts` are always queried on the **same** provider so a
+/// block header cannot be paired with receipts from another backend.
+/// All fallback URLs must point to a node that reports the same `chain_id` as
+/// the primary URL — this is verified when the [`Client`] is constructed.
 #[derive(Debug, Clone)]
 pub(crate) struct FallbackProvider {
     pub(crate) url: Url,
@@ -559,53 +597,73 @@ impl Client {
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
 
-        let mut attempt = 0;
+        let mut attempt = 0u32;
         let mut delay = DELAY_BASE;
 
-        let ordered_block = loop {
-            let get_eth_block_fut = self.get_eth_block(number);
-            let get_eth_receipts_fut = self.get_receipts(number);
+        loop {
+            attempt += 1;
+            let mut last_transport_err: Option<Error> = None;
+            let mut last_payload_inconsistent: Option<Error> = None;
 
-            match futures::future::try_join(get_eth_block_fut, get_eth_receipts_fut).await {
-                Ok((block, receipts)) => {
-                    match OrderedBlock::try_from_fetched_block(
-                        self.chain_id,
-                        block,
-                        receipts,
-                        number,
-                        encoding,
-                    ) {
-                        Ok(ob) => break ob,
-                        Err(err) => {
-                            attempt += 1;
-                            tracing::debug!(
-                                attempt,
-                                MAX_ATTEMPTS,
-                                error = %err,
-                                "Block body inconsistent with header roots (likely reorg between RPC calls), retrying..."
-                            );
-                            if attempt >= MAX_ATTEMPTS {
-                                tracing::error!(error = %err, "⛔ Failed to verify consistent block data");
-                                return Err(Interrupt::Cont(err));
+            for (label, provider) in self.providers_with_labels() {
+                match Self::fetch_block_and_receipts_from_provider(provider, number).await {
+                    Ok((block, receipts)) => {
+                        match OrderedBlock::try_from_fetched_block(
+                            self.chain_id,
+                            block,
+                            receipts,
+                            number,
+                            encoding,
+                        ) {
+                            Ok(ob) => return Ok(ob),
+                            Err(e) if e.inconsistent_block_payload_for_fallback() => {
+                                tracing::warn!(
+                                    provider = %label,
+                                    block_number = number,
+                                    error = %e,
+                                    "block body or receipts inconsistent with header from this RPC peer; trying next endpoint"
+                                );
+                                last_payload_inconsistent = Some(e);
+                            }
+                            Err(e) => {
+                                tracing::error!(error = %e, "⛔ Failed to verify block data");
+                                return Err(Interrupt::Cont(e));
                             }
                         }
                     }
-                }
-                Err(err) => {
-                    attempt += 1;
-
-                    tracing::debug!(
-                        attempt,
-                        MAX_ATTEMPTS,
-                        "Failed to retrieve eth block, retrying..."
-                    );
-
-                    if attempt >= MAX_ATTEMPTS {
-                        tracing::error!(error = %err, "⛔ Failed to retrieve eth block");
-                        return Err(Interrupt::Cont(err));
+                    Err(e) => {
+                        tracing::debug!(
+                            provider = %label,
+                            block_number = number,
+                            error = %e,
+                            "failed to retrieve block/receipts pair from provider"
+                        );
+                        last_transport_err = Some(e);
                     }
                 }
             }
+
+            if let Some(e) = last_payload_inconsistent {
+                tracing::error!(
+                    error = %e,
+                    "⛔ all RPC endpoints returned a payload inconsistent with the block header (or exhausted fallbacks)"
+                );
+                return Err(Interrupt::Cont(e));
+            }
+
+            let err = last_transport_err.unwrap_or(Error::FailedToGetBlock(number));
+
+            if attempt >= MAX_ATTEMPTS as u32 {
+                tracing::error!(error = %err, "⛔ Failed to retrieve eth block");
+                return Err(Interrupt::Cont(err));
+            }
+
+            tracing::debug!(
+                attempt,
+                MAX_ATTEMPTS,
+                error = %err,
+                "all RPC endpoints failed to return block+receipts; backing off before retry"
+            );
 
             tokio::select! {
                 _ = tokio::time::sleep(std::time::Duration::from_secs(delay)) => {},
@@ -613,9 +671,25 @@ impl Client {
             }
 
             delay = (delay * 2).min(DELAY_MAX);
-        };
+        }
+    }
 
-        Ok(ordered_block)
+    /// Fetch full block and [`eth_getBlockReceipts`](https://ethereum.github.io/execution-apis/api-documentation/) from the **same**
+    /// [`AlloyProvider`] so the header cannot be paired with receipts from another backend.
+    async fn fetch_block_and_receipts_from_provider(
+        provider: &AlloyProvider,
+        number: u64,
+    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+        let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
+        let block = provider
+            .get_block(block_id, true.into())
+            .await?
+            .ok_or(Error::FailedToGetBlock(number))?;
+        let receipts = provider
+            .get_block_receipts(block_id)
+            .await?
+            .ok_or(Error::FailedToGetReceipts(number))?;
+        Ok((block, receipts))
     }
 
     #[cfg(not(feature = "block_cache"))]
@@ -632,85 +706,6 @@ impl Client {
     ) -> std::result::Result<alloy::pubsub::SubscriptionStream<alloy::rpc::types::Header>, Error>
     {
         Ok(self.rpc_provider.subscribe_blocks().await?.into_stream())
-    }
-
-    async fn get_receipts(&self, number: u64) -> Result<Vec<TransactionReceipt>, Error> {
-        let providers = self.providers_with_labels();
-        let mut got_definitive_none = false;
-        let mut errors: Vec<(String, Error)> = Vec::new();
-
-        for (label, provider) in providers {
-            match provider
-                .get_block_receipts(BlockId::Number(BlockNumberOrTag::Number(number)))
-                .await
-            {
-                Ok(Some(receipts)) => {
-                    if label != "primary" {
-                        info!(
-                            provider = %label,
-                            block_number = number,
-                            "receipts fetched via fallback provider"
-                        );
-                    }
-                    // Don't silently drop errors from earlier providers:
-                    // if the primary (or an earlier fallback) errored and a
-                    // later fallback served the request, surface those errors
-                    // at WARN so operators can still root-cause flaky peers.
-                    for (err_label, err) in errors.drain(..) {
-                        tracing::warn!(
-                            provider = %err_label,
-                            served_by = %label,
-                            block_number = number,
-                            error = %err,
-                            "receipts fetch: provider errored but another succeeded"
-                        );
-                    }
-                    return Ok(receipts);
-                }
-                Ok(None) => got_definitive_none = true,
-                Err(e) => errors.push((label, Error::from(e))),
-            }
-        }
-
-        // Mirror the legacy behavior: an `Ok(None)` from a single provider
-        // mapped to `FailedToGetBlock(number)`. When at least one provider
-        // says the receipts are not available we honor that and surface the
-        // block-not-found error; transport errors from any other provider
-        // are demoted to warnings.
-        match merge_provider_lookup(got_definitive_none, errors) {
-            LookupOutcome::NotFound { errors_to_warn } => {
-                for (label, err) in errors_to_warn {
-                    tracing::warn!(
-                        provider = %label,
-                        block_number = number,
-                        error = %err,
-                        "receipts fetch: provider errored but another said `not found`; treating as not found"
-                    );
-                }
-                Err(Error::FailedToGetBlock(number))
-            }
-            LookupOutcome::AllErrored {
-                first,
-                additional_to_warn,
-            } => {
-                for (label, err) in additional_to_warn {
-                    tracing::warn!(
-                        provider = %label,
-                        block_number = number,
-                        error = %err,
-                        "receipts fetch: additional provider error"
-                    );
-                }
-                let (first_label, first_err) = first;
-                error!(
-                    provider = %first_label,
-                    block_number = number,
-                    error = %first_err,
-                    "Failed to get receipts: all providers errored",
-                );
-                Err(Error::FailedToGetReceipts(number))
-            }
-        }
     }
 
     pub async fn get_eth_block(&self, number: u64) -> Result<Block, Error> {
@@ -982,9 +977,8 @@ enum LookupOutcome {
     },
 }
 
-/// Pure decision step shared by every sequential-fallback lookup
-/// ([`Client::get_tx_position_by_hash`], [`Client::get_eth_block`],
-/// [`Client::get_receipts`]).
+/// Pure decision step shared by sequential-fallback lookups such as
+/// [`Client::get_tx_position_by_hash`] and [`Client::get_eth_block`].
 ///
 /// `got_definitive_none` is `true` iff at least one provider returned
 /// `Ok(None)`. `errors` carries every provider that failed to respond.
