@@ -56,6 +56,7 @@ updates:
       - "/attestor/metrics"
       - "/attestor/common"
       - "/attestor/zombienet"
+      - "/checkpoint-builder"
       - "/common/cc-client"
       - "/common/continuity"
       - "/common/eth"
@@ -107,6 +108,7 @@ updates:
     directories:
       - "/attestor/scripts"
       - "/cc3-indexer"
+      - "/checkpoint-verifier"
       - "/cli"
       - "/common/eth/contracts"
       - "/common/eth/contracts/get-contract-state"
