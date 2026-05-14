@@ -89,14 +89,6 @@ pub enum Error {
 }
 
 impl Error {
-    /// If this error is [`Error::BlockHeaderRootsMismatch`], returns the block number.
-    pub fn block_header_roots_mismatch_block(&self) -> Option<u64> {
-        match self {
-            Error::BlockHeaderRootsMismatch(n) => Some(*n),
-            _ => None,
-        }
-    }
-
     /// True when the payload returned for a block (from a single RPC peer) cannot be reconciled
     /// with the block header or expected shape. Callers should try another endpoint instead of
     /// treating this as a transient transport failure.
@@ -125,6 +117,33 @@ impl Error {
             _ => None,
         }
     }
+}
+
+/// True when any cause in the [`anyhow::Error`] chain is an [`Error`] that
+/// [`Error::inconsistent_block_payload_for_fallback`] classifies as a payload-inconsistency case.
+///
+/// Use this from layers above the eth client that receive an `anyhow::Error` and need to
+/// distinguish "the peer returned a structurally inconsistent block payload" (try another
+/// endpoint / surface 422) from "transport failure" (reconnect / surface 503). Keeping the
+/// classifier here means a future addition to
+/// [`Error::inconsistent_block_payload_for_fallback`] is automatically picked up by every
+/// caller.
+pub fn anyhow_chain_is_inconsistent_block_payload(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<Error>()
+            .is_some_and(Error::inconsistent_block_payload_for_fallback)
+    })
+}
+
+/// Walks the [`anyhow::Error`] chain looking for an [`Error`] that carries a block-number
+/// hint via [`Error::inconsistent_block_number_hint`] and returns the first hit.
+pub fn anyhow_chain_inconsistent_block_number_hint(err: &anyhow::Error) -> Option<u64> {
+    err.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<Error>()
+            .and_then(Error::inconsistent_block_number_hint)
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -717,19 +736,31 @@ impl Client {
 
     /// Fetch full block and [`eth_getBlockReceipts`](https://ethereum.github.io/execution-apis/api-documentation/) from the **same**
     /// [`AlloyProvider`] so the header cannot be paired with receipts from another backend.
+    ///
+    /// The two RPC calls are independent reads against the same provider, so we issue them
+    /// concurrently with [`tokio::try_join!`] to cut the per-block latency roughly in half on
+    /// the happy path. Pairing on the **same** provider is what keeps reorg-safety: if the
+    /// peer reorgs between the two calls, the recomputed header roots will fail to match in
+    /// [`OrderedBlock::try_from_fetched_block`] and the caller will fall through to the next
+    /// endpoint (or retry the whole sweep).
     async fn fetch_block_and_receipts_from_provider(
         provider: &AlloyProvider,
         number: u64,
     ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
         let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
-        let block = provider
-            .get_block(block_id, true.into())
-            .await?
-            .ok_or(Error::FailedToGetBlock(number))?;
-        let receipts = provider
-            .get_block_receipts(block_id)
-            .await?
-            .ok_or(Error::FailedToGetReceipts(number))?;
+        let block_fut = async {
+            provider
+                .get_block(block_id, true.into())
+                .await?
+                .ok_or(Error::FailedToGetBlock(number))
+        };
+        let receipts_fut = async {
+            provider
+                .get_block_receipts(block_id)
+                .await?
+                .ok_or(Error::FailedToGetReceipts(number))
+        };
+        let (block, receipts) = tokio::try_join!(block_fut, receipts_fut)?;
         Ok((block, receipts))
     }
 
@@ -1336,20 +1367,41 @@ mod error_classifier_tests {
     }
 
     #[test]
-    fn block_header_roots_mismatch_accessor_is_strict() {
+    fn anyhow_chain_helpers_walk_context_to_find_eth_error() {
+        // Wrapping a payload-inconsistency `eth::Error` in extra `.context(...)` layers must
+        // not hide it from callers above the eth client. Both shared helpers walk the
+        // `anyhow::Error::chain()` and must surface the inner classification and the
+        // block-number hint.
+        let inner = anyhow::Error::new(Error::BlockHeaderRootsMismatch(42))
+            .context("while building continuity blocks")
+            .context("in fetch sweep #3");
+        assert!(super::anyhow_chain_is_inconsistent_block_payload(&inner));
         assert_eq!(
-            Error::BlockHeaderRootsMismatch(99).block_header_roots_mismatch_block(),
-            Some(99)
+            super::anyhow_chain_inconsistent_block_number_hint(&inner),
+            Some(42)
         );
-        // Only the literal `BlockHeaderRootsMismatch` variant should be exposed by
-        // this narrower accessor — callers asking for the broader "inconsistent"
-        // set must use `inconsistent_block_number_hint`.
+    }
+
+    #[test]
+    fn anyhow_chain_helpers_reject_non_inconsistent_chains() {
+        // "Not found" / transport-style chains must not be flagged as inconsistent and
+        // must not produce a block-number hint. Misclassifying these would disable the
+        // reconnect-retry path and surface a non-retriable 422 to API clients.
+        let not_found = anyhow::Error::new(Error::FailedToGetBlock(42));
+        assert!(!super::anyhow_chain_is_inconsistent_block_payload(
+            &not_found
+        ));
         assert_eq!(
-            Error::TransactionsReceiptsMismatch(99).block_header_roots_mismatch_block(),
+            super::anyhow_chain_inconsistent_block_number_hint(&not_found),
             None
         );
+
+        let transport = anyhow::anyhow!("connection refused");
+        assert!(!super::anyhow_chain_is_inconsistent_block_payload(
+            &transport
+        ));
         assert_eq!(
-            Error::FailedToGetBlock(99).block_header_roots_mismatch_block(),
+            super::anyhow_chain_inconsistent_block_number_hint(&transport),
             None
         );
     }
