@@ -18,14 +18,6 @@ use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
 use utils::block_item_traits::BlockItem;
 
-fn eth_inconsistent_block_payload_from_anyhow(err: &anyhow::Error) -> bool {
-    err.chain().any(|cause| {
-        cause
-            .downcast_ref::<eth::Error>()
-            .is_some_and(eth::Error::inconsistent_block_payload_for_fallback)
-    })
-}
-
 /// Total attempts (call + retries-after-reconnect) for a single RPC operation.
 const ETH_RPC_MAX_ATTEMPTS: usize = 3;
 
@@ -71,7 +63,7 @@ impl ReconnectingEthRpcProvider {
             match call(client).await {
                 Ok(value) => return Ok(value),
                 Err(err) => {
-                    if eth_inconsistent_block_payload_from_anyhow(&err) {
+                    if eth::anyhow_chain_is_inconsistent_block_payload(&err) {
                         warn!(
                             op,
                             attempt,
