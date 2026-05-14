@@ -781,6 +781,30 @@ impl<T: Config> Pallet<T> {
             || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
     }
 
+    /// Return the checkpoint digest at `(chain_key, block_number)` **only** when no
+    /// chain reversion is currently in flight for `chain_key`.
+    ///
+    /// `revert_to` synchronously purges checkpoints above the revert height **only**
+    /// inside the bucket containing `checkpoint_height`. Buckets at higher pivots are
+    /// pruned asynchronously by `on_init_prune_checkpoints` at
+    /// [`MAX_CHECKPOINTS_CLEARED_PER_BLOCK`](crate::clear_or_revert::MAX_CHECKPOINTS_CLEARED_PER_BLOCK)
+    /// entries per block. During that window [`Checkpoints`] still contains stale
+    /// post-revert digests that consumers using checkpoints as a trust anchor (e.g.
+    /// the `block-prover` precompile) must not accept.
+    ///
+    /// Fail-closed semantics: while [`CheckpointPruningStates`] has an entry for
+    /// `chain_key`, this returns `None` for **every** height on that chain, including
+    /// the revert anchor itself. Callers that need a stable trust anchor must wait
+    /// for async pruning to drain before relying on checkpoint storage again.
+    /// Informational readers that do not gate consensus may keep using the raw
+    /// [`Checkpoints`] storage directly.
+    pub fn checkpoint_if_stable(chain_key: ChainKey, block_number: u64) -> Option<Digest> {
+        if CheckpointPruningStates::<T>::contains_key(chain_key) {
+            return None;
+        }
+        Checkpoints::<T>::get(chain_key, block_number)
+    }
+
     pub fn attestor_bls_pubkey(
         chain_key: ChainKey,
         address: &T::AccountId,

@@ -6366,6 +6366,131 @@ mod revert_to {
                 );
             })
     }
+
+    #[test]
+    fn checkpoint_if_stable_fails_closed_during_revert_pruning_window() {
+        // Repro: `do_revert_to` only synchronously prunes the bucket containing
+        // `checkpoint_height`. Buckets at higher pivots stay populated until
+        // `on_init_prune_checkpoints` drains them, MAX_CHECKPOINTS_CLEARED_PER_BLOCK
+        // entries at a time. Consumers using `Checkpoints` as a trust anchor
+        // (block-prover precompile) must not see those stale digests.
+        //
+        // `checkpoint_if_stable` fails closed on the whole chain while a
+        // CheckpointPruningStates entry exists, then returns the valid post-revert
+        // checkpoint once pruning drains.
+        let revert_height: u64 = 0;
+        let added_checkpoints = MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10;
+        let mut test_ext = ExtBuilder.build();
+        test_ext
+            .then_run(|| {
+                // Revert target checkpoint at the anchor height.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height,
+                    revert_digest,
+                );
+
+                // Stash post-revert checkpoints in *higher* buckets so the
+                // synchronous prune in `do_revert_to` does not touch them. This
+                // models the bad-data window: these digests live in storage but
+                // must not be trusted while async pruning is in flight.
+                let start_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+                for i in 0..added_checkpoints {
+                    let stale_digest = H256::from(&sp_io::hashing::blake2_256(&[i]));
+                    let stale_height = start_height + (i as u64) * 100;
+                    insert_checkpoint_and_bucket_entry::<Test>(
+                        SUPPORTED_CHAIN_KEY,
+                        stale_height,
+                        stale_digest,
+                    );
+                    if i == added_checkpoints - 1 {
+                        LastCheckpoint::<Test>::insert(
+                            SUPPORTED_CHAIN_KEY,
+                            AttestationCheckpoint {
+                                block_number: stale_height,
+                                digest: stale_digest,
+                            },
+                        );
+                    }
+                }
+                System::set_block_number(1);
+                Timestamp::set_timestamp(1);
+
+                // Pre-revert: helper agrees with raw storage.
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, revert_height),
+                    Some(revert_digest)
+                );
+                let sample_stale_height = start_height + 100;
+                assert!(
+                    Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, sample_stale_height).is_some()
+                );
+            })
+            .then_run(|| {
+                // Initiate reversion. Buckets above the revert pivot are NOT yet pruned.
+                assert_ok!(Attestation::revert_to(
+                    RuntimeOrigin::root(),
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ));
+                assert!(CheckpointPruningStates::<Test>::contains_key(
+                    SUPPORTED_CHAIN_KEY
+                ));
+
+                // Stale digests are still physically present in `Checkpoints`...
+                let stale_height_above_revert = revert_height + CHECKPOINT_BUCKET_SIZE + 100;
+                assert!(
+                    Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, stale_height_above_revert,)
+                        .is_some(),
+                    "sanity: stale checkpoint must still be in storage during pruning window",
+                );
+
+                // ...but the helper fails closed for every height on this chain,
+                // including the revert anchor itself. This is the documented
+                // semantics: callers needing a trust anchor must wait for async
+                // pruning to drain before relying on checkpoint storage again.
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(
+                        SUPPORTED_CHAIN_KEY,
+                        stale_height_above_revert,
+                    ),
+                    None,
+                    "stale post-revert checkpoint must not be returned as a trust anchor",
+                );
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, revert_height),
+                    None,
+                    "fail-closed: even the revert anchor is gated until pruning drains",
+                );
+            })
+            .then_run(|| {
+                // Drain the pruning queue. Walk on_initialize until the state clears.
+                let mut guard = 0u64;
+                while CheckpointPruningStates::<Test>::contains_key(SUPPORTED_CHAIN_KEY) {
+                    progress_to_block(System::block_number() + 1);
+                    guard += 1;
+                    assert!(guard < 256, "pruning did not drain in a reasonable window");
+                }
+            })
+            .run(|| {
+                // After pruning drains, the helper unblocks and surfaces the valid
+                // post-revert checkpoint.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, revert_height),
+                    Some(revert_digest),
+                );
+                // And the stale entries are gone from raw storage too.
+                let stale_height_above_revert = revert_height + CHECKPOINT_BUCKET_SIZE + 100;
+                assert_eq!(
+                    Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, stale_height_above_revert,),
+                    None,
+                );
+            })
+    }
 }
 
 #[test]
