@@ -19,7 +19,7 @@ mod continuity_dev;
 mod benchmarking;
 
 mod asset;
-mod clear_or_revert;
+pub mod clear_or_revert;
 mod continuity;
 pub mod extensions;
 mod impls;
