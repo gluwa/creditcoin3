@@ -59,6 +59,14 @@ impl<T: Config> Pallet<T> {
     ) {
         if let Some(entry) = RetiredAttestorBlsKeys::<T>::take(chain_key, attestor_id) {
             Self::remove_stash_retired_index_pair(&entry.stash, chain_key, attestor_id);
+            // Release the BLS pubkey claim only if [`BlsKeyOwner`] still points at this
+            // controller. If a different controller has since taken the slot (shouldn't
+            // happen given the uniqueness gate in `start_attesting`, but defensive), leave
+            // it alone.
+            if BlsKeyOwner::<T>::get(chain_key, entry.bls_public_key).as_ref() == Some(attestor_id)
+            {
+                BlsKeyOwner::<T>::remove(chain_key, entry.bls_public_key);
+            }
         }
     }
 
@@ -120,6 +128,14 @@ impl<T: Config> Pallet<T> {
                 }
                 Some(entry) => {
                     if current_era >= entry.purge_at_era {
+                        // Release the BLS pubkey claim alongside the retired row so the
+                        // key can be re-registered by a different controller after the
+                        // unbond delay elapses.
+                        if BlsKeyOwner::<T>::get(chain_key, entry.bls_public_key).as_ref()
+                            == Some(&attestor_id)
+                        {
+                            BlsKeyOwner::<T>::remove(chain_key, entry.bls_public_key);
+                        }
                         RetiredAttestorBlsKeys::<T>::remove(chain_key, &attestor_id);
                     } else {
                         // `kept` is a strict subset of `pairs` which was already bounded to 64 entries,
@@ -454,6 +470,35 @@ impl<T: Config> Pallet<T> {
             ),
             Error::<T>::InvalidProofOfPossession
         );
+
+        // Enforce BLS pubkey uniqueness per chain. The aggregation quorum is meaningful only
+        // when each contributing key was produced by an independent private key — without
+        // this gate, multiple controller accounts can register the same BLS pubkey (each
+        // passing PoP independently) and a single signer can satisfy threshold-of-N.
+        //
+        // We also reject keys currently sitting in [`RetiredAttestorBlsKeys`] for this
+        // chain: those keys remain verifiable in pending aggregated attestations until the
+        // unbond delay elapses, so reusing them under a fresh controller would still allow
+        // an aliased-key attack against in-flight quorums.
+        match BlsKeyOwner::<T>::get(chain_key, bls_public_key) {
+            None => {}
+            Some(existing_owner) if existing_owner == attestor_id => {
+                // Re-asserting the same key for the same controller (idempotent path,
+                // e.g. re-attesting after a chill with the same key) — allow.
+            }
+            Some(_) => return Err(Error::<T>::BlsKeyAlreadyRegistered.into()),
+        }
+
+        // Key rotation: an idle attestor that previously had a different BLS key must
+        // release its old `BlsKeyOwner` claim before taking the new one. Skipped when the
+        // old and new keys are identical (handled by the match above already returning Ok).
+        if let Some(old_key) = attestor.bls_public_key {
+            if old_key != bls_public_key {
+                BlsKeyOwner::<T>::remove(chain_key, old_key);
+            }
+        }
+
+        BlsKeyOwner::<T>::insert(chain_key, bls_public_key, &attestor_id);
 
         // Set status to Waiting until next epoch rotation
         attestor.status = AttestorStatus::Waiting;
@@ -872,8 +917,33 @@ impl<T: Config> Pallet<T> {
         let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
         let attestor_public_keys =
             Self::gather_attestor_public_keys(attestation.chain_key(), &attestation.attestors)?;
+
+        // Validation-time dedup: defense-in-depth against duplicate BLS keys appearing in
+        // the attestor set (pre-`v3` storage, migration drift, retired-key edge cases).
+        // BLS aggregation is linear, so aggregating the same key `k` `n` times yields `n*k`
+        // and a single signer holding `s` (with `s*G = k`) can satisfy the quorum by having
+        // their signature counted `n` times. We enforce that the number of *distinct* BLS
+        // public keys clears the threshold, and we aggregate over the deduped set so the
+        // aggregate verification check itself does not accept replayed contributions.
+        let mut deduped_public_keys: Vec<PublicKey> =
+            Vec::with_capacity(attestor_public_keys.len());
+        let mut seen_keys: BTreeSet<BlsPublicKey> = BTreeSet::new();
+        for pk in attestor_public_keys.iter() {
+            let pk_bytes: BlsPublicKey = pk.as_bytes()[..].try_into().map_err(|_| {
+                log::error!("Unexpected BLS public key encoding length");
+                Error::<T>::InvalidBlsPublicKey
+            })?;
+            if seen_keys.insert(pk_bytes) {
+                deduped_public_keys.push(*pk);
+            }
+        }
+        ensure!(
+            deduped_public_keys.len() as u32 >= threshold,
+            Error::<T>::InsufficientUniqueSigners
+        );
+
         let aggregated_public_key =
-            aggregate_public_keys(&attestor_public_keys[..]).map_err(|_| {
+            aggregate_public_keys(&deduped_public_keys[..]).map_err(|_| {
                 log::error!("Failed to aggregate public keys");
                 Error::<T>::InvalidBlsSignature
             })?;
