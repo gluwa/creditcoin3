@@ -8156,3 +8156,358 @@ mod prevalidate_attestation_commit_extension {
         })
     }
 }
+
+#[cfg(test)]
+mod bls_key_uniqueness {
+    //! Tests for the BLS-public-key uniqueness invariants introduced to close the
+    //! "aliased BLS key collapses quorum" attack (Submission #3, gist
+    //! https://gist.github.com/f00dat/e6cb92ff376317d035e372d3fb53e851).
+    //!
+    //! The bug: `start_attesting` only checked the proof-of-possession for the supplied BLS
+    //! pubkey, so multiple controller accounts could register the *same* BLS pubkey with
+    //! the same valid PoP. BLS aggregation being linear means one private key holder can
+    //! satisfy threshold-of-N by replaying their signature `N` times in the aggregate.
+
+    use super::*;
+    use crate::migrations::MigrateBlsKeyUniquenessV2ToV3;
+    use attestor_primitives::Attestor as AttestorRecord;
+    use frame_support::traits::{GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
+
+    const OTHER_CHAIN_KEY: ChainKey = 42;
+
+    /// Insert a fully-activated attestor directly into storage so we can simulate
+    /// pre-`v3` state (where duplicate BLS keys could exist) without going through
+    /// `start_attesting`, which now rejects duplicates.
+    fn insert_active_attestor_raw(
+        chain_key: ChainKey,
+        stash: AccountId,
+        attestor_id: AccountId,
+        bls_public_key: BlsPublicKey,
+    ) {
+        Attestors::<Test>::insert(
+            chain_key,
+            attestor_id,
+            AttestorRecord {
+                bls_public_key: Some(bls_public_key),
+                status: AttestorStatus::Active,
+                stash,
+            },
+        );
+        ActiveAttestors::<Test>::mutate(chain_key, |active| {
+            if !active.contains(&attestor_id) {
+                active.push(attestor_id);
+            }
+        });
+    }
+
+    #[test]
+    fn second_attestor_cannot_reuse_bls_key_on_same_chain() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+
+            assert_ok!(Attestation::register_attestor(
+                att1.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att1.attestor_id,
+            ));
+            assert_ok!(Attestation::register_attestor(
+                att2.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att2.attestor_id,
+            ));
+
+            // att1 claims its (unique) BLS key.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att1.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att1.public_key,
+                att1.signature,
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att1.public_key),
+                Some(att1.attestor_id)
+            );
+
+            // att2 tries to attest with the *same* BLS public key (and att1's PoP, which
+            // is valid for that key). PoP passes, uniqueness check must reject.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(att2.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    att1.public_key,
+                    att1.signature,
+                ),
+                Error::<Test>::BlsKeyAlreadyRegistered
+            );
+
+            // BLS-key-owner unchanged, att2 still keyless.
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att1.public_key),
+                Some(att1.attestor_id)
+            );
+            assert_eq!(
+                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2)
+                    .unwrap()
+                    .bls_public_key,
+                None
+            );
+        })
+    }
+
+    #[test]
+    fn same_bls_key_allowed_on_different_chains() {
+        ExtBuilder.build_and_execute(|| {
+            // The supported-chains pallet under the mock only registers SUPPORTED_CHAIN_KEY.
+            // We can't go through `attest` for a non-supported chain, so we register the
+            // attestor on the supported chain and assert that `BlsKeyOwner` is keyed
+            // *per chain* by writing an owner for OTHER_CHAIN_KEY directly and showing it
+            // does not conflict with a same-key registration on SUPPORTED_CHAIN_KEY.
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+
+            // Pre-seed a same-key owner on a different chain.
+            BlsKeyOwner::<Test>::insert(OTHER_CHAIN_KEY, att1.public_key, ATTESTOR_2);
+
+            assert_ok!(Attestation::register_attestor(
+                att1.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att1.attestor_id,
+            ));
+            // Same BLS key on the supported chain must succeed (uniqueness is per-chain).
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att1.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att1.public_key,
+                att1.signature,
+            ));
+
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att1.public_key),
+                Some(ATTESTOR_1)
+            );
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(OTHER_CHAIN_KEY, att1.public_key),
+                Some(ATTESTOR_2)
+            );
+        })
+    }
+
+    #[test]
+    fn idle_attestor_can_rotate_to_different_bls_key() {
+        ExtBuilder.build_and_execute(|| {
+            let att_old = Attestor::new(STASH_1, ATTESTOR_1);
+            let att_new = Attestor::new(STASH_1, ATTESTOR_1);
+
+            assert_ok!(Attestation::register_attestor(
+                att_old.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att_old.attestor_id,
+            ));
+
+            // First registration claims `att_old.public_key`.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att_old.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att_old.public_key,
+                att_old.signature,
+            ));
+
+            // Force idle status so a rotation is allowed by the pallet.
+            Attestors::<Test>::mutate(SUPPORTED_CHAIN_KEY, att_old.attestor_id, |maybe_attestor| {
+                if let Some(attestor) = maybe_attestor {
+                    attestor.status = AttestorStatus::Idle;
+                }
+            });
+
+            // Re-attest with a different BLS key on the same controller.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att_new.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att_new.public_key,
+                att_new.signature,
+            ));
+
+            // Old key must have been released from the owner map.
+            assert!(!BlsKeyOwner::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                att_old.public_key
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att_new.public_key),
+                Some(ATTESTOR_1)
+            );
+        })
+    }
+
+    #[test]
+    fn validate_attestation_rejects_duplicate_bls_keys_in_attestor_set() {
+        // This simulates pre-`v3` storage: three distinct controllers, all aliased to the
+        // same BLS key. One BLS private key signs the message once and the signature is
+        // replayed three times into the aggregate; without validation-time dedup this
+        // would pass aggregate verification (`3*s*H(m)` verifies under `3*k`).
+        ExtBuilder.build_and_execute(|| {
+            let signer = Attestor::new(STASH_1, ATTESTOR_1);
+
+            // Push the chain into a "3-of-N" regime so the threshold actually requires
+            // three independent signers and `MajorityNotReached` doesn't fire first.
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            // Three controller accounts sharing the same BLS pubkey.
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, signer.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, signer.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, signer.public_key);
+
+            // Build an attestation listing all three controllers, signed once by `signer`
+            // and replayed three times into the aggregate.
+            let attestation_inner = AttestationPrimitive {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                header_number: 10,
+                header_hash: H256::random(),
+                root: H256::from([0; 32]),
+                prev_digest: None,
+            };
+            let raw_sig = signer.sign(&attestation_inner.serialize());
+            let bls_sig =
+                bls_signatures::Signature::from_bytes(&raw_sig[..]).expect("valid bls sig");
+            let aggregated = bls_signatures::aggregate(&[bls_sig, bls_sig, bls_sig])
+                .expect("aggregation succeeds for repeated signatures");
+            let signed = SignedAttestation {
+                attestation: attestation_inner,
+                signature: aggregated.as_bytes()[..]
+                    .try_into()
+                    .expect("96-byte signature"),
+                attestors: vec![ATTESTOR_1, ATTESTOR_2, ATTESTOR_3],
+                continuity_proof: construct_fragment(None, RangeInclusive::new(1, 9)),
+            };
+
+            // Without the dedup check this attestation would verify and pass.
+            assert_noop!(
+                Attestation::validate_attestation(SUPPORTED_CHAIN_KEY, &signed),
+                Error::<Test>::InsufficientUniqueSigners
+            );
+        })
+    }
+
+    #[test]
+    fn validate_attestation_happy_path_with_three_distinct_keys() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+            let att3 = Attestor::new(STASH_3, ATTESTOR_3);
+
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, att1.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, att2.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, att3.public_key);
+
+            // Use the chain's genesis block number (0) so the continuity check accepts an
+            // empty proof; we're isolating the BLS-key uniqueness/threshold path here.
+            let signed = create_signed_attestation(
+                vec![att1.clone(), att2.clone(), att3.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+
+            assert_ok!(Attestation::validate_attestation(
+                SUPPORTED_CHAIN_KEY,
+                &signed
+            ));
+        })
+    }
+
+    #[test]
+    fn migration_v2_to_v3_keeps_first_attestor_and_clears_duplicates() {
+        ExtBuilder.build_and_execute(|| {
+            // Simulate a pre-`v3` chain: two attestors share a BLS key on the same chain,
+            // a third has an unrelated key. The migration must keep the earliest
+            // (lowest-AccountId) attestor as the owner and reset the loser.
+            StorageVersion::new(2).put::<Pallet<Test>>();
+            let _ = BlsKeyOwner::<Test>::clear(u32::MAX, None);
+
+            let shared = Attestor::new(STASH_1, ATTESTOR_1);
+            let other = Attestor::new(STASH_3, ATTESTOR_3);
+
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, shared.public_key);
+            // ATTESTOR_2 has the *same* BLS pubkey as ATTESTOR_1 (the bug scenario).
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, shared.public_key);
+            // ATTESTOR_3 has its own unique key.
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, other.public_key);
+
+            MigrateBlsKeyUniquenessV2ToV3::<Test>::on_runtime_upgrade();
+
+            // Storage version bumped.
+            assert_eq!(
+                Pallet::<Test>::on_chain_storage_version(),
+                StorageVersion::new(3)
+            );
+
+            // Winner: ATTESTOR_1 (lowest AccountId) keeps the shared key.
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, shared.public_key),
+                Some(ATTESTOR_1)
+            );
+            assert_eq!(
+                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1)
+                    .unwrap()
+                    .bls_public_key,
+                Some(shared.public_key)
+            );
+
+            // Loser: ATTESTOR_2 lost the key, was forced to Idle, and was kicked from the
+            // active set.
+            let loser = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2).unwrap();
+            assert_eq!(loser.bls_public_key, None);
+            assert_eq!(loser.status, AttestorStatus::Idle);
+            assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_2));
+
+            // Unrelated attestor untouched.
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, other.public_key),
+                Some(ATTESTOR_3)
+            );
+            assert_eq!(
+                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_3)
+                    .unwrap()
+                    .status,
+                AttestorStatus::Active
+            );
+
+            // Event for the demoted attestor was emitted.
+            System::assert_has_event(
+                crate::Event::DuplicateBlsKeyDetectedDuringMigration {
+                    chain_key: SUPPORTED_CHAIN_KEY,
+                    bls_public_key: shared.public_key,
+                    winner_attestor_id: ATTESTOR_1,
+                    loser_attestor_id: ATTESTOR_2,
+                }
+                .into(),
+            );
+        })
+    }
+
+    #[test]
+    fn migration_v2_to_v3_is_noop_when_already_at_v3() {
+        ExtBuilder.build_and_execute(|| {
+            StorageVersion::new(3).put::<Pallet<Test>>();
+            let _ = BlsKeyOwner::<Test>::clear(u32::MAX, None);
+
+            let shared = Attestor::new(STASH_1, ATTESTOR_1);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, shared.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, shared.public_key);
+
+            MigrateBlsKeyUniquenessV2ToV3::<Test>::on_runtime_upgrade();
+
+            // Owner map untouched, both attestors untouched.
+            assert!(BlsKeyOwner::<Test>::iter().next().is_none());
+            assert_eq!(
+                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2)
+                    .unwrap()
+                    .bls_public_key,
+                Some(shared.public_key)
+            );
+        })
+    }
+}
