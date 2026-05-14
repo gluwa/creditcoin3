@@ -46,10 +46,10 @@
   resolved "https://registry.yarnpkg.com/@eslint/js/-/js-8.57.1.tgz#de633db3ec2ef6a3c89e2f19038063e8a122e2c2"
   integrity sha512-d9zaMRSTIKDLhctzH12MtXvJKSSUhaHcjV+2Z+GK+EEY7XKpP5yR4x+N3TAcHTcu963nIr+TMcCb4DBCYX1z6Q==
 
-"@gluwa/usc-sdk@0.9.0":
-  version "0.9.0"
-  resolved "https://registry.yarnpkg.com/@gluwa/usc-sdk/-/usc-sdk-0.9.0.tgz#ad8cbf16e4ac7953aead9d9ed86ebb6647c6fcb7"
-  integrity sha512-O1ziQTi5cLoP1ruaVxgbXzPBGlkil6jqo9VyWdjbYrtm9X0DtDz7OxZ9wVR7m0bkGKutF0pRbaAvKGI0E6R3LA==
+"@gluwa/usc-sdk@0.12.0":
+  version "0.12.0"
+  resolved "https://registry.yarnpkg.com/@gluwa/usc-sdk/-/usc-sdk-0.12.0.tgz#12c6b9e4bb40fc0a30f6615b14d5c0aed873a710"
+  integrity sha512-6jt6+mGvxRPsQDyXZVAXsqVaN40z06wLe17SaDI/dUD2mfm2D8OZjVVwjW8NrXlUP5PHRtBgBqHBQ0nfZL1XRg==
   dependencies:
     axios "^1.13.2"
     dotenv "^17.2.3"
@@ -454,9 +454,9 @@ doctrine@^3.0.0:
     esutils "^2.0.2"
 
 dotenv@^17.2.3:
-  version "17.3.1"
-  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.3.1.tgz#2706f5b0165e45a1503348187b8468f87fe6aae2"
-  integrity sha512-IO8C/dzEb6O3F9/twg6ZLXz164a2fhTnEWb95H23Dm4OuN+92NmEAlTrupP9VW6Jm3sO26tQlqyvyi4CsnY9GA==
+  version "17.4.2"
+  resolved "https://registry.yarnpkg.com/dotenv/-/dotenv-17.4.2.tgz#c07e54a746e11eba021dd9e1047ced5afdc1c034"
+  integrity sha512-nI4U3TottKAcAD9LLud4Cb7b2QztQMUEfHbvhTH09bqXTxnSie8WnjPALV/WMCrJZ6UV/qHJ6L03OqO3LcdYZw==
 
 dunder-proto@^1.0.1:
   version "1.0.1"
