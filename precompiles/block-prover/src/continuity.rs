@@ -75,7 +75,8 @@ where
     /// # Gas Costs
     /// - `CONTINUITY_BLOCK_HASH_COST` (48) per block in the chain (charged upfront)
     /// - `GAS_STORAGE_LOOKUP` (2600) for attestation lookup
-    /// - Additional `GAS_STORAGE_LOOKUP` for checkpoint lookup (only if attestation doesn't match)
+    /// - Additional `GAS_STORAGE_LOOKUP` * 2 for checkpoint lookup (only if attestation doesn't match):
+    ///   one for the revert-pruning guard read, one for the checkpoint storage read.
     ///
     /// # Optimization
     /// Instead of comparing each intermediate digest, we hash through the entire chain
