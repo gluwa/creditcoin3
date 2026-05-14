@@ -630,8 +630,12 @@ impl Client {
 
         loop {
             attempt += 1;
-            let mut last_transport_err: Option<(String, Error)> = None;
-            let mut last_payload_inconsistent: Option<(String, Error)> = None;
+            // Accumulate *every* provider failure in this sweep — not just the last one of each
+            // kind. With N ≥ 3 providers, two flaky peers followed by a healthy fallback would
+            // otherwise leave the operator blind to the first failure (the second would
+            // overwrite it). Mirrors the old `get_receipts` walker's `Vec`-of-errors behavior.
+            let mut transport_errs: Vec<(String, Error)> = Vec::new();
+            let mut payload_inconsistent_errs: Vec<(String, Error)> = Vec::new();
 
             for (label, provider) in self.providers_with_labels() {
                 match Self::fetch_block_and_receipts_from_provider(provider, number).await {
@@ -646,10 +650,10 @@ impl Client {
                             Ok(ob) => {
                                 // Don't silently drop earlier-provider failures: if the primary
                                 // (or an earlier fallback) errored and a later peer served the
-                                // request, surface that at warn so operators can root-cause
-                                // flaky peers.
+                                // request, surface *every* prior failure at warn so operators
+                                // can root-cause flaky peers even when 3+ providers are configured.
                                 if label != "primary" {
-                                    if let Some((err_label, err)) = last_transport_err.take() {
+                                    for (err_label, err) in transport_errs.drain(..) {
                                         tracing::warn!(
                                             provider = %err_label,
                                             served_by = %label,
@@ -658,8 +662,7 @@ impl Client {
                                             "block+receipts fetch: provider errored but another succeeded"
                                         );
                                     }
-                                    if let Some((err_label, err)) = last_payload_inconsistent.take()
-                                    {
+                                    for (err_label, err) in payload_inconsistent_errs.drain(..) {
                                         tracing::warn!(
                                             provider = %err_label,
                                             served_by = %label,
@@ -678,7 +681,7 @@ impl Client {
                                     error = %e,
                                     "block body or receipts inconsistent with header from this RPC peer; trying next endpoint"
                                 );
-                                last_payload_inconsistent = Some((label, e));
+                                payload_inconsistent_errs.push((label, e));
                             }
                             Err(e) => {
                                 // Structural error unrelated to per-peer inconsistency
@@ -695,17 +698,20 @@ impl Client {
                             error = %e,
                             "failed to retrieve block/receipts pair from provider"
                         );
-                        last_transport_err = Some((label, e));
+                        transport_errs.push((label, e));
                     }
                 }
             }
 
-            // Prefer surfacing the payload-inconsistency cause if we have one: it carries the
-            // most informative classification (and the block-number hint) for the caller.
-            // Otherwise, fall back to the last transport error, or a generic "not found".
-            let err = last_payload_inconsistent
+            // Sweep failed end-to-end. Prefer the payload-inconsistency cause for the
+            // propagated error — it carries the block-number hint and a non-retriable
+            // classification at the API layer — falling back to the last transport error and
+            // then a generic "not found". Earlier per-provider failures were already emitted
+            // at warn/debug inside the loop, so we don't re-log them here to avoid spam.
+            let err = payload_inconsistent_errs
+                .pop()
                 .map(|(_, e)| e)
-                .or_else(|| last_transport_err.map(|(_, e)| e))
+                .or_else(|| transport_errs.pop().map(|(_, e)| e))
                 .unwrap_or(Error::FailedToGetBlock(number));
 
             if attempt >= MAX_ATTEMPTS {
