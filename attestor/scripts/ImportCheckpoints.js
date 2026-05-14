@@ -11,6 +11,17 @@ const MAX_RETRIES = 10;
 // Decrease the retry delay when running with --dev
 const RETRY_DELAY_MS = IS_DEV ? 6000 : 15000;
 
+function parseArgs() {
+    const args = process.argv.slice(2);
+    const result = {};
+    for (let i = 0; i < args.length; i++) {
+        if (args[i] === '--file' && args[i + 1]) result.file = args[++i];
+        else if (args[i] === '--chain-key' && args[i + 1]) result.chainKey = args[++i];
+        else if (args[i] === '--rpc' && args[i + 1]) result.rpc = args[++i];
+    }
+    return result;
+}
+
 async function delay(ms) {
     return new Promise((res) => setTimeout(res, ms));
 }
@@ -20,18 +31,27 @@ async function main() {
         console.log('Running in DEV mode: RETRY_DELAY_MS set to 6000ms');
     }
 
-    // Import configurations from .env file
+    const cliArgs = parseArgs();
+
+    // Resolve config: CLI args take priority over env vars
     const mnemonic = process.env.MNEMONIC;
     if (!mnemonic) {
-        throw new Error('MNEMONIC not found in .env file');
+        throw new Error('MNEMONIC not found in environment');
     }
-    const destinationChain = process.env.DESTINATION_CHAIN;
+
+    const csvFile = cliArgs.file || process.env.CHECKPOINTS_FILE;
+    if (!csvFile) {
+        throw new Error('CSV file not specified. Use --file <path> or set CHECKPOINTS_FILE env var');
+    }
+
+    const destinationChain = cliArgs.rpc || process.env.DESTINATION_CHAIN;
     if (!destinationChain) {
-        throw new Error('DESTINATION_CHAIN not found in .env file');
+        throw new Error('RPC endpoint not specified. Use --rpc <url> or set DESTINATION_CHAIN env var');
     }
-    const chainKey = process.env.CHAIN_KEY_ON_DESTINATION;
+
+    const chainKey = cliArgs.chainKey || process.env.CHAIN_KEY_ON_DESTINATION;
     if (!chainKey) {
-        throw new Error('CHAIN_KEY_ON_DESTINATION not found in .env file');
+        throw new Error('Chain key not specified. Use --chain-key <key> or set CHAIN_KEY_ON_DESTINATION env var');
     }
 
     // Get api and keyring
@@ -42,21 +62,34 @@ async function main() {
     const sudo = keyring.addFromUri(mnemonic);
     console.log('Sudo address:', sudo.address);
 
-    // Get checkpoints from file
-    const rawData = fs.readFileSync('checkpoints.json');
-    const parsed = JSON.parse(rawData);
+    // Parse CSV: each line is "block_number,digest_hash"
+    const rawData = fs.readFileSync(csvFile, 'utf8');
+    const lines = rawData.trim().split('\n');
 
-    // Convert to [digest, { block_number }] tuples
-    const entries = Object.entries(parsed);
+    // Skip header line if present (starts with non-numeric)
+    const dataLines = lines.filter((line) => {
+        const firstChar = line.trim()[0];
+        return firstChar >= '0' && firstChar <= '9';
+    });
 
-    for (let i = 0; i < entries.length; i += BATCH_SIZE) {
-        const batch = entries.slice(i, i + BATCH_SIZE);
+    const entries = dataLines.map((line) => {
+        const [blockNumber, digestHex] = line.trim().split(',');
+        return { blockNumber: blockNumber.trim(), digestHex: digestHex.trim() };
+    });
 
-        const checkpointVec = batch.map(([digestHex, { block_number }]) => {
+    // Reversing entries so that we insert them from newest to oldest
+    const reversedEntries = entries.reverse();
+
+    console.log(`Loaded ${reversedEntries.length} checkpoints from ${csvFile}`);
+
+    for (let i = 0; i < reversedEntries.length; i += BATCH_SIZE) {
+        const batch = reversedEntries.slice(i, i + BATCH_SIZE);
+
+        const checkpointVec = batch.map(({ blockNumber, digestHex }) => {
             return api.createType('AttestorPrimitivesAttestationCheckpoint', {
                 digest: hexToU8a(digestHex),
                 // Use bigint to avoid precision loss when block numbers exceed Number.MAX_SAFE_INTEGER
-                block_number: BigInt(block_number),
+                block_number: BigInt(blockNumber),
             });
         });
 
