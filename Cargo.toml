@@ -36,7 +36,8 @@ members = [
     "attestor/pool",
     "attestor/zombienet",
     "attestor/metrics",
-    "attestor/common", "attestor/p2p",
+    "attestor/common",
+    "attestor/p2p",
 ]
 resolver = "2"
 
@@ -336,6 +337,7 @@ stream = { path = "common/streams/stream" }
 stream_attestation = { path = "common/streams/attestation" }
 stream_cc3 = { path = "common/streams/cc3" }
 stream_eth = { path = "common/streams/eth" }
+stream_p2p = { path = "attestor/p2p" }
 stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }

@@ -1548,7 +1548,8 @@ dependencies = [
  "pretty_assertions",
  "rstest 0.26.1",
  "sp-core",
- "stream",
+ "stream_p2p",
+ "stream_util",
  "tokio",
  "tokio-test",
  "tracing",
@@ -8028,7 +8029,8 @@ dependencies = [
  "cc-client",
  "libp2p 0.56.0",
  "prometheus-client 0.24.0",
- "stream",
+ "stream_p2p",
+ "stream_util",
  "sysinfo",
  "tokio",
 ]
@@ -8988,50 +8990,6 @@ name = "overload"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b15813163c1d831bf4a13c3610c05c0d03b39feb07f7e09fa234dac9b15aaf39"
-
-[[package]]
-name = "p2p"
-version = "3.121.0"
-dependencies = [
- "alloy",
- "anyhow",
- "assert_matches",
- "attestation_pool",
- "attestor-primitives",
- "axum",
- "bip39",
- "bls-signatures",
- "builder",
- "cc-client",
- "clap",
- "common",
- "eth",
- "futures 0.3.31",
- "hex",
- "libp2p 0.56.0",
- "metrics",
- "parity-scale-codec",
- "rand 0.9.0",
- "rstest 0.26.1",
- "serde",
- "serde_yaml",
- "sp-core",
- "sp-io",
- "stream",
- "subxt",
- "supported-chains-primitives",
- "tokio",
- "tokio-retry",
- "tokio-test",
- "tokio-tungstenite 0.26.2",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
- "url",
- "usc-abi-encoding",
- "user",
- "zeroize",
-]
 
 [[package]]
 name = "pairing"
@@ -14931,6 +14889,7 @@ dependencies = [
  "stream_attestation",
  "stream_cc3",
  "stream_eth",
+ "stream_p2p",
  "stream_util",
 ]
 
@@ -14992,6 +14951,21 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
+ "user",
+]
+
+[[package]]
+name = "stream_p2p"
+version = "3.121.0"
+dependencies = [
+ "anyhow",
+ "attestor-primitives",
+ "builder",
+ "common",
+ "futures 0.3.31",
+ "libp2p 0.56.0",
+ "parity-scale-codec",
+ "tracing",
  "user",
 ]
 

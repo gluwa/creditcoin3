@@ -11,11 +11,14 @@ version.workspace = true
 stream_attestation = { workspace = true, optional = true }
 stream_cc3 = { workspace = true, optional = true }
 stream_eth = { workspace = true, optional = true }
+stream_p2p = { workspace = true, optional = true }
 stream_util = { workspace = true, optional = true }
 
 [features]
+default = ["attestation", "eth", "util", "cc3", "p2p"]
+
 attestation = ["dep:stream_attestation"]
 cc3 = ["dep:stream_cc3"]
-default = ["attestation", "eth", "util", "cc3"]
 eth = ["dep:stream_eth"]
+p2p = ["dep:stream_p2p"]
 util = ["dep:stream_util"]

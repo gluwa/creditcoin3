@@ -1,8 +1,12 @@
 mod behavior;
 mod error;
+mod message;
+mod metrics;
 mod protocols;
 
 pub use error::Error;
+pub use message::*;
+pub use metrics::*;
 
 #[derive(builder::Builder)]
 pub struct Config {
@@ -16,7 +20,7 @@ pub struct Config {
     #[specify_later]
     chain_key: attestor_primitives::ChainKey,
     #[specify_later]
-    metrics: metrics::Metrics,
+    metrics: Box<dyn MetricsStreamP2P>,
 }
 
 pub struct StreamP2P<Message>
@@ -29,7 +33,7 @@ where
     topic: libp2p::gossipsub::IdentTopic,
 
     // METRICS
-    metrics: metrics::Metrics,
+    metrics: Box<dyn MetricsStreamP2P>,
 
     // MESSAGES
     _phatom: std::marker::PhantomData<Message>,
@@ -134,7 +138,7 @@ where
             message_id,
             propagation_source,
         }: MessageValidate<Message>,
-    ) -> Message {
+    ) {
         self.swarm
             .behaviour_mut()
             .gossipsub
@@ -143,8 +147,6 @@ where
                 &propagation_source,
                 libp2p::gossipsub::MessageAcceptance::Ignore,
             );
-
-        message
     }
 
     pub fn reject(
@@ -154,7 +156,7 @@ where
             message_id,
             propagation_source,
         }: MessageValidate<Message>,
-    ) -> Message {
+    ) {
         self.swarm
             .behaviour_mut()
             .gossipsub
@@ -163,8 +165,6 @@ where
                 &propagation_source,
                 libp2p::gossipsub::MessageAcceptance::Reject,
             );
-
-        message
     }
 }
 

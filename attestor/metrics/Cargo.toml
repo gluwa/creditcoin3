@@ -10,12 +10,13 @@ version.workspace = true
 [dependencies]
 # Attestor
 attestation_pool = { path = "../pool" }
+stream_p2p = { path = "../p2p" }
 
 # Creditcoin
 attestor-primitives = { workspace = true }
 builder = { workspace = true }
 cc-client = { workspace = true }
-stream = { workspace = true }
+stream_util = { workspace = true }
 
 # Metrics
 prometheus-client = { workspace = true }

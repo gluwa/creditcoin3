@@ -10,7 +10,7 @@ pub struct Config {
     chain_key: attestor_primitives::ChainKey,
 
     start_height: attestor_primitives::Height,
-    start_attestation: Option<stream::util::AttestationInfo>,
+    start_attestation: Option<stream_util::AttestationInfo>,
     genesis: attestor_primitives::Height,
 
     attestation_latest_eth: attestor_primitives::Height,
@@ -436,33 +436,6 @@ impl Metrics {
             .observe(delay.as_secs_f64());
     }
 
-    pub fn increase_peer_count(&self) {
-        self.0
-            .metrics_p2p
-            .get_or_create(&labels::LabelPeerToPeer {
-                peer_to_peer: labels::PeerToPeer::Peers,
-            })
-            .inc();
-    }
-
-    pub fn decrease_peer_count(&self) {
-        self.0
-            .metrics_p2p
-            .get_or_create(&labels::LabelPeerToPeer {
-                peer_to_peer: labels::PeerToPeer::Peers,
-            })
-            .dec();
-    }
-
-    pub fn increase_gossipsub_message_count(&self) {
-        self.0
-            .metrics_p2p
-            .get_or_create(&labels::LabelPeerToPeer {
-                peer_to_peer: labels::PeerToPeer::GossipsubMessages,
-            })
-            .inc();
-    }
-
     pub fn increase_invalid_attestation_count(&self) {
         self.0
             .metrics_error
@@ -477,24 +450,6 @@ impl Metrics {
             .metrics_error
             .get_or_create(&labels::LabelFailedState {
                 failed_state: labels::FailedState::Equivocations,
-            })
-            .inc();
-    }
-
-    pub fn increase_invalid_gossipsub_count(&self) {
-        self.0
-            .metrics_error
-            .get_or_create(&labels::LabelFailedState {
-                failed_state: labels::FailedState::GossipsubMessages,
-            })
-            .inc();
-    }
-
-    pub fn increase_connection_failure_count(&self) {
-        self.0
-            .metrics_error
-            .get_or_create(&labels::LabelFailedState {
-                failed_state: labels::FailedState::ConnectionFailures,
             })
             .inc();
     }
@@ -517,6 +472,53 @@ impl attestation_pool::MetricsAttestationPool for Metrics {
                 lifecycle: labels::AttestationLifecycle::Finalization,
             })
             .observe(delay.as_secs_f64());
+    }
+}
+
+impl stream_p2p::MetricsStreamP2P for Metrics {
+    fn increase_peer_count(&self) {
+        self.0
+            .metrics_p2p
+            .get_or_create(&labels::LabelPeerToPeer {
+                peer_to_peer: labels::PeerToPeer::Peers,
+            })
+            .inc();
+    }
+
+    fn decrease_peer_count(&self) {
+        self.0
+            .metrics_p2p
+            .get_or_create(&labels::LabelPeerToPeer {
+                peer_to_peer: labels::PeerToPeer::Peers,
+            })
+            .dec();
+    }
+
+    fn increase_gossipsub_message_count(&self) {
+        self.0
+            .metrics_p2p
+            .get_or_create(&labels::LabelPeerToPeer {
+                peer_to_peer: labels::PeerToPeer::GossipsubMessages,
+            })
+            .inc();
+    }
+
+    fn increase_invalid_gossipsub_count(&self) {
+        self.0
+            .metrics_error
+            .get_or_create(&labels::LabelFailedState {
+                failed_state: labels::FailedState::GossipsubMessages,
+            })
+            .inc();
+    }
+
+    fn increase_connection_failure_count(&self) {
+        self.0
+            .metrics_error
+            .get_or_create(&labels::LabelFailedState {
+                failed_state: labels::FailedState::ConnectionFailures,
+            })
+            .inc();
     }
 }
 
