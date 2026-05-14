@@ -37,6 +37,7 @@ members = [
     "attestor/zombienet",
     "attestor/metrics",
     "attestor/common",
+    "checkpoint-builder",
 ]
 resolver = "2"
 
@@ -68,6 +69,7 @@ axum = { version = "0.8" }
 bip32 = { version = "0.5.1", default-features = false, features = ["bip39"] }
 clap = { version = "4.5.3", features = ["derive", "env"] }
 derive_more = "0.99.17"
+dotenvy = "0.15"
 ed25519-dalek = { version = "2.2.0", default-features = false }
 env_logger = "0.11"
 environmental = { version = "1.1.4", default-features = false }
@@ -101,6 +103,7 @@ serde_json = { version = "1.0.145", default-features = false }
 serde_yaml = { version = "0.9.34" }
 sha3 = { version = "0.10", default-features = false }
 similar-asserts = "1.6.0"
+sled = "0.34"
 slices = "0.2.0"
 snap = "1.1"
 sqlx = { version = "0.7.4", default-features = false, features = ["macros"] }
