@@ -220,6 +220,10 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
         _ = RetiredAttestorBlsKeys::<T>::clear_prefix(chain_key, u32::MAX, None);
 
+        // BLS uniqueness mapping is keyed by `(chain_key, bls_pubkey)`; drop the whole
+        // prefix since the chain no longer exists.
+        _ = BlsKeyOwner::<T>::clear_prefix(chain_key, u32::MAX, None);
+
         Self::purge_retired_keys_by_stash_for_removed_chain(chain_key);
 
         // Can dispense with result, since limit is equal to maximum storage size
