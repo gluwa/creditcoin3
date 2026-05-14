@@ -227,6 +227,7 @@ impl frame_system::Config for Runtime {
     type SingleBlockMigrations = (
         pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
         pallet_attestation::MigrateAttestorsCountV1ToV2<Runtime>,
+        pallet_attestation::MigrateBlsKeyUniquenessV2ToV3<Runtime>,
         migrations::v1_init_supported_chains::Migration<Runtime>,
         migrations::v1_init_attestation::Migration<Runtime>,
         migrations::v1_init_operators::Migration<Runtime>,
