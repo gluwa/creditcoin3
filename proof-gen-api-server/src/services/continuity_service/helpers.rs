@@ -17,22 +17,11 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
     err: &AnyhowError,
     fallback_block_number: u64,
 ) -> Option<ServiceError> {
-    let is_inconsistent = err.chain().any(|cause| {
-        cause
-            .downcast_ref::<eth::Error>()
-            .is_some_and(eth::Error::inconsistent_block_payload_for_fallback)
-    });
-    if !is_inconsistent {
+    if !eth::anyhow_chain_is_inconsistent_block_payload(err) {
         return None;
     }
-    let block_number = err
-        .chain()
-        .find_map(|cause| {
-            cause
-                .downcast_ref::<eth::Error>()
-                .and_then(eth::Error::inconsistent_block_number_hint)
-        })
-        .unwrap_or(fallback_block_number);
+    let block_number =
+        eth::anyhow_chain_inconsistent_block_number_hint(err).unwrap_or(fallback_block_number);
     Some(ServiceError::UnsupportedBlockFormat { block_number })
 }
 
