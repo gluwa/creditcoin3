@@ -54,24 +54,40 @@ cd attestor/scripts
 node ExportCheckpoints.js
 ```
 
-Check the generated file `checkpoints.json` to see if contents look right:
+Check the generated file `checkpoints.csv` to see if contents look right:
 EX:
-```json
-"0x07b7f0095c8764d1fb3a156861c8ff499f94ed4af39ff499064d4c3a5d205ad6": {
-    "block_number": 675650
-},
-"0x04130ca64dccc93140ac564515f1e00bf0e0d6c5436accd113ff6c954e83321f": {
-    "block_number": 675550
-},
 ```
+675550,0x04130ca64dccc93140ac564515f1e00bf0e0d6c5436accd113ff6c954e83321f
+675650,0x07b7f0095c8764d1fb3a156861c8ff499f94ed4af39ff499064d4c3a5d205ad6
+```
+
+Each row is `block_number,digest_hex` entry. Rows are sorted ascending by
+`block_number`; `ImportCheckpoints.js` reverses them internally so checkpoints are
+submitted newest-to-oldest.
 
 ### 3. Run ImportCheckpoints.js
 
-Run it like:
+With `CHECKPOINTS_FILE=checkpoints.csv` (plus `MNEMONIC`, `DESTINATION_CHAIN`, and
+`CHAIN_KEY_ON_DESTINATION`) set in `attestor/scripts/.env`:
 
 ```sh
 node ImportCheckpoints.js
 ```
+
+Configuration may also be passed via CLI arguments, which take priority over env vars:
+
+| CLI argument  | Env variable               | Description                                    |
+|---------------|----------------------------|------------------------------------------------|
+| `--file`      | `CHECKPOINTS_FILE`         | Path to the CSV file                           |
+| `--rpc`       | `DESTINATION_CHAIN`        | WebSocket URL of the target chain              |
+| `--chain-key` | `CHAIN_KEY_ON_DESTINATION` | Chain key to import checkpoints into           |
+| *(none)*      | `MNEMONIC`                 | Sudo account mnemonic (required, env var only) |
+
+```sh
+node ImportCheckpoints.js --file checkpoints.csv --rpc ws://127.0.0.1:9944 --chain-key 2
+```
+
+Checkpoints are submitted in batches of 100 via a `sudo(attestation.importCheckpoints(...))` call.
 
 Running in Development Mode
 
@@ -84,12 +100,12 @@ node ImportCheckpoints.js --dev
 
 ### 4. (Optional) Check That On-chain Checkpoints Match Expected
 
-Modify and re-run ExportCheckpoints.js to extract the checkpoints we just inserted into checkpoints2.json.
-Then check that the contents of checkpoints.json exactly match those of checkpoints2.json
+Modify and re-run ExportCheckpoints.js to extract the checkpoints we just inserted into checkpoints2.csv.
+Then check that the contents of checkpoints.csv exactly match those of checkpoints2.csv
 
-Change the file written to on this line to `checkpoints2.json`:
+Change the file written to on this line to `checkpoints2.csv`:
 ```js
-fs.writeFileSync('checkpoints.json', JSON.stringify(sortedCheckpoints, null, 2));
+fs.writeFileSync('checkpoints.csv', csv);
 ```
 
 Change `SOURCE_CHAIN` in .env to match `DESTINATION_CHAIN`:
@@ -105,7 +121,7 @@ node ExportCheckpoints.js
 
 Compare files:
 ```sh
-diff checkpoints.json checkpoints2.json
+diff checkpoints.csv checkpoints2.csv
 ```
 On success no file differences will be printed
 

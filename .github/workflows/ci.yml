@@ -53,6 +53,9 @@ jobs:
               - "cli/src/test/integration-tests/attestor/**"
               - ".github/workflows/ci.yml"
             attestor_network_testing:
+              - "checkpoint-builder/**"
+              - "checkpoint-verifier/**"
+              - "archiver/**"
               - "attestor/**"
               - "common/**"
               - "pallets/attestation/**"
@@ -273,6 +276,19 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
 
+      - name: Start archiver against Anvil1
+        env:
+          RUST_LOG: debug
+        run: |
+          chmod a+x ./target/release/archiver
+
+          ./target/release/archiver \
+              --rpc-http http://localhost:8141 \
+              --rpc-ws ws://localhost:8141 \
+              --start-height 0 \
+              --flush-every 5 \
+              --api-bind 0.0.0.0:8080 >/var/tmp/integration-test-attestor-network/archiver.log 2>&1 &
+
       - name: Start creditcoin3-node - Bob
         env:
           RUST_LOG: debug
@@ -339,8 +355,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
-          cache: 'yarn'
-          cache-dependency-path: cli/yarn.lock
+          cache: 'npm'
+          cache-dependency-path: |
+            attestor/scripts/package.json
+            checkpoint-verifier/yarn.lock
+            cli/yarn.lock
       - run: npm install -g yarn
 
       - name: Install Solidity compiler
@@ -357,20 +376,18 @@ jobs:
         working-directory: ./cli
         run: |
           sleep 100 # wait for attestors to register
-          yarn install
+          yarn install --immutable
           yarn test:attestation
 
       - name: Run ExportCheckpoints.js
         if: always()
         working-directory: ./attestor/scripts
         run: |
-          npm install
+          npm ci
 
           node ExportCheckpoints.js
 
-          jq -r < checkpoints.json
-
-          cp checkpoints.json checkpoints.json.from_alice
+          mv checkpoints_2.csv checkpoints.csv.from_alice
         env:
           SOURCE_CHAIN: "ws://127.0.0.1:9944"
           CHAIN_KEY_ON_SOURCE: 2
@@ -397,7 +414,7 @@ jobs:
         if: always()
         working-directory: ./attestor/scripts
         run: |
-          node ImportCheckpoints.js --dev
+          node ImportCheckpoints.js --dev --file checkpoints.csv.from_alice
         env:
           MNEMONIC: "//Alice"
           DESTINATION_CHAIN: "ws://127.0.0.1:9977"
@@ -410,23 +427,121 @@ jobs:
           sudo apt-get install colordiff
 
           node ExportCheckpoints.js
-          jq -r < checkpoints.json
 
-          cp checkpoints.json checkpoints.json.from_dave
+          cp checkpoints_2.csv checkpoints.csv.from_dave
 
           # both files should match b/c they represent the same data
-          diff -u checkpoints.json.from_alice checkpoints.json.from_dave | colordiff
-          diff -u checkpoints.json.from_alice checkpoints.json.from_dave
+          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave | colordiff
+          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave
         env:
           SOURCE_CHAIN: "ws://127.0.0.1:9977"
           CHAIN_KEY_ON_SOURCE: 2
 
-      - name: Upload checkpoints.json
+      - name: Discover archiver available range and compute builder range
+        if: always()
+        id: range
+        run: |
+          chmod a+x ./target/release/checkpoint-builder
+
+          ./target/release/checkpoint-builder archiver \
+              --archiver-url http://127.0.0.1:8080 \
+              --dry-run | tee /var/tmp/integration-test-attestor-network/dry-run.log
+
+          LAST=$(grep -oE 'Available range: [0-9]+ to [0-9]+' /var/tmp/integration-test-attestor-network/dry-run.log | awk '{print $NF}')
+          if [ -z "$LAST" ]; then
+            echo "Could not parse archiver available range" >&2
+            exit 1
+          fi
+
+          # Floor to the nearest multiple of 100 so the range arithmetic
+          # satisfies checkpoint-builder's divisibility rule.
+          N=$(( (LAST / 100) * 100 ))
+          if [ "$N" -lt 100 ]; then
+            echo "Archiver only has $LAST blocks - need at least 100 for interval=100" >&2
+            exit 1
+          fi
+
+          echo "Using builder range: 0;1,$N,100 (archiver last=$LAST)"
+          echo "builder_end=$N" >> "$GITHUB_OUTPUT"
+
+      - name: Run checkpoint-builder
+        if: always()
+        env:
+          RUST_LOG: info
+        run: |
+          ./target/release/checkpoint-builder archiver \
+              --archiver-url http://127.0.0.1:8080 \
+              --checkpoint-ranges "0;1,${{ steps.range.outputs.builder_end }},100" \
+              --output-file /var/tmp/integration-test-attestor-network/builder.csv \
+              2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-builder.log
+
+          # Builder appends a timestamp, resolve the actual path for later steps.
+          BUILDER_CSV=$(find /var/tmp/integration-test-attestor-network -name 'builder_*.csv' | head -n1)
+          echo "Builder CSV: $BUILDER_CSV"
+          echo "BUILDER_CSV=$BUILDER_CSV" >> "$GITHUB_ENV"
+
+      - name: Stage on-chain checkpoints CSV
+        if: always()
+        run: |
+          cp attestor/scripts/checkpoints_2.csv /var/tmp/integration-test-attestor-network/onchain.csv
+          cat /var/tmp/integration-test-attestor-network/onchain.csv
+
+      - name: Compare builder output with on-chain checkpoints (overlap)
+        if: always()
+        run: |
+          ONCHAIN=/var/tmp/integration-test-attestor-network/onchain.csv
+          OVERLAP=/var/tmp/integration-test-attestor-network/builder.overlap.csv
+
+          if [ ! -s "$ONCHAIN" ]; then
+            echo "On-chain CSV is empty - attestors did not produce any checkpoints" >&2
+            exit 1
+          fi
+
+          # Keep only builder rows whose block number appears on-chain (drops genesis and any
+          # builder checkpoints ahead of what attestors have attested so far).
+          awk -F, 'NR==FNR{seen[$1]=1; next} seen[$1]' "$ONCHAIN" "$BUILDER_CSV" > "$OVERLAP"
+
+          if [ ! -s "$OVERLAP" ]; then
+            echo "No overlapping block numbers between builder CSV and on-chain CSV" >&2
+            exit 1
+          fi
+
+          diff -u "$ONCHAIN" "$OVERLAP"
+
+      - name: Build checkpoint-verifier
+        if: always()
+        working-directory: ./checkpoint-verifier
+        run: |
+          yarn install --immutable
+          yarn build
+
+      - name: Run checkpoint-verifier against builder CSV
+        if: always()
+        working-directory: ./checkpoint-verifier
+        # Cap verification at block 1000: the verifier replays every block
+        # sequentially from genesis (each digest depends on the previous one),
+        # so walking the full 10k-block Anvil snapshot dominates the job runtime.
+        # 1000 blocks is enough to exercise the builder/verifier contract as a
+        # smoke check while keeping the job fast.
+        run: |
+          yarn start verify-csv \
+              --rpc-url http://127.0.0.1:8141 \
+              --csv-path "$BUILDER_CSV" \
+              --max-block 1000 \
+              --verbose \
+              2>&1 | tee /var/tmp/integration-test-attestor-network/checkpoint-verifier.log
+
+      - name: Check archiver logs for errors
+        if: always()
+        run: |
+          .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
+
+      - name: Upload checkpoints.csv
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: checkpoints.json
-          path: attestor/scripts/checkpoints.json*
+          name: checkpoints.csv
+          path: attestor/scripts/checkpoints.csv*
 
       - name: TERM binaries
         if: always()
@@ -437,6 +552,7 @@ jobs:
           # dangling processes
           killall -TERM attestor_zombienet
           killall -TERM attestor
+          killall -TERM archiver
           killall -TERM creditcoin3-node
           sleep 60
 
@@ -449,6 +565,7 @@ jobs:
           # dangling processes
           killall -KILL attestor_zombienet
           killall -KILL attestor
+          killall -KILL archiver
           killall -KILL creditcoin3-node
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
