@@ -98,6 +98,18 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ClearedStorageForRemovedChain: AugmentedEvent<ApiType, [u64]>;
             /**
+             * During the `v2 -> v3` storage migration the same BLS public key was found
+             * registered to multiple controller accounts on a chain. The migration kept the
+             * claim for `winner_attestor_id` and cleared the BLS key (and forced status =
+             * `Idle` / removal from the active set) for `loser_attestor_id`. Affected
+             * attestors must re-run `attest` with a fresh, unique BLS keypair.
+             **/
+            DuplicateBlsKeyDetectedDuringMigration: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, blsPublicKey: U8aFixed, winnerAttestorId: AccountId32, loserAttestorId: AccountId32],
+                { chainKey: u64; blsPublicKey: U8aFixed; winnerAttestorId: AccountId32; loserAttestorId: AccountId32 }
+            >;
+            /**
              * A force election was triggered via sudo.
              **/
             ForcedElection: AugmentedEvent<ApiType, [epoch: u64], { epoch: u64 }>;
