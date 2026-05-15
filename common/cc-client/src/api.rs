@@ -29,7 +29,7 @@ impl<'a> ReconnectingRuntimeApi<'a> {
                 Err(err) => err,
             };
 
-            client.reconnect(err).await;
+            client.reconnect(&err).await;
             client.reset_connection_delay();
         };
 
