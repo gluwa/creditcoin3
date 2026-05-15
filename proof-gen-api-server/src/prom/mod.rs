@@ -415,6 +415,7 @@ mod labels {
         ProofBatch,
         ProofBatchByTxHash,
         Health,
+        AttestedHeight,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
