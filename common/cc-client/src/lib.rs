@@ -4,8 +4,7 @@ use arc_swap::ArcSwap;
 use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, error::RpcError, OnlineClient,
-    SubstrateConfig,
+    backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
@@ -54,8 +53,6 @@ pub enum Error {
     NoCheckpointIntervalSet(ChainKey),
     #[error("Subxt error: {0:?}")]
     SubxtError(#[from] subxt::Error),
-    #[error("Rpc error: {0:?}")]
-    RpcError(#[from] RpcError),
     #[error("Invalid rpc url")]
     InvalidUrl,
     #[error("Failed to create proof of inclusion: {0}")]
@@ -134,7 +131,11 @@ impl Client {
     /// every continuity builder) can call this without coordination, and all
     /// callers immediately observe the new connection on their next
     /// `api()`/`legacy()`/`rpc()` access.
-    pub async fn reconnect(&mut self, err: impl std::fmt::Debug) {
+    pub async fn reconnect(&mut self, err: &subxt::Error) {
+        if !util::is_connection_err(&err) {
+            return;
+        }
+
         loop {
             tracing::warn!(?err, "CC3 connection lost...");
 
@@ -1069,6 +1070,9 @@ impl ClientInner {
 }
 
 mod util {
+    use subxt::error::RpcError;
+    use subxt::ext::jsonrpsee::core::client::Error as JsonRpseeError;
+
     /// Timeout for waiting on extrinsic finalization.
     /// Set to 120 seconds which is around 8 blocks on a 15 second block time.
     const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
@@ -1083,7 +1087,7 @@ mod util {
         tokio_retry::strategy::ExponentialBackoff::from_millis(100).max_delay(MAX_DELAY)
     }
 
-    pub(super) async fn handle_tx(
+    pub async fn handle_tx(
         tx: subxt::tx::TxProgress<
             subxt::SubstrateConfig,
             subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -1112,7 +1116,7 @@ mod util {
         }
     }
 
-    pub(super) fn is_fee_error(e: &subxt::Error) -> bool {
+    pub fn is_fee_error(e: &subxt::Error) -> bool {
         if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e {
             if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
                 err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
@@ -1124,6 +1128,19 @@ mod util {
         }
 
         false
+    }
+
+    pub fn is_connection_err(err: &subxt::Error) -> bool {
+        match &err {
+            subxt::Error::Rpc(
+                RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
+            ) => true,
+            subxt::Error::Rpc(RpcError::ClientError(boxed)) => matches!(
+                boxed.downcast_ref::<JsonRpseeError>(),
+                Some(JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_))
+            ),
+            _ => false,
+        }
     }
 }
 
