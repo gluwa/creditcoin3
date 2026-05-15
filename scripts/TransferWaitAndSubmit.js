@@ -232,8 +232,6 @@ async function main() {
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log(`   Transaction: ${txHash}`);
         console.log(`   Block: ${blockNumber}`);
-        console.log(`   Attested at block: ${attestationResult.attestedBlock}`);
-        console.log(`   Attestation wait time: ${attestationResult.elapsed.toFixed(2)}s`);
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
         process.exit(0);
