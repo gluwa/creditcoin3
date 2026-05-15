@@ -18,6 +18,7 @@
  *   --devnet               Use devnet provider URL for source chain
  */
 
+const { proofGenerator } = require('@gluwa/usc-sdk');
 const { ethers } = require('ethers');
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 const {
@@ -163,19 +164,21 @@ async function main() {
         // Step 2: Wait for attestation
         console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
         console.log('STEP 2: Wait for Attestation');
-        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-        console.log(`\n🔗 Connecting to Creditcoin3 at ${options.cc3WsUrl}...`);
-        const wsProvider = new WsProvider(options.cc3WsUrl);
-        const api = await ApiPromise.create({ provider: wsProvider });
-        await api.isReady;
-        console.log('✅ Connected to Creditcoin3\n');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        const attestationResult = await waitForAttestation(api, chainKey, blockNumber);
+        const proofGenApi = new proofGenerator.api.ProverAPIProofGenerator(
+            chainKey,
+            options.apiUrl
+        );
 
-        // Wait for at least 2 Creditcoin3 blocks to ensure attestation is indexed
-        await waitForCreditcoin3Blocks(api, 2);
+        console.log(`⏳ Waiting for attestation of block ${blockNumber}...`);
 
-        await api.disconnect();
+        await proofGenApi.waitUntilHeightAttested(
+            chainKey,
+            blockNumber
+        );
+
+        console.log('✅ Attestation observed in proof server');
 
         // Step 3: Fetch proof and submit
         console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
