@@ -402,7 +402,7 @@ impl Config {
 
 // ---------------------------------------- [ Main loop ] -------------------------------------- //
 
-#[tokio::main(flavor = "current_thread")]
+#[tokio::main()]
 async fn main() -> anyhow::Result<()> {
     use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
@@ -482,7 +482,7 @@ async fn main() -> anyhow::Result<()> {
                 .build(),
         )
         .with_p2p(
-            attestor::worker::p2p::ConfigBuilder::new()
+            attestor::tasks::p2p::ConfigBuilder::new()
                 .with_boot_nodes(args.boot_nodes)
                 .with_public_addr(args.public_addr)
                 .with_port(args.p2p_port)
@@ -494,7 +494,7 @@ async fn main() -> anyhow::Result<()> {
                 .with_start_height(args.start_height)
                 .build(),
         )
-        .with_api(attestor::worker::api::ConfigBuilder::new().with_port(args.api_port))
+        .with_api(attestor::tasks::api::ConfigBuilder::new().with_port(args.api_port))
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------
