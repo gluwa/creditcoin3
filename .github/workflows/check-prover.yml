@@ -18,18 +18,21 @@ jobs:
           - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-devnet.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
             chainKey: 1
 
           # CC3 Devnet, Ethereum Mainnet Full Archive
           - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-devnet.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
             chainKey: 4
 
           # CC3 Devnet, BSC Testnet
           - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-devnet.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
             chainKey: 5
             GO_BACK_BLOCKS: '96000'
             STEP_THROUGH_BLOCKS: '137'
@@ -38,6 +41,7 @@ jobs:
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
+            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
             chainKey: 1
 
           # USC Testnet v2, Sepolia from 10,050,300
@@ -80,7 +84,7 @@ jobs:
         env:
           GO_BACK_BLOCKS: ${{ matrix.GO_BACK_BLOCKS || '3600' }}
         run: |
-          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} ${{ matrix.indexerUrl }}
+          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
 
       - name: Execute prover-check.ts on random blocks
         working-directory: ./cli
@@ -89,7 +93,7 @@ jobs:
           GO_BACK_BLOCKS: ${{ matrix.GO_BACK_BLOCKS || '4000' }}
           STEP_THROUGH_BLOCKS: ${{ matrix.STEP_THROUGH_BLOCKS || '7' }}
         run: |
-          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }}
+          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} "" ${{ matrix.evmV1Decoder }}
 
       - name: Report result to Slack
         if: always()

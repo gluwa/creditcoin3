@@ -1,5 +1,6 @@
-import { blockProver, chainInfo, proofGenerator } from '@gluwa/usc-sdk';
-import { WebSocketProvider } from 'ethers';
+import { blockProver, chainInfo, proofGenerator, utils } from '@gluwa/usc-sdk';
+import EvmV1DecoderABI from '@gluwa/usc-sdk/dist/utils/evmV1DecoderAbi.json';
+import { Contract, WebSocketProvider } from 'ethers';
 import { createClient } from 'graphqurl';
 import axios from 'axios';
 
@@ -57,6 +58,7 @@ async function main(
     chainKey: number,
     proverBaseUrl: string,
     indexerUrl: string | undefined,
+    decoderAddress: string | undefined,
 ): Promise<void> {
     const creditcoinWs = new WebSocketProvider(creditcoinWsUrl);
     const prover = new blockProver.PrecompileBlockProver(creditcoinWs);
@@ -75,7 +77,7 @@ async function main(
     const blocksToInspect = Array.from({ length: goBack / stepThrough + 1 }, (value, index) =>
         BigInt(startFrom + index * stepThrough),
     );
-    if (indexerUrl === undefined) {
+    if (indexerUrl === undefined || indexerUrl === '') {
         console.log(
             `**** INFO: will check ${blocksToInspect.length} random blocks: ${startFrom}..${lastSourceBlock}, step ${stepThrough}`,
         );
@@ -111,6 +113,11 @@ async function main(
         throw new Error('no blocks to inspect. Something is wrong! Investigate!');
     }
 
+    let contract: Contract | undefined;
+    if (decoderAddress !== undefined && decoderAddress !== '') {
+        contract = new Contract(decoderAddress, EvmV1DecoderABI, creditcoinWs);
+    }
+
     for (const blockNumber of blocksToInspect) {
         console.log(`... get proof for source chain block ${blockNumber}`);
         await sleep(500); // rate-limit
@@ -134,13 +141,21 @@ async function main(
         if (!verificationResult) {
             throw new Error('...... proof verification failed');
         }
+
+        if (contract !== undefined) {
+            console.log('    ..... trying to decode proof');
+            const decoded = await utils.decoder.decodeEvmV1Transaction(proofData.txBytes, contract);
+            console.log(`    ... decoded as type ${decoded.type}`);
+        }
     }
     console.log('**** INFO: done');
     process.exit(0);
 }
 
 if (process.argv.length < 5) {
-    console.error('prover-check.js <creditcoinWssUrl> <chainKey> <proverBaseUrl> [<indexerUrl>]');
+    console.error(
+        'prover-check.js <creditcoinWssUrl> <chainKey> <proverBaseUrl> [<indexerUrl>] [evmV1Decoder address]',
+    );
     process.exit(1);
 }
 
@@ -150,8 +165,10 @@ const proverUrl = process.argv[4];
 // when defined will query proofs at checkpoint boundaries
 // otherwise will query random blocks by iterating over them
 const cc3IndexerUrl = process.argv[5];
+// when defined will decode proof data against on-chain contract
+const evmV1DecoderAddress = process.argv[6];
 
-main(creditcoinWsRpcUrl, sourceChainKey, proverUrl, cc3IndexerUrl).catch((reason) => {
+main(creditcoinWsRpcUrl, sourceChainKey, proverUrl, cc3IndexerUrl, evmV1DecoderAddress).catch((reason) => {
     console.error(reason);
     process.exit(1);
 });
