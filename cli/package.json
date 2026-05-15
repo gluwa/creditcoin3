@@ -34,7 +34,7 @@
         "test:archiver": "jest --config src/test/archiver-tests.config.ts --silent --verbose --runInBand --forceExit src/test/archiver-tests"
     },
     "devDependencies": {
-        "@gluwa/usc-sdk": "0.12.1",
+        "@gluwa/usc-sdk": "0.12.2",
         "@polkadot/typegen": "16.5.2",
         "@types/graphqurl": "^1.0.3",
         "@types/jest": "29.5.14",
