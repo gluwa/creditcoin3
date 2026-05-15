@@ -12,7 +12,7 @@ pub struct StreamCC3 {
 }
 
 impl StreamCC3 {
-    pub async fn new(config: Config) -> Result<Self, Error> {
+    pub async fn new(mut config: Config) -> Result<Self, Error> {
         use arc_swap::access::Access as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
@@ -21,22 +21,13 @@ impl StreamCC3 {
         let mut latest = blocks.at_latest().await.map_err(Error::Subxt)?.number();
         let mut finalized = blocks.subscribe_finalized().await.map_err(Error::Subxt)?;
 
-        let mut strategy = util::exponential_retry_delay();
         let mut backfill = Vec::with_capacity(16);
         let mut err = Ok(());
 
         let stream = async_stream::stream! {
             'retry: loop {
                 if let Err(ref err_new) = err {
-                    tracing::warn!(?err_new, "CC3 connection lost...");
-
-                    let delay = strategy.next().unwrap_or(util::MAX_DELAY);
-                    tokio::time::sleep(delay).await;
-
-                    if let Err(err_new) = config.cc3.reconnect().await {
-                        tracing::warn!(?err_new, "Failed to reconnect to CC3");
-                        continue 'retry;
-                    }
+                    config.cc3.reconnect(err_new).await;
 
                     let blocks = config.cc3.api().load().blocks();
                     finalized = match blocks.subscribe_finalized().await {
@@ -47,9 +38,7 @@ impl StreamCC3 {
                         }
                     };
 
-                    tracing::warn!("Reconnected to CC3!");
-
-                    strategy = util::exponential_retry_delay();
+                    config.cc3.reset_connection_delay();
                 }
                 match finalized.try_next().await {
                     Ok(Some(block)) => {
@@ -171,15 +160,5 @@ impl futures::Stream for StreamEvents {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         self.stream.as_mut().poll_next(cx)
-    }
-}
-
-mod util {
-    pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
-
-    pub fn exponential_retry_delay() -> impl Iterator<Item = std::time::Duration> {
-        tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-            .max_delay(MAX_DELAY)
-            .map(tokio_retry::strategy::jitter)
     }
 }
