@@ -26,20 +26,24 @@ impl StreamCC3 {
 
         let stream = async_stream::stream! {
             'retry: loop {
-                if let Err(ref err_new) = err {
-                    config.cc3.reconnect(err_new).await;
+                match err {
+                    Err(Error::Subxt(ref err_new)) => {
+                        config.cc3.reconnect(&err_new).await;
 
-                    let blocks = config.cc3.api().load().blocks();
-                    finalized = match blocks.subscribe_finalized().await {
-                        Ok(finalized_new) => finalized_new,
-                        Err(err_new) => {
-                            tracing::warn!(?err_new, "Failed to re-subsribe to CC3");
-                            continue 'retry;
-                        }
-                    };
+                        let blocks = config.cc3.api().load().blocks();
+                        finalized = match blocks.subscribe_finalized().await {
+                            Ok(finalized_new) => finalized_new,
+                            Err(err_new) => {
+                                tracing::warn!(?err_new, "Failed to re-subsribe to CC3");
+                                continue 'retry;
+                            }
+                        };
 
-                    config.cc3.reset_connection_delay();
-                }
+                        config.cc3.reset_connection_delay();
+                    }
+                    Err(err) => panic!("Unrecoverable error: {err}"),
+                    Ok(_) => {}
+                };
                 match finalized.try_next().await {
                     Ok(Some(block)) => {
                         let events = match block.events().await {
