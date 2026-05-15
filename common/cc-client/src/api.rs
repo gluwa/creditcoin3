@@ -1,3 +1,4 @@
+use arc_swap::access::Access;
 use user::prelude::*;
 
 /// Auto-reconnecting substrate [`RuntimeApi`].
@@ -22,7 +23,7 @@ pub struct ReconnectingRuntimeApi<'a> {
 
 impl<'a> ReconnectingRuntimeApi<'a> {
     pub async fn new(client: &'a mut crate::Client) -> Result<Self, Interrupt<crate::Error>> {
-        let runtime_api = match client.api().runtime_api().at_latest().await {
+        let runtime_api = match client.api().load().runtime_api().at_latest().await {
             Ok(runtime_api) => runtime_api,
             Err(err) => reconnect(client, err).await?,
         };
@@ -78,6 +79,7 @@ async fn reconnect(
 
             let runtime_api = client
                 .api()
+                .load()
                 .runtime_api()
                 .at_latest()
                 .await

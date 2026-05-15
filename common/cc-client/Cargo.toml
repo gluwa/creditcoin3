@@ -35,7 +35,7 @@ vrf = { workspace = true }
 serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 tokio-retry = { workspace = true }
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }
