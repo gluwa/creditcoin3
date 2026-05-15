@@ -88,6 +88,7 @@ pub enum Error {
 pub struct Client {
     signer: signer::CC3Signer,
     url: String,
+    delay: tokio_retry::strategy::ExponentialBackoff,
 
     inner: Arc<ArcSwap<ClientInner>>,
 }
@@ -115,11 +116,13 @@ impl Client {
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
         let signer = signer::CC3Signer::new(key)?;
         let url = url.into();
+        let delay = util::exponential_retry_delay();
         let inner = ClientInner::new(&url).await?;
 
         Ok(Self {
             signer,
             url,
+            delay,
             inner: Arc::new(ArcSwap::new(Arc::new(inner))),
         })
     }
@@ -131,10 +134,28 @@ impl Client {
     /// every continuity builder) can call this without coordination, and all
     /// callers immediately observe the new connection on their next
     /// `api()`/`legacy()`/`rpc()` access.
-    pub async fn reconnect(&self) -> Result<(), Error> {
-        let new = ClientInner::new(&self.url).await?;
-        self.inner.store(Arc::new(new));
-        Ok(())
+    pub async fn reconnect(&mut self, err: impl std::fmt::Debug) {
+        loop {
+            tracing::warn!(?err, "CC3 connection lost...");
+
+            let delay = self.delay.next().unwrap_or(util::MAX_DELAY);
+            tokio::time::sleep(tokio_retry::strategy::jitter(delay)).await;
+
+            match ClientInner::new(&self.url).await {
+                Ok(inner) => {
+                    self.inner.store(Arc::new(inner));
+                    tracing::warn!("Reconnected to CC3!");
+                    break;
+                }
+                Err(err) => {
+                    tracing::warn!(?err, "Failed to reconnect to CC3");
+                }
+            }
+        }
+    }
+
+    pub fn reset_connection_delay(&mut self) {
+        self.delay = util::exponential_retry_delay();
     }
 
     /// Create a new read-only instance of cc3 client that doesn't require a keypair.
@@ -438,14 +459,14 @@ impl Client {
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Register Attestor").await
+        util::handle_tx(tx_progress, "Register Attestor").await
     }
 
     pub async fn attestor_chill(
@@ -474,14 +495,14 @@ impl Client {
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Chill Attestor").await
+        util::handle_tx(tx_progress, "Chill Attestor").await
     }
 
     pub async fn attestor_unregister(
@@ -513,14 +534,14 @@ impl Client {
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Unregister Attestor").await
+        util::handle_tx(tx_progress, "Unregister Attestor").await
     }
 
     pub async fn start_attesting(
@@ -542,14 +563,14 @@ impl Client {
             .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Start Attesting").await
+        util::handle_tx(tx_progress, "Start Attesting").await
     }
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
@@ -875,14 +896,14 @@ impl Client {
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Transfer").await
+        util::handle_tx(tx_progress, "Transfer").await
     }
 
     pub async fn set_balance(
@@ -917,14 +938,14 @@ impl Client {
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Set Balance").await
+        util::handle_tx(tx_progress, "Set Balance").await
     }
 
     pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
@@ -1047,7 +1068,7 @@ impl ClientInner {
     }
 }
 
-mod utils {
+mod util {
     /// Timeout for waiting on extrinsic finalization.
     /// Set to 120 seconds which is around 8 blocks on a 15 second block time.
     const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
@@ -1055,6 +1076,12 @@ mod utils {
     /// This is a fallback error message that we can use to detect insufficient funds errors in the absence of a more structured error from the RPC layer.
     /// Sourced from: <https://github.com/paritytech/polkadot-sdk/blob/06bded7ab7ac6a50e0aeba48c0f7f5ca548c3573/substrate/primitives/runtime/src/transaction_validity.rs#L116>
     const INABILITY_TO_PAY_SOME_FEE_MSG: &str = "Inability to pay some fee";
+
+    pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
+
+    pub fn exponential_retry_delay() -> tokio_retry::strategy::ExponentialBackoff {
+        tokio_retry::strategy::ExponentialBackoff::from_millis(100).max_delay(MAX_DELAY)
+    }
 
     pub(super) async fn handle_tx(
         tx: subxt::tx::TxProgress<
