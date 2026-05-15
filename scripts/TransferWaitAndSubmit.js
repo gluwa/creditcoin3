@@ -20,7 +20,6 @@
 
 const { proofGenerator } = require('@gluwa/usc-sdk');
 const { ethers } = require('ethers');
-const { ApiPromise, WsProvider } = require('@polkadot/api');
 const {
     DEFAULT_SOURCE_RPC_URL,
     DEVNET_SOURCE_RPC_URL,
@@ -31,8 +30,6 @@ const {
     DEFAULT_API_URL,
     getChainKeyFromChainId,
     sendTransfer,
-    waitForAttestation,
-    waitForCreditcoin3Blocks,
     fetchProof,
     convertProofFormat,
     submitToPrecompile,
