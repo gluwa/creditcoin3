@@ -92,7 +92,7 @@ fn parse_api_path(path: &str) -> (Option<&str>, Option<u64>, usize) {
     let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
     // parts[0] = "api"
     // parts[1] = "v1"
-    // parts[2] = "proof" or "proof-by-tx" or "proof-batch" or "proof-batch-by-tx"
+    // parts[2] = "proof" or "proof-by-tx" or "proof-batch" or "proof-batch-by-tx" or "attested-height"
     // parts[3] = chain_key
     // parts[4+] = additional path segments
 
@@ -119,6 +119,7 @@ fn extract_endpoint_from_matched_path(matched_path: &str) -> Option<Endpoint> {
         "/api/v1/proof-by-tx/{chain_key}/{tx_hash}" => Some(Endpoint::ProofByTxHash),
         "/api/v1/proof-batch/{chain_key}" => Some(Endpoint::ProofBatch),
         "/api/v1/proof-batch-by-tx/{chain_key}" => Some(Endpoint::ProofBatchByTxHash),
+        "/api/v1/attested-height/{chain_key}" => Some(Endpoint::AttestedHeight),
         "/metrics" => None, // Metrics endpoint doesn't need endpoint classification
         _ => None,
     }
@@ -147,6 +148,14 @@ fn extract_endpoint_from_path(uri: &Uri) -> Option<Endpoint> {
             // parts_count includes: "api", "v1", "proof-batch", "chain_key"
             if parts_count == 4 {
                 Some(Endpoint::ProofBatch)
+            } else {
+                None
+            }
+        }
+        Some("attested-height") => {
+            // parts_count includes: "api", "v1", "attested-height", "chain_key"
+            if parts_count == 4 {
+                Some(Endpoint::AttestedHeight)
             } else {
                 None
             }
