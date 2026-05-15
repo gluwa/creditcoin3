@@ -6368,16 +6368,19 @@ mod revert_to {
     }
 
     #[test]
-    fn checkpoint_if_stable_fails_closed_during_revert_pruning_window() {
+    fn checkpoint_if_stable_gates_stale_pivots_during_revert_pruning_window() {
         // Repro: `do_revert_to` only synchronously prunes the bucket containing
         // `checkpoint_height`. Buckets at higher pivots stay populated until
         // `on_init_prune_checkpoints` drains them, MAX_CHECKPOINTS_CLEARED_PER_BLOCK
         // entries at a time. Consumers using `Checkpoints` as a trust anchor
         // (block-prover precompile) must not see those stale digests.
         //
-        // `checkpoint_if_stable` fails closed on the whole chain while a
-        // CheckpointPruningStates entry exists, then returns the valid post-revert
-        // checkpoint once pruning drains.
+        // `checkpoint_if_stable` gates per-pivot: heights whose pivot is `>=
+        // state.next_pivot` are treated as untrusted (still potentially holding
+        // stale post-revert digests), but heights in pivots already drained —
+        // including the revert bucket itself, which `do_revert_to` cleaned
+        // synchronously — remain readable so legitimate consumers are not
+        // taken offline for the whole pruning window.
         let revert_height: u64 = 0;
         let added_checkpoints = MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10;
         let mut test_ext = ExtBuilder.build();
@@ -6447,10 +6450,16 @@ mod revert_to {
                     "sanity: stale checkpoint must still be in storage during pruning window",
                 );
 
-                // ...but the helper fails closed for every height on this chain,
-                // including the revert anchor itself. This is the documented
-                // semantics: callers needing a trust anchor must wait for async
-                // pruning to drain before relying on checkpoint storage again.
+                // ...and the helper gates them, because their pivot is `>=
+                // state.next_pivot` (still pending async prune).
+                let pruning_state =
+                    CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY).unwrap();
+                let stale_pivot =
+                    Pallet::<Test>::compute_block_index_for(stale_height_above_revert);
+                assert!(
+                    stale_pivot >= pruning_state.next_pivot,
+                    "sanity: stale height must live in a pivot at or above next_pivot",
+                );
                 assert_eq!(
                     Pallet::<Test>::checkpoint_if_stable(
                         SUPPORTED_CHAIN_KEY,
@@ -6459,10 +6468,22 @@ mod revert_to {
                     None,
                     "stale post-revert checkpoint must not be returned as a trust anchor",
                 );
+
+                // The revert anchor lives in the bucket `do_revert_to` cleaned
+                // synchronously, so it is already safe to expose. Bucket-granular
+                // gating keeps the precompile online for valid checkpoints during
+                // the pruning window.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                let revert_pivot = Pallet::<Test>::compute_block_index_for(revert_height);
+                assert!(
+                    revert_pivot < pruning_state.next_pivot,
+                    "sanity: revert anchor must live below next_pivot after revert",
+                );
                 assert_eq!(
                     Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, revert_height),
-                    None,
-                    "fail-closed: even the revert anchor is gated until pruning drains",
+                    Some(revert_digest),
+                    "revert anchor is in a sync-cleaned bucket and must stay readable",
                 );
             })
             .then_run(|| {
