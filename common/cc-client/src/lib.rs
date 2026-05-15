@@ -1040,7 +1040,7 @@ impl Client {
 
 impl ClientInner {
     async fn new(url: &str) -> Result<Self, Error> {
-        let rpc = RpcClient::from_insecure_url(&url).await?;
+        let rpc = RpcClient::from_insecure_url(url).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc).await?;
 
         Ok(Self { api })
