@@ -472,6 +472,18 @@ impl Metrics {
             .inc();
     }
 
+    /// Observe time-to-quorum for one height. Same observation that
+    /// `MetricsAttestationPool::update_attestation_delay_quorum` produces; exposed as an
+    /// inherent pub method so consumers don't need to import the legacy pool's trait.
+    pub fn observe_quorum_delay(&self, delay: std::time::Duration) {
+        self.0
+            .metrics_delay
+            .get_or_create(&labels::LabelAttestationLifecycle {
+                lifecycle: labels::AttestationLifecycle::Quorum,
+            })
+            .observe(delay.as_secs_f64());
+    }
+
     pub fn increase_equivocation_count(&self) {
         self.0
             .metrics_error
@@ -500,17 +512,17 @@ impl Metrics {
     }
 }
 
-impl attestation_pool::MetricsAttestationPool for Metrics {
-    fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
-        self.0
-            .metrics_delay
-            .get_or_create(&labels::LabelAttestationLifecycle {
-                lifecycle: labels::AttestationLifecycle::Quorum,
-            })
-            .observe(delay.as_secs_f64());
+impl Metrics {
+    /// Quorum-delay histogram: time from first vote to quorum being observed for a height.
+    /// Inherent pub method (used to be behind a crate-private trait in the legacy pool).
+    /// Note: a thinner inherent helper `observe_quorum_delay` exists above with the same
+    /// semantics — kept for backward compatibility, both record into the same Histogram.
+    pub fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
+        self.observe_quorum_delay(delay);
     }
 
-    fn update_attestation_delay_finalization(&self, delay: std::time::Duration) {
+    /// Finalization-delay histogram: time from first vote to on-chain finalization.
+    pub fn update_attestation_delay_finalization(&self, delay: std::time::Duration) {
         self.0
             .metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
