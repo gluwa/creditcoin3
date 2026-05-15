@@ -8,9 +8,6 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-# Attestor
-attestation_pool = { path = "../pool" }
-
 # Creditcoin
 attestor-primitives = { workspace = true }
 builder = { workspace = true }
