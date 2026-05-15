@@ -365,11 +365,14 @@ where
     /// as a continuity-proof trust anchor.
     ///
     /// Delegates to [`pallet_attestation::Pallet::checkpoint_if_stable`], which
-    /// fails closed (returns `None`) while a chain reversion is in flight for the
-    /// given `chain_key`. This closes a soundness gap where `do_revert_to` only
+    /// gates per-pivot while a chain reversion is in flight for the given
+    /// `chain_key`. This closes a soundness gap where `do_revert_to` only
     /// synchronously purges the bucket containing `checkpoint_height`, leaving
     /// stale checkpoints at higher pivots readable until `on_init_prune_checkpoints`
     /// finishes draining them at `MAX_CHECKPOINTS_CLEARED_PER_BLOCK` per block.
+    /// Heights in pivots already drained (including the revert bucket itself,
+    /// which is cleaned synchronously) remain readable so verification of
+    /// pre-revert proofs is not interrupted for the whole pruning window.
     ///
     /// Gas: charges `GAS_STORAGE_LOOKUP` twice, once for the `CheckpointPruningStates`
     /// guard read and once for the `Checkpoints` read itself. Both reads happen
