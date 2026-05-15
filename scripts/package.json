@@ -12,8 +12,9 @@
         "typecheck": "echo"
     },
     "dependencies": {
-        "ethers": "^6.16.0",
-        "@polkadot/api": "16.5.2"
+        "@gluwa/usc-sdk": "0.12.2",
+        "@polkadot/api": "16.5.2",
+        "ethers": "^6.16.0"
     },
     "devDependencies": {
         "eslint": "^8.57.0",
