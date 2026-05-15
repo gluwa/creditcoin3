@@ -17,6 +17,21 @@ pub mod provider;
 // Re-export block types for convenience
 pub use block::{Block, ContinuityBlock, ContinuityProof};
 
+/// Number of source-chain blocks covered by a single `CheckpointBuckets` pivot
+/// in `pallet-attestation`. Off-chain consumers (cc-client, prover API) need
+/// this to mirror the on-chain `checkpoint_if_stable` bucket-granular gating
+/// when reading checkpoints during a revert pruning window; see
+/// `pallets/attestation/src/impls.rs::checkpoint_if_stable`.
+///
+/// Must stay in sync with `pallet_attestation::CHECKPOINT_BUCKET_SIZE`.
+pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
+
+/// Pivot (bucket lower bound) for `block_number` under [`CHECKPOINT_BUCKET_SIZE`].
+#[must_use]
+pub const fn checkpoint_pivot(block_number: u64) -> u64 {
+    block_number - (block_number % CHECKPOINT_BUCKET_SIZE)
+}
+
 use crate::bls::{Bls, CryptoScheme};
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, Debug, TypeInfo)]

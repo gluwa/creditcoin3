@@ -150,6 +150,28 @@ pub trait CcRpcProvider: Send + Sync {
     async fn get_checkpoints_for_chain(&self, chain_key: u64)
         -> Result<Vec<AttestationCheckpoint>>;
 
+    /// Fetch all checkpoints for a chain, dropping any entry whose bucket is
+    /// still pending async pruning during an in-flight chain reversion.
+    ///
+    /// Mirrors the bucket-granular gate implemented on-chain by
+    /// `pallet_attestation::Pallet::checkpoint_if_stable`: heights whose pivot
+    /// is `>= state.next_pivot` of the current
+    /// `pallet_attestation::CheckpointPruningStates` entry are filtered out.
+    /// Heights in the sync-cleaned revert bucket and in already-drained
+    /// buckets stay readable. When no reversion is in flight this returns the
+    /// same set as [`Self::get_checkpoints_for_chain`].
+    ///
+    /// Off-chain consumers that cache checkpoints for use as continuity-proof
+    /// trust anchors (notably the prover API startup cache load) should call
+    /// this instead of [`Self::get_checkpoints_for_chain`]. Otherwise a
+    /// startup that races a reversion can seed the cache with stale
+    /// post-revert digests that the on-chain verifier will reject once the
+    /// async pruning settles.
+    async fn get_stable_checkpoints_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<AttestationCheckpoint>>;
+
     /// Get a specific checkpoint by block height.
     async fn get_checkpoint_by_height(
         &self,
@@ -277,6 +299,15 @@ impl CcRpcProvider for CcClient {
         self.get_checkpoints_for_chain(chain_key)
             .await
             .context("Failed to fetch checkpoints")
+    }
+
+    async fn get_stable_checkpoints_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        self.get_stable_checkpoints_for_chain(chain_key)
+            .await
+            .context("Failed to fetch stable checkpoints")
     }
 
     async fn get_checkpoint_by_height(

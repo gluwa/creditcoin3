@@ -27,9 +27,9 @@ use cc3::runtime_types::{
 };
 
 use attestor_primitives::{
-    block::ContinuityProof, Attestation as RpcAttestation, AttestationCheckpoint, AttestationData,
-    AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
-    SignedAttestation,
+    block::ContinuityProof, checkpoint_pivot, Attestation as RpcAttestation, AttestationCheckpoint,
+    AttestationData, AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion,
+    ChainKey, Digest, SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
 use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
@@ -819,6 +819,105 @@ impl Client {
                     chain_key, kv
                 );
             }
+        }
+
+        checkpoints.sort_by(|a: &AttestationCheckpoint, b: &AttestationCheckpoint| {
+            // Highest to lowest by comparing b to a
+            b.block_number.cmp(&a.block_number)
+        });
+
+        Ok(checkpoints)
+    }
+
+    /// Like [`Self::get_checkpoints_for_chain`], but filters out heights whose
+    /// bucket pivot is still pending async pruning during a chain reversion.
+    /// Mirrors the bucket-granular gating implemented on-chain by
+    /// `pallet_attestation::Pallet::checkpoint_if_stable`.
+    ///
+    /// `do_revert_to` synchronously cleans the bucket containing
+    /// `checkpoint_height`, but buckets at higher pivots are drained
+    /// asynchronously by `on_init_prune_checkpoints` at
+    /// `MAX_CHECKPOINTS_CLEARED_PER_BLOCK` entries per block. During that
+    /// window the raw `Checkpoints` storage map still contains stale
+    /// post-revert digests. Off-chain consumers (notably the prover API
+    /// startup cache load) that read raw storage would otherwise seed their
+    /// caches with those stale digests, then serve continuity-proof anchors
+    /// the on-chain verifier would reject after the async pruning settles.
+    ///
+    /// This method:
+    ///
+    /// 1. Pins a single best-known block hash for both reads.
+    /// 2. Fetches the chain's [`CheckpointPruningState`] at that hash.
+    /// 3. Iterates [`Checkpoints`] at the same hash and drops any entry whose
+    ///    pivot is `>= state.next_pivot`. Heights in the revert bucket itself
+    ///    (sync-cleaned) and in already-drained buckets stay readable, so a
+    ///    consumer warming its cache during a reversion gets exactly the
+    ///    on-chain stable set instead of an inconsistent snapshot.
+    pub async fn get_stable_checkpoints_for_chain(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Vec<AttestationCheckpoint>, Error> {
+        // Pin a block ref so the pruning state and the checkpoint iterator
+        // are read against the same chain state. Without this, a revert event
+        // landing between the two reads could leave us with a pruning state
+        // from block N and checkpoints from block N+k.
+        let block = self.api().blocks().at_latest().await?;
+        let storage = block.storage();
+
+        let pruning_state = storage
+            .fetch(
+                &cc3::storage()
+                    .attestation()
+                    .checkpoint_pruning_states(chain_key),
+            )
+            .await?;
+        let next_pivot = pruning_state.as_ref().map(|s| s.next_pivot);
+
+        let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
+        let mut iter = storage.iter(address).await?;
+
+        let mut checkpoints = Vec::new();
+        let mut filtered = 0usize;
+        while let Some(Ok(kv)) = iter.next().await {
+            if kv.key_bytes.len() < 8 {
+                error!(
+                    "Storage key for chainkey {} is less than 8 bytes, checkpoint: {:?}",
+                    chain_key, kv
+                );
+                continue;
+            }
+            let last_8: Result<[u8; 8], _> = kv.key_bytes[kv.key_bytes.len() - 8..].try_into();
+            let Ok(block_number_bytes) = last_8 else {
+                error!(
+                    "Failed to get last 8 bytes of storage key for chainkey {}, checkpoint: {:?}",
+                    chain_key, kv
+                );
+                continue;
+            };
+            // Substrate encodes u64 as little-endian when using Identity hasher
+            let block_number = u64::from_le_bytes(block_number_bytes);
+
+            if let Some(next_pivot) = next_pivot {
+                if checkpoint_pivot(block_number) >= next_pivot {
+                    filtered += 1;
+                    continue;
+                }
+            }
+
+            checkpoints.push(AttestationCheckpoint {
+                block_number,
+                digest: sp_core::H256::from(kv.value.0),
+            });
+        }
+
+        if let Some(next_pivot) = next_pivot {
+            debug!(
+                chain_key,
+                next_pivot,
+                filtered,
+                kept = checkpoints.len(),
+                "get_stable_checkpoints_for_chain: chain reversion in flight, filtered stale checkpoints"
+            );
         }
 
         checkpoints.sort_by(|a: &AttestationCheckpoint, b: &AttestationCheckpoint| {

@@ -205,14 +205,25 @@ impl ContinuityService {
                 "🚀 ✅ ContinuityService chain initialized with attestation genesis block"
             );
 
-            // Populate checkpoint cache from CC3 on startup.
+            // Populate checkpoint cache from CC3 on startup. We deliberately
+            // use the bucket-granular gated variant so a startup that races a
+            // chain reversion does not seed the cache with stale post-revert
+            // checkpoint digests. Those digests are still physically present
+            // in raw `pallet_attestation::Checkpoints` storage until
+            // `on_init_prune_checkpoints` finishes draining higher pivots
+            // asynchronously; if we cached them the prover API would happily
+            // serve continuity proofs anchored at exactly the checkpoints the
+            // revert was meant to invalidate, until the next `BlockAttested` /
+            // `CheckpointReached` / `RevertedAttestationChainTo` event
+            // rewrites the cache. Mirrors the on-chain gate added in
+            // `pallet_attestation::Pallet::checkpoint_if_stable`.
             tracing::debug!(
                 chain_key,
                 "🚀 ⏳ 📝 Populating checkpoint cache from CC3 (this may take a while)..."
             );
             let checkpoints = builder
                 .cc_provider
-                .get_checkpoints_for_chain(chain_key)
+                .get_stable_checkpoints_for_chain(chain_key)
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!(

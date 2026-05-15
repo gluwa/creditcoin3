@@ -823,6 +823,131 @@ mod tests {
         assert!(cp.contains_key(&0));
     }
 
+    /// `CcRpcProvider` that returns a different set from
+    /// `get_stable_checkpoints_for_chain` than from
+    /// `get_checkpoints_for_chain`. Models an in-flight chain reversion where
+    /// the on-chain bucket-granular gate (`Pallet::checkpoint_if_stable`)
+    /// would filter out some heights still physically present in raw storage.
+    struct ReversionInFlightCcProvider {
+        delegate: Arc<continuity::mocks::MockCcRpcProvider>,
+        stable_block_numbers: std::collections::BTreeSet<u64>,
+    }
+
+    #[async_trait]
+    impl continuity::rpc::CcRpcProvider for ReversionInFlightCcProvider {
+        async fn get_attestations_for_chain(
+            &self,
+            chain_key: u64,
+        ) -> Result<Vec<attestor_primitives::SignedAttestation<H256, cc_client::AccountId32>>>
+        {
+            self.delegate.get_attestations_for_chain(chain_key).await
+        }
+        async fn get_last_checkpoint(
+            &self,
+            chain_key: u64,
+        ) -> Result<Option<attestor_primitives::AttestationCheckpoint>> {
+            self.delegate.get_last_checkpoint(chain_key).await
+        }
+        async fn get_checkpoints_for_chain(
+            &self,
+            chain_key: u64,
+        ) -> Result<Vec<attestor_primitives::AttestationCheckpoint>> {
+            // Unfiltered: includes stale post-revert digests. Startup must NOT
+            // call this path; if it does, the test fails because the stale
+            // entries end up in the cache.
+            self.delegate.get_checkpoints_for_chain(chain_key).await
+        }
+        async fn get_stable_checkpoints_for_chain(
+            &self,
+            chain_key: u64,
+        ) -> Result<Vec<attestor_primitives::AttestationCheckpoint>> {
+            // Filtered: the on-chain gate has dropped stale-pivot digests.
+            let all = self.delegate.get_checkpoints_for_chain(chain_key).await?;
+            Ok(all
+                .into_iter()
+                .filter(|cp| self.stable_block_numbers.contains(&cp.block_number))
+                .collect())
+        }
+        async fn get_checkpoint_by_height(
+            &self,
+            chain_key: u64,
+            block_number: u64,
+        ) -> Result<Option<attestor_primitives::AttestationCheckpoint>> {
+            self.delegate
+                .get_checkpoint_by_height(chain_key, block_number)
+                .await
+        }
+        async fn get_attestation_chain_genesis_block_number(&self, chain_key: u64) -> Result<u64> {
+            self.delegate
+                .get_attestation_chain_genesis_block_number(chain_key)
+                .await
+        }
+        async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>> {
+            self.delegate.fetch_last_digest(chain_key).await
+        }
+        async fn get_attestation_by_digest(
+            &self,
+            chain_key: u64,
+            digest: H256,
+        ) -> Result<Option<attestor_primitives::SignedAttestation<H256, cc_client::AccountId32>>>
+        {
+            self.delegate
+                .get_attestation_by_digest(chain_key, digest)
+                .await
+        }
+        async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>> {
+            self.delegate.get_attestation_interval(chain_key).await
+        }
+        async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u64>> {
+            self.delegate.get_checkpoint_interval(chain_key).await
+        }
+    }
+
+    #[tokio::test]
+    async fn startup_uses_stable_checkpoints_and_drops_stale_pivots() {
+        // Regression for the prover-API companion to the on-chain
+        // `checkpoint_if_stable` gate: when the prover API boots while a
+        // chain reversion is in flight, the checkpoint cache must be seeded
+        // from the gated read so we never cache a stale post-revert digest.
+        //
+        // The mock produces checkpoints at 0, 100, 200, ..., 1000. We model
+        // a reversion where heights > 500 still live in raw storage but the
+        // on-chain gate has dropped them. The stable set therefore contains
+        // only {0, 100, ..., 500}; the prover API cache must match exactly.
+        let chain_key = 2;
+        let (mock_cc, eth_provider) = continuity::mocks::make_mock_providers(chain_key);
+        let stable: std::collections::BTreeSet<u64> = (0..=5).map(|i| i * 100).collect();
+        let cc_provider = Arc::new(ReversionInFlightCcProvider {
+            delegate: mock_cc,
+            stable_block_numbers: stable.clone(),
+        });
+
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
+            mock_config(chain_key),
+            cc_provider,
+            eth_provider,
+        ));
+        let svc = ContinuityService::new(vec![builder], NoopMetrics::new(), 10, 1_000)
+            .await
+            .expect("service init should succeed");
+
+        let chain = svc.chain_state(chain_key).unwrap();
+        let cp = chain.checkpoint_cache.read().await;
+
+        let cached: std::collections::BTreeSet<u64> = cp.keys().copied().collect();
+        assert_eq!(
+            cached, stable,
+            "checkpoint cache must contain exactly the stable set from the gated read; \
+             stale post-revert digests must not be present"
+        );
+        for stale_height in [600u64, 700, 800, 900, 1000] {
+            assert!(
+                !cp.contains_key(&stale_height),
+                "stale checkpoint at {stale_height} must not be cached on startup during a reversion",
+            );
+        }
+    }
+
     #[tokio::test]
     async fn batch_span_exceeding_limit_is_rejected() {
         // Set a tight max_batch_span of 50 blocks

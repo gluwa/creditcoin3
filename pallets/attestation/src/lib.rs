@@ -56,8 +56,11 @@ pub mod pallet {
     use sp_std::{fmt::Debug, vec::Vec};
     use supported_chains_primitives::provider::{OnRegisterChainProvider, SupportedChainsProvider};
 
-    // Amount of blocks tracked in a single checkpoint bucket
-    pub const CHECKPOINT_BUCKET_SIZE: u64 = 1000;
+    // Amount of blocks tracked in a single checkpoint bucket. Defined in
+    // [`attestor_primitives::CHECKPOINT_BUCKET_SIZE`] so off-chain consumers
+    // (cc-client, prover API) can mirror the bucket-granular gating used by
+    // [`Pallet::checkpoint_if_stable`] without depending on this pallet.
+    pub use attestor_primitives::CHECKPOINT_BUCKET_SIZE;
 
     /// The balance type of this pallet.
     pub type BalanceOf<T> = <T as Config>::CurrencyBalance;

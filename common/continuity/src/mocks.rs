@@ -148,6 +148,16 @@ impl CcRpcProvider for MockCcRpcProvider {
             .collect())
     }
 
+    async fn get_stable_checkpoints_for_chain(
+        &self,
+        chain_key: u64,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        // Default mock: no reversion in flight, identical to the unfiltered set.
+        // Tests that need to model an active revert pruning window should use a
+        // bespoke provider that overrides this method.
+        self.get_checkpoints_for_chain(chain_key).await
+    }
+
     async fn get_checkpoint_by_height(
         &self,
         _chain_key: u64,
