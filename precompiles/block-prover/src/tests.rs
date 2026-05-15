@@ -890,12 +890,13 @@ fn test_continuity_chain_with_checkpoint() {
 
 #[test]
 // Regression: while a chain reversion is in flight, the precompile must not
-// accept a continuity proof that terminates at a checkpoint. `do_revert_to`
-// only synchronously prunes the bucket containing `checkpoint_height`, so
-// checkpoints at higher pivots remain in storage until `on_init_prune_checkpoints`
-// drains them. The precompile previously read `Checkpoints` directly and would
-// accept these stale digests as a trust anchor.
-fn test_continuity_chain_checkpoint_gated_during_revert_pruning_window() {
+// accept a continuity proof that terminates at a checkpoint whose pivot has
+// not yet been drained. `do_revert_to` only synchronously prunes the bucket
+// containing `checkpoint_height`, so checkpoints at higher pivots remain in
+// storage until `on_init_prune_checkpoints` drains them. The precompile
+// previously read `Checkpoints` directly and would accept these stale digests
+// as a trust anchor.
+fn test_continuity_chain_checkpoint_gated_for_stale_pivots_during_revert_pruning_window() {
     ExtBuilder::default().build().execute_with(|| {
         // Model `test_continuity_chain_at_checkpoint_height`: a continuity chain
         // that terminates at a checkpoint (NOT an attestation). The query height
@@ -933,8 +934,10 @@ fn test_continuity_chain_checkpoint_gated_during_revert_pruning_window() {
         // that height, so the checkpoint is the only possible trust anchor.
         setup_checkpoint(chain_key, query_height + 1, next_digest);
 
-        // Simulate a chain reversion in flight: any non-empty pruning state for
-        // this chain key must make the precompile fail closed.
+        // Simulate a chain reversion in flight where the bucket holding
+        // `query_height + 1` is still pending async prune. `next_pivot == 0`
+        // means every pivot >= 0 is treated as untrusted, so the precompile
+        // must reject the checkpoint trust anchor.
         pallet_attestation::CheckpointPruningStates::<Runtime>::insert(
             chain_key,
             pallet_attestation::clear_or_revert::CheckpointPruningState {
@@ -962,6 +965,79 @@ fn test_continuity_chain_checkpoint_gated_during_revert_pruning_window() {
         // Once async pruning drains and the pruning state clears, the same
         // request succeeds again. This proves the gate is the only thing blocking.
         pallet_attestation::CheckpointPruningStates::<Runtime>::remove(chain_key);
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify {
+                    chain_key,
+                    height: query_height,
+                    encoded_transaction: tx_data.into(),
+                    merkle_proof,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
+                },
+            )
+            .execute_returns(true);
+    });
+}
+
+#[test]
+// Regression: while a chain reversion is in flight, checkpoints in pivots that
+// have already been drained (or were synchronously cleaned inside
+// `do_revert_to`) must remain usable as a trust anchor. Otherwise legitimate
+// continuity proofs anchored well below the revert height would be rejected
+// for the whole async pruning window, taking the precompile offline for valid
+// data.
+fn test_continuity_chain_checkpoint_accepted_for_stable_pivots_during_revert_pruning_window() {
+    use pallet_attestation::CHECKPOINT_BUCKET_SIZE;
+
+    ExtBuilder::default().build().execute_with(|| {
+        // Same shape as `test_continuity_chain_checkpoint_gated_during_revert_pruning_window`:
+        // a two-block continuity chain that terminates at a checkpoint (no
+        // attestation at the upper bound).
+        let query_height = 100;
+        let chain_key = 1u64;
+        let test_block = create_test_block(query_height, 4);
+        let tx_data = test_block.transactions[0].data.clone();
+        let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
+
+        let prev_digest = H256::zero();
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        let next_root = H256::from([0x99; 32]);
+        let next_digest = compute_test_digest(query_height + 1, &next_root, &digest);
+
+        let continuity_blocks = vec![
+            Block {
+                block_number: query_height,
+                root,
+                prev_digest,
+                digest,
+            },
+            Block {
+                block_number: query_height + 1,
+                root: next_root,
+                prev_digest: digest,
+                digest: next_digest,
+            },
+        ];
+
+        setup_checkpoint(chain_key, query_height + 1, next_digest);
+
+        // Pruning state with `next_pivot` strictly above the bucket holding
+        // `query_height + 1`. The checkpoint at that height lives in a pivot
+        // that has already been drained (or was sync-cleaned), so the
+        // bucket-granular gate must let the read through.
+        let checkpoint_pivot = (query_height + 1) - ((query_height + 1) % CHECKPOINT_BUCKET_SIZE);
+        pallet_attestation::CheckpointPruningStates::<Runtime>::insert(
+            chain_key,
+            pallet_attestation::clear_or_revert::CheckpointPruningState {
+                stop_height: u64::MAX,
+                next_pivot: checkpoint_pivot + CHECKPOINT_BUCKET_SIZE,
+            },
+        );
+
         precompiles()
             .prepare_test(
                 Account::Alice,

@@ -781,8 +781,8 @@ impl<T: Config> Pallet<T> {
             || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
     }
 
-    /// Return the checkpoint digest at `(chain_key, block_number)` **only** when no
-    /// chain reversion is currently in flight for `chain_key`.
+    /// Return the checkpoint digest at `(chain_key, block_number)` **only** when the
+    /// containing bucket is known to be free of stale post-revert entries.
     ///
     /// `revert_to` synchronously purges checkpoints above the revert height **only**
     /// inside the bucket containing `checkpoint_height`. Buckets at higher pivots are
@@ -792,15 +792,30 @@ impl<T: Config> Pallet<T> {
     /// post-revert digests that consumers using checkpoints as a trust anchor (e.g.
     /// the `block-prover` precompile) must not accept.
     ///
-    /// Fail-closed semantics: while [`CheckpointPruningStates`] has an entry for
-    /// `chain_key`, this returns `None` for **every** height on that chain, including
-    /// the revert anchor itself. Callers that need a stable trust anchor must wait
-    /// for async pruning to drain before relying on checkpoint storage again.
+    /// Bucket-granular gating: when [`CheckpointPruningStates`] has an entry for
+    /// `chain_key`, a height is considered stable iff its pivot is strictly below
+    /// `state.next_pivot`. That covers three safe cases:
+    ///
+    /// 1. Pivots below the original revert pivot — never touched by the revert.
+    /// 2. The original revert pivot itself — synchronously cleaned inside
+    ///    `do_revert_to`, so any surviving entry is `<= checkpoint_height`.
+    /// 3. Pivots in `[checkpoint_pivot + CHECKPOINT_BUCKET_SIZE, state.next_pivot)` —
+    ///    already drained by `on_init_prune_checkpoints`.
+    ///
+    /// Pivots `>= state.next_pivot` are still potentially populated with stale
+    /// post-revert digests, so this returns `None` for any height in that range.
+    ///
+    /// `state.next_pivot` is initialized to `checkpoint_pivot + CHECKPOINT_BUCKET_SIZE`
+    /// and only advances, so the inequality is monotonic: once a height becomes
+    /// stable it stays stable for the rest of the pruning window.
+    ///
     /// Informational readers that do not gate consensus may keep using the raw
     /// [`Checkpoints`] storage directly.
     pub fn checkpoint_if_stable(chain_key: ChainKey, block_number: u64) -> Option<Digest> {
-        if CheckpointPruningStates::<T>::contains_key(chain_key) {
-            return None;
+        if let Some(state) = CheckpointPruningStates::<T>::get(chain_key) {
+            if Self::compute_block_index_for(block_number) >= state.next_pivot {
+                return None;
+            }
         }
         Checkpoints::<T>::get(chain_key, block_number)
     }
