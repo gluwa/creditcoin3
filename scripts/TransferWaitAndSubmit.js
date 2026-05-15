@@ -163,17 +163,11 @@ async function main() {
         console.log('STEP 2: Wait for Attestation');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        const proofGenApi = new proofGenerator.api.ProverAPIProofGenerator(
-            chainKey,
-            options.apiUrl
-        );
+        const proofGenApi = new proofGenerator.api.ProverAPIProofGenerator(chainKey, options.apiUrl);
 
         console.log(`⏳ Waiting for attestation of block ${blockNumber}...`);
 
-        await proofGenApi.waitUntilHeightAttested(
-            chainKey,
-            blockNumber
-        );
+        await proofGenApi.waitUntilHeightAttested(chainKey, blockNumber);
 
         console.log('✅ Attestation observed in proof server');
 
