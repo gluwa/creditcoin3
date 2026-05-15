@@ -14964,12 +14964,14 @@ name = "stream_cc3"
 version = "3.123.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "async-stream",
  "attestor-primitives",
  "builder",
  "cc-client",
  "futures 0.3.31",
  "subxt",
+ "tokio",
  "tokio-retry",
  "tracing",
 ]
