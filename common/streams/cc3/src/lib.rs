@@ -34,7 +34,7 @@ impl StreamCC3 {
                     tokio::time::sleep(delay).await;
 
                     if let Err(err_new) = config.cc3.reconnect().await {
-                        tracing::warn!(?err_new, "Failed reconnecting to CC3");
+                        tracing::warn!(?err_new, "Failed to reconnect to CC3");
                         continue 'retry;
                     }
 
@@ -42,7 +42,7 @@ impl StreamCC3 {
                     finalized = match blocks.subscribe_finalized().await {
                         Ok(finalized_new) => finalized_new,
                         Err(err_new) => {
-                            tracing::warn!(?err_new, "Failed re-subsribing to CC3");
+                            tracing::warn!(?err_new, "Failed to re-subsribe to CC3");
                             continue 'retry;
                         }
                     };
