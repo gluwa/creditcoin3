@@ -4309,14 +4309,21 @@ fn chilled_attestor_cannot_commit_attestation() {
     });
 }
 
-/// After an attestor signs off-chain and then chills + unregisters, their BLS key must remain
-/// available for aggregate verification until the unbond completes; otherwise valid attestations
-/// would fail with `InvalidAttestorFound`.
+/// After an attestor chills + unregisters, the threshold-counted set (active) and the
+/// BLS-aggregated set must agree. Pre-fix, the precompile counted active-only for threshold
+/// but aggregated everyone listed in the raw attestor vec (including the retired entry whose
+/// key was still resolvable via `RetiredAttestorBlsKeys`), letting an attestation with a
+/// post-retirement signer pass aggregate verification while the threshold check was satisfied
+/// only by the remaining active attestors. The fix gathers keys from the active eligible set,
+/// so an attestation listing a retired attestor as a co-signer now falls below threshold.
 #[test]
-fn validate_attestation_succeeds_when_signer_unregistered_but_key_retained() {
+fn validate_attestation_rejects_when_co_signer_is_retired() {
     ExtBuilder.build_and_execute(|| {
         let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
         let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
+
+        // Threshold = 2 so a single remaining active attestor cannot satisfy quorum on its own.
+        TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 2u32);
 
         assert_ok!(Attestation::register_attestor(
             attestor_a.stash.clone(),
@@ -4374,19 +4381,21 @@ fn validate_attestation_succeeds_when_signer_unregistered_but_key_retained() {
         ));
         assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
 
-        assert_ok!(Attestation::validate_attestation(
-            attestation.chain_key(),
-            &attestation
-        ));
+        // With `attestor_a` retired, only `attestor_b` remains in the active eligible set,
+        // which is below the threshold of 2.
+        assert_err!(
+            Attestation::validate_attestation(attestation.chain_key(), &attestation),
+            Error::<Test>::MajorityNotReached
+        );
     });
 }
 
-/// Same scenario as [`validate_attestation_succeeds_when_signer_unregistered_but_key_retained`], but
-/// exercises the full `commit_attestation` extrinsic (the path that originally failed with
-/// `InvalidAttestorFound` when the malicious signer had unregistered).
+/// Same scenario as [`validate_attestation_rejects_when_co_signer_is_retired`], but exercises the
+/// full `commit_attestation` extrinsic.
 #[test]
-fn commit_attestation_succeeds_when_co_signer_unregistered_but_key_retained() {
+fn commit_attestation_rejects_when_co_signer_is_retired() {
     ExtBuilder.build_and_execute(|| {
+        TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 2u32);
         let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
         let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
 
@@ -4441,15 +4450,15 @@ fn commit_attestation_succeeds_when_co_signer_unregistered_but_key_retained() {
             ATTESTOR_1
         ));
 
-        assert_ok!(Attestation::commit_attestation(
-            attestor_b.attestor_origin.clone(),
-            attestation.clone()
-        ));
-
-        assert_eq!(
-            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
-            Some(attestation)
+        assert_err!(
+            Attestation::commit_attestation(
+                attestor_b.attestor_origin.clone(),
+                attestation.clone()
+            ),
+            Error::<Test>::MajorityNotReached
         );
+
+        assert!(Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()).is_none());
     });
 }
 
@@ -8362,6 +8371,109 @@ mod bls_key_uniqueness {
                     .bls_public_key,
                 Some(shared.public_key)
             );
+        })
+    }
+
+    /// Raw `attestation.attestors` lists an attestor that is *not* in `ActiveAttestors`
+    /// (e.g. retired or never-activated). The threshold counts active-only, but a naive
+    /// `gather_attestor_public_keys` over the raw vec would still pull that BLS key in via
+    /// `Attestors`/`RetiredAttestorBlsKeys` and aggregate it. `validate_attestation` must
+    /// instead aggregate over the *active* eligible set so the threshold-counted set and the
+    /// BLS-aggregated set agree.
+    #[test]
+    fn validate_attestation_ignores_non_active_attestor_id_in_raw_list() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+            let ghost = Attestor::new(STASH_3, ATTESTOR_3);
+
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            // Two real active attestors.
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, att1.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, att2.public_key);
+
+            // `ghost` has an `Attestors` row with a resolvable BLS key but is intentionally
+            // *not* added to `ActiveAttestors` — simulates a freshly-retired or chilled
+            // attestor whose key is still queryable.
+            Attestors::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_3,
+                AttestorRecord {
+                    bls_public_key: Some(ghost.public_key),
+                    status: AttestorStatus::Idle,
+                    stash: STASH_3,
+                },
+            );
+
+            // Build an attestation listing all three (active + active + ghost) and a real
+            // 3-signer aggregate. Pre-fix: gather pulled `ghost`'s key, threshold of 3
+            // satisfied by active-set count of 2 → mismatch but signature still verified.
+            // Post-fix: gather only uses the active eligible set (size 2) → below threshold.
+            let attestation_inner = AttestationPrimitive {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                header_number: 0,
+                header_hash: H256::random(),
+                root: H256::from([0; 32]),
+                prev_digest: None,
+            };
+            let msg = attestation_inner.serialize();
+            let sig1 = bls_signatures::Signature::from_bytes(&att1.sign(&msg)[..]).unwrap();
+            let sig2 = bls_signatures::Signature::from_bytes(&att2.sign(&msg)[..]).unwrap();
+            let sig_ghost = bls_signatures::Signature::from_bytes(&ghost.sign(&msg)[..]).unwrap();
+            let aggregated = bls_signatures::aggregate(&[sig1, sig2, sig_ghost]).unwrap();
+
+            let signed = SignedAttestation {
+                attestation: attestation_inner,
+                signature: aggregated.as_bytes()[..].try_into().unwrap(),
+                attestors: vec![ATTESTOR_1, ATTESTOR_2, ATTESTOR_3],
+                continuity_proof: construct_fragment(None, RangeInclusive::new(1, 0)),
+            };
+
+            assert_noop!(
+                Attestation::validate_attestation(SUPPORTED_CHAIN_KEY, &signed),
+                Error::<Test>::MajorityNotReached
+            );
+        })
+    }
+
+    /// Raw `attestation.attestors` contains a duplicate `AccountId`. The threshold check
+    /// dedupes via `BTreeSet`, but a naive `gather_attestor_public_keys` over the raw vec
+    /// would double-aggregate that attestor's BLS key. `validate_attestation` must gather
+    /// from the deduplicated eligible set so this case can't slip past the BLS-key dedup
+    /// fallback either.
+    #[test]
+    fn validate_attestation_ignores_duplicate_attestor_id_in_raw_list() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+            let att3 = Attestor::new(STASH_3, ATTESTOR_3);
+
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, att1.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, att2.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, att3.public_key);
+
+            // Real 3-signer aggregate (each key signs once).
+            let signed_clean = create_signed_attestation(
+                vec![att1.clone(), att2.clone(), att3.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+
+            // Splice a duplicate `ATTESTOR_1` into the raw attestor list. Aggregate signature
+            // is unchanged — same three independent signers. With the fix, the duplicate is
+            // dropped by the active-set BTreeSet before key gather, so the aggregate matches.
+            let mut tampered = signed_clean.clone();
+            tampered.attestors = vec![ATTESTOR_1, ATTESTOR_1, ATTESTOR_2, ATTESTOR_3];
+
+            assert_ok!(Attestation::validate_attestation(
+                SUPPORTED_CHAIN_KEY,
+                &tampered
+            ));
         })
     }
 }
