@@ -1,112 +1,38 @@
+use attestor_primitives::{AttestorId, Digest, Height};
+
 #[derive(Debug)]
 pub enum Error {
-    Equivocation(attestor_primitives::AttestorId, attestor_primitives::Height),
-    NoSpaceLeft(attestor_primitives::AttestorId, attestor_primitives::Height),
-    Unauthorized(attestor_primitives::AttestorId, attestor_primitives::Height),
-    InvalidHeight(
-        attestor_primitives::AttestorId,
-        attestor_primitives::Height,
-        attestor_primitives::Height,
-    ),
-    InvalidDigest(
-        attestor_primitives::AttestorId,
-        attestor_primitives::Height,
-        attestor_primitives::Digest,
-    ),
-}
-
-impl Error {
-    pub fn log_error(self, digest: attestor_primitives::Digest) {
-        match self {
-            Self::InvalidHeight(attestor_id, height, last_finalized) => {
-                tracing::debug!(
-                    %attestor_id,
-                    ?digest,
-                    height,
-                    last_finalized,
-                    "Ignoring attestation with inadmissible height \
-                    (at or below finalized, or beyond catch-up window)"
-                );
-            }
-            Self::InvalidDigest(attestor_id, height, known_invalid_digest) => {
-                tracing::debug!(
-                    %attestor_id,
-                    ?digest,
-                    height,
-                    ?known_invalid_digest,
-                    "Ignoring attestation with a known invalid digest"
-                );
-            }
-            Self::NoSpaceLeft(attestor_id, height) => {
-                tracing::error!(
-                    %attestor_id,
-                    ?digest,
-                    height,
-                    "⛔ Pool is full, vote dropped"
-                );
-            }
-            Self::Equivocation(attestor_id, height) => {
-                tracing::error!(
-                    %attestor_id,
-                    ?digest,
-                    height,
-                    "⛔ Equivocation detected: attestor already voted at this height with a different digest"
-                );
-            }
-            Self::Unauthorized(attestor_id, height) => {
-                tracing::error!(
-                    %attestor_id,
-                    ?digest,
-                    height,
-                    "⛔ Unauthorized attestor vote rejected"
-                );
-            }
-        }
-    }
+    /// Vote came from an attestor not in the current active set.
+    Unauthorized(AttestorId, Height),
+    /// Vote height is below the latest finalized height or outside the catch-up window.
+    InvalidHeight(AttestorId, Height, Height),
+    /// Same attestor submitted two different digests at the same height.
+    Equivocation(AttestorId, Height),
+    /// Vote was already seen as invalid at this digest.
+    KnownInvalid(AttestorId, Height, Digest),
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Equivocation(address, height) => {
-                write!(
-                    f,
-                    "Attestor {address} \
-                    has already submitted a different vote \
-                    for source chain height {height}"
-                )
-            }
-            Self::NoSpaceLeft(address, height) => {
-                write!(
-                    f,
-                    "Failed to make more space for vote by attestor {address} \
-                    for source chain height {height}"
-                )
-            }
-            Self::Unauthorized(address, height) => {
-                write!(
-                    f,
-                    "Attestor {address} \
-                    is not part of the validator set \
-                    for source chain height {height}"
-                )
-            }
-            Self::InvalidHeight(address, height, last_finalized) => {
-                write!(
-                    f,
-                    "Attestor {address} \
-                    submitted vote at inadmissible height {height} \
-                    (last finalized: {last_finalized})"
-                )
-            }
-            Self::InvalidDigest(address, height, digest) => {
-                write!(
-                    f,
-                    "Attestor {address} \
-                    for source chain height {height} \
-                    with known invalid digest {digest}"
-                )
-            }
+            Self::Unauthorized(a, h) => write!(f, "unauthorized attestor {a} at height {h}"),
+            Self::InvalidHeight(a, h, finalized) => write!(
+                f,
+                "invalid height {h} from {a} (last finalized {finalized})"
+            ),
+            Self::Equivocation(a, h) => write!(f, "equivocation by {a} at height {h}"),
+            Self::KnownInvalid(a, h, d) => write!(f, "{a} re-sent known invalid vote {d} @ {h}"),
+        }
+    }
+}
+
+impl Error {
+    pub fn log_error(&self, digest: Digest) {
+        match self {
+            Self::Unauthorized(..) => tracing::warn!(?digest, %self, "🚫 unauthorized attestor"),
+            Self::InvalidHeight(..) => tracing::debug!(?digest, %self, "📛 vote outside window"),
+            Self::Equivocation(..) => tracing::error!(?digest, %self, "👯 equivocation"),
+            Self::KnownInvalid(..) => tracing::debug!(?digest, %self, "🚯 known invalid"),
         }
     }
 }
