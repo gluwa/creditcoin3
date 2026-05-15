@@ -1,17 +1,11 @@
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use serde::Serialize;
 use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::{
-        legacy::LegacyRpcMethods,
-        rpc::{RpcClient, RpcParams},
-    },
-    config::DefaultExtrinsicParamsBuilder,
-    error::RpcError,
-    OnlineClient, SubstrateConfig,
+    backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, error::RpcError, OnlineClient,
+    SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
@@ -27,9 +21,8 @@ use cc3::runtime_types::{
 };
 
 use attestor_primitives::{
-    block::ContinuityProof, Attestation as RpcAttestation, AttestationCheckpoint, AttestationData,
-    AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
-    SignedAttestation,
+    block::ContinuityProof, AttestationCheckpoint, AttestationData, AttestorId, AttestorStatus,
+    BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
 use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
@@ -44,7 +37,7 @@ use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 pub mod cc3 {}
 
 pub mod api;
-pub mod attestation;
+pub mod events;
 pub mod signer;
 
 pub type Randomness = [u8; 32];
@@ -79,17 +72,6 @@ pub enum Error {
     TransactionTimeout,
 }
 
-/// Inner mutable state of [`Client`]: the live subxt RPC handle and its
-/// derived `OnlineClient` / `LegacyRpcMethods`. Stored behind
-/// [`ArcSwap`] inside [`Client`] so that a successful [`Client::reconnect`]
-/// atomically replaces the live connection for *every* `Arc<Client>`
-/// holder at once.
-struct ClientInner {
-    rpc: RpcClient,
-    api: OnlineClient<SubstrateConfig>,
-    legacy: LegacyRpcMethods<SubstrateConfig>,
-}
-
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
@@ -102,26 +84,21 @@ struct ClientInner {
 /// design swapped fields on a value-cloned `Client`, which left other
 /// `Arc<Client>` holders pinned to a stale (and often `RestartNeeded`)
 /// connection until the process was restarted.
+#[derive(Clone)]
 pub struct Client {
     signer: signer::CC3Signer,
     url: String,
-    inner: ArcSwap<ClientInner>,
+
+    inner: Arc<ArcSwap<ClientInner>>,
 }
 
-impl Clone for Client {
-    /// Clone the client by snapshotting the *current* live connection into a
-    /// fresh `ArcSwap`. Note that the resulting `Client` has its own
-    /// `ArcSwap`: subsequent `reconnect()` calls on either side will not be
-    /// observed by the other. For shared-reconnect semantics, share an
-    /// `Arc<Client>` (every holder of the same `Arc<Client>` *does* see
-    /// reconnects atomically).
-    fn clone(&self) -> Self {
-        Self {
-            signer: self.signer.clone(),
-            url: self.url.clone(),
-            inner: ArcSwap::new(self.inner.load_full()),
-        }
-    }
+/// Inner mutable state of [`Client`]: the live subxt RPC handle and its
+/// derived `OnlineClient` / `LegacyRpcMethods`. Stored behind
+/// [`ArcSwap`] inside [`Client`] so that a successful [`Client::reconnect`]
+/// atomically replaces the live connection for *every* `Arc<Client>`
+/// holder at once.
+struct ClientInner {
+    api: OnlineClient<SubstrateConfig>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -137,23 +114,14 @@ impl Client {
     /// - `key`: secret phrase for a creditcoin key
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
         let signer = signer::CC3Signer::new(key)?;
-        let url: String = url.into();
-        let inner = Self::build_inner(&url).await?;
+        let url = url.into();
+        let inner = ClientInner::new(&url).await?;
 
         Ok(Self {
             signer,
             url,
-            inner: ArcSwap::new(Arc::new(inner)),
+            inner: Arc::new(ArcSwap::new(Arc::new(inner))),
         })
-    }
-
-    /// Open a fresh subxt connection (RPC + `OnlineClient` + `LegacyRpcMethods`)
-    /// against `url`. Used by both [`Client::new`] and [`Client::reconnect`].
-    async fn build_inner(url: &str) -> Result<ClientInner, Error> {
-        let rpc = RpcClient::from_insecure_url(url.to_owned()).await?;
-        let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
-        let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
-        Ok(ClientInner { rpc, api, legacy })
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
@@ -164,8 +132,8 @@ impl Client {
     /// callers immediately observe the new connection on their next
     /// `api()`/`legacy()`/`rpc()` access.
     pub async fn reconnect(&self) -> Result<(), Error> {
-        let inner = Self::build_inner(&self.url).await?;
-        self.inner.store(Arc::new(inner));
+        let new = ClientInner::new(&self.url).await?;
+        self.inner.store(Arc::new(new));
         Ok(())
     }
 
@@ -186,21 +154,8 @@ impl Client {
     /// calls return the fresh client; previously-snapshotted clients keep
     /// using the old connection until they're dropped.
     #[must_use]
-    pub fn api(&self) -> OnlineClient<SubstrateConfig> {
-        self.inner.load().api.clone()
-    }
-
-    /// Snapshot of the live subxt `LegacyRpcMethods`. See [`Client::api`] for
-    /// snapshot semantics.
-    #[must_use]
-    pub fn legacy(&self) -> LegacyRpcMethods<SubstrateConfig> {
-        self.inner.load().legacy.clone()
-    }
-
-    /// Snapshot of the live subxt `RpcClient`. Used internally for raw RPC
-    /// requests such as attestation submission.
-    fn rpc(&self) -> RpcClient {
-        self.inner.load().rpc.clone()
+    pub fn api(&self) -> impl arc_swap::access::Access<OnlineClient<SubstrateConfig>> + '_ {
+        self.inner.map(|inner: &ClientInner| &inner.api)
     }
 
     #[must_use]
@@ -218,8 +173,11 @@ impl Client {
         chain_id: u64,
         name: Vec<u8>,
     ) -> Result<Option<ChainKey>, Error> {
+        use arc_swap::access::Access as _;
+
         let chain_key = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -237,12 +195,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Option<SupportedChain>, Error> {
+        use arc_swap::access::Access as _;
+
         let address = cc3::storage()
             .supported_chains()
             .supported_chains(chain_key);
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -253,11 +214,14 @@ impl Client {
     }
 
     pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>, Error> {
+        use arc_swap::access::Access as _;
+
         let mut supported_chains: Vec<SupportedChain> = Vec::new();
         let address = cc3::storage().supported_chains().supported_chains_iter();
 
         let mut iter = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -274,8 +238,11 @@ impl Client {
     /// Fetches the babe randomness from 2 epochs ago
     /// Returns the random a time + the current block number (where it was calculated from)
     pub async fn fetch_babe_randomness_two_epoch_ago(&self) -> Result<(Randomness, u64), Error> {
+        use arc_swap::access::Access as _;
+
         let epoch_index = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -296,6 +263,7 @@ impl Client {
 
         let randomness = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -311,8 +279,11 @@ impl Client {
     }
 
     pub async fn get_current_epoch(&self) -> Result<u64, Error> {
+        use arc_swap::access::Access as _;
+
         let epoch_index = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -323,10 +294,12 @@ impl Client {
     }
 
     pub async fn target_sample_size(&self, chain_key: u64) -> Result<u32, Error> {
-        let storage_query = cc3::storage().attestation().target_sample_size(chain_key);
+        use arc_swap::access::Access as _;
 
+        let storage_query = cc3::storage().attestation().target_sample_size(chain_key);
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -338,10 +311,12 @@ impl Client {
     }
 
     pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>, Error> {
-        let storage_query = cc3::storage().attestation().last_digest(chain_key);
+        use arc_swap::access::Access as _;
 
+        let storage_query = cc3::storage().attestation().last_digest(chain_key);
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -353,10 +328,12 @@ impl Client {
 
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self, chain_key: u64) -> Result<bool, Error> {
-        let storage_query = cc3::storage().attestation().active_attestors(chain_key);
+        use arc_swap::access::Access as _;
 
+        let storage_query = cc3::storage().attestation().active_attestors(chain_key);
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -372,12 +349,15 @@ impl Client {
     /// Check if the attestor is registered (has a public key)
     /// note: this function early exits if the attestor is not registered
     pub async fn check_attestor_key_is_registered(&self, chain_key: u64) -> Result<bool, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .attestors(chain_key, self.signer.account_id());
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -395,12 +375,15 @@ impl Client {
         &self,
         chain_key: u64,
     ) -> Result<Option<AttestorStatus>, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .attestors(chain_key, self.signer.account_id());
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -432,6 +415,8 @@ impl Client {
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
+        use arc_swap::access::Access as _;
+
         let tx = cc3::tx()
             .attestation()
             .register_attestor(chain_key, attestor_id);
@@ -446,6 +431,7 @@ impl Client {
 
         let tx_progress = self
             .api()
+            .load()
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
@@ -468,8 +454,9 @@ impl Client {
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
-        let tx = cc3::tx().attestation().chill(chain_key, attestor_id);
+        use arc_swap::access::Access as _;
 
+        let tx = cc3::tx().attestation().chill(chain_key, attestor_id);
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
                 .nonce(account_nonce)
@@ -480,6 +467,7 @@ impl Client {
 
         let tx_progress = self
             .api()
+            .load()
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
@@ -502,6 +490,8 @@ impl Client {
         attestor_id: AccountId32,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
+        use arc_swap::access::Access as _;
+
         let tx = cc3::tx()
             .attestation()
             .unregister_attestor(chain_key, attestor_id);
@@ -516,6 +506,7 @@ impl Client {
 
         let tx_progress = self
             .api()
+            .load()
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
@@ -538,12 +529,15 @@ impl Client {
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> Result<(), Error> {
+        use arc_swap::access::Access as _;
+
         let tx = cc3::tx()
             .attestation()
             .attest(chain_key, bls_public_key, proof_of_possession);
 
         let tx_progress = self
             .api()
+            .load()
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
             .await
@@ -625,12 +619,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Option<u64>, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .chain_attestation_interval(chain_key);
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -644,12 +641,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Option<u64>, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .attestation_checkpoint_interval(chain_key);
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -665,12 +665,15 @@ impl Client {
         chain_key: ChainKey,
         digest: Digest,
     ) -> Result<bool, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .attestations(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -685,12 +688,15 @@ impl Client {
         chain_key: ChainKey,
         digest: Digest,
     ) -> Result<Option<SignedAttestation<Digest, AccountId32>>, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .attestations(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -704,10 +710,12 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Option<AttestationCheckpoint>, Error> {
-        let storage_query = cc3::storage().attestation().last_checkpoint(chain_key);
+        use arc_swap::access::Access as _;
 
+        let storage_query = cc3::storage().attestation().last_checkpoint(chain_key);
         Ok(self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -724,12 +732,15 @@ impl Client {
         chain_key: ChainKey,
         block_number: u64,
     ) -> Result<Option<AttestationCheckpoint>, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .checkpoints(chain_key, block_number);
 
         Ok(self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -745,6 +756,8 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>, Error> {
+        use arc_swap::access::Access as _;
+
         let mut attestations: Vec<SignedAttestation<Digest, AccountId32>> = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -754,6 +767,7 @@ impl Client {
 
         let mut iter = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -781,6 +795,8 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Vec<AttestationCheckpoint>, Error> {
+        use arc_swap::access::Access as _;
+
         let mut checkpoints = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -790,6 +806,7 @@ impl Client {
 
         let mut iter = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -829,46 +846,14 @@ impl Client {
         Ok(checkpoints)
     }
 
-    pub async fn submit_attestation<H, A>(
-        &self,
-        attestation: RpcAttestation<H, A>,
-    ) -> Result<(), Error>
-    where
-        H: Serialize,
-        A: Serialize,
-    {
-        let mut params = RpcParams::new();
-        params
-            .push(attestation)
-            .map_err(|_| Error::FailedToSubmit)?;
-
-        match self
-            .rpc()
-            .request::<()>("attestor_submitAttestation", params)
-            .await
-        {
-            Ok(()) => {
-                info!("Attestation submitted");
-                Ok(())
-            }
-            Err(e) => {
-                if let subxt::Error::Rpc(e) = e {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::RpcError(e))
-                } else {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::FailedToSubmit)
-                }
-            }
-        }
-    }
-
     pub async fn transfer(
         &self,
         target: AccountId32,
         amount: u128,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
+        use arc_swap::access::Access as _;
+
         let tx = cc3::tx()
             .balances()
             .transfer_allow_death(subxt::utils::MultiAddress::Id(target), amount);
@@ -883,6 +868,7 @@ impl Client {
 
         let tx_progress = self
             .api()
+            .load()
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
@@ -905,6 +891,8 @@ impl Client {
         amount: u128,
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
+        use arc_swap::access::Access as _;
+
         let tx = cc3::tx().sudo().sudo(cc3::Call::Balances(
             cc3::balances::Call::force_set_balance {
                 who: subxt::utils::MultiAddress::Id(target),
@@ -922,6 +910,7 @@ impl Client {
 
         let tx_progress = self
             .api()
+            .load()
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
@@ -939,9 +928,12 @@ impl Client {
     }
 
     pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage().system().account(account);
         let account_info = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -951,8 +943,11 @@ impl Client {
     }
 
     pub async fn get_account_nonce(&self) -> Result<u64, Error> {
+        use arc_swap::access::Access as _;
+
         let nonce = self
             .api()
+            .load()
             .tx()
             .account_nonce(&self.signer.account_id())
             .await?;
@@ -961,10 +956,12 @@ impl Client {
     }
 
     pub async fn get_attestor_active_set(&self, chain_key: u64) -> Result<Vec<AccountId32>, Error> {
-        let storage_query = cc3::storage().attestation().active_attestors(chain_key);
+        use arc_swap::access::Access as _;
 
+        let storage_query = cc3::storage().attestation().active_attestors(chain_key);
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -984,6 +981,8 @@ impl Client {
         chain_key: ChainKey,
         genesis_block_number: u64,
     ) -> Result<(), Error> {
+        use arc_swap::access::Access as _;
+
         let call = cc3::runtime_types::creditcoin3_runtime::RuntimeCall::Attestation(
             cc3::runtime_types::pallet_attestation::pallet::Call::set_attestation_chain_genesis_block_number { chain_key, genesis_block_number }
         );
@@ -1000,6 +999,7 @@ impl Client {
 
         let ext = self
             .api()
+            .load()
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
@@ -1019,12 +1019,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<u64, Error> {
+        use arc_swap::access::Access as _;
+
         let storage_query = cc3::storage()
             .attestation()
             .attestation_chain_genesis_block_number(chain_key);
 
         let result = self
             .api()
+            .load()
             .storage()
             .at_latest()
             .await?
@@ -1032,6 +1035,15 @@ impl Client {
             .await?;
 
         Ok(result.unwrap_or_default())
+    }
+}
+
+impl ClientInner {
+    async fn new(url: &str) -> Result<Self, Error> {
+        let rpc = RpcClient::from_insecure_url(&url).await?;
+        let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc).await?;
+
+        Ok(Self { api })
     }
 }
 

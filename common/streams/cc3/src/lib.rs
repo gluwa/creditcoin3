@@ -12,140 +12,95 @@ pub struct StreamCC3 {
 }
 
 impl StreamCC3 {
-    pub async fn new(config: Config) -> anyhow::Result<Self> {
+    pub async fn new(config: Config) -> Result<Self, Error> {
+        use arc_swap::access::Access as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
-        let mut events = config
-            .cc3
-            .api()
-            .blocks()
-            .subscribe_finalized()
-            .await
-            .map_err(Error::Subxt)?
-            .map_err(Error::Subxt)
-            .and_then(move |block| {
-                let block_number = block.number() as attestor_primitives::Height;
-                let chain_key = config.chain_key;
+        let blocks = config.cc3.api().load().blocks();
+        let mut latest = blocks.at_latest().await.map_err(Error::Subxt)?.number();
+        let mut finalized = blocks.subscribe_finalized().await.map_err(Error::Subxt)?;
 
-                async move {
-                    match block.events().await {
-                        Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
-                        Err(err) => Err(Error::Subxt(err)),
-                    }
-                }
-            })
-            .boxed();
-        let next = events.try_next().await?.ok_or(Error::EndOfStream)?;
+        let mut strategy = util::exponential_retry_delay();
+        let mut backfill = Vec::with_capacity(16);
+        let mut err = Ok(());
 
         let stream = async_stream::stream! {
-            let mut events = events;
-            let mut latest = next.block_number();
+            'retry: loop {
+                if let Err(ref err_new) = err {
+                    tracing::warn!(?err_new, "CC3 connection lost...");
 
-            yield next;
+                    let delay = strategy.next().unwrap_or(util::MAX_DELAY);
+                    tokio::time::sleep(delay).await;
 
-            loop {
-                match events.try_next().await {
-                    Ok(Some(event)) => {
-                        latest = event.block_number();
-                        yield event
-                    },
-                    err => {
-                        tracing::warn!(?err, "🛜 CC3 connection lost");
+                    if let Err(err_new) = config.cc3.reconnect().await {
+                        tracing::warn!(?err_new, "Failed reconnecting to CC3");
+                        continue 'retry;
+                    }
 
-                        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-                            .max_delay(std::time::Duration::from_millis(5_000))
-                            .map(tokio_retry::strategy::jitter);
+                    let blocks = config.cc3.api().load().blocks();
+                    finalized = match blocks.subscribe_finalized().await {
+                        Ok(finalized_new) => finalized_new,
+                        Err(err_new) => {
+                            tracing::warn!(?err_new, "Failed re-subsribing to CC3");
+                            continue 'retry;
+                        }
+                    };
 
-                        let reconnect = || {
-                            tracing::warn!("🛜 Reconnecting to CC3...");
+                    tracing::warn!("Reconnected to CC3!");
 
-                            // `cc3.reconnect()` now takes `&self` and uses
-                            // interior mutability (`ArcSwap<ClientInner>`),
-                            // so we can refresh in place without shuffling
-                            // a value-cloned `Client` around. The local
-                            // `cc3` clone here is still useful: it gives
-                            // this stream its own connection so a different
-                            // task's reconnect doesn't tear down the
-                            // backfill stream we're about to build.
-                            let cc3 = config.cc3.clone();
-                            async move {
-                                // Regenerate connection endpoints
-                                cc3.reconnect()
-                                    .await
-                                    .map_err(|err| {
-                                        tracing::error!(?err, "Failed to reconnect to CC3");
-                                        Error::Client(err)
-                                    })?;
-                                let mut finalized = cc3
-                                    .api()
-                                    .blocks()
-                                    .subscribe_finalized()
-                                    .await
-                                    .map_err(|err| {
-                                        tracing::error!(?err, "Failed to reconnect to CC3");
-                                        Error::Subxt(err)
-                                    })?;
-
-                                // Find out how many blocks were dropped during disconnect
-                                let next = finalized.try_next()
-                                    .await
-                                    .map_err(|err| {
-                                        tracing::error!(?err, "Failed to reconnect to CC3");
-                                        Error::Subxt(err)
-                                    })?
-                                    .ok_or(Error::EndOfStream)
-                                    .map_err(|err| {
-                                        tracing::error!(?err, "Failed to reconnect to CC3");
-                                        err
-
-                                    })?;
-
-                                // Backfilling
-                                let stream = futures::stream::iter(latest + 1..next.number() as u64)
-                                    .then(move |n| {
-                                        // Each iteration snapshots the live
-                                        // connection so an in-flight
-                                        // reconnect picks up automatically.
-                                        let legacy = cc3.legacy();
-                                        let api = cc3.api();
-                                        let number = subxt::backend::legacy::rpc_methods::NumberOrHex::Number(n);
-
-                                        async move {
-                                            tracing::debug!(n, "Backfilling");
-
-                                            match legacy.chain_get_block_hash(Some(number)).await {
-                                                Ok(Some(hash)) => api.blocks().at(hash).await.map_err(Error::Subxt),
-                                                Ok(None) => Err(Error::BlockHash(n)),
-                                                Err(err) => {
-                                                    tracing::error!(?err, "Failed to retrieve block hash");
-                                                    Err(Error::Subxt(err))
-                                                },
-                                            }
-                                        }
-                                    })
-                                    .chain(futures::stream::once(futures::future::ok(next)))
-                                    .chain(finalized.map_err(Error::Subxt))
-                                    .and_then(move |block| {
-                                        let block_number = block.number() as attestor_primitives::Height;
-                                        let chain_key = config.chain_key;
-
-                                        async move {
-                                            match block.events().await {
-                                                Ok(events) => Ok(StreamEvents::new(block_number, events, chain_key)),
-                                                Err(err) => Err(Error::Subxt(err)),
-                                            }
-                                        }
-                                    })
-                                    .boxed();
-
-                                Ok::<_, Error>(stream)
-                            }
+                    strategy = util::exponential_retry_delay();
+                }
+                match finalized.try_next().await {
+                    Ok(Some(block)) => {
+                        let events = match block.events().await {
+                            Ok(events) => events,
+                            Err(err_new) => {
+                                err = Err(Error::Subxt(err_new));
+                                continue 'retry;
+                           }
                         };
 
-                        let retry = tokio_retry::Retry::spawn(strategy, reconnect);
-                        events = retry.await.expect("Unbounded retry cannot error");
+                        let mut n = block.number();
+                        let mut parent_hash = block.header().parent_hash;
+
+                        backfill.push((n, events));
+
+                        while n > latest {
+                            let blocks = config.cc3.api().load().blocks();
+                            let parent = blocks.at(parent_hash).await;
+                            let parent = match parent {
+                                Ok(parent) => parent,
+                                Err(err_new) => {
+                                    err = Err(Error::Subxt(err_new));
+                                    continue 'retry;
+                                }
+                            };
+                            let events = match parent.events().await {
+                                Ok(events) => events,
+                                Err(err_new) => {
+                                    err = Err(Error::Subxt(err_new));
+                                    continue 'retry;
+                                }
+                            };
+
+                            n = parent.number();
+                            parent_hash = parent.header().parent_hash;
+
+                            backfill.push((n, events));
+                        }
+
+                        latest = block.number();
+                        for (block_number, events) in backfill.drain(..).rev() {
+                            yield StreamEvents::new(
+                                block_number as attestor_primitives::Height,
+                                events,
+                                config.chain_key
+                            );
+                        }
                     },
+                    Ok(None) => err = Err(Error::EndOfStream),
+                    Err(err_new) => err = Err(Error::Subxt(err_new))
                 }
             }
         }
@@ -169,11 +124,7 @@ impl futures::Stream for StreamCC3 {
 
 pub struct StreamEvents {
     stream: std::pin::Pin<
-        Box<
-            dyn futures::Stream<Item = Result<cc_client::attestation::CcEvent, Error>>
-                + Send
-                + Sync,
-        >,
+        Box<dyn futures::Stream<Item = Result<cc_client::events::CcEvent, Error>> + Send + Sync>,
     >,
     block_number: attestor_primitives::Height,
 }
@@ -213,12 +164,22 @@ impl StreamEvents {
 }
 
 impl futures::Stream for StreamEvents {
-    type Item = Result<cc_client::attestation::CcEvent, Error>;
+    type Item = Result<cc_client::events::CcEvent, Error>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         self.stream.as_mut().poll_next(cx)
+    }
+}
+
+mod util {
+    pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
+
+    pub fn exponential_retry_delay() -> impl Iterator<Item = std::time::Duration> {
+        tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+            .max_delay(MAX_DELAY)
+            .map(tokio_retry::strategy::jitter)
     }
 }
