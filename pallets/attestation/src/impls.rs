@@ -952,18 +952,31 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MajorityNotReached
         );
 
-        // Signature verification
+        // Signature verification.
+        //
+        // Aggregate over the *eligible* attestor set rather than the raw `attestation.attestors`
+        // vec. The raw vec can contain (a) duplicate `AccountId`s — the BTreeSet above silently
+        // deduplicates them for the threshold check but a naive `gather_attestor_public_keys`
+        // over the raw vec would re-aggregate the duplicates' keys — and (b) `AccountId`s that
+        // are not in `ActiveAttestors` (including retired entries whose key is still resolvable
+        // via `RetiredAttestorBlsKeys` until the unbond delay elapses). Either path breaks the
+        // invariant that the threshold-counted set and the BLS-aggregated set are the same set
+        // of independent signers. Gather from `eligible_attestors` (active + deduplicated by
+        // `AccountId`) and keep the BLS-key dedup below as defense in depth.
         let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
+        let eligible_attestor_list: Vec<T::AccountId> =
+            eligible_attestors.iter().cloned().collect();
         let attestor_public_keys =
-            Self::gather_attestor_public_keys(attestation.chain_key(), &attestation.attestors)?;
+            Self::gather_attestor_public_keys(attestation.chain_key(), &eligible_attestor_list)?;
 
-        // Validation-time dedup: defense-in-depth against duplicate BLS keys appearing in
-        // the attestor set (pre-`v3` storage, migration drift, retired-key edge cases).
-        // BLS aggregation is linear, so aggregating the same key `k` `n` times yields `n*k`
-        // and a single signer holding `s` (with `s*G = k`) can satisfy the quorum by having
-        // their signature counted `n` times. We enforce that the number of *distinct* BLS
-        // public keys clears the threshold, and we aggregate over the deduped set so the
-        // aggregate verification check itself does not accept replayed contributions.
+        // Validation-time dedup on BLS keys: defense-in-depth against the same BLS pubkey
+        // appearing under multiple distinct controller accounts (pre-`v3` storage, migration
+        // drift, retired-key edge cases). BLS aggregation is linear, so aggregating the same
+        // key `k` `n` times yields `n*k` and a single signer holding `s` (with `s*G = k`) can
+        // satisfy the quorum by having their signature counted `n` times. We enforce that the
+        // number of *distinct* BLS public keys clears the threshold, and we aggregate over the
+        // deduped set so the aggregate verification check itself does not accept replayed
+        // contributions.
         let mut deduped_public_keys: Vec<PublicKey> =
             Vec::with_capacity(attestor_public_keys.len());
         let mut seen_keys: BTreeSet<BlsPublicKey> = BTreeSet::new();
