@@ -15,6 +15,7 @@ use user::prelude::*;
 /// [`RuntimeApi`]: subxt::runtime_api::RuntimeApi
 pub struct ReconnectingRuntimeApi<'a> {
     client: &'a mut crate::Client,
+    delay: tokio_retry::strategy::ExponentialBackoff,
     runtime_api: subxt::runtime_api::RuntimeApi<
         subxt::SubstrateConfig,
         subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -23,13 +24,30 @@ pub struct ReconnectingRuntimeApi<'a> {
 
 impl<'a> ReconnectingRuntimeApi<'a> {
     pub async fn new(client: &'a mut crate::Client) -> Result<Self, Interrupt<crate::Error>> {
-        let runtime_api = match client.api().load().runtime_api().at_latest().await {
-            Ok(runtime_api) => runtime_api,
-            Err(err) => reconnect(client, err).await?,
+        let mut delay = util::exponential_retry_delay();
+
+        let runtime_api = loop {
+            match client.api().load().runtime_api().at_latest().await {
+                Ok(runtime_api) => break runtime_api,
+                Err(err) => tracing::warn!(?err, "CC3 connection lost..."),
+            }
+
+            let delay = delay
+                .next()
+                .map(tokio_retry::strategy::jitter)
+                .unwrap_or(util::MAX_DELAY);
+            tokio::time::sleep(delay).await;
+
+            if let Err(err) = client.reconnect().await {
+                tracing::warn!(?err, "Failed to reconnect to CC3");
+            }
         };
+
+        delay = util::exponential_retry_delay();
 
         Ok(Self {
             client,
+            delay,
             runtime_api,
         })
     }
@@ -41,62 +59,41 @@ impl<'a> ReconnectingRuntimeApi<'a> {
         loop {
             match self.runtime_api.call(call()).await {
                 Ok(res) => break Ok(res),
-                Err(err) => {
-                    self.runtime_api = reconnect(self.client, err).await?;
-                }
+                Err(err) => self.reconnect(err).await,
             }
         }
     }
+
+    async fn reconnect(&mut self, err: subxt::Error) {
+        let runtime_api = loop {
+            tracing::warn!(?err, "CC3 connection lost...");
+
+            let delay = self
+                .delay
+                .next()
+                .map(tokio_retry::strategy::jitter)
+                .unwrap_or(util::MAX_DELAY);
+            tokio::time::sleep(delay).await;
+
+            if let Err(err) = self.client.reconnect().await {
+                tracing::warn!(?err, "Failed to reconnect to CC3");
+            }
+
+            match self.client.api().load().runtime_api().at_latest().await {
+                Ok(runtime_api) => break runtime_api,
+                Err(err) => tracing::warn!(?err, "CC3 connection lost..."),
+            }
+        };
+
+        self.delay = util::exponential_retry_delay();
+        self.runtime_api = runtime_api;
+    }
 }
 
-async fn reconnect(
-    client: &crate::Client,
-    err: subxt::Error,
-) -> Result<
-    subxt::runtime_api::RuntimeApi<
-        subxt::SubstrateConfig,
-        subxt::OnlineClient<subxt::SubstrateConfig>,
-    >,
-    Interrupt<crate::Error>,
-> {
-    tracing::warn!(?err, "CC3 connection lost");
+mod util {
+    pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
 
-    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-        .max_delay(std::time::Duration::from_millis(5_000))
-        .map(tokio_retry::strategy::jitter);
-    let reconnect = || {
-        tracing::warn!("Reconnecting to CC3...");
-
-        async move {
-            // `Client::reconnect` now takes `&self` and atomically swaps the
-            // underlying subxt connection for every `Arc<Client>` (and shared
-            // borrow) holder. We can therefore refresh in place rather than
-            // shuffling a value-cloned `Client` around.
-            client.reconnect().await.map_err(|err| {
-                tracing::error!(?err, "Failed to reconnect to CC3");
-                err
-            })?;
-
-            let runtime_api = client
-                .api()
-                .load()
-                .runtime_api()
-                .at_latest()
-                .await
-                .map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    crate::Error::SubxtError(err)
-                })?;
-
-            Ok::<_, crate::Error>(runtime_api)
-        }
-    };
-    tokio::select! {
-        retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
-            Ok(retry.expect("Unbounded retry cannot error"))
-        }
-        _ = tokio::signal::ctrl_c() => {
-            Err(Interrupt::Stop)
-        }
+    pub fn exponential_retry_delay() -> tokio_retry::strategy::ExponentialBackoff {
+        tokio_retry::strategy::ExponentialBackoff::from_millis(100).max_delay(MAX_DELAY)
     }
 }
