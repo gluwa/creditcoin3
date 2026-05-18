@@ -383,11 +383,12 @@ impl WorkerAttestationValidation {
                 // past finalization.
                 'outer: loop {
                     tokio::select! {
-                        Some(mut events) = self.stream_cc3.next() => {
+                        Some(res) = self.stream_cc3.next() => {
+                            let mut events = res.map_interrupt(Error::CC3)?;
                             while let Some(event) =
                                 events.try_next().await.map_interrupt(Error::CC3)?
                             {
-                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
+                                if let cc_client::events::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
                                     if attestation.header_number >= height {
@@ -420,11 +421,11 @@ impl WorkerAttestationValidation {
                 // past finalization.
                 'outer: loop {
                     tokio::select! {
-                        Some(mut events) = self.stream_cc3.next() => {
-                            while let Some(event) =
-                                events.try_next().await.map_interrupt(Error::CC3)?
+                        Some(res) = self.stream_cc3.next() => {
+                            let mut events = res.map_interrupt(Error::CC3)?;
+                            while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)?
                             {
-                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
+                                if let cc_client::events::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
                                     if attestation.header_number >= height {
@@ -795,6 +796,7 @@ impl WorkerAttestationValidation {
         votes: Vec<common::types::Attestation>,
         height: attestor_primitives::Height,
     ) -> Result<(), Interrupt<Error>> {
+        use arc_swap::access::Access as _;
         use futures::FutureExt as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
@@ -809,9 +811,10 @@ impl WorkerAttestationValidation {
         let (randomness, epoch_index) = loop {
             match self.cc3.fetch_babe_randomness_two_epoch_ago().await {
                 Ok(babe) => break babe,
-                Err(err) => {
-                    self.reconnect(Error::Client(err)).await?;
+                Err(cc_client::Error::ConnectionError(reconnect)) => {
+                    self.cc3.reconnect(reconnect).await
                 }
+                Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
             }
         };
 
@@ -842,11 +845,14 @@ impl WorkerAttestationValidation {
                         )))
                         .into();
 
+                        self.cc3.reset_connection_delay();
+
                         return Ok(());
                     }
-                    Err(err) => {
-                        self.reconnect(Error::Client(err)).await?;
+                    Err(cc_client::Error::ConnectionError(reconnect)) => {
+                        self.cc3.reconnect(reconnect).await
                     }
+                    Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
                 }
             };
 
@@ -937,11 +943,11 @@ impl WorkerAttestationValidation {
             // attestor is most likely down.
             loop {
                 tokio::select! {
-                    Some(mut events) = self.stream_cc3.next() => {
-                        while let Some(event) =
-                            events.try_next().await.map_interrupt(Error::CC3)?
+                    Some(res) = self.stream_cc3.next() => {
+                        let mut events = res.map_interrupt(Error::CC3)?;
+                        while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)?
                         {
-                            if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                            if let cc_client::events::CcEvent::BlockAttested(attestation) = event {
                                 if attestation.header_number >= height {
                                     self.watch_submission = Some(std::future::ready((
                                         AttestationSubmission::Finalized,
@@ -1002,6 +1008,7 @@ impl WorkerAttestationValidation {
             match self
                 .cc3
                 .api()
+                .load()
                 .tx()
                 .sign_and_submit_then_watch_default(&call, self.signer.keypair())
                 .await
@@ -1031,7 +1038,6 @@ impl WorkerAttestationValidation {
                         }
                     }
                     tracing::error!(height, ?err, "⛔ Failed to submit attestation");
-                    self.reconnect(Error::Subxt(err)).await?;
                 }
             }
         };
@@ -1053,38 +1059,5 @@ impl WorkerAttestationValidation {
         self.watch_submission = Some(watch).into();
 
         Ok(())
-    }
-
-    async fn reconnect(&mut self, err: Error) -> Result<(), Interrupt<Error>> {
-        tracing::warn!(?err, "CC3 connection lost");
-
-        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-            .max_delay(std::time::Duration::from_millis(5_000))
-            .map(tokio_retry::strategy::jitter);
-        let reconnect = || {
-            tracing::warn!("Reconnecting to CC3...");
-
-            // `Client::reconnect` now uses interior mutability
-            // (`ArcSwap<ClientInner>`), so we don't need a `&mut` handle here.
-            // The local clone preserves existing semantics: reconnect on the
-            // clone, then move it back into `self.cc3` on success.
-            let cc3 = self.cc3.clone();
-            async move {
-                cc3.reconnect().await.map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    Error::Client(err)
-                })?;
-                Ok::<_, Error>(cc3)
-            }
-        };
-        tokio::select! {
-            retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
-                self.cc3 = retry.expect("Unbounded retry cannot error");
-                Ok(())
-            }
-            _ = tokio::signal::ctrl_c() => {
-                Err(Interrupt::Stop)
-            }
-        }
     }
 }

@@ -43,6 +43,7 @@ sp-io = { workspace = true }
 subxt = { workspace = true }
 
 # Async & Parallelism
+arc-swap = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
 tokio-retry = { workspace = true }

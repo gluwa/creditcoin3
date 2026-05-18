@@ -1,6 +1,6 @@
 #[derive(Debug)]
 pub enum Error {
-    CC3(stream::cc3::Error),
+    CC3(cc_client::Error),
     Pool(attestation_pool::Error),
     Client(cc_client::Error),
     Subxt(subxt::Error),

@@ -14,21 +14,14 @@ pub struct StreamCC3 {
 }
 
 impl StreamCC3 {
-    pub async fn new(mut config: Config) -> Result<Self, Error> {
+    pub async fn new(mut config: Config) -> Result<Self, cc_client::Error> {
         use arc_swap::access::Access as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
         let blocks = config.cc3.api().load().blocks();
-        let mut latest = blocks
-            .at_latest()
-            .await
-            .map_err(|err| Error::Client(err.into()))?
-            .number();
-        let mut finalized = blocks
-            .subscribe_finalized()
-            .await
-            .map_err(|err| Error::Client(err.into()))?;
+        let mut latest = blocks.at_latest().await?.number();
+        let mut finalized = blocks.subscribe_finalized().await?;
 
         let mut backfill = Vec::with_capacity(16);
         let mut err = Ok(());
