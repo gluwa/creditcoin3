@@ -78,6 +78,7 @@ impl From<subxt::Error> for Error {
             subxt::Error::Rpc(
                 RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
             ) => Self::ConnectionError(Reconnect(err)),
+
             subxt::Error::Rpc(RpcError::ClientError(boxed))
                 if matches!(
                     boxed.downcast_ref::<JsonRpseeError>(),
@@ -86,6 +87,7 @@ impl From<subxt::Error> for Error {
             {
                 Self::ConnectionError(Reconnect(err))
             }
+
             _ => Self::SubxtError(err),
         }
     }
