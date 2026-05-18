@@ -185,6 +185,17 @@ async fn handle_submission_result(
                 tracing::warn!(height, ?err, "⛔ runtime rejected submission");
             }
         },
+        Outcome::Eligible {
+            result: Err(subxt::Error::Transaction(
+                subxt::error::TransactionError::Invalid(_),
+            )),
+            ..
+        } => {
+            // Benign race: another attestor's extrinsic landed first, so the runtime invalidated
+            // ours after broadcast (usually a stale nonce or duplicate-height check). Demote to
+            // info so Grafana doesn't light up on a known harmless outcome.
+            tracing::info!(height, "✅ already submitted (lost the race after broadcast)");
+        }
         Outcome::Eligible { result: Err(err), .. } => {
             tracing::warn!(height, ?err, "⛔ submission rpc error");
         }
