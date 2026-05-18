@@ -1,5 +1,5 @@
+use crate::Error;
 use arc_swap::access::Access;
-use user::prelude::*;
 
 /// Auto-reconnecting substrate [`RuntimeApi`].
 ///
@@ -22,14 +22,22 @@ pub struct ReconnectingRuntimeApi<'a> {
 }
 
 impl<'a> ReconnectingRuntimeApi<'a> {
-    pub async fn new(client: &'a mut crate::Client) -> Result<Self, Interrupt<crate::Error>> {
+    pub async fn new(client: &'a mut crate::Client) -> Result<Self, Error> {
         let runtime_api = loop {
-            let err = match client.api().load().runtime_api().at_latest().await {
+            let reconnect = match client
+                .api()
+                .load()
+                .runtime_api()
+                .at_latest()
+                .await
+                .map_err(Into::<Error>::into)
+            {
                 Ok(runtime_api) => break runtime_api,
-                Err(err) => err,
+                Err(Error::ConnectionError(reconnect)) => reconnect,
+                Err(err) => return Err(err),
             };
 
-            client.reconnect(&err).await;
+            client.reconnect(reconnect).await;
             client.reset_connection_delay();
         };
 
@@ -42,28 +50,32 @@ impl<'a> ReconnectingRuntimeApi<'a> {
     pub async fn call<Call: subxt::runtime_api::Payload>(
         &mut self,
         call: impl Fn() -> Call,
-    ) -> Result<Call::ReturnType, Interrupt<crate::Error>> {
+    ) -> Result<Call::ReturnType, Error> {
         loop {
-            match self.runtime_api.call(call()).await {
+            match self
+                .runtime_api
+                .call(call())
+                .await
+                .map_err(Into::<Error>::into)
+            {
                 Ok(res) => break Ok(res),
-                Err(err) => self.reconnect(err).await,
-            }
-        }
-    }
+                Err(Error::ConnectionError(reconnect)) => {
+                    self.client.reconnect(reconnect).await;
 
-    async fn reconnect(&mut self, err: subxt::Error) {
-        loop {
-            self.client.reconnect(&err).await;
+                    let runtime_api = match self.client.api().load().runtime_api().at_latest().await
+                    {
+                        Ok(runtime_api) => runtime_api,
+                        Err(err) => {
+                            tracing::warn!(?err, "Failed to re-connect to CC3 runtime api...");
+                            continue;
+                        }
+                    };
 
-            match self.client.api().load().runtime_api().at_latest().await {
-                Ok(runtime_api) => {
                     self.runtime_api = runtime_api;
-                    break;
+                    self.client.reset_connection_delay();
                 }
-                Err(err) => tracing::warn!(?err, "Failed to re-connect to CC3 runtime api..."),
+                Err(err) => return Err(err),
             }
         }
-
-        self.client.reset_connection_delay();
     }
 }
