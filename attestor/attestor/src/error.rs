@@ -1,19 +1,21 @@
 #[derive(Debug)]
 pub enum Error {
-    JoinError(tokio::task::JoinError),
-    WorkerError(Box<dyn std::error::Error + Sync + Send>),
-    BlsError(crate::bls::Error),
-    InitError(anyhow::Error),
-    RpcError(cc_client::Error),
-    CC3Error(stream::cc3::Error),
+    Join(tokio::task::JoinError),
+    Worker(Box<dyn std::error::Error + Sync + Send>),
+    Bls(crate::bls::Error),
+    Init(anyhow::Error),
+    CC3(cc_client::Error),
+
     MissingAttestationInterval(attestor_primitives::ChainKey),
     MissingCheckpointInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),
+
     ChainKeyNotSupported(attestor_primitives::ChainKey),
     ChainIdMisMatch {
         runtime: attestor_primitives::ChainId,
         rpc: attestor_primitives::ChainId,
     },
+
     InvalidMaturityStrategy(
         attestor_primitives::ChainKey,
         supported_chains_primitives::Error,
@@ -24,12 +26,11 @@ pub enum Error {
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Error::JoinError(err) => write!(f, "{err}"),
-            Error::WorkerError(err) => write!(f, "{err}"),
-            Error::BlsError(err) => write!(f, "{err}"),
-            Error::InitError(err) => write!(f, "Failed to intialize: {err}"),
-            Error::CC3Error(err) => write!(f, "Error polling CC3 stream: {err}"),
-            Error::RpcError(err) => write!(f, "Error calling CC3 client: {err}"),
+            Error::Join(err) => write!(f, "{err}"),
+            Error::Worker(err) => write!(f, "{err}"),
+            Error::Bls(err) => write!(f, "{err}"),
+            Error::Init(err) => write!(f, "Failed to intialize: {err}"),
+            Error::CC3(err) => write!(f, "Error polling CC3 stream: {err}"),
             Error::MissingAttestationInterval(chain_key) => write!(
                 f,
                 "Failed to retrieve attestation interval for chain {chain_key}"

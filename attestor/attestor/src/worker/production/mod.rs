@@ -184,8 +184,8 @@ impl super::Worker for WorkerAttestationProduction {
                 _ = &mut shutdown => {
                     break Err(Interrupt::Stop);
                 }
-                Some(events) = self.stream_cc3.next() => {
-                    self.handle_event_cc3(events).await?;
+                Some(res) = self.stream_cc3.next() => {
+                    self.handle_event_cc3(res).await?;
                 }
                 Some(attestation) = self.stream_attestation.next(), if can_attest => {
                     self.handle_event_attestation(attestation).await?;
@@ -268,14 +268,15 @@ impl WorkerAttestationProduction {
 
     async fn handle_event_cc3(
         &mut self,
-        mut events: stream::cc3::StreamEvents,
+        res: Result<stream::cc3::StreamEvents, cc_client::Error>,
     ) -> Result<(), Interrupt<Error>> {
         use futures::TryStreamExt as _;
 
+        let mut events = res.map_interrupt(Error::CC3)?;
         while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)? {
             match event {
                 // CASE 1] NEW ATTESTATION
-                cc_client::attestation::CcEvent::BlockAttested(attestation) => {
+                cc_client::events::CcEvent::BlockAttested(attestation) => {
                     let digest = attestation.digest;
                     let height = attestation.header_number;
                     let attestation_latest_cc3 = stream::util::AttestationInfo { digest, height };
@@ -326,7 +327,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 2] NEW TARGET SAMPLE SIZE
-                cc_client::attestation::CcEvent::TargetSampleSizeChanged(
+                cc_client::events::CcEvent::TargetSampleSizeChanged(
                     _chain_key,
                     target_sample_size,
                 ) => {
@@ -337,10 +338,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 3] NEW ATTESTATION INTERVAL
-                cc_client::attestation::CcEvent::AttestationIntervalChanged(
-                    _chain_key,
-                    interval,
-                ) => {
+                cc_client::events::CcEvent::AttestationIntervalChanged(_chain_key, interval) => {
                     tracing::info!(interval, "🔢 New source chain attestation interval");
 
                     let Some(interval) =
@@ -385,15 +383,12 @@ impl WorkerAttestationProduction {
                     );
                 }
 
-                cc_client::attestation::CcEvent::CheckpointIntervalChanged(
-                    _chain_key,
-                    interval,
-                ) => {
+                cc_client::events::CcEvent::CheckpointIntervalChanged(_chain_key, interval) => {
                     tracing::info!(interval, "🔢 New source chain checkpoint interval");
                 }
 
                 // CASE 4] NEW ATTESTATION CHECKPOINT
-                cc_client::attestation::CcEvent::CheckpointReached(_chain_key, checkpoint) => {
+                cc_client::events::CcEvent::CheckpointReached(_chain_key, checkpoint) => {
                     tracing::info!(
                         height = checkpoint.block_number,
                         digest = ?checkpoint.digest,
@@ -402,12 +397,12 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 5] NEW EPOCH
-                cc_client::attestation::CcEvent::RandomnessChanged((epoch, _randomness)) => {
+                cc_client::events::CcEvent::RandomnessChanged((epoch, _randomness)) => {
                     tracing::info!(epoch, "🎲 New epoch rotation");
                 }
 
                 // CASE 6] ATTESTOR ELECTION
-                cc_client::attestation::CcEvent::AttestorsElected(_chain_key, attestors) => {
+                cc_client::events::CcEvent::AttestorsElected(_chain_key, attestors) => {
                     tracing::info!("⏰ New attestors elected");
 
                     // 1. Attestor status
@@ -444,7 +439,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 7] ATTESTOR ACTIVATION
-                cc_client::attestation::CcEvent::AttestorActivated(_chain_key, attestor) => {
+                cc_client::events::CcEvent::AttestorActivated(_chain_key, attestor) => {
                     if attestor == self.account_id {
                         tracing::info!(
                             attestor_id = %self.account_id,
@@ -454,7 +449,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 8] ATTESTOR DEACTIVATION
-                cc_client::attestation::CcEvent::AttestorChilled(_chain_key, attestor) => {
+                cc_client::events::CcEvent::AttestorChilled(_chain_key, attestor) => {
                     if attestor == self.account_id {
                         self.can_attest
                             .store(false, std::sync::atomic::Ordering::Release);
@@ -466,7 +461,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 9] ATTESTOR FORCE-KICK
-                cc_client::attestation::CcEvent::AttestorKicked(attestor) => {
+                cc_client::events::CcEvent::AttestorKicked(attestor) => {
                     if attestor == self.account_id {
                         self.can_attest
                             .store(false, std::sync::atomic::Ordering::Release);
@@ -478,7 +473,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 10] ATTESTATION GENESIS BLOCK NUMBER SET
-                cc_client::attestation::CcEvent::AttestationChainGenesisBlockNumberSet(
+                cc_client::events::CcEvent::AttestationChainGenesisBlockNumberSet(
                     _chain_key,
                     genesis_block,
                 ) => {
@@ -489,7 +484,7 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 11] ATTESTATION CHAIN REVERSION
-                cc_client::attestation::CcEvent::RevertedAttestationChainTo(
+                cc_client::events::CcEvent::RevertedAttestationChainTo(
                     _chain_key,
                     height,
                     digest,
