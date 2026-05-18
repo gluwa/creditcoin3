@@ -8,7 +8,6 @@ use subxt::{
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
-use tracing::{debug, error, info};
 
 use cc3::runtime_types::{
     attestor_primitives::{
@@ -304,10 +303,10 @@ impl Client {
         // Short circuit if epoch index is too low
         // Randomness is not available for the first 2 epochs
         if two_epoch_ago == 0 {
-            info!("Epoch index is too low to fetch randomness");
+            tracing::info!("Epoch index is too low to fetch randomness");
             return Ok((Randomness::default(), two_epoch_ago));
         }
-        info!("Fetching randomness for epoch index: {}", two_epoch_ago);
+        tracing::info!("Fetching randomness for epoch index: {}", two_epoch_ago);
 
         let randomness = self
             .inner
@@ -606,7 +605,9 @@ impl Client {
         // Get attestor working set size
         let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
 
-        info!("Target set size: {target_sample_size}, committee set size: {committee_set_size}",);
+        tracing::info!(
+            "Target set size: {target_sample_size}, committee set size: {committee_set_size}",
+        );
 
         let proof_of_inclusion = make_proof_of_inclusion(
             committee_set_size as u64,
@@ -634,7 +635,7 @@ impl Client {
         // Get attestor working set size
         let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
 
-        info!("committee set size: {committee_set_size}",);
+        tracing::info!("committee set size: {committee_set_size}",);
 
         let proof_of_inclusion = make_proof_of_inclusion(
             committee_set_size as u64,
@@ -846,9 +847,10 @@ impl Client {
 
         while let Some(Ok(kv)) = iter.next().await {
             if kv.key_bytes.len() < 8 {
-                error!(
+                tracing::error!(
                     "Storage key for chainkey {} is less than 8 bytes, checkpoint: {:?}",
-                    chain_key, kv
+                    chain_key,
+                    kv
                 );
                 continue;
             }
@@ -862,9 +864,10 @@ impl Client {
                 };
                 checkpoints.push(checkpoint);
             } else {
-                error!(
+                tracing::error!(
                     "Failed to get last 8 bytes of storage key for chainkey {}, checkpoint: {:?}",
-                    chain_key, kv
+                    chain_key,
+                    kv
                 );
             }
         }
@@ -1032,7 +1035,7 @@ impl Client {
             .await?;
 
         let hash = ext.extrinsic_hash();
-        debug!(
+        tracing::debug!(
             "Set attestation chain genesis block number extrinsic submitted with hash: {:?}",
             hash
         );
