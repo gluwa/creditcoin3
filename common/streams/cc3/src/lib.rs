@@ -1,5 +1,5 @@
 mod error;
-pub use error::Error;
+use error::Error;
 
 #[derive(Debug, builder::Builder)]
 pub struct Config {
@@ -8,7 +8,9 @@ pub struct Config {
 }
 
 pub struct StreamCC3 {
-    stream: std::pin::Pin<Box<dyn futures::Stream<Item = StreamEvents> + Send>>,
+    stream: std::pin::Pin<
+        Box<dyn futures::Stream<Item = Result<StreamEvents, cc_client::Error>> + Send>,
+    >,
 }
 
 impl StreamCC3 {
@@ -18,30 +20,52 @@ impl StreamCC3 {
         use futures::TryStreamExt as _;
 
         let blocks = config.cc3.api().load().blocks();
-        let mut latest = blocks.at_latest().await.map_err(Error::Subxt)?.number();
-        let mut finalized = blocks.subscribe_finalized().await.map_err(Error::Subxt)?;
+        let mut latest = blocks
+            .at_latest()
+            .await
+            .map_err(|err| Error::Client(err.into()))?
+            .number();
+        let mut finalized = blocks
+            .subscribe_finalized()
+            .await
+            .map_err(|err| Error::Client(err.into()))?;
 
         let mut backfill = Vec::with_capacity(16);
         let mut err = Ok(());
 
         let stream = async_stream::stream! {
             'retry: loop {
-                match err {
-                    Err(Error::Subxt(ref err_new)) => {
-                        config.cc3.reconnect(&err_new).await;
+                match std::mem::replace(&mut err, Ok(())) {
+                    Err(Error::Client(cc_client::Error::ConnectionError(reconnect))) => {
+                        config.cc3.reconnect(reconnect).await;
 
                         let blocks = config.cc3.api().load().blocks();
                         finalized = match blocks.subscribe_finalized().await {
                             Ok(finalized_new) => finalized_new,
                             Err(err_new) => {
-                                tracing::warn!(?err_new, "Failed to re-subsribe to CC3");
+                                tracing::warn!(?err_new, "Failed to re-subscribe to CC3");
+                                err = Err(Error::Client(err_new.into()));
                                 continue 'retry;
                             }
                         };
 
                         config.cc3.reset_connection_delay();
                     }
-                    Err(err) => panic!("Unrecoverable error: {err}"),
+
+                    Err(Error::Client(err)) => yield Err(err),
+
+                    Err(Error::EndOfStream) => {
+                        let blocks = config.cc3.api().load().blocks();
+                        finalized = match blocks.subscribe_finalized().await {
+                            Ok(finalized_new) => finalized_new,
+                            Err(err_new) => {
+                                tracing::warn!(?err_new, "Failed to re-subscribe to CC3");
+                                err = Err(Error::Client(err_new.into()));
+                                continue 'retry;
+                            }
+                        };
+                    }
+
                     Ok(_) => {}
                 };
                 match finalized.try_next().await {
@@ -49,7 +73,7 @@ impl StreamCC3 {
                         let events = match block.events().await {
                             Ok(events) => events,
                             Err(err_new) => {
-                                err = Err(Error::Subxt(err_new));
+                                err = Err(Error::Client(err_new.into()));
                                 continue 'retry;
                            }
                         };
@@ -65,14 +89,14 @@ impl StreamCC3 {
                             let parent = match parent {
                                 Ok(parent) => parent,
                                 Err(err_new) => {
-                                    err = Err(Error::Subxt(err_new));
+                                    err = Err(Error::Client(err_new.into()));
                                     continue 'retry;
                                 }
                             };
                             let events = match parent.events().await {
                                 Ok(events) => events,
                                 Err(err_new) => {
-                                    err = Err(Error::Subxt(err_new));
+                                    err = Err(Error::Client(err_new.into()));
                                     continue 'retry;
                                 }
                             };
@@ -85,15 +109,15 @@ impl StreamCC3 {
 
                         latest = block.number();
                         for (block_number, events) in backfill.drain(..).rev() {
-                            yield StreamEvents::new(
+                            yield Ok(StreamEvents::new(
                                 block_number as attestor_primitives::Height,
                                 events,
                                 config.chain_key
-                            );
+                            ));
                         }
                     },
                     Ok(None) => err = Err(Error::EndOfStream),
-                    Err(err_new) => err = Err(Error::Subxt(err_new))
+                    Err(err_new) => err = Err(Error::Client(err_new.into()))
                 }
             }
         }
@@ -104,7 +128,7 @@ impl StreamCC3 {
 }
 
 impl futures::Stream for StreamCC3 {
-    type Item = StreamEvents;
+    type Item = Result<StreamEvents, cc_client::Error>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
@@ -117,7 +141,11 @@ impl futures::Stream for StreamCC3 {
 
 pub struct StreamEvents {
     stream: std::pin::Pin<
-        Box<dyn futures::Stream<Item = Result<cc_client::events::CcEvent, Error>> + Send + Sync>,
+        Box<
+            dyn futures::Stream<Item = Result<cc_client::events::CcEvent, cc_client::Error>>
+                + Send
+                + Sync,
+        >,
     >,
     block_number: attestor_primitives::Height,
 }
@@ -142,8 +170,11 @@ impl StreamEvents {
         let extracted: Vec<_> =
             cc_client::Client::extract_events(std::slice::from_ref(&chain_key), &events).collect();
 
-        let stream =
-            Box::pin(futures::stream::iter(extracted).map_err(|err| Error::Subxt(err.into())));
+        let stream = Box::pin(
+            futures::stream::iter(extracted)
+                .map_err(Into::<subxt::Error>::into)
+                .map_err(Into::<cc_client::Error>::into),
+        );
 
         Self {
             block_number,
@@ -157,7 +188,7 @@ impl StreamEvents {
 }
 
 impl futures::Stream for StreamEvents {
-    type Item = Result<cc_client::events::CcEvent, Error>;
+    type Item = Result<cc_client::events::CcEvent, cc_client::Error>;
 
     fn poll_next(
         mut self: std::pin::Pin<&mut Self>,
