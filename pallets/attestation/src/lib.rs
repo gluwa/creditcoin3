@@ -1,8 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
-pub use migrations::{
-    MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2,
-};
+pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
 pub use pallet::*;
 
 #[allow(clippy::unnecessary_cast)]
