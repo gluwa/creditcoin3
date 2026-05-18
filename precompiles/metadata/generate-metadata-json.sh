@@ -54,8 +54,11 @@ get_precompile_info() {
     esac
 }
 
-# Parse runtime/precompiles.rs to extract precompile mappings
-# Look for lines like: a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
+# Parse runtime/precompiles.rs to extract precompile mappings (custom *Precompile pallets only).
+# Supports the Moonbeam-style set:
+#   PrecompileAt<AddressU64<4050>, BlockProverPrecompile<R>, ...>,
+# and the legacy match-based set:
+#   a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
 declare -a precompile_map=()
 
 if [ ! -f "$runtime_precompiles_file" ]; then
@@ -65,14 +68,21 @@ fi
 
 # Extract precompile mappings from the Rust file
 while IFS= read -r line; do
-    # Match lines like: a if a == hash(4050) => Some(BlockProverPrecompile::<Runtime>::execute(handle)),
-    # Extract hash number and precompile type name
-    # Type names may include digits (e.g. Sr25519VerifierPrecompile)
-    if [[ $line =~ hash\(([0-9]+)\)\ =\>\ Some\(([A-Za-z0-9]+Precompile):: ]]; then
+    hash_number=""
+    precompile_type=""
+
+    # Moonbeam-style: PrecompileAt<AddressU64<4050>, BlockProverPrecompile<R>, ...>,
+    # Type name may be generic, e.g. SubstrateTransferPrecompile<R, ()>
+    if [[ $line =~ PrecompileAt\<AddressU64\<([0-9]+)\>,[[:space:]]*([A-Za-z0-9]+Precompile)\< ]]; then
         hash_number="${BASH_REMATCH[1]}"
         precompile_type="${BASH_REMATCH[2]}"
+    # Legacy dispatch match: hash(4050) => Some(BlockProverPrecompile::...
+    elif [[ $line =~ hash\(([0-9]+)\)\ =\>\ Some\(([A-Za-z0-9]+Precompile):: ]]; then
+        hash_number="${BASH_REMATCH[1]}"
+        precompile_type="${BASH_REMATCH[2]}"
+    fi
 
-        # Get ABI filename and display name
+    if [ -n "$hash_number" ] && [ -n "$precompile_type" ]; then
         precompile_info=$(get_precompile_info "$precompile_type")
 
         if [ -n "$precompile_info" ]; then
@@ -81,7 +91,9 @@ while IFS= read -r line; do
             precompile_map+=("${abi_filename}:${display_name}:${address}")
         fi
     fi
-done < <(grep -E "hash\([0-9]+\)\s*=>\s*Some\([A-Za-z0-9]+Precompile::" "$runtime_precompiles_file")
+done < <(grep -E \
+    'PrecompileAt<AddressU64<[0-9]+>.*[A-Za-z0-9]+Precompile|hash\([0-9]+\)\s*=>\s*Some\([A-Za-z0-9]+Precompile::' \
+    "$runtime_precompiles_file")
 
 if [ ${#precompile_map[@]} -eq 0 ]; then
     echo "Error: No precompiles found in $runtime_precompiles_file"
