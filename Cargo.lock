@@ -1623,6 +1623,7 @@ name = "attestor_zombienet"
 version = "3.123.0"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "attestor-primitives",
  "bip39",
  "cc-client",
