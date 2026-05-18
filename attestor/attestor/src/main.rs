@@ -418,7 +418,14 @@ async fn main() -> anyhow::Result<()> {
         .map(|_| tracing_subscriber::EnvFilter::from_default_env())
         .unwrap_or_else(|| {
             tracing_subscriber::EnvFilter::new(
-                "attestor=info,stream_attestation=info,attestation_pool=info,stream_eth=info,alloy=warn,subxt=warn",
+                "attestor=info,\
+                attestation_pool=info,\
+                stream_attestation=info,\
+                stream_eth=info,\
+                stream_cc3=info,\
+                cc_client=info,\
+                alloy=warn,\
+                subxt=warn",
             )
         });
 
@@ -441,6 +448,8 @@ async fn main() -> anyhow::Result<()> {
         .with_target("stream_attestation", tracing::Level::TRACE)
         .with_target("attestation_pool", tracing::Level::TRACE)
         .with_target("stream_eth", tracing::Level::TRACE)
+        .with_target("stream_cc3", tracing::Level::TRACE)
+        .with_target("cc_client", tracing::Level::TRACE)
         .with_target("alloy", tracing::Level::WARN)
         .with_target("subxt", tracing::Level::DEBUG);
     let (appender, _guard) = tracing_appender::non_blocking(tracing_appender::rolling::hourly(
