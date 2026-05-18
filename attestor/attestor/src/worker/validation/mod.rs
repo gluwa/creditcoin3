@@ -1005,20 +1005,25 @@ impl WorkerAttestationValidation {
         const POOL_INVALID_TX: i32 = 1010;
 
         let submit = loop {
-            match self
+            let reconnect = match self
                 .cc3
                 .api()
                 .load()
                 .tx()
                 .sign_and_submit_then_watch_default(&call, self.signer.keypair())
                 .await
+                .map_err(Into::<cc_client::Error>::into)
             {
                 Ok(submit) => break submit,
+                Err(cc_client::Error::ConnectionError(reconnect)) => reconnect,
                 Err(err) => {
                     // Another attestor won the submission race -the runtime reject new calls and
                     // does not included them into the mempool to avoid competing attestors paying
                     // an inclusion fee.
-                    if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(boxed)) = &err {
+                    if let cc_client::Error::SubxtError(subxt::Error::Rpc(
+                        subxt::error::RpcError::ClientError(boxed),
+                    )) = &err
+                    {
                         if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(obj)) =
                             boxed.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
                         {
@@ -1037,9 +1042,14 @@ impl WorkerAttestationValidation {
                             }
                         }
                     }
+
+                    // TODO: should this be hard error and cause a crash?
                     tracing::error!(height, ?err, "⛔ Failed to submit attestation");
+                    return Ok(());
                 }
-            }
+            };
+
+            self.cc3.reconnect(reconnect).await
         };
 
         // --------------------------------* Finalization *--------------------------------
