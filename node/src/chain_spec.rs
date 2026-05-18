@@ -386,7 +386,7 @@ fn devnet_genesis(
                     map.insert(acct, genesis_account(one_mil));
                 }
 
-                used_addresses().map(|addr| {
+                for addr in used_addresses() {
                     map.insert(
                         addr,
                         fp_evm::GenesisAccount {
@@ -396,7 +396,7 @@ fn devnet_genesis(
                             code: revert_bytecode.clone(),
                         },
                     );
-                });
+                }
 
                 eprintln!("EVM accounts: {map:?}");
 
@@ -570,7 +570,7 @@ fn testnet_genesis(
                     map.insert(acct, genesis_account(one_mil));
                 }
 
-                used_addresses().map(|addr| {
+                for addr in used_addresses() {
                     map.insert(
                         addr,
                         fp_evm::GenesisAccount {
@@ -580,7 +580,7 @@ fn testnet_genesis(
                             code: revert_bytecode.clone(),
                         },
                     );
-                });
+                }
 
                 eprintln!("EVM accounts: {map:?}");
 
