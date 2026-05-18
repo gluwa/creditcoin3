@@ -52,8 +52,7 @@ impl Attestor {
         let chain_key = self.config.chain_key;
 
         let secret_str = self.config.stream.secret.to_secret_uri_string();
-        let signer =
-            cc_client::signer::CC3Signer::new(secret_str.as_str()).map_err(Error::InitError)?;
+        let signer = cc_client::signer::CC3Signer::new(secret_str.as_str()).map_err(Error::Init)?;
         let account_id = signer.account_id();
 
         let mut seed = self.config.stream.secret.to_seed_bytes_32();
@@ -84,17 +83,17 @@ impl Attestor {
             secret_str.as_str(),
         )
         .await
-        .map_err(Error::InitError)?;
+        .map_err(Error::Init)?;
 
         let client_eth = eth::Client::new(self.config.stream.url_eth.as_ref().as_ref(), None)
             .await
-            .map_err(Error::InitError)?;
+            .map_err(Error::Init)?;
 
         let supported_chain = client_cc3
             .get_supported_chain(chain_key)
             .await
             .context("Failed to retrieve supported chain")
-            .map_err(Error::InitError)?
+            .map_err(Error::Init)?
             .ok_or(Error::ChainKeyNotSupported(chain_key))?;
 
         if supported_chain.chain_id != client_eth.chain_id() {
@@ -111,10 +110,10 @@ impl Attestor {
         let free_balance = client_cc3
             .get_free_balance(&account_id)
             .await
-            .map_err(Error::RpcError)?;
+            .map_err(Error::CC3)?;
         if free_balance < common::constants::MIN_BALANCE {
             tracing::error!(name = self.config.name, %account_id, chain_key, balance = %free_balance, "⛔ Attestor has insufficient balance");
-            return Err(Error::InitError(anyhow::anyhow!(
+            return Err(Error::Init(anyhow::anyhow!(
                 "Attestor {} ({}) has insufficient balance: {} < {}",
                 self.config.name,
                 account_id,
@@ -133,7 +132,7 @@ impl Attestor {
             .build();
         let stream_cc3_production = stream::cc3::StreamCC3::new(config)
             .await
-            .map_err(Error::InitError)?;
+            .map_err(Error::CC3)?;
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
@@ -141,7 +140,7 @@ impl Attestor {
             .build();
         let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
             .await
-            .map_err(Error::InitError)?;
+            .map_err(Error::CC3)?;
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
@@ -149,7 +148,7 @@ impl Attestor {
             .build();
         let mut stream_cc3_genesis = stream::cc3::StreamCC3::new(config)
             .await
-            .map_err(Error::InitError)?;
+            .map_err(Error::CC3)?;
 
         // ------------------------------------* Registration *------------------------------------
 
@@ -216,7 +215,7 @@ impl Attestor {
             }
             Err(Interrupt::Cont(err)) => {
                 tracing::error!(%err, "⛔ Failed to retrieve active attestor bls set");
-                return Err(Error::BlsError(err));
+                return Err(Error::Bls(err));
             }
         };
 
@@ -227,7 +226,7 @@ impl Attestor {
             None => client_cc3
                 .chain_attestation_interval(chain_key)
                 .await
-                .map_err(Error::RpcError)?
+                .map_err(Error::CC3)?
                 .map(std::num::NonZero::<attestor_primitives::Height>::new)
                 .ok_or(Error::MissingAttestationInterval(chain_key))?
                 .unwrap(),
@@ -245,17 +244,17 @@ impl Attestor {
         let genesis = client_cc3
             .get_attestation_chain_genesis_block_number(chain_key)
             .await
-            .map_err(Error::RpcError)?;
+            .map_err(Error::CC3)?;
 
         let start_attestation = match client_cc3
             .fetch_last_digest(chain_key)
             .await
-            .map_err(Error::RpcError)?
+            .map_err(Error::CC3)?
         {
             Some(last_digest) => match client_cc3
                 .get_attestation_by_digest(chain_key, last_digest)
                 .await
-                .map_err(Error::RpcError)?
+                .map_err(Error::CC3)?
             {
                 Some(last_attestation) => Some(stream::util::AttestationInfo {
                     digest: last_attestation.digest(),
@@ -268,7 +267,7 @@ impl Attestor {
             None => client_cc3
                 .get_last_checkpoint(chain_key)
                 .await
-                .map_err(Error::RpcError)?
+                .map_err(Error::CC3)?
                 .map(|last_checkpoint| stream::util::AttestationInfo {
                     digest: last_checkpoint.digest,
                     height: last_checkpoint.block_number,
@@ -409,7 +408,7 @@ impl Attestor {
             .build();
         let p2p = worker::p2p::WorkerP2P::new(config)
             .await
-            .map_err(Error::InitError)?;
+            .map_err(Error::Init)?;
         let mut handle_p2p = Some(monitor.spawn(p2p));
 
         // --------------------------------------* Genesis *------------------------------------ //
@@ -576,7 +575,7 @@ async fn register_bls(
     let status = client_cc3
         .get_attestor_status(chain_key)
         .await
-        .map_interrupt(Error::RpcError)?;
+        .map_interrupt(Error::CC3)?;
 
     if status == Some(attestor_primitives::AttestorStatus::Idle) {
         tracing::info!(
@@ -587,12 +586,12 @@ async fn register_bls(
         let bls_public_key = bls_public_key_bytes[..]
             .try_into()
             .context("BLS public key has unexpected length")
-            .map_interrupt(Error::InitError)?;
+            .map_interrupt(Error::Init)?;
 
         let proof_of_possession = bls_key.sign(bls_public_key).as_bytes()[..]
             .try_into()
             .context("BLS signature has unexpected length")
-            .map_interrupt(Error::InitError)?;
+            .map_interrupt(Error::Init)?;
 
         tokio::select! {
             res = client_cc3.start_attesting(
@@ -600,7 +599,7 @@ async fn register_bls(
                 bls_public_key,
                 proof_of_possession,
             ) => {
-                res.map_interrupt(Error::RpcError)?;
+                res.map_interrupt(Error::CC3)?;
             }
             _ = tokio::signal::ctrl_c() => {
                 return Err(Interrupt::Stop);
@@ -629,29 +628,32 @@ async fn wait_for_eligible(
     stream_cc3: &mut stream::cc3::StreamCC3,
 ) -> Result<Vec<cc_client::AccountId32>, Interrupt<Error>> {
     use anyhow::Context as _;
+    use arc_swap::access::Access as _;
     use futures::StreamExt as _;
     use futures::TryStreamExt as _;
 
     let mut attestors = client_cc3
         .get_attestor_active_set(chain_key)
         .await
-        .map_interrupt(Error::RpcError)?;
+        .map_interrupt(Error::CC3)?;
 
     let cc3_block_time_ms = client_cc3
         .api()
+        .load()
         .constants()
         .at(&cc_client::cc3::constants().timestamp().minimum_period())
         .context("Failed to retrieve cc3 block time")
-        .map_interrupt(Error::InitError)?
+        .map_interrupt(Error::Init)?
         * 2;
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
     if !attestors.contains(account_id) {
         attestors = 'outer: loop {
             tokio::select! {
-                Some(mut events) = stream_cc3.next() => {
-                    while let Some(event) =  events.try_next().await.map_interrupt(Error::CC3Error)? {
-                        if let cc_client::attestation::CcEvent::AttestorsElected(key, attestors) = event {
+                Some(res) = stream_cc3.next() => {
+                    let mut events = res.map_interrupt(Error::CC3)?;
+                    while let Some(event) =  events.try_next().await.map_interrupt(Error::CC3)? {
+                        if let cc_client::events::CcEvent::AttestorsElected(key, attestors) = event {
                             if key == chain_key && attestors.contains(account_id) {
                                 break 'outer attestors;
                             }
@@ -707,7 +709,7 @@ async fn wait_for_genesis(
         .get_block(genesis, usc_abi_encoding::common::EncodingVersion::V1)
         .await
         .context("Failed to fetch genesis block")
-        .map_interrupt(Error::InitError)?;
+        .map_interrupt(Error::Init)?;
 
     let info = stream::util::RootInfo {
         height: genesis,
@@ -738,7 +740,7 @@ async fn wait_for_genesis(
     sender_p2p
         .send(attestation_genesis.clone())
         .context("Failed to send initial attestation over to p2p worker")
-        .map_interrupt(Error::InitError)?;
+        .map_interrupt(Error::Init)?;
     sender_validation
         .send(attestation_genesis)
         .transpose()
@@ -749,9 +751,10 @@ async fn wait_for_genesis(
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
     let attestation_latest_cc3 = 'outer: loop {
         tokio::select! {
-            Some(mut events) = stream_cc3.next() => {
-                while let Some(event) = events.try_next().await.map_interrupt(Error::CC3Error)? {
-                    if let cc_client::attestation::CcEvent::BlockAttested(attestation_new) = event {
+            Some(res) = stream_cc3.next() => {
+                let mut events = res.map_interrupt(Error::CC3)?;
+                while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)? {
+                    if let cc_client::events::CcEvent::BlockAttested(attestation_new) = event {
                         if attestation_new.header_number >= height {
                             break 'outer stream::util::AttestationInfo {
                                 digest: attestation_new.digest,
@@ -809,7 +812,7 @@ async fn wait_for_worker(
                 }
                 Ok(Err(err)) => {
                     tracing::error!(%err, "⛔ [{shutdown}/4] API worker failure");
-                    break Err(Error::WorkerError(err));
+                    break Err(Error::Worker(err));
                 }
                 Err(payload) => std::panic::resume_unwind(payload),
             }
@@ -824,7 +827,7 @@ async fn wait_for_worker(
                 }
                 Ok(Err(err)) => {
                     tracing::error!(%err, "⛔ [{shutdown}/4] Production worker failure");
-                    break Err(Error::WorkerError(err));
+                    break Err(Error::Worker(err));
                 }
                 Err(payload) => std::panic::resume_unwind(payload),
             };
@@ -839,7 +842,7 @@ async fn wait_for_worker(
                 }
                 Ok(Err(err)) => {
                     tracing::error!(%err, "⛔ [{shutdown}/4] Validation worker failure");
-                    break Err(Error::WorkerError(err));
+                    break Err(Error::Worker(err));
                 }
                 Err(payload) => std::panic::resume_unwind(payload),
             };
@@ -854,7 +857,7 @@ async fn wait_for_worker(
                 }
                 Ok(Err(err)) => {
                     tracing::error!(%err, "⛔ [{shutdown}/4] P2P worker failure");
-                    break Err(Error::WorkerError(err));
+                    break Err(Error::Worker(err));
                 }
                 Err(payload) => std::panic::resume_unwind(payload),
             };
