@@ -3,12 +3,8 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use sp_core::U256;
 use subxt::{
-    backend::rpc::RpcClient,
-    config::DefaultExtrinsicParamsBuilder,
-    error::RpcError,
-    ext::jsonrpsee::core::client::Error as JsonRpseeError,
-    utils::{AccountId32, H256},
-    OnlineClient, SubstrateConfig,
+    backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, error::RpcError,
+    ext::jsonrpsee::core::client::Error as JsonRpseeError, OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
@@ -29,6 +25,8 @@ use attestor_primitives::{
 };
 use supported_chains_primitives::SupportedChain;
 use vrf::{make_proof_of_inclusion, ProofOfInclusion};
+
+pub use subxt::utils::{AccountId32, H256};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
