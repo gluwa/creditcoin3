@@ -107,7 +107,8 @@ supported-chains-primitives = { workspace = true }
 substrate-wasm-builder = { workspace = true }
 
 [package.metadata.cargo-machete]
-ignored = ["substrate-wasm-builder"]
+# num_enum: required by `precompile_name_from_address` expanded code (not visible to static analysis).
+ignored = ["substrate-wasm-builder", "num_enum"]
 
 [features]
 default = ["std"]
