@@ -17,6 +17,7 @@ hex-literal = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 smallvec = "1.13.2"
+num_enum = { workspace = true, default-features = false }
 
 # Substrate
 sp-api = { workspace = true }
@@ -79,6 +80,7 @@ pallet-evm-precompile-modexp = { workspace = true }
 pallet-evm-precompile-sha3fips = { workspace = true }
 pallet-evm-precompile-simple = { workspace = true }
 pallet-hotfix-sufficients = { workspace = true }
+precompile-utils = { workspace = true, default-features = false }
 
 # Tracing
 ethereum = { workspace = true }
@@ -206,6 +208,8 @@ std = [
     "pallet-evm-precompile-sha3fips/std",
     "pallet-evm-precompile-simple/std",
     "pallet-hotfix-sufficients/std",
+    "precompile-utils/std",
+    "num_enum/std",
     "moonbeam-evm-tracer/std",
     "moonbeam-rpc-primitives-debug/std",
     "ethereum/std",

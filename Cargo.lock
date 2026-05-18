@@ -142,7 +142,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "28e2652684758b0d9b389d248b209ed9fd9989ef489a550265fe4bb8454fe7eb"
 dependencies = [
  "alloy-primitives",
- "num_enum",
+ "num_enum 0.7.3",
  "strum 0.27.1",
 ]
 
@@ -2941,6 +2941,7 @@ dependencies = [
  "log",
  "moonbeam-evm-tracer",
  "moonbeam-rpc-primitives-debug",
+ "num_enum 0.5.11",
  "pallet-attestation",
  "pallet-authorship",
  "pallet-babe",
@@ -2981,6 +2982,7 @@ dependencies = [
  "pallet-transaction-payment-rpc-runtime-api",
  "pallet-utility",
  "parity-scale-codec",
+ "precompile-utils",
  "randomness-primitives",
  "scale-info",
  "smallvec",
@@ -4617,7 +4619,7 @@ dependencies = [
  "environmental",
  "evm",
  "frame-support",
- "num_enum",
+ "num_enum 0.7.3",
  "parity-scale-codec",
  "scale-info",
  "serde",
@@ -8814,11 +8816,32 @@ dependencies = [
 
 [[package]]
 name = "num_enum"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f646caf906c20226733ed5b1374287eb97e3c2a5c227ce668c1f2ce20ae57c9"
+dependencies = [
+ "num_enum_derive 0.5.11",
+]
+
+[[package]]
+name = "num_enum"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e613fc340b2220f734a8595782c551f1250e969d87d3be1ae0579e8d4065179"
 dependencies = [
- "num_enum_derive",
+ "num_enum_derive 0.7.3",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcbff9bc912032c62bf65ef1d5aea88983b420f4f839db1e9b0c281a25c9c799"
+dependencies = [
+ "proc-macro-crate 1.1.3",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -10271,7 +10294,7 @@ dependencies = [
  "hex-literal",
  "impl-trait-for-tuples",
  "log",
- "num_enum",
+ "num_enum 0.7.3",
  "pallet-evm",
  "parity-scale-codec",
  "precompile-utils-macro",
@@ -10291,7 +10314,7 @@ version = "0.1.0"
 source = "git+https://github.com/gluwa/frontier_2?branch=stable2409_patch#49bcd9779d851b0c6dab5afef59c48d5dfaf8e68"
 dependencies = [
  "case",
- "num_enum",
+ "num_enum 0.7.3",
  "prettyplease 0.2.32",
  "proc-macro2",
  "quote",
