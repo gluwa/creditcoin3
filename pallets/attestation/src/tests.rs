@@ -8032,9 +8032,7 @@ mod bls_key_uniqueness {
     //! satisfy threshold-of-N by replaying their signature `N` times in the aggregate.
 
     use super::*;
-    use crate::migrations::MigrateBlsKeyUniquenessV2ToV3;
     use attestor_primitives::Attestor as AttestorRecord;
-    use frame_support::traits::{GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
 
     const OTHER_CHAIN_KEY: ChainKey = 42;
 
@@ -8092,8 +8090,6 @@ mod bls_key_uniqueness {
                 Some(att1.attestor_id)
             );
 
-            // att2 tries to attest with the *same* BLS public key (and att1's PoP, which
-            // is valid for that key). PoP passes, uniqueness check must reject.
             assert_noop!(
                 Attestation::attest(
                     RuntimeOrigin::signed(att2.attestor_id),
@@ -8104,10 +8100,15 @@ mod bls_key_uniqueness {
                 Error::<Test>::BlsKeyAlreadyRegistered
             );
 
-            // BLS-key-owner unchanged, att2 still keyless.
+            // Rejected: `att1.public_key` still owned by att1 only; att2 never registered its
+            // own `att2.public_key` either.
             assert_eq!(
                 BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att1.public_key),
                 Some(att1.attestor_id)
+            );
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att2.public_key),
+                None
             );
             assert_eq!(
                 Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2)
@@ -8278,99 +8279,6 @@ mod bls_key_uniqueness {
                 SUPPORTED_CHAIN_KEY,
                 &signed
             ));
-        })
-    }
-
-    #[test]
-    fn migration_v2_to_v3_keeps_first_attestor_and_clears_duplicates() {
-        ExtBuilder.build_and_execute(|| {
-            // Simulate a pre-`v3` chain: two attestors share a BLS key on the same chain,
-            // a third has an unrelated key. The migration must keep the earliest
-            // (lowest-AccountId) attestor as the owner and reset the loser.
-            StorageVersion::new(2).put::<Pallet<Test>>();
-            let _ = BlsKeyOwner::<Test>::clear(u32::MAX, None);
-
-            let shared = Attestor::new(STASH_1, ATTESTOR_1);
-            let other = Attestor::new(STASH_3, ATTESTOR_3);
-
-            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, shared.public_key);
-            // ATTESTOR_2 has the *same* BLS pubkey as ATTESTOR_1 (the bug scenario).
-            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, shared.public_key);
-            // ATTESTOR_3 has its own unique key.
-            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, other.public_key);
-
-            MigrateBlsKeyUniquenessV2ToV3::<Test>::on_runtime_upgrade();
-
-            // Storage version bumped.
-            assert_eq!(
-                Pallet::<Test>::on_chain_storage_version(),
-                StorageVersion::new(3)
-            );
-
-            // Winner: ATTESTOR_1 (lowest AccountId) keeps the shared key.
-            assert_eq!(
-                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, shared.public_key),
-                Some(ATTESTOR_1)
-            );
-            assert_eq!(
-                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1)
-                    .unwrap()
-                    .bls_public_key,
-                Some(shared.public_key)
-            );
-
-            // Loser: ATTESTOR_2 lost the key, was forced to Idle, and was kicked from the
-            // active set.
-            let loser = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2).unwrap();
-            assert_eq!(loser.bls_public_key, None);
-            assert_eq!(loser.status, AttestorStatus::Idle);
-            assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_2));
-
-            // Unrelated attestor untouched.
-            assert_eq!(
-                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, other.public_key),
-                Some(ATTESTOR_3)
-            );
-            assert_eq!(
-                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_3)
-                    .unwrap()
-                    .status,
-                AttestorStatus::Active
-            );
-
-            // Event for the demoted attestor was emitted.
-            System::assert_has_event(
-                crate::Event::DuplicateBlsKeyDetectedDuringMigration {
-                    chain_key: SUPPORTED_CHAIN_KEY,
-                    bls_public_key: shared.public_key,
-                    winner_attestor_id: ATTESTOR_1,
-                    loser_attestor_id: ATTESTOR_2,
-                }
-                .into(),
-            );
-        })
-    }
-
-    #[test]
-    fn migration_v2_to_v3_is_noop_when_already_at_v3() {
-        ExtBuilder.build_and_execute(|| {
-            StorageVersion::new(3).put::<Pallet<Test>>();
-            let _ = BlsKeyOwner::<Test>::clear(u32::MAX, None);
-
-            let shared = Attestor::new(STASH_1, ATTESTOR_1);
-            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, shared.public_key);
-            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, shared.public_key);
-
-            MigrateBlsKeyUniquenessV2ToV3::<Test>::on_runtime_upgrade();
-
-            // Owner map untouched, both attestors untouched.
-            assert!(BlsKeyOwner::<Test>::iter().next().is_none());
-            assert_eq!(
-                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2)
-                    .unwrap()
-                    .bls_public_key,
-                Some(shared.public_key)
-            );
         })
     }
 

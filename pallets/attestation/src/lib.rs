@@ -2,7 +2,6 @@
 
 pub use migrations::{
     MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2,
-    MigrateBlsKeyUniquenessV2ToV3,
 };
 pub use pallet::*;
 
@@ -534,7 +533,7 @@ pub mod pallet {
     >;
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(3);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -644,17 +643,6 @@ pub mod pallet {
             amount: BalanceOf<T>,
         },
         AttestorActivated(ChainKey, T::AccountId, BlsPublicKey),
-        /// During the `v2 -> v3` storage migration the same BLS public key was found
-        /// registered to multiple controller accounts on a chain. The migration kept the
-        /// claim for `winner_attestor_id` and cleared the BLS key (and forced status =
-        /// `Idle` / removal from the active set) for `loser_attestor_id`. Affected
-        /// attestors must re-run `attest` with a fresh, unique BLS keypair.
-        DuplicateBlsKeyDetectedDuringMigration {
-            chain_key: ChainKey,
-            bls_public_key: BlsPublicKey,
-            winner_attestor_id: T::AccountId,
-            loser_attestor_id: T::AccountId,
-        },
         AttestorChilled(ChainKey, T::AccountId),
         AttestorsElected {
             epoch: u64,
