@@ -347,8 +347,8 @@ impl<T: Config> Pallet<T> {
         // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
         // Keep [`AttestorsCount`] in lock-step with [`Attestors`]. `saturating_sub`
-        // defends against drift (e.g. a pre-migration chain whose count was not
-        // populated); the actual decrement pairs with the insert above.
+        // defends against drift if the counter and map ever diverge; the decrement pairs
+        // with the attestor removal above.
         AttestorsCount::<T>::mutate(chain_key, |count| {
             *count = count.saturating_sub(1);
         });
@@ -970,8 +970,8 @@ impl<T: Config> Pallet<T> {
             Self::gather_attestor_public_keys(attestation.chain_key(), &eligible_attestor_list)?;
 
         // Validation-time dedup on BLS keys: defense-in-depth against the same BLS pubkey
-        // appearing under multiple distinct controller accounts (pre-`v3` storage, migration
-        // drift, retired-key edge cases). BLS aggregation is linear, so aggregating the same
+        // appearing under multiple distinct controller accounts (e.g. retired-key edge cases).
+        // BLS aggregation is linear, so aggregating the same
         // key `k` `n` times yields `n*k` and a single signer holding `s` (with `s*G = k`) can
         // satisfy the quorum by having their signature counted `n` times. We enforce that the
         // number of *distinct* BLS public keys clears the threshold, and we aggregate over the
@@ -979,13 +979,16 @@ impl<T: Config> Pallet<T> {
         // contributions.
         let mut deduped_public_keys: Vec<PublicKey> =
             Vec::with_capacity(attestor_public_keys.len());
-        let mut seen_keys: BTreeSet<BlsPublicKey> = BTreeSet::new();
+        let mut seen_key_bytes: BTreeSet<BlsPublicKey> = BTreeSet::new();
         for pk in attestor_public_keys.iter() {
-            let pk_bytes: BlsPublicKey = pk.as_bytes()[..].try_into().map_err(|_| {
-                log::error!("Unexpected BLS public key encoding length");
+            let bytes = pk.as_bytes();
+            ensure!(
+                bytes.len() == core::mem::size_of::<BlsPublicKey>(),
                 Error::<T>::InvalidBlsPublicKey
-            })?;
-            if seen_keys.insert(pk_bytes) {
+            );
+            let mut key_id: BlsPublicKey = [0u8; core::mem::size_of::<BlsPublicKey>()];
+            key_id.copy_from_slice(bytes.as_slice());
+            if seen_key_bytes.insert(key_id) {
                 deduped_public_keys.push(*pk);
             }
         }
