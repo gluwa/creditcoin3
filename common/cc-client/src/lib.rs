@@ -2,9 +2,13 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use sp_core::U256;
-pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, OnlineClient, SubstrateConfig,
+    backend::rpc::RpcClient,
+    config::DefaultExtrinsicParamsBuilder,
+    error::RpcError,
+    ext::jsonrpsee::core::client::Error as JsonRpseeError,
+    utils::{AccountId32, H256},
+    OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
@@ -24,7 +28,7 @@ use attestor_primitives::{
     BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
-use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
+use vrf::{make_proof_of_inclusion, ProofOfInclusion};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -43,30 +47,60 @@ pub type Randomness = [u8; 32];
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Failed to submit RPC")]
-    FailedToSubmit,
+    #[error("Subxt error: {0}")]
+    SubxtError(subxt::Error),
+    #[error("Transaction timed out waiting for finalization")]
+    TransactionTimeout,
+    #[error("CC3 connection lost: {0:?}")]
+    ConnectionError(Reconnect),
+
     #[error("Failed to get Babe VRF at epoch {0}")]
     FailedToGetBabeVrf(u64),
     #[error("Failed to get committee set size")]
     FailedToGetComitteSetSize,
-    #[error("No Checkpoint interval set for chain with key {0}")]
-    NoCheckpointIntervalSet(ChainKey),
-    #[error("Subxt error: {0:?}")]
-    SubxtError(#[from] subxt::Error),
-    #[error("Invalid rpc url")]
-    InvalidUrl,
     #[error("Failed to create proof of inclusion: {0}")]
-    FailedToCreateProofOfInclusion(#[from] VrfError),
-    #[error("Failed to get STARK metadata: {0}")]
-    FailedToGetStarkMetadata(String),
+    FailedToCreateProofOfInclusion(vrf::Error),
+
     #[error("Attestor not found in storage, register the attestor first and retry later")]
     NotRegistered,
     #[error("Caller cannot pay fees for the transaction")]
     CallerCannotPayFees,
-    #[error("Caller doesn't have sufficient funds to execute the transaction: {0:?}")]
-    CallerDoesntHaveSufficientFunds(#[from] subxt::error::TokenError),
-    #[error("Transaction timed out waiting for finalization")]
-    TransactionTimeout,
+    #[error("Caller doesn't have sufficient funds to execute the transaction: {0}")]
+    CallerDoesntHaveSufficientFunds(subxt::error::TokenError),
+}
+
+#[derive(Debug)]
+pub struct Reconnect(subxt::Error);
+
+impl From<subxt::Error> for Error {
+    fn from(err: subxt::Error) -> Self {
+        match &err {
+            subxt::Error::Rpc(
+                RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
+            ) => Self::ConnectionError(Reconnect(err)),
+            subxt::Error::Rpc(RpcError::ClientError(boxed))
+                if matches!(
+                    boxed.downcast_ref::<JsonRpseeError>(),
+                    Some(JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_))
+                ) =>
+            {
+                Self::ConnectionError(Reconnect(err))
+            }
+            _ => Self::SubxtError(err),
+        }
+    }
+}
+
+impl From<vrf::Error> for Error {
+    fn from(err: vrf::Error) -> Self {
+        Self::FailedToCreateProofOfInclusion(err)
+    }
+}
+
+impl From<subxt::error::TokenError> for Error {
+    fn from(err: subxt::error::TokenError) -> Self {
+        Self::CallerDoesntHaveSufficientFunds(err)
+    }
 }
 
 /// Cc3 client that is configured with an url and keypair
@@ -131,11 +165,7 @@ impl Client {
     /// every continuity builder) can call this without coordination, and all
     /// callers immediately observe the new connection on their next
     /// `api()`/`legacy()`/`rpc()` access.
-    pub async fn reconnect(&mut self, err: &subxt::Error) {
-        if !util::is_connection_err(&err) {
-            return;
-        }
-
+    pub async fn reconnect(&mut self, Reconnect(err): Reconnect) {
         loop {
             tracing::warn!(?err, "CC3 connection lost...");
 
@@ -1070,9 +1100,6 @@ impl ClientInner {
 }
 
 mod util {
-    use subxt::error::RpcError;
-    use subxt::ext::jsonrpsee::core::client::Error as JsonRpseeError;
-
     /// Timeout for waiting on extrinsic finalization.
     /// Set to 120 seconds which is around 8 blocks on a 15 second block time.
     const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
@@ -1128,19 +1155,6 @@ mod util {
         }
 
         false
-    }
-
-    pub fn is_connection_err(err: &subxt::Error) -> bool {
-        match &err {
-            subxt::Error::Rpc(
-                RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
-            ) => true,
-            subxt::Error::Rpc(RpcError::ClientError(boxed)) => matches!(
-                boxed.downcast_ref::<JsonRpseeError>(),
-                Some(JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_))
-            ),
-            _ => false,
-        }
     }
 }
 
