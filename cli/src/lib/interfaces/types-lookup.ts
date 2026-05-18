@@ -1139,13 +1139,6 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isAttestorActivated: boolean;
         readonly asAttestorActivated: ITuple<[u64, AccountId32, U8aFixed]>;
-        readonly isDuplicateBlsKeyDetectedDuringMigration: boolean;
-        readonly asDuplicateBlsKeyDetectedDuringMigration: {
-            readonly chainKey: u64;
-            readonly blsPublicKey: U8aFixed;
-            readonly winnerAttestorId: AccountId32;
-            readonly loserAttestorId: AccountId32;
-        } & Struct;
         readonly isAttestorChilled: boolean;
         readonly asAttestorChilled: ITuple<[u64, AccountId32]>;
         readonly isAttestorsElected: boolean;
@@ -1210,7 +1203,6 @@ declare module '@polkadot/types/lookup' {
             | 'Unbonded'
             | 'Withdrawn'
             | 'AttestorActivated'
-            | 'DuplicateBlsKeyDetectedDuringMigration'
             | 'AttestorChilled'
             | 'AttestorsElected'
             | 'MinBondRequirementUpdated'
