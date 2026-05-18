@@ -911,12 +911,6 @@ export default {
                 amount: 'u128',
             },
             AttestorActivated: '(u64,AccountId32,[u8;48])',
-            DuplicateBlsKeyDetectedDuringMigration: {
-                chainKey: 'u64',
-                blsPublicKey: '[u8;48]',
-                winnerAttestorId: 'AccountId32',
-                loserAttestorId: 'AccountId32',
-            },
             AttestorChilled: '(u64,AccountId32)',
             AttestorsElected: {
                 epoch: 'u64',
