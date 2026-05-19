@@ -5,4 +5,5 @@
 pub mod api;
 pub mod p2p;
 pub mod production;
+pub mod runtime_updater;
 pub mod validation;
