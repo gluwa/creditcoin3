@@ -96,6 +96,43 @@ fn claim_input(
     v
 }
 
+/// First ERC-20 subcall is `balanceOf`, later subcalls are `transfer` / `transferFrom`.
+fn attach_mock_balance_then_transfer(handle: &mut MockHandle, balance: u128, transfer_ok: bool) {
+    use std::cell::Cell;
+    let calls = Cell::new(0u32);
+    handle.subcall_handle = Some(Box::new(move |_subcall| {
+        let n = calls.get();
+        calls.set(n + 1);
+        if n == 0 {
+            return SubcallOutput {
+                reason: ExitReason::Succeed(ExitSucceed::Returned),
+                output: encode_u256(balance).to_vec(),
+                cost: 0,
+                logs: vec![],
+            };
+        }
+        if transfer_ok {
+            SubcallOutput {
+                reason: ExitReason::Succeed(ExitSucceed::Returned),
+                output: {
+                    let mut out = [0u8; 32];
+                    out[31] = 1;
+                    out.to_vec()
+                },
+                cost: 0,
+                logs: vec![],
+            }
+        } else {
+            SubcallOutput {
+                reason: ExitReason::Revert(ExitRevert::Reverted),
+                output: b"transfer failed".to_vec(),
+                cost: 0,
+                logs: vec![],
+            }
+        }
+    }));
+}
+
 fn execute(handle: &mut MockHandle) -> fp_evm::PrecompileResult {
     use fp_evm::Precompile as _;
     crate::AttestCoinPrecompile::<Runtime>::execute(handle)
@@ -189,24 +226,42 @@ fn claim_reverts_unsupported_chain_key() {
 }
 
 #[test]
-fn claim_reverts_not_stash() {
+fn claim_succeeds_without_ledger_entry() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
 
-        let caller = H160::repeat_byte(0xAA);
-        // stash_bytes maps to a Bogus account that has no Ledger entry
-        let stash_bytes = [0x12u8; 32];
-        let input = claim_input(
-            stash_bytes,
+        let (pair, _) = sr25519::Pair::generate();
+        let stash_raw: [u8; 32] = pair.public().0;
+        let stash = AccountId::from(stash_raw);
+        Accrued::<Runtime>::insert(&stash, 1_000u128);
+
+        let evm_recipient = H160::zero();
+        let amount = 50u128;
+        let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::claim_signing_message(
+            &stash,
             0,
             SUPPORTED_CHAIN_KEY,
-            0,
-            caller,
-            [0u8; 32],
-            [0u8; 32],
+            amount,
+            evm_recipient.0,
         );
-        let mut handle = make_handle(caller, input);
-        assert_reverts_with(&mut handle, b"not a stash");
+        let sig = pair.sign(&msg);
+        let mut sig_r = [0u8; 32];
+        let mut sig_s = [0u8; 32];
+        sig_r.copy_from_slice(&sig.0[..32]);
+        sig_s.copy_from_slice(&sig.0[32..]);
+
+        let input = claim_input(
+            stash_raw,
+            0,
+            SUPPORTED_CHAIN_KEY,
+            amount,
+            evm_recipient,
+            sig_r,
+            sig_s,
+        );
+        let mut handle = make_handle(evm_recipient, input);
+        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        assert!(execute(&mut handle).is_ok());
     });
 }
 
@@ -292,6 +347,7 @@ fn claim_reverts_bad_nonce() {
             sig_s,
         );
         let mut handle = make_handle(evm_recipient, input);
+        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
         assert_reverts_with(&mut handle, b"bad nonce");
     });
 }
@@ -341,6 +397,7 @@ fn claim_reverts_insufficient_accrued() {
             sig_s,
         );
         let mut handle = make_handle(evm_recipient, input);
+        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
         assert_reverts_with(&mut handle, b"insufficient accrued");
     });
 }
@@ -396,12 +453,7 @@ fn claim_nonce_replay_protection() {
         let mut handle = make_handle(evm_recipient, input.clone());
         // Register a subcall handler that simulates ERC-20 transfer failure.
         // This lets commit_claim run (nonce/accrued deducted) then rolls back via undo_claim_commit.
-        handle.subcall_handle = Some(Box::new(|_subcall| SubcallOutput {
-            reason: ExitReason::Revert(ExitRevert::Reverted),
-            output: b"transfer failed".to_vec(),
-            cost: 0,
-            logs: vec![],
-        }));
+        attach_mock_balance_then_transfer(&mut handle, u128::MAX, false);
         let first_result = execute(&mut handle);
         // First call must fail (ERC-20 revert), nonce is restored to 0 by undo_claim_commit
         assert!(
@@ -412,12 +464,7 @@ fn claim_nonce_replay_protection() {
         // After undo, nonce is still 0 and accrued is restored.
         // A second identical attempt with the same nonce=0 must also fail (at the same ERC-20 step).
         let mut handle2 = make_handle(evm_recipient, input);
-        handle2.subcall_handle = Some(Box::new(|_subcall| SubcallOutput {
-            reason: ExitReason::Revert(ExitRevert::Reverted),
-            output: b"transfer failed".to_vec(),
-            cost: 0,
-            logs: vec![],
-        }));
+        attach_mock_balance_then_transfer(&mut handle2, u128::MAX, false);
         let result = execute(&mut handle2);
         // Both attempts must revert — nonce replay is foiled by ERC-20 failure + rollback
         assert!(result.is_err(), "second claim must not succeed");
@@ -562,16 +609,7 @@ fn withdraw_succeeds_when_burn_and_transfer_ok() {
 
             let input = withdraw_input(1_000);
             let mut handle = make_handle(caller, input);
-            handle.subcall_handle = Some(Box::new(|_subcall| SubcallOutput {
-                reason: ExitReason::Succeed(ExitSucceed::Returned),
-                output: {
-                    let mut out = [0u8; 32];
-                    out[31] = 1;
-                    out.to_vec()
-                },
-                cost: 0,
-                logs: vec![],
-            }));
+            attach_mock_balance_then_transfer(&mut handle, 10_000, true);
 
             let result = execute(&mut handle);
             assert!(result.is_ok(), "expected withdraw ok, got {result:?}");
@@ -615,12 +653,7 @@ fn withdraw_restores_pallet_balance_when_erc20_transfer_fails() {
 
             let input = withdraw_input(1_000);
             let mut handle = make_handle(caller, input);
-            handle.subcall_handle = Some(Box::new(|_subcall| SubcallOutput {
-                reason: ExitReason::Revert(ExitRevert::Reverted),
-                output: b"transfer failed".to_vec(),
-                cost: 0,
-                logs: vec![],
-            }));
+            attach_mock_balance_then_transfer(&mut handle, 10_000, false);
 
             let result = execute(&mut handle);
             assert!(
@@ -631,7 +664,7 @@ fn withdraw_restores_pallet_balance_when_erc20_transfer_fails() {
             let balance_after = AssetsPallet::<Runtime>::balance(1u32, substrate.clone());
             assert_eq!(
                 balance_before, balance_after,
-                "burn then mint-restore must leave pallet-assets balance unchanged",
+                "failed ERC-20 transfer must not burn pallet-assets balance",
             );
         });
 }

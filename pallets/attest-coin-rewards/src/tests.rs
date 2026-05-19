@@ -58,16 +58,14 @@ fn restore_accrued_adds_to_balance() {
 // ── take_accrued_for_claim ────────────────────────────────────────────────────
 
 #[test]
-fn take_accrued_for_claim_fails_if_not_stash() {
+fn take_accrued_for_claim_works_without_ledger_entry() {
     new_test_ext().execute_with(|| {
-        // alice has no Ledger entry → NotStash
-        assert!(
-            matches!(
-                crate::Pallet::<Runtime>::take_accrued_for_claim(&alice(), 100),
-                Err(Error::NotStash)
-            ),
-            "expected NotStash"
-        );
+        crate::Pallet::<Runtime>::restore_accrued(&alice(), 500);
+        assert_ok!(crate::Pallet::<Runtime>::take_accrued_for_claim(
+            &alice(),
+            200
+        ));
+        assert_eq!(crate::Pallet::<Runtime>::accrued_of(&alice()), 300);
     });
 }
 
