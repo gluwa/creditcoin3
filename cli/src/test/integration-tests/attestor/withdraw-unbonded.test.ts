@@ -1,5 +1,13 @@
 import { forElapsedBlocks } from '../../utils';
-import { initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, ALICE_NODE_URL, CLIBuilder } from '../helpers';
+import {
+    initAliceKeyring,
+    randomFundedAccount,
+    fundFromSudo,
+    readActiveStakingEraIndex,
+    waitForAttestorUnbonding,
+    ALICE_NODE_URL,
+    CLIBuilder,
+} from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
@@ -25,6 +33,7 @@ describe('withdraw-unbonded', () => {
     let attestor: any;
     let CLI: any;
     let originalMinBondRequirement: string;
+    let unregisterEra: number;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
@@ -70,6 +79,11 @@ describe('withdraw-unbonded', () => {
         // after unregistering the unbonding period starts
         result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
+
+        unregisterEra = await readActiveStakingEraIndex(api);
+        const ledgerOpt: any = await api.query.attestation.ledger(caller.evmStashAddress);
+        expect(ledgerOpt.isSome).toBe(true);
+        expect(ledgerOpt.unwrap().unlocking.length).toBeGreaterThan(0);
     }, 150_000);
 
     afterAll(async () => {
@@ -101,9 +115,8 @@ describe('withdraw-unbonded', () => {
 
     describe('when funds have been unlocked', () => {
         beforeAll(async () => {
-            // wait for funds to be unlocked!
-            const unbondingPeriod: number = api.consts.attestation.bondingDuration.toNumber();
-            await waitEras(unbondingPeriod, api); // ~5 minutes
+            // Wait until the unlocking chunk from `unregisterEra` is withdrawable.
+            await waitForAttestorUnbonding(api, unregisterEra);
         }, 400_000);
 
         test('should succeed when funds have been unlocked', () => {

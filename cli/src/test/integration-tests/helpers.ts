@@ -31,31 +31,49 @@ export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amou
 }
 
 /**
- * Wait until `pallet-staking`'s active era index advances by `eras`.
- *
- * `pallet_attestation` and the attestor-stash precompile use
- * `T::Staking::current_era()` (the active staking era) for unlock / withdrawable
- * math. `api.derive.session.info().currentEra` is not guaranteed to track that
- * value on all runtimes, which caused integration tests to finish "waiting"
- * while `getLedger(...).withdrawable` was still zero.
+ * Active staking era index used by `pallet_attestation` unlock / withdrawable math
+ * (`T::Staking::current_era()`). Prefer this over `api.derive.session.info().currentEra`,
+ * which does not always track the same value.
  */
-export async function waitEras(eras: number, api: ApiPromise) {
-    const readActiveEraIndex = async (): Promise<number> => {
-        const opt = await api.query.staking.activeEra();
-        if (opt.isNone) {
-            return 0;
-        }
-        return opt.unwrap().index.toNumber();
-    };
+export async function readActiveStakingEraIndex(api: ApiPromise): Promise<number> {
+    const opt = await api.query.staking.activeEra();
+    if (opt.isNone) {
+        return 0;
+    }
+    return opt.unwrap().index.toNumber();
+}
 
-    let currentEra = await readActiveEraIndex();
-    const targetEra = currentEra + eras;
+/**
+ * Block until `pallet-staking`'s active era index reaches `targetEra` (inclusive).
+ */
+export async function waitUntilStakingEra(api: ApiPromise, targetEra: number) {
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
+    let currentEra = await readActiveStakingEraIndex(api);
     while (currentEra < targetEra) {
         console.log(`Waiting for staking era ${targetEra}, currently at ${currentEra}`);
         await sleep(blockTime);
-        currentEra = await readActiveEraIndex();
+        currentEra = await readActiveStakingEraIndex(api);
     }
+}
+
+/**
+ * Wait until `pallet-staking`'s active era index advances by `eras` from now.
+ */
+export async function waitEras(eras: number, api: ApiPromise) {
+    const currentEra = await readActiveStakingEraIndex(api);
+    await waitUntilStakingEra(api, currentEra + eras);
+}
+
+/**
+ * Wait until attestor bond started unlocking at `unregisterEra` is withdrawable.
+ * Unlock chunks mature when `current_era >= unregisterEra + bondingDuration`; we wait
+ * one extra era (see attestor-stash precompile tests) for era-boundary safety.
+ */
+export async function waitForAttestorUnbonding(api: ApiPromise, unregisterEra: number, opts?: { extraEras?: number }) {
+    const bondingDuration = api.consts.attestation.bondingDuration.toNumber();
+    const extraEras = opts?.extraEras ?? 1;
+    const targetEra = unregisterEra + bondingDuration + extraEras;
+    await waitUntilStakingEra(api, targetEra);
 }
 
 export async function forceNewEra(api: ApiPromise) {

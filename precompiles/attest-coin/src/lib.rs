@@ -1,6 +1,9 @@
 //! Attest-coin precompile: `accrued(bytes32)`, `claim(...)`, `deposit(uint256)`,
 //! `depositTo(uint256,bytes32)`, and `withdraw(uint256)` (`pallet-assets` burn → ERC-20 to caller;
 //! inverse of deposit). Requires asset **admin** = precompile account (see runtime migration).
+//!
+//! Governance must configure a standard ERC-20 (no fee-on-transfer / rebasing). Claims require a
+//! stash sr25519 signature; staking controllers cannot authorize claims.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -17,7 +20,6 @@ use fp_evm::{
 use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use pallet_attest_coin_rewards::Pallet as Rewards;
 use pallet_evm::{AddressMapping, GasWeightMapping};
-use pallet_staking::Bonded;
 use parity_scale_codec::Encode;
 use precompile_utils::evm::handle::using_precompile_handle;
 use precompile_utils::prelude::RuntimeHelper;
@@ -35,6 +37,8 @@ const SEL_CLAIM: [u8; 4] = [0x1f, 0xfb, 0x7a, 0x3d];
 const SEL_TRANSFER: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 /// ERC-20 `transferFrom(address,address,uint256)`
 const SEL_TRANSFER_FROM: [u8; 4] = [0x23, 0xb8, 0x72, 0xdd];
+/// ERC-20 `balanceOf(address)`
+const SEL_BALANCE_OF: [u8; 4] = [0x70, 0xa0, 0x82, 0x31];
 /// `deposit(uint256)` — bridge ERC-20 into Substrate `pallet-assets` (mint to EVM caller’s mapped account).
 const SEL_DEPOSIT: [u8; 4] = [0xb6, 0xb5, 0x5f, 0x25];
 /// `depositTo(uint256,bytes32)` — same as [`SEL_DEPOSIT`] but mints to an explicit 32-byte `AccountId`.
@@ -50,12 +54,9 @@ pub const SEL_WITHDRAW: [u8; 4] = [0x2e, 0x1a, 0x7d, 0x4d];
 /// in a storage migration before any precompile call that mints or transfers the asset.
 const ATTEST_COIN_ASSET_ID: u32 = 1;
 
-/// Minimum gas passed to the ERC-20 `transfer` subcall in [`AttestCoinPrecompile::withdraw`].
-/// The rest of post-burn gas is reserved for a pallet-assets `mint` rollback if the transfer fails.
+/// Minimum gas reserved for the ERC-20 `transfer` subcall in [`AttestCoinPrecompile::withdraw`].
 const WITHDRAW_ERC20_TRANSFER_MIN_GAS: u64 = 80_000;
-/// Buffer on top of weight-derived gas for the restore `mint` so metering / refunds do not OOG rollback.
-const WITHDRAW_MINT_RESTORE_GAS_BUFFER: u64 = 120_000;
-/// Slack so post-burn remaining gas is still enough for `WITHDRAW_ERC20_TRANSFER_MIN_GAS` after weight estimate error.
+/// Slack on top of weight-derived burn gas so metering error does not OOG the follow-up transfer.
 const WITHDRAW_PRE_BURN_GAS_SLACK: u64 = 200_000;
 
 pub struct AttestCoinPrecompile<Runtime>(PhantomData<Runtime>);
@@ -78,13 +79,13 @@ where
         + pallet_assets::Config
         + pallet_attest_coin_rewards::Config
         + pallet_attestation::Config
-        + pallet_staking::Config
         + pallet_supported_chains::Config,
     Runtime::AccountId: From<[u8; 32]> + Encode,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
     Runtime::RuntimeCall: From<pallet_assets::Call<Runtime>>,
     <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
+    <Runtime as pallet_assets::Config>::AssetId: From<u32>,
     <Runtime as pallet_assets::Config>::AssetIdParameter: From<u32>,
     <Runtime as pallet_assets::Config>::Balance: From<u128>,
 {
@@ -116,13 +117,13 @@ where
         + pallet_assets::Config
         + pallet_attest_coin_rewards::Config
         + pallet_attestation::Config
-        + pallet_staking::Config
         + pallet_supported_chains::Config,
     Runtime::AccountId: From<[u8; 32]> + Encode,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
     Runtime::RuntimeCall: From<pallet_assets::Call<Runtime>>,
     <Runtime::RuntimeCall as Dispatchable>::RuntimeOrigin: From<Option<Runtime::AccountId>>,
     <Runtime as pallet_evm::Config>::AddressMapping: AddressMapping<Runtime::AccountId>,
+    <Runtime as pallet_assets::Config>::AssetId: From<u32>,
     <Runtime as pallet_assets::Config>::AssetIdParameter: From<u32>,
     <Runtime as pallet_assets::Config>::Balance: From<u128>,
 {
@@ -202,13 +203,6 @@ where
             }
         };
 
-        if !pallet_attestation::Ledger::<Runtime>::contains_key(&stash) {
-            return Err(PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: b"not a stash".to_vec(),
-            });
-        }
-
         let msg = Rewards::<Runtime>::claim_signing_message(
             &stash,
             nonce_u64,
@@ -217,10 +211,19 @@ where
             evm_recipient.0,
         );
 
-        if !verify_sr25519_stash_or_controller::<Runtime>(&stash, &msg, &sig) {
+        if !verify_sr25519_stash(&stash, &msg, &sig) {
             return Err(PrecompileFailure::Revert {
                 exit_status: ExitRevert::Reverted,
                 output: b"bad signature".to_vec(),
+            });
+        }
+
+        let treasury_balance =
+            erc20_balance_of(handle, token, handle.code_address())?;
+        if treasury_balance < amount_u256 {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"insufficient treasury balance".to_vec(),
             });
         }
 
@@ -229,7 +232,6 @@ where
             let msg: &[u8] = match e {
                 RewardErr::BadClaimNonce => b"bad nonce",
                 RewardErr::InsufficientAccrued => b"insufficient accrued",
-                RewardErr::NotStash => b"not a stash",
                 _ => b"commit claim failed",
             };
             PrecompileFailure::Revert {
@@ -238,26 +240,9 @@ where
             }
         })?;
 
-        let mut transfer_data = Vec::with_capacity(4 + 32 + 32);
-        transfer_data.extend_from_slice(&SEL_TRANSFER);
-        transfer_data.extend_from_slice(&encode_address(caller_h160.as_fixed_bytes()));
-        transfer_data.extend_from_slice(&encode_u256(amount_u256));
-
-        let sub_context = Context {
-            caller: handle.code_address(),
-            address: token,
-            apparent_value: U256::zero(),
-        };
-
-        let gas = handle.remaining_gas().saturating_mul(9) / 10;
-        let (reason, ret) = handle.call(token, None, transfer_data, Some(gas), false, &sub_context);
-
-        if !matches!(reason, ExitReason::Succeed(_)) {
+        if let Err(failure) = erc20_transfer(handle, token, caller_h160, amount_u256) {
             Rewards::<Runtime>::undo_claim_commit(&stash, nonce_u64, amount_pts);
-            return Err(PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: ret,
-            });
+            return Err(failure);
         }
 
         Ok(PrecompileOutput {
@@ -297,6 +282,12 @@ where
             });
         }
         let beneficiary = Runtime::AccountId::from(raw);
+        if !pallet_attestation::Ledger::<Runtime>::contains_key(&beneficiary) {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"beneficiary not an attestor stash".to_vec(),
+            });
+        }
         Self::deposit_with_beneficiary(handle, &rest[0..32], beneficiary)
     }
 
@@ -337,38 +328,17 @@ where
         let caller_h160 = handle.context().caller;
         let precompile_h160 = handle.code_address();
 
-        let mut transfer_from_data = Vec::with_capacity(4 + 32 + 32 + 32);
-        transfer_from_data.extend_from_slice(&SEL_TRANSFER_FROM);
-        transfer_from_data.extend_from_slice(&encode_address(caller_h160.as_fixed_bytes()));
-        transfer_from_data.extend_from_slice(&encode_address(precompile_h160.as_fixed_bytes()));
-        transfer_from_data.extend_from_slice(&encode_u256(amount_u256));
-
-        // `msg.sender` on the token must be the approved spender (`approve(precompile, …)`).
-        // This matches `claim`'s `transfer` subcall (`caller = code_address`), not the EOA.
-        let sub_context = Context {
-            caller: handle.code_address(),
-            address: token,
-            apparent_value: U256::zero(),
-        };
-        let gas = handle.remaining_gas().saturating_mul(9) / 10;
-        let (reason, ret) = handle.call(
+        erc20_transfer_from(
+            handle,
             token,
-            None,
-            transfer_from_data,
-            Some(gas),
-            false,
-            &sub_context,
-        );
-        if !matches!(reason, ExitReason::Succeed(_)) {
-            return Err(PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: ret,
-            });
-        }
+            caller_h160,
+            precompile_h160,
+            amount_u256,
+        )?;
 
         let issuer = Runtime::AddressMapping::into_account_id(precompile_h160);
 
-        try_dispatch_attest_coin_no_pov::<Runtime, _>(
+        if let Err(failure) = try_dispatch_attest_coin_no_pov::<Runtime, _>(
             handle,
             Some(issuer).into(),
             pallet_assets::Call::<Runtime>::mint {
@@ -377,7 +347,11 @@ where
                 amount: amount_u128.into(),
             },
         )
-        .map_err(PrecompileFailure::from)?;
+        .map_err(PrecompileFailure::from)
+        {
+            let _ = erc20_transfer(handle, token, caller_h160, amount_u256);
+            return Err(failure);
+        }
 
         Ok(PrecompileOutput {
             exit_status: ExitSucceed::Returned,
@@ -385,12 +359,10 @@ where
         })
     }
 
-    /// Burn liquid attest coin from the EVM caller’s mapped Substrate account, then send ERC-20 to the
-    /// caller (inverse of [`Self::deposit`]).
+    /// Send ERC-20 to the caller, then burn Substrate attest-coin (inverse of [`Self::deposit`]).
     ///
-    /// Uses [`pallet_assets::Call::burn`] as **admin** (`Signed` precompile account); runtime must set
-    /// asset admin to the precompile (see attest-coin migration). If the ERC-20 transfer fails, mints
-    /// back to restore the Substrate balance.
+    /// ERC-20 is transferred before any Substrate burn so a failed token transfer does not debit
+    /// pallet-assets. Uses [`pallet_assets::Call::burn`] as **admin** (precompile account).
     fn withdraw(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         handle.record_cost(120_000)?;
         if rest.len() < 32 {
@@ -420,84 +392,60 @@ where
         let precompile_h160 = handle.code_address();
         let admin = Runtime::AddressMapping::into_account_id(precompile_h160);
 
+        let amount_asset: <Runtime as pallet_assets::Config>::Balance = amount_u128.into();
+        let asset_id: <Runtime as pallet_assets::Config>::AssetId = ATTEST_COIN_ASSET_ID.into();
+        let substrate_balance =
+            pallet_assets::Pallet::<Runtime>::balance(asset_id.clone(), &beneficiary);
+        if substrate_balance < amount_asset {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"insufficient attest-coin balance".to_vec(),
+            });
+        }
+
+        let treasury_balance =
+            erc20_balance_of(handle, token, handle.code_address())?;
+        if treasury_balance < amount_u256 {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"insufficient treasury balance".to_vec(),
+            });
+        }
+
         let burn_call = pallet_assets::Call::<Runtime>::burn {
             id: ATTEST_COIN_ASSET_ID.into(),
             who: Runtime::Lookup::unlookup(beneficiary.clone()),
-            amount: amount_u128.into(),
+            amount: amount_asset,
         };
-        let mint_restore = pallet_assets::Call::<Runtime>::mint {
-            id: ATTEST_COIN_ASSET_ID.into(),
-            beneficiary: Runtime::Lookup::unlookup(beneficiary.clone()),
-            amount: amount_u128.into(),
-        };
-
         let gas_burn =
             evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(burn_call.clone()));
-        let gas_mint =
-            evm_gas_for_dispatch_call::<Runtime>(&Runtime::RuntimeCall::from(mint_restore.clone()));
-        let mint_gas_reserve = gas_mint.saturating_add(WITHDRAW_MINT_RESTORE_GAS_BUFFER);
-        let min_before_burn = gas_burn
-            .saturating_add(mint_gas_reserve)
+        let min_before_transfer = gas_burn
             .saturating_add(WITHDRAW_ERC20_TRANSFER_MIN_GAS)
             .saturating_add(WITHDRAW_PRE_BURN_GAS_SLACK);
-        if handle.remaining_gas() < min_before_burn {
+        if handle.remaining_gas() < min_before_transfer {
             return Err(PrecompileFailure::Revert {
                 exit_status: ExitRevert::Reverted,
                 output: b"withdraw: insufficient gas".to_vec(),
             });
         }
 
+        erc20_transfer(handle, token, caller_h160, amount_u256)?;
+
+        let balance_after_transfer =
+            pallet_assets::Pallet::<Runtime>::balance(asset_id.clone(), &beneficiary);
+        if balance_after_transfer < amount_asset {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"insufficient attest-coin balance".to_vec(),
+            });
+        }
+
         try_dispatch_attest_coin_no_pov::<Runtime, _>(
             handle,
-            Some(admin.clone()).into(),
+            Some(admin).into(),
             burn_call,
         )
         .map_err(PrecompileFailure::from)?;
-
-        let mut transfer_data = Vec::with_capacity(4 + 32 + 32);
-        transfer_data.extend_from_slice(&SEL_TRANSFER);
-        transfer_data.extend_from_slice(&encode_address(caller_h160.as_fixed_bytes()));
-        transfer_data.extend_from_slice(&encode_u256(amount_u256));
-
-        let sub_context = Context {
-            caller: handle.code_address(),
-            address: token,
-            apparent_value: U256::zero(),
-        };
-        let gas_for_transfer = handle.remaining_gas().saturating_sub(mint_gas_reserve);
-        let (reason, ret) = handle.call(
-            token,
-            None,
-            transfer_data,
-            Some(gas_for_transfer),
-            false,
-            &sub_context,
-        );
-
-        if !matches!(reason, ExitReason::Succeed(_)) {
-            match try_dispatch_attest_coin_no_pov::<Runtime, _>(
-                handle,
-                Some(admin).into(),
-                mint_restore,
-            ) {
-                Ok(_) => {
-                    return Err(PrecompileFailure::Revert {
-                        exit_status: ExitRevert::Reverted,
-                        output: ret,
-                    });
-                }
-                Err(_) => {
-                    log::error!(
-                        target: "precompile::attest_coin",
-                        "withdraw: ERC-20 transfer failed and pallet_assets mint-restore also failed; attested on-chain burn may diverge from EVM",
-                    );
-                    return Err(PrecompileFailure::Revert {
-                        exit_status: ExitRevert::Reverted,
-                        output: b"withdraw: transfer failed; restore mint failed".to_vec(),
-                    });
-                }
-            }
-        }
 
         Ok(PrecompileOutput {
             exit_status: ExitSucceed::Returned,
@@ -556,6 +504,74 @@ where
     Ok(post_dispatch_info)
 }
 
+fn erc20_subcall(
+    handle: &mut impl PrecompileHandle,
+    token: H160,
+    data: Vec<u8>,
+) -> Result<Vec<u8>, PrecompileFailure> {
+    let sub_context = Context {
+        caller: handle.code_address(),
+        address: token,
+        apparent_value: U256::zero(),
+    };
+    let gas = handle.remaining_gas().saturating_mul(9) / 10;
+    let (reason, ret) = handle.call(token, None, data, Some(gas), false, &sub_context);
+    if matches!(reason, ExitReason::Succeed(_)) {
+        Ok(ret)
+    } else {
+        Err(PrecompileFailure::Revert {
+            exit_status: ExitRevert::Reverted,
+            output: ret,
+        })
+    }
+}
+
+fn erc20_transfer(
+    handle: &mut impl PrecompileHandle,
+    token: H160,
+    to: H160,
+    amount: U256,
+) -> Result<(), PrecompileFailure> {
+    let mut data = Vec::with_capacity(4 + 32 + 32);
+    data.extend_from_slice(&SEL_TRANSFER);
+    data.extend_from_slice(&encode_address(to.as_fixed_bytes()));
+    data.extend_from_slice(&encode_u256(amount));
+    erc20_subcall(handle, token, data).map(|_| ())
+}
+
+fn erc20_transfer_from(
+    handle: &mut impl PrecompileHandle,
+    token: H160,
+    from: H160,
+    to: H160,
+    amount: U256,
+) -> Result<(), PrecompileFailure> {
+    let mut data = Vec::with_capacity(4 + 32 + 32 + 32);
+    data.extend_from_slice(&SEL_TRANSFER_FROM);
+    data.extend_from_slice(&encode_address(from.as_fixed_bytes()));
+    data.extend_from_slice(&encode_address(to.as_fixed_bytes()));
+    data.extend_from_slice(&encode_u256(amount));
+    erc20_subcall(handle, token, data).map(|_| ())
+}
+
+fn erc20_balance_of(
+    handle: &mut impl PrecompileHandle,
+    token: H160,
+    account: H160,
+) -> Result<U256, PrecompileFailure> {
+    let mut data = Vec::with_capacity(4 + 32);
+    data.extend_from_slice(&SEL_BALANCE_OF);
+    data.extend_from_slice(&encode_address(account.as_fixed_bytes()));
+    let ret = erc20_subcall(handle, token, data)?;
+    if ret.len() < 32 {
+        return Err(PrecompileFailure::Revert {
+            exit_status: ExitRevert::Reverted,
+            output: b"balanceOf: bad return".to_vec(),
+        });
+    }
+    Ok(U256::from_big_endian(&ret[ret.len() - 32..]))
+}
+
 fn account_id_to_sr25519_public<AccountId: Encode>(acct: &AccountId) -> Option<sr25519::Public> {
     let enc = acct.encode();
     if enc.len() < 32 {
@@ -566,32 +582,14 @@ fn account_id_to_sr25519_public<AccountId: Encode>(acct: &AccountId) -> Option<s
     Some(sr25519::Public::from_raw(a))
 }
 
-fn verify_sr25519_stash_or_controller<Runtime>(
-    stash: &Runtime::AccountId,
-    msg: &[u8],
-    sig: &[u8; 64],
-) -> bool
-where
-    Runtime: pallet_staking::Config,
-    Runtime::AccountId: Encode,
-{
+/// Claim signatures must be from the stash sr25519 key (not a staking controller).
+fn verify_sr25519_stash<AccountId: Encode>(stash: &AccountId, msg: &[u8], sig: &[u8; 64]) -> bool {
     let mut sig_raw = [0u8; 64];
     sig_raw.copy_from_slice(sig);
     let s = sr25519::Signature::from_raw(sig_raw);
-
-    if let Some(pk) = account_id_to_sr25519_public(stash) {
-        if sr25519_verify(&s, msg, &pk) {
-            return true;
-        }
-    }
-
-    if let Some(controller) = Bonded::<Runtime>::get(stash) {
-        if let Some(pk) = account_id_to_sr25519_public(&controller) {
-            return sr25519_verify(&s, msg, &pk);
-        }
-    }
-
-    false
+    account_id_to_sr25519_public(stash)
+        .map(|pk| sr25519_verify(&s, msg, &pk))
+        .unwrap_or(false)
 }
 
 fn bad_input() -> PrecompileFailure {

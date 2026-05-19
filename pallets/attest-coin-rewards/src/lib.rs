@@ -85,7 +85,7 @@ pub mod pallet {
     pub enum Error<T> {
         /// No ERC-20 configured yet.
         TokenNotConfigured,
-        /// Not a bonded attestor stash (`pallet_attestation::Ledger`).
+        /// Reserved; claims no longer require an active attestation ledger entry.
         NotStash,
         /// Claim exceeds accrued points.
         InsufficientAccrued,
@@ -147,15 +147,14 @@ pub mod pallet {
             }
         }
 
-        /// Deduct accrued points after a successful EVM mint (called from precompile).
+        /// Deduct accrued points after a successful EVM transfer (called from precompile).
+        ///
+        /// Does not require an active [`pallet_attestation::Ledger`] entry so rewards remain
+        /// claimable after full unbond / [`kill_stash`].
         pub fn take_accrued_for_claim(
             stash: &T::AccountId,
             amount: T::RewardPoints,
         ) -> Result<(), Error<T>> {
-            ensure!(
-                pallet_attestation::Ledger::<T>::contains_key(stash),
-                Error::<T>::NotStash
-            );
             Accrued::<T>::try_mutate(stash, |acc| {
                 if *acc < amount {
                     return Err(Error::<T>::InsufficientAccrued);
