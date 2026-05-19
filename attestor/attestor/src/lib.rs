@@ -99,6 +99,12 @@ impl Attestor {
         ).await.map_err(Error::Init)?;
         let cc3 = Arc::new(cc3_raw);
 
+        // Reconcile the metadata the binary was compiled against with the chain's live
+        // metadata before doing anything that depends on extrinsic encoding. Applies the
+        // chain's metadata into the OnlineClient on a compatible drift; refuses to boot on
+        // a breaking Attestation pallet change.
+        startup::reconcile_metadata(&cc3).await?;
+
         let eth = eth::Client::new(
             self.config.stream.url_eth.as_ref().as_ref(),
             None,
@@ -308,6 +314,13 @@ impl Attestor {
             let shared = shared.clone();
             set.spawn(async move {
                 tasks::validation::run(shared, pool_recv).await.map(|_| "validation")
+            });
+        }
+
+        {
+            let shared = shared.clone();
+            set.spawn(async move {
+                tasks::runtime_updater::run(shared).await.map(|_| "runtime_updater")
             });
         }
 
