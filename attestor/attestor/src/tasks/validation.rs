@@ -509,7 +509,18 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         }
     };
 
-    OutcomeInternal::Eligible(submit_handle.wait_for_finalized_success().await)
+    // Watch the submitted extrinsic for finalization, but cap the wait so a tx that lands in
+    // the txpool and never finalizes (stale WS, txpool retention, etc.) can't pin `in_flight`
+    // and freeze the validation pipeline. On timeout we exit as `Finalized` so the caller's
+    // `wait_finalized` step can re-check externally and the next stash can advance.
+    let watch = submit_handle.wait_for_finalized_success();
+    match tokio::time::timeout(common::constants::ATTESTATION_TIMEOUT, watch).await {
+        Ok(result) => OutcomeInternal::Eligible(result),
+        Err(_) => {
+            tracing::warn!(height, "🏃 submit watch timed out — unblocking pipeline");
+            OutcomeInternal::Finalized
+        }
+    }
 }
 
 async fn reconnect(shared: &Arc<Shared>) -> Result<(), ()> {
