@@ -11,6 +11,7 @@ use crate::services::continuity_service::ContinuityService;
 
 /// Health check response schema for OpenAPI
 #[derive(Serialize, ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct AttestedHeightResponse {
     attested_height: Option<u64>,
 }
