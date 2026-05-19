@@ -150,3 +150,62 @@ pub async fn fetch_start_point(
 
     Ok((genesis, start))
 }
+
+/// Compare the metadata the binary was compiled against with the live chain metadata.
+///
+/// If the Attestation pallet hash matches, the live `OnlineClient` already cached the live
+/// metadata at construction time, so we just log the comparison and continue. If the
+/// Attestation pallet has drifted, refuse to boot — this binary cannot produce valid
+/// `commit_attestation` extrinsics for that runtime.
+pub async fn reconcile_metadata(cc3: &Arc<Client>) -> Result<(), Error> {
+    const ATTESTATION_PALLET: &str = "Attestation";
+
+    let compiled = cc_client::compiled_metadata()
+        .map_err(|e| Error::Init(anyhow::anyhow!("decode bundled metadata: {e}")))?;
+    let compiled_hash = compiled
+        .pallet_by_name(ATTESTATION_PALLET)
+        .map(|p| p.hash())
+        .ok_or_else(|| {
+            Error::Init(anyhow::anyhow!(
+                "{ATTESTATION_PALLET} pallet missing from bundled metadata"
+            ))
+        })?;
+
+    let api = cc3.api();
+    let live = api.metadata();
+    let live_hash = live
+        .pallet_by_name(ATTESTATION_PALLET)
+        .map(|p| p.hash())
+        .ok_or_else(|| {
+            Error::Init(anyhow::anyhow!(
+                "{ATTESTATION_PALLET} pallet missing from live chain metadata"
+            ))
+        })?;
+
+    if compiled_hash != live_hash {
+        return Err(Error::Init(anyhow::anyhow!(
+            "{ATTESTATION_PALLET} pallet metadata mismatch: \
+             compiled={}, live={} — binary needs rebuild against the current chain",
+            hex::encode(compiled_hash),
+            hex::encode(live_hash),
+        )));
+    }
+
+    let compiled_full = compiled.hasher().hash();
+    let live_full = live.hasher().hash();
+    if compiled_full != live_full {
+        tracing::info!(
+            compiled_full = %hex::encode(compiled_full),
+            live_full = %hex::encode(live_full),
+            "🧭 chain runtime metadata differs from bundled — \
+             Attestation pallet matches, continuing with live metadata"
+        );
+    } else {
+        tracing::info!(
+            attestation_hash = %hex::encode(compiled_hash),
+            "🧭 chain runtime metadata matches bundled"
+        );
+    }
+
+    Ok(())
+}
