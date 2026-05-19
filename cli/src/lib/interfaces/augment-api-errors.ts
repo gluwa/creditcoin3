@@ -234,7 +234,7 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InsufficientAccrued: AugmentedError<ApiType>;
             /**
-             * Not a bonded attestor stash (`pallet_attestation::Ledger`).
+             * Reserved; claims no longer require an active attestation ledger entry.
              **/
             NotStash: AugmentedError<ApiType>;
             /**
