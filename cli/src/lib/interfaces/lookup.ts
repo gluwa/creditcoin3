@@ -3404,7 +3404,7 @@ export default {
         stash: 'AccountId32',
     },
     /**
-     * Lookup418: pallet_attestation::ledger::AttestorLedger<T>
+     * Lookup419: pallet_attestation::ledger::AttestorLedger<T>
      **/
     PalletAttestationLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3413,21 +3413,21 @@ export default {
         unlocking: 'Vec<PalletAttestationLedgerUnlockChunk>',
     },
     /**
-     * Lookup420: pallet_attestation::ledger::UnlockChunk<Balance>
+     * Lookup421: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup422: pallet_attestation::clear_or_revert::CheckpointPruningState
+     * Lookup423: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
     PalletAttestationClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
-     * Lookup423: pallet_attestation::pallet::Error<T>
+     * Lookup424: pallet_attestation::pallet::Error<T>
      **/
     PalletAttestationError: {
         _enum: [
@@ -3469,6 +3469,8 @@ export default {
             'AttestorNotActive',
             'AttestorWithInvalidPublicKey',
             'MajorityNotReached',
+            'BlsKeyAlreadyRegistered',
+            'InsufficientUniqueSigners',
             'RetiredAttestorPendingFull',
             'AttestorAlreadyAuthorized',
             'NotPreAuthorizedToRegister',
@@ -3495,7 +3497,7 @@ export default {
         ],
     },
     /**
-     * Lookup424: supported_chains_primitives::SupportedChain
+     * Lookup425: supported_chains_primitives::SupportedChain
      **/
     SupportedChainsPrimitivesSupportedChain: {
         chainId: 'u64',
@@ -3504,23 +3506,23 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup426: pallet_supported_chains::pallet::Error<T>
+     * Lookup427: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
     },
     /**
-     * Lookup427: pallet_randomness::pallet::Error<T>
+     * Lookup428: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup429: pallet_membership::pallet::Error<T, I>
+     * Lookup430: pallet_membership::pallet::Error<T, I>
      **/
     PalletMembershipError: {
         _enum: ['AlreadyMember', 'NotMember', 'TooManyMembers'],
     },
     /**
-     * Lookup430: pallet_assets::types::AssetDetails<Balance, sp_core::crypto::AccountId32, DepositBalance>
+     * Lookup431: pallet_assets::types::AssetDetails<Balance, sp_core::crypto::AccountId32, DepositBalance>
      **/
     PalletAssetsAssetDetails: {
         owner: 'AccountId32',
@@ -3537,13 +3539,13 @@ export default {
         status: 'PalletAssetsAssetStatus',
     },
     /**
-     * Lookup431: pallet_assets::types::AssetStatus
+     * Lookup432: pallet_assets::types::AssetStatus
      **/
     PalletAssetsAssetStatus: {
         _enum: ['Live', 'Frozen', 'Destroying'],
     },
     /**
-     * Lookup432: pallet_assets::types::AssetAccount<Balance, DepositBalance, Extra, sp_core::crypto::AccountId32>
+     * Lookup433: pallet_assets::types::AssetAccount<Balance, DepositBalance, Extra, sp_core::crypto::AccountId32>
      **/
     PalletAssetsAssetAccount: {
         balance: 'u128',
@@ -3552,13 +3554,13 @@ export default {
         extra: 'Null',
     },
     /**
-     * Lookup433: pallet_assets::types::AccountStatus
+     * Lookup434: pallet_assets::types::AccountStatus
      **/
     PalletAssetsAccountStatus: {
         _enum: ['Liquid', 'Frozen', 'Blocked'],
     },
     /**
-     * Lookup434: pallet_assets::types::ExistenceReason<Balance, sp_core::crypto::AccountId32>
+     * Lookup435: pallet_assets::types::ExistenceReason<Balance, sp_core::crypto::AccountId32>
      **/
     PalletAssetsExistenceReason: {
         _enum: {
@@ -3570,14 +3572,14 @@ export default {
         },
     },
     /**
-     * Lookup436: pallet_assets::types::Approval<Balance, DepositBalance>
+     * Lookup437: pallet_assets::types::Approval<Balance, DepositBalance>
      **/
     PalletAssetsApproval: {
         amount: 'u128',
         deposit: 'u128',
     },
     /**
-     * Lookup437: pallet_assets::types::AssetMetadata<DepositBalance, bounded_collections::bounded_vec::BoundedVec<T, S>>
+     * Lookup438: pallet_assets::types::AssetMetadata<DepositBalance, bounded_collections::bounded_vec::BoundedVec<T, S>>
      **/
     PalletAssetsAssetMetadata: {
         deposit: 'u128',
@@ -3587,7 +3589,7 @@ export default {
         isFrozen: 'bool',
     },
     /**
-     * Lookup439: pallet_assets::pallet::Error<T, I>
+     * Lookup440: pallet_assets::pallet::Error<T, I>
      **/
     PalletAssetsError: {
         _enum: [
@@ -3615,57 +3617,57 @@ export default {
         ],
     },
     /**
-     * Lookup440: pallet_attest_coin_rewards::pallet::Error<T>
+     * Lookup441: pallet_attest_coin_rewards::pallet::Error<T>
      **/
     PalletAttestCoinRewardsError: {
         _enum: ['TokenNotConfigured', 'NotStash', 'InsufficientAccrued', 'BadClaimNonce'],
     },
     /**
-     * Lookup443: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup444: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup444: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup445: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup445: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup446: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup446: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup447: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup449: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup450: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup450: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup451: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup451: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup452: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup452: frame_metadata_hash_extension::CheckMetadataHash<T>
+     * Lookup453: frame_metadata_hash_extension::CheckMetadataHash<T>
      **/
     FrameMetadataHashExtensionCheckMetadataHash: {
         mode: 'FrameMetadataHashExtensionMode',
     },
     /**
-     * Lookup453: frame_metadata_hash_extension::Mode
+     * Lookup454: frame_metadata_hash_extension::Mode
      **/
     FrameMetadataHashExtensionMode: {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup454: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
+     * Lookup455: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
      **/
     PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
     /**
-     * Lookup456: creditcoin3_runtime::Runtime
+     * Lookup457: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };

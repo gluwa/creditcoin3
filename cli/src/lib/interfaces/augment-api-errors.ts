@@ -140,6 +140,12 @@ declare module '@polkadot/api-base/types/errors' {
             AttestorNotIdle: AugmentedError<ApiType>;
             AttestorWithInvalidPublicKey: AugmentedError<ApiType>;
             /**
+             * The BLS public key supplied is already registered to another attestor controller
+             * on this chain (active or retired). BLS keys must be unique per chain so the
+             * aggregation quorum reflects independent signers.
+             **/
+            BlsKeyAlreadyRegistered: AugmentedError<ApiType>;
+            /**
              * Moving bond into or out of the pool failed (asset transfer).
              **/
             BondAssetTransferFailed: AugmentedError<ApiType>;
@@ -156,6 +162,13 @@ declare module '@polkadot/api-base/types/errors' {
             EmptyCheckpointPatch: AugmentedError<ApiType>;
             EmptyContinuityProof: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
+            /**
+             * The attestation lists enough distinct controller accounts but they map to fewer
+             * distinct BLS public keys than the threshold. Without this check a single BLS
+             * signer could satisfy the threshold by being aliased under multiple controller
+             * accounts.
+             **/
+            InsufficientUniqueSigners: AugmentedError<ApiType>;
             /**
              * The call to attest_block failed, the block's cryptographic committments were invalid
              **/

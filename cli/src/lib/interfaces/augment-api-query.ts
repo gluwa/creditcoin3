@@ -228,6 +228,31 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             /**
+             * Maps an active BLS public key on a chain to its owning attestor controller account.
+             *
+             * Used to enforce that no two attestors on the same chain register the same BLS public
+             * key. Without this map, distinct [`Attestors`] entries can share a BLS pubkey (each
+             * passing the proof-of-possession check independently), which collapses the BLS
+             * aggregation quorum: one BLS private key can satisfy threshold-of-N because aggregated
+             * keys/signatures are linear in the underlying key.
+             *
+             * Lifetime: inserted by [`Pallet::start_attesting`], rotated when an idle attestor
+             * re-attests with a new key, retained through retirement (the BLS key stays "claimed"
+             * while the corresponding [`RetiredAttestorBlsKeys`] entry is still live so attestations
+             * referencing the retired controller can still be verified), and finally removed when
+             * the retired entry is purged in [`Pallet::withdraw_unbonded`] or when the chain itself
+             * is removed.
+             **/
+            blsKeyOwner: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: U8aFixed | string | Uint8Array,
+                ) => Observable<Option<AccountId32>>,
+                [u64, U8aFixed]
+            > &
+                QueryableStorageEntry<ApiType, [u64, U8aFixed]>;
+            /**
              * Progress markers for removing checkpoint buckets associated with source chains that are undergoing
              * chain reversion or are no longer supported.
              **/
