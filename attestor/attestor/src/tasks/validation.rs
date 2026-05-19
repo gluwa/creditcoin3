@@ -496,7 +496,37 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
                         boxed.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
                     {
                         if obj.code() == POOL_INVALID_TX {
-                            tracing::info!(height, code = obj.code(), "🚫 prevalidation rejected");
+                            // Substrate maps every txpool admission failure to JSON-RPC 1010 —
+                            // both the benign "another attestor won, your duplicate is invalid"
+                            // case and the dangerous "your signed extrinsic is structurally
+                            // bad" case (BadProof / BadSignature, typically from a stale
+                            // mortality anchor or runtime-version mismatch). The two demand
+                            // opposite reactions: skip-and-move-on vs. force-reconnect-so-the-
+                            // next-tx-uses-fresh-state. Disambiguate via the `data` field.
+                            let detail = obj
+                                .data()
+                                .map(|raw| raw.get().trim_matches('"').to_owned())
+                                .unwrap_or_default();
+                            let detail_lc = detail.to_ascii_lowercase();
+                            if detail_lc.contains("bad signature")
+                                || detail_lc.contains("badproof")
+                                || detail_lc.contains("bad proof")
+                            {
+                                tracing::warn!(
+                                    height,
+                                    code = obj.code(),
+                                    %detail,
+                                    "🩺 txpool flagged bad-sig — forcing reconnect"
+                                );
+                                let _ = reconnect(shared).await;
+                                return OutcomeInternal::Finalized;
+                            }
+                            tracing::info!(
+                                height,
+                                code = obj.code(),
+                                %detail,
+                                "🚫 prevalidation rejected"
+                            );
                             return OutcomeInternal::Finalized;
                         }
                     }
