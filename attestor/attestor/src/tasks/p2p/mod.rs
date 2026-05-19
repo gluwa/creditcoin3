@@ -174,7 +174,7 @@ async fn handle_swarm(
         SwarmEvent::Behaviour(P2PBehaviorEvent::Identify(libp2p::identify::Event::Received {
             peer_id, info: libp2p::identify::Info { listen_addrs, .. }, connection_id,
         })) => {
-            tracing::info!(%peer_id, %connection_id, "🛰️ discovered peer");
+            tracing::debug!(%peer_id, %connection_id, "🛰️ discovered peer");
             for a in listen_addrs {
                 swarm.behaviour_mut().kad.add_address(&peer_id, a);
             }
@@ -200,7 +200,7 @@ async fn handle_swarm(
         SwarmEvent::Behaviour(P2PBehaviorEvent::Ping(libp2p::ping::Event {
             peer, connection, result,
         })) => match result {
-            Ok(rtt) => tracing::info!(peer_id = %peer, %connection, rtt_ms = rtt.as_millis(), "🔔 pong"),
+            Ok(rtt) => tracing::debug!(peer_id = %peer, %connection, rtt_ms = rtt.as_millis(), "🔔 pong"),
             Err(err) => tracing::error!(peer_id = %peer, %connection, %err, "🔕 ping failed"),
         },
         SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(libp2p::gossipsub::Event::Message {
