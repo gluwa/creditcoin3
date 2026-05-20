@@ -114,6 +114,26 @@ async fn handle_quorum(
             pool_rx.mark_valid(permit);
             return Ok(());
         }
+        Err(ValidationError::InsufficientVotes { needed, got }) => {
+            // Live threshold is higher than our quorum size. Unlock the height in the pool
+            // (so new gossiped votes can re-trigger a quorum at the bigger threshold) and
+            // re-inject our existing votes so they're not lost. We never submitted, so no
+            // fees were burned and no on-chain race was created.
+            tracing::warn!(
+                ?digest, height, needed, got,
+                "🗳️ insufficient votes for current threshold — re-injecting"
+            );
+            shared.pool_send.note_majority_not_reached(height);
+            for vote in quorum.votes {
+                let digest = vote.digest();
+                match shared.pool_send.send(vote) {
+                    Some(Ok(())) | None => {}
+                    Some(Err(err)) => err.log_error(digest),
+                }
+            }
+            pool_rx.mark_valid(permit);
+            return Ok(());
+        }
         Err(ValidationError::External(e)) => return Err(e),
     };
 
@@ -164,22 +184,17 @@ async fn handle_submission_result(
             Ok(cc_client::cc3::Error::Attestation(
                 cc_client::cc3::attestation::Error::MajorityNotReached,
             )) => {
-                // Target sample size on chain disagrees with ours (usually an epoch boundary
-                // we haven't fully processed yet). Unlock the height in the pool so new votes
-                // are admitted under whatever threshold ends up active, then re-inject the
-                // votes we had so a fresh quorum can form if it now passes the new threshold.
+                // The preemptive threshold check in `aggregate_and_validate` normally catches
+                // this before submission. Reaching here means the chain's `target_sample_size`
+                // flipped *between* our fetch and the runtime's verification (≤1-block race).
+                // Unlock the height so a future quorum can form from gossiped votes; do not
+                // re-inject (the votes we held are already gone, and gossip will repopulate).
+                let _ = votes;
                 tracing::warn!(
                     height,
-                    "🔁 MajorityNotReached — unlocking height and re-injecting votes"
+                    "🔁 MajorityNotReached at runtime — chain-race window; unlocking height"
                 );
                 shared.pool_send.note_majority_not_reached(height);
-                for vote in votes {
-                    let digest = vote.digest();
-                    match shared.pool_send.send(vote) {
-                        Some(Ok(())) | None => {}
-                        Some(Err(err)) => err.log_error(digest),
-                    }
-                }
             }
             _ => {
                 tracing::warn!(height, ?err, "⛔ runtime rejected submission");
@@ -240,6 +255,11 @@ struct Aggregated {
 enum ValidationError {
     Invalid,
     NoLocalProof,
+    /// Live `target_sample_size` is higher than our quorum size — submitting now would hit
+    /// `MajorityNotReached` at runtime level. Bail before signing so we never burn fees/turns
+    /// on an extrinsic the chain is guaranteed to reject; let the pool keep collecting until
+    /// enough peer votes gossip in.
+    InsufficientVotes { needed: usize, got: usize },
     External(Error),
 }
 
@@ -285,6 +305,25 @@ async fn aggregate_and_validate(
     .await
     .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
     if is_dup { return Err(ValidationError::Invalid); }
+
+    // Threshold gate: refresh `target_sample_size` from the chain and refuse to submit if our
+    // quorum is now under-threshold. The pool's quorum count is captured at startup; if the
+    // active `target_sample_size` grew (epoch rotation, runtime upgrade), an under-threshold
+    // submission would be rejected at runtime level (`MajorityNotReached`). Catch it here
+    // instead — fees are saved and the pool collects more votes from gossip before the next
+    // emission.
+    let target_sample_size = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| {
+        async move { cc3.target_sample_size(chain_key).await }
+    })
+    .await
+    .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
+    let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
+    if quorum.votes.len() < threshold {
+        return Err(ValidationError::InsufficientVotes {
+            needed: threshold,
+            got: quorum.votes.len(),
+        });
+    }
 
     // Local proof lookup.
     let cached = shared.proof_cache.get(height, digest)
