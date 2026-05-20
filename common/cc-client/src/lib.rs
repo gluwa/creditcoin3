@@ -321,7 +321,11 @@ impl Client {
                     .randomness_by_epoch_index(two_epoch_ago),
             )
             .await?
-            .ok_or(Error::FailedToGetBabeVrf(two_epoch_ago))?;
+            .ok_or(Error::ConnectionError(Reconnect(subxt::Error::Rpc(
+                RpcError::RequestRejected(format!(
+                    "Failed to get Babe VRF at epoch {two_epoch_ago}"
+                )),
+            ))))?;
 
         Ok((randomness, two_epoch_ago))
     }
