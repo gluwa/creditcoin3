@@ -1,7 +1,10 @@
-use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, SupportedChains};
+use crate::{
+    self as pallet, mock, mock::SupportedChain, mock::*, Error, OutboxFactories, SupportedChains,
+};
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
 use rstest::rstest;
+use sp_core::H160;
 use sp_runtime::traits::BadOrigin;
 use supported_chains_primitives::{
     provider::SupportedChainsProvider, MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST,
@@ -92,10 +95,10 @@ fn register_chain_should_error_when_not_signed() {
 }
 
 #[test]
-fn register_chain_should_error_when_not_signed_by_alice() {
+fn register_chain_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        // This should fail because account 2 is not ALICE (1)
+        // This should fail because account 2 is not OPERATOR_ACCOUNT (1)
         assert_noop!(
             SupportedChain::register_chain(
                 RuntimeOrigin::signed(2),
@@ -113,9 +116,9 @@ fn register_chain_should_error_when_not_signed_by_alice() {
             BadOrigin
         );
 
-        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        // This should succeed because OPERATOR_ACCOUNT is allowed in our MockOperators EnsureOrigin
         assert_ok!(SupportedChain::register_chain(
-            RuntimeOrigin::signed(ALICE),
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             201,
             "Ethereum_1".to_owned(),
             None,
@@ -338,20 +341,20 @@ fn remove_chain_should_error_when_not_signed() {
 }
 
 #[test]
-fn remove_chain_should_error_when_not_signed_by_alice() {
+fn remove_chain_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
         let chain_key = 1;
 
-        // This should fail because account 2 is not ALICE (1)
+        // This should fail because account 2 is not OPERATOR_ACCOUNT (1)
         assert_noop!(
             SupportedChain::remove_chain(RuntimeOrigin::signed(2), chain_key, false),
             BadOrigin
         );
 
-        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        // This should succeed because OPERATOR_ACCOUNT is allowed in our MockOperators EnsureOrigin
         assert_ok!(SupportedChain::remove_chain(
-            RuntimeOrigin::signed(ALICE),
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             chain_key,
             false
         ));
@@ -547,5 +550,84 @@ fn register_chain_rejects_invalid_maturity_strategy(#[case] strategy: String) {
             chain_name.as_bytes().to_vec(),
         );
         assert!(chain_key.is_none());
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_works() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
+
+        assert_ok!(SupportedChain::set_outbox_factory_addr(
+            RuntimeOrigin::root(),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), Some(address));
+
+        System::assert_last_event(
+            crate::Event::OutboxCreated {
+                chain_key,
+                outbox_factory_addr: address,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::none(), chain_key, address,),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_not_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::signed(2), chain_key, address,),
+            BadOrigin
+        );
+
+        assert_ok!(SupportedChain::set_outbox_factory_addr(
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), Some(address));
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_chain_is_not_supported() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::root(), chain_key, address,),
+            Error::<Test>::ChainNotSupported
+        );
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
     });
 }

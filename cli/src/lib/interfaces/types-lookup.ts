@@ -1256,7 +1256,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
             readonly maturityStrategy: Text;
         } & Struct;
-        readonly type: 'ChainRegistered' | 'ChainRemoved';
+        readonly isOutboxCreated: boolean;
+        readonly asOutboxCreated: {
+            readonly chainKey: u64;
+            readonly outboxFactoryAddr: H160;
+        } & Struct;
+        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'OutboxCreated';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (99) */
@@ -3156,7 +3161,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly removeCheckpoints: bool;
         } & Struct;
-        readonly type: 'RegisterChain' | 'RemoveChain';
+        readonly isSetOutboxFactoryAddr: boolean;
+        readonly asSetOutboxFactoryAddr: {
+            readonly chainKey: u64;
+            readonly address: H160;
+        } & Struct;
+        readonly type: 'RegisterChain' | 'RemoveChain' | 'SetOutboxFactoryAddr';
     }
 
     /** @name PalletRandomnessCall (332) */

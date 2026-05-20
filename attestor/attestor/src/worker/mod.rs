@@ -87,6 +87,7 @@ pub mod api;
 pub mod p2p;
 pub mod production;
 pub mod validation;
+pub mod write_ability;
 
 use user::prelude::*;
 

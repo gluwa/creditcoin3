@@ -4,12 +4,13 @@ use crate::{
         *,
     },
     BoundsCheckResult, ChainInfo, ChainInfoResult, HashResult, HeightHashResult, HeightResult,
+    OutboxFactories, OutboxFactoryResult,
 };
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
 
 use pallet_attestation::{Attestations, Checkpoints, LastCheckpoint, LastDigest};
-use precompile_utils::{prelude::UnboundedBytes, testing::*};
+use precompile_utils::{prelude::Address, prelude::UnboundedBytes, testing::*};
 
 use sp_core::{H160, H256};
 
@@ -87,6 +88,36 @@ fn get_chain_by_key_works() {
 }
 
 #[test]
+fn outbox_factory_address_works() {
+    let alice: H160 = Alice.into();
+
+    let factory_addr = H160::repeat_byte(0x11);
+
+    let expected_result = OutboxFactoryResult {
+        factory_addr: Address(factory_addr),
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Insert factory address
+            OutboxFactories::<Runtime>::insert(SUPPORTED_CHAIN_KEY, factory_addr);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::outbox_factory_address {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
 fn get_attestation_genesis_height_works() {
     let alice: H160 = Alice.into();
 
@@ -134,6 +165,36 @@ fn get_chain_by_key_returns_default_data_with_unknown_chain_key() {
                     Precompile,
                     PCall::get_chain_by_key {
                         chain_key: unknown_supported_chain_key,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn outbox_factory_address_returns_default_when_not_set() {
+    let alice: H160 = Alice.into();
+
+    let unknown_chain_key: u64 = 9999;
+
+    let expected_result = OutboxFactoryResult {
+        factory_addr: Address(H160::zero()),
+        exists: false,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Ensure chain does NOT exist (or at least no factory set)
+            assert!(!OutboxFactories::<Runtime>::contains_key(unknown_chain_key));
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::outbox_factory_address {
+                        chain_key: unknown_chain_key,
                     },
                 )
                 .execute_returns(expected_result);
