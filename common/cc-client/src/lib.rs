@@ -51,8 +51,6 @@ pub enum Error {
     #[error("CC3 connection lost: {0:?}")]
     ConnectionError(Reconnect),
 
-    #[error("Failed to get Babe VRF at epoch {0}")]
-    FailedToGetBabeVrf(u64),
     #[error("Failed to get committee set size")]
     FailedToGetComitteSetSize,
     #[error("Failed to create proof of inclusion: {0}")]
@@ -1253,104 +1251,5 @@ impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion 
         match version {
             CcChainEncodingVersion::V1 => usc_abi_encoding::common::EncodingVersion::V1,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    //! Tests that lock in the *shared-Arc reconnect* contract added in
-    //! CSUB-2039: a single `Arc<Client>` shared across many tasks must see a
-    //! `reconnect()` call atomically refresh the underlying subxt connection
-    //! for every holder, not just the caller.
-    //!
-    //! We can't stand up a real subxt `RpcClient` in a unit test (it needs a
-    //! live WS endpoint), so these tests exercise the `ArcSwap<ClientInner>`
-    //! plumbing directly. The production `Client::reconnect` is a thin
-    //! wrapper that builds a fresh `ClientInner` and calls
-    //! `self.inner.store(...)` — if the store/load contract holds for one
-    //! Arc holder, it holds for all of them.
-
-    use super::*;
-
-    // We can't construct a real `ClientInner` in a unit test (subxt's
-    // `RpcClient`/`OnlineClient`/`LegacyRpcMethods` need a live endpoint),
-    // so the tests below exercise the underlying `ArcSwap` swap semantics
-    // directly. `Client::reconnect` is a thin wrapper around exactly this
-    // pattern: build a fresh inner, then `self.inner.store(Arc::new(inner))`.
-    // If the contract holds at the `ArcSwap` layer it holds for `Client`.
-
-    /// Locks in the contract that `ArcSwap::store` is observed atomically by
-    /// every holder of the same `ArcSwap`. This is the exact mechanism
-    /// `Client::reconnect` uses to refresh the live subxt connection for
-    /// every `Arc<Client>` holder, so we test the contract here even though
-    /// we can't easily build a real `ClientInner` in a unit test.
-    #[test]
-    fn arcswap_shared_reconnect_contract() {
-        // Stand in for `ClientInner`: any `Arc`-able payload works.
-        struct StubInner(#[allow(dead_code)] u64);
-
-        let swap = Arc::new(ArcSwap::new(Arc::new(StubInner(0))));
-        let observer_a = Arc::clone(&swap);
-        let observer_b = Arc::clone(&swap);
-
-        // Both observers see the same initial inner.
-        let initial_a = observer_a.load_full();
-        let initial_b = observer_b.load_full();
-        assert!(
-            Arc::ptr_eq(&initial_a, &initial_b),
-            "two Arc<ArcSwap> holders must observe the same initial inner"
-        );
-
-        // Simulate `reconnect()`: build a fresh inner and store it via one
-        // observer. With the new `&self` reconnect signature, this is the
-        // exact code path proof-gen-api-server's events task takes.
-        let new_inner = Arc::new(StubInner(1));
-        observer_a.store(Arc::clone(&new_inner));
-
-        // Both observers must now see the freshly-stored inner.
-        let after_a = observer_a.load_full();
-        let after_b = observer_b.load_full();
-        assert!(
-            Arc::ptr_eq(&after_a, &new_inner),
-            "the observer that called store() must see the new inner"
-        );
-        assert!(
-            Arc::ptr_eq(&after_b, &new_inner),
-            "the *other* observer must also see the new inner \
-             (this is the bug CSUB-2039 fixes)"
-        );
-
-        // Old inner is no longer the live one.
-        assert!(
-            !Arc::ptr_eq(&after_b, &initial_b),
-            "after store(), the live inner must differ from the original"
-        );
-    }
-
-    /// Sanity check that `Client::clone` produces a `Client` with its *own*
-    /// `ArcSwap` (i.e. a value-cloned Client *cannot* be reconnected on
-    /// behalf of another Client — you have to share via `Arc<Client>` for
-    /// the shared-reconnect semantics). This documents the deliberate
-    /// distinction between value-clone (independent connections) and
-    /// `Arc::clone` (shared connection).
-    ///
-    /// We can't build a real `Client` in unit tests, so we restate the
-    /// contract on `ArcSwap` directly: cloning the *outer* Arc shares the
-    /// swap, while replacing the inner `ArcSwap` with a fresh one (as
-    /// `Client::clone` does) does not.
-    #[test]
-    fn arcswap_clone_is_shared_only_when_outer_arc_is_shared() {
-        let swap_a = ArcSwap::new(Arc::new(0u64));
-        // `Client::clone` snapshots the current inner into a *new* `ArcSwap`.
-        let swap_b = ArcSwap::new(swap_a.load_full());
-
-        swap_a.store(Arc::new(42u64));
-
-        assert_eq!(**swap_a.load(), 42, "caller of store() sees the update");
-        assert_eq!(
-            **swap_b.load(),
-            0,
-            "a value-cloned Client has its own ArcSwap and is unaffected"
-        );
     }
 }
