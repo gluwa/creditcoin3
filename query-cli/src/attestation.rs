@@ -20,8 +20,6 @@ const MAX_REASONABLE_BLOCK: u64 = 10_000_000_000;
 pub struct AttestationConfig {
     /// Maximum time to wait for attestation
     pub max_wait_time: Duration,
-    /// Polling interval for checking attestation status
-    pub poll_interval: Duration,
     /// Whether to check existing attestations before subscribing
     pub check_existing: bool,
 }
@@ -30,7 +28,6 @@ impl Default for AttestationConfig {
     fn default() -> Self {
         Self {
             max_wait_time: Duration::from_secs(300), // 5 minutes
-            poll_interval: Duration::from_secs(2),
             check_existing: true,
         }
     }
@@ -41,8 +38,6 @@ impl Default for AttestationConfig {
 pub struct AttestationResult {
     /// The actual attested block number (may be higher than requested)
     pub attested_block: u64,
-    /// How long it took to receive attestation
-    pub wait_duration: Duration,
 }
 
 /// Monitor for attestations on the Creditcoin3 network
@@ -127,7 +122,6 @@ impl AttestationMonitor {
             if checkpoint.block_number >= block_number {
                 return Ok(Some(AttestationResult {
                     attested_block: checkpoint.block_number,
-                    wait_duration: Duration::from_secs(0),
                 }));
             }
         }
@@ -143,7 +137,6 @@ impl AttestationMonitor {
             if attestation.attestation.header_number >= block_number {
                 return Ok(Some(AttestationResult {
                     attested_block: attestation.attestation.header_number,
-                    wait_duration: Duration::from_secs(0),
                 }));
             }
         }
@@ -227,10 +220,7 @@ impl AttestationMonitor {
                         block_number, attested_block, elapsed
                     );
 
-                    return Ok(Some(AttestationResult {
-                        attested_block,
-                        wait_duration: elapsed,
-                    }));
+                    return Ok(Some(AttestationResult { attested_block }));
                 }
             }
             CcEvent::CheckpointReached(event_chain_key, checkpoint) => {
@@ -254,7 +244,6 @@ impl AttestationMonitor {
 
                     return Ok(Some(AttestationResult {
                         attested_block: checkpoint.block_number,
-                        wait_duration: elapsed,
                     }));
                 } else if checkpoint.block_number > MAX_REASONABLE_BLOCK {
                     debug!(
@@ -280,7 +269,6 @@ mod tests {
     async fn test_attestation_config_default() {
         let config = AttestationConfig::default();
         assert_eq!(config.max_wait_time, Duration::from_secs(300));
-        assert_eq!(config.poll_interval, Duration::from_secs(2));
         assert!(config.check_existing);
     }
 
@@ -288,10 +276,8 @@ mod tests {
     async fn test_attestation_result() {
         let result = AttestationResult {
             attested_block: 105,
-            wait_duration: Duration::from_secs(30),
         };
 
         assert_eq!(result.attested_block, 105);
-        assert_eq!(result.wait_duration, Duration::from_secs(30));
     }
 }
