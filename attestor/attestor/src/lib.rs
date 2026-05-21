@@ -128,7 +128,7 @@ impl Attestor {
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
-            .with_chain_key(chain_key)
+            .with_chain_keys(vec![chain_key])
             .build();
         let stream_cc3_production = stream::cc3::StreamCC3::new(config)
             .await
@@ -136,7 +136,7 @@ impl Attestor {
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
-            .with_chain_key(chain_key)
+            .with_chain_keys(vec![chain_key])
             .build();
         let stream_cc3_validation = stream::cc3::StreamCC3::new(config)
             .await
@@ -144,7 +144,7 @@ impl Attestor {
 
         let config = stream::cc3::ConfigBuilder::new()
             .with_cc3(client_cc3.clone())
-            .with_chain_key(chain_key)
+            .with_chain_keys(vec![chain_key])
             .build();
         let mut stream_cc3_genesis = stream::cc3::StreamCC3::new(config)
             .await
