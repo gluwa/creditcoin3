@@ -38,8 +38,8 @@ impl<'a> ReconnectingRuntimeApi<'a> {
             };
 
             client.reconnect(reconnect).await;
-            client.reset_connection_delay();
         };
+        client.reset_connection_delay();
 
         Ok(Self {
             client,
@@ -58,7 +58,10 @@ impl<'a> ReconnectingRuntimeApi<'a> {
                 .await
                 .map_err(Into::<Error>::into)
             {
-                Ok(res) => break Ok(res),
+                Ok(res) => {
+                    self.client.reset_connection_delay();
+                    break Ok(res);
+                }
                 Err(Error::ConnectionError(reconnect)) => {
                     self.client.reconnect(reconnect).await;
 
@@ -72,7 +75,6 @@ impl<'a> ReconnectingRuntimeApi<'a> {
                     };
 
                     self.runtime_api = runtime_api;
-                    self.client.reset_connection_delay();
                 }
                 Err(err) => return Err(err),
             }
