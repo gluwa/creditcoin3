@@ -63,6 +63,7 @@ eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true }
+stream = { workspace = true, default-features = false, features = ["cc3"] }
 sysinfo = { workspace = true }
 
 [features]

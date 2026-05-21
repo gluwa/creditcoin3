@@ -32,7 +32,7 @@ use eth::redact_url_query;
 
 pub struct Server {
     config: Config,
-    cc3_client: Arc<CcClient>,
+    cc3_client: CcClient,
     /// One continuity builder per configured source chain.
     builders: Vec<Arc<ContinuityBuilder>>,
     checkpoint_intervals: events::CheckpointIntervalMap,
@@ -52,7 +52,7 @@ impl Server {
             chain_count = config.chains.len(),
             "🚀 [startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
         );
-        let cc3_client = Arc::<CcClient>::new(
+        let cc3_client = 
             CcClient::new_read_only(&config.cc3_rpc_url)
                 .await
                 .with_context(|| {
@@ -61,8 +61,8 @@ impl Server {
                          Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
                         config.cc3_rpc_url
                     )
-                })?,
-        );
+                })?
+        ;
         debug!("🚀 ✅ [startup] Creditcoin3 client connected");
 
         let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(config.chains.len());
@@ -111,7 +111,7 @@ impl Server {
 
     async fn build_continuity_for_chain(
         global: &Config,
-        cc3_client: Arc<CcClient>,
+        cc3_client: CcClient,
         chain: &ChainConfig,
         prom_metrics: Arc<ProofGenMetrics>,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
@@ -276,7 +276,7 @@ impl Server {
         );
         let builder = Arc::new(ContinuityBuilder::new_with_providers(
             continuity_config,
-            cc3_client.clone(),
+            Arc::new(cc3_client.clone()),
             eth_provider,
         ));
 
@@ -318,9 +318,9 @@ impl Server {
 
         info!("🚀 🌐 Server listening on {bind_addr}");
 
-        let cc3_client_clone = self.cc3_client.clone();
         let checkpoint_intervals_clone = self.checkpoint_intervals.clone();
         let last_checkpoint_blocks_clone = self.last_checkpoint_blocks.clone();
+        let cc3_client_clone = self.cc3_client.clone();
 
         tokio::spawn(async move {
             if let Err(e) = events::start_cc3_event_subscription(

@@ -4,10 +4,10 @@
 //! monitoring attestation events, and checking attestation status.
 
 use anyhow::{Context, Result};
-use cc_client::attestation::CcEvent;
+use cc_client::events::CcEvent;
 use cc_client::Client as CcClient;
+use futures::{StreamExt, TryStreamExt};
 use std::time::Duration;
-use tokio::time::sleep;
 use tracing::{debug, info};
 
 /// Maximum reasonable block number (10 billion blocks)
@@ -158,64 +158,48 @@ impl AttestationMonitor {
         block_number: u64,
         start_time: std::time::Instant,
     ) -> Result<AttestationResult> {
-        let mut subscription = self
-            .cc3_client
-            .subscribe_events(chain_key)
-            .context("Failed to subscribe to attestation events")?;
+        let config = stream::cc3::ConfigBuilder::new()
+            .with_cc3(self.cc3_client.clone())
+            .with_chain_keys(vec![chain_key])
+            .build();
+        let mut stream_cc3 = stream::cc3::StreamCC3::new(config)
+            .await
+            .context("Failed to subscribe to cc3 events")?;
 
         info!(
             "Subscribed to attestation events for chain_key {}",
             chain_key
         );
 
+        let timeout = tokio::time::sleep_until(
+            start_time
+                .checked_add(self.config.max_wait_time)
+                .unwrap_or(start_time)
+                .into(),
+        );
+        tokio::pin!(timeout);
+
         loop {
-            // Check timeout
-            let elapsed = start_time.elapsed();
-            if elapsed > self.config.max_wait_time {
-                subscription.cancel()?;
-                return Err(anyhow::anyhow!(
-                    "Timeout waiting for attestation of block {block_number} (waited {elapsed:?})"
-                ));
-            }
+            tokio::select! {
+                Some(res) = stream_cc3.next() => {
+                    let elapsed = start_time.elapsed();
+                    let mut events = res?;
 
-            // Wait for next event with timeout
-            match tokio::time::timeout(Duration::from_secs(5), subscription.next()).await {
-                Ok(Some(event)) => {
-                    if let Some(result) =
-                        self.process_event(event, chain_key, block_number, elapsed)?
-                    {
-                        subscription.cancel()?;
-                        return Ok(result);
+                    while let Some(event) = events.try_next().await? {
+                        if let Some(result) =
+                            self.process_event(event, chain_key, block_number, elapsed)?
+                        {
+                            return Ok(result);
+                        }
                     }
                 }
-                Ok(None) => {
-                    debug!("No attestation event received, subscription may have ended");
-                    // Resubscribe if needed
-                    subscription = self
-                        .cc3_client
-                        .subscribe_events(chain_key)
-                        .context("Failed to resubscribe to attestation events")?;
-                }
-                Err(_) => {
-                    debug!(
-                        "Event timeout, checking existing attestations (elapsed: {:?})",
-                        elapsed
-                    );
-
-                    // Periodically check if the block was attested while we were waiting
-                    if let Some(mut result) = self
-                        .check_existing_attestation(chain_key, block_number)
-                        .await?
-                    {
-                        result.wait_duration = elapsed;
-                        subscription.cancel()?;
-                        return Ok(result);
-                    }
+                _ = &mut timeout => {
+                    let elapsed = self.config.max_wait_time;
+                    return Err(anyhow::anyhow!(
+                        "Timeout waiting for attestation of block {block_number} (waited {elapsed:?})"
+                    ));
                 }
             }
-
-            // Small delay before next iteration
-            sleep(self.config.poll_interval).await;
         }
     }
 
