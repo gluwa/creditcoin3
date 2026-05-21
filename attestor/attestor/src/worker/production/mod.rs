@@ -178,6 +178,13 @@ impl super::Worker for WorkerAttestationProduction {
         loop {
             let can_attest = self.can_attest.load(std::sync::atomic::Ordering::Acquire);
 
+            let runtime_version = self.cc3.api().runtime_version();
+            let spec_version = runtime_version.spec_version;
+            let transaction_version = runtime_version.transaction_version;
+
+            // Added for ease of debugging and visibility into the production loop, especially around runtime upgrades.
+            tracing::info!(spec_version = %spec_version, transaction_version = %transaction_version, can_attest, "Handling next production event");
+
             tokio::select! {
                 biased;
 

@@ -15,7 +15,7 @@ use subxt::{
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use cc3::runtime_types::{
     attestor_primitives::{
@@ -88,7 +88,18 @@ struct ClientInner {
     rpc: RpcClient,
     api: OnlineClient<SubstrateConfig>,
     legacy: LegacyRpcMethods<SubstrateConfig>,
+    updater_handle: tokio::task::JoinHandle<()>,
 }
+
+// Manual Drop implementation to ensure that the updater task is aborted when the client is dropped.
+impl Drop for ClientInner {
+    fn drop(&mut self) {
+        self.updater_handle.abort();
+    }
+}
+
+// Timeout for the runtime metadata updater task to wait before retrying after an error or stream end.
+const UPDATER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Cc3 client that is configured with an url and keypair
 /// Must connect to a node that has rpc and websocket enabled
@@ -153,7 +164,34 @@ impl Client {
         let rpc = RpcClient::from_insecure_url(url.to_owned()).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
-        Ok(ClientInner { rpc, api, legacy })
+
+        // In order to keep metadata up to date, we need to continuously poll the node for updates.
+        // This is done by spawning a background task that calls `perform_runtime_updates` in a loop.
+        // If the stream ends or an error occurs, we log the error and retry after a short delay.
+        let updater = api.updater();
+        let updater_handle = tokio::spawn(async move {
+            loop {
+                match updater.perform_runtime_updates().await {
+                    Ok(()) => info!(
+                        "runtime metadata updater stream ended, retrying in {}s",
+                        UPDATER_TIMEOUT.as_secs()
+                    ),
+                    Err(e) => warn!(
+                        "runtime metadata updater stopped: {e}, retrying in {}s",
+                        UPDATER_TIMEOUT.as_secs()
+                    ),
+                }
+
+                tokio::time::sleep(UPDATER_TIMEOUT).await;
+            }
+        });
+
+        Ok(ClientInner {
+            rpc,
+            api,
+            legacy,
+            updater_handle,
+        })
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
