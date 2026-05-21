@@ -65,8 +65,12 @@ pub enum Error {
 }
 
 #[derive(Debug)]
+/// Type-safe reconnection wrapper which prevents us from shooting ourselves in the foot by
+/// reconnecting on a non-recoverable error.
 pub struct Reconnect(subxt::Error);
 
+// Filters out connection errors (ws drop, client restart...) and errors which cannot be recovered
+// (insufficient funds, unregistered attestor).
 impl From<subxt::Error> for Error {
     fn from(err: subxt::Error) -> Self {
         match &err {
@@ -101,17 +105,14 @@ impl From<subxt::error::TokenError> for Error {
 }
 
 /// Cc3 client that is configured with an url and keypair
+///
 /// Must connect to a node that has rpc and websocket enabled
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 ///
-/// The live subxt RPC connection lives behind an [`ArcSwap`] so that a single
-/// `Arc<Client>` shared across many tasks can be reconnected in place: once
-/// any holder calls [`Client::reconnect`], every other holder picks up the
-/// fresh subxt `RpcClient` / `OnlineClient` on its next call. The previous
-/// design swapped fields on a value-cloned `Client`, which left other
-/// `Arc<Client>` holders pinned to a stale (and often `RestartNeeded`)
-/// connection until the process was restarted.
+/// The live subxt RPC connection lives behind an [`ArcSwap`] so that a single [`Client`] shared
+/// across many tasks can be reconnected in place: once any holder calls [`Client::reconnect`],
+/// every other holder picks up the fresh subxt `RpcClient` / `OnlineClient` on its next call.
 #[derive(Clone)]
 pub struct Client {
     signer: signer::CC3Signer,
@@ -121,11 +122,6 @@ pub struct Client {
     inner: Arc<ArcSwap<ClientInner>>,
 }
 
-/// Inner mutable state of [`Client`]: the live subxt RPC handle and its
-/// derived `OnlineClient` / `LegacyRpcMethods`. Stored behind
-/// [`ArcSwap`] inside [`Client`] so that a successful [`Client::reconnect`]
-/// atomically replaces the live connection for *every* `Arc<Client>`
-/// holder at once.
 struct ClientInner {
     api: OnlineClient<SubstrateConfig>,
 }
@@ -156,12 +152,6 @@ impl Client {
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
-    ///
-    /// Takes `&self` (not `&mut self`) on purpose: a single `Arc<Client>`
-    /// shared across many tasks (e.g. proof-gen-api-server's events task and
-    /// every continuity builder) can call this without coordination, and all
-    /// callers immediately observe the new connection on their next
-    /// `api()`/`legacy()`/`rpc()` access.
     pub async fn reconnect(&mut self, Reconnect(err): Reconnect) {
         loop {
             tracing::warn!(?err, "CC3 connection lost...");
@@ -198,10 +188,9 @@ impl Client {
 
     /// Snapshot of the live subxt `OnlineClient`.
     ///
-    /// The returned value is a cheap arc-internal clone of the current
-    /// connection at call time. After a `reconnect()`, subsequent `api()`
-    /// calls return the fresh client; previously-snapshotted clients keep
-    /// using the old connection until they're dropped.
+    /// The return value of this method references the inner atomic state of [`Client`] and should
+    /// be short-lived: do not store this in a struct without creating an owned copy first in order
+    /// to avoid locking!
     #[must_use]
     pub fn api(&self) -> impl arc_swap::access::Access<OnlineClient<SubstrateConfig>> + '_ {
         self.inner.map(|inner: &ClientInner| &inner.api)
@@ -320,6 +309,8 @@ impl Client {
             )
             .await?
             .ok_or(Error::ConnectionError(Reconnect(subxt::Error::Rpc(
+                // Babe randomness is no persisted by substrate in storage an might be missing for
+                // the first two epochs after node crash.
                 RpcError::RequestRejected(format!(
                     "Failed to get Babe VRF at epoch {two_epoch_ago}"
                 )),
