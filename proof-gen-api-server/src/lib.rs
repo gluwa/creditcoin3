@@ -52,7 +52,7 @@ impl Server {
             chain_count = config.chains.len(),
             "🚀 [startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
         );
-        let cc3_client = 
+        let cc3_client =
             CcClient::new_read_only(&config.cc3_rpc_url)
                 .await
                 .with_context(|| {
