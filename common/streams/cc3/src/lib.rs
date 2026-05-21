@@ -4,7 +4,7 @@ use error::Error;
 #[derive(Debug, builder::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
-    chain_key: attestor_primitives::ChainKey,
+    chain_keys: Vec<attestor_primitives::ChainKey>,
 }
 
 pub struct StreamCC3 {
@@ -105,7 +105,7 @@ impl StreamCC3 {
                             yield Ok(StreamEvents::new(
                                 block_number as attestor_primitives::Height,
                                 events,
-                                config.chain_key
+                                config.chain_keys.clone()
                             ));
                         }
                     },
@@ -155,13 +155,12 @@ impl StreamEvents {
     pub fn new(
         block_number: attestor_primitives::Height,
         events: subxt::events::Events<subxt::SubstrateConfig>,
-        chain_key: attestor_primitives::ChainKey,
+        chain_keys: Vec<attestor_primitives::ChainKey>,
     ) -> Self {
         use futures::TryStreamExt as _;
 
         // Collect so the boxed stream is `'static` (extract_events borrows `events`).
-        let extracted: Vec<_> =
-            cc_client::Client::extract_events(std::slice::from_ref(&chain_key), &events).collect();
+        let extracted: Vec<_> = cc_client::Client::extract_events(&chain_keys, &events).collect();
 
         let stream = Box::pin(
             futures::stream::iter(extracted)
