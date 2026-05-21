@@ -76,13 +76,15 @@ impl StreamCC3 {
 
                         backfill.push((n, events));
 
-                        while n > latest {
+                        // Don't include `latest` again as block parent
+                        while n > latest + 1 {
                             let blocks = config.cc3.api().load().blocks();
                             let parent = blocks.at(parent_hash).await;
                             let parent = match parent {
                                 Ok(parent) => parent,
                                 Err(err_new) => {
                                     err = Err(Error::Client(err_new.into()));
+                                    backfill.clear();
                                     continue 'retry;
                                 }
                             };
@@ -90,6 +92,7 @@ impl StreamCC3 {
                                 Ok(events) => events,
                                 Err(err_new) => {
                                     err = Err(Error::Client(err_new.into()));
+                                    backfill.clear();
                                     continue 'retry;
                                 }
                             };
