@@ -1587,7 +1587,6 @@ dependencies = [
  "subxt",
  "supported-chains-primitives",
  "tokio",
- "tokio-retry",
  "tokio-test",
  "tokio-tungstenite 0.26.2",
  "tracing",
@@ -2247,7 +2246,6 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "attestor-primitives",
- "serde",
  "sp-core",
  "subxt",
  "subxt-signer",
@@ -2257,7 +2255,6 @@ dependencies = [
  "tokio-retry",
  "tracing",
  "usc-abi-encoding",
- "user",
  "vrf",
 ]
 
@@ -14968,7 +14965,6 @@ dependencies = [
 name = "stream_cc3"
 version = "3.123.0"
 dependencies = [
- "anyhow",
  "arc-swap",
  "async-stream",
  "attestor-primitives",
@@ -14976,8 +14972,6 @@ dependencies = [
  "cc-client",
  "futures 0.3.31",
  "subxt",
- "tokio",
- "tokio-retry",
  "tracing",
 ]
 

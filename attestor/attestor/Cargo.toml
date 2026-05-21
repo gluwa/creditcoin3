@@ -46,7 +46,6 @@ subxt = { workspace = true }
 arc-swap = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
-tokio-retry = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["url"] }
 
 # P2P
