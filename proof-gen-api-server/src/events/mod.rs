@@ -53,16 +53,24 @@ pub async fn start_cc3_event_subscription(
     let mut events = stream::cc3::StreamCC3::new(config).await?.try_flatten();
 
     loop {
-        if let Some(cc_event) = events.try_next().await? {
-            if let Err(e) = process_cc_event(
-                &cc_event,
-                &checkpoint_intervals,
-                &last_checkpoint_blocks,
-                &service,
-            )
-            .await
-            {
-                error!("❌ 🔗 Failed to process CC3 event: {e}");
+        match events.try_next().await {
+            Ok(Some(cc_event)) => {
+                if let Err(e) = process_cc_event(
+                    &cc_event,
+                    &checkpoint_intervals,
+                    &last_checkpoint_blocks,
+                    &service,
+                )
+                .await
+                {
+                    error!("❌ 🔗 Failed to process CC3 event: {e}");
+                }
+            }
+            Ok(None) => {
+                anyhow::bail!("End of unbounded event stream");
+            }
+            Err(e) => {
+                error!("❌ 🔗 Failed to retrieve CC3 event: {e}")
             }
         }
     }
