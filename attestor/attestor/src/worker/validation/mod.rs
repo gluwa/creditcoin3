@@ -1043,9 +1043,8 @@ impl WorkerAttestationValidation {
                         }
                     }
 
-                    // TODO: should this be hard error and cause a crash?
                     tracing::error!(height, ?err, "⛔ Failed to submit attestation");
-                    return Ok(());
+                    return Err(Interrupt::Cont(Error::CC3(err)));
                 }
             };
 
