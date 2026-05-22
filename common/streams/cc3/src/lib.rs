@@ -74,42 +74,44 @@ impl StreamCC3 {
                         let mut n = block.number();
                         let mut parent_hash = block.header().parent_hash;
 
-                        backfill.push((n, events));
-
-                        // Don't include `latest` again as block parent
-                        while n > latest + 1 {
-                            let blocks = config.cc3.api().load().blocks();
-                            let parent = blocks.at(parent_hash).await;
-                            let parent = match parent {
-                                Ok(parent) => parent,
-                                Err(err_new) => {
-                                    err = Err(Error::Client(err_new.into()));
-                                    backfill.clear();
-                                    continue 'retry;
-                                }
-                            };
-                            let events = match parent.events().await {
-                                Ok(events) => events,
-                                Err(err_new) => {
-                                    err = Err(Error::Client(err_new.into()));
-                                    backfill.clear();
-                                    continue 'retry;
-                                }
-                            };
-
-                            n = parent.number();
-                            parent_hash = parent.header().parent_hash;
-
+                        if n > latest {
                             backfill.push((n, events));
-                        }
 
-                        latest = block.number();
-                        for (block_number, events) in backfill.drain(..).rev() {
-                            yield Ok(StreamEvents::new(
-                                block_number as attestor_primitives::Height,
-                                events,
-                                config.chain_keys.clone()
-                            ));
+                            // Don't include `latest` again as block parent
+                            while n > latest + 1 {
+                                let blocks = config.cc3.api().load().blocks();
+                                let parent = blocks.at(parent_hash).await;
+                                let parent = match parent {
+                                    Ok(parent) => parent,
+                                    Err(err_new) => {
+                                        err = Err(Error::Client(err_new.into()));
+                                        backfill.clear();
+                                        continue 'retry;
+                                    }
+                                };
+                                let events = match parent.events().await {
+                                    Ok(events) => events,
+                                    Err(err_new) => {
+                                        err = Err(Error::Client(err_new.into()));
+                                        backfill.clear();
+                                        continue 'retry;
+                                    }
+                                };
+
+                                n = parent.number();
+                                parent_hash = parent.header().parent_hash;
+
+                                backfill.push((n, events));
+                            }
+
+                            latest = block.number();
+                            for (block_number, events) in backfill.drain(..).rev() {
+                                yield Ok(StreamEvents::new(
+                                    block_number as attestor_primitives::Height,
+                                    events,
+                                    config.chain_keys.clone()
+                                ));
+                            }
                         }
                     },
                     Ok(None) => err = Err(Error::EndOfStream),
