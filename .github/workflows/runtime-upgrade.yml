@@ -163,6 +163,11 @@ jobs:
         run: |
           sudo chmod a+rwx /mnt
 
+      - name: Grant everyone permissions on /usr/local/bin
+        run: |
+          sudo mkdir -p /usr/local/bin
+          sudo chmod a+rwx /usr/local/bin
+
   fork-creditcoin:
     needs:
       - setup
