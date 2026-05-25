@@ -14,7 +14,7 @@ pub struct StreamCC3 {
 }
 
 impl StreamCC3 {
-    pub async fn new(mut config: Config) -> Result<Self, cc_client::Error> {
+    pub async fn new(config: Config) -> Result<Self, cc_client::Error> {
         use arc_swap::access::Access as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
@@ -30,7 +30,14 @@ impl StreamCC3 {
             'retry: loop {
                 match std::mem::replace(&mut err, Ok(())) {
                     Err(Error::Client(cc_client::Error::ConnectionError(reconnect))) => {
-                        config.cc3.reconnect(reconnect).await;
+                        // Reconnect is now bounded + cancellable; if it returns Err the
+                        // task should surface that as a final yielded error rather than
+                        // silently retrying. Closing the stream is the right move on
+                        // exhaustion / shutdown.
+                        if let Err(err_rc) = config.cc3.reconnect(reconnect).await {
+                            yield Err(err_rc);
+                            return;
+                        }
 
                         let blocks = config.cc3.api().load().blocks();
                         finalized = match blocks.subscribe_finalized().await {
