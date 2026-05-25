@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
 use sp_core::U256;
@@ -62,6 +62,18 @@ pub enum Error {
     CallerCannotPayFees,
     #[error("Caller doesn't have sufficient funds to execute the transaction: {0}")]
     CallerDoesntHaveSufficientFunds(subxt::error::TokenError),
+
+    /// Reconnect loop exhausted its bounded retry budget.
+    #[error(
+        "Reconnect retries exhausted after {} attempts",
+        util::MAX_RECONNECT_ATTEMPTS
+    )]
+    ReconnectExhausted,
+
+    /// Reconnect was interrupted by a shutdown signal (`ctrl_c`). Callers should propagate this
+    /// up so the task supervisor can exit cleanly instead of restarting the RPC dance.
+    #[error("CC3 reconnect interrupted by shutdown signal")]
+    ShuttingDown,
 }
 
 #[derive(Debug)]
@@ -73,23 +85,56 @@ pub struct Reconnect(subxt::Error);
 // (insufficient funds, unregistered attestor).
 impl From<subxt::Error> for Error {
     fn from(err: subxt::Error) -> Self {
-        match &err {
-            subxt::Error::Rpc(
-                RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
-            ) => Self::ConnectionError(Reconnect(err)),
-
-            subxt::Error::Rpc(RpcError::ClientError(boxed))
-                if matches!(
-                    boxed.downcast_ref::<JsonRpseeError>(),
-                    Some(JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_))
-                ) =>
-            {
-                Self::ConnectionError(Reconnect(err))
-            }
-
-            _ => Self::SubxtError(err),
+        if is_transient_subxt(&err) {
+            Self::ConnectionError(Reconnect(err))
+        } else {
+            Self::SubxtError(err)
         }
     }
+}
+
+/// Classifier shared by `From<subxt::Error>` so the logic has one source of truth.
+///
+/// Treats as recoverable (→ `Reconnect`):
+///   * subxt's own `SubscriptionDropped` / `DisconnectedWillReconnect`
+///   * jsonrpsee `Transport(_)` / `RestartNeeded(_)`
+///   * jsonrpsee `Call(_)` whose message text indicates a server-side transient: the upstream
+///     RPC sent us a structured JSON-RPC error back, but the message itself says e.g.
+///     "connection going down", "service unavailable", "rate limit", etc. In those cases the
+///     correct response is to back off + reconnect, not to crash the task.
+fn is_transient_subxt(err: &subxt::Error) -> bool {
+    match err {
+        subxt::Error::Rpc(
+            RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
+        ) => true,
+        subxt::Error::Rpc(RpcError::ClientError(boxed)) => {
+            let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() else {
+                return false;
+            };
+            match jr {
+                JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_) => true,
+                JsonRpseeError::Call(obj) => is_transient_call_message(obj.message()),
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Server-side error messages that mean "the connection is temporarily unhealthy" rather than
+/// "the call you made was invalid". Conservative — we only match phrases the chain or its load
+/// balancer routinely emits at shutdown / overload. Anything not listed here surfaces to the
+/// caller as `SubxtError(_)` and crashes the task instead of looping.
+fn is_transient_call_message(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("connection")           // "Downstream connection unexpectedly closed", etc.
+        || m.contains("going down")    // gateway graceful-shutdown banner
+        || m.contains("shut")          // "shutting down", "shutdown"
+        || m.contains("unavailable")   // 503 Service Unavailable, generic::unavailable
+        || m.contains("rate limit")    // 429 from a fronting LB
+        || m.contains("too many requests")
+        || m.contains("timeout")       // upstream timeout (distinct from RPC::DEADLINE_EXCEEDED)
+        || m.contains("deadline_exceeded")
 }
 
 impl From<vrf::Error> for Error {
@@ -113,11 +158,18 @@ impl From<subxt::error::TokenError> for Error {
 /// The live subxt RPC connection lives behind an [`ArcSwap`] so that a single [`Client`] shared
 /// across many tasks can be reconnected in place: once any holder calls [`Client::reconnect`],
 /// every other holder picks up the fresh subxt `RpcClient` / `OnlineClient` on its next call.
+///
+/// `delay` is shared (`Arc<Mutex<_>>`) so backoff state survives across all `Client::clone()`
+/// instances. Without this, V1's pattern of value-cloning a `Client` per `StreamCC3` (three
+/// clones in the attestor) plus the validation worker's own field gives each holder an
+/// independent exponential backoff — a chain-wide outage with N path failures means N dial
+/// attempts every backoff window instead of one. The shared mutex keeps all reconnects on the
+/// same timer regardless of how the `Client` was handed around.
 #[derive(Clone)]
 pub struct Client {
     signer: signer::CC3Signer,
     url: String,
-    delay: tokio_retry::strategy::ExponentialBackoff,
+    delay: Arc<Mutex<tokio_retry::strategy::ExponentialBackoff>>,
 
     inner: Arc<ArcSwap<ClientInner>>,
 }
@@ -140,7 +192,7 @@ impl Client {
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
         let signer = signer::CC3Signer::new(key)?;
         let url = url.into();
-        let delay = util::exponential_retry_delay();
+        let delay = Arc::new(Mutex::new(util::exponential_retry_delay()));
         let inner = ClientInner::new(&url).await?;
 
         Ok(Self {
@@ -152,28 +204,62 @@ impl Client {
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
-    pub async fn reconnect(&mut self, Reconnect(err): Reconnect) {
-        loop {
-            tracing::warn!(?err, "CC3 connection lost...");
+    ///
+    /// Bounded by [`util::MAX_RECONNECT_ATTEMPTS`] so a permanently-down RPC eventually
+    /// surfaces an `Err` (the task supervisor crashes the process and k8s reschedules)
+    /// rather than silently spinning forever.
+    ///
+    /// Cancellable via `tokio::signal::ctrl_c()` — on shutdown the in-progress reconnect
+    /// returns `Err(Error::ShuttingDown)` instead of blocking the process exit until the
+    /// RPC happens to come back. This restores the cancellation arm the V1 worker's helper
+    /// had before this refactor.
+    ///
+    /// Takes `&self` so any task sharing a `Client` (or a clone of one — clones share the
+    /// backoff mutex) can drive the reconnect without needing exclusive access.
+    pub async fn reconnect(&self, Reconnect(err): Reconnect) -> Result<(), Error> {
+        tracing::warn!(?err, "CC3 connection lost...");
 
-            let delay = self.delay.next().unwrap_or(util::MAX_DELAY);
-            tokio::time::sleep(tokio_retry::strategy::jitter(delay)).await;
+        for attempt in 1..=util::MAX_RECONNECT_ATTEMPTS {
+            // Snapshot the next delay from the shared backoff. The mutex is held only
+            // long enough to advance the iterator — no awaits inside the critical section.
+            let delay = {
+                let mut guard = self.delay.lock().expect("reconnect delay mutex poisoned");
+                guard.next().unwrap_or(util::MAX_DELAY)
+            };
+            let sleep = tokio::time::sleep(tokio_retry::strategy::jitter(delay));
+
+            tokio::select! {
+                () = sleep => {}
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("🔌 Reconnect interrupted by shutdown signal");
+                    return Err(Error::ShuttingDown);
+                }
+            }
 
             match ClientInner::new(&self.url).await {
                 Ok(inner) => {
                     self.inner.store(Arc::new(inner));
-                    tracing::warn!("Reconnected to CC3!");
-                    break;
+                    tracing::warn!(attempt, "Reconnected to CC3!");
+                    return Ok(());
                 }
                 Err(err) => {
-                    tracing::warn!(?err, "Failed to reconnect to CC3");
+                    tracing::warn!(attempt, ?err, "Failed to reconnect to CC3");
                 }
             }
         }
+        tracing::error!(
+            attempts = util::MAX_RECONNECT_ATTEMPTS,
+            "Reconnect retries exhausted — surfacing crash so supervisor can reschedule"
+        );
+        Err(Error::ReconnectExhausted)
     }
 
-    pub fn reset_connection_delay(&mut self) {
-        self.delay = util::exponential_retry_delay();
+    /// Reset the shared backoff timer to its initial state. Call this after any operation
+    /// that proves the connection is healthy (a successful storage read or extrinsic
+    /// submission) so the next transient failure starts from the minimum delay.
+    pub fn reset_connection_delay(&self) {
+        let mut guard = self.delay.lock().expect("reconnect delay mutex poisoned");
+        *guard = util::exponential_retry_delay();
     }
 
     /// Create a new read-only instance of cc3 client that doesn't require a keypair.
@@ -1077,6 +1163,13 @@ mod util {
     const INABILITY_TO_PAY_SOME_FEE_MSG: &str = "Inability to pay some fee";
 
     pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
+
+    /// Maximum reconnect attempts before `Client::reconnect` returns `Err(ReconnectExhausted)`.
+    /// At ~5 s max delay per attempt this gives roughly 2.5 minutes of trying — long enough to
+    /// survive routine WS hiccups and gateway restarts, short enough that a node that's truly
+    /// down crashes the task instead of silently spinning. Tune carefully: too low and routine
+    /// outages cause unnecessary restarts; too high and we re-introduce the unbounded-spin `DoS`.
+    pub const MAX_RECONNECT_ATTEMPTS: u32 = 30;
 
     pub fn exponential_retry_delay() -> tokio_retry::strategy::ExponentialBackoff {
         tokio_retry::strategy::ExponentialBackoff::from_millis(100).max_delay(MAX_DELAY)
