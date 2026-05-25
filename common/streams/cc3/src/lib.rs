@@ -23,10 +23,20 @@ pub use error::Error;
 
 const MAX_RESUBSCRIBE_ATTEMPTS: usize = 6;
 
+/// Minimum interval between consecutive parent-block fetches during backfill. Set to cap the
+/// backfill load on the cc3 RPC — a long gap (post-outage recovery) otherwise issues sequential
+/// requests as fast as the RPC can answer, which on a recovering node is enough to push it back
+/// over. 100ms = ~10 fetches/sec is the default; tune via [`ConfigBuilder::with_backfill_min_interval`].
+const DEFAULT_BACKFILL_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
 #[derive(Debug, builder::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
     chain_key: attestor_primitives::ChainKey,
+    /// Minimum interval between consecutive parent-block fetches during backfill — applies only
+    /// to gap recovery, not to the live `subscribe_finalized` flow.
+    #[default(DEFAULT_BACKFILL_MIN_INTERVAL)]
+    backfill_min_interval: std::time::Duration,
 }
 
 pub struct StreamCC3 {
@@ -40,6 +50,7 @@ impl StreamCC3 {
 
         let chain_key = config.chain_key;
         let cc3 = config.cc3;
+        let backfill_min_interval = config.backfill_min_interval;
 
         let mut finalized = cc3
             .api()
@@ -92,7 +103,17 @@ impl StreamCC3 {
                         backfill.push((walk_n, head_events));
 
                         let mut walk_failed = false;
+                        let mut last_fetch: Option<std::time::Instant> = None;
                         while walk_n > latest + 1 {
+                            // Throttle: keep at least `backfill_min_interval` between
+                            // consecutive parent fetches so a long gap (post-outage recovery)
+                            // doesn't burst the cc3 RPC.
+                            if let Some(last) = last_fetch {
+                                let elapsed = last.elapsed();
+                                if elapsed < backfill_min_interval {
+                                    tokio::time::sleep(backfill_min_interval - elapsed).await;
+                                }
+                            }
                             let parent = match cc3.api().blocks().at(walk_parent).await {
                                 Ok(b) => b,
                                 Err(err) => {
@@ -101,6 +122,7 @@ impl StreamCC3 {
                                     break;
                                 }
                             };
+                            last_fetch = Some(std::time::Instant::now());
                             let parent_events = match parent.events().await {
                                 Ok(e) => e,
                                 Err(err) => {
