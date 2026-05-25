@@ -33,7 +33,7 @@ vrf = { workspace = true }
 # workspace deps
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 tokio-retry = { workspace = true }
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }

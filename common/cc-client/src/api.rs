@@ -3,18 +3,15 @@ use arc_swap::access::Access;
 
 /// Auto-reconnecting substrate [`RuntimeApi`].
 ///
-/// Will attempt to restore connection on any failed runtime call. Reconnection attempts are
-/// unbounded and can only be aborted via manual user cancellation (Ctrl-C).
-///
-/// Holds a borrow of the underlying [`crate::Client`] (taken as `&mut` for
-/// historical reasons — every consumer here calls through a mutable handle).
-/// The underlying [`crate::Client::reconnect`] now uses interior mutability,
-/// so the borrow is `&Client` for reconnect purposes; we keep the `&mut`
-/// receiver to avoid churn at every call site.
+/// Wraps a runtime API call in a bounded reconnect loop: on `Error::ConnectionError`, calls
+/// [`crate::Client::reconnect`] (which is itself bounded by `MAX_RECONNECT_ATTEMPTS` and
+/// cancellable via Ctrl-C) and retries. If `reconnect()` returns `Err(_)` — exhaustion or
+/// shutdown — the error is surfaced to the caller so the task can crash cleanly instead
+/// of spinning.
 ///
 /// [`RuntimeApi`]: subxt::runtime_api::RuntimeApi
 pub struct ReconnectingRuntimeApi<'a> {
-    client: &'a mut crate::Client,
+    client: &'a crate::Client,
     runtime_api: subxt::runtime_api::RuntimeApi<
         subxt::SubstrateConfig,
         subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -22,7 +19,7 @@ pub struct ReconnectingRuntimeApi<'a> {
 }
 
 impl<'a> ReconnectingRuntimeApi<'a> {
-    pub async fn new(client: &'a mut crate::Client) -> Result<Self, Error> {
+    pub async fn new(client: &'a crate::Client) -> Result<Self, Error> {
         let runtime_api = loop {
             let reconnect = match client
                 .api()
@@ -37,7 +34,9 @@ impl<'a> ReconnectingRuntimeApi<'a> {
                 Err(err) => return Err(err),
             };
 
-            client.reconnect(reconnect).await;
+            // Propagate reconnect exhaustion / shutdown up: callers shouldn't loop forever
+            // hoping the RPC eventually answers.
+            client.reconnect(reconnect).await?;
         };
         client.reset_connection_delay();
 
@@ -63,7 +62,7 @@ impl<'a> ReconnectingRuntimeApi<'a> {
                     break Ok(res);
                 }
                 Err(Error::ConnectionError(reconnect)) => {
-                    self.client.reconnect(reconnect).await;
+                    self.client.reconnect(reconnect).await?;
 
                     let runtime_api = match self.client.api().load().runtime_api().at_latest().await
                     {
