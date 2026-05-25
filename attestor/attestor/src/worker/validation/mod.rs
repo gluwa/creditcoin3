@@ -494,7 +494,7 @@ impl WorkerAttestationValidation {
 
         let now = std::time::Instant::now();
 
-        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(&mut self.cc3)
+        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(&self.cc3)
             .await
             .map_interrupt(Error::Client)?;
 
@@ -797,7 +797,6 @@ impl WorkerAttestationValidation {
         height: attestor_primitives::Height,
     ) -> Result<(), Interrupt<Error>> {
         use arc_swap::access::Access as _;
-        use futures::FutureExt as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
@@ -810,9 +809,18 @@ impl WorkerAttestationValidation {
 
         let (randomness, epoch_index) = loop {
             match self.cc3.fetch_babe_randomness_two_epoch_ago().await {
-                Ok(babe) => break babe,
+                Ok(babe) => {
+                    // Successful RPC ⇒ connection is healthy. Reset the shared backoff so the
+                    // next transient failure starts from the minimum delay rather than continuing
+                    // an exponential run we'd been on.
+                    self.cc3.reset_connection_delay();
+                    break babe;
+                }
                 Err(cc_client::Error::ConnectionError(reconnect)) => {
-                    self.cc3.reconnect(reconnect).await
+                    self.cc3
+                        .reconnect(reconnect)
+                        .await
+                        .map_err(|err| Interrupt::Cont(Error::CC3(err)))?;
                 }
                 Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
             }
@@ -832,8 +840,16 @@ impl WorkerAttestationValidation {
                     )
                     .await
                 {
-                    Ok(vrf) => break vrf,
+                    Ok(vrf) => {
+                        // VRF call returned successfully ⇒ connection is healthy.
+                        self.cc3.reset_connection_delay();
+                        break vrf;
+                    }
                     Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
+                        // "Not selected" is *also* a successful RPC roundtrip — the RPC node
+                        // returned a well-formed VRF answer that classified us out. Reset.
+                        self.cc3.reset_connection_delay();
+
                         tracing::info!(
                             height,
                             "🚦 Attestor was not selected for attestation submission"
@@ -845,12 +861,13 @@ impl WorkerAttestationValidation {
                         )))
                         .into();
 
-                        self.cc3.reset_connection_delay();
-
                         return Ok(());
                     }
                     Err(cc_client::Error::ConnectionError(reconnect)) => {
-                        self.cc3.reconnect(reconnect).await
+                        self.cc3
+                            .reconnect(reconnect)
+                            .await
+                            .map_err(|err| Interrupt::Cont(Error::CC3(err)))?;
                     }
                     Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
                 }
@@ -1014,7 +1031,11 @@ impl WorkerAttestationValidation {
                 .await
                 .map_err(Into::<cc_client::Error>::into)
             {
-                Ok(submit) => break submit,
+                Ok(submit) => {
+                    // Submission accepted ⇒ connection is healthy.
+                    self.cc3.reset_connection_delay();
+                    break submit;
+                }
                 Err(cc_client::Error::ConnectionError(reconnect)) => reconnect,
                 Err(err) => {
                     // Another attestor won the submission race -the runtime reject new calls and
@@ -1048,7 +1069,10 @@ impl WorkerAttestationValidation {
                 }
             };
 
-            self.cc3.reconnect(reconnect).await
+            self.cc3
+                .reconnect(reconnect)
+                .await
+                .map_err(|err| Interrupt::Cont(Error::CC3(err)))?;
         };
 
         // --------------------------------* Finalization *--------------------------------
@@ -1061,9 +1085,29 @@ impl WorkerAttestationValidation {
         // in the attestor code or of a super-majority of malicious attestors, however in
         // both cases we currently do not offer good recovery methods.
 
-        let watch = submit
-            .wait_for_finalized_success()
-            .map(move |success| (AttestationSubmission::Eligible { success, votes }, height));
+        // Wrap `wait_for_finalized_success` in `ATTESTATION_TIMEOUT` so a watch that gets
+        // stuck (stale WS, frozen upstream, txpool retention with no finality) can't pin the
+        // validation pipeline forever. On timeout we exit as `Finalized` — the existing
+        // post-submission handler treats this as "the height landed externally or we're
+        // moving on", which advances to the next stash instead of paralysing.
+        //
+        // Without this bound, two failure modes both hung pods in production: (a) txpool
+        // accepted the tx but it never finalised (May 16 cc3-testnet incident), (b) a
+        // frozen-but-alive upstream produces no error so the future never completes.
+        let watch = async move {
+            match tokio::time::timeout(
+                common::constants::ATTESTATION_TIMEOUT,
+                submit.wait_for_finalized_success(),
+            )
+            .await
+            {
+                Ok(success) => (AttestationSubmission::Eligible { success, votes }, height),
+                Err(_) => {
+                    tracing::warn!(height, "🏃 submit watch timed out — unblocking pipeline");
+                    (AttestationSubmission::Finalized, height)
+                }
+            }
+        };
 
         self.watch_submission = Some(watch).into();
 
