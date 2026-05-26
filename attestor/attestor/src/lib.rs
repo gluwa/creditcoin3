@@ -55,7 +55,9 @@ pub struct Attestor {
 }
 
 impl Attestor {
-    pub fn new(config: Config) -> Self { Self { config } }
+    pub fn new(config: Config) -> Self {
+        Self { config }
+    }
 
     #[tracing::instrument(
         name = "attestor",
@@ -70,14 +72,13 @@ impl Attestor {
         let chain_key = self.config.chain_key;
 
         let secret_str = self.config.stream.secret.to_secret_uri_string();
-        let signer = cc_client::signer::CC3Signer::new(secret_str.as_str())
-            .map_err(Error::Init)?;
+        let signer = cc_client::signer::CC3Signer::new(secret_str.as_str()).map_err(Error::Init)?;
         let account_id = signer.account_id();
         let attestor_id = attestor_primitives::AttestorId::from_public(account_id.0);
 
         let mut seed = self.config.stream.secret.to_seed_bytes_32();
-        let keypair_p2p = libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed)
-            .expect("ed25519 keypair");
+        let keypair_p2p =
+            libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed).expect("ed25519 keypair");
         let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
 
         let bls_seed = self.config.stream.secret.to_bls_seed_bytes();
@@ -87,16 +88,16 @@ impl Attestor {
 
         // ----------------------------------* endpoints *-------------------------------------- //
 
-        startup::wait_for_endpoints(
-            &self.config.stream.url_eth,
-            &self.config.stream.url_cc3,
-        ).await?;
+        startup::wait_for_endpoints(&self.config.stream.url_eth, &self.config.stream.url_cc3)
+            .await?;
 
         // ONE cc3 client, shared everywhere.
         let cc3_raw = cc_client::Client::new(
             self.config.stream.url_cc3.as_ref().as_ref(),
             secret_str.as_str(),
-        ).await.map_err(Error::Init)?;
+        )
+        .await
+        .map_err(Error::Init)?;
         let cc3 = Arc::new(cc3_raw);
 
         // Reconcile the metadata the binary was compiled against with the chain's live
@@ -105,10 +106,9 @@ impl Attestor {
         // a breaking Attestation pallet change.
         startup::reconcile_metadata(&cc3).await?;
 
-        let eth = eth::Client::new(
-            self.config.stream.url_eth.as_ref().as_ref(),
-            None,
-        ).await.map_err(Error::Init)?;
+        let eth = eth::Client::new(self.config.stream.url_eth.as_ref().as_ref(), None)
+            .await
+            .map_err(Error::Init)?;
 
         // ----------------------------------* chain config *----------------------------------- //
 
@@ -149,26 +149,34 @@ impl Attestor {
         let attestors = startup::wait_for_eligible(chain_key, &cc3, &account_id).await?;
 
         let bls_store = Arc::new(
-            bls::BlsStore::new(&cc3, &token, chain_key, &attestors).await.map_err(Error::Rpc)?
+            bls::BlsStore::new(&cc3, &token, chain_key, &attestors)
+                .await
+                .map_err(Error::Rpc)?,
         );
 
         // ----------------------------------* attestation params *----------------------------- //
 
-        let interval_attestation = if let Some(forced) = self.config.attestation.attestation_interval {
-            forced
-        } else {
-            cc3.chain_attestation_interval(chain_key)
-                .await?
-                .and_then(NonZero::new)
-                .ok_or(Error::MissingAttestationInterval(chain_key))?
-        };
+        let interval_attestation =
+            if let Some(forced) = self.config.attestation.attestation_interval {
+                forced
+            } else {
+                cc3.chain_attestation_interval(chain_key)
+                    .await?
+                    .and_then(NonZero::new)
+                    .ok_or(Error::MissingAttestationInterval(chain_key))?
+            };
 
-        let (genesis_height, start_attestation) = startup::fetch_start_point(chain_key, &cc3).await?;
-        let start_height = self.config.attestation.start_height
+        let (genesis_height, start_attestation) =
+            startup::fetch_start_point(chain_key, &cc3).await?;
+        let start_height = self
+            .config
+            .attestation
+            .start_height
             .or_else(|| start_attestation.as_ref().map(|i| i.height + 1))
             .unwrap_or(genesis_height);
 
-        let target = cc3.target_sample_size(chain_key)
+        let target = cc3
+            .target_sample_size(chain_key)
             .await
             .map_err(|_| Error::MissingTargetSampleSize(chain_key))?;
         let quorum = NonZero::new(attestor_primitives::calculate_threshold(target) as usize)
@@ -225,12 +233,15 @@ impl Attestor {
                 .with_max_catchup(common::constants::MAX_CATCHUP)
                 .with_start_digest(start_attestation.map(|i| i.digest))
                 .with_start_height_finalized(start_attestation.map(|i| i.height))
-                .with_metrics(Box::new(PoolMetrics(metrics.clone())) as Box<dyn attestor_pool::MetricsHook>)
+                .with_metrics(
+                    Box::new(PoolMetrics(metrics.clone())) as Box<dyn attestor_pool::MetricsHook>
+                )
                 .build(),
         );
 
         // Channels and watches
-        let (gossip_tx, gossip_rx) = mpsc::channel::<vote::Vote>(common::constants::CAPACITY_CHANNEL);
+        let (gossip_tx, gossip_rx) =
+            mpsc::channel::<vote::Vote>(common::constants::CAPACITY_CHANNEL);
         let (can_attest_tx, can_attest_rx) = watch::channel::<bool>(true);
         // `None` until the production task observes the first BlockAttested event. Validation's
         // `wait_for_finalized` helper waits for `Some(info)` with `info.height >= target`, so it
@@ -287,40 +298,44 @@ impl Attestor {
         {
             let shared = shared.clone();
             let cfg = self.config.api.with_metrics(shared.metrics.clone()).build();
-            set.spawn(async move {
-                tasks::api::run(shared, cfg).await.map(|_| "api")
-            });
+            set.spawn(async move { tasks::api::run(shared, cfg).await.map(|_| "api") });
         }
 
         {
             let shared = shared.clone();
-            let cfg = self.config.p2p
+            let cfg = self
+                .config
+                .p2p
                 .with_keypair(keypair_p2p)
                 .with_chain_key(chain_key)
                 .build();
+            set.spawn(async move { tasks::p2p::run(shared, cfg, gossip_rx).await.map(|_| "p2p") });
+        }
+
+        {
+            let shared = shared.clone();
             set.spawn(async move {
-                tasks::p2p::run(shared, cfg, gossip_rx).await.map(|_| "p2p")
+                tasks::production::run(shared, start_attestation)
+                    .await
+                    .map(|_| "production")
             });
         }
 
         {
             let shared = shared.clone();
             set.spawn(async move {
-                tasks::production::run(shared, start_attestation).await.map(|_| "production")
+                tasks::validation::run(shared, pool_recv)
+                    .await
+                    .map(|_| "validation")
             });
         }
 
         {
             let shared = shared.clone();
             set.spawn(async move {
-                tasks::validation::run(shared, pool_recv).await.map(|_| "validation")
-            });
-        }
-
-        {
-            let shared = shared.clone();
-            set.spawn(async move {
-                tasks::runtime_updater::run(shared).await.map(|_| "runtime_updater")
+                tasks::runtime_updater::run(shared)
+                    .await
+                    .map(|_| "runtime_updater")
             });
         }
 

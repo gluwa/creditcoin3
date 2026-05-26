@@ -17,10 +17,7 @@ use crate::error::Error;
 use crate::secret::RpcSecret;
 
 /// Loop until both RPCs accept a WebSocket connection. Returns once both are reachable.
-pub async fn wait_for_endpoints(
-    url_eth: &RpcSecret,
-    url_cc3: &RpcSecret,
-) -> Result<(), Error> {
+pub async fn wait_for_endpoints(url_eth: &RpcSecret, url_cc3: &RpcSecret) -> Result<(), Error> {
     use common::constants::RETRY_DELAY;
 
     async fn poke(label: &str, url: &RpcSecret) {
@@ -130,22 +127,26 @@ pub async fn fetch_start_point(
     ),
     Error,
 > {
-    let genesis = cc3.get_attestation_chain_genesis_block_number(chain_key).await?;
+    let genesis = cc3
+        .get_attestation_chain_genesis_block_number(chain_key)
+        .await?;
 
     let start = if let Some(last_digest) = cc3.fetch_last_digest(chain_key).await? {
-        let last = cc3.get_attestation_by_digest(chain_key, last_digest).await?
+        let last = cc3
+            .get_attestation_by_digest(chain_key, last_digest)
+            .await?
             .expect("last digest must resolve to an attestation");
         Some(crate::shared::AttestationInfo {
             height: last.header_number(),
             digest: last.digest(),
         })
     } else {
-        cc3.get_last_checkpoint(chain_key).await?.map(|cp| {
-            crate::shared::AttestationInfo {
+        cc3.get_last_checkpoint(chain_key)
+            .await?
+            .map(|cp| crate::shared::AttestationInfo {
                 height: cp.block_number,
                 digest: cp.digest,
-            }
-        })
+            })
     };
 
     Ok((genesis, start))

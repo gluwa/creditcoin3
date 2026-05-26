@@ -76,8 +76,12 @@ pub fn verify_vote(
     if vote.chain_key != our_chain_key {
         return VerifyResult::WrongChain;
     }
-    let Some(local) = local else { return VerifyResult::NoLocal; };
-    let Some(pubkey) = pubkey else { return VerifyResult::UnknownAttestor; };
+    let Some(local) = local else {
+        return VerifyResult::NoLocal;
+    };
+    let Some(pubkey) = pubkey else {
+        return VerifyResult::UnknownAttestor;
+    };
 
     if vote.digest != local.digest {
         return VerifyResult::DivergentDigest;

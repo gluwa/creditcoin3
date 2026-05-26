@@ -65,7 +65,10 @@ pub async fn run(
         .with_attestation_interval(interval)
         .with_attestation_prev(
             start_attestation
-                .map(|i| stream::util::AttestationInfo { height: i.height, digest: i.digest })
+                .map(|i| stream::util::AttestationInfo {
+                    height: i.height,
+                    digest: i.digest,
+                })
                 .unwrap_or(stream::util::AttestationInfo {
                     height: genesis,
                     ..Default::default()
@@ -83,7 +86,9 @@ pub async fn run(
         .with_cc3((*shared.cc3).clone())
         .with_chain_key(shared.chain_key)
         .build();
-    let mut events = stream::cc3::StreamCC3::new(cc3_cfg).await.map_err(Error::Init)?;
+    let mut events = stream::cc3::StreamCC3::new(cc3_cfg)
+        .await
+        .map_err(Error::Init)?;
 
     // ----------------------------------* genesis (if needed) *------------------------------- //
     //
@@ -98,10 +103,11 @@ pub async fn run(
         info
     } else {
         tracing::info!(genesis, "👶 generating genesis attestation");
-        let block = shared.eth.get_block(
-            genesis,
-            usc_abi_encoding::common::EncodingVersion::V1,
-        ).await.map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
+        let block = shared
+            .eth
+            .get_block(genesis, usc_abi_encoding::common::EncodingVersion::V1)
+            .await
+            .map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
         let root_info = stream::util::RootInfo {
             height: genesis,
             root: eth::simple_merkle_tree(&block).root(),
@@ -145,10 +151,7 @@ pub async fn run(
 // ------------------------------------ [ Emit local vote ] ------------------------------------- //
 
 /// Cache the proof, sign the lightweight vote, push to pool + gossip.
-async fn emit_local(
-    shared: &Arc<Shared>,
-    attestation: &common::types::Attestation,
-) {
+async fn emit_local(shared: &Arc<Shared>, attestation: &common::types::Attestation) {
     let height = attestation.header_number();
     let digest = attestation.digest();
     let now = std::time::Instant::now();
@@ -194,7 +197,9 @@ async fn emit_local(
     }
 
     // metrics
-    shared.metrics.update_attestation_delay_production(now.elapsed());
+    shared
+        .metrics
+        .update_attestation_delay_production(now.elapsed());
     shared.metrics.set_attestation_local(height);
 }
 
@@ -221,16 +226,22 @@ async fn handle_one(
     match event {
         // 1] new finalized attestation on cc3
         CcEvent::BlockAttested(att) => {
-            let info = AttestationInfo { height: att.header_number, digest: att.digest };
+            let info = AttestationInfo {
+                height: att.header_number,
+                digest: att.digest,
+            };
             if info.height > latest_cc3.height {
                 tracing::info!(height = info.height, digest = ?info.digest, "💾 cc3 finalized");
                 *latest_cc3 = info;
                 // 1. nudge eth stream
-                stream_attestation.note_attestation_finalization(
-                    stream::util::AttestationInfo { height: info.height, digest: info.digest }
-                );
+                stream_attestation.note_attestation_finalization(stream::util::AttestationInfo {
+                    height: info.height,
+                    digest: info.digest,
+                });
                 // 2. nudge pool
-                shared.pool_send.note_attestation_finalization(info.height, info.digest);
+                shared
+                    .pool_send
+                    .note_attestation_finalization(info.height, info.digest);
                 // 3. nudge proof cache
                 shared.proof_cache.note_finalized(info.height);
                 // 4. nudge watchers (validation task)
@@ -242,10 +253,14 @@ async fn handle_one(
 
         // 2] new attestation interval
         CcEvent::AttestationIntervalChanged(_, raw) => {
-            let Some(interval) = NonZero::new(raw) else { return Ok(()); };
+            let Some(interval) = NonZero::new(raw) else {
+                return Ok(());
+            };
             tracing::info!(interval = %interval, "🔢 new attestation interval");
             *shared.interval_attestation.write() = interval;
-            stream_attestation.note_attestation_interval_change(interval).await;
+            stream_attestation
+                .note_attestation_interval_change(interval)
+                .await;
             shared.pool_send.note_attestation_interval_change(interval);
         }
 
@@ -261,7 +276,11 @@ async fn handle_one(
             let eligible = attestors.contains(&shared.account_id);
             // can_attest toggle wakes any watcher (production select, validation submit gate).
             let _ = shared.can_attest_tx.send(eligible);
-            shared.bls_store.note_attestors_elected(&shared.cc3, &shared.token, &attestors).await.map_err(Error::Rpc)?;
+            shared
+                .bls_store
+                .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
+                .await
+                .map_err(Error::Rpc)?;
             shared.pool_send.note_attestors_elected(attestors);
         }
 
@@ -298,11 +317,13 @@ async fn handle_one(
             tracing::warn!(height, ?digest, "💥 attestation chain reversion");
             let info = AttestationInfo { height, digest };
             *latest_cc3 = info;
-            shared.pool_send.note_attestation_chain_reversion(height, digest);
+            shared
+                .pool_send
+                .note_attestation_chain_reversion(height, digest);
             shared.proof_cache.clear();
-            stream_attestation.note_attestation_chain_reversion(
-                stream::util::AttestationInfo { height, digest }
-            ).await;
+            stream_attestation
+                .note_attestation_chain_reversion(stream::util::AttestationInfo { height, digest })
+                .await;
             let _ = shared.latest_finalized_tx.send(Some(info));
         }
 

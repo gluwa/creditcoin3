@@ -15,13 +15,17 @@
 //! mechanism in both cases.
 //!
 //! `cc3.reconnect()` carries its own shared backoff (`bcf6b8de`), so this file doesn't
-//! re-implement retry timing. We do bound subscription-retry attempts to avoid an unbounded
-//! spin if the node is permanently down.
+//! re-implement retry timing. Re-subscribe attempts are *unbounded* — RPC outages can be long
+//! (hours), and crashing the stream would lose downstream attestation work that could otherwise
+//! resume cleanly. The sleep below each failed attempt is the cancellation point: shutdown
+//! drops the stream future, which drops the loop.
 
 mod error;
 pub use error::Error;
 
-const MAX_RESUBSCRIBE_ATTEMPTS: usize = 6;
+/// Cap individual re-subscribe backoff at 30s. Doubles on each failure starting at 500ms.
+const RESUBSCRIBE_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+const RESUBSCRIBE_BACKOFF_START: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Minimum interval between consecutive parent-block fetches during backfill. Set to cap the
 /// backfill load on the cc3 RPC — a long gap (post-outage recovery) otherwise issues sequential
@@ -156,26 +160,27 @@ impl StreamCC3 {
                     }
                     Ok(None) | Err(_) => {
                         // Stream ended or errored. Reconnect (which has its own shared
-                        // backoff) and re-subscribe. Bounded attempts so a permanently-down
-                        // node eventually surfaces a crash instead of silent spinning.
-                        let mut new_finalized = None;
-                        for attempt in 0..MAX_RESUBSCRIBE_ATTEMPTS {
-                            tracing::warn!(attempt, "🛜 cc3 stream lost — reconnecting + re-subscribing");
+                        // backoff) and re-subscribe. *Unbounded* — RPC downtime can be long
+                        // and the right behavior is to ride it out rather than crash.
+                        // Cancellation point is the sleep below: shutdown drops this future.
+                        let mut backoff = RESUBSCRIBE_BACKOFF_START;
+                        let new_finalized = loop {
+                            tracing::warn!("🛜 cc3 stream lost — reconnecting + re-subscribing");
                             if cc3.reconnect().await.is_err() {
+                                tokio::time::sleep(backoff).await;
+                                backoff = (backoff * 2).min(RESUBSCRIBE_BACKOFF_MAX);
                                 continue;
                             }
                             match cc3.api().blocks().subscribe_finalized().await {
-                                Ok(f) => { new_finalized = Some(f); break; }
-                                Err(err) => tracing::warn!(?err, "🛜 re-subscribe failed"),
+                                Ok(f) => break f,
+                                Err(err) => {
+                                    tracing::warn!(?err, "🛜 re-subscribe failed");
+                                    tokio::time::sleep(backoff).await;
+                                    backoff = (backoff * 2).min(RESUBSCRIBE_BACKOFF_MAX);
+                                }
                             }
-                        }
-                        match new_finalized {
-                            Some(f) => { finalized = f; }
-                            None => {
-                                tracing::error!("🛜 cc3 stream re-subscribe exhausted retries; closing stream");
-                                return;
-                            }
-                        }
+                        };
+                        finalized = new_finalized;
                     }
                 }
             }

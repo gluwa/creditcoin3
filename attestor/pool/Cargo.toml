@@ -1,8 +1,8 @@
 [package]
-name = "attestor_pool"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "attestor_pool"
 publish.workspace = true
 repository.workspace = true
 version.workspace = true

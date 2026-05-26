@@ -21,7 +21,6 @@ arc-swap = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
-tokio-retry = { workspace = true }
 
 # Logging
 tracing = { workspace = true }

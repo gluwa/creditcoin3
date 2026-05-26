@@ -34,7 +34,10 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
     let compiled = match cc_client::compiled_metadata() {
         Ok(m) => m,
         Err(err) => {
-            tracing::error!(?err, "🛑 failed to decode bundled metadata — signalling shutdown");
+            tracing::error!(
+                ?err,
+                "🛑 failed to decode bundled metadata — signalling shutdown"
+            );
             shared.token.cancel();
             return Ok(());
         }
@@ -69,7 +72,10 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
         let mut stream = match updater.runtime_updates().await {
             Ok(s) => s,
             Err(err) => {
-                tracing::warn!(?err, "runtime updates subscription failed — retry after delay");
+                tracing::warn!(
+                    ?err,
+                    "runtime updates subscription failed — retry after delay"
+                );
                 tokio::select! {
                     _ = shared.token.cancelled() => return Ok(()),
                     _ = tokio::time::sleep(Duration::from_secs(5)) => continue,
@@ -137,5 +143,7 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
 }
 
 fn attestation_hash(metadata: &subxt::Metadata) -> Option<[u8; 32]> {
-    metadata.pallet_by_name(ATTESTATION_PALLET).map(|p| p.hash())
+    metadata
+        .pallet_by_name(ATTESTATION_PALLET)
+        .map(|p| p.hash())
 }

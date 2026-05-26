@@ -35,7 +35,9 @@ struct Inner {
 }
 
 impl ProofCache {
-    pub fn new() -> Arc<Self> { Arc::new(Self::default()) }
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
 
     /// Insert a freshly produced (digest, proof) pair. Also caches the serialized AttestationData
     /// for use by the vote verifier.
@@ -49,22 +51,25 @@ impl ProofCache {
         let serialized = attestation_data.serialize();
 
         let mut inner = self.inner.lock();
-        inner.local_data_by_height.insert(
-            height,
-            LocalAttestationData { serialized, digest },
-        );
         inner
-            .by_height
-            .entry(height)
-            .or_default()
-            .insert(digest, CachedProof {
+            .local_data_by_height
+            .insert(height, LocalAttestationData { serialized, digest });
+        inner.by_height.entry(height).or_default().insert(
+            digest,
+            CachedProof {
                 attestation_data,
                 continuity_proof,
-            });
+            },
+        );
     }
 
     pub fn get(&self, height: Height, digest: Digest) -> Option<CachedProof> {
-        self.inner.lock().by_height.get(&height)?.get(&digest).cloned()
+        self.inner
+            .lock()
+            .by_height
+            .get(&height)?
+            .get(&digest)
+            .cloned()
     }
 
     /// Returns the locally signed AttestationData at `height`, if production has produced one
@@ -77,7 +82,9 @@ impl ProofCache {
     pub fn note_finalized(&self, height: Height) {
         let mut inner = self.inner.lock();
         inner.by_height = inner.by_height.split_off(&(height.saturating_add(1)));
-        inner.local_data_by_height = inner.local_data_by_height.split_off(&(height.saturating_add(1)));
+        inner.local_data_by_height = inner
+            .local_data_by_height
+            .split_off(&(height.saturating_add(1)));
     }
 
     pub fn clear(&self) {

@@ -18,7 +18,12 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-const MAX_ATTEMPTS: usize = 6; // ≈ 100 + 200 + 400 + 800 + 1600 + 3200 ms = ~6.3s capped
+// Retry policy: unbounded retries on transient errors, with exponential backoff capped at 30s.
+// Per design feedback ("unbounded RPC reconnections were specifically added to handle longer
+// RPC downtime"), we ride out the outage rather than crash the task. Cancellation is observed
+// at every `tokio::select!` arm on `token.cancelled()`, so shutdown propagates instantly.
+const BACKOFF_START_MS: u64 = 100;
+const BACKOFF_CAP_MS: u64 = 30_000;
 
 /// Retry an async closure that takes a `&Arc<cc_client::Client>` and returns
 /// `Result<T, cc_client::Error>`. On transient errors, `cc3.reconnect()` is invoked between
@@ -32,24 +37,20 @@ where
     F: FnMut(Arc<cc_client::Client>) -> Fut,
     Fut: std::future::Future<Output = Result<T, cc_client::Error>>,
 {
-    let mut delay_ms: u64 = 100;
-    let mut last_err: Option<cc_client::Error> = None;
+    let mut delay_ms: u64 = BACKOFF_START_MS;
+    let mut attempt: usize = 0;
 
-    for attempt in 0..MAX_ATTEMPTS {
+    loop {
         if token.is_cancelled() {
-            return last_err
-                .map(Err)
-                .unwrap_or_else(|| Err(cc_client::Error::from(subxt::Error::Other(
-                    "cancelled".into(),
-                ))));
+            return Err(cc_client::Error::from(subxt::Error::Other(
+                "cancelled".into(),
+            )));
         }
 
         let res = tokio::select! {
-            _ = token.cancelled() => return last_err
-                .map(Err)
-                .unwrap_or_else(|| Err(cc_client::Error::from(subxt::Error::Other(
-                    "cancelled".into(),
-                )))),
+            _ = token.cancelled() => return Err(cc_client::Error::from(subxt::Error::Other(
+                "cancelled".into(),
+            ))),
             r = f(cc3.clone()) => r,
         };
 
@@ -63,20 +64,18 @@ where
                     "🔁 transient cc3 error — reconnecting and retrying"
                 );
                 let _ = cc3.reconnect().await; // best-effort; next attempt will see fresh conn
-                last_err = Some(err);
                 tokio::select! {
-                    _ = token.cancelled() => return last_err.map(Err).unwrap(),
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {}
+                    _ = token.cancelled() => return Err(cc_client::Error::from(
+                        subxt::Error::Other("cancelled".into()),
+                    )),
+                    () = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {}
                 }
-                delay_ms = (delay_ms.saturating_mul(2)).min(3_200);
+                attempt = attempt.saturating_add(1);
+                delay_ms = (delay_ms.saturating_mul(2)).min(BACKOFF_CAP_MS);
             }
             Err(err) => return Err(err),
         }
     }
-
-    Err(last_err.unwrap_or_else(|| {
-        cc_client::Error::from(subxt::Error::Other("retries exhausted".into()))
-    }))
 }
 
 /// Classifies a `cc_client::Error` as transient (worth a reconnect+retry) vs. permanent.
@@ -108,13 +107,25 @@ fn is_transient_rpc(rpc_err: &subxt::error::RpcError) -> bool {
         RpcError::DisconnectedWillReconnect(_) | RpcError::SubscriptionDropped => true,
         // jsonrpsee transport errors live behind a dyn Error here; we sniff the printed form
         // since jsonrpsee doesn't expose a stable type to match against from subxt's surface.
+        // Keywords cover the canonical transport-layer signals plus server-side transient
+        // messages that gateways/load-balancers typically emit at shutdown or overload —
+        // these arrive as `JsonRpseeError::Call(_)` (a *structured* JSON-RPC error rather
+        // than a transport drop) and would otherwise be misclassified as permanent.
         RpcError::ClientError(boxed) => {
             let s = boxed.to_string().to_ascii_lowercase();
             s.contains("transport")
                 || s.contains("connection")
                 || s.contains("disconnected")
                 || s.contains("closed")
+                || s.contains("restart required") // jsonrpsee `RestartNeeded` Display
                 || s.contains("timeout")
+                || s.contains("deadline_exceeded")
+                || s.contains("unavailable")        // 503 / generic::unavailable
+                || s.contains("going down")          // gateway graceful-shutdown banner
+                || s.contains("shutdown")            // common server lifecycle term
+                || s.contains("shutting")            // "shutting down"
+                || s.contains("rate limit")          // 429 from fronting LB
+                || s.contains("too many requests")
         }
         RpcError::RequestRejected(_) | RpcError::InsecureUrl(_) => false,
         _ => false,

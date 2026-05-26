@@ -167,12 +167,14 @@ async fn handle_swarm(
     max_pending_per_height: usize,
     event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
 ) {
-    use libp2p::swarm::SwarmEvent;
     use behavior::P2PBehaviorEvent;
+    use libp2p::swarm::SwarmEvent;
 
     match event {
         SwarmEvent::Behaviour(P2PBehaviorEvent::Identify(libp2p::identify::Event::Received {
-            peer_id, info: libp2p::identify::Info { listen_addrs, .. }, connection_id,
+            peer_id,
+            info: libp2p::identify::Info { listen_addrs, .. },
+            connection_id,
         })) => {
             tracing::debug!(%peer_id, %connection_id, "🛰️ discovered peer");
             for a in listen_addrs {
@@ -186,7 +188,11 @@ async fn handle_swarm(
             }
         }
         SwarmEvent::Behaviour(P2PBehaviorEvent::Kad(libp2p::kad::Event::RoutingUpdated {
-            peer, is_new_peer, addresses, old_peer, ..
+            peer,
+            is_new_peer,
+            addresses,
+            old_peer,
+            ..
         })) => {
             if is_new_peer {
                 tracing::info!(peer_id = %peer, addrs = addresses.len(), "📋 new routing peer");
@@ -198,22 +204,24 @@ async fn handle_swarm(
             }
         }
         SwarmEvent::Behaviour(P2PBehaviorEvent::Ping(libp2p::ping::Event {
-            peer, connection, result,
+            peer,
+            connection,
+            result,
         })) => match result {
-            Ok(rtt) => tracing::debug!(peer_id = %peer, %connection, rtt_ms = rtt.as_millis(), "🔔 pong"),
+            Ok(rtt) => {
+                tracing::debug!(peer_id = %peer, %connection, rtt_ms = rtt.as_millis(), "🔔 pong")
+            }
             Err(err) => tracing::error!(peer_id = %peer, %connection, %err, "🔕 ping failed"),
         },
         SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(libp2p::gossipsub::Event::Message {
-            propagation_source, message_id, message,
+            propagation_source,
+            message_id,
+            message,
         })) => {
             shared.metrics.increase_gossipsub_message_count();
 
-            let acceptance = handle_vote_msg(
-                shared,
-                pending_votes,
-                max_pending_per_height,
-                &message.data,
-            ).await;
+            let acceptance =
+                handle_vote_msg(shared, pending_votes, max_pending_per_height, &message.data).await;
             let decision = match acceptance {
                 Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
                 Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
@@ -222,14 +230,17 @@ async fn handle_swarm(
                     libp2p::gossipsub::MessageAcceptance::Reject
                 }
             };
-            swarm.behaviour_mut().gossipsub.report_message_validation_result(
-                &message_id,
-                &propagation_source,
-                decision,
-            );
+            swarm
+                .behaviour_mut()
+                .gossipsub
+                .report_message_validation_result(&message_id, &propagation_source, decision);
         }
-        SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(libp2p::gossipsub::Event::Subscribed { .. }))
-        | SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(libp2p::gossipsub::Event::Unsubscribed { .. }))
+        SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
+            libp2p::gossipsub::Event::Subscribed { .. },
+        ))
+        | SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
+            libp2p::gossipsub::Event::Unsubscribed { .. },
+        ))
         | SwarmEvent::ConnectionClosed { .. } => {
             *can_broadcast = swarm
                 .behaviour()
@@ -238,21 +249,33 @@ async fn handle_swarm(
                 .next()
                 .is_some();
         }
-        SwarmEvent::NewListenAddr { listener_id, address } => {
+        SwarmEvent::NewListenAddr {
+            listener_id,
+            address,
+        } => {
             if let Ok(address) = address.with_p2p(*swarm.local_peer_id()) {
                 tracing::info!(%listener_id, %address, "🔍 new listen addr");
             }
         }
-        SwarmEvent::ConnectionEstablished { peer_id, connection_id, .. } => {
+        SwarmEvent::ConnectionEstablished {
+            peer_id,
+            connection_id,
+            ..
+        } => {
             tracing::info!(%peer_id, %connection_id, "🔗 connection up");
         }
-        SwarmEvent::OutgoingConnectionError { peer_id, connection_id, error } => {
+        SwarmEvent::OutgoingConnectionError {
+            peer_id,
+            connection_id,
+            error,
+        } => {
             tracing::warn!(?peer_id, %connection_id, %error, "⛔ outgoing connection error");
             shared.metrics.increase_connection_failure_count();
             // Only drop a peer for unambiguously malicious / unrecoverable errors. v1 logic
             // verbatim, condensed: WrongPeerId and Denied → remove; everything else → log.
             match error {
-                libp2p::swarm::DialError::WrongPeerId { .. } | libp2p::swarm::DialError::Denied { .. } => {
+                libp2p::swarm::DialError::WrongPeerId { .. }
+                | libp2p::swarm::DialError::Denied { .. } => {
                     if let Some(p) = peer_id {
                         swarm.behaviour_mut().kad.remove_peer(&p);
                     }
@@ -264,7 +287,11 @@ async fn handle_swarm(
     }
 }
 
-enum Acceptance { Accept, Ignore, Reject }
+enum Acceptance {
+    Accept,
+    Ignore,
+    Reject,
+}
 
 async fn handle_vote_msg(
     shared: &Arc<Shared>,

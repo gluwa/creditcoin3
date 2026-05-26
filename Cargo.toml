@@ -312,9 +312,9 @@ evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluw
 moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-primitives-debug", default-features = false }
 
 # Attestation
-attestor_pool = { path = "attestor/pool" }
 attestor = { path = "attestor/attestor" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
+attestor_pool = { path = "attestor/pool" }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
 # Using an old version of rand as it is already in the dependency graph

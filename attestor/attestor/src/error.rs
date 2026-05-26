@@ -86,20 +86,32 @@ impl std::fmt::Display for Error {
 impl std::error::Error for Error {}
 
 impl From<cc_client::Error> for Error {
-    fn from(e: cc_client::Error) -> Self { Self::Rpc(e) }
+    fn from(e: cc_client::Error) -> Self {
+        Self::Rpc(e)
+    }
 }
 impl From<stream::cc3::Error> for Error {
-    fn from(e: stream::cc3::Error) -> Self { Self::Cc3Stream(e) }
+    fn from(e: stream::cc3::Error) -> Self {
+        Self::Cc3Stream(e)
+    }
 }
 impl From<subxt::Error> for Error {
-    fn from(e: subxt::Error) -> Self { Self::Subxt(e) }
+    fn from(e: subxt::Error) -> Self {
+        Self::Subxt(e)
+    }
 }
 impl From<bls_signatures::Error> for Error {
-    fn from(e: bls_signatures::Error) -> Self { Self::Bls(e) }
+    fn from(e: bls_signatures::Error) -> Self {
+        Self::Bls(e)
+    }
 }
 impl From<std::io::Error> for Error {
-    fn from(e: std::io::Error) -> Self { Self::Io(e) }
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
 }
 impl From<tokio::task::JoinError> for Error {
-    fn from(e: tokio::task::JoinError) -> Self { Self::TaskJoin(e) }
+    fn from(e: tokio::task::JoinError) -> Self {
+        Self::TaskJoin(e)
+    }
 }
