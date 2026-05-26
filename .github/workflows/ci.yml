@@ -873,7 +873,7 @@ jobs:
         if: always()
         working-directory: ./cli
         run: |
-          node dist/scripts/queryPalletVersions.js wss://rpc.usc-testnet2.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
+          node dist/scripts/queryPalletVersions.js wss://rpc.cc3-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
           DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.testnet /var/tmp/pallet_storage.local | colordiff)
 
           if [ -n "$DIFF_OUTPUT" ]; then
