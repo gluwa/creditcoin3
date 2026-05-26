@@ -106,8 +106,12 @@ impl StreamCC3 {
                         let mut walk_parent = block.header().parent_hash;
                         backfill.push((walk_n, head_events));
 
-                        let mut walk_failed = false;
                         let mut last_fetch: Option<std::time::Instant> = None;
+                        // Per-parent retry backoff. Doubles on each failure starting at 500ms,
+                        // capped at the same 30s as the resubscribe loop. Reset on success so a
+                        // single bad block doesn't poison the cap for the rest of the walk.
+                        const PARENT_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
+                        const PARENT_BACKOFF_START: std::time::Duration = std::time::Duration::from_millis(500);
                         while walk_n > latest + 1 {
                             // Throttle: keep at least `backfill_min_interval` between
                             // consecutive parent fetches so a long gap (post-outage recovery)
@@ -118,31 +122,40 @@ impl StreamCC3 {
                                     tokio::time::sleep(backfill_min_interval - elapsed).await;
                                 }
                             }
-                            let parent = match cc3.api().blocks().at(walk_parent).await {
-                                Ok(b) => b,
-                                Err(err) => {
-                                    tracing::warn!(parent = ?walk_parent, ?err, "🛜 parent fetch failed during backfill");
-                                    walk_failed = true;
-                                    break;
+                            // Retry the parent fetch + events fetch as a single unit. A subxt
+                            // `Block` is bound to the connection that produced it, so an
+                            // `events()` failure invalidates the `Block` we just got — we
+                            // re-fetch both from a fresh connection. Unbounded retry: keeps
+                            // partial progress (`backfill` is preserved across attempts) and
+                            // matches the resubscribe loop's "ride out the outage" policy.
+                            // Cancellation point: dropping the outer stream future drops the
+                            // sleep below.
+                            let mut backoff = PARENT_BACKOFF_START;
+                            let (parent_n, parent_events, next_parent) = loop {
+                                match cc3.api().blocks().at(walk_parent).await {
+                                    Err(err) => {
+                                        tracing::warn!(parent = ?walk_parent, ?err, "🛜 parent fetch failed during backfill — retrying");
+                                        let _ = cc3.reconnect().await;
+                                        tokio::time::sleep(backoff).await;
+                                        backoff = (backoff * 2).min(PARENT_BACKOFF_MAX);
+                                    }
+                                    Ok(b) => match b.events().await {
+                                        Err(err) => {
+                                            tracing::warn!(n = b.number() as u64, ?err, "🛜 parent events fetch failed — retrying");
+                                            let _ = cc3.reconnect().await;
+                                            tokio::time::sleep(backoff).await;
+                                            backoff = (backoff * 2).min(PARENT_BACKOFF_MAX);
+                                        }
+                                        Ok(events) => {
+                                            break (b.number() as u64, events, b.header().parent_hash);
+                                        }
+                                    },
                                 }
                             };
                             last_fetch = Some(std::time::Instant::now());
-                            let parent_events = match parent.events().await {
-                                Ok(e) => e,
-                                Err(err) => {
-                                    tracing::warn!(n = parent.number() as u64, ?err, "🛜 parent events fetch failed");
-                                    walk_failed = true;
-                                    break;
-                                }
-                            };
-                            walk_n = parent.number() as u64;
-                            walk_parent = parent.header().parent_hash;
+                            walk_n = parent_n;
+                            walk_parent = next_parent;
                             backfill.push((walk_n, parent_events));
-                        }
-
-                        if walk_failed {
-                            backfill.clear();
-                            continue;
                         }
 
                         if backfill.len() > 1 {
