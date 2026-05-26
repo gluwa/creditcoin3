@@ -14972,6 +14972,7 @@ dependencies = [
  "cc-client",
  "futures 0.3.31",
  "subxt",
+ "tokio",
  "tracing",
 ]
 
