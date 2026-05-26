@@ -54,6 +54,9 @@ ethabi = { workspace = true, default-features = false }
 derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = [
+    "std",
+] }
 pallet-attestation = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
@@ -84,6 +87,7 @@ std = [
     "sp-std/std",
     "pallet-supported-chains/std",
     "pallet-attestation/std",
+    "pallet-assets/std",
     "attestor-primitives/std",
     "pallet-babe/std",
     "utils/std",

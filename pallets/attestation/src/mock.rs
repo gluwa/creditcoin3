@@ -5,7 +5,9 @@ use frame_election_provider_support::{
 };
 use frame_support::{
     parameter_types,
-    traits::{ConstU32, ConstU64, KeyOwnerProofSystem, OnInitialize},
+    traits::{
+        AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU64, KeyOwnerProofSystem, OnInitialize,
+    },
 };
 use pallet_babe::CurrentSlot;
 use pallet_session::historical as pallet_session_historical;
@@ -28,6 +30,8 @@ use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 
 use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion};
 
+use crate::NoopCommittedAttestationObserver;
+
 use sp_staking::{EraIndex, SessionIndex};
 
 type DummyValidatorId = u64;
@@ -43,6 +47,7 @@ frame_support::construct_runtime!(
         System: frame_system,
         Authorship: pallet_authorship,
         Balances: pallet_balances,
+        Assets: pallet_assets,
         Historical: pallet_session_historical,
         Offences: pallet_offences,
         Babe: pallet_babe,
@@ -147,6 +152,36 @@ impl pallet_balances::Config for Test {
     type RuntimeFreezeReason = RuntimeFreezeReason;
 }
 
+/// Shared attest-coin pool; must hold **native** balance in genesis so a new holder account can
+/// be created for a **non-sufficient** asset (`can_accrue_consumers` / `can_deposit`).
+pub struct TestBondPoolAccount;
+impl frame_support::traits::Get<AccountId> for TestBondPoolAccount {
+    fn get() -> AccountId {
+        9999
+    }
+}
+
+impl pallet_assets::Config for Test {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AssetId = u32;
+    type AssetIdParameter = u32;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+    type AssetDeposit = ConstU128<0>;
+    type MetadataDepositBase = ConstU128<0>;
+    type MetadataDepositPerByte = ConstU128<0>;
+    type ApprovalDeposit = ConstU128<0>;
+    type StringLimit = ConstU32<50>;
+    type AssetAccountDeposit = ConstU128<0>;
+    type RemoveItemsLimit = ConstU32<1000>;
+    type Freezer = ();
+    type Extra = ();
+    type WeightInfo = ();
+    type CallbackHandle = ();
+}
+
 pallet_staking_reward_curve::build! {
     const REWARD_CURVE: PiecewiseLinear<'static> = curve!(
         min_inflation: 0_025_000u64,
@@ -245,6 +280,8 @@ parameter_types! {
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 1;
     pub const DefaultMaxCatchup: u32 = 500;
+    /// Mock keeps a non-zero default so unit tests get a realistic bonded ledger without per-test setup.
+    /// Production uses [`creditcoin3_runtime::DefaultMinBondRequirement`] (0).
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
@@ -271,7 +308,10 @@ impl attestation_poc::Config for Test {
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
-    type Currency = Balances;
+    type NativeCurrency = Balances;
+    type BondFungibles = Assets;
+    type BondAssetId = frame_support::traits::ConstU32<1>;
+    type BondPoolAccount = TestBondPoolAccount;
     type CurrencyBalance = Balance;
     type MaxUnlockingChunks = MaxUnlockingChunks;
     type BondingDuration = BondingDuration;
@@ -282,6 +322,7 @@ impl attestation_poc::Config for Test {
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type CommittedAttestationHook = NoopCommittedAttestationObserver;
 }
 
 parameter_types! {
@@ -358,9 +399,26 @@ impl ExtBuilder {
                 (STASH_2, 5_000_000_000_000_000_000_000),
                 (ATTESTOR_2, 5_000_000_000_000_000_000_000),
                 (STASH_3, 1_000_000_000_000_000_000_000),
+                // `TestBondPoolAccount` — required for first inbound attest-coin transfer when asset
+                // is non-sufficient (see `pallet_assets::can_increase`).
+                (TestBondPoolAccount::get(), 900_000_000_000_000_000_000),
             ],
         };
         b.assimilate_storage(&mut t).unwrap();
+
+        let attest_coin: Balance = 10_000_000_000_000_000_000_000;
+        let assets_genesis = pallet_assets::GenesisConfig::<Test> {
+            assets: vec![(1, STASH_1, false, 1)],
+            metadata: vec![(1, b"Attest Coin".to_vec(), b"AC".to_vec(), 18)],
+            accounts: vec![
+                (1, STASH_1, attest_coin),
+                (1, STASH_2, attest_coin),
+                // Enough for multi-attestor tests; `register_attestor_without_sufficient_funds_should_fail_2` relies on < 2× min after first bond.
+                (1, STASH_3, 1_000_000_000_000_000_000_000),
+            ],
+            next_asset_id: Some(2),
+        };
+        assets_genesis.assimilate_storage(&mut t).unwrap();
 
         let chains = pallet_supported_chains::GenesisConfig::<Test> {
             supported_chains: vec![(

@@ -2942,6 +2942,8 @@ dependencies = [
  "moonbeam-evm-tracer",
  "moonbeam-rpc-primitives-debug",
  "num_enum 0.5.11",
+ "pallet-assets",
+ "pallet-attest-coin-rewards",
  "pallet-attestation",
  "pallet-authorship",
  "pallet-babe",
@@ -2952,6 +2954,7 @@ dependencies = [
  "pallet-ethereum",
  "pallet-evm",
  "pallet-evm-chain-id",
+ "pallet-evm-precompile-attest-coin",
  "pallet-evm-precompile-attestor-stash",
  "pallet-evm-precompile-block-prover",
  "pallet-evm-precompile-bn128",
@@ -9042,6 +9045,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-assets"
+version = "40.0.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?branch=stable2409#298f676c91d64f15f38ea7fd78f125c5889ab09c"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "impl-trait-for-tuples",
+ "log",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-runtime",
+]
+
+[[package]]
+name = "pallet-attest-coin-rewards"
+version = "0.1.0"
+dependencies = [
+ "attestor-primitives",
+ "env_logger 0.11.8",
+ "frame-benchmarking",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "pallet-assets",
+ "pallet-attestation",
+ "pallet-babe",
+ "pallet-balances",
+ "pallet-session",
+ "pallet-staking",
+ "pallet-staking-reward-curve",
+ "pallet-supported-chains",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
+ "supported-chains-primitives",
+]
+
+[[package]]
 name = "pallet-attestation"
 version = "3.123.0"
 dependencies = [
@@ -9054,6 +9102,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "log",
+ "pallet-assets",
  "pallet-authorship",
  "pallet-babe",
  "pallet-balances",
@@ -9236,6 +9285,41 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-evm-precompile-attest-coin"
+version = "0.1.0"
+dependencies = [
+ "attestor-primitives",
+ "derive_more 0.99.19",
+ "env_logger 0.11.8",
+ "fp-evm",
+ "frame-election-provider-support",
+ "frame-support",
+ "frame-system",
+ "log",
+ "pallet-assets",
+ "pallet-attest-coin-rewards",
+ "pallet-attestation",
+ "pallet-babe",
+ "pallet-balances",
+ "pallet-evm",
+ "pallet-session",
+ "pallet-staking",
+ "pallet-staking-reward-curve",
+ "pallet-supported-chains",
+ "pallet-timestamp",
+ "parity-scale-codec",
+ "precompile-utils",
+ "scale-info",
+ "serde",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+ "sp-staking",
+ "sp-std",
+ "supported-chains-primitives",
+]
+
+[[package]]
 name = "pallet-evm-precompile-attestor-stash"
 version = "0.1.0"
 dependencies = [
@@ -9246,6 +9330,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "pallet-assets",
  "pallet-attestation",
  "pallet-babe",
  "pallet-balances",
@@ -9281,6 +9366,7 @@ dependencies = [
  "frame-system",
  "log",
  "merkle",
+ "pallet-assets",
  "pallet-attestation",
  "pallet-babe",
  "pallet-balances",
@@ -9324,6 +9410,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "pallet-assets",
  "pallet-attestation",
  "pallet-babe",
  "pallet-balances",
