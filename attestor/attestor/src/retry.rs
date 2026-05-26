@@ -63,7 +63,14 @@ where
                     ?err,
                     "🔁 transient cc3 error — reconnecting and retrying"
                 );
-                let _ = cc3.reconnect().await; // best-effort; next attempt will see fresh conn
+                // Best-effort reconnect; the next attempt's classifier sees the fresh
+                // connection or re-classifies the same transient error. We *log* the failure at
+                // debug so a permanent build_inner failure (e.g. malformed URL) doesn't vanish
+                // — `is_transient` may not catch every error variant from `build_inner`, and
+                // we'd otherwise spin silently.
+                if let Err(err) = cc3.reconnect().await {
+                    tracing::debug!(?err, "cc3 reconnect attempt failed inside with_retries");
+                }
                 tokio::select! {
                     _ = token.cancelled() => return Err(cc_client::Error::from(
                         subxt::Error::Other("cancelled".into()),
