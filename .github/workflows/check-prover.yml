@@ -28,15 +28,6 @@ jobs:
             evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
             chainKey: 4
 
-          # CC3 Devnet, BSC Testnet
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 5
-            GO_BACK_BLOCKS: '96000'
-            STEP_THROUGH_BLOCKS: '137'
-
           # CC3 Testnet, Sepolia Full Archive
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
