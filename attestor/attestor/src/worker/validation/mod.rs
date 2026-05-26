@@ -180,10 +180,16 @@ impl super::Worker for WorkerAttestationValidation {
                     break Err(Interrupt::Stop);
                 }
                 event = &mut self.watch_submission => {
-                    self.handle_event_submission(event).await?;
+                    self.handle_event_submission(event, shutdown.as_mut()).await?;
                 }
                 event = self.validation_receiver.next() => {
-                    self.handle_event_quorum(event).await?;
+                    // Pass `&mut shutdown` down into the quorum handler so the inner
+                    // reconnect loops (in `submit_attestation`) can race against the
+                    // same shutdown signal instead of holding the worker hostage to a
+                    // `MAX_RECONNECT_ATTEMPTS × max_delay` reconnect budget while the
+                    // outer `select!` waits for the arm body to return. Without this,
+                    // a cc3 outage at shutdown time blocks graceful exit for ~2.5 min.
+                    self.handle_event_quorum(event, shutdown.as_mut()).await?;
                 },
             }
         }
@@ -191,13 +197,16 @@ impl super::Worker for WorkerAttestationValidation {
 }
 
 impl WorkerAttestationValidation {
-    async fn handle_event_quorum(
+    async fn handle_event_quorum<F: std::future::Future<Output = ()>>(
         &mut self,
         quorum: Option<(
             attestation_pool::Quorum,
             attestation_pool::Permit,
             Option<cc_client::H256>,
         )>,
+        // Same shutdown future the outer `task()` select! is watching. We thread it
+        // here so the inner `submit_attestation` reconnect loop can race against it.
+        mut shutdown: std::pin::Pin<&mut F>,
     ) -> Result<(), Interrupt<Error>> {
         // ---------------------------------* Handle pool  closure *--------------------------------
 
@@ -241,7 +250,7 @@ impl WorkerAttestationValidation {
                     "🛫 Submitting attestation"
                 );
 
-                self.submit_attestation(attestation.into(), votes, height)
+                self.submit_attestation(attestation.into(), votes, height, shutdown.as_mut())
                     .await?;
                 Ok(())
             }
@@ -289,9 +298,10 @@ impl WorkerAttestationValidation {
         }
     }
 
-    async fn handle_event_submission(
+    async fn handle_event_submission<F: std::future::Future<Output = ()>>(
         &mut self,
         submission: (AttestationSubmission, attestor_primitives::Height),
+        mut shutdown: std::pin::Pin<&mut F>,
     ) -> Result<(), Interrupt<Error>> {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
@@ -472,7 +482,7 @@ impl WorkerAttestationValidation {
                 "🛫 Submitting pre-validated attestation"
             );
 
-            self.submit_attestation(attestation, votes, height).await?;
+            self.submit_attestation(attestation, votes, height, shutdown.as_mut()).await?;
         }
 
         Ok(())
@@ -787,7 +797,23 @@ enum AttestationSubmission {
 }
 
 impl WorkerAttestationValidation {
-    async fn submit_attestation(
+    /// Run `self.cc3.reconnect(token)` but bail out promptly if the worker's shutdown
+    /// future resolves while the reconnect is in flight. Without this, a cc3 outage at
+    /// shutdown time keeps the worker stuck in the bounded reconnect loop for the full
+    /// `MAX_RECONNECT_ATTEMPTS × max_delay` (~2.5 min on the current cap), which is
+    /// longer than k8s's default 30s SIGTERM grace window.
+    async fn reconnect_or_stop<F: std::future::Future<Output = ()>>(
+        &self,
+        token: cc_client::Reconnect,
+        shutdown: std::pin::Pin<&mut F>,
+    ) -> Result<(), Interrupt<Error>> {
+        tokio::select! {
+            res = self.cc3.reconnect(token) => res.map_err(|err| Interrupt::Cont(Error::CC3(err))),
+            _ = shutdown => Err(Interrupt::Stop),
+        }
+    }
+
+    async fn submit_attestation<F: std::future::Future<Output = ()>>(
         &mut self,
         attestation: cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
             cc_client::H256,
@@ -795,6 +821,7 @@ impl WorkerAttestationValidation {
         >,
         votes: Vec<common::types::Attestation>,
         height: attestor_primitives::Height,
+        mut shutdown: std::pin::Pin<&mut F>,
     ) -> Result<(), Interrupt<Error>> {
         use arc_swap::access::Access as _;
         use futures::StreamExt as _;
@@ -817,10 +844,7 @@ impl WorkerAttestationValidation {
                     break babe;
                 }
                 Err(cc_client::Error::ConnectionError(reconnect)) => {
-                    self.cc3
-                        .reconnect(reconnect)
-                        .await
-                        .map_err(|err| Interrupt::Cont(Error::CC3(err)))?;
+                    self.reconnect_or_stop(reconnect, shutdown.as_mut()).await?;
                 }
                 Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
             }
@@ -864,10 +888,7 @@ impl WorkerAttestationValidation {
                         return Ok(());
                     }
                     Err(cc_client::Error::ConnectionError(reconnect)) => {
-                        self.cc3
-                            .reconnect(reconnect)
-                            .await
-                            .map_err(|err| Interrupt::Cont(Error::CC3(err)))?;
+                        self.reconnect_or_stop(reconnect, shutdown.as_mut()).await?;
                     }
                     Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
                 }
@@ -1069,10 +1090,7 @@ impl WorkerAttestationValidation {
                 }
             };
 
-            self.cc3
-                .reconnect(reconnect)
-                .await
-                .map_err(|err| Interrupt::Cont(Error::CC3(err)))?;
+            self.reconnect_or_stop(reconnect, shutdown.as_mut()).await?;
         };
 
         // --------------------------------* Finalization *--------------------------------
