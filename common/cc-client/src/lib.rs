@@ -229,6 +229,11 @@ pub struct Client {
     reconnect_state: tokio::sync::Mutex<BackoffState>,
 }
 
+/// Bound the WS-handshake dial cost inside `Client::reconnect`. See the call site for the
+/// reasoning — this is the per-attempt cap, separate from the `BackoffState` between-attempts
+/// schedule.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// Per-`Client` reconnect rate-limit. `next_attempt_at` advances every time a reconnect
 /// fails; it resets to "now" on success. All concurrent callers wait on the same `Mutex`
 /// guarding this struct, so the delay is observed once across the binary, not per-task.
@@ -341,15 +346,27 @@ impl Client {
             }
         }
 
-        match Self::build_inner(&self.url).await {
-            Ok(inner) => {
+        // Bound the dial cost. Without this, an unreachable host (no SYN-ACK) blocks here for
+        // the OS TCP-handshake timeout (~75s on Linux defaults). Every concurrent cc3 caller
+        // is queued on `reconnect_state` behind us during that window, so a single stuck dial
+        // freezes every task in the binary. 15s is generous for a healthy WS handshake but
+        // short enough that backoff kicks in quickly under sustained outage.
+        match tokio::time::timeout(CONNECT_TIMEOUT, Self::build_inner(&self.url)).await {
+            Ok(Ok(inner)) => {
                 self.inner.store(Arc::new(inner));
                 state.note_success();
                 Ok(())
             }
-            Err(err) => {
+            Ok(Err(err)) => {
                 state.note_failure();
                 Err(err)
+            }
+            Err(_elapsed) => {
+                state.note_failure();
+                Err(Error::from(subxt::Error::Other(format!(
+                    "reconnect: dial timed out after {}s",
+                    CONNECT_TIMEOUT.as_secs()
+                ))))
             }
         }
     }
