@@ -53,8 +53,15 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
                 ).await;
             }
 
-            // New quorum from the pool.
-            Some((quorum, permit)) = pool_rx.recv() => {
+            // New quorum from the pool. Match on `Option` directly so a closed pool surfaces
+            // explicitly — using the `Some(_) = pool_rx.recv()` shape silently disables this
+            // arm forever when the last `Sender` drops, freezing the task on the cancellation
+            // arm with no log.
+            maybe_work = pool_rx.recv() => {
+                let Some((quorum, permit)) = maybe_work else {
+                    tracing::info!("📮 attestation pool closed — exiting validation loop");
+                    return Ok(());
+                };
                 // If we're already submitting at this height, drop the quorum on the floor —
                 // the pool will keep us informed, and re-stashing the same height is wasted
                 // work.
@@ -641,15 +648,27 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
     //      to know to make pipeline progress.
     //   3. `ATTESTATION_TIMEOUT` backstop — guards the case where both upstream signals are
     //      stuck.
+    // Note: if either of the non-`watch` arms wins, `submit_handle.wait_for_finalized_success()`
+    // is dropped silently — but the *extrinsic itself* may still finalize on chain because the
+    // node's txpool retains it independently of the watch. The nonce burns either way. The next
+    // height's submission can race a still-in-mempool tx and surface as a `Future` (nonce gap)
+    // or duplicate-nonce rejection on the next round; both paths self-recover via the
+    // `bad_signature`/reconnect arm in `submit_one`. Logged at WARN so the pattern is visible.
     let watch = submit_handle.wait_for_finalized_success();
     tokio::select! {
         result = watch => OutcomeInternal::Eligible(result),
         () = await_block_attested(shared, height) => {
-            tracing::info!(height, "📡 height observed finalized externally — releasing watch");
+            tracing::warn!(
+                height,
+                "📡 height observed finalized externally — releasing watch (our submitted tx may still land; nonce burns either way)"
+            );
             OutcomeInternal::Finalized
         }
         () = tokio::time::sleep(common::constants::ATTESTATION_TIMEOUT) => {
-            tracing::warn!(height, "🏃 submit watch timed out — unblocking pipeline");
+            tracing::warn!(
+                height,
+                "🏃 submit watch timed out — unblocking pipeline (extrinsic may still finalize asynchronously; nonce burns either way)"
+            );
             OutcomeInternal::Finalized
         }
     }
@@ -678,24 +697,20 @@ async fn await_block_attested(shared: &Arc<Shared>, height: Height) {
     }
 }
 
+/// Race a single `cc3.reconnect()` attempt against the shutdown token.
+///
+/// `Client::reconnect()` already owns the shared backoff (`Mutex<BackoffState>`) and a per-dial
+/// timeout, so we don't add another retry layer here — a previous version wrapped this in
+/// `tokio_retry::Retry`, which double-coordinated backoff and contradicted the unbounded-retry
+/// design in `retry.rs` / the cc3 stream. Callers that need ride-out behaviour should call this
+/// from inside `with_retries`; ad-hoc submission paths (which already loop on transient errors)
+/// just want one attempt + cancellation.
 async fn reconnect(shared: &Arc<Shared>) -> Result<(), ()> {
-    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-        .max_delay(std::time::Duration::from_millis(5_000))
-        .map(tokio_retry::strategy::jitter);
-    let cc3 = shared.cc3.clone();
-    let retry = tokio_retry::Retry::spawn(strategy, move || {
-        let cc3 = cc3.clone();
-        async move { cc3.reconnect().await }
-    });
     tokio::select! {
         _ = shared.token.cancelled() => Err(()),
-        r = retry => match r {
-            Ok(()) => Ok(()),
-            Err(err) => {
-                tracing::error!(?err, "reconnect failed permanently");
-                Err(())
-            }
-        }
+        r = shared.cc3.reconnect() => r.map_err(|err| {
+            tracing::warn!(?err, "cc3 reconnect attempt failed");
+        }),
     }
 }
 
