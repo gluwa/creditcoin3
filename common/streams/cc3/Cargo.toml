@@ -20,6 +20,7 @@ subxt = { workspace = true }
 arc-swap = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 
 # Logging
 tracing = { workspace = true }

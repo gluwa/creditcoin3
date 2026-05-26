@@ -482,7 +482,8 @@ impl WorkerAttestationValidation {
                 "🛫 Submitting pre-validated attestation"
             );
 
-            self.submit_attestation(attestation, votes, height, shutdown.as_mut()).await?;
+            self.submit_attestation(attestation, votes, height, shutdown.as_mut())
+                .await?;
         }
 
         Ok(())
