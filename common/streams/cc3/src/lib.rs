@@ -1,6 +1,18 @@
 mod error;
 use error::Error;
 
+/// Maximum consecutive recovery attempts (resubscribe + reconnect-then-resubscribe) before
+/// the stream yields the last error and closes. Without a cap, a backend that keeps closing
+/// the finalized-block subscription — or returning an empty stream that immediately ends —
+/// causes the generator to spin forever, never yielding to the consumer's `select!` and
+/// never noticing shutdown.
+const MAX_RECOVERY_ATTEMPTS: usize = 30;
+
+/// Sleep between consecutive recovery attempts. Gives the backend a chance to settle and
+/// gives the consumer's outer task a chance to be cancelled if shutdown has been requested
+/// (the sleep is a yield point, so dropping the stream cancels it cleanly).
+const RECOVERY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(500);
+
 #[derive(Debug, builder::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
@@ -27,10 +39,39 @@ impl StreamCC3 {
         let mut err = Ok(());
 
         let stream = async_stream::stream! {
+            // Consecutive recovery attempts since the last successful yield. Capped so a
+            // backend that keeps closing the subscription or returning an empty stream
+            // doesn't put the generator into a silent CPU-burning loop with no shutdown
+            // observability. Reset to 0 every time we successfully yield a block.
+            let mut recovery_attempts: usize = 0;
+
             'retry: loop {
+                // Apply backoff between recovery attempts. The sleep is also a yield point,
+                // so if the consumer drops the stream (e.g. because shutdown fired in their
+                // outer `select!`), the generator gets cancelled here cleanly.
+                if recovery_attempts > 0 {
+                    if recovery_attempts >= MAX_RECOVERY_ATTEMPTS {
+                        tracing::error!(
+                            attempts = recovery_attempts,
+                            "cc3 stream recovery attempts exhausted — closing stream"
+                        );
+                        // Surface the last error if we have one; otherwise a generic
+                        // exhausted signal.
+                        match std::mem::replace(&mut err, Ok(())) {
+                            Err(Error::Client(e)) => yield Err(e),
+                            _ => yield Err(cc_client::Error::SubxtError(subxt::Error::Other(
+                                "cc3 stream recovery exhausted".into(),
+                            ))),
+                        }
+                        return;
+                    }
+                    tokio::time::sleep(RECOVERY_BACKOFF).await;
+                }
+
                 match std::mem::replace(&mut err, Ok(())) {
                     Err(Error::Client(cc_client::Error::ConnectionError(reconnect))) => {
-                        // Reconnect is now bounded + cancellable; if it returns Err the
+                        recovery_attempts += 1;
+                        // Reconnect is bounded + cancellable; if it returns Err the
                         // task should surface that as a final yielded error rather than
                         // silently retrying. Closing the stream is the right move on
                         // exhaustion / shutdown.
@@ -55,6 +96,7 @@ impl StreamCC3 {
                     Err(Error::Client(err)) => yield Err(err),
 
                     Err(Error::EndOfStream) => {
+                        recovery_attempts += 1;
                         let blocks = config.cc3.api().load().blocks();
                         finalized = match blocks.subscribe_finalized().await {
                             Ok(finalized_new) => finalized_new,
@@ -112,6 +154,10 @@ impl StreamCC3 {
                             }
 
                             latest = block.number();
+                            // Real forward progress — reset the recovery counter so the
+                            // next transient failure starts from a fresh budget rather
+                            // than continuing toward exhaustion.
+                            recovery_attempts = 0;
                             for (block_number, events) in backfill.drain(..).rev() {
                                 yield Ok(StreamEvents::new(
                                     block_number as attestor_primitives::Height,

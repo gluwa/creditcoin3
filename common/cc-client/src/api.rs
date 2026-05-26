@@ -64,16 +64,19 @@ impl<'a> ReconnectingRuntimeApi<'a> {
                 Err(Error::ConnectionError(reconnect)) => {
                     self.client.reconnect(reconnect).await?;
 
-                    let runtime_api = match self.client.api().load().runtime_api().at_latest().await
-                    {
-                        Ok(runtime_api) => runtime_api,
-                        Err(err) => {
-                            tracing::warn!(?err, "Failed to re-connect to CC3 runtime api...");
-                            continue;
-                        }
-                    };
-
-                    self.runtime_api = runtime_api;
+                    // We MUST refresh `runtime_api` before the next iteration — the cached
+                    // value is bound to the pre-reconnect OnlineClient/RpcClient, and using
+                    // it would call against the dead connection. If the refresh itself
+                    // fails (e.g. at_latest hits another transient error), surface the
+                    // error instead of looping back to call on the stale RuntimeApi.
+                    self.runtime_api = self
+                        .client
+                        .api()
+                        .load()
+                        .runtime_api()
+                        .at_latest()
+                        .await
+                        .map_err(Into::<Error>::into)?;
                 }
                 Err(err) => return Err(err),
             }
