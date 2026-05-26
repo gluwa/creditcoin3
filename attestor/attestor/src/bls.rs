@@ -76,7 +76,9 @@ async fn fetch(
         })
         .await?;
 
-        let Some(raw) = raw else { continue; };
+        let Some(raw) = raw else {
+            continue;
+        };
         let key = bls_signatures::PublicKey::from_bytes(&raw).map_err(|_| {
             cc_client::Error::from(subxt::Error::Other(format!(
                 "invalid bls pubkey for {attestor_id}"

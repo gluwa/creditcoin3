@@ -92,7 +92,12 @@ async fn handle_quorum(
 ) -> Result<(), Error> {
     let height = quorum.height;
     let digest = quorum.digest;
-    tracing::info!(?digest, height, votes = quorum.votes.len(), "🗳️ quorum reached");
+    tracing::info!(
+        ?digest,
+        height,
+        votes = quorum.votes.len(),
+        "🗳️ quorum reached"
+    );
 
     let digest_local = pool_rx.digest_local();
     let agg = match aggregate_and_validate(shared, &quorum, digest_local).await {
@@ -108,7 +113,8 @@ async fn handle_quorum(
             // someone's continuity proof. Drop the fork; we'll keep listening for the
             // matching-digest quorum we're producing locally.
             tracing::warn!(
-                ?digest, height,
+                ?digest,
+                height,
                 "🙈 quorum digest has no matching local proof — skipping submission"
             );
             pool_rx.mark_valid(permit);
@@ -120,7 +126,10 @@ async fn handle_quorum(
             // re-inject our existing votes so they're not lost. We never submitted, so no
             // fees were burned and no on-chain race was created.
             tracing::warn!(
-                ?digest, height, needed, got,
+                ?digest,
+                height,
+                needed,
+                got,
                 "🗳️ insufficient votes for current threshold — re-injecting"
             );
             shared.pool_send.note_majority_not_reached(height);
@@ -143,12 +152,15 @@ async fn handle_quorum(
         *in_flight = Some(spawn_submission(shared.clone(), agg));
     } else {
         tracing::info!(?digest, height, "🗃️ stash for later");
-        pool_rx.mark_for_later(permit, SignedQuorum {
-            height: agg.height,
-            digest: agg.digest,
-            signed: agg.attestation_signed,
-            votes: agg.votes,
-        });
+        pool_rx.mark_for_later(
+            permit,
+            SignedQuorum {
+                height: agg.height,
+                digest: agg.digest,
+                signed: agg.attestation_signed,
+                votes: agg.votes,
+            },
+        );
     }
     Ok(())
 }
@@ -164,7 +176,9 @@ async fn handle_submission_result(
 ) {
     let Submission { height, outcome } = submission;
     match outcome {
-        Outcome::Eligible { result: Ok(events), .. } => {
+        Outcome::Eligible {
+            result: Ok(events), ..
+        } => {
             if let Ok(Some(_)) = events
                 .all_events_in_block()
                 .find_last::<cc_client::cc3::attestation::events::BlockAttested>()
@@ -201,17 +215,20 @@ async fn handle_submission_result(
             }
         },
         Outcome::Eligible {
-            result: Err(subxt::Error::Transaction(
-                subxt::error::TransactionError::Invalid(_),
-            )),
+            result: Err(subxt::Error::Transaction(subxt::error::TransactionError::Invalid(_))),
             ..
         } => {
             // Benign race: another attestor's extrinsic landed first, so the runtime invalidated
             // ours after broadcast (usually a stale nonce or duplicate-height check). Demote to
             // info so Grafana doesn't light up on a known harmless outcome.
-            tracing::info!(height, "✅ already submitted (lost the race after broadcast)");
+            tracing::info!(
+                height,
+                "✅ already submitted (lost the race after broadcast)"
+            );
         }
-        Outcome::Eligible { result: Err(err), .. } => {
+        Outcome::Eligible {
+            result: Err(err), ..
+        } => {
             tracing::warn!(height, ?err, "⛔ submission rpc error");
         }
         Outcome::NotEligible => {
@@ -259,7 +276,10 @@ enum ValidationError {
     /// `MajorityNotReached` at runtime level. Bail before signing so we never burn fees/turns
     /// on an extrinsic the chain is guaranteed to reject; let the pool keep collecting until
     /// enough peer votes gossip in.
-    InsufficientVotes { needed: usize, got: usize },
+    InsufficientVotes {
+        needed: usize,
+        got: usize,
+    },
     External(Error),
 }
 
@@ -274,37 +294,37 @@ async fn aggregate_and_validate(
 
     // Pre-checks against runtime — each wrapped in the retry shim so transient WS blips don't
     // bubble up as task-fatal `ValidationError::External`s.
-    let supported = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| {
-        async move {
-            let r = cc3.api().runtime_api().at_latest().await?;
-            r.call(
-                cc_client::Client::runtime_api()
-                    .supported_chains_api()
-                    .is_chain_supported(chain_key),
-            )
-            .await
-            .map_err(cc_client::Error::from)
-        }
+    let supported = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        let r = cc3.api().runtime_api().at_latest().await?;
+        r.call(
+            cc_client::Client::runtime_api()
+                .supported_chains_api()
+                .is_chain_supported(chain_key),
+        )
+        .await
+        .map_err(cc_client::Error::from)
     })
     .await
     .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
-    if !supported { return Err(ValidationError::Invalid); }
+    if !supported {
+        return Err(ValidationError::Invalid);
+    }
 
-    let is_dup = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| {
-        async move {
-            let r = cc3.api().runtime_api().at_latest().await?;
-            r.call(
-                cc_client::Client::runtime_api()
-                    .attestor_api()
-                    .contains_digest(chain_key, cc_client::H256(digest.0), height),
-            )
-            .await
-            .map_err(cc_client::Error::from)
-        }
+    let is_dup = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        let r = cc3.api().runtime_api().at_latest().await?;
+        r.call(
+            cc_client::Client::runtime_api()
+                .attestor_api()
+                .contains_digest(chain_key, cc_client::H256(digest.0), height),
+        )
+        .await
+        .map_err(cc_client::Error::from)
     })
     .await
     .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
-    if is_dup { return Err(ValidationError::Invalid); }
+    if is_dup {
+        return Err(ValidationError::Invalid);
+    }
 
     // Threshold gate: refresh `target_sample_size` from the chain and refuse to submit if our
     // quorum is now under-threshold. The pool's quorum count is captured at startup; if the
@@ -312,11 +332,12 @@ async fn aggregate_and_validate(
     // submission would be rejected at runtime level (`MajorityNotReached`). Catch it here
     // instead — fees are saved and the pool collects more votes from gossip before the next
     // emission.
-    let target_sample_size = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| {
-        async move { cc3.target_sample_size(chain_key).await }
-    })
-    .await
-    .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
+    let target_sample_size =
+        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+            cc3.target_sample_size(chain_key).await
+        })
+        .await
+        .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
     let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
     if quorum.votes.len() < threshold {
         return Err(ValidationError::InsufficientVotes {
@@ -326,28 +347,34 @@ async fn aggregate_and_validate(
     }
 
     // Local proof lookup.
-    let cached = shared.proof_cache.get(height, digest)
+    let cached = shared
+        .proof_cache
+        .get(height, digest)
         .ok_or(ValidationError::NoLocalProof)?;
 
     // Head/tail/continuity validation (submitter only).
-    let last_finalized = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| {
-        async move {
-            let r = cc3.api().runtime_api().at_latest().await?;
-            r.call(
-                cc_client::Client::runtime_api()
-                    .attestor_api()
-                    .last_digest(chain_key),
-            )
-            .await
-            .map_err(cc_client::Error::from)
-        }
+    let last_finalized = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        let r = cc3.api().runtime_api().at_latest().await?;
+        r.call(
+            cc_client::Client::runtime_api()
+                .attestor_api()
+                .last_digest(chain_key),
+        )
+        .await
+        .map_err(cc_client::Error::from)
     })
     .await
     .map_err(|e| ValidationError::External(Error::Rpc(e)))?
     .unwrap_or_else(cc_client::H256::zero);
 
-    validate_proof_chain(&cached, height, last_finalized, digest_local, shared.start_height)
-        .map_err(|_| ValidationError::Invalid)?;
+    validate_proof_chain(
+        &cached,
+        height,
+        last_finalized,
+        digest_local,
+        shared.start_height,
+    )
+    .map_err(|_| ValidationError::Invalid)?;
 
     // BLS aggregate.
     let mut rng = rand::rngs::StdRng::from_os_rng();
@@ -355,8 +382,8 @@ async fn aggregate_and_validate(
     votes.shuffle(&mut rng);
 
     let sigs = votes.iter().map(|v| v.signature_bls.0).collect::<Vec<_>>();
-    let agg_sig = bls_signatures::aggregate(&sigs)
-        .map_err(|e| ValidationError::External(Error::Bls(e)))?;
+    let agg_sig =
+        bls_signatures::aggregate(&sigs).map_err(|e| ValidationError::External(Error::Bls(e)))?;
     let agg_bytes = agg_sig.as_bytes();
     let bls_aggregate: [u8; 96] = agg_bytes[..]
         .first_chunk::<96>()
@@ -371,7 +398,12 @@ async fn aggregate_and_validate(
         continuity_proof: cached.continuity_proof,
     };
 
-    Ok(Aggregated { height, digest, attestation_signed: signed, votes })
+    Ok(Aggregated {
+        height,
+        digest,
+        attestation_signed: signed,
+        votes,
+    })
 }
 
 fn validate_proof_chain(
@@ -384,12 +416,24 @@ fn validate_proof_chain(
     let proof = &cached.continuity_proof;
     let data = &cached.attestation_data;
 
-    if proof.is_empty() && height != start_height { return Err(()); }
+    if proof.is_empty() {
+        if height == start_height {
+            return Ok(());
+        }
+        // Direct-link path: runtime accepts empty continuity proof when prev_digest
+        // matches the latest finalized digest (see validate_attestation_continuity).
+        if data.prev_digest().map(|d| cc_client::H256(d.0)) == Some(last_finalized) {
+            return Ok(());
+        }
+        return Err(());
+    }
 
     if !proof.is_empty() {
         let start = proof.start_block_number(height);
         let head = proof.compute_continuity_digest(start);
-        if Some(head) != data.prev_digest() { return Err(()); }
+        if Some(head) != data.prev_digest() {
+            return Err(());
+        }
     }
 
     if let Some(tail) = proof.tail_prev_digest() {
@@ -421,10 +465,7 @@ enum Outcome {
     Finalized,
 }
 
-fn spawn_submission(
-    shared: Arc<Shared>,
-    agg: Aggregated,
-) -> tokio::task::JoinHandle<Submission> {
+fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHandle<Submission> {
     tokio::spawn(async move {
         let height = agg.height;
         // Stash a copy of the votes — submit_one moves `agg`, but we need them in `Outcome`
@@ -467,8 +508,10 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
 
     // Rank-backoff (skipped for genesis).
     if height != shared.genesis {
-        let vrf = match shared.cc3
-            .sign_vrf_submission(chain_key, height, randomness, epoch_index).await
+        let vrf = match shared
+            .cc3
+            .sign_vrf_submission(chain_key, height, randomness, epoch_index)
+            .await
         {
             Ok(v) => v,
             Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
@@ -488,8 +531,14 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         let rank_hash = sp_io::hashing::keccak_256(&rank_input);
         const RANKS: u64 = 8;
         let rank = u64::from_be_bytes([
-            rank_hash[0], rank_hash[1], rank_hash[2], rank_hash[3],
-            rank_hash[4], rank_hash[5], rank_hash[6], rank_hash[7],
+            rank_hash[0],
+            rank_hash[1],
+            rank_hash[2],
+            rank_hash[3],
+            rank_hash[4],
+            rank_hash[5],
+            rank_hash[6],
+            rank_hash[7],
         ]) % RANKS;
         const SUBMIT_FIN_DELAY: u64 = 17;
         let delay = std::time::Duration::from_secs(rank * SUBMIT_FIN_DELAY);
@@ -498,7 +547,11 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         let mut rx = shared.latest_finalized_rx.clone();
         let deadline = tokio::time::Instant::now() + delay;
         loop {
-            if rx.borrow().map(|info| info.height >= height).unwrap_or(false) {
+            if rx
+                .borrow()
+                .map(|info| info.height >= height)
+                .unwrap_or(false)
+            {
                 return OutcomeInternal::Finalized;
             }
             tokio::select! {
@@ -522,7 +575,8 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
     const POOL_INVALID_TX: i32 = 1010;
 
     let submit_handle = loop {
-        match shared.cc3
+        match shared
+            .cc3
             .api()
             .tx()
             .sign_and_submit_then_watch_default(&call, shared.signer.keypair())
@@ -604,7 +658,11 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
 /// Wait until the cc3 finalized-watch channel reports `info.height >= height`.
 async fn await_block_attested(shared: &Arc<Shared>, height: Height) {
     let mut rx = shared.latest_finalized_rx.clone();
-    if rx.borrow().map(|info| info.height >= height).unwrap_or(false) {
+    if rx
+        .borrow()
+        .map(|info| info.height >= height)
+        .unwrap_or(false)
+    {
         return;
     }
     loop {
@@ -643,7 +701,11 @@ async fn reconnect(shared: &Arc<Shared>) -> Result<(), ()> {
 
 async fn wait_finalized(shared: &Arc<Shared>, height: Height) {
     let mut rx = shared.latest_finalized_rx.clone();
-    if rx.borrow().map(|info| info.height >= height).unwrap_or(false) {
+    if rx
+        .borrow()
+        .map(|info| info.height >= height)
+        .unwrap_or(false)
+    {
         return;
     }
     let deadline = tokio::time::Instant::now() + common::constants::ATTESTATION_TIMEOUT;
@@ -661,5 +723,54 @@ async fn wait_finalized(shared: &Arc<Shared>, height: Height) {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use attestor_primitives::Digest;
+
+    use super::validate_proof_chain;
+    use crate::proof_cache::CachedProof;
+
+    fn cached(prev: Option<Digest>) -> CachedProof {
+        CachedProof {
+            attestation_data: attestor_primitives::AttestationData::new(
+                1u64,
+                2,
+                Digest::from([0xAA; 32]),
+                sp_core::H256::from([0xBB; 32]),
+                prev,
+            ),
+            continuity_proof: Default::default(),
+        }
+    }
+
+    #[test]
+    fn empty_proof_allowed_at_genesis() {
+        let cached = cached(None);
+        assert!(validate_proof_chain(&cached, 0, cc_client::H256::zero(), None, 0).is_ok());
+    }
+
+    #[test]
+    fn empty_proof_allowed_on_direct_link_to_last_finalized() {
+        let prev = Digest::from([0x11; 32]);
+        let last_finalized = cc_client::H256(prev.0);
+        let cached = cached(Some(prev));
+        assert!(validate_proof_chain(&cached, 2, last_finalized, None, 0).is_ok());
+    }
+
+    #[test]
+    fn empty_proof_rejected_when_prev_digest_does_not_match_last_finalized() {
+        let cached = cached(Some(Digest::from([0x11; 32])));
+        assert!(
+            validate_proof_chain(&cached, 2, cc_client::H256::from([0x22; 32]), None, 0,).is_err()
+        );
+    }
+
+    #[test]
+    fn empty_proof_rejected_at_non_genesis_without_prev_digest() {
+        let cached = cached(None);
+        assert!(validate_proof_chain(&cached, 2, cc_client::H256::zero(), None, 0).is_err());
     }
 }
