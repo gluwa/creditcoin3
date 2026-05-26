@@ -17,7 +17,9 @@ struct AppState {
 }
 
 pub async fn run(shared: Arc<Shared>, cfg: Config) -> Result<(), Error> {
-    let state = Arc::new(AppState { metrics: cfg.metrics });
+    let state = Arc::new(AppState {
+        metrics: cfg.metrics,
+    });
 
     let router = axum::Router::new()
         .route("/metrics", axum::routing::get(handle_metrics))

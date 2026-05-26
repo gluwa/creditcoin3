@@ -1,8 +1,8 @@
 [package]
-name = "attestor"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "attestor"
 publish.workspace = true
 repository.workspace = true
 version.workspace = true
@@ -35,7 +35,6 @@ supported-chains-primitives = { workspace = true }
 usc-abi-encoding = { workspace = true }
 
 # Ethereum
-alloy = { workspace = true, features = ["full"] }
 eth = { workspace = true, default-features = true }
 
 # Async & Parallelism

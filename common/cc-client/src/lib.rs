@@ -242,7 +242,10 @@ impl BackoffState {
     const MAX_MS: u64 = 30_000;
 
     fn new() -> Self {
-        Self { next_attempt_at: tokio::time::Instant::now(), delay_ms: Self::INITIAL_MS }
+        Self {
+            next_attempt_at: tokio::time::Instant::now(),
+            delay_ms: Self::INITIAL_MS,
+        }
     }
 
     fn note_success(&mut self) {

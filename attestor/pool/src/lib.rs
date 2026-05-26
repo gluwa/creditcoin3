@@ -65,8 +65,8 @@ impl MetricsHook for Box<dyn MetricsHook> {
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::num::NonZero;
-use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 
@@ -168,7 +168,9 @@ pub fn attestation_pool(config: Config) -> (Sender, Receiver) {
     });
 
     (
-        Sender { inner: shared.clone() },
+        Sender {
+            inner: shared.clone(),
+        },
         Receiver { inner: shared },
     )
 }
@@ -253,7 +255,10 @@ impl Pool {
             .last_finalized_height
             .max(self.locally_validated_height);
 
-        if !self.validate_quorum.height_admissible(vote.height, lower_bound) {
+        if !self
+            .validate_quorum
+            .height_admissible(vote.height, lower_bound)
+        {
             // Out-of-window votes aren't tagged invalid — they're just stale; we don't bump
             // the invalid-vote counter for these. They get logged at debug in the caller.
             return Err(Error::InvalidHeight(
@@ -301,7 +306,12 @@ impl Pool {
         }
 
         Some((
-            Quorum { height, digest, chain_key, votes },
+            Quorum {
+                height,
+                digest,
+                chain_key,
+                votes,
+            },
             Permit { height, digest },
         ))
     }
@@ -378,7 +388,9 @@ impl Sender {
 
     pub fn note_target_sample_size_change(&self, target_sample_size: u32) {
         let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
-        let Some(quorum_new) = NonZero::new(threshold) else { return; };
+        let Some(quorum_new) = NonZero::new(threshold) else {
+            return;
+        };
         let mutated = {
             let mut guard = self.inner.pool.lock();
             if let State::Open(pool) = &mut *guard {
@@ -437,14 +449,21 @@ impl Sender {
 
 impl Clone for Sender {
     fn clone(&self) -> Self {
-        self.inner.senders.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-        Self { inner: self.inner.clone() }
+        self.inner
+            .senders
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        Self {
+            inner: self.inner.clone(),
+        }
     }
 }
 
 impl Drop for Sender {
     fn drop(&mut self) {
-        let prev = self.inner.senders.fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
+        let prev = self
+            .inner
+            .senders
+            .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         if prev == 1 {
             *self.inner.pool.lock() = State::Closed;
         }
@@ -559,8 +578,12 @@ pub struct Permit {
 }
 
 impl Permit {
-    pub fn height(&self) -> Height { self.height }
-    pub fn digest(&self) -> Digest { self.digest }
+    pub fn height(&self) -> Height {
+        self.height
+    }
+    pub fn digest(&self) -> Digest {
+        self.digest
+    }
 }
 
 impl std::fmt::Display for Permit {
@@ -626,19 +649,25 @@ impl Forks {
         }
 
         let key = (height, digest);
-        let entry = self.by_digest.entry(key).or_insert_with(|| AttestationVote {
-            height,
-            digest,
-            chain_key: vote.chain_key,
-            votes: Vec::new(),
-            signers: HashSet::new(),
-        });
+        let entry = self
+            .by_digest
+            .entry(key)
+            .or_insert_with(|| AttestationVote {
+                height,
+                digest,
+                chain_key: vote.chain_key,
+                votes: Vec::new(),
+                signers: HashSet::new(),
+            });
 
         // Drop the old size index entry — it'll be re-inserted with the new size below.
-        let _ = self.by_height_size.remove(&(height, entry.signers.len(), digest));
+        let _ = self
+            .by_height_size
+            .remove(&(height, entry.signers.len(), digest));
         entry.signers.insert(attestor.clone());
         entry.votes.push(vote);
-        self.by_height_size.insert((height, entry.signers.len(), digest));
+        self.by_height_size
+            .insert((height, entry.signers.len(), digest));
 
         Ok(())
     }
@@ -663,7 +692,8 @@ impl Forks {
 
     fn drop_fork(&mut self, height: Height, digest: Digest) {
         if let Some(entry) = self.by_digest.remove(&(height, digest)) {
-            self.by_height_size.remove(&(height, entry.signers.len(), digest));
+            self.by_height_size
+                .remove(&(height, entry.signers.len(), digest));
             for s in entry.signers {
                 self.seen.remove(&(height, s));
             }
@@ -737,7 +767,9 @@ struct Delays {
 
 impl Delays {
     fn push(&mut self, height: Height) {
-        self.time.entry(height).or_insert_with(std::time::Instant::now);
+        self.time
+            .entry(height)
+            .or_insert_with(std::time::Instant::now);
     }
 
     fn pop(&mut self, height: Height) -> Option<std::time::Duration> {
@@ -895,7 +927,9 @@ mod tests {
 
         // A late vote at the same height (different digest, different attestor) must be
         // rejected — we've already committed to a digest at h=10.
-        let err = p.push(vote(2, 10, 0xbb)).expect_err("late vote at locked height");
+        let err = p
+            .push(vote(2, 10, 0xbb))
+            .expect_err("late vote at locked height");
         assert!(matches!(err, Error::InvalidHeight(..)));
     }
 
@@ -916,8 +950,14 @@ mod tests {
         let mut p = pool(2);
         p.push(vote(0, 10, 0xaa)).unwrap();
         p.push(vote(0, 10, 0xaa)).unwrap(); // duplicate
-        assert!(p.forks.best(2).is_none(), "two pushes from same attestor must not form quorum");
+        assert!(
+            p.forks.best(2).is_none(),
+            "two pushes from same attestor must not form quorum"
+        );
         p.push(vote(1, 10, 0xaa)).unwrap();
-        assert!(p.forks.best(2).is_some(), "now with a distinct attestor we have quorum");
+        assert!(
+            p.forks.best(2).is_some(),
+            "now with a distinct attestor we have quorum"
+        );
     }
 }
