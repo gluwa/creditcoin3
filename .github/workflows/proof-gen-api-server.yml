@@ -332,8 +332,9 @@ jobs:
           killall -9 anvil
           killall -9 creditcoin3-node
 
-          # wait as if these are offline for a longer period
-          sleep 75
+      - name: Random sleep up to 3 mins
+        run: |
+          sleep $((RANDOM % 180))
 
       - name: Restart creditcoin3-node - Alice
         run: |
@@ -352,9 +353,6 @@ jobs:
 
       - name: Check that creditcoin-node and anvil are running again
         run: |
-          # wait for more source blocks and attestations
-          sleep 75
-
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8142'
