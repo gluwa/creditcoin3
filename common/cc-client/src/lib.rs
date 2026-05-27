@@ -63,13 +63,6 @@ pub enum Error {
     #[error("Caller doesn't have sufficient funds to execute the transaction: {0}")]
     CallerDoesntHaveSufficientFunds(subxt::error::TokenError),
 
-    /// Reconnect loop exhausted its bounded retry budget.
-    #[error(
-        "Reconnect retries exhausted after {} attempts",
-        util::MAX_RECONNECT_ATTEMPTS
-    )]
-    ReconnectExhausted,
-
     /// Reconnect was interrupted by a shutdown signal (`ctrl_c`). Callers should propagate this
     /// up so the task supervisor can exit cleanly instead of restarting the RPC dance.
     #[error("CC3 reconnect interrupted by shutdown signal")]
@@ -219,7 +212,8 @@ impl Client {
     pub async fn reconnect(&self, Reconnect(err): Reconnect) -> Result<(), Error> {
         tracing::warn!(?err, "CC3 connection lost...");
 
-        for attempt in 1..=util::MAX_RECONNECT_ATTEMPTS {
+        let mut attempt = 1;
+        loop {
             // Snapshot the next delay from the shared backoff. The mutex is held only
             // long enough to advance the iterator — no awaits inside the critical section.
             let delay = {
@@ -242,16 +236,17 @@ impl Client {
                     tracing::warn!(attempt, "Reconnected to CC3!");
                     return Ok(());
                 }
-                Err(err) => {
+                Err(Error::ConnectionError(err)) => {
                     tracing::warn!(attempt, ?err, "Failed to reconnect to CC3");
                 }
+                Err(err) => {
+                    tracing::warn!(attempt, ?err, "Encountered fatal reconnection error");
+                    return Err(err);
+                }
             }
+
+            attempt += 1;
         }
-        tracing::error!(
-            attempts = util::MAX_RECONNECT_ATTEMPTS,
-            "Reconnect retries exhausted — surfacing crash so supervisor can reschedule"
-        );
-        Err(Error::ReconnectExhausted)
     }
 
     /// Reset the shared backoff timer to its initial state. Call this after any operation
@@ -1163,13 +1158,6 @@ mod util {
     const INABILITY_TO_PAY_SOME_FEE_MSG: &str = "Inability to pay some fee";
 
     pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
-
-    /// Maximum reconnect attempts before `Client::reconnect` returns `Err(ReconnectExhausted)`.
-    /// At ~5 s max delay per attempt this gives roughly 2.5 minutes of trying — long enough to
-    /// survive routine WS hiccups and gateway restarts, short enough that a node that's truly
-    /// down crashes the task instead of silently spinning. Tune carefully: too low and routine
-    /// outages cause unnecessary restarts; too high and we re-introduce the unbounded-spin `DoS`.
-    pub const MAX_RECONNECT_ATTEMPTS: u32 = 30;
 
     pub fn exponential_retry_delay() -> tokio_retry::strategy::ExponentialBackoff {
         tokio_retry::strategy::ExponentialBackoff::from_millis(100).max_delay(MAX_DELAY)
