@@ -402,8 +402,58 @@ impl Config {
 
 // ---------------------------------------- [ Main loop ] -------------------------------------- //
 
+/// Tracing filter that suppresses alloy's hourly `RPC::DEADLINE_EXCEEDED` close-frame ERROR.
+///
+/// The upstream ETH WS provider (Google Cloud RPC / Alchemy / similar) enforces a hard 1-hour
+/// session lifetime and emits `CloseFrame { reason: "...DEADLINE_EXCEEDED..." }` on expiry.
+/// Alloy reconnects internally within sub-second; the next attestation production fires on its
+/// normal cadence, so the ERROR line is pure dashboard noise. Other close-frame variants
+/// (e.g. `generic::unavailable` from a transient backend hiccup) stay visible — those *do*
+/// indicate something worth knowing about.
+#[derive(Clone, Copy)]
+struct SuppressAlloyDeadlineExceeded;
+
+impl<S> tracing_subscriber::layer::Filter<S> for SuppressAlloyDeadlineExceeded {
+    fn enabled(
+        &self,
+        _: &tracing::Metadata<'_>,
+        _: &tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        true
+    }
+
+    fn event_enabled(
+        &self,
+        event: &tracing::Event<'_>,
+        _: &tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        if !event.metadata().target().starts_with("alloy_transport_ws") {
+            return true;
+        }
+        struct V {
+            matched: bool,
+        }
+        impl tracing::field::Visit for V {
+            fn record_debug(&mut self, _: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if !self.matched && format!("{value:?}").contains("DEADLINE_EXCEEDED") {
+                    self.matched = true;
+                }
+            }
+            fn record_str(&mut self, _: &tracing::field::Field, value: &str) {
+                if !self.matched && value.contains("DEADLINE_EXCEEDED") {
+                    self.matched = true;
+                }
+            }
+        }
+        let mut v = V { matched: false };
+        event.record(&mut v);
+        !v.matched
+    }
+}
+
 #[tokio::main()]
 async fn main() -> anyhow::Result<()> {
+    use tracing_subscriber::filter::FilterExt as _;
     use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
     use tracing_subscriber::Layer as _;
@@ -436,7 +486,7 @@ async fn main() -> anyhow::Result<()> {
         .with_file(is_max_level_debug)
         .with_line_number(is_max_level_debug)
         .with_thread_ids(true)
-        .with_filter(filter_env);
+        .with_filter(filter_env.and(SuppressAlloyDeadlineExceeded));
 
     let args = Config::parse()?;
 
@@ -462,7 +512,7 @@ async fn main() -> anyhow::Result<()> {
         .with_file(true)
         .with_line_number(true)
         .with_writer(appender)
-        .with_filter(filter_logs);
+        .with_filter(filter_logs.and(SuppressAlloyDeadlineExceeded));
 
     let _ = tracing_subscriber::registry()
         .with(fmt)
