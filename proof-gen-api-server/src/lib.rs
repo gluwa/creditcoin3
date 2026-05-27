@@ -32,7 +32,6 @@ use eth::redact_url_query;
 
 pub struct Server {
     config: Config,
-    cc3_client: CcClient,
     /// One continuity builder per configured source chain.
     builders: Vec<Arc<ContinuityBuilder>>,
     checkpoint_intervals: events::CheckpointIntervalMap,
@@ -101,7 +100,6 @@ impl Server {
 
         Ok(Server {
             config,
-            cc3_client,
             builders,
             checkpoint_intervals,
             last_checkpoint_blocks,
@@ -320,18 +318,71 @@ impl Server {
 
         let checkpoint_intervals_clone = self.checkpoint_intervals.clone();
         let last_checkpoint_blocks_clone = self.last_checkpoint_blocks.clone();
-        let cc3_client_clone = self.cc3_client.clone();
+        let cc3_rpc_url = self.config.cc3_rpc_url.clone();
 
+        // Supervisor loop: respawn the CC3 event subscription if it crashes.
+        //
+        // Key design decisions:
+        //   • Creates a *fresh* `CcClient` on each retry so we don’t loop with a
+        //     stale WebSocket that was abandoned by the inner reconnect budget.
+        //   • Resets backoff after a healthy run (>60 s) so a one-off blip months
+        //     later doesn’t start at the 60 s cap from a previous failure.
+        //   • Uses exponential backoff (1 s → 60 s) between retries.
         tokio::spawn(async move {
-            if let Err(e) = events::start_cc3_event_subscription(
-                cc3_client_clone,
-                checkpoint_intervals_clone,
-                last_checkpoint_blocks_clone,
-                service,
-            )
-            .await
-            {
-                error!("❌ 🔗 CC3 event subscription failed: {e}");
+            const INITIAL_BACKOFF: std::time::Duration = std::time::Duration::from_secs(1);
+            const MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(60);
+            /// If the subscription stays up longer than this, reset the
+            /// backoff on the next failure (it was a fresh problem, not a
+            /// continuation of the previous outage).
+            const HEALTHY_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(60);
+
+            let mut backoff = INITIAL_BACKOFF;
+
+            loop {
+                // Build a fresh read-only client so we never loop on a stale
+                // WebSocket left over from a previous exhausted reconnect.
+                let cc3_client = match CcClient::new_read_only(&cc3_rpc_url).await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        error!(
+                            backoff_secs = backoff.as_secs(),
+                            "❌ 🔗 Failed to create CC3 client: {e}, retrying in {backoff:?}"
+                        );
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        continue;
+                    }
+                };
+
+                info!("🔗 Starting CC3 event subscription");
+                let started = tokio::time::Instant::now();
+
+                match events::start_cc3_event_subscription(
+                    cc3_client,
+                    checkpoint_intervals_clone.clone(),
+                    last_checkpoint_blocks_clone.clone(),
+                    service.clone(),
+                )
+                .await
+                {
+                    Ok(()) => {
+                        error!("❌ 🔗 CC3 event subscription returned unexpectedly, restarting");
+                    }
+                    Err(e) => {
+                        error!(
+                            backoff_secs = backoff.as_secs(),
+                            "❌ 🔗 CC3 event subscription failed: {e}, restarting in {backoff:?}"
+                        );
+                    }
+                }
+
+                // Reset backoff if the subscription ran healthily for a while.
+                if started.elapsed() >= HEALTHY_THRESHOLD {
+                    backoff = INITIAL_BACKOFF;
+                }
+
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(MAX_BACKOFF);
             }
         });
 

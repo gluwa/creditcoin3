@@ -1162,14 +1162,26 @@ mod util {
     /// Sourced from: <https://github.com/paritytech/polkadot-sdk/blob/06bded7ab7ac6a50e0aeba48c0f7f5ca548c3573/substrate/primitives/runtime/src/transaction_validity.rs#L116>
     const INABILITY_TO_PAY_SOME_FEE_MSG: &str = "Inability to pay some fee";
 
-    pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
+    pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_secs(30);
 
     /// Maximum reconnect attempts before `Client::reconnect` returns `Err(ReconnectExhausted)`.
-    /// At ~5 s max delay per attempt this gives roughly 2.5 minutes of trying — long enough to
-    /// survive routine WS hiccups and gateway restarts, short enough that a node that's truly
-    /// down crashes the task instead of silently spinning. Tune carefully: too low and routine
-    /// outages cause unnecessary restarts; too high and we re-introduce the unbounded-spin `DoS`.
-    pub const MAX_RECONNECT_ATTEMPTS: u32 = 30;
+    ///
+    /// With exponential backoff (100 ms → 30 s cap, plus jitter) and 18 attempts the
+    /// budget works out to roughly 5 minutes:
+    ///
+    ///   Attempts 1–9:  0.1 + 0.2 + 0.4 + 0.8 + 1.6 + 3.2 + 6.4 + 12.8 + 25.6 ≈ 51 s
+    ///   Attempts 10–18: 9 × 30 s (capped)                                       = 270 s
+    ///   Total (before jitter):                                                   ≈ 321 s ≈ 5.4 min
+    ///
+    /// Long enough to ride out typical node restarts, rolling upgrades, and brief
+    /// network partitions; short enough that a permanently-down RPC surfaces an
+    /// error instead of silently spinning.  Industry practice for infrastructure
+    /// reconnects sits between 2–10 minutes; ~5 minutes is a conservative middle
+    /// ground.
+    ///
+    /// Tune carefully: too low and routine outages cause unnecessary restarts;
+    /// too high and we re-introduce the unbounded-spin `DoS`.
+    pub const MAX_RECONNECT_ATTEMPTS: u32 = 18;
 
     pub fn exponential_retry_delay() -> tokio_retry::strategy::ExponentialBackoff {
         tokio_retry::strategy::ExponentialBackoff::from_millis(100).max_delay(MAX_DELAY)
