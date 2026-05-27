@@ -827,12 +827,25 @@ impl WorkerP2P {
     /// Disconnects and blocklists a peer that failed authorization, removing it from the routing
     /// table so it cannot be rediscovered. Blocklisted peers are denied at the swarm layer on any
     /// future connection attempt.
+    ///
+    /// Idempotent: a single rejection can surface through more than one event (for example,
+    /// dropping the response channel on a failed inbound request also raises
+    /// [`InboundFailure::ResponseOmission`]). [`block_peer`] reports whether the peer was *newly*
+    /// blocked, so the logging, metric and cleanup run exactly once per peer.
+    ///
+    /// [`InboundFailure::ResponseOmission`]: libp2p::request_response::InboundFailure::ResponseOmission
+    /// [`block_peer`]: libp2p::allow_block_list::Behaviour::block_peer
     fn reject_peer(&mut self, peer: libp2p::PeerId) {
+        let newly_blocked = self.swarm.behaviour_mut().blocked.block_peer(peer);
+        if !newly_blocked {
+            // Already rejected via an earlier event; avoid duplicate logs and metrics.
+            return;
+        }
+
         tracing::warn!(peer_id = %peer, "⛔ Blocklisting unauthorized peer");
 
         self.pending_auth.remove(&peer);
         self.verified.remove(&peer);
-        self.swarm.behaviour_mut().blocked.block_peer(peer);
         self.swarm.behaviour_mut().kad.remove_peer(&peer);
         self.swarm
             .behaviour_mut()
