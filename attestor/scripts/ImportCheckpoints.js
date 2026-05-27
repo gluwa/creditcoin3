@@ -102,16 +102,26 @@ async function main() {
         while (attempt < MAX_RETRIES) {
             console.log(`Submitting batch ${Math.floor(i / BATCH_SIZE) + 1}, attempt ${attempt + 1}...`);
             try {
-                const unsub = await sudoCall.signAndSend(sudo, (result) => {
-                    if (result.status.isInBlock) {
-                        console.log(`📦 Batch included in block: ${result.status.asInBlock}`);
-                        unsub();
-                    } else if (result.isError) {
-                        console.error('❌ Transaction error reported');
-                        unsub();
-                    }
+                await new Promise((resolve, reject) => {
+                    let unsub;
+                    sudoCall
+                        .signAndSend(sudo, (result) => {
+                            if (result.status.isInBlock) {
+                                console.log(`📦 Batch included in block: ${result.status.asInBlock}`);
+                                if (unsub) unsub();
+                                resolve();
+                            } else if (result.isError) {
+                                console.error('❌ Transaction error reported');
+                                if (unsub) unsub();
+                                reject(new Error('Transaction error reported'));
+                            }
+                        })
+                        .then((u) => {
+                            unsub = u;
+                        })
+                        .catch(reject);
                 });
-                break; // exit retry loop if no exception
+                break; // exit retry loop on success
             } catch (err) {
                 console.error(`⚠️ Error submitting batch: ${err.message}`);
                 attempt++;
