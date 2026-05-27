@@ -85,12 +85,22 @@
 //! [attestation pool]: attestation_pool
 //! [`Quorum`]: attestation_pool::Quorum
 
+pub(crate) mod auth;
+
 mod behavior;
 mod error;
 mod protocols;
 
+pub use auth::PeerAuth;
 pub use error::*;
 use user::prelude::*;
+
+/// How long a peer has to complete the authorization handshake after connecting before it is
+/// disconnected and blocklisted.
+const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// How often unverified connections are swept for [`AUTH_TIMEOUT`] expiry.
+const AUTH_SWEEP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
 
 // -------------------------------------- [ Configuration ] ------------------------------------ //
 
@@ -101,8 +111,17 @@ pub struct Config {
     port: u16,
     #[default(false)]
     no_mdns: bool,
+    /// Disables peer authorization enforcement. Intended only for the rolling-upgrade window,
+    /// before every node on the network speaks the [`AUTH`] protocol. See [`AUTH`].
+    ///
+    /// [`AUTH`]: protocols::AUTH
+    #[default(false)]
+    no_peer_auth: bool,
     #[specify_later]
     bls: std::sync::Arc<crate::bls::BlsStore>,
+    /// Our own proof-of-possession, presented to peers on connection.
+    #[specify_later]
+    self_auth: auth::PeerAuth,
     #[specify_later]
     keypair: libp2p::identity::Keypair,
     #[specify_later]
@@ -127,6 +146,19 @@ pub(crate) struct WorkerP2P {
     chain_key: attestor_primitives::ChainKey,
     // CC3 CONNECTION
     bls: std::sync::Arc<crate::bls::BlsStore>,
+
+    // PEER AUTHORIZATION
+    /// Whether to enforce the BLS proof-of-possession handshake on incoming peers.
+    auth_required: bool,
+    /// Our own proof-of-possession, sent to peers on connection.
+    self_auth: auth::PeerAuth,
+    /// Peers which have connected but not yet completed the authorization handshake, with the
+    /// instant they connected. Swept on [`AUTH_TIMEOUT`].
+    pending_auth: std::collections::HashMap<libp2p::PeerId, std::time::Instant>,
+    /// Peers that have completed the handshake and remain connected. Tracked so that additional
+    /// connections to (or reconnections from) an already-trusted peer don't re-run the timed
+    /// handshake and risk blocklisting a legitimate peer.
+    verified: std::collections::HashSet<libp2p::PeerId>,
 
     // METRICS
     metrics: metrics::Metrics,
@@ -194,6 +226,11 @@ impl WorkerP2P {
             chain_key: config.chain_key,
             bls: config.bls,
 
+            auth_required: !config.no_peer_auth,
+            self_auth: config.self_auth,
+            pending_auth: std::collections::HashMap::new(),
+            verified: std::collections::HashSet::new(),
+
             metrics: config.metrics,
 
             receiver_p2p: config.receiver_p2p,
@@ -220,12 +257,23 @@ impl super::Worker for WorkerP2P {
             .listen_on(self.listen_addr.clone())
             .map_interrupt(Error::Transport)?;
 
+        if self.auth_required {
+            tracing::info!("🔐 Peer authorization enforcement enabled");
+        } else {
+            tracing::warn!("🔓 Peer authorization enforcement DISABLED");
+        }
+
+        let mut auth_sweep = tokio::time::interval(AUTH_SWEEP_INTERVAL);
+
         loop {
             tokio::select! {
                 biased;
 
                 _ = &mut shutdown => {
                     break Err(Interrupt::Stop);
+                }
+                _ = auth_sweep.tick(), if self.auth_required => {
+                    self.sweep_pending_auth();
                 }
                 attestation = self.receiver_p2p.recv(), if self.can_broadcast => {
                     self.handle_event_attestation(attestation).await.map_err(Interrupt::Cont)?;
@@ -369,6 +417,31 @@ impl WorkerP2P {
                     );
                 }
             },
+
+            // Peer authorization handshake
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Auth(
+                libp2p::request_response::Event::Message { peer, message, .. },
+            )) => {
+                self.handle_event_auth(peer, message).await;
+            }
+
+            // The handshake could not be completed (unsupported protocol, timeout, dropped
+            // connection, ...). A peer we cannot authorize is not allowed on the network.
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Auth(
+                libp2p::request_response::Event::OutboundFailure { peer, error, .. },
+            )) => {
+                tracing::warn!(peer_id = %peer, ?error, "⛔ Peer authorization request failed");
+                self.reject_peer(peer);
+            }
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Auth(
+                libp2p::request_response::Event::InboundFailure { peer, error, .. },
+            )) => {
+                tracing::warn!(peer_id = %peer, ?error, "⛔ Peer authorization response failed");
+                self.reject_peer(peer);
+            }
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Auth(
+                libp2p::request_response::Event::ResponseSent { .. },
+            )) => {}
 
             // New attestation gossip
             libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Gossipsub(
@@ -554,6 +627,27 @@ impl WorkerP2P {
                 ..
             } => {
                 tracing::info!(%peer_id, connection = %connection_id, "🔗 Connection established");
+
+                if self.auth_required && !self.verified.contains(&peer_id) {
+                    // Start the authorization clock for this peer.
+                    let first_connection = self
+                        .pending_auth
+                        .insert(peer_id, std::time::Instant::now())
+                        .is_none();
+
+                    // Both sides proactively challenge each other (not just the dialer). This is
+                    // what bounds the abuse window: a peer that does not speak `/gluwa/auth` fails
+                    // our request immediately (`OutboundFailure::UnsupportedProtocols`) and is
+                    // rejected in milliseconds, rather than lingering — and flooding gossip — until
+                    // the [`AUTH_TIMEOUT`] sweep. We only send once per peer to avoid redundant
+                    // requests across multiple connections.
+                    if first_connection {
+                        self.swarm
+                            .behaviour_mut()
+                            .auth
+                            .send_request(&peer_id, self.self_auth.clone());
+                    }
+                }
             }
 
             // Disconnected from an existing remote peer
@@ -563,6 +657,12 @@ impl WorkerP2P {
                 ..
             } => {
                 tracing::info!(%peer_id, connection = %connection_id, "⛓️‍💥 Connection closed");
+
+                self.pending_auth.remove(&peer_id);
+                // Once the peer is fully disconnected it must re-authorize on reconnect.
+                if !self.swarm.is_connected(&peer_id) {
+                    self.verified.remove(&peer_id);
+                }
 
                 let topic_attestation = self.topic.hash();
                 self.can_broadcast = self
@@ -643,6 +743,124 @@ impl WorkerP2P {
         Ok(())
     }
 
+    // ------------------------------------* Authorization *--------------------------------------
+
+    /// Handles an inbound peer-auth message. A [`Request`] is the peer proving itself to us; on
+    /// success we reply with our own proof so the peer can verify us in turn. A [`Response`] is the
+    /// peer proving itself in reply to our request. Either way, a peer that cannot prove membership
+    /// of the on-chain attestor set is disconnected and blocklisted.
+    ///
+    /// [`Request`]: libp2p::request_response::Message::Request
+    /// [`Response`]: libp2p::request_response::Message::Response
+    async fn handle_event_auth(
+        &mut self,
+        peer: libp2p::PeerId,
+        message: libp2p::request_response::Message<auth::PeerAuth, auth::PeerAuth>,
+    ) {
+        match message {
+            libp2p::request_response::Message::Request {
+                request, channel, ..
+            } => {
+                if self.verify_peer(&peer, &request).await {
+                    // Reply with our own proof so the dialer can authorize us, then trust the peer.
+                    if self
+                        .swarm
+                        .behaviour_mut()
+                        .auth
+                        .send_response(channel, self.self_auth.clone())
+                        .is_err()
+                    {
+                        tracing::warn!(peer_id = %peer, "⚠️ Failed to send authorization response");
+                    }
+                    self.mark_verified(peer);
+                } else {
+                    // Dropping `channel` signals an inbound failure to the peer; we also reject it.
+                    self.reject_peer(peer);
+                }
+            }
+            libp2p::request_response::Message::Response { response, .. } => {
+                if self.verify_peer(&peer, &response).await {
+                    self.mark_verified(peer);
+                } else {
+                    self.reject_peer(peer);
+                }
+            }
+        }
+    }
+
+    /// Verifies a peer's proof-of-possession against the on-chain attestor set and the connection's
+    /// authenticated [`PeerId`]. Returns `false` if the claimed attestor is not authorized or the
+    /// BLS signature does not verify.
+    ///
+    /// [`PeerId`]: libp2p::PeerId
+    async fn verify_peer(&self, peer: &libp2p::PeerId, proof: &auth::PeerAuth) -> bool {
+        let Some(pubkey) = self
+            .bls
+            .pubkey(cc_client::AccountId32(proof.attestor))
+            .await
+        else {
+            tracing::warn!(peer_id = %peer, "⛔ Peer claims an unauthorized attestor identity");
+            return false;
+        };
+
+        if proof.verify(&pubkey, self.chain_key, peer) {
+            true
+        } else {
+            tracing::warn!(peer_id = %peer, "⛔ Peer presented an invalid authorization proof");
+            false
+        }
+    }
+
+    /// Marks a peer as authorized: clears its pending timer and adds it as an explicit gossipsub
+    /// peer to ensure reliable attestation propagation.
+    fn mark_verified(&mut self, peer: libp2p::PeerId) {
+        self.pending_auth.remove(&peer);
+        if self.verified.insert(peer) {
+            tracing::info!(peer_id = %peer, "🔓 Peer authorized");
+        }
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .add_explicit_peer(&peer);
+    }
+
+    /// Disconnects and blocklists a peer that failed authorization, removing it from the routing
+    /// table so it cannot be rediscovered. Blocklisted peers are denied at the swarm layer on any
+    /// future connection attempt.
+    fn reject_peer(&mut self, peer: libp2p::PeerId) {
+        tracing::warn!(peer_id = %peer, "⛔ Blocklisting unauthorized peer");
+
+        self.pending_auth.remove(&peer);
+        self.verified.remove(&peer);
+        self.swarm.behaviour_mut().blocked.block_peer(peer);
+        self.swarm.behaviour_mut().kad.remove_peer(&peer);
+        self.swarm
+            .behaviour_mut()
+            .gossipsub
+            .remove_explicit_peer(&peer);
+        let _ = self.swarm.disconnect_peer_id(peer);
+
+        self.metrics.increase_connection_failure_count();
+    }
+
+    /// Disconnects and blocklists any peers that have not completed the authorization handshake
+    /// within [`AUTH_TIMEOUT`]. This is the defense against peers that connect and stay silent to
+    /// occupy connection slots or force per-message work.
+    fn sweep_pending_auth(&mut self) {
+        let now = std::time::Instant::now();
+        let expired: Vec<libp2p::PeerId> = self
+            .pending_auth
+            .iter()
+            .filter(|(_, connected_at)| now.duration_since(**connected_at) > AUTH_TIMEOUT)
+            .map(|(peer, _)| *peer)
+            .collect();
+
+        for peer in expired {
+            tracing::warn!(peer_id = %peer, "⛔ Peer failed to authorize within timeout");
+            self.reject_peer(peer);
+        }
+    }
+
     /// Verifies attestor eligibility and attestation bls signature before submitting to the
     /// [attestation pool].
     ///
@@ -680,5 +898,228 @@ impl WorkerP2P {
                 InvalidCause::InvalidBls(digest),
             )))
         }
+    }
+}
+
+// ------------------------------------- [ Auth network tests ] -------------------------------- //
+
+/// End-to-end tests for the peer authorization handshake. Two real [`P2PBehavior`] swarms talk over
+/// loopback TCP, exercising the same `request_response` + `allow_block_list` behaviours used in
+/// production. The handshake glue here mirrors [`WorkerP2P::handle_event_p2p`] but verifies against
+/// an in-memory authorized set instead of the on-chain [`BlsStore`], so no chain is required.
+///
+/// Run as an eyeball test with:
+/// `cargo test -p attestor auth_net -- --nocapture`
+///
+/// [`P2PBehavior`]: behavior::P2PBehavior
+/// [`BlsStore`]: crate::bls::BlsStore
+#[cfg(test)]
+mod auth_net_tests {
+    use super::*;
+    use futures::StreamExt as _;
+    use std::collections::HashMap;
+
+    const CHAIN_KEY: attestor_primitives::ChainKey = 2;
+
+    /// A test node: its swarm, identity, own proof, and the set of attestors it considers
+    /// authorized (a stand-in for the on-chain BLS set).
+    struct Node {
+        name: &'static str,
+        swarm: libp2p::Swarm<behavior::P2PBehavior>,
+        peer_id: libp2p::PeerId,
+        self_auth: auth::PeerAuth,
+        authorized: HashMap<[u8; 32], bls_signatures::PublicKey>,
+    }
+
+    /// What a node decided about a peer during the handshake.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Decision {
+        Authorized(libp2p::PeerId),
+        Blocked(libp2p::PeerId),
+    }
+
+    fn bls_key(seed: &[u8]) -> bls_signatures::PrivateKey {
+        let mut ikm = [0u8; 32];
+        for (slot, byte) in ikm.iter_mut().zip(seed.iter().cycle()) {
+            *slot = *byte;
+        }
+        bls_signatures::PrivateKey::new(ikm)
+    }
+
+    fn build_node(
+        name: &'static str,
+        attestor: [u8; 32],
+        bls: &bls_signatures::PrivateKey,
+    ) -> Node {
+        let keypair = libp2p::identity::Keypair::generate_ed25519();
+        let peer_id = keypair.public().to_peer_id();
+
+        let swarm = libp2p::SwarmBuilder::with_existing_identity(keypair)
+            .with_tokio()
+            .with_tcp(
+                libp2p::tcp::Config::default(),
+                libp2p::noise::Config::new,
+                libp2p::yamux::Config::default,
+            )
+            .expect("tcp transport")
+            .with_behaviour(|key| behavior::P2PBehavior::new(key, false))
+            .expect("behaviour")
+            .build();
+
+        let self_auth = auth::PeerAuth::new(bls, attestor, CHAIN_KEY, &peer_id);
+
+        Node {
+            name,
+            swarm,
+            peer_id,
+            self_auth,
+            authorized: HashMap::new(),
+        }
+    }
+
+    /// Verifies a peer's proof against this node's authorized set and the connection's
+    /// authenticated `peer_id` — the test mirror of [`WorkerP2P::verify_peer`].
+    fn verify(node: &Node, peer: &libp2p::PeerId, proof: &auth::PeerAuth) -> bool {
+        match node.authorized.get(&proof.attestor) {
+            Some(pubkey) => proof.verify(pubkey, CHAIN_KEY, peer),
+            None => false,
+        }
+    }
+
+    /// Applies one swarm event, mirroring the auth-relevant arms of
+    /// [`WorkerP2P::handle_event_p2p`]. Returns a [`Decision`] when this node authorizes or blocks
+    /// the peer.
+    fn on_event(
+        node: &mut Node,
+        event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
+    ) -> Option<Decision> {
+        match event {
+            libp2p::swarm::SwarmEvent::ConnectionEstablished { peer_id, .. } => {
+                // Both sides proactively challenge, mirroring the production handler.
+                node.swarm
+                    .behaviour_mut()
+                    .auth
+                    .send_request(&peer_id, node.self_auth.clone());
+                None
+            }
+            libp2p::swarm::SwarmEvent::Behaviour(behavior::P2PBehaviorEvent::Auth(
+                libp2p::request_response::Event::Message { peer, message, .. },
+            )) => match message {
+                libp2p::request_response::Message::Request {
+                    request, channel, ..
+                } => {
+                    if verify(node, &peer, &request) {
+                        let _ = node
+                            .swarm
+                            .behaviour_mut()
+                            .auth
+                            .send_response(channel, node.self_auth.clone());
+                        println!("✅ {} authorized peer {peer}", node.name);
+                        Some(Decision::Authorized(peer))
+                    } else {
+                        node.swarm.behaviour_mut().blocked.block_peer(peer);
+                        let _ = node.swarm.disconnect_peer_id(peer);
+                        println!("⛔ {} BLOCKLISTED rogue peer {peer}", node.name);
+                        Some(Decision::Blocked(peer))
+                    }
+                }
+                libp2p::request_response::Message::Response { response, .. } => {
+                    if verify(node, &peer, &response) {
+                        println!("✅ {} authorized peer {peer}", node.name);
+                        Some(Decision::Authorized(peer))
+                    } else {
+                        node.swarm.behaviour_mut().blocked.block_peer(peer);
+                        let _ = node.swarm.disconnect_peer_id(peer);
+                        println!("⛔ {} BLOCKLISTED rogue peer {peer}", node.name);
+                        Some(Decision::Blocked(peer))
+                    }
+                }
+            },
+            _ => None,
+        }
+    }
+
+    /// Has `dialer` connect to `listener` and drives both swarms until the listener reaches a
+    /// decision about the dialer (or a timeout). Returns the listener's decision.
+    async fn run_handshake(mut listener: Node, mut dialer: Node) -> Option<Decision> {
+        listener
+            .swarm
+            .listen_on("/ip4/127.0.0.1/tcp/0".parse().unwrap())
+            .expect("listen");
+
+        // Wait for the listen address, then dial it.
+        let addr = loop {
+            if let libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } =
+                listener.swarm.select_next_some().await
+            {
+                break address;
+            }
+        };
+        println!("🔭 {} listening on {addr}", listener.name);
+        println!("📞 {} dialing {}", dialer.name, listener.name);
+        dialer.swarm.dial(addr).expect("dial");
+
+        let timeout = tokio::time::sleep(std::time::Duration::from_secs(10));
+        tokio::pin!(timeout);
+
+        loop {
+            tokio::select! {
+                _ = &mut timeout => {
+                    println!("⌛ handshake timed out");
+                    break None;
+                }
+                event = listener.swarm.select_next_some() => {
+                    if let Some(decision) = on_event(&mut listener, event) {
+                        break Some(decision);
+                    }
+                }
+                event = dialer.swarm.select_next_some() => {
+                    let _ = on_event(&mut dialer, event);
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn authorized_peer_completes_handshake() {
+        let listener_bls = bls_key(b"listener-attestor-seed");
+        let dialer_bls = bls_key(b"dialer-attestor-seed");
+        let listener_id = [1u8; 32];
+        let dialer_id = [2u8; 32];
+
+        let mut listener = build_node("listener", listener_id, &listener_bls);
+        let mut dialer = build_node("dialer", dialer_id, &dialer_bls);
+
+        // Both nodes are in each other's authorized set: a healthy attestor network.
+        listener
+            .authorized
+            .insert(dialer_id, dialer_bls.public_key());
+        dialer
+            .authorized
+            .insert(listener_id, listener_bls.public_key());
+
+        let dialer_peer = dialer.peer_id;
+        let decision = run_handshake(listener, dialer).await;
+
+        assert_eq!(decision, Some(Decision::Authorized(dialer_peer)));
+    }
+
+    #[tokio::test]
+    async fn rogue_peer_is_blocklisted() {
+        let listener_bls = bls_key(b"listener-attestor-seed");
+        let rogue_bls = bls_key(b"rogue-attestor-seed");
+        let listener_id = [1u8; 32];
+        let rogue_id = [99u8; 32];
+
+        let listener = build_node("listener", listener_id, &listener_bls);
+        let rogue = build_node("rogue", rogue_id, &rogue_bls);
+
+        // The rogue's attestor identity is NOT in the listener's authorized set: it is not part of
+        // the on-chain attestor set. It presents a perfectly-formed proof, but for an unauthorized
+        // identity.
+        let rogue_peer = rogue.peer_id;
+        let decision = run_handshake(listener, rogue).await;
+
+        assert_eq!(decision, Some(Decision::Blocked(rogue_peer)));
     }
 }

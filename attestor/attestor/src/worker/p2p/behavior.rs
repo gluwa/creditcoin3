@@ -39,6 +39,21 @@ pub(crate) struct P2PBehavior {
     ///
     /// [`gossipsub`]: libp2p::gossipsub
     pub gossipsub: libp2p::gossipsub::Behaviour,
+
+    /// [`request_response`] carries the peer authorization handshake. On connecting, peers exchange
+    /// a [`PeerAuth`] proving they belong to the on-chain attestor set; peers that fail are
+    /// disconnected and added to [`blocked`].
+    ///
+    /// [`request_response`]: libp2p::request_response
+    /// [`PeerAuth`]: super::auth::PeerAuth
+    /// [`blocked`]: Self::blocked
+    pub auth: libp2p::request_response::Behaviour<super::auth::AuthCodec>,
+
+    /// [`allow_block_list`] denies connections from peers which have failed the authorization
+    /// handshake, rejecting them at the swarm layer so they cannot rejoin or flood the network.
+    ///
+    /// [`allow_block_list`]: libp2p::allow_block_list
+    pub blocked: libp2p::allow_block_list::Behaviour<libp2p::allow_block_list::BlockedPeers>,
 }
 
 impl P2PBehavior {
@@ -92,6 +107,17 @@ impl P2PBehavior {
                 .build()?,
         )?;
 
+        let auth = libp2p::request_response::Behaviour::with_codec(
+            super::auth::AuthCodec,
+            std::iter::once((
+                super::protocols::AUTH,
+                libp2p::request_response::ProtocolSupport::Full,
+            )),
+            libp2p::request_response::Config::default(),
+        );
+
+        let blocked = libp2p::allow_block_list::Behaviour::default();
+
         Ok(Self {
             ping,
             limits,
@@ -99,6 +125,8 @@ impl P2PBehavior {
             mdns,
             kad,
             gossipsub,
+            auth,
+            blocked,
         })
     }
 }

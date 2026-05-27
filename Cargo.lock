@@ -1562,6 +1562,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "assert_matches",
+ "async-trait",
  "attestation_pool",
  "attestor-primitives",
  "axum",
@@ -6771,7 +6772,7 @@ dependencies = [
  "libp2p-noise 0.43.2",
  "libp2p-ping 0.43.1",
  "libp2p-quic 0.9.3",
- "libp2p-request-response",
+ "libp2p-request-response 0.25.3",
  "libp2p-swarm 0.43.7",
  "libp2p-tcp 0.40.1",
  "libp2p-upnp 0.1.1",
@@ -6808,6 +6809,7 @@ dependencies = [
  "libp2p-noise 0.46.1",
  "libp2p-ping 0.47.0",
  "libp2p-quic 0.13.0",
+ "libp2p-request-response 0.29.0",
  "libp2p-swarm 0.47.0",
  "libp2p-tcp 0.44.0",
  "libp2p-upnp 0.5.0",
@@ -7317,6 +7319,23 @@ dependencies = [
  "rand 0.8.5",
  "smallvec",
  "void",
+]
+
+[[package]]
+name = "libp2p-request-response"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a9f1cca83488b90102abac7b67d5c36fc65bc02ed47620228af7ed002e6a1478"
+dependencies = [
+ "async-trait",
+ "futures 0.3.31",
+ "futures-bounded 0.2.4",
+ "libp2p-core 0.43.1",
+ "libp2p-identity",
+ "libp2p-swarm 0.47.0",
+ "rand 0.8.5",
+ "smallvec",
+ "tracing",
 ]
 
 [[package]]
