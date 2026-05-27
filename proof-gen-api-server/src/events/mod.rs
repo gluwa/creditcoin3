@@ -33,6 +33,7 @@ pub fn get_last_attestation(chain_key: u64) -> Option<LastAttestation> {
 }
 
 /// Start a single CC3 event subscription for all configured chain keys (one finalized-block stream).
+/// Will automatically reconnect to the CC3 node if the connection is lost.
 pub async fn start_cc3_event_subscription(
     cc3_client: CcClient,
     checkpoint_intervals: CheckpointIntervalMap,
