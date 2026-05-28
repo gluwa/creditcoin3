@@ -21,6 +21,7 @@ struct Config {
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
     no_mdns: bool,
+    no_peer_auth: bool,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -65,6 +66,8 @@ struct ConfigFileP2P {
     port: Option<u16>,
     #[serde(default)]
     no_mdns: bool,
+    #[serde(default)]
+    no_peer_auth: bool,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -201,6 +204,21 @@ impl Config {
                         or not desired.",
                     )
                     .env("ATTESTOR_NO_MDNS")
+                    .required(false)
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                clap::arg!(--"no-peer-auth")
+                    .help("Disable peer authorization enforcement")
+                    .long_help(
+                        "Disable the p2p peer authorization handshake. \
+                        By default, peers must prove (via a BLS signature over their PeerId) that \
+                        they belong to the on-chain attestor set, or they are disconnected and \
+                        blocklisted. Disabling this is intended ONLY for the rolling-upgrade window \
+                        before every node on the network supports the handshake. Running with it \
+                        disabled lets unauthorized peers join the network.",
+                    )
+                    .env("ATTESTOR_NO_PEER_AUTH")
                     .required(false)
                     .action(clap::ArgAction::SetTrue),
             )
@@ -381,6 +399,7 @@ impl Config {
             .or(config_file.attestation.interval);
 
         let no_mdns = matches.get_flag("no-mdns") || config_file.p2p.no_mdns;
+        let no_peer_auth = matches.get_flag("no-peer-auth") || config_file.p2p.no_peer_auth;
 
         Ok(Config {
             name,
@@ -396,6 +415,7 @@ impl Config {
             start_height,
             attestation_interval,
             no_mdns,
+            no_peer_auth,
         })
     }
 }
@@ -486,7 +506,8 @@ async fn main() -> anyhow::Result<()> {
                 .with_boot_nodes(args.boot_nodes)
                 .with_public_addr(args.public_addr)
                 .with_port(args.p2p_port)
-                .with_no_mdns(args.no_mdns),
+                .with_no_mdns(args.no_mdns)
+                .with_no_peer_auth(args.no_peer_auth),
         )
         .with_attestation(
             attestor::attestation::ConfigBuilder::new()
