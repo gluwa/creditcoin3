@@ -344,8 +344,8 @@ impl Client {
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
-            supported_chains.push(kv.value.into());
+        while let Some(kv_res) = iter.next().await {
+            supported_chains.push(kv_res?.value.into());
         }
 
         Ok(supported_chains)
@@ -881,8 +881,8 @@ impl Client {
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
-            attestations.push(kv.value.into());
+        while let Some(kv_res) = iter.next().await {
+            attestations.push(kv_res?.value.into());
         }
 
         attestations.sort_by(
@@ -919,7 +919,8 @@ impl Client {
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
+        while let Some(kv_res) = iter.next().await {
+            let kv = kv_res?;
             if kv.key_bytes.len() < 8 {
                 tracing::error!(
                     "Storage key for chainkey {} is less than 8 bytes, checkpoint: {:?}",
@@ -1098,7 +1099,7 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .inner
             .load()
             .api
@@ -1106,15 +1107,16 @@ impl Client {
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?;
+            .await
+            .map_err(|e| {
+                if util::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        tracing::debug!(
-            "Set attestation chain genesis block number extrinsic submitted with hash: {:?}",
-            hash
-        );
-
-        Ok(())
+        util::handle_tx(tx_progress, "Set Attestation Chain Genesis Block Number").await
     }
 
     pub async fn get_attestation_chain_genesis_block_number(
