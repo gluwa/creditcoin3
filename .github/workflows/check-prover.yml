@@ -35,6 +35,13 @@ jobs:
             evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
             chainKey: 1
 
+          # CC3 Testnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
+            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
+            chainKey: 3
+
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-24.04
     steps:
