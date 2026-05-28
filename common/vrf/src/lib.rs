@@ -75,6 +75,7 @@ pub enum Error {
 /// # Returns
 ///
 /// Returns a `ProofOfInclusion` if successful, or an `Error` if the attestor is not selected or there is an issue with the VRF process.
+#[allow(clippy::too_many_arguments)]
 pub fn make_proof_of_inclusion(
     working_set_size: u64,
     target_sample_size: u64,
