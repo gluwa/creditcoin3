@@ -113,7 +113,7 @@ async function main() {
                             } else if (result.isError) {
                                 console.error('❌ Transaction error reported');
                                 if (unsub) unsub();
-                                reject(new Error('Transaction error reported'));
+                                reject(new Error('Transaction error reported: {}'.format(result.toHuman())));
                             }
                         })
                         .then((u) => {
