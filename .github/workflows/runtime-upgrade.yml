@@ -435,6 +435,16 @@ jobs:
           # WARNING: always quote otherwise we get "2E+24" which can't parse
           NEW_SUDO_BALANCE: "2000000000000000000000000"
 
+      - name: Is Creditcoin still there after 3 minutes
+        run: |
+          sleep 180
+          .github/wait-for-creditcoin.sh
+
+      - name: Check for errors
+        run: |
+          grep -vz "WASM backtrace:"   creditcoin3-node-with-forked-chain.log
+          grep -vz "Proposing failed:" creditcoin3-node-with-forked-chain.log
+
       - name: Execute blockchain integration tests
         working-directory: ./cli
         run: |
