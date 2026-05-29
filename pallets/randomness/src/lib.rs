@@ -11,7 +11,18 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 pub mod weights;
+
+use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
 use randomness_primitives::Randomness;
+use scale_info::TypeInfo;
+
+#[derive(Debug, Clone, PartialEq, Eq, Encode, Decode, TypeInfo, MaxEncodedLen)]
+pub struct PruningState {
+    // The next epoch index to prune from.
+    pub next: u64,
+    // The epoch index to prune to (inclusive).
+    pub to: u64,
+}
 
 #[frame_support::pallet]
 pub mod pallet {
@@ -62,6 +73,9 @@ pub mod pallet {
         QueryKind = ValueQuery,
     >;
 
+    #[pallet::storage]
+    pub type PruningQueue<T: Config> = StorageValue<_, PruningState, OptionQuery>;
+
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         /// Initialization
@@ -75,8 +89,24 @@ pub mod pallet {
 
                 RandomnessByEpochIndex::<T>::insert(epoch_index, randomness);
 
-                if let Some(prune_epoch) = epoch_index.checked_sub(T::MaxEpochHistory::get()) {
-                    RandomnessByEpochIndex::<T>::remove(prune_epoch);
+                let max_epoch_history = T::MaxEpochHistory::get();
+                let prune_to = epoch_index.checked_sub(max_epoch_history);
+                let prune_from = last_seen_epoch_index
+                    .checked_sub(max_epoch_history)
+                    .map_or(prune_to, Some);
+
+                // If the new epoch index exceeds the max history, we need to update the pruning queue.
+                if let (Some(from), Some(to)) = (prune_from, prune_to) {
+                    PruningQueue::<T>::mutate(|maybe_prunning_state| match maybe_prunning_state {
+                        Some(ref mut prunning_state) => {
+                            // Extending `to` is sufficient: the current `next` is always <= the new `from`,
+                            // so the queue will sweep through the gap as it advances each block.
+                            prunning_state.to = prunning_state.to.max(to);
+                        }
+                        None => {
+                            *maybe_prunning_state = Some(PruningState { next: from, to });
+                        }
+                    });
                 }
 
                 // Notify event listeners
@@ -87,6 +117,20 @@ pub mod pallet {
                     randomness,
                 });
             }
+
+            // We try to prune one entry from the queue each block, to avoid a potential weight spike from pruning many entries at once.
+            PruningQueue::<T>::mutate(|maybe_prunning_state| {
+                if let Some(ref mut prunning_state) = maybe_prunning_state {
+                    let epoch_to_prune = prunning_state.next;
+                    RandomnessByEpochIndex::<T>::remove(epoch_to_prune);
+                    prunning_state.next = prunning_state.next.saturating_add(1);
+
+                    // If we've pruned up to the target epoch, clear the prunning state.
+                    if prunning_state.next > prunning_state.to {
+                        *maybe_prunning_state = None;
+                    }
+                }
+            });
 
             <T as pallet::Config>::WeightInfo::on_initialize()
         }
