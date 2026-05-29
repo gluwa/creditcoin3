@@ -7,6 +7,11 @@
       "chainId": 11155111,
       "chainKey": 1,
       "url": ""
+    },
+    {
+      "chainId": 1,
+      "chainKey": 3,
+      "url": ""
     }
   ],
   "balanceChecks": [
