@@ -81,3 +81,28 @@ fn can_predict_next_epoch_change() {
         );
     })
 }
+
+#[test]
+fn old_epoch_randomness_is_pruned() {
+    new_test_ext(1).execute_with(|| {
+        System::set_block_number(1);
+        Timestamp::set_timestamp(1);
+
+        // Genesis slot = 6; EpochDuration = 3 slots; MaxEpochHistory = 3.
+        // Each block advances the slot by 1, so epoch N starts at block 3N + 1.
+        go_to_block(1, 6);
+        assert_eq!(Babe::epoch_index(), 0);
+
+        // Advance to epoch 4 (block 13, slot 18).
+        progress_to_block(13);
+        assert_eq!(Babe::epoch_index(), 4);
+
+        // Entries for epochs 2, 3, 4 must be present.
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(2));
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(3));
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(4));
+
+        // Epoch 1 is 4 - MaxEpochHistory (3) = 1, so it must have been pruned.
+        assert!(!crate::RandomnessByEpochIndex::<Test>::contains_key(1));
+    })
+}

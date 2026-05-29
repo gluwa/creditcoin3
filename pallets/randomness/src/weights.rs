@@ -34,10 +34,12 @@ use core::marker::PhantomData;
 /// Weight functions for `crate`.
 pub struct WeightInfo<T>(PhantomData<T>);
 impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
-	/// Storage: `Randomness::LastSeenEpochIndex` (r:1 w:0)
-	/// Proof: `Randomness::LastSeenEpochIndex` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Randomness::LastSeenEpochIndex` (r:1 w:1)
+	/// Proof: `Randomness::LastSeenEpochIndex` (`max_values`: Some(1), `max_size`: Some(8), mode: `MaxEncodedLen`)
 	/// Storage: `Babe::EpochIndex` (r:1 w:0)
 	/// Proof: `Babe::EpochIndex` (`max_values`: Some(1), `max_size`: Some(8), added: 503, mode: `MaxEncodedLen`)
+	/// Storage: `Randomness::RandomnessByEpochIndex` (r:0 w:2)
+	/// Proof: `Randomness::RandomnessByEpochIndex` (`max_values`: None, `max_size`: Some(56), mode: `MaxEncodedLen`)
 	fn on_initialize() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `316`
@@ -46,5 +48,6 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		Weight::from_parts(9_270_000, 0)
 			.saturating_add(Weight::from_parts(0, 1801))
 			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(T::DbWeight::get().writes(3))
 	}
 }

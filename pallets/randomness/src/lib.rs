@@ -29,7 +29,6 @@ pub mod pallet {
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
-    #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
     #[pallet::config]
@@ -40,6 +39,10 @@ pub mod pallet {
         type WeightInfo: WeightInfo;
         /// Something that notifies the pallet about randomness updates.
         type EventListeners: OnRandomnessUpdate;
+        /// Number of past epochs for which randomness is retained in storage.
+        /// Entries older than this are pruned each time a new epoch is recorded.
+        #[pallet::constant]
+        type MaxEpochHistory: Get<u64>;
     }
 
     pub trait WeightInfo {
@@ -71,6 +74,10 @@ pub mod pallet {
                 let randomness = pallet_babe::Randomness::<T>::get();
 
                 RandomnessByEpochIndex::<T>::insert(epoch_index, randomness);
+
+                if let Some(prune_epoch) = epoch_index.checked_sub(T::MaxEpochHistory::get()) {
+                    RandomnessByEpochIndex::<T>::remove(prune_epoch);
+                }
 
                 // Notify event listeners
                 T::EventListeners::on_new_epoch_randomness(epoch_index, randomness);
