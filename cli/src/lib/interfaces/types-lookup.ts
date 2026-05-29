@@ -3805,10 +3805,16 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic' | 'InvalidMaturityStrategy';
     }
 
-    /** @name PalletRandomnessError (424) */
+    /** @name PalletRandomnessPruningState (424) */
+    interface PalletRandomnessPruningState extends Struct {
+        readonly next: u64;
+        readonly to: u64;
+    }
+
+    /** @name PalletRandomnessError (425) */
     type PalletRandomnessError = Null;
 
-    /** @name PalletMembershipError (426) */
+    /** @name PalletMembershipError (427) */
     interface PalletMembershipError extends Enum {
         readonly isAlreadyMember: boolean;
         readonly isNotMember: boolean;
@@ -3816,42 +3822,42 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'AlreadyMember' | 'NotMember' | 'TooManyMembers';
     }
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (429) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (430) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (430) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (431) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (431) */
+    /** @name FrameSystemExtensionsCheckTxVersion (432) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (432) */
+    /** @name FrameSystemExtensionsCheckGenesis (433) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (435) */
+    /** @name FrameSystemExtensionsCheckNonce (436) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (436) */
+    /** @name FrameSystemExtensionsCheckWeight (437) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (437) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (438) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name FrameMetadataHashExtensionCheckMetadataHash (438) */
+    /** @name FrameMetadataHashExtensionCheckMetadataHash (439) */
     interface FrameMetadataHashExtensionCheckMetadataHash extends Struct {
         readonly mode: FrameMetadataHashExtensionMode;
     }
 
-    /** @name FrameMetadataHashExtensionMode (439) */
+    /** @name FrameMetadataHashExtensionMode (440) */
     interface FrameMetadataHashExtensionMode extends Enum {
         readonly isDisabled: boolean;
         readonly isEnabled: boolean;
         readonly type: 'Disabled' | 'Enabled';
     }
 
-    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (440) */
+    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (441) */
     type PalletAttestationExtensionsPrevalidateAttestationCommit = Null;
 
-    /** @name Creditcoin3RuntimeRuntime (442) */
+    /** @name Creditcoin3RuntimeRuntime (443) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module
