@@ -15,6 +15,7 @@ export interface BalanceNetworkConfig {
   baseUrl: string;
   rpcUrl?: string;
   accounts: BalanceAccountConfig[];
+  tokenSymbol?: string;
 }
 
 const MAX_RETRIES = 3;
@@ -183,6 +184,7 @@ export async function runBalanceChecks(
   let hasLowBalances = false;
 
   for (const net of networks) {
+    const symbol = net.tokenSymbol ?? TOKEN_SYMBOL;
     lines.push(`Balances Details: ${net.name}`);
 
     if (!net.baseUrl) {
@@ -212,9 +214,7 @@ export async function runBalanceChecks(
         const isLow = bal < THRESHOLD_WEI;
 
         lines.push(
-          `${isLow ? "❌" : "✅"} ${display}: ${
-            token.toFixed(6)
-          } ${TOKEN_SYMBOL}`,
+          `${isLow ? "❌" : "✅"} ${display}: ${token.toFixed(6)} ${symbol}`,
         );
 
         if (isLow) {
@@ -222,7 +222,7 @@ export async function runBalanceChecks(
           lowLines.push(
             `- ${config.uscNetworkName}, \`${display}\`: ${
               token.toFixed(6)
-            } ${TOKEN_SYMBOL}`,
+            } ${symbol}`,
           );
         }
       } catch (err) {
