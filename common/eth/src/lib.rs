@@ -204,6 +204,15 @@ pub struct OrderedBlock {
     items: Vec<TxRx>,
 }
 
+/// Ethereum mainnet chain id.
+const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
+
+/// First block of the Byzantium hard fork on Ethereum mainnet. Before this height receipts carried
+/// a post-state root instead of a status byte; several RPC providers re-serialize these historical
+/// receipts in the modern (status) form, so a recomputed receipt root cannot match the canonical
+/// header root even when the data is otherwise sound.
+const ETHEREUM_BYZANTIUM_BLOCK: u64 = 4_370_000;
+
 impl OrderedBlock {
     /// Builds an [`OrderedBlock`] from RPC-fetched [`Block`] and receipts. Verifies that
     /// recomputed transaction and receipt Merkle roots match the header (so a reorg between
@@ -257,17 +266,33 @@ impl OrderedBlock {
 
         let tx_inners: Vec<_> = txs.iter().map(|t| t.inner.clone()).collect();
         let computed_tx_root = calculate_transaction_root(&tx_inners);
-
-        let inner_receipts: Vec<_> = receipts
-            .iter()
-            .map(|r| r.clone().into_primitives_receipt().inner)
-            .collect();
-        let computed_receipt_root = calculate_receipt_root(&inner_receipts);
-
-        if computed_tx_root != block.header.transactions_root
-            || computed_receipt_root != block.header.receipts_root
-        {
+        if computed_tx_root != block.header.transactions_root {
             return Err(Error::BlockHeaderRootsMismatch(expected_number));
+        }
+
+        // Pre-Byzantium Ethereum mainnet receipts encode a post-state root rather than a status byte.
+        // Some RPC providers return these historical receipts re-serialized in the modern status form,
+        // so a recomputed receipt root will not match the canonical header root even though the body
+        // is consistent. Skip only the receipt-root check for that range; the transaction-root check
+        // above still guards against reorg-induced cross-fetch mismatches.
+        let skip_receipt_root =
+            chain_id == ETHEREUM_MAINNET_CHAIN_ID && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
+
+        if skip_receipt_root {
+            trace!(
+                block_number = expected_number,
+                "Skipping receipt root check for pre-Byzantium Ethereum mainnet block"
+            );
+        } else {
+            let inner_receipts: Vec<_> = receipts
+                .iter()
+                .map(|r| r.clone().into_primitives_receipt().inner)
+                .collect();
+            let computed_receipt_root = calculate_receipt_root(&inner_receipts);
+
+            if computed_receipt_root != block.header.receipts_root {
+                return Err(Error::BlockHeaderRootsMismatch(expected_number));
+            }
         }
 
         let items = txs
