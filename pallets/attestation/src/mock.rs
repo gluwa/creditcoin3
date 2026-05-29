@@ -301,6 +301,7 @@ impl pallet_randomness::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_randomness::weights::WeightInfo<Test>;
     type EventListeners = Attestation;
+    type MaxEpochHistory = ConstU64<3>;
 }
 
 parameter_types! {
