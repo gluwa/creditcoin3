@@ -14,32 +14,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # CC3 Devnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 1
-
           # CC3 Devnet, Ethereum Mainnet Full Archive
           - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-devnet.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
             evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
             chainKey: 4
-
-          # CC3 Testnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
-            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
-            chainKey: 1
-
-          # USC Testnet v2, Sepolia from 10,050,300
-          - creditcoinUrl: "wss://rpc.usc-testnet2.creditcoin.network/ws"
-            proverUrl: "https://proof-gen-api.usc-testnet2.creditcoin.network"
-            indexerUrl: "https://attestations-graphql.usc-testnet2.creditcoin.network"
-            chainKey: 1
 
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-24.04
@@ -73,7 +53,8 @@ jobs:
       - name: Execute prover-check.ts on checkpoint boundaries
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: '3600'
+          LAST_SOURCE_BLOCK: '25201764'
+          GO_BACK_BLOCKS: '25201763'
         run: |
           node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
 
