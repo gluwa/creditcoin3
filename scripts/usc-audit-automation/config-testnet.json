@@ -25,6 +25,17 @@
           "name": "NEW_LENDER_ accnt in 1Password. Used for testing"
         }
       ]
+    },
+    {
+      "name": "Ethereum Sepolia",
+      "baseUrl": "https://eth-sepolia.blockscout.com/",
+      "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+      "accounts": [
+        {
+          "address": "0x311aECFD45fF33E7F03AFacb2DC9654565926934",
+          "name": "Traffic simulator Sepolia account."
+        }
+      ]
     }
   ]
 }
