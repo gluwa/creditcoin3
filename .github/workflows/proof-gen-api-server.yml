@@ -6,6 +6,7 @@ name: proof-gen-api-server
     branches: [main, usc-testnet, usc-dev]
     paths:
       - "proof-gen-api-server/**"
+      - "common/eth/**"
       - "scripts/**"
       - ".github/workflows/proof-gen-api-server.yml"
   workflow_dispatch:
