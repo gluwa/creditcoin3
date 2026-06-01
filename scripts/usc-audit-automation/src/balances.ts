@@ -246,7 +246,6 @@ export async function runBalanceChecks(
 
   if (lowLines.length > 0) {
     lines.push("*Low balance alert*");
-    lines.push(`Threshold: ${THRESHOLD_CTC} ${TOKEN_SYMBOL}`);
     lines.push(...lowLines);
   }
 
