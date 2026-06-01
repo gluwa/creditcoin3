@@ -54,7 +54,7 @@ jobs:
         working-directory: ./cli
         env:
           LAST_SOURCE_BLOCK: '25201764'
-          GO_BACK_BLOCKS: '25201763'
+          GO_BACK_BLOCKS: '22807764'
         run: |
           node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
 
