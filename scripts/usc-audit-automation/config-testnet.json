@@ -31,6 +31,8 @@
       "baseUrl": "https://eth-sepolia.blockscout.com/",
       "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
       "tokenSymbol": "ETH",
+      "tokenDecimals": 18,
+      "customThreshold": 0.1,
       "accounts": [
         {
           "address": "0x311aECFD45fF33E7F03AFacb2DC9654565926934",

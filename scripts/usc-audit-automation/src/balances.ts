@@ -16,6 +16,8 @@ export interface BalanceNetworkConfig {
   rpcUrl?: string;
   accounts: BalanceAccountConfig[];
   tokenSymbol?: string;
+  tokenDecimals?: number;
+  customThreshold?: number;
 }
 
 const MAX_RETRIES = 3;
@@ -205,23 +207,29 @@ export async function runBalanceChecks(
       const display = formatDisplay(account);
 
       try {
-        const bal = await fetchBalance(
+        const balance = await fetchBalance(
           net.baseUrl,
           account.address,
           net.rpcUrl,
         );
-        const token = Number(bal) / 10 ** TOKEN_DECIMALS;
-        const isLow = bal < THRESHOLD_WEI;
+        const tokenDecimals = net.tokenDecimals ?? TOKEN_DECIMALS;
+        const tokenWithDecimals = Number(balance) / 10 ** tokenDecimals;
+        const threshold = net.customThreshold
+          ? BigInt(net.customThreshold) * (10n ** BigInt(tokenDecimals))
+          : THRESHOLD_WEI;
+        const isLow = balance < threshold;
 
         lines.push(
-          `${isLow ? "❌" : "✅"} ${display}: ${token.toFixed(6)} ${symbol}`,
+          `${isLow ? "❌" : "✅"} ${display}: ${
+            tokenWithDecimals.toFixed(6)
+          } ${symbol}`,
         );
 
         if (isLow) {
           hasLowBalances = true;
           lowLines.push(
             `- ${config.uscNetworkName}, \`${display}\`: ${
-              token.toFixed(6)
+              tokenWithDecimals.toFixed(6)
             } ${symbol}`,
           );
         }
