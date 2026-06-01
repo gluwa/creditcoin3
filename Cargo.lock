@@ -948,6 +948,7 @@ version = "3.125.0"
 dependencies = [
  "anyhow",
  "axum",
+ "cc-client",
  "clap",
  "dotenvy",
  "eth",
@@ -956,6 +957,7 @@ dependencies = [
  "sled",
  "sp-core",
  "stream_eth",
+ "supported-chains-primitives",
  "tempfile",
  "tokio",
  "tower-http 0.6.7",
