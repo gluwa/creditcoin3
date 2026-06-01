@@ -69,7 +69,7 @@ pub struct Config {
     /// Finalization lag: number of blocks behind the chain tip to consider finalized.
     /// By default the archiver will use the on-chain finalization lag for this source
     /// chain as registered on Creditcoin. The default will be correct in most cases.
-    /// 
+    ///
     /// Set to 0 for chains with instant finality. For chains with probabilistic
     /// finality, set this to the expected number of confirmation blocks.
     #[arg(long, env = "FINALIZATION_LAG")]
