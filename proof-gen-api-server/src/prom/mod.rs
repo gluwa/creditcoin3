@@ -415,6 +415,7 @@ mod labels {
         ProofBatch,
         ProofBatchByTxHash,
         Health,
+        AttestedHeight,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
@@ -452,6 +453,7 @@ mod labels {
     // Error type labels
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
     pub enum ErrorType {
+        UnsupportedBlockFormat,
         UnknownChain,
         BlockNotReady,
         BlockBeforeOrAtGenesis,

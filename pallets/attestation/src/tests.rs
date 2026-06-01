@@ -4309,14 +4309,21 @@ fn chilled_attestor_cannot_commit_attestation() {
     });
 }
 
-/// After an attestor signs off-chain and then chills + unregisters, their BLS key must remain
-/// available for aggregate verification until the unbond completes; otherwise valid attestations
-/// would fail with `InvalidAttestorFound`.
+/// After an attestor chills + unregisters, the threshold-counted set (active) and the
+/// BLS-aggregated set must agree. Pre-fix, the precompile counted active-only for threshold
+/// but aggregated everyone listed in the raw attestor vec (including the retired entry whose
+/// key was still resolvable via `RetiredAttestorBlsKeys`), letting an attestation with a
+/// post-retirement signer pass aggregate verification while the threshold check was satisfied
+/// only by the remaining active attestors. The fix gathers keys from the active eligible set,
+/// so an attestation listing a retired attestor as a co-signer now falls below threshold.
 #[test]
-fn validate_attestation_succeeds_when_signer_unregistered_but_key_retained() {
+fn validate_attestation_rejects_when_co_signer_is_retired() {
     ExtBuilder.build_and_execute(|| {
         let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
         let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
+
+        // Threshold = 2 so a single remaining active attestor cannot satisfy quorum on its own.
+        TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 2u32);
 
         assert_ok!(Attestation::register_attestor(
             attestor_a.stash.clone(),
@@ -4374,19 +4381,21 @@ fn validate_attestation_succeeds_when_signer_unregistered_but_key_retained() {
         ));
         assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
 
-        assert_ok!(Attestation::validate_attestation(
-            attestation.chain_key(),
-            &attestation
-        ));
+        // With `attestor_a` retired, only `attestor_b` remains in the active eligible set,
+        // which is below the threshold of 2.
+        assert_err!(
+            Attestation::validate_attestation(attestation.chain_key(), &attestation),
+            Error::<Test>::MajorityNotReached
+        );
     });
 }
 
-/// Same scenario as [`validate_attestation_succeeds_when_signer_unregistered_but_key_retained`], but
-/// exercises the full `commit_attestation` extrinsic (the path that originally failed with
-/// `InvalidAttestorFound` when the malicious signer had unregistered).
+/// Same scenario as [`validate_attestation_rejects_when_co_signer_is_retired`], but exercises the
+/// full `commit_attestation` extrinsic.
 #[test]
-fn commit_attestation_succeeds_when_co_signer_unregistered_but_key_retained() {
+fn commit_attestation_rejects_when_co_signer_is_retired() {
     ExtBuilder.build_and_execute(|| {
+        TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 2u32);
         let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
         let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
 
@@ -4441,15 +4450,15 @@ fn commit_attestation_succeeds_when_co_signer_unregistered_but_key_retained() {
             ATTESTOR_1
         ));
 
-        assert_ok!(Attestation::commit_attestation(
-            attestor_b.attestor_origin.clone(),
-            attestation.clone()
-        ));
-
-        assert_eq!(
-            Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()),
-            Some(attestation)
+        assert_err!(
+            Attestation::commit_attestation(
+                attestor_b.attestor_origin.clone(),
+                attestation.clone()
+            ),
+            Error::<Test>::MajorityNotReached
         );
+
+        assert!(Attestation::attestations(SUPPORTED_CHAIN_KEY, attestation.digest()).is_none());
     });
 }
 
@@ -6366,6 +6375,152 @@ mod revert_to {
                 );
             })
     }
+
+    #[test]
+    fn checkpoint_if_stable_gates_stale_pivots_during_revert_pruning_window() {
+        // Repro: `do_revert_to` only synchronously prunes the bucket containing
+        // `checkpoint_height`. Buckets at higher pivots stay populated until
+        // `on_init_prune_checkpoints` drains them, MAX_CHECKPOINTS_CLEARED_PER_BLOCK
+        // entries at a time. Consumers using `Checkpoints` as a trust anchor
+        // (block-prover precompile) must not see those stale digests.
+        //
+        // `checkpoint_if_stable` gates per-pivot: heights whose pivot is `>=
+        // state.next_pivot` are treated as untrusted (still potentially holding
+        // stale post-revert digests), but heights in pivots already drained —
+        // including the revert bucket itself, which `do_revert_to` cleaned
+        // synchronously — remain readable so legitimate consumers are not
+        // taken offline for the whole pruning window.
+        let revert_height: u64 = 0;
+        let added_checkpoints = MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2 + 10;
+        let mut test_ext = ExtBuilder.build();
+        test_ext
+            .then_run(|| {
+                // Revert target checkpoint at the anchor height.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height,
+                    revert_digest,
+                );
+
+                // Stash post-revert checkpoints in *higher* buckets so the
+                // synchronous prune in `do_revert_to` does not touch them. This
+                // models the bad-data window: these digests live in storage but
+                // must not be trusted while async pruning is in flight.
+                let start_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+                for i in 0..added_checkpoints {
+                    let stale_digest = H256::from(&sp_io::hashing::blake2_256(&[i]));
+                    let stale_height = start_height + (i as u64) * 100;
+                    insert_checkpoint_and_bucket_entry::<Test>(
+                        SUPPORTED_CHAIN_KEY,
+                        stale_height,
+                        stale_digest,
+                    );
+                    if i == added_checkpoints - 1 {
+                        LastCheckpoint::<Test>::insert(
+                            SUPPORTED_CHAIN_KEY,
+                            AttestationCheckpoint {
+                                block_number: stale_height,
+                                digest: stale_digest,
+                            },
+                        );
+                    }
+                }
+                System::set_block_number(1);
+                Timestamp::set_timestamp(1);
+
+                // Pre-revert: helper agrees with raw storage.
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, revert_height),
+                    Some(revert_digest)
+                );
+                let sample_stale_height = start_height + 100;
+                assert!(
+                    Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, sample_stale_height).is_some()
+                );
+            })
+            .then_run(|| {
+                // Initiate reversion. Buckets above the revert pivot are NOT yet pruned.
+                assert_ok!(Attestation::revert_to(
+                    RuntimeOrigin::root(),
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ));
+                assert!(CheckpointPruningStates::<Test>::contains_key(
+                    SUPPORTED_CHAIN_KEY
+                ));
+
+                // Stale digests are still physically present in `Checkpoints`...
+                let stale_height_above_revert = revert_height + CHECKPOINT_BUCKET_SIZE + 100;
+                assert!(
+                    Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, stale_height_above_revert,)
+                        .is_some(),
+                    "sanity: stale checkpoint must still be in storage during pruning window",
+                );
+
+                // ...and the helper gates them, because their pivot is `>=
+                // state.next_pivot` (still pending async prune).
+                let pruning_state =
+                    CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY).unwrap();
+                let stale_pivot =
+                    Pallet::<Test>::compute_block_index_for(stale_height_above_revert);
+                assert!(
+                    stale_pivot >= pruning_state.next_pivot,
+                    "sanity: stale height must live in a pivot at or above next_pivot",
+                );
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(
+                        SUPPORTED_CHAIN_KEY,
+                        stale_height_above_revert,
+                    ),
+                    None,
+                    "stale post-revert checkpoint must not be returned as a trust anchor",
+                );
+
+                // The revert anchor lives in the bucket `do_revert_to` cleaned
+                // synchronously, so it is already safe to expose. Bucket-granular
+                // gating keeps the precompile online for valid checkpoints during
+                // the pruning window.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                let revert_pivot = Pallet::<Test>::compute_block_index_for(revert_height);
+                assert!(
+                    revert_pivot < pruning_state.next_pivot,
+                    "sanity: revert anchor must live below next_pivot after revert",
+                );
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, revert_height),
+                    Some(revert_digest),
+                    "revert anchor is in a sync-cleaned bucket and must stay readable",
+                );
+            })
+            .then_run(|| {
+                // Drain the pruning queue. Walk on_initialize until the state clears.
+                let mut guard = 0u64;
+                while CheckpointPruningStates::<Test>::contains_key(SUPPORTED_CHAIN_KEY) {
+                    progress_to_block(System::block_number() + 1);
+                    guard += 1;
+                    assert!(guard < 256, "pruning did not drain in a reasonable window");
+                }
+            })
+            .run(|| {
+                // After pruning drains, the helper unblocks and surfaces the valid
+                // post-revert checkpoint.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                assert_eq!(
+                    Pallet::<Test>::checkpoint_if_stable(SUPPORTED_CHAIN_KEY, revert_height),
+                    Some(revert_digest),
+                );
+                // And the stale entries are gone from raw storage too.
+                let stale_height_above_revert = revert_height + CHECKPOINT_BUCKET_SIZE + 100;
+                assert_eq!(
+                    Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, stale_height_above_revert,),
+                    None,
+                );
+            })
+    }
 }
 
 #[test]
@@ -8007,6 +8162,372 @@ mod prevalidate_attestation_commit_extension {
                 !Attestations::<Test>::contains_key(chain_key, digest),
                 "postcondition: attestation must not have been committed on-chain"
             );
+        })
+    }
+}
+
+#[cfg(test)]
+mod bls_key_uniqueness {
+    //! Tests for the BLS-public-key uniqueness invariants introduced to close the
+    //! "aliased BLS key collapses quorum" attack (Submission #3, gist
+    //! https://gist.github.com/f00dat/e6cb92ff376317d035e372d3fb53e851).
+    //!
+    //! The bug: `start_attesting` only checked the proof-of-possession for the supplied BLS
+    //! pubkey, so multiple controller accounts could register the *same* BLS pubkey with
+    //! the same valid PoP. BLS aggregation being linear means one private key holder can
+    //! satisfy threshold-of-N by replaying their signature `N` times in the aggregate.
+
+    use super::*;
+    use attestor_primitives::Attestor as AttestorRecord;
+
+    const OTHER_CHAIN_KEY: ChainKey = 42;
+
+    /// Insert a fully-activated attestor directly into storage so we can simulate
+    /// pre-`v3` state (where duplicate BLS keys could exist) without going through
+    /// `start_attesting`, which now rejects duplicates.
+    fn insert_active_attestor_raw(
+        chain_key: ChainKey,
+        stash: AccountId,
+        attestor_id: AccountId,
+        bls_public_key: BlsPublicKey,
+    ) {
+        Attestors::<Test>::insert(
+            chain_key,
+            attestor_id,
+            AttestorRecord {
+                bls_public_key: Some(bls_public_key),
+                status: AttestorStatus::Active,
+                stash,
+            },
+        );
+        ActiveAttestors::<Test>::mutate(chain_key, |active| {
+            if !active.contains(&attestor_id) {
+                active.push(attestor_id);
+            }
+        });
+    }
+
+    #[test]
+    fn second_attestor_cannot_reuse_bls_key_on_same_chain() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+
+            assert_ok!(Attestation::register_attestor(
+                att1.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att1.attestor_id,
+            ));
+            assert_ok!(Attestation::register_attestor(
+                att2.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att2.attestor_id,
+            ));
+
+            // att1 claims its (unique) BLS key.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att1.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att1.public_key,
+                att1.signature,
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att1.public_key),
+                Some(att1.attestor_id)
+            );
+
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(att2.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    att1.public_key,
+                    att1.signature,
+                ),
+                Error::<Test>::BlsKeyAlreadyRegistered
+            );
+
+            // Rejected: `att1.public_key` still owned by att1 only; att2 never registered its
+            // own `att2.public_key` either.
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att1.public_key),
+                Some(att1.attestor_id)
+            );
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att2.public_key),
+                None
+            );
+            assert_eq!(
+                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2)
+                    .unwrap()
+                    .bls_public_key,
+                None
+            );
+        })
+    }
+
+    #[test]
+    fn same_bls_key_allowed_on_different_chains() {
+        ExtBuilder.build_and_execute(|| {
+            // The supported-chains pallet under the mock only registers SUPPORTED_CHAIN_KEY.
+            // We can't go through `attest` for a non-supported chain, so we register the
+            // attestor on the supported chain and assert that `BlsKeyOwner` is keyed
+            // *per chain* by writing an owner for OTHER_CHAIN_KEY directly and showing it
+            // does not conflict with a same-key registration on SUPPORTED_CHAIN_KEY.
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+
+            // Pre-seed a same-key owner on a different chain.
+            BlsKeyOwner::<Test>::insert(OTHER_CHAIN_KEY, att1.public_key, ATTESTOR_2);
+
+            assert_ok!(Attestation::register_attestor(
+                att1.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att1.attestor_id,
+            ));
+            // Same BLS key on the supported chain must succeed (uniqueness is per-chain).
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att1.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att1.public_key,
+                att1.signature,
+            ));
+
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att1.public_key),
+                Some(ATTESTOR_1)
+            );
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(OTHER_CHAIN_KEY, att1.public_key),
+                Some(ATTESTOR_2)
+            );
+        })
+    }
+
+    #[test]
+    fn idle_attestor_can_rotate_to_different_bls_key() {
+        ExtBuilder.build_and_execute(|| {
+            let att_old = Attestor::new(STASH_1, ATTESTOR_1);
+            let att_new = Attestor::new(STASH_1, ATTESTOR_1);
+
+            assert_ok!(Attestation::register_attestor(
+                att_old.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att_old.attestor_id,
+            ));
+
+            // First registration claims `att_old.public_key`.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att_old.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att_old.public_key,
+                att_old.signature,
+            ));
+
+            // Force idle status so a rotation is allowed by the pallet.
+            Attestors::<Test>::mutate(SUPPORTED_CHAIN_KEY, att_old.attestor_id, |maybe_attestor| {
+                if let Some(attestor) = maybe_attestor {
+                    attestor.status = AttestorStatus::Idle;
+                }
+            });
+
+            // Re-attest with a different BLS key on the same controller.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att_new.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att_new.public_key,
+                att_new.signature,
+            ));
+
+            // Old key must have been released from the owner map.
+            assert!(!BlsKeyOwner::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                att_old.public_key
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att_new.public_key),
+                Some(ATTESTOR_1)
+            );
+        })
+    }
+
+    #[test]
+    fn validate_attestation_rejects_duplicate_bls_keys_in_attestor_set() {
+        // This simulates pre-`v3` storage: three distinct controllers, all aliased to the
+        // same BLS key. One BLS private key signs the message once and the signature is
+        // replayed three times into the aggregate; without validation-time dedup this
+        // would pass aggregate verification (`3*s*H(m)` verifies under `3*k`).
+        ExtBuilder.build_and_execute(|| {
+            let signer = Attestor::new(STASH_1, ATTESTOR_1);
+
+            // Push the chain into a "3-of-N" regime so the threshold actually requires
+            // three independent signers and `MajorityNotReached` doesn't fire first.
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            // Three controller accounts sharing the same BLS pubkey.
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, signer.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, signer.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, signer.public_key);
+
+            // Build an attestation listing all three controllers, signed once by `signer`
+            // and replayed three times into the aggregate.
+            let attestation_inner = AttestationPrimitive {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                header_number: 10,
+                header_hash: H256::random(),
+                root: H256::from([0; 32]),
+                prev_digest: None,
+            };
+            let raw_sig = signer.sign(&attestation_inner.serialize());
+            let bls_sig =
+                bls_signatures::Signature::from_bytes(&raw_sig[..]).expect("valid bls sig");
+            let aggregated = bls_signatures::aggregate(&[bls_sig, bls_sig, bls_sig])
+                .expect("aggregation succeeds for repeated signatures");
+            let signed = SignedAttestation {
+                attestation: attestation_inner,
+                signature: aggregated.as_bytes()[..]
+                    .try_into()
+                    .expect("96-byte signature"),
+                attestors: vec![ATTESTOR_1, ATTESTOR_2, ATTESTOR_3],
+                continuity_proof: construct_fragment(None, RangeInclusive::new(1, 9)),
+            };
+
+            // Without the dedup check this attestation would verify and pass.
+            assert_noop!(
+                Attestation::validate_attestation(SUPPORTED_CHAIN_KEY, &signed),
+                Error::<Test>::InsufficientUniqueSigners
+            );
+        })
+    }
+
+    #[test]
+    fn validate_attestation_happy_path_with_three_distinct_keys() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+            let att3 = Attestor::new(STASH_3, ATTESTOR_3);
+
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, att1.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, att2.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, att3.public_key);
+
+            // Use the chain's genesis block number (0) so the continuity check accepts an
+            // empty proof; we're isolating the BLS-key uniqueness/threshold path here.
+            let signed = create_signed_attestation(
+                vec![att1.clone(), att2.clone(), att3.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+
+            assert_ok!(Attestation::validate_attestation(
+                SUPPORTED_CHAIN_KEY,
+                &signed
+            ));
+        })
+    }
+
+    /// Raw `attestation.attestors` lists an attestor that is *not* in `ActiveAttestors`
+    /// (e.g. retired or never-activated). The threshold counts active-only, but a naive
+    /// `gather_attestor_public_keys` over the raw vec would still pull that BLS key in via
+    /// `Attestors`/`RetiredAttestorBlsKeys` and aggregate it. `validate_attestation` must
+    /// instead aggregate over the *active* eligible set so the threshold-counted set and the
+    /// BLS-aggregated set agree.
+    #[test]
+    fn validate_attestation_ignores_non_active_attestor_id_in_raw_list() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+            let ghost = Attestor::new(STASH_3, ATTESTOR_3);
+
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            // Two real active attestors.
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, att1.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, att2.public_key);
+
+            // `ghost` has an `Attestors` row with a resolvable BLS key but is intentionally
+            // *not* added to `ActiveAttestors` — simulates a freshly-retired or chilled
+            // attestor whose key is still queryable.
+            Attestors::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_3,
+                AttestorRecord {
+                    bls_public_key: Some(ghost.public_key),
+                    status: AttestorStatus::Idle,
+                    stash: STASH_3,
+                },
+            );
+
+            // Build an attestation listing all three (active + active + ghost) and a real
+            // 3-signer aggregate. Pre-fix: gather pulled `ghost`'s key, threshold of 3
+            // satisfied by active-set count of 2 → mismatch but signature still verified.
+            // Post-fix: gather only uses the active eligible set (size 2) → below threshold.
+            let attestation_inner = AttestationPrimitive {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                header_number: 0,
+                header_hash: H256::random(),
+                root: H256::from([0; 32]),
+                prev_digest: None,
+            };
+            let msg = attestation_inner.serialize();
+            let sig1 = bls_signatures::Signature::from_bytes(&att1.sign(&msg)[..]).unwrap();
+            let sig2 = bls_signatures::Signature::from_bytes(&att2.sign(&msg)[..]).unwrap();
+            let sig_ghost = bls_signatures::Signature::from_bytes(&ghost.sign(&msg)[..]).unwrap();
+            let aggregated = bls_signatures::aggregate(&[sig1, sig2, sig_ghost]).unwrap();
+
+            let signed = SignedAttestation {
+                attestation: attestation_inner,
+                signature: aggregated.as_bytes()[..].try_into().unwrap(),
+                attestors: vec![ATTESTOR_1, ATTESTOR_2, ATTESTOR_3],
+                continuity_proof: construct_fragment(None, RangeInclusive::new(1, 0)),
+            };
+
+            assert_noop!(
+                Attestation::validate_attestation(SUPPORTED_CHAIN_KEY, &signed),
+                Error::<Test>::MajorityNotReached
+            );
+        })
+    }
+
+    /// Raw `attestation.attestors` contains a duplicate `AccountId`. The threshold check
+    /// dedupes via `BTreeSet`, but a naive `gather_attestor_public_keys` over the raw vec
+    /// would double-aggregate that attestor's BLS key. `validate_attestation` must gather
+    /// from the deduplicated eligible set so this case can't slip past the BLS-key dedup
+    /// fallback either.
+    #[test]
+    fn validate_attestation_ignores_duplicate_attestor_id_in_raw_list() {
+        ExtBuilder.build_and_execute(|| {
+            let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let att2 = Attestor::new(STASH_2, ATTESTOR_2);
+            let att3 = Attestor::new(STASH_3, ATTESTOR_3);
+
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3u32);
+
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_1, ATTESTOR_1, att1.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_2, ATTESTOR_2, att2.public_key);
+            insert_active_attestor_raw(SUPPORTED_CHAIN_KEY, STASH_3, ATTESTOR_3, att3.public_key);
+
+            // Real 3-signer aggregate (each key signs once).
+            let signed_clean = create_signed_attestation(
+                vec![att1.clone(), att2.clone(), att3.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+
+            // Splice a duplicate `ATTESTOR_1` into the raw attestor list. Aggregate signature
+            // is unchanged — same three independent signers. With the fix, the duplicate is
+            // dropped by the active-set BTreeSet before key gather, so the aggregate matches.
+            let mut tampered = signed_clean.clone();
+            tampered.attestors = vec![ATTESTOR_1, ATTESTOR_1, ATTESTOR_2, ATTESTOR_3];
+
+            assert_ok!(Attestation::validate_attestation(
+                SUPPORTED_CHAIN_KEY,
+                &tampered
+            ));
         })
     }
 }

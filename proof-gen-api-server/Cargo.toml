@@ -32,7 +32,7 @@ release = false
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
-dotenvy = "0.15"
+dotenvy = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1.22", features = ["v4"] }
@@ -63,6 +63,7 @@ eth = { workspace = true, features = ["block_cache"] }
 hex = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true }
+stream = { workspace = true, default-features = false, features = ["cc3"] }
 sysinfo = { workspace = true }
 
 [features]

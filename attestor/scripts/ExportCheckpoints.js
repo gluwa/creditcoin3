@@ -1,6 +1,5 @@
 require('dotenv').config(); // Load environment variables from .env
 const { ApiPromise, WsProvider } = require('@polkadot/api');
-const { u8aToHex } = require('@polkadot/util');
 const fs = require('fs');
 
 async function main() {
@@ -18,33 +17,26 @@ async function main() {
     const provider = new WsProvider(sourceChain); // Replace with your node
     const api = await ApiPromise.create({ provider });
     console.log('Connected to node:', await api.rpc.system.chain());
-    const checkpoints = {};
 
     // Iterate through all checkpoints for chain key in pallet attestation
     const entries = await api.query.attestation.checkpoints.entries(chainKey);
 
-    for (const [key, value] of entries) {
+    const rows = entries.map(([key, value]) => {
         // Storage key: (chain_key, block_number) => digest
-        const blockNumber = key.args[1].toString();
-        const digestHex = value.toHex();
-
-        checkpoints[digestHex] = {
-            block_number: blockNumber,
+        return {
+            blockNumber: key.args[1].toString(),
+            digestHex: value.toHex(),
         };
-    }
+    });
 
-    // Convert to array and sort by block_number
-    const sortedEntries = Object.entries(checkpoints).sort(
-        ([_aDigest, aData], [_bDigest, bData]) => {
-            return Number(bData.block_number) - Number(aData.block_number);
-        }
-    );
+    // Sort ascending by block_number so ImportCheckpoints.js, which
+    // reverses entries before submission, inserts newest-to-oldest.
+    rows.sort((a, b) => Number(a.blockNumber) - Number(b.blockNumber));
 
-    // Rebuild into sorted object
-    const sortedCheckpoints = Object.fromEntries(sortedEntries);
+    const csv = [...rows.map((r) => `${r.blockNumber},${r.digestHex}`)].join('\n') + '\n';
 
-    fs.writeFileSync('checkpoints.json', JSON.stringify(sortedCheckpoints, null, 2));
-    console.log('✅ Checkpoints written to checkpoints.json (sorted by block_number)');
+    fs.writeFileSync(`checkpoints_${chainKey}.csv`, csv);
+    console.log(`✅ Checkpoints written to checkpoints_${chainKey}.csv (sorted ascending by block_number)`);
 
     process.exit(0);
 }

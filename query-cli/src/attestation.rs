@@ -4,10 +4,10 @@
 //! monitoring attestation events, and checking attestation status.
 
 use anyhow::{Context, Result};
-use cc_client::attestation::CcEvent;
+use cc_client::events::CcEvent;
 use cc_client::Client as CcClient;
+use futures::{StreamExt, TryStreamExt};
 use std::time::Duration;
-use tokio::time::sleep;
 use tracing::{debug, info};
 
 /// Maximum reasonable block number (10 billion blocks)
@@ -20,8 +20,6 @@ const MAX_REASONABLE_BLOCK: u64 = 10_000_000_000;
 pub struct AttestationConfig {
     /// Maximum time to wait for attestation
     pub max_wait_time: Duration,
-    /// Polling interval for checking attestation status
-    pub poll_interval: Duration,
     /// Whether to check existing attestations before subscribing
     pub check_existing: bool,
 }
@@ -30,7 +28,6 @@ impl Default for AttestationConfig {
     fn default() -> Self {
         Self {
             max_wait_time: Duration::from_secs(300), // 5 minutes
-            poll_interval: Duration::from_secs(2),
             check_existing: true,
         }
     }
@@ -41,8 +38,6 @@ impl Default for AttestationConfig {
 pub struct AttestationResult {
     /// The actual attested block number (may be higher than requested)
     pub attested_block: u64,
-    /// How long it took to receive attestation
-    pub wait_duration: Duration,
 }
 
 /// Monitor for attestations on the Creditcoin3 network
@@ -127,7 +122,6 @@ impl AttestationMonitor {
             if checkpoint.block_number >= block_number {
                 return Ok(Some(AttestationResult {
                     attested_block: checkpoint.block_number,
-                    wait_duration: Duration::from_secs(0),
                 }));
             }
         }
@@ -143,7 +137,6 @@ impl AttestationMonitor {
             if attestation.attestation.header_number >= block_number {
                 return Ok(Some(AttestationResult {
                     attested_block: attestation.attestation.header_number,
-                    wait_duration: Duration::from_secs(0),
                 }));
             }
         }
@@ -158,64 +151,48 @@ impl AttestationMonitor {
         block_number: u64,
         start_time: std::time::Instant,
     ) -> Result<AttestationResult> {
-        let mut subscription = self
-            .cc3_client
-            .subscribe_events(chain_key)
-            .context("Failed to subscribe to attestation events")?;
+        let config = stream::cc3::ConfigBuilder::new()
+            .with_cc3(self.cc3_client.clone())
+            .with_chain_keys(vec![chain_key])
+            .build();
+        let mut stream_cc3 = stream::cc3::StreamCC3::new(config)
+            .await
+            .context("Failed to subscribe to cc3 events")?;
 
         info!(
             "Subscribed to attestation events for chain_key {}",
             chain_key
         );
 
+        let timeout = tokio::time::sleep_until(
+            start_time
+                .checked_add(self.config.max_wait_time)
+                .unwrap_or(start_time)
+                .into(),
+        );
+        tokio::pin!(timeout);
+
         loop {
-            // Check timeout
-            let elapsed = start_time.elapsed();
-            if elapsed > self.config.max_wait_time {
-                subscription.cancel()?;
-                return Err(anyhow::anyhow!(
-                    "Timeout waiting for attestation of block {block_number} (waited {elapsed:?})"
-                ));
-            }
+            tokio::select! {
+                Some(res) = stream_cc3.next() => {
+                    let elapsed = start_time.elapsed();
+                    let mut events = res?;
 
-            // Wait for next event with timeout
-            match tokio::time::timeout(Duration::from_secs(5), subscription.next()).await {
-                Ok(Some(event)) => {
-                    if let Some(result) =
-                        self.process_event(event, chain_key, block_number, elapsed)?
-                    {
-                        subscription.cancel()?;
-                        return Ok(result);
+                    while let Some(event) = events.try_next().await? {
+                        if let Some(result) =
+                            self.process_event(event, chain_key, block_number, elapsed)?
+                        {
+                            return Ok(result);
+                        }
                     }
                 }
-                Ok(None) => {
-                    debug!("No attestation event received, subscription may have ended");
-                    // Resubscribe if needed
-                    subscription = self
-                        .cc3_client
-                        .subscribe_events(chain_key)
-                        .context("Failed to resubscribe to attestation events")?;
-                }
-                Err(_) => {
-                    debug!(
-                        "Event timeout, checking existing attestations (elapsed: {:?})",
-                        elapsed
-                    );
-
-                    // Periodically check if the block was attested while we were waiting
-                    if let Some(mut result) = self
-                        .check_existing_attestation(chain_key, block_number)
-                        .await?
-                    {
-                        result.wait_duration = elapsed;
-                        subscription.cancel()?;
-                        return Ok(result);
-                    }
+                _ = &mut timeout => {
+                    let elapsed = self.config.max_wait_time;
+                    return Err(anyhow::anyhow!(
+                        "Timeout waiting for attestation of block {block_number} (waited {elapsed:?})"
+                    ));
                 }
             }
-
-            // Small delay before next iteration
-            sleep(self.config.poll_interval).await;
         }
     }
 
@@ -243,10 +220,7 @@ impl AttestationMonitor {
                         block_number, attested_block, elapsed
                     );
 
-                    return Ok(Some(AttestationResult {
-                        attested_block,
-                        wait_duration: elapsed,
-                    }));
+                    return Ok(Some(AttestationResult { attested_block }));
                 }
             }
             CcEvent::CheckpointReached(event_chain_key, checkpoint) => {
@@ -270,7 +244,6 @@ impl AttestationMonitor {
 
                     return Ok(Some(AttestationResult {
                         attested_block: checkpoint.block_number,
-                        wait_duration: elapsed,
                     }));
                 } else if checkpoint.block_number > MAX_REASONABLE_BLOCK {
                     debug!(
@@ -296,7 +269,6 @@ mod tests {
     async fn test_attestation_config_default() {
         let config = AttestationConfig::default();
         assert_eq!(config.max_wait_time, Duration::from_secs(300));
-        assert_eq!(config.poll_interval, Duration::from_secs(2));
         assert!(config.check_existing);
     }
 
@@ -304,10 +276,8 @@ mod tests {
     async fn test_attestation_result() {
         let result = AttestationResult {
             attested_block: 105,
-            wait_duration: Duration::from_secs(30),
         };
 
         assert_eq!(result.attested_block, 105);
-        assert_eq!(result.wait_duration, Duration::from_secs(30));
     }
 }

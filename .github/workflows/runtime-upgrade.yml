@@ -55,12 +55,12 @@ jobs:
         run: |
           # shellcheck disable=SC2129
           echo "target_chain=testnet" >> "$GITHUB_OUTPUT"
-          echo "boot_node=/dns4/cc3-usc-testnet-bootnode-creditcoin-bootnode.westus3.cloudapp.azure.com/tcp/30333/p2p/12D3KooWBmAwcd4PJNJvfV89HwE48nwkRmAgo8Vy3uQEyNNHBox2" >> "$GITHUB_OUTPUT"
-          echo "rpc_url=wss://rpc.usc-testnet2.creditcoin.network" >> "$GITHUB_OUTPUT"
-          echo "https_rpc_url=https://rpc.usc-testnet2.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "boot_node=/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" >> "$GITHUB_OUTPUT"
+          echo "rpc_url=wss://rpc.cc3-testnet.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "https_rpc_url=https://rpc.cc3-testnet.creditcoin.network" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "snapshot_container=usc-testnet" >> "$GITHUB_OUTPUT"
+          echo "snapshot_container=cc3-testnet" >> "$GITHUB_OUTPUT"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -72,13 +72,13 @@ jobs:
         if: github.base_ref == 'main'
         run: |
           # shellcheck disable=SC2129
-          echo "target_chain=main" >> "$GITHUB_OUTPUT"
-          echo "boot_node=/dns4/TODO-fix-this" >> "$GITHUB_OUTPUT"
-          echo "rpc_url=wss://rpc.usc-mainnet.creditcoin.network" >> "$GITHUB_OUTPUT"
-          echo "https_rpc_url=https://rpc.usc-mainnet.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "target_chain=mainnet" >> "$GITHUB_OUTPUT"
+          echo "boot_node=/dns4/cc3-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" >> "$GITHUB_OUTPUT"
+          echo "rpc_url=wss://rpc.cc3-mainnet.creditcoin.network" >> "$GITHUB_OUTPUT"
+          echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-          echo "snapshot_container=usc-mainnet" >> "$GITHUB_OUTPUT"
+          echo "snapshot_container=cc3-mainnet" >> "$GITHUB_OUTPUT"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -163,6 +163,11 @@ jobs:
         run: |
           sudo chmod a+rwx /mnt
 
+      - name: Grant everyone permissions on /usr/local/bin
+        run: |
+          sudo mkdir -p /usr/local/bin
+          sudo chmod a+rwx /usr/local/bin
+
   fork-creditcoin:
     needs:
       - setup
@@ -211,7 +216,7 @@ jobs:
             --bootnodes "${{ needs.setup.outputs.boot_node }}" \
             --prometheus-external \
             --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
-            --base-path /mnt/data \
+            --base-path /mnt \
             --public-addr "/dns4/$IP_ADDRESS/tcp/50555" \
             --port 50555 >creditcoin3-node-used-for-fork.log 2>&1 &
 
@@ -327,7 +332,7 @@ jobs:
             --prometheus-external --pruning archive \
             --telemetry-url "wss://telemetry.creditcoin.network/submit/ 0" \
             --public-addr "/dns4/$IP_ADDRESS/tcp/50555" \
-            --base-path /mnt/data \
+            --base-path /mnt \
             --port 50555 >creditcoin3-node-initial-live-sync.log 2>&1 &
 
       - name: Wait for creditcoin3-node to sync past block number ${{ needs.setup.outputs.last_block_number }}
@@ -429,6 +434,16 @@ jobs:
         env:
           # WARNING: always quote otherwise we get "2E+24" which can't parse
           NEW_SUDO_BALANCE: "2000000000000000000000000"
+
+      - name: Is Creditcoin still there after 3 minutes
+        run: |
+          sleep 180
+          .github/wait-for-creditcoin.sh
+
+      - name: Check for errors
+        run: |
+          grep -vz "WASM backtrace:"   creditcoin3-node-with-forked-chain.log
+          grep -vz "Proposing failed:" creditcoin3-node-with-forked-chain.log
 
       - name: Execute blockchain integration tests
         working-directory: ./cli

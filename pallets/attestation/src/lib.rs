@@ -19,7 +19,7 @@ mod continuity_dev;
 mod benchmarking;
 
 mod asset;
-mod clear_or_revert;
+pub mod clear_or_revert;
 mod continuity;
 pub mod extensions;
 mod impls;
@@ -252,6 +252,31 @@ pub mod pallet {
         T::AccountId,
         BoundedVec<(ChainKey, T::AccountId), ConstU32<64>>,
         ValueQuery,
+    >;
+
+    /// Maps an active BLS public key on a chain to its owning attestor controller account.
+    ///
+    /// Used to enforce that no two attestors on the same chain register the same BLS public
+    /// key. Without this map, distinct [`Attestors`] entries can share a BLS pubkey (each
+    /// passing the proof-of-possession check independently), which collapses the BLS
+    /// aggregation quorum: one BLS private key can satisfy threshold-of-N because aggregated
+    /// keys/signatures are linear in the underlying key.
+    ///
+    /// Lifetime: inserted by [`Pallet::start_attesting`], rotated when an idle attestor
+    /// re-attests with a new key, retained through retirement (the BLS key stays "claimed"
+    /// while the corresponding [`RetiredAttestorBlsKeys`] entry is still live so attestations
+    /// referencing the retired controller can still be verified), and finally removed when
+    /// the retired entry is purged in [`Pallet::withdraw_unbonded`] or when the chain itself
+    /// is removed.
+    #[pallet::storage]
+    pub type BlsKeyOwner<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        BlsPublicKey,
+        T::AccountId,
+        OptionQuery,
     >;
 
     #[pallet::storage]
@@ -747,6 +772,15 @@ pub mod pallet {
         AttestorWithInvalidPublicKey,
         // Majority of signatures not reached
         MajorityNotReached,
+        /// The BLS public key supplied is already registered to another attestor controller
+        /// on this chain (active or retired). BLS keys must be unique per chain so the
+        /// aggregation quorum reflects independent signers.
+        BlsKeyAlreadyRegistered,
+        /// The attestation lists enough distinct controller accounts but they map to fewer
+        /// distinct BLS public keys than the threshold. Without this check a single BLS
+        /// signer could satisfy the threshold by being aliased under multiple controller
+        /// accounts.
+        InsufficientUniqueSigners,
         /// Too many retired attestor key entries are queued for this stash
         RetiredAttestorPendingFull,
         // Attestor is already authorized for the chain.

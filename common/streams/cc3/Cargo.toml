@@ -17,12 +17,10 @@ cc-client = { workspace = true }
 subxt = { workspace = true }
 
 # Async & Parallelism
+arc-swap = { workspace = true }
 async-stream = { workspace = true }
 futures = { workspace = true }
-tokio-retry = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 
 # Logging
 tracing = { workspace = true }
-
-# Errors
-anyhow = { workspace = true }

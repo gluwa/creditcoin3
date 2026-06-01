@@ -25,16 +25,14 @@ pub use networking::build_app;
 pub use services::continuity_service::ContinuityService;
 pub use services::errors::ErrorResponse;
 
-/// Hide `?query` in logs so keys in URLs are not fully printed.
-fn redact_url_query(url: &str) -> String {
-    url.split_once('?')
-        .map(|(base, _)| format!("{base}?…"))
-        .unwrap_or_else(|| url.to_string())
-}
+/// Re-export of [`eth::redact_url_query`] so existing call sites in this
+/// crate keep working unchanged. The eth-side helper redacts both `?query`
+/// strings *and* secret-looking path segments (Chainstack/Alchemy style).
+use eth::redact_url_query;
 
 pub struct Server {
     config: Config,
-    cc3_client: Arc<CcClient>,
+    cc3_client: CcClient,
     /// One continuity builder per configured source chain.
     builders: Vec<Arc<ContinuityBuilder>>,
     checkpoint_intervals: events::CheckpointIntervalMap,
@@ -54,7 +52,7 @@ impl Server {
             chain_count = config.chains.len(),
             "🚀 [startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
         );
-        let cc3_client = Arc::<CcClient>::new(
+        let cc3_client =
             CcClient::new_read_only(&config.cc3_rpc_url)
                 .await
                 .with_context(|| {
@@ -63,8 +61,8 @@ impl Server {
                          Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
                         config.cc3_rpc_url
                     )
-                })?,
-        );
+                })?
+        ;
         debug!("🚀 ✅ [startup] Creditcoin3 client connected");
 
         let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(config.chains.len());
@@ -77,9 +75,18 @@ impl Server {
                 of = config.chains.len(),
                 chain_key = chain.chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
+                eth_rpc_fallback_count = chain.eth_rpc_fallback_urls.len(),
                 archiver_url = ?chain.archiver_url.as_ref().map(|u| redact_url_query(u)),
                 "🚀 [startup] configuring source chain"
             );
+            for (fb_idx, url) in chain.eth_rpc_fallback_urls.iter().enumerate() {
+                debug!(
+                    chain_key = chain.chain_key,
+                    fallback_index = fb_idx,
+                    url = %redact_url_query(url),
+                    "[startup] eth_rpc fallback registered"
+                );
+            }
             let builder = Self::build_continuity_for_chain(
                 &config,
                 cc3_client.clone(),
@@ -104,7 +111,7 @@ impl Server {
 
     async fn build_continuity_for_chain(
         global: &Config,
-        cc3_client: Arc<CcClient>,
+        cc3_client: CcClient,
         chain: &ChainConfig,
         prom_metrics: Arc<ProofGenMetrics>,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
@@ -125,12 +132,15 @@ impl Server {
             .ok_or_else(|| anyhow!("Failed to get supported chain for chain_key {chain_key}"))?;
         let supported_chain_id = supported_chain.chain_id;
 
+        let eth_fallback_urls: &[String] = &chain.eth_rpc_fallback_urls;
+
         let eth_client = if let Some(ref redis_url) = global.redis_url {
             debug!(
                 chain_key,
                 redis_url = %redact_url_query(redis_url),
                 cluster_mode = global.redis_cluster_mode,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
+                eth_rpc_fallback_count = eth_fallback_urls.len(),
                 "🚀 [startup] connecting source chain ETH client with Redis block cache"
             );
             let block_cache_metrics = prom_metrics.block_cache_metrics();
@@ -139,27 +149,35 @@ impl Server {
                 redis_cluster_mode: global.redis_cluster_mode,
                 metrics: block_cache_metrics,
             };
-            EthClient::new_with_cache(&chain.eth_rpc_url, None, cache_config)
-                .await
-                .with_context(|| {
-                    format!(
-                        "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, redis={})",
-                        redact_url_query(&chain.eth_rpc_url),
-                        redact_url_query(redis_url)
-                    )
-                })?
+            EthClient::new_with_cache_and_fallbacks(
+                &chain.eth_rpc_url,
+                eth_fallback_urls,
+                None,
+                cache_config,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, fallback_count={}, redis={})",
+                    redact_url_query(&chain.eth_rpc_url),
+                    eth_fallback_urls.len(),
+                    redact_url_query(redis_url)
+                )
+            })?
         } else {
             debug!(
                 chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
+                eth_rpc_fallback_count = eth_fallback_urls.len(),
                 "🚀 [startup] connecting source chain ETH client (no Redis)"
             );
-            EthClient::new(&chain.eth_rpc_url, None)
+            EthClient::new_with_fallbacks(&chain.eth_rpc_url, eth_fallback_urls, None)
                 .await
                 .with_context(|| {
                     format!(
-                        "Ethereum/source RPC connection failed for chain_key={chain_key} (eth_rpc_url={})",
-                        redact_url_query(&chain.eth_rpc_url)
+                        "Ethereum/source RPC connection failed for chain_key={chain_key} (eth_rpc_url={}, fallback_count={})",
+                        redact_url_query(&chain.eth_rpc_url),
+                        eth_fallback_urls.len()
                     )
                 })?
         };
@@ -258,7 +276,7 @@ impl Server {
         );
         let builder = Arc::new(ContinuityBuilder::new_with_providers(
             continuity_config,
-            cc3_client.clone(),
+            Arc::new(cc3_client.clone()),
             eth_provider,
         ));
 
@@ -300,9 +318,9 @@ impl Server {
 
         info!("🚀 🌐 Server listening on {bind_addr}");
 
-        let cc3_client_clone = self.cc3_client.clone();
         let checkpoint_intervals_clone = self.checkpoint_intervals.clone();
         let last_checkpoint_blocks_clone = self.last_checkpoint_blocks.clone();
+        let cc3_client_clone = self.cc3_client.clone();
 
         tokio::spawn(async move {
             if let Err(e) = events::start_cc3_event_subscription(

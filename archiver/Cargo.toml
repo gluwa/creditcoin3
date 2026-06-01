@@ -21,7 +21,7 @@ clap = { workspace = true }
 dotenvy = "0.15"
 futures = { workspace = true }
 serde = { workspace = true, features = ["std", "derive"] }
-sled = "0.34"
+sled = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 tower-http = { workspace = true, features = ["trace"] }
 tracing = { workspace = true }

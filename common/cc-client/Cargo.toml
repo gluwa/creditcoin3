@@ -28,14 +28,12 @@ subxt-signer = { workspace = true }
 # Creditcoin deps
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
-user = { workspace = true }
 vrf = { workspace = true }
 
 # workspace deps
-serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
 tokio-retry = { workspace = true }
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }

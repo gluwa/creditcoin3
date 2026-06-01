@@ -30,7 +30,7 @@ type TxHashes = Vec<String>;
         (status = 200, description = "Continuity and merkle proof", body = SingleContinuityResponse),
         (status = 400, description = "Invalid parameters", body = ErrorResponse),
         (status = 404, description = "Block or transaction not found", body = ErrorResponse),
-        (status = 422, description = "Block exists but is not yet attested (BlockNotReady)", body = ErrorResponse),
+        (status = 422, description = "Unprocessable: block not yet attested (BlockNotReady), or source RPC block/header inconsistent (UnsupportedBlockFormat)", body = ErrorResponse),
         (status = 503, description = "RPC unavailable", body = ErrorResponse)
     )
 )]
@@ -72,7 +72,7 @@ pub async fn get_proof_with_tx(
         (status = 200, description = "Continuity and merkle proof", body = SingleContinuityResponse),
         (status = 400, description = "Invalid parameters", body = ErrorResponse),
         (status = 404, description = "Transaction not found", body = ErrorResponse),
-        (status = 422, description = "Block exists but is not yet attested (BlockNotReady)", body = ErrorResponse),
+        (status = 422, description = "Unprocessable: block not yet attested (BlockNotReady), or source RPC block/header inconsistent (UnsupportedBlockFormat)", body = ErrorResponse),
         (status = 501, description = "Tx hash lookup not implemented", body = ErrorResponse)
     )
 )]
@@ -105,7 +105,7 @@ pub async fn get_proof_by_tx_hash(
         (status = 200, description = "Continuity and merkle proof entries", body = BatchedContinuityResponse),
         (status = 400, description = "Invalid parameters", body = ErrorResponse),
         (status = 404, description = "Transaction not found", body = ErrorResponse),
-        (status = 422, description = "Block exists but is not yet attested (BlockNotReady)", body = ErrorResponse),
+        (status = 422, description = "Unprocessable: block not yet attested (BlockNotReady), or source RPC block/header inconsistent (UnsupportedBlockFormat)", body = ErrorResponse),
         (status = 501, description = "Tx hash lookup not implemented", body = ErrorResponse)
     )
 )]
@@ -188,7 +188,7 @@ pub async fn get_proof_batch(
         (status = 200, description = "Continuity and merkle proof entries", body = BatchedContinuityResponse),
         (status = 400, description = "Invalid parameters", body = ErrorResponse),
         (status = 404, description = "Transaction not found", body = ErrorResponse),
-        (status = 422, description = "Block exists but is not yet attested (BlockNotReady)", body = ErrorResponse),
+        (status = 422, description = "Unprocessable: block not yet attested (BlockNotReady), or source RPC block/header inconsistent (UnsupportedBlockFormat)", body = ErrorResponse),
         (status = 501, description = "Tx hash lookup not implemented", body = ErrorResponse)
     )
 )]

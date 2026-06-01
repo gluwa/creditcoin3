@@ -34,7 +34,7 @@
         "test:archiver": "jest --config src/test/archiver-tests.config.ts --silent --verbose --runInBand --forceExit src/test/archiver-tests"
     },
     "devDependencies": {
-        "@gluwa/usc-sdk": "0.12.0",
+        "@gluwa/usc-sdk": "0.12.2",
         "@polkadot/typegen": "16.5.2",
         "@types/graphqurl": "^1.0.3",
         "@types/jest": "29.5.14",
@@ -42,7 +42,7 @@
         "@types/validator": "13.15.2",
         "@typescript-eslint/eslint-plugin": "8.59.0",
         "@typescript-eslint/parser": "8.59.0",
-        "axios": "1.15.2",
+        "axios": "1.16.1",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
         "esno": "^4.8.0",

@@ -216,7 +216,22 @@ impl Client {
         private_key: Option<&str>,
         config: BlockCacheConfig,
     ) -> Result<Self, Error> {
+        Self::new_with_cache_and_fallbacks(url, &[], private_key, config).await
+    }
+
+    /// Like [`Client::new_with_cache`] but also installs ordered fallback
+    /// RPC URLs. Each fallback is tried in declared order whenever the
+    /// primary returns `Ok(None)` or a transport error.
+    pub async fn new_with_cache_and_fallbacks(
+        url: &str,
+        fallback_urls: &[String],
+        private_key: Option<&str>,
+        config: BlockCacheConfig,
+    ) -> Result<Self, Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
+        let fallback_providers = Self::init_fallback_providers(chain_id, fallback_urls)
+            .await
+            .map_err(Error::ClientError)?;
 
         let connection_timeout = Duration::from_secs(REDIS_CONNECTION_TIMEOUT_SECS);
         let response_timeout = Duration::from_secs(REDIS_RESPONSE_TIMEOUT_SECS);
@@ -269,6 +284,7 @@ impl Client {
             url,
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
+            fallback_providers,
             chain_id,
             cache: Some(cache),
         })

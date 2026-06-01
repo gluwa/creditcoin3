@@ -2,7 +2,63 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::*;
+use anyhow::Error as AnyhowError;
 use attestor_primitives::block::ContinuityProof;
+use eth;
+
+/// If the anyhow chain wraps an [`eth::Error`] that the eth client classifies as a
+/// payload-inconsistency case ([`eth::Error::inconsistent_block_payload_for_fallback`]),
+/// return the corresponding `ServiceError::UnsupportedBlockFormat`, using the block number
+/// hint from the chain when present and `fallback_block_number` otherwise.
+///
+/// Otherwise, return `None` and let the caller pick the appropriate non-inconsistent
+/// mapping (typically `RpcUnavailable` or `Internal`).
+fn classify_eth_rpc_anyhow_as_inconsistent(
+    err: &AnyhowError,
+    fallback_block_number: u64,
+) -> Option<ServiceError> {
+    if !eth::anyhow_chain_is_inconsistent_block_payload(err) {
+        return None;
+    }
+    let block_number =
+        eth::anyhow_chain_inconsistent_block_number_hint(err).unwrap_or(fallback_block_number);
+    Some(ServiceError::UnsupportedBlockFormat { block_number })
+}
+
+/// Map an `anyhow::Error` returned by the eth provider into a `ServiceError`,
+/// using `UnsupportedBlockFormat` for payload-inconsistency causes and
+/// `RpcUnavailable` for everything else. Use
+/// [`map_eth_rpc_anyhow_to_service_error_with`] when the non-inconsistent fallback
+/// should be a different variant (e.g. `Internal`).
+fn map_eth_rpc_anyhow_to_service_error(
+    err: AnyhowError,
+    fallback_block_number: u64,
+) -> ServiceError {
+    map_eth_rpc_anyhow_to_service_error_with(err, fallback_block_number, |err| {
+        ServiceError::RpcUnavailable {
+            message: err.to_string(),
+        }
+    })
+}
+
+/// Same as [`map_eth_rpc_anyhow_to_service_error`] but lets the caller supply the
+/// non-inconsistent fallback mapping. Keeps the payload-inconsistency detection in
+/// a single place so a future addition to
+/// [`eth::Error::inconsistent_block_payload_for_fallback`] only needs to be wired
+/// up once.
+fn map_eth_rpc_anyhow_to_service_error_with<F>(
+    err: AnyhowError,
+    fallback_block_number: u64,
+    on_other: F,
+) -> ServiceError
+where
+    F: FnOnce(AnyhowError) -> ServiceError,
+{
+    if let Some(svc_err) = classify_eth_rpc_anyhow_as_inconsistent(&err, fallback_block_number) {
+        return svc_err;
+    }
+    on_other(err)
+}
 
 impl ContinuityService {
     /// Internal helper that always builds a fresh continuity proof directly
@@ -128,8 +184,12 @@ impl ContinuityService {
             .eth_provider
             .build_continuity_blocks(lower_checkpoint_digest, build_from, upper_checkpoint)
             .await
-            .map_err(|err| ServiceError::Internal {
-                message: format!("failed to build continuity blocks: {err}"),
+            .map_err(|err| {
+                map_eth_rpc_anyhow_to_service_error_with(err, min_query, |err| {
+                    ServiceError::Internal {
+                        message: format!("failed to build continuity blocks: {err}"),
+                    }
+                })
             })?;
 
         // Verify the built chain reconciles with the on-chain upper boundary digest.
@@ -199,9 +259,7 @@ impl ContinuityService {
             Ok(None) => Err(ServiceError::TxHashNotFound {
                 tx_hash: format!("0x{}", hex::encode(tx_hash.as_bytes())),
             }),
-            Err(e) => Err(ServiceError::RpcUnavailable {
-                message: format!("failed to resolve tx by hash via RPC: {e:#}"),
-            }),
+            Err(e) => Err(map_eth_rpc_anyhow_to_service_error(e, 0)),
         }
     }
 
@@ -220,9 +278,7 @@ impl ContinuityService {
             .builder
             .get_block_tx_bytes(header_number)
             .await
-            .map_err(|e| ServiceError::RpcUnavailable {
-                message: e.to_string(),
-            })?;
+            .map_err(|e| map_eth_rpc_anyhow_to_service_error(e, header_number))?;
         if tx_bytes.is_empty() {
             if tx_index != 0 {
                 return Err(ServiceError::TxIndexOutOfBounds {
@@ -261,9 +317,7 @@ impl ContinuityService {
                 .builder
                 .get_tx_hash_by_index(header_number, tx_index)
                 .await
-                .map_err(|e| ServiceError::RpcUnavailable {
-                    message: format!("Failed to get tx hash: {e}"),
-                })?
+                .map_err(|e| map_eth_rpc_anyhow_to_service_error(e, header_number))?
         };
 
         // Record merkle proof generation duration
@@ -440,6 +494,130 @@ mod tests {
         );
         assert!(!err.retriable());
         assert_eq!(err.code(), "TxHashNotFound");
+    }
+
+    // ---------------------------------------------------------------------
+    // Tests for the eth::Error -> ServiceError mapping helper.
+    //
+    // The classifier is the single source of truth for which `eth::Error`
+    // variants map to `UnsupportedBlockFormat` (422, non-retriable) versus
+    // the caller-supplied fallback (typically `RpcUnavailable` 503 or
+    // `Internal` 500). Keep these tests in lockstep with
+    // `eth::Error::inconsistent_block_payload_for_fallback`.
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn map_eth_rpc_anyhow_maps_inconsistent_variants_to_unsupported() {
+        for variant in [
+            eth::Error::BlockHeaderRootsMismatch(11),
+            eth::Error::TransactionsReceiptsMismatch(12),
+            eth::Error::NotFullTransactionsFetched(13),
+        ] {
+            let block = variant
+                .inconsistent_block_number_hint()
+                .expect("variant must expose a block-number hint");
+            let err = anyhow::Error::new(variant);
+            let svc_err = super::map_eth_rpc_anyhow_to_service_error(err, /* fallback */ 999);
+            match svc_err {
+                ServiceError::UnsupportedBlockFormat { block_number } => {
+                    assert_eq!(
+                        block_number, block,
+                        "block number hint must win over the fallback"
+                    );
+                }
+                other => panic!("expected UnsupportedBlockFormat, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn map_eth_rpc_anyhow_uses_fallback_block_when_hint_missing() {
+        // A wrapped error with no `eth::Error` cause should fall through to
+        // RpcUnavailable, *not* UnsupportedBlockFormat with a guessed block.
+        let err = anyhow::anyhow!("transport failure, no eth::Error in chain");
+        let svc_err = super::map_eth_rpc_anyhow_to_service_error(err, 12345);
+        assert!(
+            matches!(svc_err, ServiceError::RpcUnavailable { .. }),
+            "non-eth-Error chains must fall through to RpcUnavailable, got {svc_err:?}"
+        );
+    }
+
+    #[test]
+    fn map_eth_rpc_anyhow_treats_failed_to_get_block_as_rpc_unavailable() {
+        // Regression: `FailedToGetBlock` / `FailedToGetReceipts` are produced when
+        // a provider answers `Ok(None)` (block not yet present). They must NOT map
+        // to UnsupportedBlockFormat (which would be a non-retriable 422 to the
+        // client). They should fall through to the caller-supplied fallback
+        // mapping — here, `RpcUnavailable`.
+        let err = anyhow::Error::new(eth::Error::FailedToGetBlock(42));
+        let svc_err = super::map_eth_rpc_anyhow_to_service_error(err, 42);
+        assert!(
+            matches!(svc_err, ServiceError::RpcUnavailable { .. }),
+            "FailedToGetBlock must map to RpcUnavailable, got {svc_err:?}"
+        );
+        assert!(svc_err.retriable());
+
+        let err = anyhow::Error::new(eth::Error::FailedToGetReceipts(42));
+        let svc_err = super::map_eth_rpc_anyhow_to_service_error(err, 42);
+        assert!(
+            matches!(svc_err, ServiceError::RpcUnavailable { .. }),
+            "FailedToGetReceipts must map to RpcUnavailable, got {svc_err:?}"
+        );
+        assert!(svc_err.retriable());
+    }
+
+    #[test]
+    fn map_eth_rpc_anyhow_with_uses_caller_fallback_for_non_inconsistent() {
+        let err = anyhow::anyhow!("some non-eth failure");
+        let svc_err =
+            super::map_eth_rpc_anyhow_to_service_error_with(err, 7, |e| ServiceError::Internal {
+                message: format!("build failed: {e}"),
+            });
+        match svc_err {
+            ServiceError::Internal { message } => assert!(
+                message.starts_with("build failed:"),
+                "caller fallback must be invoked, got {message:?}"
+            ),
+            other => panic!("expected Internal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_eth_rpc_anyhow_with_still_routes_inconsistent_to_unsupported() {
+        // The caller-supplied fallback must not override the inconsistent path.
+        // Even when the caller wants `Internal` for the non-inconsistent case,
+        // a genuine mismatch is still surfaced as `UnsupportedBlockFormat`.
+        let err = anyhow::Error::new(eth::Error::BlockHeaderRootsMismatch(50));
+        let svc_err =
+            super::map_eth_rpc_anyhow_to_service_error_with(err, 999, |e| ServiceError::Internal {
+                message: e.to_string(),
+            });
+        match svc_err {
+            ServiceError::UnsupportedBlockFormat { block_number } => {
+                assert_eq!(block_number, 50);
+            }
+            other => panic!("expected UnsupportedBlockFormat, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn map_eth_rpc_anyhow_walks_context_chain_to_find_eth_error() {
+        // The eth::Error often sits behind several `.context(...)` calls
+        // before reaching the service layer. The classifier walks the full
+        // error chain via `anyhow::Error::chain()`, so a wrapped variant must
+        // still be recognized.
+        let inner = anyhow::Error::new(eth::Error::TransactionsReceiptsMismatch(77));
+        let wrapped = inner.context("while building continuity blocks");
+        let svc_err = super::map_eth_rpc_anyhow_to_service_error(wrapped, /* fallback */ 1);
+        match svc_err {
+            ServiceError::UnsupportedBlockFormat { block_number } => {
+                assert_eq!(
+                    block_number, 77,
+                    "block number must be lifted from the deep cause"
+                );
+            }
+            other => panic!("expected UnsupportedBlockFormat, got {other:?}"),
+        }
     }
 
     #[tokio::test]

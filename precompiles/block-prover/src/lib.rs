@@ -361,11 +361,22 @@ where
         pallet_attestation::Pallet::<Runtime>::last_checkpoint(chain_key)
     }
 
-    /// Check if a digest corresponds to a checkpoint
+    /// Check if a digest corresponds to a checkpoint that is currently safe to use
+    /// as a continuity-proof trust anchor.
     ///
-    /// Returns the digest if the block number matches a checkpoint,
-    /// None otherwise. Used as a fallback when attestation lookup fails.
-    /// Charges gas for the storage lookup.
+    /// Delegates to [`pallet_attestation::Pallet::checkpoint_if_stable`], which
+    /// gates per-pivot while a chain reversion is in flight for the given
+    /// `chain_key`. This closes a soundness gap where `do_revert_to` only
+    /// synchronously purges the bucket containing `checkpoint_height`, leaving
+    /// stale checkpoints at higher pivots readable until `on_init_prune_checkpoints`
+    /// finishes draining them at `MAX_CHECKPOINTS_CLEARED_PER_BLOCK` per block.
+    /// Heights in pivots already drained (including the revert bucket itself,
+    /// which is cleaned synchronously) remain readable so verification of
+    /// pre-revert proofs is not interrupted for the whole pruning window.
+    ///
+    /// Gas: charges `GAS_STORAGE_LOOKUP` twice, once for the `CheckpointPruningStates`
+    /// guard read and once for the `Checkpoints` read itself. Both reads happen
+    /// unconditionally so the pessimistic cost matches the worst case.
     ///
     /// Returns `Ok(Some(..))` / `Ok(None)` on success; gas recording failures surface as `EvmResult` errors.
     fn get_checkpoint(
@@ -373,9 +384,9 @@ where
         chain_key: u64,
         block_number: u64,
     ) -> EvmResult<Option<H256>> {
-        // Charge for checkpoint storage lookup only if we need to check it
-        handle.record_cost(GAS_STORAGE_LOOKUP)?;
-        Ok(pallet_attestation::Pallet::<Runtime>::checkpoints(
+        // Charge for the pruning-state guard read plus the checkpoint storage lookup.
+        handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+        Ok(pallet_attestation::Pallet::<Runtime>::checkpoint_if_stable(
             chain_key,
             block_number,
         ))

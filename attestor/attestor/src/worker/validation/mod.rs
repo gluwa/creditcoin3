@@ -106,6 +106,7 @@ pub struct Config {
 
     validation_sender: attestation_pool::AttestationPoolSender,
     validation_receiver: attestation_pool::AttestationPoolReceiver,
+    attestation_latest_cc3: std::sync::Arc<std::sync::atomic::AtomicU64>,
     can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     api_calls: cc_client::cc3::runtime_apis::RuntimeApi,
@@ -127,6 +128,7 @@ pub(crate) struct WorkerAttestationValidation {
     watch_submission: future::OptionFuture<(AttestationSubmission, attestor_primitives::Height)>,
     validation_sender: attestation_pool::AttestationPoolSender,
     validation_receiver: attestation_pool::AttestationPoolReceiver,
+    attestation_latest_cc3: std::sync::Arc<std::sync::atomic::AtomicU64>,
     can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
 
     // CHAIN DATA
@@ -148,6 +150,7 @@ impl WorkerAttestationValidation {
             watch_submission: future::OptionFuture::default(),
             validation_receiver: config.validation_receiver,
             validation_sender: config.validation_sender,
+            attestation_latest_cc3: config.attestation_latest_cc3,
             can_attest: config.can_attest,
 
             api_calls: config.api_calls,
@@ -177,10 +180,16 @@ impl super::Worker for WorkerAttestationValidation {
                     break Err(Interrupt::Stop);
                 }
                 event = &mut self.watch_submission => {
-                    self.handle_event_submission(event).await?;
+                    self.handle_event_submission(event, shutdown.as_mut()).await?;
                 }
                 event = self.validation_receiver.next() => {
-                    self.handle_event_quorum(event).await?;
+                    // Pass `&mut shutdown` down into the quorum handler so the inner
+                    // reconnect loops (in `submit_attestation`) can race against the
+                    // same shutdown signal instead of holding the worker hostage to a
+                    // `MAX_RECONNECT_ATTEMPTS × max_delay` reconnect budget while the
+                    // outer `select!` waits for the arm body to return. Without this,
+                    // a cc3 outage at shutdown time blocks graceful exit for ~2.5 min.
+                    self.handle_event_quorum(event, shutdown.as_mut()).await?;
                 },
             }
         }
@@ -188,13 +197,16 @@ impl super::Worker for WorkerAttestationValidation {
 }
 
 impl WorkerAttestationValidation {
-    async fn handle_event_quorum(
+    async fn handle_event_quorum<F: std::future::Future<Output = ()>>(
         &mut self,
         quorum: Option<(
             attestation_pool::Quorum,
             attestation_pool::Permit,
             Option<cc_client::H256>,
         )>,
+        // Same shutdown future the outer `task()` select! is watching. We thread it
+        // here so the inner `submit_attestation` reconnect loop can race against it.
+        mut shutdown: std::pin::Pin<&mut F>,
     ) -> Result<(), Interrupt<Error>> {
         // ---------------------------------* Handle pool  closure *--------------------------------
 
@@ -238,7 +250,7 @@ impl WorkerAttestationValidation {
                     "🛫 Submitting attestation"
                 );
 
-                self.submit_attestation(attestation.into(), votes, height)
+                self.submit_attestation(attestation.into(), votes, height, shutdown.as_mut())
                     .await?;
                 Ok(())
             }
@@ -286,9 +298,10 @@ impl WorkerAttestationValidation {
         }
     }
 
-    async fn handle_event_submission(
+    async fn handle_event_submission<F: std::future::Future<Output = ()>>(
         &mut self,
         submission: (AttestationSubmission, attestor_primitives::Height),
+        mut shutdown: std::pin::Pin<&mut F>,
     ) -> Result<(), Interrupt<Error>> {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
@@ -380,11 +393,12 @@ impl WorkerAttestationValidation {
                 // past finalization.
                 'outer: loop {
                     tokio::select! {
-                        Some(mut events) = self.stream_cc3.next() => {
+                        Some(res) = self.stream_cc3.next() => {
+                            let mut events = res.map_interrupt(Error::CC3)?;
                             while let Some(event) =
                                 events.try_next().await.map_interrupt(Error::CC3)?
                             {
-                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
+                                if let cc_client::events::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
                                     if attestation.header_number >= height {
@@ -417,11 +431,11 @@ impl WorkerAttestationValidation {
                 // past finalization.
                 'outer: loop {
                     tokio::select! {
-                        Some(mut events) = self.stream_cc3.next() => {
-                            while let Some(event) =
-                                events.try_next().await.map_interrupt(Error::CC3)?
+                        Some(res) = self.stream_cc3.next() => {
+                            let mut events = res.map_interrupt(Error::CC3)?;
+                            while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)?
                             {
-                                if let cc_client::attestation::CcEvent::BlockAttested(attestation) =
+                                if let cc_client::events::CcEvent::BlockAttested(attestation) =
                                     event
                                 {
                                     if attestation.header_number >= height {
@@ -468,7 +482,8 @@ impl WorkerAttestationValidation {
                 "🛫 Submitting pre-validated attestation"
             );
 
-            self.submit_attestation(attestation, votes, height).await?;
+            self.submit_attestation(attestation, votes, height, shutdown.as_mut())
+                .await?;
         }
 
         Ok(())
@@ -490,7 +505,7 @@ impl WorkerAttestationValidation {
 
         let now = std::time::Instant::now();
 
-        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(&mut self.cc3)
+        let mut runtime_api = cc_client::api::ReconnectingRuntimeApi::new(&self.cc3)
             .await
             .map_interrupt(Error::Client)?;
 
@@ -560,9 +575,16 @@ impl WorkerAttestationValidation {
             .first()
             .expect("Invariant violated: quorum must always contain at least one vote");
 
+        let attestation_latest_cc3 = self
+            .attestation_latest_cc3
+            .load(std::sync::atomic::Ordering::Acquire);
+
         // Every attestation must have a continuity proof except for the first attestation in the
         // chain
-        if attestation.continuity_proof.is_empty() && height != self.start_height {
+        if attestation.continuity_proof.is_empty()
+            && height != attestation_latest_cc3.saturating_add(1)
+            && height != self.start_height
+        {
             tracing::error!(?digest, height, "⛔ Empty continuity proof");
             return Err(Interrupt::Cont(Error::InvalidAttestation(
                 InvalidCause::EmptyContinuityProof,
@@ -776,7 +798,23 @@ enum AttestationSubmission {
 }
 
 impl WorkerAttestationValidation {
-    async fn submit_attestation(
+    /// Run `self.cc3.reconnect(token)` but bail out promptly if the worker's shutdown
+    /// future resolves while the reconnect is in flight. Without this, a cc3 outage at
+    /// shutdown time keeps the worker stuck in the bounded reconnect loop for the full
+    /// `MAX_RECONNECT_ATTEMPTS × max_delay` (~2.5 min on the current cap), which is
+    /// longer than k8s's default 30s SIGTERM grace window.
+    async fn reconnect_or_stop<F: std::future::Future<Output = ()>>(
+        &self,
+        token: cc_client::Reconnect,
+        shutdown: std::pin::Pin<&mut F>,
+    ) -> Result<(), Interrupt<Error>> {
+        tokio::select! {
+            res = self.cc3.reconnect(token) => res.map_err(|err| Interrupt::Cont(Error::CC3(err))),
+            _ = shutdown => Err(Interrupt::Stop),
+        }
+    }
+
+    async fn submit_attestation<F: std::future::Future<Output = ()>>(
         &mut self,
         attestation: cc_client::cc3::runtime_types::attestor_primitives::SignedAttestation<
             cc_client::H256,
@@ -784,8 +822,9 @@ impl WorkerAttestationValidation {
         >,
         votes: Vec<common::types::Attestation>,
         height: attestor_primitives::Height,
+        mut shutdown: std::pin::Pin<&mut F>,
     ) -> Result<(), Interrupt<Error>> {
-        use futures::FutureExt as _;
+        use arc_swap::access::Access as _;
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
@@ -798,10 +837,17 @@ impl WorkerAttestationValidation {
 
         let (randomness, epoch_index) = loop {
             match self.cc3.fetch_babe_randomness_two_epoch_ago().await {
-                Ok(babe) => break babe,
-                Err(err) => {
-                    self.reconnect(Error::Client(err)).await?;
+                Ok(babe) => {
+                    // Successful RPC ⇒ connection is healthy. Reset the shared backoff so the
+                    // next transient failure starts from the minimum delay rather than continuing
+                    // an exponential run we'd been on.
+                    self.cc3.reset_connection_delay();
+                    break babe;
                 }
+                Err(cc_client::Error::ConnectionError(reconnect)) => {
+                    self.reconnect_or_stop(reconnect, shutdown.as_mut()).await?;
+                }
+                Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
             }
         };
 
@@ -819,8 +865,16 @@ impl WorkerAttestationValidation {
                     )
                     .await
                 {
-                    Ok(vrf) => break vrf,
+                    Ok(vrf) => {
+                        // VRF call returned successfully ⇒ connection is healthy.
+                        self.cc3.reset_connection_delay();
+                        break vrf;
+                    }
                     Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
+                        // "Not selected" is *also* a successful RPC roundtrip — the RPC node
+                        // returned a well-formed VRF answer that classified us out. Reset.
+                        self.cc3.reset_connection_delay();
+
                         tracing::info!(
                             height,
                             "🚦 Attestor was not selected for attestation submission"
@@ -834,9 +888,10 @@ impl WorkerAttestationValidation {
 
                         return Ok(());
                     }
-                    Err(err) => {
-                        self.reconnect(Error::Client(err)).await?;
+                    Err(cc_client::Error::ConnectionError(reconnect)) => {
+                        self.reconnect_or_stop(reconnect, shutdown.as_mut()).await?;
                     }
+                    Err(err) => return Err(Interrupt::Cont(Error::CC3(err))),
                 }
             };
 
@@ -927,11 +982,11 @@ impl WorkerAttestationValidation {
             // attestor is most likely down.
             loop {
                 tokio::select! {
-                    Some(mut events) = self.stream_cc3.next() => {
-                        while let Some(event) =
-                            events.try_next().await.map_interrupt(Error::CC3)?
+                    Some(res) = self.stream_cc3.next() => {
+                        let mut events = res.map_interrupt(Error::CC3)?;
+                        while let Some(event) = events.try_next().await.map_interrupt(Error::CC3)?
                         {
-                            if let cc_client::attestation::CcEvent::BlockAttested(attestation) = event {
+                            if let cc_client::events::CcEvent::BlockAttested(attestation) = event {
                                 if attestation.header_number >= height {
                                     self.watch_submission = Some(std::future::ready((
                                         AttestationSubmission::Finalized,
@@ -989,19 +1044,29 @@ impl WorkerAttestationValidation {
         const POOL_INVALID_TX: i32 = 1010;
 
         let submit = loop {
-            match self
+            let reconnect = match self
                 .cc3
                 .api()
+                .load()
                 .tx()
                 .sign_and_submit_then_watch_default(&call, self.signer.keypair())
                 .await
+                .map_err(Into::<cc_client::Error>::into)
             {
-                Ok(submit) => break submit,
+                Ok(submit) => {
+                    // Submission accepted ⇒ connection is healthy.
+                    self.cc3.reset_connection_delay();
+                    break submit;
+                }
+                Err(cc_client::Error::ConnectionError(reconnect)) => reconnect,
                 Err(err) => {
                     // Another attestor won the submission race -the runtime reject new calls and
                     // does not included them into the mempool to avoid competing attestors paying
                     // an inclusion fee.
-                    if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(boxed)) = &err {
+                    if let cc_client::Error::SubxtError(subxt::Error::Rpc(
+                        subxt::error::RpcError::ClientError(boxed),
+                    )) = &err
+                    {
                         if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(obj)) =
                             boxed.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
                         {
@@ -1020,10 +1085,13 @@ impl WorkerAttestationValidation {
                             }
                         }
                     }
+
                     tracing::error!(height, ?err, "⛔ Failed to submit attestation");
-                    self.reconnect(Error::Subxt(err)).await?;
+                    return Err(Interrupt::Cont(Error::CC3(err)));
                 }
-            }
+            };
+
+            self.reconnect_or_stop(reconnect, shutdown.as_mut()).await?;
         };
 
         // --------------------------------* Finalization *--------------------------------
@@ -1036,45 +1104,32 @@ impl WorkerAttestationValidation {
         // in the attestor code or of a super-majority of malicious attestors, however in
         // both cases we currently do not offer good recovery methods.
 
-        let watch = submit
-            .wait_for_finalized_success()
-            .map(move |success| (AttestationSubmission::Eligible { success, votes }, height));
+        // Wrap `wait_for_finalized_success` in `ATTESTATION_TIMEOUT` so a watch that gets
+        // stuck (stale WS, frozen upstream, txpool retention with no finality) can't pin the
+        // validation pipeline forever. On timeout we exit as `Finalized` — the existing
+        // post-submission handler treats this as "the height landed externally or we're
+        // moving on", which advances to the next stash instead of paralysing.
+        //
+        // Without this bound, two failure modes both hung pods in production: (a) txpool
+        // accepted the tx but it never finalised (May 16 cc3-testnet incident), (b) a
+        // frozen-but-alive upstream produces no error so the future never completes.
+        let watch = async move {
+            match tokio::time::timeout(
+                common::constants::ATTESTATION_TIMEOUT,
+                submit.wait_for_finalized_success(),
+            )
+            .await
+            {
+                Ok(success) => (AttestationSubmission::Eligible { success, votes }, height),
+                Err(_) => {
+                    tracing::warn!(height, "🏃 submit watch timed out — unblocking pipeline");
+                    (AttestationSubmission::Finalized, height)
+                }
+            }
+        };
 
         self.watch_submission = Some(watch).into();
 
         Ok(())
-    }
-
-    async fn reconnect(&mut self, err: Error) -> Result<(), Interrupt<Error>> {
-        tracing::warn!(?err, "CC3 connection lost");
-
-        let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-            .max_delay(std::time::Duration::from_millis(5_000))
-            .map(tokio_retry::strategy::jitter);
-        let reconnect = || {
-            tracing::warn!("Reconnecting to CC3...");
-
-            // `Client::reconnect` now uses interior mutability
-            // (`ArcSwap<ClientInner>`), so we don't need a `&mut` handle here.
-            // The local clone preserves existing semantics: reconnect on the
-            // clone, then move it back into `self.cc3` on success.
-            let cc3 = self.cc3.clone();
-            async move {
-                cc3.reconnect().await.map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    Error::Client(err)
-                })?;
-                Ok::<_, Error>(cc3)
-            }
-        };
-        tokio::select! {
-            retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
-                self.cc3 = retry.expect("Unbounded retry cannot error");
-                Ok(())
-            }
-            _ = tokio::signal::ctrl_c() => {
-                Err(Interrupt::Stop)
-            }
-        }
     }
 }

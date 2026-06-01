@@ -1,21 +1,13 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use arc_swap::ArcSwap;
-use serde::Serialize;
 use sp_core::U256;
-pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::{
-        legacy::LegacyRpcMethods,
-        rpc::{RpcClient, RpcParams},
-    },
-    config::DefaultExtrinsicParamsBuilder,
-    error::RpcError,
-    OnlineClient, SubstrateConfig,
+    backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, error::RpcError,
+    ext::jsonrpsee::core::client::Error as JsonRpseeError, OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
-use tracing::{debug, error, info};
 
 use cc3::runtime_types::{
     attestor_primitives::{
@@ -27,12 +19,13 @@ use cc3::runtime_types::{
 };
 
 use attestor_primitives::{
-    block::ContinuityProof, Attestation as RpcAttestation, AttestationCheckpoint, AttestationData,
-    AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
-    SignedAttestation,
+    block::ContinuityProof, AttestationCheckpoint, AttestationData, AttestorId, AttestorStatus,
+    BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
-use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
+use vrf::{make_proof_of_inclusion, ProofOfInclusion};
+
+pub use subxt::utils::{AccountId32, H256};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -44,84 +37,138 @@ use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 pub mod cc3 {}
 
 pub mod api;
-pub mod attestation;
+pub mod events;
 pub mod signer;
 
 pub type Randomness = [u8; 32];
 
 #[derive(Debug, Error)]
 pub enum Error {
-    #[error("Failed to submit RPC")]
-    FailedToSubmit,
-    #[error("Failed to get Babe VRF at epoch {0}")]
-    FailedToGetBabeVrf(u64),
+    #[error("Subxt error: {0}")]
+    SubxtError(subxt::Error),
+    #[error("Transaction timed out waiting for finalization")]
+    TransactionTimeout,
+    #[error("CC3 connection lost: {0:?}")]
+    ConnectionError(Reconnect),
+
     #[error("Failed to get committee set size")]
     FailedToGetComitteSetSize,
-    #[error("No Checkpoint interval set for chain with key {0}")]
-    NoCheckpointIntervalSet(ChainKey),
-    #[error("Subxt error: {0:?}")]
-    SubxtError(#[from] subxt::Error),
-    #[error("Rpc error: {0:?}")]
-    RpcError(#[from] RpcError),
-    #[error("Invalid rpc url")]
-    InvalidUrl,
     #[error("Failed to create proof of inclusion: {0}")]
-    FailedToCreateProofOfInclusion(#[from] VrfError),
-    #[error("Failed to get STARK metadata: {0}")]
-    FailedToGetStarkMetadata(String),
+    FailedToCreateProofOfInclusion(vrf::Error),
+
     #[error("Attestor not found in storage, register the attestor first and retry later")]
     NotRegistered,
     #[error("Caller cannot pay fees for the transaction")]
     CallerCannotPayFees,
-    #[error("Caller doesn't have sufficient funds to execute the transaction: {0:?}")]
-    CallerDoesntHaveSufficientFunds(#[from] subxt::error::TokenError),
-    #[error("Transaction timed out waiting for finalization")]
-    TransactionTimeout,
+    #[error("Caller doesn't have sufficient funds to execute the transaction: {0}")]
+    CallerDoesntHaveSufficientFunds(subxt::error::TokenError),
+
+    /// Reconnect was interrupted by a shutdown signal (`ctrl_c`). Callers should propagate this
+    /// up so the task supervisor can exit cleanly instead of restarting the RPC dance.
+    #[error("CC3 reconnect interrupted by shutdown signal")]
+    ShuttingDown,
 }
 
-/// Inner mutable state of [`Client`]: the live subxt RPC handle and its
-/// derived `OnlineClient` / `LegacyRpcMethods`. Stored behind
-/// [`ArcSwap`] inside [`Client`] so that a successful [`Client::reconnect`]
-/// atomically replaces the live connection for *every* `Arc<Client>`
-/// holder at once.
-struct ClientInner {
-    rpc: RpcClient,
-    api: OnlineClient<SubstrateConfig>,
-    legacy: LegacyRpcMethods<SubstrateConfig>,
+#[derive(Debug)]
+/// Type-safe reconnection wrapper which prevents us from shooting ourselves in the foot by
+/// reconnecting on a non-recoverable error.
+pub struct Reconnect(subxt::Error);
+
+// Filters out connection errors (ws drop, client restart...) and errors which cannot be recovered
+// (insufficient funds, unregistered attestor).
+impl From<subxt::Error> for Error {
+    fn from(err: subxt::Error) -> Self {
+        if is_transient_subxt(&err) {
+            Self::ConnectionError(Reconnect(err))
+        } else {
+            Self::SubxtError(err)
+        }
+    }
+}
+
+/// Classifier shared by `From<subxt::Error>` so the logic has one source of truth.
+///
+/// Treats as recoverable (→ `Reconnect`):
+///   * subxt's own `SubscriptionDropped` / `DisconnectedWillReconnect`
+///   * jsonrpsee `Transport(_)` / `RestartNeeded(_)`
+///   * jsonrpsee `Call(_)` whose message text indicates a server-side transient: the upstream
+///     RPC sent us a structured JSON-RPC error back, but the message itself says e.g.
+///     "connection going down", "service unavailable", "rate limit", etc. In those cases the
+///     correct response is to back off + reconnect, not to crash the task.
+fn is_transient_subxt(err: &subxt::Error) -> bool {
+    match err {
+        subxt::Error::Rpc(
+            RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
+        ) => true,
+        subxt::Error::Rpc(RpcError::ClientError(boxed)) => {
+            let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() else {
+                return false;
+            };
+            match jr {
+                JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_) => true,
+                JsonRpseeError::Call(obj) => is_transient_call_message(obj.message()),
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
+/// Server-side error messages that mean "the connection is temporarily unhealthy" rather than
+/// "the call you made was invalid". Conservative — we only match phrases the chain or its load
+/// balancer routinely emits at shutdown / overload. Anything not listed here surfaces to the
+/// caller as `SubxtError(_)` and crashes the task instead of looping.
+fn is_transient_call_message(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    m.contains("connection")           // "Downstream connection unexpectedly closed", etc.
+        || m.contains("going down")    // gateway graceful-shutdown banner
+        || m.contains("shut")          // "shutting down", "shutdown"
+        || m.contains("unavailable")   // 503 Service Unavailable, generic::unavailable
+        || m.contains("rate limit")    // 429 from a fronting LB
+        || m.contains("too many requests")
+        || m.contains("timeout")       // upstream timeout (distinct from RPC::DEADLINE_EXCEEDED)
+        || m.contains("deadline_exceeded")
+}
+
+impl From<vrf::Error> for Error {
+    fn from(err: vrf::Error) -> Self {
+        Self::FailedToCreateProofOfInclusion(err)
+    }
+}
+
+impl From<subxt::error::TokenError> for Error {
+    fn from(err: subxt::error::TokenError) -> Self {
+        Self::CallerDoesntHaveSufficientFunds(err)
+    }
 }
 
 /// Cc3 client that is configured with an url and keypair
+///
 /// Must connect to a node that has rpc and websocket enabled
 /// - `url`: Creditcoin3 url (rpc + websocket enabled)
 /// - `keypair`: Creditcoin3 keypair
 ///
-/// The live subxt RPC connection lives behind an [`ArcSwap`] so that a single
-/// `Arc<Client>` shared across many tasks can be reconnected in place: once
-/// any holder calls [`Client::reconnect`], every other holder picks up the
-/// fresh subxt `RpcClient` / `OnlineClient` on its next call. The previous
-/// design swapped fields on a value-cloned `Client`, which left other
-/// `Arc<Client>` holders pinned to a stale (and often `RestartNeeded`)
-/// connection until the process was restarted.
+/// The live subxt RPC connection lives behind an [`ArcSwap`] so that a single [`Client`] shared
+/// across many tasks can be reconnected in place: once any holder calls [`Client::reconnect`],
+/// every other holder picks up the fresh subxt `RpcClient` / `OnlineClient` on its next call.
+///
+/// `delay` is shared (`Arc<Mutex<_>>`) so backoff state survives across all `Client::clone()`
+/// instances. Without this, V1's pattern of value-cloning a `Client` per `StreamCC3` (three
+/// clones in the attestor) plus the validation worker's own field gives each holder an
+/// independent exponential backoff — a chain-wide outage with N path failures means N dial
+/// attempts every backoff window instead of one. The shared mutex keeps all reconnects on the
+/// same timer regardless of how the `Client` was handed around.
+#[derive(Clone)]
 pub struct Client {
     signer: signer::CC3Signer,
     url: String,
-    inner: ArcSwap<ClientInner>,
+    delay: Arc<Mutex<tokio_retry::strategy::ExponentialBackoff>>,
+
+    inner: Arc<ArcSwap<ClientInner>>,
 }
 
-impl Clone for Client {
-    /// Clone the client by snapshotting the *current* live connection into a
-    /// fresh `ArcSwap`. Note that the resulting `Client` has its own
-    /// `ArcSwap`: subsequent `reconnect()` calls on either side will not be
-    /// observed by the other. For shared-reconnect semantics, share an
-    /// `Arc<Client>` (every holder of the same `Arc<Client>` *does* see
-    /// reconnects atomically).
-    fn clone(&self) -> Self {
-        Self {
-            signer: self.signer.clone(),
-            url: self.url.clone(),
-            inner: ArcSwap::new(self.inner.load_full()),
-        }
-    }
+struct ClientInner {
+    api: OnlineClient<SubstrateConfig>,
 }
 
 #[allow(clippy::missing_fields_in_debug)]
@@ -137,36 +184,77 @@ impl Client {
     /// - `key`: secret phrase for a creditcoin key
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
         let signer = signer::CC3Signer::new(key)?;
-        let url: String = url.into();
-        let inner = Self::build_inner(&url).await?;
+        let url = url.into();
+        let delay = Arc::new(Mutex::new(util::exponential_retry_delay()));
+        let inner = ClientInner::new(&url).await?;
 
         Ok(Self {
             signer,
             url,
-            inner: ArcSwap::new(Arc::new(inner)),
+            delay,
+            inner: Arc::new(ArcSwap::new(Arc::new(inner))),
         })
-    }
-
-    /// Open a fresh subxt connection (RPC + `OnlineClient` + `LegacyRpcMethods`)
-    /// against `url`. Used by both [`Client::new`] and [`Client::reconnect`].
-    async fn build_inner(url: &str) -> Result<ClientInner, Error> {
-        let rpc = RpcClient::from_insecure_url(url.to_owned()).await?;
-        let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
-        let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
-        Ok(ClientInner { rpc, api, legacy })
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
     ///
-    /// Takes `&self` (not `&mut self`) on purpose: a single `Arc<Client>`
-    /// shared across many tasks (e.g. proof-gen-api-server's events task and
-    /// every continuity builder) can call this without coordination, and all
-    /// callers immediately observe the new connection on their next
-    /// `api()`/`legacy()`/`rpc()` access.
-    pub async fn reconnect(&self) -> Result<(), Error> {
-        let inner = Self::build_inner(&self.url).await?;
-        self.inner.store(Arc::new(inner));
-        Ok(())
+    /// Bounded by [`util::MAX_RECONNECT_ATTEMPTS`] so a permanently-down RPC eventually
+    /// surfaces an `Err` (the task supervisor crashes the process and k8s reschedules)
+    /// rather than silently spinning forever.
+    ///
+    /// Cancellable via `tokio::signal::ctrl_c()` — on shutdown the in-progress reconnect
+    /// returns `Err(Error::ShuttingDown)` instead of blocking the process exit until the
+    /// RPC happens to come back. This restores the cancellation arm the V1 worker's helper
+    /// had before this refactor.
+    ///
+    /// Takes `&self` so any task sharing a `Client` (or a clone of one — clones share the
+    /// backoff mutex) can drive the reconnect without needing exclusive access.
+    pub async fn reconnect(&self, Reconnect(err): Reconnect) -> Result<(), Error> {
+        tracing::warn!(?err, "CC3 connection lost...");
+
+        let mut attempt = 1;
+        loop {
+            // Snapshot the next delay from the shared backoff. The mutex is held only
+            // long enough to advance the iterator — no awaits inside the critical section.
+            let delay = {
+                let mut guard = self.delay.lock().expect("reconnect delay mutex poisoned");
+                guard.next().unwrap_or(util::MAX_DELAY)
+            };
+            let sleep = tokio::time::sleep(tokio_retry::strategy::jitter(delay));
+
+            tokio::select! {
+                () = sleep => {}
+                _ = tokio::signal::ctrl_c() => {
+                    tracing::info!("🔌 Reconnect interrupted by shutdown signal");
+                    return Err(Error::ShuttingDown);
+                }
+            }
+
+            match ClientInner::new(&self.url).await {
+                Ok(inner) => {
+                    self.inner.store(Arc::new(inner));
+                    tracing::warn!(attempt, "Reconnected to CC3!");
+                    return Ok(());
+                }
+                Err(Error::ConnectionError(err)) => {
+                    tracing::warn!(attempt, ?err, "Failed to reconnect to CC3");
+                }
+                Err(err) => {
+                    tracing::warn!(attempt, ?err, "Encountered fatal reconnection error");
+                    return Err(err);
+                }
+            }
+
+            attempt += 1;
+        }
+    }
+
+    /// Reset the shared backoff timer to its initial state. Call this after any operation
+    /// that proves the connection is healthy (a successful storage read or extrinsic
+    /// submission) so the next transient failure starts from the minimum delay.
+    pub fn reset_connection_delay(&self) {
+        let mut guard = self.delay.lock().expect("reconnect delay mutex poisoned");
+        *guard = util::exponential_retry_delay();
     }
 
     /// Create a new read-only instance of cc3 client that doesn't require a keypair.
@@ -181,26 +269,12 @@ impl Client {
 
     /// Snapshot of the live subxt `OnlineClient`.
     ///
-    /// The returned value is a cheap arc-internal clone of the current
-    /// connection at call time. After a `reconnect()`, subsequent `api()`
-    /// calls return the fresh client; previously-snapshotted clients keep
-    /// using the old connection until they're dropped.
+    /// The return value of this method references the inner atomic state of [`Client`] and should
+    /// be short-lived: do not store this in a struct without creating an owned copy first in order
+    /// to avoid locking!
     #[must_use]
-    pub fn api(&self) -> OnlineClient<SubstrateConfig> {
-        self.inner.load().api.clone()
-    }
-
-    /// Snapshot of the live subxt `LegacyRpcMethods`. See [`Client::api`] for
-    /// snapshot semantics.
-    #[must_use]
-    pub fn legacy(&self) -> LegacyRpcMethods<SubstrateConfig> {
-        self.inner.load().legacy.clone()
-    }
-
-    /// Snapshot of the live subxt `RpcClient`. Used internally for raw RPC
-    /// requests such as attestation submission.
-    fn rpc(&self) -> RpcClient {
-        self.inner.load().rpc.clone()
+    pub fn api(&self) -> impl arc_swap::access::Access<OnlineClient<SubstrateConfig>> + '_ {
+        self.inner.map(|inner: &ClientInner| &inner.api)
     }
 
     #[must_use]
@@ -219,7 +293,9 @@ impl Client {
         name: Vec<u8>,
     ) -> Result<Option<ChainKey>, Error> {
         let chain_key = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -242,7 +318,9 @@ impl Client {
             .supported_chains(chain_key);
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -257,15 +335,17 @@ impl Client {
         let address = cc3::storage().supported_chains().supported_chains_iter();
 
         let mut iter = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
-            supported_chains.push(kv.value.into());
+        while let Some(kv_res) = iter.next().await {
+            supported_chains.push(kv_res?.value.into());
         }
 
         Ok(supported_chains)
@@ -275,7 +355,9 @@ impl Client {
     /// Returns the random a time + the current block number (where it was calculated from)
     pub async fn fetch_babe_randomness_two_epoch_ago(&self) -> Result<(Randomness, u64), Error> {
         let epoch_index = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -289,13 +371,15 @@ impl Client {
         // Short circuit if epoch index is too low
         // Randomness is not available for the first 2 epochs
         if two_epoch_ago == 0 {
-            info!("Epoch index is too low to fetch randomness");
+            tracing::info!("Epoch index is too low to fetch randomness");
             return Ok((Randomness::default(), two_epoch_ago));
         }
-        info!("Fetching randomness for epoch index: {}", two_epoch_ago);
+        tracing::info!("Fetching randomness for epoch index: {}", two_epoch_ago);
 
         let randomness = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -305,14 +389,22 @@ impl Client {
                     .randomness_by_epoch_index(two_epoch_ago),
             )
             .await?
-            .ok_or(Error::FailedToGetBabeVrf(two_epoch_ago))?;
+            .ok_or(Error::ConnectionError(Reconnect(subxt::Error::Rpc(
+                // Babe randomness is no persisted by substrate in storage an might be missing for
+                // the first two epochs after node crash.
+                RpcError::RequestRejected(format!(
+                    "Failed to get Babe VRF at epoch {two_epoch_ago}"
+                )),
+            ))))?;
 
         Ok((randomness, two_epoch_ago))
     }
 
     pub async fn get_current_epoch(&self) -> Result<u64, Error> {
         let epoch_index = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -324,9 +416,10 @@ impl Client {
 
     pub async fn target_sample_size(&self, chain_key: u64) -> Result<u32, Error> {
         let storage_query = cc3::storage().attestation().target_sample_size(chain_key);
-
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -339,9 +432,10 @@ impl Client {
 
     pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>, Error> {
         let storage_query = cc3::storage().attestation().last_digest(chain_key);
-
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -354,9 +448,10 @@ impl Client {
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self, chain_key: u64) -> Result<bool, Error> {
         let storage_query = cc3::storage().attestation().active_attestors(chain_key);
-
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -377,7 +472,9 @@ impl Client {
             .attestors(chain_key, self.signer.account_id());
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -400,7 +497,9 @@ impl Client {
             .attestors(chain_key, self.signer.account_id());
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -445,21 +544,23 @@ impl Client {
         };
 
         let tx_progress = self
-            .api()
+            .inner
+            .load()
+            .api
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Register Attestor").await
+        util::handle_tx(tx_progress, "Register Attestor").await
     }
 
     pub async fn attestor_chill(
@@ -469,7 +570,6 @@ impl Client {
         account_nonce: Option<u64>,
     ) -> Result<(), Error> {
         let tx = cc3::tx().attestation().chill(chain_key, attestor_id);
-
         let params = if let Some(account_nonce) = account_nonce {
             DefaultExtrinsicParamsBuilder::new()
                 .nonce(account_nonce)
@@ -479,21 +579,23 @@ impl Client {
         };
 
         let tx_progress = self
-            .api()
+            .inner
+            .load()
+            .api
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Chill Attestor").await
+        util::handle_tx(tx_progress, "Chill Attestor").await
     }
 
     pub async fn attestor_unregister(
@@ -515,21 +617,23 @@ impl Client {
         };
 
         let tx_progress = self
-            .api()
+            .inner
+            .load()
+            .api
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Unregister Attestor").await
+        util::handle_tx(tx_progress, "Unregister Attestor").await
     }
 
     pub async fn start_attesting(
@@ -543,19 +647,21 @@ impl Client {
             .attest(chain_key, bls_public_key, proof_of_possession);
 
         let tx_progress = self
-            .api()
+            .inner
+            .load()
+            .api
             .tx()
             .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Start Attesting").await
+        util::handle_tx(tx_progress, "Start Attesting").await
     }
 
     /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
@@ -573,7 +679,9 @@ impl Client {
         // Get attestor working set size
         let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
 
-        info!("Target set size: {target_sample_size}, committee set size: {committee_set_size}",);
+        tracing::info!(
+            "Target set size: {target_sample_size}, committee set size: {committee_set_size}",
+        );
 
         let proof_of_inclusion = make_proof_of_inclusion(
             committee_set_size as u64,
@@ -601,7 +709,7 @@ impl Client {
         // Get attestor working set size
         let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
 
-        info!("committee set size: {committee_set_size}",);
+        tracing::info!("committee set size: {committee_set_size}",);
 
         let proof_of_inclusion = make_proof_of_inclusion(
             committee_set_size as u64,
@@ -630,7 +738,9 @@ impl Client {
             .chain_attestation_interval(chain_key);
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -649,7 +759,9 @@ impl Client {
             .attestation_checkpoint_interval(chain_key);
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -670,7 +782,9 @@ impl Client {
             .attestations(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -690,7 +804,9 @@ impl Client {
             .attestations(chain_key, subxt::utils::H256::from(digest.0));
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -705,9 +821,10 @@ impl Client {
         chain_key: ChainKey,
     ) -> Result<Option<AttestationCheckpoint>, Error> {
         let storage_query = cc3::storage().attestation().last_checkpoint(chain_key);
-
         Ok(self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -729,7 +846,9 @@ impl Client {
             .checkpoints(chain_key, block_number);
 
         Ok(self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -753,15 +872,17 @@ impl Client {
         let address = cc3::storage().attestation().attestations_iter1(chain_key);
 
         let mut iter = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
-            attestations.push(kv.value.into());
+        while let Some(kv_res) = iter.next().await {
+            attestations.push(kv_res?.value.into());
         }
 
         attestations.sort_by(
@@ -789,18 +910,22 @@ impl Client {
         let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
 
         let mut iter = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
+        while let Some(kv_res) = iter.next().await {
+            let kv = kv_res?;
             if kv.key_bytes.len() < 8 {
-                error!(
+                tracing::error!(
                     "Storage key for chainkey {} is less than 8 bytes, checkpoint: {:?}",
-                    chain_key, kv
+                    chain_key,
+                    kv
                 );
                 continue;
             }
@@ -814,9 +939,10 @@ impl Client {
                 };
                 checkpoints.push(checkpoint);
             } else {
-                error!(
+                tracing::error!(
                     "Failed to get last 8 bytes of storage key for chainkey {}, checkpoint: {:?}",
-                    chain_key, kv
+                    chain_key,
+                    kv
                 );
             }
         }
@@ -827,40 +953,6 @@ impl Client {
         });
 
         Ok(checkpoints)
-    }
-
-    pub async fn submit_attestation<H, A>(
-        &self,
-        attestation: RpcAttestation<H, A>,
-    ) -> Result<(), Error>
-    where
-        H: Serialize,
-        A: Serialize,
-    {
-        let mut params = RpcParams::new();
-        params
-            .push(attestation)
-            .map_err(|_| Error::FailedToSubmit)?;
-
-        match self
-            .rpc()
-            .request::<()>("attestor_submitAttestation", params)
-            .await
-        {
-            Ok(()) => {
-                info!("Attestation submitted");
-                Ok(())
-            }
-            Err(e) => {
-                if let subxt::Error::Rpc(e) = e {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::RpcError(e))
-                } else {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::FailedToSubmit)
-                }
-            }
-        }
     }
 
     pub async fn transfer(
@@ -882,21 +974,23 @@ impl Client {
         };
 
         let tx_progress = self
-            .api()
+            .inner
+            .load()
+            .api
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Transfer").await
+        util::handle_tx(tx_progress, "Transfer").await
     }
 
     pub async fn set_balance(
@@ -921,27 +1015,31 @@ impl Client {
         };
 
         let tx_progress = self
-            .api()
+            .inner
+            .load()
+            .api
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
             .await
             .map_err(|e| {
-                if utils::is_fee_error(&e) {
+                if util::is_fee_error(&e) {
                     Error::CallerCannotPayFees
                 } else {
                     e.into()
                 }
             })?;
 
-        utils::handle_tx(tx_progress, "Set Balance").await
+        util::handle_tx(tx_progress, "Set Balance").await
     }
 
     pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
         let storage_query = cc3::storage().system().account(account);
         let account_info = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -952,7 +1050,9 @@ impl Client {
 
     pub async fn get_account_nonce(&self) -> Result<u64, Error> {
         let nonce = self
-            .api()
+            .inner
+            .load()
+            .api
             .tx()
             .account_nonce(&self.signer.account_id())
             .await?;
@@ -962,9 +1062,10 @@ impl Client {
 
     pub async fn get_attestor_active_set(&self, chain_key: u64) -> Result<Vec<AccountId32>, Error> {
         let storage_query = cc3::storage().attestation().active_attestors(chain_key);
-
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -998,21 +1099,24 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
-            .api()
+        let tx_progress = self
+            .inner
+            .load()
+            .api
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
             .await?
             .submit_and_watch()
-            .await?;
+            .await
+            .map_err(|e| {
+                if util::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
 
-        let hash = ext.extrinsic_hash();
-        debug!(
-            "Set attestation chain genesis block number extrinsic submitted with hash: {:?}",
-            hash
-        );
-
-        Ok(())
+        util::handle_tx(tx_progress, "Set Attestation Chain Genesis Block Number").await
     }
 
     pub async fn get_attestation_chain_genesis_block_number(
@@ -1024,7 +1128,9 @@ impl Client {
             .attestation_chain_genesis_block_number(chain_key);
 
         let result = self
-            .api()
+            .inner
+            .load()
+            .api
             .storage()
             .at_latest()
             .await?
@@ -1035,7 +1141,16 @@ impl Client {
     }
 }
 
-mod utils {
+impl ClientInner {
+    async fn new(url: &str) -> Result<Self, Error> {
+        let rpc = RpcClient::from_insecure_url(url).await?;
+        let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc).await?;
+
+        Ok(Self { api })
+    }
+}
+
+mod util {
     /// Timeout for waiting on extrinsic finalization.
     /// Set to 120 seconds which is around 8 blocks on a 15 second block time.
     const FINALIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
@@ -1044,7 +1159,13 @@ mod utils {
     /// Sourced from: <https://github.com/paritytech/polkadot-sdk/blob/06bded7ab7ac6a50e0aeba48c0f7f5ca548c3573/substrate/primitives/runtime/src/transaction_validity.rs#L116>
     const INABILITY_TO_PAY_SOME_FEE_MSG: &str = "Inability to pay some fee";
 
-    pub(super) async fn handle_tx(
+    pub const MAX_DELAY: std::time::Duration = std::time::Duration::from_millis(5_000);
+
+    pub fn exponential_retry_delay() -> tokio_retry::strategy::ExponentialBackoff {
+        tokio_retry::strategy::ExponentialBackoff::from_millis(100).max_delay(MAX_DELAY)
+    }
+
+    pub async fn handle_tx(
         tx: subxt::tx::TxProgress<
             subxt::SubstrateConfig,
             subxt::OnlineClient<subxt::SubstrateConfig>,
@@ -1073,7 +1194,7 @@ mod utils {
         }
     }
 
-    pub(super) fn is_fee_error(e: &subxt::Error) -> bool {
+    pub fn is_fee_error(e: &subxt::Error) -> bool {
         if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e {
             if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
                 err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
@@ -1204,104 +1325,5 @@ impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion 
         match version {
             CcChainEncodingVersion::V1 => usc_abi_encoding::common::EncodingVersion::V1,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    //! Tests that lock in the *shared-Arc reconnect* contract added in
-    //! CSUB-2039: a single `Arc<Client>` shared across many tasks must see a
-    //! `reconnect()` call atomically refresh the underlying subxt connection
-    //! for every holder, not just the caller.
-    //!
-    //! We can't stand up a real subxt `RpcClient` in a unit test (it needs a
-    //! live WS endpoint), so these tests exercise the `ArcSwap<ClientInner>`
-    //! plumbing directly. The production `Client::reconnect` is a thin
-    //! wrapper that builds a fresh `ClientInner` and calls
-    //! `self.inner.store(...)` — if the store/load contract holds for one
-    //! Arc holder, it holds for all of them.
-
-    use super::*;
-
-    // We can't construct a real `ClientInner` in a unit test (subxt's
-    // `RpcClient`/`OnlineClient`/`LegacyRpcMethods` need a live endpoint),
-    // so the tests below exercise the underlying `ArcSwap` swap semantics
-    // directly. `Client::reconnect` is a thin wrapper around exactly this
-    // pattern: build a fresh inner, then `self.inner.store(Arc::new(inner))`.
-    // If the contract holds at the `ArcSwap` layer it holds for `Client`.
-
-    /// Locks in the contract that `ArcSwap::store` is observed atomically by
-    /// every holder of the same `ArcSwap`. This is the exact mechanism
-    /// `Client::reconnect` uses to refresh the live subxt connection for
-    /// every `Arc<Client>` holder, so we test the contract here even though
-    /// we can't easily build a real `ClientInner` in a unit test.
-    #[test]
-    fn arcswap_shared_reconnect_contract() {
-        // Stand in for `ClientInner`: any `Arc`-able payload works.
-        struct StubInner(#[allow(dead_code)] u64);
-
-        let swap = Arc::new(ArcSwap::new(Arc::new(StubInner(0))));
-        let observer_a = Arc::clone(&swap);
-        let observer_b = Arc::clone(&swap);
-
-        // Both observers see the same initial inner.
-        let initial_a = observer_a.load_full();
-        let initial_b = observer_b.load_full();
-        assert!(
-            Arc::ptr_eq(&initial_a, &initial_b),
-            "two Arc<ArcSwap> holders must observe the same initial inner"
-        );
-
-        // Simulate `reconnect()`: build a fresh inner and store it via one
-        // observer. With the new `&self` reconnect signature, this is the
-        // exact code path proof-gen-api-server's events task takes.
-        let new_inner = Arc::new(StubInner(1));
-        observer_a.store(Arc::clone(&new_inner));
-
-        // Both observers must now see the freshly-stored inner.
-        let after_a = observer_a.load_full();
-        let after_b = observer_b.load_full();
-        assert!(
-            Arc::ptr_eq(&after_a, &new_inner),
-            "the observer that called store() must see the new inner"
-        );
-        assert!(
-            Arc::ptr_eq(&after_b, &new_inner),
-            "the *other* observer must also see the new inner \
-             (this is the bug CSUB-2039 fixes)"
-        );
-
-        // Old inner is no longer the live one.
-        assert!(
-            !Arc::ptr_eq(&after_b, &initial_b),
-            "after store(), the live inner must differ from the original"
-        );
-    }
-
-    /// Sanity check that `Client::clone` produces a `Client` with its *own*
-    /// `ArcSwap` (i.e. a value-cloned Client *cannot* be reconnected on
-    /// behalf of another Client — you have to share via `Arc<Client>` for
-    /// the shared-reconnect semantics). This documents the deliberate
-    /// distinction between value-clone (independent connections) and
-    /// `Arc::clone` (shared connection).
-    ///
-    /// We can't build a real `Client` in unit tests, so we restate the
-    /// contract on `ArcSwap` directly: cloning the *outer* Arc shares the
-    /// swap, while replacing the inner `ArcSwap` with a fresh one (as
-    /// `Client::clone` does) does not.
-    #[test]
-    fn arcswap_clone_is_shared_only_when_outer_arc_is_shared() {
-        let swap_a = ArcSwap::new(Arc::new(0u64));
-        // `Client::clone` snapshots the current inner into a *new* `ArcSwap`.
-        let swap_b = ArcSwap::new(swap_a.load_full());
-
-        swap_a.store(Arc::new(42u64));
-
-        assert_eq!(**swap_a.load(), 42, "caller of store() sees the update");
-        assert_eq!(
-            **swap_b.load(),
-            0,
-            "a value-cloned Client has its own ArcSwap and is unaffected"
-        );
     }
 }

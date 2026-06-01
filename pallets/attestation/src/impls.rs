@@ -59,6 +59,14 @@ impl<T: Config> Pallet<T> {
     ) {
         if let Some(entry) = RetiredAttestorBlsKeys::<T>::take(chain_key, attestor_id) {
             Self::remove_stash_retired_index_pair(&entry.stash, chain_key, attestor_id);
+            // Release the BLS pubkey claim only if [`BlsKeyOwner`] still points at this
+            // controller. If a different controller has since taken the slot (shouldn't
+            // happen given the uniqueness gate in `start_attesting`, but defensive), leave
+            // it alone.
+            if BlsKeyOwner::<T>::get(chain_key, entry.bls_public_key).as_ref() == Some(attestor_id)
+            {
+                BlsKeyOwner::<T>::remove(chain_key, entry.bls_public_key);
+            }
         }
     }
 
@@ -120,6 +128,14 @@ impl<T: Config> Pallet<T> {
                 }
                 Some(entry) => {
                     if current_era >= entry.purge_at_era {
+                        // Release the BLS pubkey claim alongside the retired row so the
+                        // key can be re-registered by a different controller after the
+                        // unbond delay elapses.
+                        if BlsKeyOwner::<T>::get(chain_key, entry.bls_public_key).as_ref()
+                            == Some(&attestor_id)
+                        {
+                            BlsKeyOwner::<T>::remove(chain_key, entry.bls_public_key);
+                        }
                         RetiredAttestorBlsKeys::<T>::remove(chain_key, &attestor_id);
                     } else {
                         // `kept` is a strict subset of `pairs` which was already bounded to 64 entries,
@@ -331,8 +347,8 @@ impl<T: Config> Pallet<T> {
         // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
         // Keep [`AttestorsCount`] in lock-step with [`Attestors`]. `saturating_sub`
-        // defends against drift (e.g. a pre-migration chain whose count was not
-        // populated); the actual decrement pairs with the insert above.
+        // defends against drift if the counter and map ever diverge; the decrement pairs
+        // with the attestor removal above.
         AttestorsCount::<T>::mutate(chain_key, |count| {
             *count = count.saturating_sub(1);
         });
@@ -454,6 +470,35 @@ impl<T: Config> Pallet<T> {
             ),
             Error::<T>::InvalidProofOfPossession
         );
+
+        // Enforce BLS pubkey uniqueness per chain. The aggregation quorum is meaningful only
+        // when each contributing key was produced by an independent private key — without
+        // this gate, multiple controller accounts can register the same BLS pubkey (each
+        // passing PoP independently) and a single signer can satisfy threshold-of-N.
+        //
+        // We also reject keys currently sitting in [`RetiredAttestorBlsKeys`] for this
+        // chain: those keys remain verifiable in pending aggregated attestations until the
+        // unbond delay elapses, so reusing them under a fresh controller would still allow
+        // an aliased-key attack against in-flight quorums.
+        match BlsKeyOwner::<T>::get(chain_key, bls_public_key) {
+            None => {}
+            Some(existing_owner) if existing_owner == attestor_id => {
+                // Re-asserting the same key for the same controller (idempotent path,
+                // e.g. re-attesting after a chill with the same key) — allow.
+            }
+            Some(_) => return Err(Error::<T>::BlsKeyAlreadyRegistered.into()),
+        }
+
+        // Key rotation: an idle attestor that previously had a different BLS key must
+        // release its old `BlsKeyOwner` claim before taking the new one. Skipped when the
+        // old and new keys are identical (handled by the match above already returning Ok).
+        if let Some(old_key) = attestor.bls_public_key {
+            if old_key != bls_public_key {
+                BlsKeyOwner::<T>::remove(chain_key, old_key);
+            }
+        }
+
+        BlsKeyOwner::<T>::insert(chain_key, bls_public_key, &attestor_id);
 
         // Set status to Waiting until next epoch rotation
         attestor.status = AttestorStatus::Waiting;
@@ -781,6 +826,45 @@ impl<T: Config> Pallet<T> {
             || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
     }
 
+    /// Return the checkpoint digest at `(chain_key, block_number)` **only** when the
+    /// containing bucket is known to be free of stale post-revert entries.
+    ///
+    /// `revert_to` synchronously purges checkpoints above the revert height **only**
+    /// inside the bucket containing `checkpoint_height`. Buckets at higher pivots are
+    /// pruned asynchronously by `on_init_prune_checkpoints` at
+    /// [`MAX_CHECKPOINTS_CLEARED_PER_BLOCK`](crate::clear_or_revert::MAX_CHECKPOINTS_CLEARED_PER_BLOCK)
+    /// entries per block. During that window [`Checkpoints`] still contains stale
+    /// post-revert digests that consumers using checkpoints as a trust anchor (e.g.
+    /// the `block-prover` precompile) must not accept.
+    ///
+    /// Bucket-granular gating: when [`CheckpointPruningStates`] has an entry for
+    /// `chain_key`, a height is considered stable iff its pivot is strictly below
+    /// `state.next_pivot`. That covers three safe cases:
+    ///
+    /// 1. Pivots below the original revert pivot — never touched by the revert.
+    /// 2. The original revert pivot itself — synchronously cleaned inside
+    ///    `do_revert_to`, so any surviving entry is `<= checkpoint_height`.
+    /// 3. Pivots in `[checkpoint_pivot + CHECKPOINT_BUCKET_SIZE, state.next_pivot)` —
+    ///    already drained by `on_init_prune_checkpoints`.
+    ///
+    /// Pivots `>= state.next_pivot` are still potentially populated with stale
+    /// post-revert digests, so this returns `None` for any height in that range.
+    ///
+    /// `state.next_pivot` is initialized to `checkpoint_pivot + CHECKPOINT_BUCKET_SIZE`
+    /// and only advances, so the inequality is monotonic: once a height becomes
+    /// stable it stays stable for the rest of the pruning window.
+    ///
+    /// Informational readers that do not gate consensus may keep using the raw
+    /// [`Checkpoints`] storage directly.
+    pub fn checkpoint_if_stable(chain_key: ChainKey, block_number: u64) -> Option<Digest> {
+        if let Some(state) = CheckpointPruningStates::<T>::get(chain_key) {
+            if Self::compute_block_index_for(block_number) >= state.next_pivot {
+                return None;
+            }
+        }
+        Checkpoints::<T>::get(chain_key, block_number)
+    }
+
     pub fn attestor_bls_pubkey(
         chain_key: ChainKey,
         address: &T::AccountId,
@@ -868,12 +952,53 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MajorityNotReached
         );
 
-        // Signature verification
+        // Signature verification.
+        //
+        // Aggregate over the *eligible* attestor set rather than the raw `attestation.attestors`
+        // vec. The raw vec can contain (a) duplicate `AccountId`s — the BTreeSet above silently
+        // deduplicates them for the threshold check but a naive `gather_attestor_public_keys`
+        // over the raw vec would re-aggregate the duplicates' keys — and (b) `AccountId`s that
+        // are not in `ActiveAttestors` (including retired entries whose key is still resolvable
+        // via `RetiredAttestorBlsKeys` until the unbond delay elapses). Either path breaks the
+        // invariant that the threshold-counted set and the BLS-aggregated set are the same set
+        // of independent signers. Gather from `eligible_attestors` (active + deduplicated by
+        // `AccountId`) and keep the BLS-key dedup below as defense in depth.
         let agg_signature = Self::extract_agg_signature(&attestation.signature)?;
+        let eligible_attestor_list: Vec<T::AccountId> =
+            eligible_attestors.iter().cloned().collect();
         let attestor_public_keys =
-            Self::gather_attestor_public_keys(attestation.chain_key(), &attestation.attestors)?;
+            Self::gather_attestor_public_keys(attestation.chain_key(), &eligible_attestor_list)?;
+
+        // Validation-time dedup on BLS keys: defense-in-depth against the same BLS pubkey
+        // appearing under multiple distinct controller accounts (e.g. retired-key edge cases).
+        // BLS aggregation is linear, so aggregating the same
+        // key `k` `n` times yields `n*k` and a single signer holding `s` (with `s*G = k`) can
+        // satisfy the quorum by having their signature counted `n` times. We enforce that the
+        // number of *distinct* BLS public keys clears the threshold, and we aggregate over the
+        // deduped set so the aggregate verification check itself does not accept replayed
+        // contributions.
+        let mut deduped_public_keys: Vec<PublicKey> =
+            Vec::with_capacity(attestor_public_keys.len());
+        let mut seen_key_bytes: BTreeSet<BlsPublicKey> = BTreeSet::new();
+        for pk in attestor_public_keys.iter() {
+            let bytes = pk.as_bytes();
+            ensure!(
+                bytes.len() == core::mem::size_of::<BlsPublicKey>(),
+                Error::<T>::InvalidBlsPublicKey
+            );
+            let mut key_id: BlsPublicKey = [0u8; core::mem::size_of::<BlsPublicKey>()];
+            key_id.copy_from_slice(bytes.as_slice());
+            if seen_key_bytes.insert(key_id) {
+                deduped_public_keys.push(*pk);
+            }
+        }
+        ensure!(
+            deduped_public_keys.len() as u32 >= threshold,
+            Error::<T>::InsufficientUniqueSigners
+        );
+
         let aggregated_public_key =
-            aggregate_public_keys(&attestor_public_keys[..]).map_err(|_| {
+            aggregate_public_keys(&deduped_public_keys[..]).map_err(|_| {
                 log::error!("Failed to aggregate public keys");
                 Error::<T>::InvalidBlsSignature
             })?;

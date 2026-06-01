@@ -20,7 +20,15 @@ pub const DEFAULT_MAX_BATCH_SPAN: u64 = 1_000;
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
     pub chain_key: u64,
+    /// Primary RPC URL: tried first for every operation, and the only URL
+    /// used for tip-related calls (subscription, current block height).
     pub eth_rpc_url: String,
+    /// Ordered fallback RPC URLs. The [`eth::Client`] tries the primary
+    /// first and walks this list in declaration order whenever the primary
+    /// returns `Ok(None)` or a transport error for a block fetch / tx-hash
+    /// lookup. Useful when the primary is a cheap "recent-only" endpoint
+    /// and you keep a more expensive "archive" endpoint for old data.
+    pub eth_rpc_fallback_urls: Vec<String>,
     pub archiver_url: Option<String>,
     /// Number of blocks to lag behind the EVM chain tip for reorg protection.
     /// See [`continuity::ContinuityConfig::block_confirmation_depth`].
@@ -52,6 +60,7 @@ impl Config {
             chains: vec![ChainConfig {
                 chain_key,
                 eth_rpc_url: "http://mock".to_string(),
+                eth_rpc_fallback_urls: Vec::new(),
                 archiver_url: None,
                 block_confirmation_depth: 0,
             }],
@@ -105,6 +114,16 @@ pub struct ConfigFile {
 pub struct ChainConfigFile {
     pub chain_key: u64,
     pub eth_rpc_url: String,
+    /// Optional ordered list of fallback RPC URLs. The first non-empty
+    /// answer wins; the primary `eth_rpc_url` is always tried first.
+    ///
+    /// ```yaml
+    /// eth_rpc_url: "https://recent.example/v2/<KEY_RECENT>"
+    /// eth_rpc_fallback_urls:
+    ///   - "https://archive.example/v2/<KEY_ARCHIVE>"
+    /// ```
+    #[serde(default)]
+    pub eth_rpc_fallback_urls: Vec<String>,
     #[serde(default)]
     pub archiver_url: Option<String>,
     /// Number of blocks to lag behind the EVM chain tip for reorg protection.
@@ -132,9 +151,12 @@ impl ConfigFile {
             if !seen.insert(c.chain_key) {
                 bail!("duplicate chain_key {} in config", c.chain_key);
             }
+            let eth_rpc_fallback_urls =
+                validate_fallback_urls(c.chain_key, c.eth_rpc_fallback_urls)?;
             chains.push(ChainConfig {
                 chain_key: c.chain_key,
                 eth_rpc_url: c.eth_rpc_url,
+                eth_rpc_fallback_urls,
                 archiver_url: c.archiver_url,
                 block_confirmation_depth: c.block_confirmation_depth,
             });
@@ -150,5 +172,156 @@ impl ConfigFile {
             max_batch_size: self.max_batch_size,
             max_batch_span: self.max_batch_span,
         })
+    }
+}
+
+/// Validate a chain's `eth_rpc_fallback_urls` (purely structural — no network
+/// I/O). Returns the trimmed list, preserving declaration order.
+///
+/// # Errors
+///
+/// * Any URL is empty / whitespace-only.
+/// * The same URL appears twice in one chain's fallback list (likely
+///   misconfiguration — duplicates would just hit the same endpoint twice).
+///
+/// `chain_key` is included in error messages to help users locate the
+/// offending entry in a multi-chain config.
+fn validate_fallback_urls(chain_key: u64, urls: Vec<String>) -> Result<Vec<String>> {
+    if urls.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut trimmed: Vec<String> = Vec::with_capacity(urls.len());
+    for (idx, raw) in urls.into_iter().enumerate() {
+        let url = raw.trim().to_string();
+        if url.is_empty() {
+            bail!(
+                "chain_key {chain_key}: `eth_rpc_fallback_urls[{idx}]` is empty; \
+                 remove the entry or set a real URL"
+            );
+        }
+        if trimmed.iter().any(|existing| existing == &url) {
+            bail!(
+                "chain_key {chain_key}: duplicate URL in `eth_rpc_fallback_urls` (index {idx}); \
+                 each fallback must be a distinct endpoint"
+            );
+        }
+        trimmed.push(url);
+    }
+
+    Ok(trimmed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(yaml: &str) -> Result<Config> {
+        let file: ConfigFile = serde_yaml::from_str(yaml)?;
+        file.into_config("ws://test".to_string())
+    }
+
+    #[test]
+    fn validate_fallbacks_accepts_empty_list() {
+        let out = validate_fallback_urls(2, vec![]).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn validate_fallbacks_rejects_empty_url() {
+        let err = validate_fallback_urls(2, vec!["   ".to_string()]).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("chain_key 2"), "missing chain_key: {msg}");
+        assert!(
+            msg.contains("`eth_rpc_fallback_urls[0]` is empty"),
+            "wrong error: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_fallbacks_rejects_duplicate_url() {
+        let err = validate_fallback_urls(
+            7,
+            vec![
+                "https://archive.example/v2/KEY_A".to_string(),
+                "https://archive.example/v2/KEY_A".to_string(),
+            ],
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("chain_key 7"), "missing chain_key: {msg}");
+        assert!(
+            msg.contains("duplicate URL in `eth_rpc_fallback_urls`"),
+            "wrong error: {msg}"
+        );
+    }
+
+    #[test]
+    fn validate_fallbacks_trims_whitespace() {
+        // Operators sometimes have stray whitespace from copy/paste; trim it
+        // rather than failing with an opaque DNS error later.
+        let out =
+            validate_fallback_urls(2, vec!["  https://archive.example/v2/KEY_A  ".to_string()])
+                .unwrap();
+        assert_eq!(out, vec!["https://archive.example/v2/KEY_A".to_string()]);
+    }
+
+    #[test]
+    fn validate_fallbacks_keeps_declaration_order() {
+        let out = validate_fallback_urls(2, vec!["http://b".to_string(), "http://a".to_string()])
+            .unwrap();
+        assert_eq!(out, vec!["http://b".to_string(), "http://a".to_string()]);
+    }
+
+    #[test]
+    fn yaml_round_trip_with_fallback_urls() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 2
+    eth_rpc_url: "https://recent.example/v2/KEY_RECENT"
+    eth_rpc_fallback_urls:
+      - "https://archive.example/v2/KEY_ARCHIVE"
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        assert_eq!(cfg.chains.len(), 1);
+        let chain = &cfg.chains[0];
+        assert_eq!(chain.eth_rpc_fallback_urls.len(), 1);
+        assert_eq!(
+            chain.eth_rpc_fallback_urls[0],
+            "https://archive.example/v2/KEY_ARCHIVE"
+        );
+    }
+
+    #[test]
+    fn yaml_without_fallbacks_keeps_field_empty() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 2
+    eth_rpc_url: "http://localhost:8545"
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        assert!(cfg.chains[0].eth_rpc_fallback_urls.is_empty());
+    }
+
+    #[test]
+    fn yaml_with_empty_fallback_url_fails_to_parse() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 2
+    eth_rpc_url: "http://localhost:8545"
+    eth_rpc_fallback_urls:
+      - ""
+"#;
+        let err = parse(yaml).unwrap_err().to_string();
+        assert!(
+            err.contains("`eth_rpc_fallback_urls[0]` is empty"),
+            "expected empty-url error, got: {err}"
+        );
     }
 }

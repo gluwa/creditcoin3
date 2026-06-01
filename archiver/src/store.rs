@@ -2,6 +2,9 @@
 //!
 //! Schema: key = block height (u64 big-endian, 8 bytes), value = merkle root (H256, 32 bytes).
 //! Big-endian keys ensure sled's sorted iteration yields blocks in height order.
+//!
+//! A separate `meta` tree holds a persisted entry counter so we avoid the O(n)
+//! `db.len()` startup scan that warms sled's page cache with the entire history.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,23 +13,69 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use sp_core::H256;
 
+/// Soft cap for sled's page cache. The 0.34 default is ~1 GiB which is wildly
+/// oversized for a 40-byte-per-record workload; cap it so resident memory
+/// stays predictable. This is a hint, not a hard limit — sled may still
+/// exceed it under bursty write load.
+const SLED_CACHE_CAPACITY_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Name of the side tree used for archiver-internal metadata
+/// (currently just the entry counter).
+const META_TREE: &[u8] = b"__archiver_meta";
+
+/// Key inside [`META_TREE`] that stores the cached entry counter as a u64-BE.
+const META_KEY_COUNT: &[u8] = b"count";
+
 /// Thread-safe handle to the root store. Cheap to clone (wraps Arc<sled::Db>).
 #[derive(Clone)]
 pub struct RootStore {
     db: Arc<sled::Db>,
+    meta: sled::Tree,
     /// Cached entry count — avoids O(n) scan on every status request.
     entry_count: Arc<AtomicUsize>,
 }
 
 impl RootStore {
     /// Open (or create) the sled database at the given path.
+    ///
+    /// On open, the entry counter is seeded from a persisted side tree (O(1));
+    /// only when the counter is missing (first run after upgrade, or a freshly
+    /// created database) do we fall back to a one-time `db.len()` scan and
+    /// persist the result. This avoids re-warming sled's page cache with the
+    /// full history on every restart.
     pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
-        let db = sled::open(path.as_ref())
+        let db = sled::Config::default()
+            .path(path.as_ref())
+            .cache_capacity(SLED_CACHE_CAPACITY_BYTES)
+            .open()
             .with_context(|| format!("failed to open sled database at {:?}", path.as_ref()))?;
-        // Pay the O(n) cost once at startup to seed the cached count.
-        let initial_count = db.len();
+
+        let meta = db
+            .open_tree(META_TREE)
+            .context("failed to open archiver meta tree")?;
+
+        // The default tree (where roots live) is `db` itself, since `Db: Deref<Target=Tree>`.
+        let initial_count = match meta.get(META_KEY_COUNT)? {
+            Some(bytes) => {
+                let arr: [u8; 8] = bytes
+                    .as_ref()
+                    .try_into()
+                    .context("meta count value has wrong length (expected 8 bytes)")?;
+                u64::from_be_bytes(arr) as usize
+            }
+            None => {
+                // First run after upgrade, or fresh database. Pay the O(n) cost
+                // exactly once and persist the result so subsequent restarts
+                // don't have to repeat it.
+                let scanned = db.len();
+                meta.insert(META_KEY_COUNT, &(scanned as u64).to_be_bytes())?;
+                scanned
+            }
+        };
+
         Ok(Self {
             db: Arc::new(db),
+            meta,
             entry_count: Arc::new(AtomicUsize::new(initial_count)),
         })
     }
@@ -42,7 +91,21 @@ impl RootStore {
             .context("failed to apply batch insert")?;
         // Assumes inserts are unique (no overwrites). For backfill over existing
         // entries this may drift slightly, but that's acceptable for a status counter.
-        self.entry_count.fetch_add(roots.len(), Ordering::AcqRel);
+        let new_total = self
+            .entry_count
+            .fetch_add(roots.len(), Ordering::AcqRel)
+            .saturating_add(roots.len());
+        // Persist the running count to the meta tree. This is best-effort: it
+        // does not need to be atomic with the roots batch — if we crash between
+        // the two writes the counter will simply drift by at most one batch on
+        // the next restart (and only until the next successful put_roots).
+        // Failing to persist the counter must not abort archival.
+        if let Err(e) = self
+            .meta
+            .insert(META_KEY_COUNT, &(new_total as u64).to_be_bytes())
+        {
+            tracing::warn!(error = %e, "failed to persist entry count to meta tree");
+        }
         Ok(())
     }
 
@@ -156,5 +219,50 @@ mod tests {
         assert_eq!(range.len(), 4);
         assert_eq!(range[0], (3, roots[3]));
         assert_eq!(range[3], (6, roots[6]));
+    }
+
+    #[test]
+    fn count_persists_across_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sled");
+
+        {
+            let store = RootStore::open(&path).unwrap();
+            let entries: Vec<(u64, H256)> = (0..7).map(|i| (i, H256::random())).collect();
+            store.put_roots(&entries).unwrap();
+            assert_eq!(store.count(), 7);
+            // Drop the store, closing the database.
+        }
+
+        let reopened = RootStore::open(&path).unwrap();
+        // Count must be restored from the meta tree without a full scan.
+        assert_eq!(reopened.count(), 7);
+
+        reopened.put_roots(&[(7, H256::random())]).unwrap();
+        assert_eq!(reopened.count(), 8);
+    }
+
+    #[test]
+    fn count_recovers_from_missing_meta() {
+        // Simulate the upgrade path: a database that pre-exists without the
+        // meta tree entry. The first open should one-time-scan and persist.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sled");
+
+        {
+            // Open with the new code, write some entries, then manually wipe
+            // the meta key to mimic a pre-upgrade db.
+            let store = RootStore::open(&path).unwrap();
+            let entries: Vec<(u64, H256)> = (0..5).map(|i| (i, H256::random())).collect();
+            store.put_roots(&entries).unwrap();
+            store.meta.remove(META_KEY_COUNT).unwrap();
+            store.db.flush().unwrap();
+        }
+
+        let reopened = RootStore::open(&path).unwrap();
+        // The one-time fallback scan should have recovered the count.
+        assert_eq!(reopened.count(), 5);
+        // And persisted it for next time.
+        assert!(reopened.meta.get(META_KEY_COUNT).unwrap().is_some());
     }
 }

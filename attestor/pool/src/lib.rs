@@ -674,7 +674,11 @@ impl AttestationPoolForks {
 
         tracing::debug!("Validating tail prev digest");
 
-        let prev_digest_tail = attestation.continuity_proof.tail_prev_digest();
+        let prev_digest_tail = if self.validate_quorum.attestation_interval.get() == 1 {
+            attestation.prev_digest()
+        } else {
+            attestation.continuity_proof.tail_prev_digest()
+        };
 
         let key_vote = KeyVote {
             height,
@@ -700,7 +704,7 @@ impl AttestationPoolForks {
         if prev_digest_tail != self.last_finalized_digest {
             tracing::warn!(
                 last_finalized_digest = ?self.last_finalized_digest,
-                 prev_digest_tail = ?prev_digest_tail,
+                prev_digest_tail = ?prev_digest_tail,
                 "🏎️ Received pending attestation"
             );
 
@@ -1928,7 +1932,7 @@ mod constants {
         header_hash: attestor_primitives::Digest::zero(),
     };
 
-    pub const TIMEOUT: std::time::Duration = std::time::Duration::from_millis(10);
+    pub const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 }
 
 #[cfg(test)]

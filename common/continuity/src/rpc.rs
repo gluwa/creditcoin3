@@ -63,6 +63,16 @@ impl ReconnectingEthRpcProvider {
             match call(client).await {
                 Ok(value) => return Ok(value),
                 Err(err) => {
+                    if eth::anyhow_chain_is_inconsistent_block_payload(&err) {
+                        warn!(
+                            op,
+                            attempt,
+                            max = ETH_RPC_MAX_ATTEMPTS,
+                            error = %err,
+                            "ETH RPC returned block data inconsistent with header; not retrying with reconnect",
+                        );
+                        return Err(err);
+                    }
                     warn!(
                         op,
                         attempt,

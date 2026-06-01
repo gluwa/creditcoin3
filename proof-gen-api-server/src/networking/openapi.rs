@@ -3,6 +3,7 @@
 use utoipa::OpenApi;
 use utoipa_swagger_ui::Config;
 
+use crate::networking::routes::attested_height;
 use crate::services::continuity_service::{
     ContinuityProofSchema, ContinuityResponse, MerkleProofEntrySchema, ProofQuery,
     TransactionMerkleProofSchema,
@@ -24,6 +25,7 @@ use super::routes::{continuity, health};
         continuity::get_proof_by_tx_hash,
         continuity::get_proof_batch,
         continuity::get_proof_batch_by_tx_hash,
+        attested_height::attested_height,
     ),
     components(schemas(
         ContinuityResponse,
@@ -33,6 +35,7 @@ use super::routes::{continuity, health};
         ErrorResponse,
         ProofQuery,
         health::HealthCheckResponse,
+        attested_height::AttestedHeightResponse,
     ))
 )]
 pub struct ApiDoc;

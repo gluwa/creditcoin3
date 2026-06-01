@@ -356,6 +356,7 @@ impl ContinuityService {
             return Err(ServiceError::BlockNotOnSourceChain {
                 requested_block: header_number,
                 current_block: tip_block,
+                confirmation_depth: chain.builder.config.block_confirmation_depth,
             });
         }
         let current_block = confirmed_block;
@@ -400,6 +401,23 @@ impl ContinuityService {
                 .ok_or_else(|| anyhow::anyhow!("eth RPC chain {chain_key} is unhealthy"))?;
         }
         Ok(())
+    }
+
+    /// Returns the latest attested height in the in-memory cache for a chain.
+    pub async fn attested_height(&self, chain_key: u64) -> ServiceResult<Option<u64>> {
+        let chain = self.chain_state(chain_key)?;
+
+        let mut last_height = {
+            let cache = chain.attestation_cache.read().await;
+            cache.keys().next_back().copied()
+        };
+
+        if last_height.is_none() {
+            let checkpoint_cache = chain.checkpoint_cache.read().await;
+            last_height = checkpoint_cache.keys().next_back().copied();
+        }
+
+        Ok(last_height)
     }
 
     /// Insert an attestation into the in-memory cache (called from event handler).
