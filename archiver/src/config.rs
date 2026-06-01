@@ -22,6 +22,15 @@ pub struct Config {
     #[arg(long, env = "RPC_WS", required = true)]
     pub rpc_ws: Url,
 
+    /// Creditcoin3 RPC (WebSocket). `CC3_RPC_URL` or `--cc3-rpc-url` (CLI overrides env; not in YAML).
+    #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
+    pub cc3_rpc_url: String,
+
+    /// The chain key corresponding to the source chain supported by this archiver. Used for fetching
+    /// on-chain maturity strategy
+    #[arg(long, env = "CHAIN_KEY")]
+    pub chain_key: Option<u64>,
+
     /// Block height to start from (ignored if the database already has progress).
     #[arg(long, env = "START_HEIGHT", default_value = "0")]
     pub start_height: u64,
@@ -58,10 +67,13 @@ pub struct Config {
     pub flush_every: NonZeroU64,
 
     /// Finalization lag: number of blocks behind the chain tip to consider finalized.
+    /// By default the archiver will use the on-chain finalization lag for this source
+    /// chain as registered on Creditcoin. The default will be correct in most cases.
+    /// 
     /// Set to 0 for chains with instant finality. For chains with probabilistic
     /// finality, set this to the expected number of confirmation blocks.
-    #[arg(long, env = "FINALIZATION_LAG", default_value = "0")]
-    pub finalization_lag: u64,
+    #[arg(long, env = "FINALIZATION_LAG")]
+    pub finalization_lag_override: Option<u64>,
 
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]

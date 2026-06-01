@@ -28,5 +28,9 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
 
+# Creditcoin / USC dependencies
+cc-client = { workspace = true }
+supported-chains-primitives = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3"
