@@ -230,34 +230,39 @@ where
 
                 let mut items_processed = 0_u64;
 
-                // We search the checkpoint bucket for the highest checkpoint below the target height.
-                let max_below =
+                // Collect this bucket's heights below the target, then probe them from
+                // highest downward. `CheckpointBuckets` is expected to mirror `Checkpoints`
+                // (writes are paired), but the prefix clears in `clear_or_revert.rs` advance
+                // the two maps' cursors independently during chain removal, so a bucket can
+                // transiently hold heights whose checkpoint was already cleared. Skip such
+                // orphans and keep probing *within* the bucket — only fall through to the
+                // next pivot once every height here is exhausted. Probing extremal-first with
+                // an early break keeps the common (no-desync) case at a single lookup.
+                let mut candidates: Vec<u64> =
                     CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
                         .inspect(|_| {
                             items_processed += 1;
                         })
                         .filter(|block_number| *block_number < target_height)
-                        .max_by_key(|block_number| *block_number);
+                        .collect();
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
 
-                // `CheckpointBuckets` is expected to mirror `Checkpoints` (writes are paired).
-                // Treat any desync as a soft miss and fall through to the next pivot rather
-                // than panic — the prefix-clear paths in `clear_or_revert.rs` advance the two
-                // maps' cursors independently after chain removal.
-                maybe_highest = if let Some(block_number) = max_below {
+                // Highest first.
+                candidates.sort_unstable_by(|a, b| b.cmp(a));
+
+                maybe_highest = None;
+                for block_number in candidates {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
-                    Checkpoints::<Runtime>::get(chain_key, block_number).map(|digest| {
-                        HeightHashResult {
+                    if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, block_number) {
+                        maybe_highest = Some(HeightHashResult {
                             height: block_number,
                             hash: digest,
                             is_attestation: false,
                             exists: true,
-                        }
-                    })
-                } else {
-                    None
-                };
-
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                        });
+                        break;
+                    }
+                }
 
                 if maybe_highest.is_some() {
                     break;
@@ -339,33 +344,34 @@ where
 
                 let mut items_processed = 0_u64;
 
-                // We search the checkpoint bucket for the lowest checkpoint above the target height.
-                let min_above =
+                // See the matching note in `find_highest_attested_before`: probe within the
+                // bucket (lowest first) and skip orphans whose `Checkpoints` entry was already
+                // cleared, only falling through to the next pivot once this bucket is exhausted.
+                let mut candidates: Vec<u64> =
                     CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
                         .inspect(|_| {
                             items_processed += 1;
                         })
                         .filter(|block_number| *block_number >= target_height)
-                        .min_by_key(|block_number| *block_number);
+                        .collect();
+                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
 
-                // See the matching note in `find_highest_attested_before`: skip on
-                // `CheckpointBuckets`/`Checkpoints` desync rather than panic, and let the
-                // outer loop continue to the next pivot.
-                maybe_lowest = if let Some(block_number) = min_above {
+                // Lowest first.
+                candidates.sort_unstable();
+
+                maybe_lowest = None;
+                for block_number in candidates {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
-                    Checkpoints::<Runtime>::get(chain_key, block_number).map(|digest| {
-                        HeightHashResult {
+                    if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, block_number) {
+                        maybe_lowest = Some(HeightHashResult {
                             height: block_number,
                             hash: digest,
                             is_attestation: false,
                             exists: true,
-                        }
-                    })
-                } else {
-                    None
-                };
-
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                        });
+                        break;
+                    }
+                }
 
                 if maybe_lowest.is_some() {
                     break;

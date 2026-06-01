@@ -696,6 +696,141 @@ fn find_lowest_attested_after_skips_orphan_bucket_entry() {
         });
 }
 
+// Regression for the within-bucket case: a single pivot can hold several heights and only
+// the extremal one may be orphaned. The search must probe the remaining heights in the same
+// bucket before moving on, otherwise callers get a wrong (further-pivot) height or an empty
+// result even though a valid checkpoint exists in the bucket.
+#[test]
+fn find_highest_attested_before_probes_within_bucket_past_orphan() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 1500;
+    let orphan_height: u64 = 1400; // extremal-below in the target bucket, but orphaned
+    let valid_in_bucket: u64 = 1200; // same bucket (pivot 1000), has a real checkpoint
+    let valid_digest = H256::from_slice(&[11_u8; 32]);
+    // A valid checkpoint one pivot lower acts as a distractor: if the search wrongly
+    // abandoned the bucket it would return this instead.
+    let distractor_height: u64 = 800;
+    let distractor_digest = H256::from_slice(&[22_u8; 32]);
+    let last_checkpoint_height: u64 = 2000; // >= target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_in_bucket,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let pivot = AttestationPallet::<Runtime>::compute_block_index_for(orphan_height);
+            // Orphan: bucket entry, no checkpoint.
+            CheckpointBuckets::<Runtime>::insert((SUPPORTED_CHAIN_KEY, pivot, orphan_height), ());
+            // Valid, same bucket.
+            CheckpointBuckets::<Runtime>::insert((SUPPORTED_CHAIN_KEY, pivot, valid_in_bucket), ());
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_in_bucket, valid_digest);
+
+            // Distractor in the next pivot down.
+            let distractor_pivot =
+                AttestationPallet::<Runtime>::compute_block_index_for(distractor_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, distractor_pivot, distractor_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                distractor_height,
+                distractor_digest,
+            );
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn find_lowest_attested_after_probes_within_bucket_past_orphan() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 1500;
+    let orphan_height: u64 = 1600; // extremal-above in the target bucket, but orphaned
+    let valid_in_bucket: u64 = 1800; // same bucket (pivot 1000), has a real checkpoint
+    let valid_digest = H256::from_slice(&[33_u8; 32]);
+    // Distractor one pivot higher: returned only if the bucket were wrongly abandoned.
+    let distractor_height: u64 = 2400;
+    let distractor_digest = H256::from_slice(&[44_u8; 32]);
+    let last_checkpoint_height: u64 = 3000; // > target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_in_bucket,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let pivot = AttestationPallet::<Runtime>::compute_block_index_for(target_height);
+            // Orphan: bucket entry, no checkpoint.
+            CheckpointBuckets::<Runtime>::insert((SUPPORTED_CHAIN_KEY, pivot, orphan_height), ());
+            // Valid, same bucket.
+            CheckpointBuckets::<Runtime>::insert((SUPPORTED_CHAIN_KEY, pivot, valid_in_bucket), ());
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_in_bucket, valid_digest);
+
+            // Distractor in the next pivot up.
+            let distractor_pivot =
+                AttestationPallet::<Runtime>::compute_block_index_for(distractor_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, distractor_pivot, distractor_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                distractor_height,
+                distractor_digest,
+            );
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_lowest_attested_after {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
 #[test]
 fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height() {
     let alice: H160 = Alice.into();
