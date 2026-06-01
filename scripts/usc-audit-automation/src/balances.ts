@@ -228,7 +228,7 @@ export async function runBalanceChecks(
         if (isLow) {
           hasLowBalances = true;
           lowLines.push(
-            `- ${config.uscNetworkName}, \`${display}\`: ${
+            `- ${net.name}, \`${display}\`: ${
               tokenWithDecimals.toFixed(6)
             } ${symbol}`,
           );
