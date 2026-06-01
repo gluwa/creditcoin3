@@ -27,7 +27,7 @@ deno task dev -- \
 # Production run
 deno task start -- \
   --source-rpc wss://sepolia.infura.io/ws/v3/YOUR_KEY \
-  --cc3-ws wss://rpc.usc-testnet2.creditcoin.network \
+  --cc3-ws wss://rpc.cc3-testnet.creditcoin.network \
   --private-key 0x... \
   --api-url https://prover.cc3-testnet.creditcoin.network
 ```
@@ -97,7 +97,7 @@ docker build -f scripts/traffic-simulator/Dockerfile -t gluwa/proof-traffic-simu
 ```bash
 docker run -d \
   -e SOURCE_RPC_URL=wss://sepolia.infura.io/ws/v3/YOUR_KEY \
-  -e CC3_WS_URL=wss://rpc.usc-testnet2.creditcoin.network\
+  -e CC3_WS_URL=wss://rpc.cc3-testnet.creditcoin.network\
   -e CC3_PRIVATE_KEY=0x... \
   -e PROOF_API_URL=https://prover.cc3-testnet.creditcoin.network \
   -p 8080:8080 \

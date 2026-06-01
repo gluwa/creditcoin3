@@ -14,7 +14,7 @@ const config: HardhatUserConfig = {
             accounts: [CC3TEST_PRIVATE_KEY],
         },
         creditcoinTestnet: {
-            url: 'https://rpc.usc-testnet2.creditcoin.network',
+            url: 'https://rpc.cc3-testnet.creditcoin.network',
             accounts: [CC3TEST_PRIVATE_KEY],
         },
         creditcoinMainnet: {
