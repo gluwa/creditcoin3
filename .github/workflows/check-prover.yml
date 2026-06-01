@@ -35,12 +35,6 @@ jobs:
             evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
             chainKey: 1
 
-          # USC Testnet v2, Sepolia from 10,050,300
-          - creditcoinUrl: "wss://rpc.usc-testnet2.creditcoin.network/ws"
-            proverUrl: "https://proof-gen-api.usc-testnet2.creditcoin.network"
-            indexerUrl: "https://attestations-graphql.usc-testnet2.creditcoin.network"
-            chainKey: 1
-
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-24.04
     steps:
