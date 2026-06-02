@@ -287,6 +287,7 @@ jobs:
               --rpc-ws ws://localhost:8141 \
               --start-height 0 \
               --flush-every 5 \
+              --chain-key 2 \
               --api-bind 0.0.0.0:8080 >/var/tmp/integration-test-attestor-network/archiver.log 2>&1 &
 
       - name: Start creditcoin3-node - Bob
@@ -1711,6 +1712,7 @@ jobs:
               --rpc-ws ws://localhost:8141 \
               --start-height 0 \
               --flush-every 5 \
+              --chain-key 2 \
               --api-bind 0.0.0.0:8080 >/var/tmp/archiver-testing/archiver.log 2>&1 &
 
       - name: Start Attestation Zombienet for Alice - Anvil 1
