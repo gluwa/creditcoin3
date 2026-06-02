@@ -130,6 +130,8 @@ async function main(
 
         await sleep(500); // rate-limit
         console.log(`    ..... trying to verify proof for ${blockNumber} -> ${proofData.txHash}`);
+        console.log(JSON.stringify(proofData));
+
         const verificationResult = await prover.verifySingle(
             proofData.chainKey,
             proofData.headerNumber,
