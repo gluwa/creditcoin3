@@ -362,10 +362,9 @@ where
     /// Currently unused but kept for potential future optimizations.
     #[allow(dead_code)]
     fn last_checkpoint(chain_key: u64) -> Option<attestor_primitives::AttestationCheckpoint> {
-        let is_supported = SupportedChains::<Runtime>::get(chain_key).is_some();
-        if !is_supported {
+        if SupportedChains::<Runtime>::get(chain_key).is_none() {
             return None;
-        };
+        }
 
         let last_checkpoint = pallet_attestation::Pallet::<Runtime>::last_checkpoint(chain_key);
         // The long term plan is to allow reversion to checkpoint or attestation heights.
@@ -413,10 +412,9 @@ where
     ) -> EvmResult<Option<H256>> {
         // Charge for the supported chains lookup
         handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(1))?;
-        let is_supported = SupportedChains::<Runtime>::get(chain_key).is_some();
-        if !is_supported {
+        if SupportedChains::<Runtime>::get(chain_key).is_none() {
             return Ok(None);
-        };
+        }
 
         // Charge for the pruning-state guard read plus the checkpoint storage lookup.
         handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
