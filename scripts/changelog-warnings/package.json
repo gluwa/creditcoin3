@@ -13,7 +13,7 @@
         "lint:fix": "eslint --fix \"src/**/*.ts\""
     },
     "dependencies": {
-        "js-yaml": "^4.1.0",
+        "js-yaml": "^4.2.0",
         "minimatch": "^10.2.4"
     },
     "devDependencies": {
