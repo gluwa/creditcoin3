@@ -122,8 +122,14 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
         };
 
-        if tail_prev_header_number != tail_block_number - 1 {
-            error!("❌ Continuity proof tail prev digest points to an attestation/checkpoint with header number {}, but expected {}", tail_prev_header_number, tail_block_number - 1);
+        // `tail_block_number` is attacker-influenced (header_number.saturating_sub(roots.len()));
+        // a degenerate proof can drive it to 0. Reject that explicitly instead of computing
+        // `tail_block_number - 1`, which would underflow (panics under overflow-checks, wraps otherwise).
+        let expected_tail_prev_header_number = tail_block_number
+            .checked_sub(1)
+            .ok_or(Error::<T>::InvalidAttestationContinuityProofTail)?;
+        if tail_prev_header_number != expected_tail_prev_header_number {
+            error!("❌ Continuity proof tail prev digest points to an attestation/checkpoint with header number {tail_prev_header_number}, but expected {expected_tail_prev_header_number}");
             return Err(Error::<T>::InvalidAttestationContinuityProofTail.into());
         }
 
