@@ -45,7 +45,10 @@ fn continuity_revert(err: ContinuityVerificationError) -> PrecompileFailure {
 
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
-    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation::Config,
+    Runtime: pallet_evm::Config
+        + frame_system::Config
+        + pallet_attestation::Config
+        + pallet_supported_chains::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
@@ -138,13 +141,7 @@ where
         // since they're always used together
         let they_match = attestation_matches || checkpoint_matches;
 
-        // Special case: If the continuity chain ends at query height and query height
-        // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
-        if final_block_number == height && they_match {
-            debug!(
-                "✅ Continuity chain ends at query height {height} which is a checkpoint/attestation"
-            );
-        } else if !they_match {
+        if !they_match {
             // Chain must end at a checkpoint/attestation
             debug!(
                 "❌ Continuity chain ends at block {final_block_number} with digest {final_digest:?}, but no matching attestation or checkpoint found at that height"
@@ -152,6 +149,14 @@ where
             return Err(continuity_revert(
                 ContinuityVerificationError::NoMatchingAttestationOrCheckpoint,
             ));
+        }
+
+        // Special case: If the continuity chain ends at query height and query height
+        // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
+        if final_block_number == height {
+            debug!(
+                "✅ Continuity chain ends at query height {height} which is a checkpoint/attestation"
+            );
         }
 
         Ok(())

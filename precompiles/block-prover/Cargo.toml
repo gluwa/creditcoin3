@@ -23,6 +23,7 @@ attestor-primitives = { workspace = true }
 
 # Pallets
 pallet-attestation = { workspace = true, default-features = false }
+pallet-supported-chains = { workspace = true, default-features = false }
 
 # Utils
 merkle = { workspace = true, default-features = false, features = [
