@@ -14,9 +14,10 @@ Continuously archives source chain blocks, computes merkle roots, and serves the
 ## Usage
 
 ```bash
-archiver \
+RUST_LOG=debug target/release/archiver \
   --rpc-http http://localhost:8545 \
-  --rpc-ws ws://localhost:8546 \
+  --rpc-ws ws://localhost:8545 \
+  --chain-key 2 \
   --start-height 0 \
   --api-bind 0.0.0.0:8080
 ```
@@ -29,6 +30,8 @@ All flags can also be set via environment variables (see below).
 |------|-----|---------|-------------|
 | `--rpc-http` | `RPC_HTTP` | *(required)* | HTTP RPC endpoint for block fetching |
 | `--rpc-ws` | `RPC_WS` | *(required)* | WebSocket RPC endpoint for new-head subscriptions |
+| `--cc3-rpc_url` | `CC3_RPC_URL` | `ws://localhost:9944` | Url for connecting to CC3 chain |
+| `--chain-key` | `CHAIN_KEY` | *(none)* | Chain key for supported chains entry of the chain we're archiving |
 | `--start-height` | `START_HEIGHT` | `0` | Block height to start from (ignored if DB has progress) |
 | `--end-height` | `END_HEIGHT` | *(none)* | Stop after this block (inclusive). Omit to follow the tip |
 | `--max-fetch-tasks` | `MAX_FETCH_TASKS` | `8` | Max concurrent block fetch tasks (IO-bound) |
@@ -38,7 +41,7 @@ All flags can also be set via environment variables (see below).
 | `--api-bind` | `API_BIND` | `0.0.0.0:8080` | HTTP API bind address |
 | `--flush-every` | `FLUSH_EVERY` | `10000` | Flush database to disk every N blocks |
 | `--backfill` | — | `false` | Scan for gaps and fill them before resuming |
-| `--finalization_lag` | - | 0 | Configurable finalization lag |
+| `--finalization_lag_override` | - | *(none)* | Configurable finalization lag override |
 
 A `.env` file in the working directory is loaded automatically.
 
