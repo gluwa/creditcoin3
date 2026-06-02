@@ -100,7 +100,7 @@ async fn main() -> Result<()> {
     };
 
     // ── Url Consistency Checks ────────────────────────────────────────────────────
-    // If http and ws urls point to chains with different `chain_id`s, we treat that 
+    // If http and ws urls point to chains with different `chain_id`s, we treat that
     // as a fatal error.
     {
         let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
