@@ -81,3 +81,50 @@ fn can_predict_next_epoch_change() {
         );
     })
 }
+
+#[test]
+fn old_epoch_randomness_is_pruned() {
+    new_test_ext(1).execute_with(|| {
+        System::set_block_number(1);
+        Timestamp::set_timestamp(1);
+
+        // Genesis slot = 6; EpochDuration = 3 slots; MaxEpochHistory = 3.
+        // Each block advances the slot by 1, so epoch N starts at block 3N + 1.
+        go_to_block(1, 6);
+        assert_eq!(Babe::epoch_index(), 0);
+
+        // We are still in epoch 0, so no pruning should be scheduled.
+        assert_eq!(crate::PruningQueue::<Test>::get(), None);
+
+        // Advance to epoch 4 (block 13, slot 18).
+        progress_to_block(13);
+        assert_eq!(Babe::epoch_index(), 4);
+
+        // Entry 0 should have been pruned
+        assert!(!crate::RandomnessByEpochIndex::<Test>::contains_key(0));
+
+        // Entries for epochs 1, 2, 3, 4 must be present.
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(1));
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(2));
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(3));
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(4));
+
+        // We are in epoch 4, so pruning should have been scheduled for epochs 0 and 1.
+        assert_eq!(
+            crate::PruningQueue::<Test>::get(),
+            Some(crate::PruningState { next: 1, to: 1 })
+        );
+
+        progress_to_block(14);
+        // Epoch 1 should have been pruned
+        assert!(!crate::RandomnessByEpochIndex::<Test>::contains_key(1));
+        // Entries for epochs 2, 3, 4 must be present.
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(2));
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(3));
+        assert!(crate::RandomnessByEpochIndex::<Test>::contains_key(4));
+
+        progress_to_block(15);
+        // Prunning queu should have been cleared since we've pruned up to the target epoch.
+        assert_eq!(crate::PruningQueue::<Test>::get(), None);
+    })
+}

@@ -277,6 +277,17 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             [key: string]: Codec;
         };
+        randomness: {
+            /**
+             * Number of past epochs for which randomness is retained in storage.
+             * Entries older than this are pruned each time a new epoch is recorded.
+             **/
+            maxEpochHistory: u64 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
         staking: {
             /**
              * Number of eras that staked funds must remain bonded for.

@@ -945,10 +945,16 @@ impl pallet_supported_chains::Config for Runtime {
     type OperatorsOrigin = EnsureRootOrOperators;
 }
 
+parameter_types! {
+    // This is around 2 weeks worth of epochs.
+    pub const MaxEpochHistory: u64 = 28;
+}
+
 impl pallet_randomness::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_randomness::weights::WeightInfo<Runtime>;
     type EventListeners = Attestation;
+    type MaxEpochHistory = MaxEpochHistory;
 }
 
 parameter_types! {
