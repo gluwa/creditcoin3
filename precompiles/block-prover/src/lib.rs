@@ -400,8 +400,8 @@ where
     /// which is cleaned synchronously) remain readable so verification of
     /// pre-revert proofs is not interrupted for the whole pruning window.
     ///
-    /// Gas: charges `GAS_STORAGE_LOOKUP` thrice. Once to check that the chain is 
-    /// supported, once for the `CheckpointPruningStates` guard read, and once for 
+    /// Gas: charges `GAS_STORAGE_LOOKUP` thrice. Once to check that the chain is
+    /// supported, once for the `CheckpointPruningStates` guard read, and once for
     /// the `Checkpoints` read itself.
     ///
     /// Returns `Ok(Some(..))` / `Ok(None)` on success; gas recording failures surface as `EvmResult` errors.
