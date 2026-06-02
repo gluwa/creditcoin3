@@ -15,6 +15,7 @@ use frame_support::{
     sp_runtime::traits::Dispatchable,
 };
 use pallet_evm::AddressMapping;
+use pallet_supported_chains::SupportedChains;
 use precompile_utils::{keccak256, prelude::*};
 use sp_core::H256;
 
@@ -87,7 +88,10 @@ type MaxBatchSize = sp_core::ConstU32<10>;
 #[precompile_utils::precompile]
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
-    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation::Config,
+    Runtime: pallet_evm::Config
+        + frame_system::Config
+        + pallet_attestation::Config
+        + pallet_supported_chains::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
@@ -358,7 +362,30 @@ where
     /// Currently unused but kept for potential future optimizations.
     #[allow(dead_code)]
     fn last_checkpoint(chain_key: u64) -> Option<attestor_primitives::AttestationCheckpoint> {
-        pallet_attestation::Pallet::<Runtime>::last_checkpoint(chain_key)
+        let is_supported = SupportedChains::<Runtime>::get(chain_key).is_some();
+        if !is_supported {
+            return None;
+        };
+
+        let last_checkpoint = pallet_attestation::Pallet::<Runtime>::last_checkpoint(chain_key);
+        // The long term plan is to allow reversion to checkpoint or attestation heights.
+        // If we revert to an attestation, then even the last_checkpoint might be considered
+        // stale pending removal. So we check for pending reversions.
+        match &last_checkpoint {
+            None => None,
+            Some(checkpoint) => {
+                if pallet_attestation::Pallet::<Runtime>::checkpoint_if_stable(
+                    chain_key,
+                    checkpoint.block_number,
+                )
+                .is_some()
+                {
+                    last_checkpoint
+                } else {
+                    None
+                }
+            }
+        }
     }
 
     /// Check if a digest corresponds to a checkpoint that is currently safe to use
@@ -384,6 +411,13 @@ where
         chain_key: u64,
         block_number: u64,
     ) -> EvmResult<Option<H256>> {
+        // Charge for the supported chains lookup
+        handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(1))?;
+        let is_supported = SupportedChains::<Runtime>::get(chain_key).is_some();
+        if !is_supported {
+            return Ok(None);
+        };
+
         // Charge for the pruning-state guard read plus the checkpoint storage lookup.
         handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
         Ok(pallet_attestation::Pallet::<Runtime>::checkpoint_if_stable(
