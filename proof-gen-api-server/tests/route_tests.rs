@@ -214,9 +214,10 @@ async fn test_swagger_json_route_should_return_valid_json() {
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
 
-    // 32 KiB is plenty of headroom as we add new endpoints / response variants;
-    // the previous 10 KiB cap was tight enough to break on the next addition.
-    let bytes = axum::body::to_bytes(response.into_body(), 32 * 1024)
+    // The OpenAPI JSON has grown with each new schema; pick a generous limit
+    // so adding one more field doesn't silently fail this test for spurious
+    // reasons. We only care that it parses as valid JSON.
+    let bytes = axum::body::to_bytes(response.into_body(), 256 * 1024)
         .await
         .unwrap();
     // note: if we can deserialize without error it must be valid json, no?

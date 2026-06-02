@@ -472,6 +472,7 @@ mod labels {
         EmptyTxHashes,
         TooManyTxHashes,
         BatchSpanTooLarge,
+        AttestationLivenessInterrupted,
         Internal,
     }
 

@@ -98,6 +98,14 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
+        default_value = "5",
+        env = "ATTESTATION_LIVENESS_TIMEOUT_MINUTES",
+        help = "Maximum time in minutes the proof gen server tolerates between attestation events from CC3 before the /api/v1/health endpoint reports the listener as stalled (HTTP 503)."
+    )]
+    attestation_liveness_timeout_minutes: u64,
+
+    #[arg(
+        long,
         default_value = "0",
         env = "BLOCK_CONFIRMATION_DEPTH",
         help = "Number of blocks to lag behind the EVM chain tip when validating block existence. \
@@ -159,6 +167,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 c.max_batch_span = n;
             }
         }
+        // ATTESTATION_LIVENESS_TIMEOUT_MINUTES env/CLI overrides YAML when explicitly set.
+        if let Ok(raw) = env::var("ATTESTATION_LIVENESS_TIMEOUT_MINUTES") {
+            if let Ok(n) = raw.parse::<u64>() {
+                c.attestation_liveness_timeout_minutes = n;
+            }
+        }
         c
     } else {
         // Legacy single-chain mode: chain key from CHAIN_KEY env (default 2).
@@ -184,6 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             redis_cluster_mode: resolved_redis_cluster_mode,
             max_batch_size: args.max_batch_size,
             max_batch_span: args.max_batch_span,
+            attestation_liveness_timeout_minutes: args.attestation_liveness_timeout_minutes,
         }
     };
 

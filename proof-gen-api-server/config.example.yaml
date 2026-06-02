@@ -45,3 +45,9 @@ max_batch_size: 10
 # Maximum allowed block span (highest − lowest block) in a single batch request.
 # Prevents small batches from forcing proof generation over extremely large ranges.
 max_batch_span: 1000
+
+# Maximum tolerated gap (in minutes) between CC3 attestation events. If no
+# `BlockAttested` event is observed for at least this long, /api/v1/health
+# returns HTTP 503 so a k8s liveness probe can restart the server and force a
+# fresh CC3 subscription. Defaults to 5 if omitted (CSUB-2039).
+# attestation_liveness_timeout_minutes: 5

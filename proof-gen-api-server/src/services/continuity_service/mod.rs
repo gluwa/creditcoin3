@@ -8,7 +8,7 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::prom::Metrics;
 use crate::services::continuity_service::helpers::*;
@@ -161,6 +161,16 @@ pub struct ContinuityService {
     /// request.  Prevents a small batch from forcing proof generation over an
     /// extremely large block range.
     max_batch_span: u64,
+    /// Instant of the most recently observed `BlockAttested` event from CC3,
+    /// or service-start when no event has been seen yet. Used by
+    /// [`ContinuityService::check_attestation_event_timer`] to detect a stalled
+    /// CC3 attestation event listener so the server can be restarted and
+    /// re-subscribe (see CSUB-2039).
+    last_attestation_event_at: tokio::sync::RwLock<Instant>,
+    /// Maximum tolerated gap between attestation events from CC3. If exceeded,
+    /// [`ContinuityService::check_attestation_event_timer`] returns
+    /// [`ServiceError::AttestationLivenessInterrupted`].
+    attestation_liveness_timeout: Duration,
 }
 
 impl ContinuityService {
@@ -173,9 +183,13 @@ impl ContinuityService {
         metrics: Metrics,
         max_batch_size: usize,
         max_batch_span: u64,
+        attestation_liveness_timeout: Duration,
     ) -> anyhow::Result<Self> {
         if builders.is_empty() {
             anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
+        }
+        if Duration::is_zero(&attestation_liveness_timeout) {
+            anyhow::bail!("ContinuityService requires attestation liveness timeout > 0");
         }
 
         let mut chains = HashMap::new();
@@ -270,13 +284,17 @@ impl ContinuityService {
             );
         }
 
+        let now = Instant::now();
         Ok(Self {
             chains,
-            start_time: Instant::now(),
+            start_time: now,
             total_proof_requests: AtomicU64::new(0),
             metrics,
             max_batch_size,
             max_batch_span,
+            // Seed with `now` so we time out if attestations never arrive
+            last_attestation_event_at: tokio::sync::RwLock::new(now),
+            attestation_liveness_timeout,
         })
     }
 
@@ -421,7 +439,13 @@ impl ContinuityService {
     }
 
     /// Insert an attestation into the in-memory cache (called from event handler).
+    ///
+    /// Resets the attestation liveness timer (see
+    /// [`Self::check_attestation_event_timer`]) on every call.
     pub async fn insert_attestation(&self, chain_key: u64, block_number: u64, digest: H256) {
+        // Reset liveness timer first
+        *self.last_attestation_event_at.write().await = Instant::now();
+
         if let Some(chain) = self.chains.get(&chain_key) {
             chain
                 .attestation_cache
@@ -435,6 +459,31 @@ impl ContinuityService {
                 "🔧 📦 📜 attestation cached"
             );
         }
+    }
+    /// Returns how long it has been since the last observed attestation event
+    /// from CC3 (or service startup if none have been observed yet).
+    pub async fn time_since_last_attestation_event(&self) -> Duration {
+        self.last_attestation_event_at.read().await.elapsed()
+    }
+
+    /// Health check: confirms the CC3 attestation event listener is still
+    /// delivering events.
+    ///
+    /// Returns [`ServiceError::AttestationLivenessInterrupted`] if more than
+    /// `attestation_liveness_timeout` has elapsed since the most recent
+    /// `BlockAttested` event was received from CC3. The intent is that callers
+    /// (the `/api/v1/health` endpoint, a k8s liveness probe, etc.) surface
+    /// this as a failure so the orchestrator restarts the server and
+    /// re-establishes the subscription.
+    pub async fn check_attestation_event_timer(&self) -> ServiceResult<()> {
+        let elapsed = self.last_attestation_event_at.read().await.elapsed();
+        if elapsed >= self.attestation_liveness_timeout {
+            return Err(ServiceError::AttestationLivenessInterrupted {
+                elapsed_secs: elapsed.as_secs(),
+                timeout_secs: self.attestation_liveness_timeout.as_secs(),
+            });
+        }
+        Ok(())
     }
 
     /// Truncate attestation and checkpoint caches to the given revert height.
