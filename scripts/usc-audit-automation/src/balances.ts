@@ -15,6 +15,9 @@ export interface BalanceNetworkConfig {
   baseUrl: string;
   rpcUrl?: string;
   accounts: BalanceAccountConfig[];
+  tokenSymbol?: string;
+  tokenDecimals?: number;
+  customThreshold?: number;
 }
 
 const MAX_RETRIES = 3;
@@ -183,6 +186,7 @@ export async function runBalanceChecks(
   let hasLowBalances = false;
 
   for (const net of networks) {
+    const symbol = net.tokenSymbol ?? TOKEN_SYMBOL;
     lines.push(`Balances Details: ${net.name}`);
 
     if (!net.baseUrl) {
@@ -203,26 +207,30 @@ export async function runBalanceChecks(
       const display = formatDisplay(account);
 
       try {
-        const bal = await fetchBalance(
+        const balance = await fetchBalance(
           net.baseUrl,
           account.address,
           net.rpcUrl,
         );
-        const token = Number(bal) / 10 ** TOKEN_DECIMALS;
-        const isLow = bal < THRESHOLD_WEI;
+        const tokenDecimals = net.tokenDecimals ?? TOKEN_DECIMALS;
+        const tokenWithDecimals = Number(balance) / 10 ** tokenDecimals;
+        const threshold = net.customThreshold
+          ? BigInt(net.customThreshold) * (10n ** BigInt(tokenDecimals))
+          : THRESHOLD_WEI;
+        const isLow = balance < threshold;
 
         lines.push(
           `${isLow ? "❌" : "✅"} ${display}: ${
-            token.toFixed(6)
-          } ${TOKEN_SYMBOL}`,
+            tokenWithDecimals.toFixed(6)
+          } ${symbol}`,
         );
 
         if (isLow) {
           hasLowBalances = true;
           lowLines.push(
-            `- ${config.uscNetworkName}, \`${display}\`: ${
-              token.toFixed(6)
-            } ${TOKEN_SYMBOL}`,
+            `- ${net.name}, \`${display}\`: ${
+              tokenWithDecimals.toFixed(6)
+            } ${symbol}`,
           );
         }
       } catch (err) {
@@ -238,7 +246,6 @@ export async function runBalanceChecks(
 
   if (lowLines.length > 0) {
     lines.push("*Low balance alert*");
-    lines.push(`Threshold: ${THRESHOLD_CTC} ${TOKEN_SYMBOL}`);
     lines.push(...lowLines);
   }
 
