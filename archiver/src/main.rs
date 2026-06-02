@@ -99,6 +99,21 @@ async fn main() -> Result<()> {
         lag
     };
 
+    // ── Url Consistency Checks ────────────────────────────────────────────────────
+    // If http and ws urls point to chains with different `chain_id`s, we treat that 
+    // as a fatal error.
+    {
+        let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+        let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+        if ws_client.chain_id() != http_client.chain_id() {
+            return Err(anyhow!(
+                "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
+                ws_client.chain_id(),
+                http_client.chain_id(),
+            ));
+        }
+    }
+
     // ── Backfill gaps ────────────────────────────────────────────────────
     if cfg.backfill {
         let gaps = store.find_gaps()?;
