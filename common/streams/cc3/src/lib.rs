@@ -36,7 +36,7 @@ const DEFAULT_BACKFILL_MIN_INTERVAL: std::time::Duration = std::time::Duration::
 #[derive(Debug, builder::Builder)]
 pub struct Config {
     cc3: cc_client::Client,
-    chain_key: attestor_primitives::ChainKey,
+    chain_keys: Vec<attestor_primitives::ChainKey>,
     /// Minimum interval between consecutive parent-block fetches during backfill — applies only
     /// to gap recovery, not to the live `subscribe_finalized` flow.
     #[default(DEFAULT_BACKFILL_MIN_INTERVAL)]
@@ -52,7 +52,7 @@ impl StreamCC3 {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
-        let chain_key = config.chain_key;
+        let chain_keys: std::sync::Arc<[attestor_primitives::ChainKey]> = config.chain_keys.into();
         let cc3 = config.cc3;
         let backfill_min_interval = config.backfill_min_interval;
 
@@ -73,7 +73,7 @@ impl StreamCC3 {
         let first_events = first.events().await.map_err(Error::Subxt)?;
 
         let stream = async_stream::stream! {
-            yield StreamEvents::new(latest as attestor_primitives::Height, first_events, chain_key);
+            yield StreamEvents::new(latest as attestor_primitives::Height, first_events, &chain_keys);
 
             let mut finalized = finalized;
             // Reusable scratch buffer for the parent-walk backfill. Capacity tuned for
@@ -166,7 +166,7 @@ impl StreamCC3 {
                             yield StreamEvents::new(
                                 block_n as attestor_primitives::Height,
                                 events,
-                                chain_key,
+                                &chain_keys,
                             );
                         }
                         latest = n;
@@ -239,13 +239,13 @@ impl StreamEvents {
     pub fn new(
         block_number: attestor_primitives::Height,
         events: subxt::events::Events<subxt::SubstrateConfig>,
-        chain_key: attestor_primitives::ChainKey,
+        chain_keys: &[attestor_primitives::ChainKey],
     ) -> Self {
         use futures::TryStreamExt as _;
 
         // Collect so the boxed stream is `'static` (extract_events borrows `events`).
         let extracted: Vec<_> =
-            cc_client::Client::extract_events(std::slice::from_ref(&chain_key), &events).collect();
+            cc_client::Client::extract_events(chain_keys, &events).collect();
 
         let stream =
             Box::pin(futures::stream::iter(extracted).map_err(|err| Error::Subxt(err.into())));
