@@ -27,13 +27,13 @@ pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
 randomness-primitives = { workspace = true, default-features = false }
-sp-std = { workspace = true }
 sp-consensus-babe = { workspace = true, default-features = false, features = [
     "serde",
 ] }
 sp-runtime = { workspace = true, default-features = false, features = [
     "serde",
 ] }
+sp-std = { workspace = true }
 
 [dev-dependencies]
 frame-election-provider-support = { workspace = true }
