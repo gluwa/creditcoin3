@@ -21,7 +21,6 @@ updates:
       - "/cc3-indexer/postgres"
       - "/proof-gen-api-server"
       - "/scripts/stress-test"
-      - "/scripts/traffic-simulator"
       - "/scripts/usc-audit-automation"
     schedule:
       interval: "monthly"
