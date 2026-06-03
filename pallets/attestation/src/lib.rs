@@ -788,6 +788,10 @@ pub mod pallet {
         /// `register_attestor` was called under `AuthorizedOnly` without a prior `authorize_attestor`
         /// for this attestor controller account.
         NotPreAuthorizedToRegister,
+        /// `register_attestor` targeted a controller account whose retired BLS-key protection is
+        /// still live and owned by a different stash. Clearing it would prematurely release that
+        /// stash's BLS-key claim, so the registration is rejected.
+        ControllerRetiredByAnotherStash,
         // Attestor is not authorized for the chain.
         AttestorNotAuthorized,
         // No finalized attestation found when one is required

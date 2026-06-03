@@ -52,22 +52,35 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Drop any retired BLS key row for this controller so a new registration can use the slot.
+    /// Drop this controller's own retired BLS key row so a new registration can use the slot.
+    ///
+    /// Rejects when a live retired entry for the controller is owned by a *different* stash:
+    /// `register_attestor` accepts an arbitrary `attestor_id` from any caller, so without this
+    /// check a cross-stash registration would prematurely release another stash's BLS-key claim
+    /// (the `BlsKeyOwner` protection that must persist until that stash's unbond delay elapses).
     pub(crate) fn clear_retired_bls_entry_for_controller(
         chain_key: ChainKey,
         attestor_id: &T::AccountId,
-    ) {
-        if let Some(entry) = RetiredAttestorBlsKeys::<T>::take(chain_key, attestor_id) {
-            Self::remove_stash_retired_index_pair(&entry.stash, chain_key, attestor_id);
-            // Release the BLS pubkey claim only if [`BlsKeyOwner`] still points at this
-            // controller. If a different controller has since taken the slot (shouldn't
-            // happen given the uniqueness gate in `start_attesting`, but defensive), leave
-            // it alone.
-            if BlsKeyOwner::<T>::get(chain_key, entry.bls_public_key).as_ref() == Some(attestor_id)
-            {
-                BlsKeyOwner::<T>::remove(chain_key, entry.bls_public_key);
-            }
+        registering_stash: &T::AccountId,
+    ) -> DispatchResult {
+        let Some(entry) = RetiredAttestorBlsKeys::<T>::get(chain_key, attestor_id) else {
+            return Ok(());
+        };
+        ensure!(
+            entry.stash == *registering_stash,
+            Error::<T>::ControllerRetiredByAnotherStash
+        );
+
+        RetiredAttestorBlsKeys::<T>::remove(chain_key, attestor_id);
+        Self::remove_stash_retired_index_pair(&entry.stash, chain_key, attestor_id);
+        // Release the BLS pubkey claim only if [`BlsKeyOwner`] still points at this
+        // controller. If a different controller has since taken the slot (shouldn't
+        // happen given the uniqueness gate in `start_attesting`, but defensive), leave
+        // it alone.
+        if BlsKeyOwner::<T>::get(chain_key, entry.bls_public_key).as_ref() == Some(attestor_id) {
+            BlsKeyOwner::<T>::remove(chain_key, entry.bls_public_key);
         }
+        Ok(())
     }
 
     fn remove_stash_retired_index_pair(
@@ -175,7 +188,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::AlreadyAttestor
         );
 
-        Self::clear_retired_bls_entry_for_controller(chain_key, &attestor_id);
+        Self::clear_retired_bls_entry_for_controller(chain_key, &attestor_id, &stash)?;
 
         ensure!(
             Self::attestor_list_has_space(chain_key),
