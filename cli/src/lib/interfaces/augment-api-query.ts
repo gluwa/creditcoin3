@@ -7,7 +7,20 @@ import '@polkadot/api-base/types/storage';
 
 import type { ApiTypes, AugmentedQuery, QueryableStorageEntry } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Null, Option, Struct, U256, U8aFixed, Vec, bool, u128, u32, u64 } from '@polkadot/types-codec';
+import type {
+    BTreeMap,
+    Bytes,
+    Null,
+    Option,
+    Struct,
+    U256,
+    U8aFixed,
+    Vec,
+    bool,
+    u128,
+    u32,
+    u64,
+} from '@polkadot/types-codec';
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
@@ -1161,12 +1174,14 @@ declare module '@polkadot/api-base/types/storage' {
         };
         randomness: {
             lastSeenEpochIndex: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
-            randomnessByEpochIndex: AugmentedQuery<
-                ApiType,
-                (arg: u64 | AnyNumber | Uint8Array) => Observable<U8aFixed>,
-                [u64]
-            > &
-                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Randomness keyed by epoch index, bounded to the latest
+             * [`Config::MaxRandomnessEntries`] epochs. Backed by a [`BoundedBTreeMap`] so
+             * entries stay ordered by epoch index, which makes evicting the oldest entry
+             * (the lowest key) cheap.
+             **/
+            randomnessByEpochIndex: AugmentedQuery<ApiType, () => Observable<BTreeMap<u64, U8aFixed>>, []> &
+                QueryableStorageEntry<ApiType, []>;
             /**
              * Generic query
              **/
