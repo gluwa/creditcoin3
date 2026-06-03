@@ -1,3 +1,4 @@
+import { mkdirSync, writeFileSync } from 'fs';
 import { blockProver, chainInfo, proofGenerator, utils } from '@gluwa/usc-sdk';
 import EvmV1DecoderABI from '@gluwa/usc-sdk/dist/utils/evmV1DecoderAbi.json';
 import { Contract, WebSocketProvider } from 'ethers';
@@ -17,6 +18,23 @@ const graphQLQuery = (serverUrl: string, queryString: string) => {
         query: queryString,
     });
 };
+
+function writeToDisk(dirPath: string, proofData: any) {
+    const clonedData = { ...proofData };
+    // reset variable fields so they don't choke git-diff later
+    clonedData.chainKey = 0;
+    clonedData.generatedAt = 'reset-on-purpose';
+
+    mkdirSync(`${dirPath}/${clonedData.headerNumber}`, { recursive: true });
+
+    writeFileSync(
+        `${dirPath}/${clonedData.headerNumber}/${clonedData.txHash}.txt`,
+        JSON.stringify(clonedData, null, 2) + '\n',
+        {
+            flag: 'w',
+        },
+    );
+}
 
 async function getProofForBlock(apiUrl: string, chainKey: number, blockNumber: bigint) {
     const url = `${apiUrl}/api/v1/proof/${chainKey}/${blockNumber}/0`;
@@ -57,6 +75,7 @@ async function main(
     creditcoinWsUrl: string,
     chainKey: number,
     proverBaseUrl: string,
+    saveProofsTo: string,
     indexerUrl: string | undefined,
     decoderAddress: string | undefined,
 ): Promise<void> {
@@ -130,7 +149,7 @@ async function main(
 
         await sleep(500); // rate-limit
         console.log(`    ..... trying to verify proof for ${blockNumber} -> ${proofData.txHash}`);
-        console.log(JSON.stringify(proofData));
+        writeToDisk(saveProofsTo, proofData);
 
         const verificationResult = await prover.verifySingle(
             proofData.chainKey,
@@ -154,9 +173,9 @@ async function main(
     process.exit(0);
 }
 
-if (process.argv.length < 5) {
+if (process.argv.length < 6) {
     console.error(
-        'prover-check.js <creditcoinWssUrl> <chainKey> <proverBaseUrl> [<indexerUrl>] [evmV1Decoder address]',
+        'prover-check.js <creditcoinWssUrl> <chainKey> <proverBaseUrl> <saveProofsDir> [<indexerUrl>] [evmV1Decoder address]',
     );
     process.exit(1);
 }
@@ -164,13 +183,16 @@ if (process.argv.length < 5) {
 const creditcoinWsRpcUrl = process.argv[2];
 const sourceChainKey = Number(process.argv[3]);
 const proverUrl = process.argv[4];
+const saveProofsDir = process.argv[5];
 // when defined will query proofs at checkpoint boundaries
 // otherwise will query random blocks by iterating over them
-const cc3IndexerUrl = process.argv[5];
+const cc3IndexerUrl = process.argv[6];
 // when defined will decode proof data against on-chain contract
-const evmV1DecoderAddress = process.argv[6];
+const evmV1DecoderAddress = process.argv[7];
 
-main(creditcoinWsRpcUrl, sourceChainKey, proverUrl, cc3IndexerUrl, evmV1DecoderAddress).catch((reason) => {
-    console.error(reason);
-    process.exit(1);
-});
+main(creditcoinWsRpcUrl, sourceChainKey, proverUrl, saveProofsDir, cc3IndexerUrl, evmV1DecoderAddress).catch(
+    (reason) => {
+        console.error(reason);
+        process.exit(1);
+    },
+);
