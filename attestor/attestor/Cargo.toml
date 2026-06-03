@@ -38,11 +38,9 @@ usc-abi-encoding = { workspace = true }
 eth = { workspace = true, default-features = true }
 
 # Async & Parallelism
-arc-swap = { workspace = true }
 futures = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
-tokio-retry = { workspace = true }
 tokio-tungstenite = { workspace = true, features = ["url"] }
 tokio-util = "0.7"
 

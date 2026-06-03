@@ -1540,7 +1540,6 @@ name = "attestor"
 version = "3.126.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "attestor-primitives",
  "attestor_pool",
  "axum",
@@ -1566,7 +1565,6 @@ dependencies = [
  "subxt",
  "supported-chains-primitives",
  "tokio",
- "tokio-retry",
  "tokio-tungstenite 0.26.2",
  "tokio-util",
  "tracing",
