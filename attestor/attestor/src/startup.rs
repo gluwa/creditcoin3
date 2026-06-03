@@ -84,7 +84,7 @@ pub async fn wait_for_eligible(
 
     let config = stream::cc3::ConfigBuilder::new()
         .with_cc3((**cc3).clone())
-        .with_chain_key(chain_key)
+        .with_chain_keys(vec![chain_key])
         .build();
     let mut events = stream::cc3::StreamCC3::new(config)
         .await
