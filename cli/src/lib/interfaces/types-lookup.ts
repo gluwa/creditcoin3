@@ -3703,6 +3703,7 @@ declare module '@polkadot/types/lookup' {
         readonly isRetiredAttestorPendingFull: boolean;
         readonly isAttestorAlreadyAuthorized: boolean;
         readonly isNotPreAuthorizedToRegister: boolean;
+        readonly isControllerRetiredByAnotherStash: boolean;
         readonly isAttestorNotAuthorized: boolean;
         readonly isNoFinalizedAttestation: boolean;
         readonly isAttestationsAlreadyExist: boolean;
@@ -3766,6 +3767,7 @@ declare module '@polkadot/types/lookup' {
             | 'RetiredAttestorPendingFull'
             | 'AttestorAlreadyAuthorized'
             | 'NotPreAuthorizedToRegister'
+            | 'ControllerRetiredByAnotherStash'
             | 'AttestorNotAuthorized'
             | 'NoFinalizedAttestation'
             | 'AttestationsAlreadyExist'
