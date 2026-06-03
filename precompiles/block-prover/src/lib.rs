@@ -355,38 +355,6 @@ where
         ))
     }
 
-    /// Get the last checkpoint for a chain
-    ///
-    /// Returns the most recent checkpoint for the specified chain.
-    /// Checkpoints are intermediate consensus points between full attestations.
-    /// Currently unused but kept for potential future optimizations.
-    #[allow(dead_code)]
-    fn last_checkpoint(chain_key: u64) -> Option<attestor_primitives::AttestationCheckpoint> {
-        if SupportedChains::<Runtime>::get(chain_key).is_none() {
-            return None;
-        }
-
-        let last_checkpoint = pallet_attestation::Pallet::<Runtime>::last_checkpoint(chain_key);
-        // The long term plan is to allow reversion to checkpoint or attestation heights.
-        // If we revert to an attestation, then even the last_checkpoint might be considered
-        // stale pending removal. So we check for pending reversions.
-        match &last_checkpoint {
-            None => None,
-            Some(checkpoint) => {
-                if pallet_attestation::Pallet::<Runtime>::checkpoint_if_stable(
-                    chain_key,
-                    checkpoint.block_number,
-                )
-                .is_some()
-                {
-                    last_checkpoint
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
     /// Check if a digest corresponds to a checkpoint that is currently safe to use
     /// as a continuity-proof trust anchor.
     ///
