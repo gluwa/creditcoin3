@@ -2,7 +2,6 @@
  * USC Audit Automation
  *
  * Runs attestation sanity checks on USC (Creditcoin3) and reports to Slack or stdout.
- * Style matches traffic-simulator: Deno + TypeScript, CLI + env config.
  */
 
 import { loadConfig } from "./config.ts";

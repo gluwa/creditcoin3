@@ -1,8 +1,7 @@
 # USC Audit Automation
 
 A Deno-based TypeScript tool that runs attestation sanity checks on USC
-(Creditcoin3) and reports to Slack or stdout. Matches the style of the
-[traffic-simulator](../traffic-simulator).
+(Creditcoin3) and reports to Slack or stdout.
 
 All configuration is loaded from a single JSON file. For CI, env overrides:
 `USC_NOTI_SLACK_BOT_TOKEN`, `USC_NOTI_SLACK_CHANNEL_ID`,
