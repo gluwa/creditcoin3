@@ -9610,6 +9610,7 @@ dependencies = [
  "frame-election-provider-support",
  "frame-support",
  "frame-system",
+ "log",
  "pallet-authorship",
  "pallet-babe",
  "pallet-balances",
@@ -9626,6 +9627,7 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-staking",
+ "sp-std",
 ]
 
 [[package]]

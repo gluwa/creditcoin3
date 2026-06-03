@@ -22,10 +22,12 @@ scale-info = { workspace = true, default-features = false, features = [
 frame-benchmarking = { workspace = true, optional = true }
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+log = { workspace = true }
 pallet-authorship = { workspace = true }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
 randomness-primitives = { workspace = true, default-features = false }
+sp-std = { workspace = true }
 sp-consensus-babe = { workspace = true, default-features = false, features = [
     "serde",
 ] }
@@ -53,7 +55,9 @@ std = [
     "frame-benchmarking?/std",
     "frame-support/std",
     "frame-system/std",
+    "log/std",
     "scale-info/std",
+    "sp-std/std",
     "sp-core/std",
     "sp-io/std",
     "sp-runtime/std",
@@ -73,4 +77,11 @@ runtime-benchmarks = [
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "pallet-babe/runtime-benchmarks",
+]
+
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
+    "pallet-babe/try-runtime",
 ]

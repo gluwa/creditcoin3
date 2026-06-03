@@ -405,12 +405,17 @@ impl Client {
             .storage()
             .at_latest()
             .await?
-            .fetch(
-                &cc3::storage()
-                    .randomness()
-                    .randomness_by_epoch_index(two_epoch_ago),
-            )
+            .fetch(&cc3::storage().randomness().randomness_by_epoch_index())
             .await?
+            // The randomness pallet stores a single `BoundedBTreeMap` keyed by epoch index.
+            // subxt codegen represents it as a newtype over a `Vec<(epoch, randomness)>` (the
+            // `.0`), not a real map, so there is no `.get(&key)` — we scan the entries for our
+            // epoch instead.
+            .and_then(|map| {
+                map.0.iter().find_map(|(epoch, randomness)| {
+                    (*epoch == two_epoch_ago).then_some(*randomness)
+                })
+            })
             .ok_or(Error::ConnectionError(Reconnect(subxt::Error::Rpc(
                 // Babe randomness is no persisted by substrate in storage an might be missing for
                 // the first two epochs after node crash.
