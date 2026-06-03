@@ -26,7 +26,7 @@ pub async fn run(shared: Arc<Shared>, cfg: Config) -> Result<(), Error> {
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", cfg.port)).await?;
-    let address = listener.local_addr().unwrap();
+    let address = listener.local_addr().map_err(crate::error::Error::Io)?;
     tracing::info!(?address, "📌 api server up");
 
     tokio::select! {
