@@ -2668,6 +2668,70 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
     })
 }
 
+// Regression: a continuity proof whose tail resolves to block 0 used to compute
+// `tail_block_number - 1`, underflowing (panic under overflow-checks). It must now be
+// rejected cleanly as an invalid tail.
+#[test]
+fn commit_attestation_should_reject_continuity_proof_tail_at_block_zero() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        // Commit the genesis attestation (header 0) so its digest is a known finalized tail.
+        let attestation_1 =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_1.clone()
+        ));
+
+        // Craft a proof with roots.len() == header_number, so
+        // start_block_number = header_number - roots.len() = 0. The tail links to the genesis
+        // attestation, so validation reaches the `tail_block_number - 1` site with tail == 0.
+        let header_number = 5u64;
+        let continuity_proof = construct_fragment(
+            Some(attestation_1.digest()),
+            RangeInclusive::new(1, header_number),
+        );
+        assert_eq!(continuity_proof.len() as u64, header_number);
+        assert_eq!(
+            continuity_proof.start_block_number(header_number),
+            0,
+            "tail block number must be 0 to exercise the underflow guard"
+        );
+
+        let start_block = continuity_proof.start_block_number(header_number);
+        let attestation = AttestationPrimitive {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            header_number,
+            header_hash: H256::random(),
+            root: H256::from([0; 32]),
+            prev_digest: Some(continuity_proof.compute_continuity_digest(start_block)),
+        };
+
+        let attestation_2 =
+            bls_sign_attestation(vec![attestor.clone()], attestation, continuity_proof);
+
+        assert_err!(
+            Attestation::commit_attestation(attestor.attestor_origin, attestation_2),
+            Error::<Test>::InvalidAttestationContinuityProofTail
+        );
+    })
+}
+
 #[test]
 fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
     ExtBuilder.build_and_execute(|| {
