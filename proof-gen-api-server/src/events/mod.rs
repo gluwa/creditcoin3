@@ -1,6 +1,6 @@
 use anyhow::Result;
-use cc_client::{events::CcEvent, Client as CcClient};
-use futures::TryStreamExt;
+use cc_client::{attestation::CcEvent, Client as CcClient};
+use futures::{StreamExt, TryStreamExt};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -51,7 +51,7 @@ pub async fn start_cc3_event_subscription(
         .with_cc3(cc3_client.clone())
         .with_chain_keys(chain_keys.iter().copied().collect::<Vec<_>>())
         .build();
-    let mut events = stream::cc3::StreamCC3::new(config).await?.try_flatten();
+    let mut events = stream::cc3::StreamCC3::new(config).await?.flatten();
 
     loop {
         match events.try_next().await {

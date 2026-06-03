@@ -84,7 +84,7 @@ pub async fn run(
 
     let cc3_cfg = stream::cc3::ConfigBuilder::new()
         .with_cc3((*shared.cc3).clone())
-        .with_chain_key(shared.chain_key)
+        .with_chain_keys(vec![shared.chain_key])
         .build();
     let mut events = stream::cc3::StreamCC3::new(cc3_cfg)
         .await
