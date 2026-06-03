@@ -327,6 +327,12 @@ impl Pool {
     }
 
     fn mark_invalid(&mut self, permit: Permit) {
+        self.forks.invalidate_fork(permit.height, permit.digest);
+    }
+
+    /// Drop a single fork without locking the height or tombstoning it. Used when we can't act on
+    /// this fork (e.g. no local proof) but other forks at the same height should still proceed.
+    fn mark_skipped(&mut self, permit: Permit) {
         self.forks.drop_fork(permit.height, permit.digest);
     }
 }
@@ -487,6 +493,15 @@ impl Receiver {
         }
     }
 
+    /// Skip a fork (e.g. no local proof) without locking the height. Other forks at the same
+    /// height remain eligible, unlike `mark_valid` which locks the height to one digest.
+    pub fn mark_skipped(&self, permit: Permit) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.mark_skipped(permit);
+        }
+    }
+
     /// Validated locally but waiting on a prior submission to finalize. The pool keeps the
     /// quorum aside so the validation task can pull it later via `take_next_validated`.
     pub fn mark_for_later(&self, permit: Permit, signed: SignedQuorum) {
@@ -611,6 +626,12 @@ struct Forks {
     by_height_size: BTreeSet<(Height, usize, Digest)>,
     /// Tracks one vote per (height, attestor) for cheap equivocation detection.
     seen: BTreeMap<(Height, AttestorId), Digest>,
+    /// Tombstones for `(height, digest)` forks the submitter validated as invalid. A vote for a
+    /// tombstoned fork is rejected with `KnownInvalid` instead of being re-admitted, so an
+    /// invalidated digest can't silently re-form a quorum and loop through validation. Pruned by
+    /// `split_off` / `note_finalized` as heights finalize, so it stays bounded by the catch-up
+    /// window.
+    invalid: BTreeSet<(Height, Digest)>,
     last_finalized_height: Option<Height>,
     #[allow(dead_code)]
     last_finalized_digest: Option<Digest>,
@@ -631,6 +652,7 @@ impl Forks {
             by_digest: BTreeMap::new(),
             by_height_size: BTreeSet::new(),
             seen: BTreeMap::new(),
+            invalid: BTreeSet::new(),
             last_finalized_height,
             last_finalized_digest,
         }
@@ -638,6 +660,13 @@ impl Forks {
 
     fn push(&mut self, vote: Vote) -> Result<(), Error> {
         let (height, digest, attestor) = (vote.height, vote.digest, vote.attestor.clone());
+
+        // Reject votes for a fork already validated as invalid, so an invalidated digest can't
+        // re-form a quorum and loop back through validation.
+        if self.invalid.contains(&(height, digest)) {
+            return Err(Error::KnownInvalid(attestor, height, digest));
+        }
+
         let key_seen = (height, attestor.clone());
 
         match self.seen.get(&key_seen) {
@@ -690,14 +719,21 @@ impl Forks {
         None
     }
 
+    /// Remove a fork from active consideration without forgetting that its signers voted at this
+    /// height: `seen` is retained so those attestors can't later double-vote. Used for "skip this
+    /// fork" (e.g. no local proof) where the digest may still be legitimate.
     fn drop_fork(&mut self, height: Height, digest: Digest) {
         if let Some(entry) = self.by_digest.remove(&(height, digest)) {
             self.by_height_size
                 .remove(&(height, entry.signers.len(), digest));
-            for s in entry.signers {
-                self.seen.remove(&(height, s));
-            }
         }
+    }
+
+    /// Drop a fork and tombstone it: future votes for this `(height, digest)` are rejected with
+    /// `KnownInvalid`. Used when the submitter validated the fork as genuinely invalid.
+    fn invalidate_fork(&mut self, height: Height, digest: Digest) {
+        self.drop_fork(height, digest);
+        self.invalid.insert((height, digest));
     }
 
     fn split_off(&mut self, finalized_height: Height) {
@@ -717,12 +753,15 @@ impl Forks {
         let split_seen = (split, AttestorId::from_public([0u8; 32]));
         let kept = self.seen.split_off(&split_seen);
         self.seen = kept;
+        // Trim tombstones below `split` — finalized heights can't re-form a fork.
+        self.invalid = self.invalid.split_off(&(split, Digest::zero()));
     }
 
     fn clear(&mut self) {
         self.by_digest.clear();
         self.by_height_size.clear();
         self.seen.clear();
+        self.invalid.clear();
     }
 
     fn note_finalized(&mut self, height: Height, digest: Digest) {
@@ -959,5 +998,49 @@ mod tests {
             p.forks.best(2).is_some(),
             "now with a distinct attestor we have quorum"
         );
+    }
+
+    /// `mark_invalid` tombstones the fork: a later vote for the same `(height, digest)` from a
+    /// fresh attestor is rejected with `KnownInvalid` instead of being re-admitted and re-forming
+    /// the quorum we already rejected.
+    #[test]
+    fn mark_invalid_tombstones_fork_against_revote() {
+        let mut p = pool(2);
+
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+
+        let (_quorum, permit) = p.peek().expect("quorum should be ready");
+        p.mark_invalid(permit);
+
+        // A fresh attestor voting for the invalidated digest must be rejected.
+        let err = p
+            .push(vote(2, 10, 0xaa))
+            .expect_err("vote for tombstoned fork");
+        assert!(matches!(err, Error::KnownInvalid(..)));
+        assert!(
+            p.forks.best(2).is_none(),
+            "tombstoned fork must not re-form a quorum"
+        );
+    }
+
+    /// `mark_skipped` drops only the one fork and does NOT lock the height: a different fork at
+    /// the same height can still reach quorum afterwards (contrast with `mark_valid`, which
+    /// locks the height to a single digest).
+    #[test]
+    fn mark_skipped_leaves_height_open_for_other_forks() {
+        let mut p = pool(2);
+
+        // Fork A reaches quorum.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        let (_quorum, permit) = p.peek().expect("quorum should be ready");
+        p.mark_skipped(permit);
+
+        // A different fork at the same height is still admissible and can win.
+        p.push(vote(2, 10, 0xbb)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+        let best = p.forks.best(2).expect("second fork should reach quorum");
+        assert_eq!(best.digest, Digest::from([0xbb; 32]));
     }
 }
