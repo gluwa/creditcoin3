@@ -165,6 +165,7 @@ import type {
     PalletRandomnessCall,
     PalletRandomnessError,
     PalletRandomnessEvent,
+    PalletRandomnessPruningState,
     PalletSessionCall,
     PalletSessionError,
     PalletSessionEvent,
@@ -396,6 +397,7 @@ declare module '@polkadot/types/types/registry' {
         PalletRandomnessCall: PalletRandomnessCall;
         PalletRandomnessError: PalletRandomnessError;
         PalletRandomnessEvent: PalletRandomnessEvent;
+        PalletRandomnessPruningState: PalletRandomnessPruningState;
         PalletSessionCall: PalletSessionCall;
         PalletSessionError: PalletSessionError;
         PalletSessionEvent: PalletSessionEvent;

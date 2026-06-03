@@ -50,6 +50,7 @@ import type {
     PalletNominationPoolsSubPools,
     PalletProxyAnnouncement,
     PalletProxyProxyDefinition,
+    PalletRandomnessPruningState,
     PalletStakingActiveEraInfo,
     PalletStakingEraRewardPoints,
     PalletStakingForcing,
@@ -1161,6 +1162,8 @@ declare module '@polkadot/api-base/types/storage' {
         };
         randomness: {
             lastSeenEpochIndex: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
+            pruningQueue: AugmentedQuery<ApiType, () => Observable<Option<PalletRandomnessPruningState>>, []> &
+                QueryableStorageEntry<ApiType, []>;
             randomnessByEpochIndex: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<U8aFixed>,
