@@ -117,14 +117,15 @@ async fn handle_quorum(
         }
         Err(ValidationError::NoLocalProof) => {
             // Quorum reached on a fork we don't have a proof for. We can't submit without
-            // someone's continuity proof. Drop the fork; we'll keep listening for the
-            // matching-digest quorum we're producing locally.
+            // someone's continuity proof. Skip just this fork (without locking the height) so a
+            // different fork at the same height can still be validated; we'll keep listening for
+            // the matching-digest quorum we're producing locally.
             tracing::warn!(
                 ?digest,
                 height,
                 "🙈 quorum digest has no matching local proof — skipping submission"
             );
-            pool_rx.mark_valid(permit);
+            pool_rx.mark_skipped(permit);
             return Ok(());
         }
         Err(ValidationError::InsufficientVotes { needed, got }) => {
