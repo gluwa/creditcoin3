@@ -11,6 +11,7 @@ version.workspace = true
 ignored = ["scale-info"]
 
 [dependencies]
+log = { workspace = true }
 parity-scale-codec = { workspace = true, default-features = false, features = [
     "derive",
 ] }
@@ -32,6 +33,7 @@ sp-consensus-babe = { workspace = true, default-features = false, features = [
 sp-runtime = { workspace = true, default-features = false, features = [
     "serde",
 ] }
+sp-std = { workspace = true, default-features = false }
 
 [dev-dependencies]
 frame-election-provider-support = { workspace = true }
@@ -49,6 +51,7 @@ sp-staking = { workspace = true, default-features = false, features = [
 [features]
 default = ["std"]
 std = [
+    "log/std",
     "parity-scale-codec/std",
     "frame-benchmarking?/std",
     "frame-support/std",
@@ -57,6 +60,7 @@ std = [
     "sp-core/std",
     "sp-io/std",
     "sp-runtime/std",
+    "sp-std/std",
     "randomness-primitives/std",
     "pallet-babe/std",
     "pallet-authorship/std",
@@ -73,4 +77,10 @@ runtime-benchmarks = [
     "frame-system/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "pallet-babe/runtime-benchmarks",
+]
+
+try-runtime = [
+    "frame-support/try-runtime",
+    "frame-system/try-runtime",
+    "sp-runtime/try-runtime",
 ]

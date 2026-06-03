@@ -230,6 +230,7 @@ impl frame_system::Config for Runtime {
         migrations::v1_init_supported_chains::Migration<Runtime>,
         migrations::v1_init_attestation::Migration<Runtime>,
         migrations::v1_init_operators::Migration<Runtime>,
+        pallet_randomness::MigratePruningQueueV0ToV1<Runtime>,
     );
     type PreInherents = ();
     type PostInherents = ();

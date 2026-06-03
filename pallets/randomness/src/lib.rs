@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+pub use migrations::MigratePruningQueueV0ToV1;
 pub use pallet::*;
 
 #[cfg(test)]
@@ -10,6 +11,7 @@ mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod migrations;
 pub mod weights;
 
 use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
@@ -36,7 +38,7 @@ pub mod pallet {
     pub const RANDOMNESS_LENGTH: usize = 32;
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
