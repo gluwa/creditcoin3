@@ -785,6 +785,7 @@ impl Client {
             &self.attestor_id(),
             header_number,
             epoch_index,
+            chain_key,
         )?;
 
         Ok(proof_of_inclusion)
@@ -813,6 +814,7 @@ impl Client {
             &self.attestor_id(),
             header_number,
             epoch_index,
+            chain_key,
         )?;
 
         Ok(proof_of_inclusion)

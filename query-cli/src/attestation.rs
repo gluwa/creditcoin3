@@ -4,7 +4,7 @@
 //! monitoring attestation events, and checking attestation status.
 
 use anyhow::{Context, Result};
-use cc_client::events::CcEvent;
+use cc_client::attestation::CcEvent;
 use cc_client::Client as CcClient;
 use futures::{StreamExt, TryStreamExt};
 use std::time::Duration;
@@ -176,7 +176,7 @@ impl AttestationMonitor {
             tokio::select! {
                 Some(res) = stream_cc3.next() => {
                     let elapsed = start_time.elapsed();
-                    let mut events = res?;
+                    let mut events = res;
 
                     while let Some(event) = events.try_next().await? {
                         if let Some(result) =
