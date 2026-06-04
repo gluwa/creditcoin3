@@ -36,9 +36,6 @@ pub enum Error {
         rpc: attestor_primitives::ChainId,
     },
 
-    /// Active attestor list missing the local `account_id` and no eligibility event arrived.
-    NotEligible,
-
     /// Maturity strategy parse / lookup.
     InvalidMaturityStrategy(
         attestor_primitives::ChainKey,
@@ -66,7 +63,6 @@ impl std::fmt::Display for Error {
             Self::ChainIdMismatch { runtime, rpc } => {
                 write!(f, "chain_id mismatch: runtime={runtime}, rpc={rpc}")
             }
-            Self::NotEligible => write!(f, "attestor not eligible and no election arrived"),
             Self::InvalidMaturityStrategy(k, e) => {
                 write!(f, "invalid maturity strategy for {k}: {e:?}")
             }

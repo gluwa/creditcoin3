@@ -1,5 +1,20 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
+//! # Randomness pallet
+//!
+//! Each time babe rotates to a new epoch, this pallet records that epoch's babe randomness in
+//! [`RandomnessByEpochIndex`] and notifies its [`Config::EventListeners`]. In the current runtime
+//! the only listener is the attestation pallet, which uses the notification purely as an
+//! epoch-boundary *trigger* (to start a fresh election and apply interval updates) and ignores the
+//! randomness value itself — committee selection is deterministic today.
+//!
+//! The randomness value is nonetheless captured and exposed (via `RandomnessPalletApi`) on
+//! purpose: it is the entropy source for the future stake-weighted committee sortition described
+//! in research-book RFC-0174. This pallet is the retained, VRF-ready hook for reinstating
+//! probabilistic eligibility once the attestor population is large enough to need it; the VRF
+//! verification primitives themselves were removed (see git history) and would be reintroduced
+//! alongside that work. Until then it functions as a per-epoch timer.
+
 pub use pallet::*;
 
 #[cfg(test)]

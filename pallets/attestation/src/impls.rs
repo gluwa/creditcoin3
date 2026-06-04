@@ -647,6 +647,11 @@ impl<T: Config> Pallet<T> {
     /// All attestors with `Active` status will be selected
     /// Attestors with `Waiting` status will be selected based on the election policy
     /// Attestors with `Leaving` status become `Idle` and are not selected (deferred voluntary chill)
+    ///
+    /// `_randomness` is the per-epoch babe entropy supplied by `pallet-randomness`. Selection is
+    /// deterministic today so it is unused, but the parameter is kept wired through: it is the
+    /// entropy input for the future stake-weighted sortition in RFC-0174 (see the `pallet-randomness`
+    /// crate docs).
     pub fn do_start_election(epoch: u64, _randomness: Randomness) -> DispatchResult {
         let supported_chains = T::SupportedChains::supported_chains();
 
