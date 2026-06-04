@@ -125,7 +125,7 @@ fn is_transient_subxt(err: &subxt::Error) -> bool {
 /// masquerading as an internal bug. We must reconnect, not crash.
 ///
 /// Matched conservatively against the exact `Custom` strings the client emits on connection
-/// loss (jsonrpsee-core 0.24 `async_client`); other `Custom` messages such as "BatchID range
+/// loss (jsonrpsee-core 0.24 `async_client`); other `Custom` messages such as "`BatchID` range
 /// wrapped" or "Unparseable message" are genuine non-transient faults and intentionally fall
 /// through to `SubxtError(_)`.
 fn is_transient_custom_message(msg: &str) -> bool {
