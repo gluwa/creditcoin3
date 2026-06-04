@@ -2249,7 +2249,6 @@ dependencies = [
  "tracing",
  "usc-abi-encoding",
  "user",
- "vrf",
 ]
 
 [[package]]
