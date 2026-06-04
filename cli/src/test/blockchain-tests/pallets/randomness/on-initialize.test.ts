@@ -35,8 +35,14 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'StoreRandomnessForEpoch e
                             const [epochIndex, randomness] = event.data;
                             const randomnessFromEvent = randomness.toString();
 
+                            const epochIndexU64 = epochIndex as U64;
+                            const epochNum = epochIndexU64.toNumber();
+
                             const randomnessMap = await api.query.randomness.randomnessByEpochIndex();
-                            const randomessRaw = randomnessMap.get(epochIndex as U64);
+                            // We need to iterate instead of using .get() because the key is a U64 and we need to compare the value, not the reference
+                            // since BTreeMap is a Map, we can use the entries() method to get an iterator of [key, value] pairs and find the one with the matching epoch index
+                            const entry = [...randomnessMap.entries()].find(([k]) => k.toNumber() === epochNum);
+                            const randomessRaw = entry?.[1];
 
                             expect(randomessRaw).toBeDefined();
 
