@@ -16492,23 +16492,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
-name = "vrf"
-version = "3.126.0"
-dependencies = [
- "anyhow",
- "attestor-primitives",
- "env_logger 0.11.8",
- "log",
- "parity-scale-codec",
- "randomness-primitives",
- "schnorrkel",
- "serde",
- "sp-consensus-babe",
- "sp-core",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "w3f-bls"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"

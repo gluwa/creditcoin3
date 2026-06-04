@@ -468,18 +468,6 @@ impl Client {
         Ok(supported_chains)
     }
 
-    pub async fn get_current_epoch(&self) -> Result<u64, Error> {
-        let epoch_index = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&cc3::storage().babe().epoch_index())
-            .await?;
-
-        Ok(epoch_index.unwrap_or_default())
-    }
-
     pub async fn target_sample_size(&self, chain_key: u64) -> Result<u32, Error> {
         let storage_query = cc3::storage().attestation().target_sample_size(chain_key);
 
@@ -1072,10 +1060,6 @@ impl Client {
             .await?;
 
         Ok(result.unwrap_or_default())
-    }
-
-    pub async fn get_attestor_active_set_size(&self, chain_key: u64) -> Result<usize, Error> {
-        Ok(self.get_attestor_active_set(chain_key).await?.len())
     }
 
     pub async fn set_attestation_chain_genesis_block_number(
