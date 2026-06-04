@@ -95,6 +95,8 @@ impl From<subxt::Error> for Error {
 ///     RPC sent us a structured JSON-RPC error back, but the message itself says e.g.
 ///     "connection going down", "service unavailable", "rate limit", etc. In those cases the
 ///     correct response is to back off + reconnect, not to crash the task.
+///   * jsonrpsee `Custom(_)` whose text is one of the two connection-death strings the client
+///     emits when the WS background task goes away (see [`is_transient_custom_message`]).
 fn is_transient_subxt(err: &subxt::Error) -> bool {
     match err {
         subxt::Error::Rpc(
@@ -107,11 +109,31 @@ fn is_transient_subxt(err: &subxt::Error) -> bool {
             match jr {
                 JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_) => true,
                 JsonRpseeError::Call(obj) => is_transient_call_message(obj.message()),
+                JsonRpseeError::Custom(msg) => is_transient_custom_message(msg),
                 _ => false,
             }
         }
         _ => false,
     }
+}
+
+/// jsonrpsee surfaces some connection deaths as a plain `Error::Custom(String)` rather than a
+/// typed transport error. The one that bit us in production: when the WS background task exits
+/// on a *clean* server close (e.g. a deadline-enforcing gateway sending a proper close frame),
+/// jsonrpsee never recorded a disconnect reason, so the next call fails with the literal
+/// "Error reason could not be found. This is a bug. Please open an issue." - a connection drop
+/// masquerading as an internal bug. We must reconnect, not crash.
+///
+/// Matched conservatively against the exact `Custom` strings the client emits on connection
+/// loss (jsonrpsee-core 0.24 `async_client`); other `Custom` messages such as "BatchID range
+/// wrapped" or "Unparseable message" are genuine non-transient faults and intentionally fall
+/// through to `SubxtError(_)`.
+fn is_transient_custom_message(msg: &str) -> bool {
+    let m = msg.to_ascii_lowercase();
+    // Clean close with no recorded reason - `ErrorFromBack::read_error`.
+    m.contains("error reason could not be found")
+        // Receive half of the transport dropped - connection gone.
+        || m.contains("transportreceiver dropped")
 }
 
 /// Server-side error messages that mean "the connection is temporarily unhealthy" rather than
@@ -1326,6 +1348,59 @@ impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion 
     fn from(version: CcChainEncodingVersion) -> Self {
         match version {
             CcChainEncodingVersion::V1 => usc_abi_encoding::common::EncodingVersion::V1,
+        }
+    }
+}
+
+#[cfg(test)]
+mod transient_classifier_tests {
+    use super::{is_transient_call_message, is_transient_custom_message};
+
+    #[test]
+    fn custom_clean_close_is_transient() {
+        // The exact string jsonrpsee emits when the WS background task exits on a clean server
+        // close with no recorded reason — the message that turned a recoverable RPC drop into a
+        // dead attestor in production. Must reconnect, not crash.
+        assert!(is_transient_custom_message(
+            "Error reason could not be found. This is a bug. Please open an issue."
+        ));
+        assert!(is_transient_custom_message("TransportReceiver dropped"));
+    }
+
+    #[test]
+    fn custom_genuine_faults_are_not_transient() {
+        // Other `Custom` messages are real, non-recoverable faults and must surface as SubxtError.
+        assert!(!is_transient_custom_message(
+            "BatchID range wrapped; restart the client or try again later"
+        ));
+        assert!(!is_transient_custom_message(
+            "Unparseable message: {garbage}"
+        ));
+        assert!(!is_transient_custom_message("some unrelated custom error"));
+    }
+
+    #[test]
+    fn call_message_classification() {
+        for transient in [
+            "Downstream connection unexpectedly closed",
+            "the server is going down",
+            "node is shutting down",
+            "503 Service Unavailable",
+            "rate limit exceeded",
+            "too many requests",
+            "upstream timeout",
+            "RPC::DEADLINE_EXCEEDED",
+        ] {
+            assert!(
+                is_transient_call_message(transient),
+                "expected transient: {transient:?}"
+            );
+        }
+        for fatal in ["method not found", "invalid params", "bad signature"] {
+            assert!(
+                !is_transient_call_message(fatal),
+                "expected fatal: {fatal:?}"
+            );
         }
     }
 }
