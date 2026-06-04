@@ -492,6 +492,13 @@ impl Attestor {
                             &mut handle_p2p,
                         ).await,
                     );
+                    // Fail fast: a single worker death must take the whole process down. Previously
+                    // the loop kept spinning here with the surviving workers (incl. the /metrics API)
+                    // still running, so the pod stayed Running+healthy while attestation was dead —
+                    // a zombie k8s never restarted. Signal the rest to stop, then break out to drain
+                    // them below; `res` carries the error so we exit non-zero and get rescheduled.
+                    monitor.shutdown();
+                    break;
                 }
             }
         }
