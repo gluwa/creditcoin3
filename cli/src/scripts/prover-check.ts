@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from 'fs';
 import { blockProver, chainInfo, proofGenerator, utils } from '@gluwa/usc-sdk';
 import EvmV1DecoderABI from '@gluwa/usc-sdk/dist/utils/evmV1DecoderAbi.json';
+import ChainInfoABI from '@gluwa/usc-sdk/dist/chain-info/chain_info.json';
 import { Contract, WebSocketProvider } from 'ethers';
 import { createClient } from 'graphqurl';
 import axios from 'axios';
@@ -81,13 +82,23 @@ async function main(
 ): Promise<void> {
     const creditcoinWs = new WebSocketProvider(creditcoinWsUrl);
     const prover = new blockProver.PrecompileBlockProver(creditcoinWs);
-    const chainInfoPrecompile = new chainInfo.PrecompileChainInfoProvider(creditcoinWs);
-    const lastAttestation = await chainInfoPrecompile.getLatestAttestedHeightAndHash(chainKey);
+    // NOTE: the SDK does not expose a wrapper for get_latest_checkpoint_height_and_hash yet,
+    // so we instantiate the precompile contract directly with the shipped ABI.
+    const chainInfoContract = new Contract(chainInfo.CHAIN_INFO_PRECOMPILE_ADDRESS, ChainInfoABI, creditcoinWs);
+    const latestCheckpointRaw = await chainInfoContract.get_latest_checkpoint_height_and_hash(chainKey, {
+        blockTag: 'finalized',
+    });
+    const lastCheckpoint = {
+        height: Number(latestCheckpointRaw[0]),
+        hash: latestCheckpointRaw[1] as string,
+        isAttestation: latestCheckpointRaw[2] as boolean,
+        exists: latestCheckpointRaw[3] as boolean,
+    };
     console.log(
-        `**** INFO: ${creditcoinWsUrl}, chainKey=${chainKey}, last attestation is for block ${lastAttestation.height}`,
+        `**** INFO: ${creditcoinWsUrl}, chainKey=${chainKey}, last checkpoint is for block ${lastCheckpoint.height}`,
     );
 
-    const lastSourceBlock = parseInt(process.env.LAST_SOURCE_BLOCK || lastAttestation.height.toString(), 10);
+    const lastSourceBlock = parseInt(process.env.LAST_SOURCE_BLOCK || lastCheckpoint.height.toString(), 10);
     const goBack = parseInt(process.env.GO_BACK_BLOCKS || '4000', 10); // how many blocks to go back in time
     const startFrom = lastSourceBlock - goBack;
     const stepThrough = parseInt(process.env.STEP_THROUGH_BLOCKS || '5', 10); // how many blocks to step through
@@ -118,7 +129,7 @@ async function main(
                 // upper boundary of current checkpoint
                 blocksToInspect.push(BigInt(node.blockNumber));
                 // lower boundary of next checkpoint
-                if (BigInt(node.blockNumber) + 1n <= lastAttestation.height) {
+                if (BigInt(node.blockNumber) + 1n <= lastCheckpoint.height) {
                     blocksToInspect.push(BigInt(node.blockNumber) + 1n);
                 }
             }
