@@ -35,9 +35,12 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'StoreRandomnessForEpoch e
                             const [epochIndex, randomness] = event.data;
                             const randomnessFromEvent = randomness.toString();
 
-                            const randomnessFromStorage = (
-                                (await api.query.randomness.randomnessByEpochIndex(epochIndex)) as U64
-                            ).toString();
+                            const randomnessMap = await api.query.randomness.randomnessByEpochIndex();
+                            const randomessRaw = randomnessMap.get(epochIndex as U64);
+
+                            expect(randomessRaw).toBeDefined();
+
+                            const randomnessFromStorage = randomessRaw!.toString();
 
                             // for epoch 1 randomness is always 0
                             if ((epochIndex as U64).toNumber() > 1) {
