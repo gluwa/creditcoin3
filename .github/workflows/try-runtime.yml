@@ -3,7 +3,7 @@ name: Try Runtime
 
 "on":
   pull_request:
-    branches: [usc-dev]
+    branches: [usc-dev, main]
     paths:
       - "**/migrations/**"
       - "**/migrations.rs"
@@ -60,7 +60,8 @@ jobs:
         run: |
           cargo install --git https://github.com/paritytech/try-runtime-cli --locked
 
-      - name: Run try-runtime on-runtime-upgrade
+      - name: Execute try-runtime against CC3 Devnet
+        if: github.base_ref == 'usc-dev'
         timeout-minutes: 30
         run: |
           try-runtime \
@@ -68,3 +69,12 @@ jobs:
             on-runtime-upgrade \
             --blocktime 15000 \
             live --uri wss://rpc.cc3-devnet.creditcoin.network
+
+      - name: Execute try-runtime against CC3 Mainnet
+        timeout-minutes: 60
+        run: |
+          try-runtime \
+            --runtime ./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm \
+            on-runtime-upgrade \
+            --blocktime 15000 \
+            live --uri wss://rpc.cc3-mainnet.creditcoin.network
