@@ -23,7 +23,6 @@ members = [
     "common/indexer-client",
     "common/merkle",
     "common/utils",
-    "common/vrf",
     "common/builder",
     "common/streams/eth",
     "common/streams/cc3",
