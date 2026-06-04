@@ -342,7 +342,6 @@ stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
-vrf = { path = "common/vrf", default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

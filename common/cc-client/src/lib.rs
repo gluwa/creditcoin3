@@ -32,7 +32,6 @@ use attestor_primitives::{
     SignedAttestation,
 };
 use supported_chains_primitives::SupportedChain;
-use vrf::{make_proof_of_inclusion, Error as VrfError, ProofOfInclusion};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -72,8 +71,6 @@ pub type Randomness = [u8; 32];
 pub enum Error {
     #[error("Failed to submit RPC")]
     FailedToSubmit,
-    #[error("Failed to get Babe VRF at epoch {0}")]
-    FailedToGetBabeVrf(u64),
     #[error("Failed to get committee set size")]
     FailedToGetComitteSetSize,
     #[error("No Checkpoint interval set for chain with key {0}")]
@@ -84,8 +81,6 @@ pub enum Error {
     RpcError(#[from] RpcError),
     #[error("Invalid rpc url")]
     InvalidUrl,
-    #[error("Failed to create proof of inclusion: {0}")]
-    FailedToCreateProofOfInclusion(#[from] VrfError),
     #[error("Failed to get STARK metadata: {0}")]
     FailedToGetStarkMetadata(String),
     #[error("Attestor not found in storage, register the attestor first and retry later")]
@@ -473,45 +468,6 @@ impl Client {
         Ok(supported_chains)
     }
 
-    /// Fetches the babe randomness from 2 epochs ago
-    /// Returns the random a time + the current block number (where it was calculated from)
-    pub async fn fetch_babe_randomness_two_epoch_ago(&self) -> Result<(Randomness, u64), Error> {
-        let epoch_index = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&cc3::storage().babe().epoch_index())
-            .await?;
-
-        // Calculate the epoch index we are interested in
-        // This is the current epoch index - 2
-        let two_epoch_ago = epoch_index.unwrap_or(0).saturating_sub(2);
-
-        // Short circuit if epoch index is too low
-        // Randomness is not available for the first 2 epochs
-        if two_epoch_ago == 0 {
-            info!("Epoch index is too low to fetch randomness");
-            return Ok((Randomness::default(), two_epoch_ago));
-        }
-        info!("Fetching randomness for epoch index: {}", two_epoch_ago);
-
-        let randomness = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(
-                &cc3::storage()
-                    .randomness()
-                    .randomness_by_epoch_index(two_epoch_ago),
-            )
-            .await?
-            .ok_or(Error::FailedToGetBabeVrf(two_epoch_ago))?;
-
-        Ok((randomness, two_epoch_ago))
-    }
-
     pub async fn get_current_epoch(&self) -> Result<u64, Error> {
         let epoch_index = self
             .api()
@@ -758,66 +714,6 @@ impl Client {
             })?;
 
         utils::handle_tx(tx_progress, "Start Attesting").await
-    }
-
-    /// `sign_babe_vrf` signs babe's author vrf randomness with the configured key and returns the output as integer
-    /// the method extracts the S component bytes from the signature. The bytes of the S component are converted into a u64 integer using little-endian byte order.
-    pub async fn sign_vrf_production(
-        &self,
-        chain_key: ChainKey,
-        header_number: u64,
-        randomness: Randomness,
-        epoch_index: u64,
-    ) -> Result<ProofOfInclusion, Error> {
-        // Get committee set size
-        let target_sample_size = self.target_sample_size(chain_key).await?;
-
-        // Get attestor working set size
-        let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
-
-        info!("Target set size: {target_sample_size}, committee set size: {committee_set_size}",);
-
-        let proof_of_inclusion = make_proof_of_inclusion(
-            committee_set_size as u64,
-            u64::from(target_sample_size),
-            &randomness,
-            &self.signer.pair,
-            &self.attestor_id(),
-            header_number,
-            epoch_index,
-            chain_key,
-        )?;
-
-        Ok(proof_of_inclusion)
-    }
-
-    pub async fn sign_vrf_submission(
-        &self,
-        chain_key: ChainKey,
-        header_number: u64,
-        randomness: Randomness,
-        epoch_index: u64,
-    ) -> Result<ProofOfInclusion, Error> {
-        // Get committee set size
-        let target_sample_size = 3;
-
-        // Get attestor working set size
-        let committee_set_size = self.get_attestor_active_set_size(chain_key).await?;
-
-        info!("committee set size: {committee_set_size}",);
-
-        let proof_of_inclusion = make_proof_of_inclusion(
-            committee_set_size as u64,
-            target_sample_size,
-            &randomness,
-            &self.signer.pair,
-            &self.attestor_id(),
-            header_number,
-            epoch_index,
-            chain_key,
-        )?;
-
-        Ok(proof_of_inclusion)
     }
 
     #[must_use]

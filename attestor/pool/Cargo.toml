@@ -23,8 +23,3 @@ sp-core = { workspace = true }
 tracing = { workspace = true }
 # `Receiver::recv` uses `tokio::sync::Notify` — needs the `sync` feature, that's it.
 tokio = { workspace = true, features = ["sync"] }
-
-[dev-dependencies]
-# cc-client transitively uses `tokio::signal::ctrl_c` but doesn't declare the feature itself
-# (it relies on a downstream binary enabling it). Tests run standalone so we enable it here.
-tokio = { workspace = true, features = ["signal", "macros", "rt"] }
