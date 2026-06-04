@@ -7,12 +7,11 @@ pub const CAPACITY_CHANNEL: usize = 100;
 
 /// Finality timeout before an attestation vote is assumed to have failed.
 ///
-/// Since attestation submission leader election takes place on a round-vrf basis, it is
-/// possible for no leader to be elected. Since no consensus is made on the specific set of
-/// leaders being elected, and this election is probabilistic, attestors have no way of
-/// knowing when an election fails. As a failsafe, attestors will wait for finality to
-/// conclude for a max duration of [`ATTESTATION_TIMEOUT`], after which they will assume that
-/// no leader has been elected and retry their elegibility check with different parameters.
+/// Every attestor submits its proof on quorum (the `PrevalidateAttestationCommit` runtime
+/// extension dedups the race at txpool admission), so there is no leader election to wait on.
+/// A submitted height can still fail to finalize — a stuck or slow chain, a dropped tx — and
+/// attestors have no positive signal for that. As a failsafe they wait for finality for a max
+/// duration of [`ATTESTATION_TIMEOUT`], after which they assume the height stalled and retry.
 ///
 /// Sized for usc-devnet observed worst-case: cc3 BlockAttested arrival is typically 30–100 s
 /// after quorum is reached. 30 s was too tight — it produced spurious "🏃 finalization timed

@@ -239,9 +239,6 @@ async fn handle_submission_result(
         } => {
             tracing::warn!(height, ?err, "⛔ submission rpc error");
         }
-        Outcome::NotEligible => {
-            tracing::info!(height, "🚦 not selected, deferring to other attestors");
-        }
         Outcome::Finalized => {
             tracing::info!(height, "✅ finalized externally");
         }
@@ -469,7 +466,6 @@ enum Outcome {
         result: Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>,
         votes: Vec<Vote>,
     },
-    NotEligible,
     Finalized,
 }
 
@@ -481,7 +477,6 @@ fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHa
         let votes = agg.votes.clone();
         let outcome = match submit_one(&shared, agg).await {
             OutcomeInternal::Eligible(result) => Outcome::Eligible { result, votes },
-            OutcomeInternal::NotEligible => Outcome::NotEligible,
             OutcomeInternal::Finalized => Outcome::Finalized,
         };
         Submission { height, outcome }
@@ -492,65 +487,26 @@ fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHa
 /// field, which is added at the spawn site.
 enum OutcomeInternal {
     Eligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
-    NotEligible,
     Finalized,
 }
 
 async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
     let height = agg.height;
-    let chain_key = agg.attestation_signed.attestation.chain_key;
 
     if !*shared.can_attest_rx.borrow() {
         tracing::info!(height, "⏳ chilled, skipping submission");
         return OutcomeInternal::Finalized;
     }
 
-    let (randomness, epoch_index) = match shared.cc3.fetch_babe_randomness_two_epoch_ago().await {
-        Ok(r) => r,
-        Err(err) => {
-            tracing::warn!(?err, "cc3 randomness failed");
-            let _ = reconnect(shared).await;
-            return OutcomeInternal::NotEligible;
-        }
-    };
-
-    // Rank-backoff (skipped for genesis).
+    // Submit jitter (skipped for genesis). Every attestor submits on quorum — the
+    // `PrevalidateAttestationCommit` runtime extension dedups the race at txpool admission and
+    // evicts losers fee-free (they never reach dispatch), so there is no leader election to do
+    // here. The jitter just spreads the otherwise-simultaneous burst of pool admissions + gossip
+    // across a couple of seconds; we still bail early if the height finalizes while we wait.
     if height != shared.genesis {
-        let vrf = match shared
-            .cc3
-            .sign_vrf_submission(chain_key, height, randomness, epoch_index)
-            .await
-        {
-            Ok(v) => v,
-            Err(cc_client::Error::FailedToCreateProofOfInclusion(_)) => {
-                tracing::info!(height, "🚦 not selected");
-                return OutcomeInternal::NotEligible;
-            }
-            Err(err) => {
-                tracing::warn!(?err, "vrf err");
-                let _ = reconnect(shared).await;
-                return OutcomeInternal::NotEligible;
-            }
-        };
-
-        let mut rank_input = Vec::with_capacity(vrf.output.len() + 8);
-        rank_input.extend_from_slice(&vrf.output);
-        rank_input.extend_from_slice(&height.to_be_bytes());
-        let rank_hash = sp_io::hashing::keccak_256(&rank_input);
-        const RANKS: u64 = 8;
-        let rank = u64::from_be_bytes([
-            rank_hash[0],
-            rank_hash[1],
-            rank_hash[2],
-            rank_hash[3],
-            rank_hash[4],
-            rank_hash[5],
-            rank_hash[6],
-            rank_hash[7],
-        ]) % RANKS;
-        const SUBMIT_FIN_DELAY: u64 = 17;
-        let delay = std::time::Duration::from_secs(rank * SUBMIT_FIN_DELAY);
-        tracing::info!(height, rank, ?delay, "🏁 rank backoff");
+        const SUBMIT_JITTER_MS: u64 = 3_000;
+        let delay = std::time::Duration::from_millis(rand::random::<u64>() % SUBMIT_JITTER_MS);
+        tracing::debug!(height, ?delay, "🎲 submit jitter");
 
         let mut rx = shared.latest_finalized_rx.clone();
         let deadline = tokio::time::Instant::now() + delay;
