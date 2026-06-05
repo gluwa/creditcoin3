@@ -277,6 +277,18 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             [key: string]: Codec;
         };
+        randomness: {
+            /**
+             * The maximum number of epoch-indexed randomness entries to retain. Once the
+             * store is full, inserting a new epoch evicts the oldest (lowest epoch index)
+             * entry to make room.
+             **/
+            maxRandomnessEntries: u32 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
         staking: {
             /**
              * Number of eras that staked funds must remain bonded for.
