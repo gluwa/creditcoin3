@@ -1,7 +1,8 @@
 #[derive(libp2p::swarm::NetworkBehaviour)]
 pub(crate) struct P2PBehavior {
-    /// [`Ping`] is used for peer reputation by disconnecting peers which repeatedly fail to
-    /// respond to ping requests.
+    /// [`Ping`] keeps connections live and surfaces failed pings. Modern libp2p no longer closes
+    /// a connection on repeated ping failures, so the gossip task tracks failures per connection
+    /// and reaps wedged connections itself (see `MAX_PING_FAILURES`).
     ///
     /// [`Ping`]: libp2p::ping
     pub ping: libp2p::ping::Behaviour,
