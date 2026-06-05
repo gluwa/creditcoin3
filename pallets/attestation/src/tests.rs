@@ -4680,6 +4680,81 @@ fn register_attestor_cannot_clear_another_stashs_retired_bls_protection() {
     });
 }
 
+/// Companion to `register_attestor_cannot_clear_another_stashs_retired_bls_protection`: the
+/// protection is only meant to persist *until the retiring stash's unbond delay elapses*. Once
+/// STASH_1 has unbonded and withdrawn — purging its retired BLS row and releasing the key claim —
+/// a different stash must be able to register that same controller and reclaim the same BLS key.
+#[test]
+fn register_attestor_succeeds_after_another_stashs_unbond_delay_elapses() {
+    ExtBuilder.build_and_execute(|| {
+        let a1 = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(a1.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key,
+            a1.signature
+        ));
+        assert_ok!(Attestation::chill(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+
+        // STASH_1 retired ATTESTOR_1: protection in place while the unbond delay is pending.
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert_eq!(
+            BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, a1.public_key),
+            Some(ATTESTOR_1)
+        );
+
+        // Advance past the bonding duration and let STASH_1 withdraw, purging the retired row and
+        // releasing the BLS-key claim.
+        progress_to_block(50);
+        assert_ok!(Attestation::withdraw_unbonded(a1.stash.clone()));
+
+        assert!(!crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(!BlsKeyOwner::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key
+        ));
+
+        // With the protection lapsed, a different stash can now register the same controller.
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_2),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1,
+        ));
+
+        // ...and reclaim the very same BLS key that STASH_1 had retired.
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key,
+            a1.signature
+        ));
+        assert_eq!(
+            BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, a1.public_key),
+            Some(ATTESTOR_1)
+        );
+    });
+}
+
 #[test]
 fn on_supported_chain_removed_clears_retired_attestor_keys_by_stash() {
     ExtBuilder.build_and_execute(|| {
