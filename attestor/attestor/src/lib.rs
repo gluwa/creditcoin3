@@ -350,34 +350,36 @@ impl Attestor {
 
         let mut result: Result<(), Error> = Ok(());
 
-        loop {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("🔌 shutdown signal");
-                    token.cancel();
-                    break;
-                }
-                Some(joined) = set.join_next() => {
-                    match joined {
-                        Ok(Ok(name)) => tracing::info!(task = name, "🟢 task exited cleanly"),
-                        Ok(Err(err)) => {
-                            tracing::error!(%err, "⛔ task failed");
-                            if result.is_ok() {
-                                result = Err(err);
-                            }
-                            token.cancel();
-                            break;
-                        }
-                        Err(join_err) => {
-                            tracing::error!(%join_err, "⛔ task join error");
-                            if result.is_ok() {
-                                result = Err(Error::TaskJoin(join_err));
-                            }
-                            token.cancel();
-                            break;
-                        }
+        // First signal wins: either ctrl_c, or the first task to exit. Every branch ends the
+        // select (no looping) — we then cancel and drain. Tasks are meant to run until
+        // `token.cancelled()`, so *any* task exit here is the trigger to shut the whole set down.
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("🔌 shutdown signal");
+                token.cancel();
+            }
+            Some(joined) = set.join_next() => {
+                match joined {
+                    // A task returning Ok *before* cancellation was requested is not a clean
+                    // shutdown — it's a core service quietly dying while the rest of the pod
+                    // (notably the /metrics endpoint) keeps reporting healthy. Promote it to a
+                    // failure so we cancel + drain + exit nonzero and k8s restarts us, rather
+                    // than limping on half-dead. (After cancellation, an Ok exit is expected
+                    // and handled by the drain loop below.)
+                    Ok(Ok(name)) => {
+                        tracing::error!(task = name, "⛔ task exited before shutdown was requested");
+                        result = Err(Error::TaskExitedEarly(name));
+                    }
+                    Ok(Err(err)) => {
+                        tracing::error!(%err, "⛔ task failed");
+                        result = Err(err);
+                    }
+                    Err(join_err) => {
+                        tracing::error!(%join_err, "⛔ task join error");
+                        result = Err(Error::TaskJoin(join_err));
                     }
                 }
+                token.cancel();
             }
         }
 
