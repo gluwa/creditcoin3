@@ -50,8 +50,8 @@ impl P2PBehavior {
 
         let ping = libp2p::ping::Behaviour::new(
             libp2p::ping::Config::new()
-                .with_interval(std::time::Duration::from_secs(60))
-                .with_timeout(std::time::Duration::from_secs(30)),
+                .with_interval(std::time::Duration::from_secs(15))
+                .with_timeout(std::time::Duration::from_secs(10)),
         );
 
         let limits = libp2p::connection_limits::Behaviour::new(
