@@ -19,10 +19,10 @@ use pallet_supported_chains::SupportedChains;
 use precompile_utils::{prelude::*, solidity::Codec};
 
 // Gas cost constants
-/// Cost of each storage read (matches cold SLOAD) in gas.
+/// Cost of each storage read (matches cold SLOAD) in gas. Also charged per item pulled from a
+/// storage-prefix iteration: each item is a full key+value trie read, so it must be priced as a
+/// cold lookup, otherwise a large prefix scan is charged far under its real DB cost.
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
-/// Per item processed in iteration
-pub const GAS_PER_ITERATION_ITEM: u64 = 26;
 
 #[cfg(test)]
 mod mock;
@@ -245,7 +245,7 @@ where
                         })
                         .filter(|block_number| *block_number < target_height)
                         .collect();
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 // Highest first.
                 candidates.sort_unstable_by(|a, b| b.cmp(a));
@@ -310,7 +310,7 @@ where
                 HeightHashResult::default()
             };
 
-            handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+            handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
             Ok(highest)
         }
@@ -354,7 +354,7 @@ where
                         })
                         .filter(|block_number| *block_number >= target_height)
                         .collect();
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 // Lowest first.
                 candidates.sort_unstable();
@@ -403,7 +403,7 @@ where
                 })
                 .unwrap_or_default();
 
-            handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+            handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
             Ok(lowest)
         }
@@ -434,7 +434,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() >= target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 // Since the last checkpoint is below the target height, if we found any attestation above (or at) the target height,
                 // we can be sure that target height is attested.
@@ -461,7 +461,7 @@ where
                             })
                             .any(|block_number| block_number <= target_height);
 
-                    handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                    handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                     if found_prev_checkpoint {
                         break;
@@ -490,7 +490,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() == target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 if found_attestation {
                     // If we found an attestation exactly at the target height, we can be sure that target height is attested.
@@ -507,7 +507,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() > target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
                 items_processed = 0_u64;
@@ -519,7 +519,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() < target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 (found_next_attestation, found_prev_attestation)
             }
