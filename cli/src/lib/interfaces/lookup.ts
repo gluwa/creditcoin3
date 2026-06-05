@@ -3165,6 +3165,7 @@ export default {
             'RetiredAttestorPendingFull',
             'AttestorAlreadyAuthorized',
             'NotPreAuthorizedToRegister',
+            'ControllerRetiredByAnotherStash',
             'AttestorNotAuthorized',
             'NoFinalizedAttestation',
             'AttestationsAlreadyExist',

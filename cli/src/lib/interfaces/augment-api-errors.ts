@@ -69,6 +69,12 @@ declare module '@polkadot/api-base/types/errors' {
             CheckpointTargetNotFound: AugmentedError<ApiType>;
             CheckpointWidthIsZero: AugmentedError<ApiType>;
             /**
+             * `register_attestor` targeted a controller account whose retired BLS-key protection is
+             * still live and owned by a different stash. Clearing it would prematurely release that
+             * stash's BLS-key claim, so the registration is rejected.
+             **/
+            ControllerRetiredByAnotherStash: AugmentedError<ApiType>;
+            /**
              * Operator forward patch contained no checkpoints.
              **/
             EmptyCheckpointPatch: AugmentedError<ApiType>;
