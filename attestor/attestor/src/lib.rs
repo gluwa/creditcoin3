@@ -155,6 +155,11 @@ impl Attestor {
         let bls_seed = self.config.stream.secret.to_bls_seed_bytes();
         let bls_key = bls_signatures::PrivateKey::new(bls_seed.as_slice());
 
+        // Static proof binding our libp2p PeerId to our on-chain (BLS) attestor identity. Presented
+        // to peers during the p2p authorization handshake. Depends only on fixed inputs, so it is
+        // computed once here.
+        let peer_auth = worker::p2p::PeerAuth::new(&bls_key, account_id.0, chain_key, &peer_id);
+
         let bls_public_key_bytes = bls_key.public_key().as_bytes();
         let bls_pubkey_hex = format!("0x{}", hex::encode(&bls_public_key_bytes));
         tracing::info!(
@@ -400,6 +405,7 @@ impl Attestor {
             .config
             .p2p
             .with_bls(std::sync::Arc::clone(&bls))
+            .with_self_auth(peer_auth)
             .with_keypair(keypair_p2p)
             .with_receiver_p2p(receiver_p2p)
             .with_sender_validation(sender_validation.clone())

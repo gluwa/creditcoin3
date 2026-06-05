@@ -44,6 +44,7 @@ subxt = { workspace = true }
 
 # Async & Parallelism
 arc-swap = { workspace = true }
+async-trait = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true, features = ["signal"] }
 tokio-tungstenite = { workspace = true, features = ["url"] }
@@ -63,6 +64,7 @@ libp2p = { workspace = true, features = [
     "mdns",
     "kad",
     "gossipsub",
+    "request-response",
 ] }
 
 # Parsing
