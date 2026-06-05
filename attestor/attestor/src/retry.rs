@@ -125,6 +125,16 @@ fn is_transient_rpc(rpc_err: &subxt::error::RpcError) -> bool {
                 || s.contains("disconnected")
                 || s.contains("closed")
                 || s.contains("restart required") // jsonrpsee `RestartNeeded` Display
+                // jsonrpsee 0.24 surfaces a *clean* WS close (the server hung up between our
+                // request and its response) as `Error::Custom("Error reason could not be found.
+                // This is a bug. Please open an issue.")`. It reads like a permanent bug but is
+                // really a transport drop — the same one PR #1034 had to special-case for v1.
+                // Without this it classifies permanent → `with_retries` gives up → fail-fast →
+                // pod restart, defeating the unbounded ride-out policy above.
+                || s.contains("error reason could not be found")
+                // jsonrpsee's `TransportReceiver dropped` on the same clean-close path; caught
+                // incidentally by "transport" above but matched explicitly so it can't regress.
+                || s.contains("transportreceiver dropped")
                 || s.contains("timeout")
                 || s.contains("deadline_exceeded")
                 || s.contains("unavailable")        // 503 / generic::unavailable

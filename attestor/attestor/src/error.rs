@@ -27,6 +27,12 @@ pub enum Error {
     /// A spawned task panicked or otherwise exited badly.
     TaskJoin(tokio::task::JoinError),
 
+    /// A long-running task returned `Ok` while the shutdown token was still live. Every task is
+    /// meant to loop until `token.cancelled()`; an early clean exit leaves a half-dead pod that
+    /// still serves `/metrics` (the k8s-zombie class PR #1034 fixed for v1, reachable here via
+    /// `Ok` rather than `Err`). Treated as failure so the supervisor cancels and the pod restarts.
+    TaskExitedEarly(&'static str),
+
     /// Runtime told us a chain key isn't supported.
     ChainKeyNotSupported(attestor_primitives::ChainKey),
 
@@ -59,6 +65,9 @@ impl std::fmt::Display for Error {
             Self::Bls(e) => write!(f, "bls: {e}"),
             Self::Io(e) => write!(f, "io: {e}"),
             Self::TaskJoin(e) => write!(f, "task join: {e}"),
+            Self::TaskExitedEarly(name) => {
+                write!(f, "task {name} exited before shutdown was requested")
+            }
             Self::ChainKeyNotSupported(k) => write!(f, "chain key {k} not supported"),
             Self::ChainIdMismatch { runtime, rpc } => {
                 write!(f, "chain_id mismatch: runtime={runtime}, rpc={rpc}")
