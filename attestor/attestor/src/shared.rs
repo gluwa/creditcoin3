@@ -41,6 +41,7 @@ pub struct Shared {
 
     pub bls_store: Arc<BlsStore>,
     pub metrics: metrics::Metrics,
+    pub health: crate::health::SharedHealth,
 
     pub pool_send: attestor_pool::Sender,
     pub gossip_tx: mpsc::Sender<crate::vote::Vote>,

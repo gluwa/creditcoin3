@@ -27,6 +27,11 @@ pub enum Error {
     /// A spawned task panicked or otherwise exited badly.
     TaskJoin(tokio::task::JoinError),
 
+    /// Runtime metadata problem detected by the updater task: undecodable bundled metadata, the
+    /// Attestation pallet missing, or its hash drifting from the compiled baseline (binary needs a
+    /// rebuild). Returned as an error so the supervisor drains + exits nonzero and k8s reschedules.
+    RuntimeMetadata(String),
+
     /// A long-running task returned `Ok` while the shutdown token was still live. Every task is
     /// meant to loop until `token.cancelled()`; an early clean exit leaves a half-dead pod that
     /// still serves `/metrics` (the k8s-zombie class PR #1034 fixed for v1, reachable here via
@@ -65,6 +70,7 @@ impl std::fmt::Display for Error {
             Self::Bls(e) => write!(f, "bls: {e}"),
             Self::Io(e) => write!(f, "io: {e}"),
             Self::TaskJoin(e) => write!(f, "task join: {e}"),
+            Self::RuntimeMetadata(msg) => write!(f, "runtime metadata: {msg}"),
             Self::TaskExitedEarly(name) => {
                 write!(f, "task {name} exited before shutdown was requested")
             }

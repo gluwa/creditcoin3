@@ -9,9 +9,9 @@
 //! new `Update`, applies it back into the shared client (Layer A) — *except* when the
 //! Attestation pallet's metadata hash changes vs. the baseline captured at startup, which
 //! means the runtime layout for the call we actually sign (`commit_attestation`) has
-//! drifted from our compile-time-generated types (Layer B). In that case we cancel the
-//! shared token so the supervisor drains, k8s reschedules, and CI rolls a binary built
-//! against the new metadata.
+//! drifted from our compile-time-generated types (Layer B). In that case we return
+//! `Error::RuntimeMetadata` so the supervisor cancels + drains, the process exits nonzero, k8s
+//! reschedules, and CI rolls a binary built against the new metadata.
 //!
 //! Reconnect interaction: `shared.cc3.api()` loads the current `OnlineClient` via
 //! `ArcSwap`. The `updater()` we obtain is bound to the snapshot at call time, so after a
@@ -38,8 +38,9 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
                 ?err,
                 "🛑 failed to decode bundled metadata — signalling shutdown"
             );
-            shared.token.cancel();
-            return Ok(());
+            return Err(Error::RuntimeMetadata(format!(
+                "failed to decode bundled metadata: {err:?}"
+            )));
         }
     };
     let baseline = match attestation_hash(&compiled) {
@@ -49,8 +50,9 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
                 pallet = ATTESTATION_PALLET,
                 "🛑 pallet missing from bundled metadata — refusing to run"
             );
-            shared.token.cancel();
-            return Ok(());
+            return Err(Error::RuntimeMetadata(format!(
+                "pallet {ATTESTATION_PALLET} missing from bundled metadata"
+            )));
         }
     };
     tracing::info!(
@@ -105,8 +107,9 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
                                     pallet = ATTESTATION_PALLET,
                                     "🛑 pallet missing from new runtime metadata — signalling shutdown"
                                 );
-                                shared.token.cancel();
-                                return Ok(());
+                                return Err(Error::RuntimeMetadata(format!(
+                                    "pallet {ATTESTATION_PALLET} missing from runtime metadata at spec_version {spec_version}"
+                                )));
                             }
                         };
 
@@ -117,8 +120,11 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
                                 live = %hex::encode(live),
                                 "🛑 Attestation pallet metadata changed — binary needs rebuild; signalling shutdown"
                             );
-                            shared.token.cancel();
-                            return Ok(());
+                            return Err(Error::RuntimeMetadata(format!(
+                                "Attestation pallet metadata changed at spec_version {spec_version} (baseline {}, live {}) — binary needs rebuild",
+                                hex::encode(baseline),
+                                hex::encode(live),
+                            )));
                         }
 
                         match updater.apply_update(update) {
