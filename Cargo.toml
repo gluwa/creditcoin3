@@ -228,40 +228,40 @@ substrate-wasm-builder = { git = "https://github.com/paritytech/polkadot-sdk", b
 xcm = { package = "staging-xcm", git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
 
 # Frontier Client
-fc-api = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch" }
-fc-cli = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fc-consensus = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch" }
-fc-db = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fc-mapping-sync = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fc-rpc-core = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch" }
-fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch" }
+fc-api = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param" }
+fc-cli = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fc-consensus = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param" }
+fc-db = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fc-mapping-sync = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fc-rpc-core = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param" }
+fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param" }
 # Frontier Primitive
-fp-account = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fp-consensus = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fp-dynamic-fee = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fp-ethereum = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fp-evm = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fp-self-contained = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-fp-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
+fp-account = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fp-consensus = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fp-dynamic-fee = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fp-ethereum = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fp-evm = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fp-self-contained = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+fp-storage = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
 # Frontier FRAME
-pallet-base-fee = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-dynamic-fee = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-ethereum = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm-chain-id = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm-precompile-bn128 = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm-precompile-modexp = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm-precompile-sha3fips = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm-precompile-simple = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
-pallet-evm-test-vector-support = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch" }
-pallet-hotfix-sufficients = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
+pallet-base-fee = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-dynamic-fee = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-ethereum = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-evm = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-evm-chain-id = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-evm-precompile-bn128 = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-evm-precompile-modexp = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-evm-precompile-sha3fips = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-evm-precompile-simple = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
+pallet-evm-test-vector-support = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param" }
+pallet-hotfix-sufficients = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
 subxt = { version = "0.40", features = ["reconnecting-rpc-client"] }
 subxt-signer = "0.40"
 
 # Frontier Utility
-precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stable2409_patch", default-features = false }
+precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "fix/block-hash-block-param", default-features = false }
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
@@ -297,19 +297,19 @@ evm-runtime = { version = "0.42.0", default-features = false, features = [
 creditcoin3-cli-opt = { path = "node/cli-opt", default-features = false }
 
 # Vendor packages (Moonbeam)
-creditcoin3-primitives-ext = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-primitives-ext", default-features = false }
-moonbeam-client-evm-tracing = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-client-evm-tracing" }
-moonbeam-evm-tracer = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-evm-tracer", default-features = false }
+creditcoin3-primitives-ext = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-primitives-ext", default-features = false }
+moonbeam-client-evm-tracing = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-client-evm-tracing" }
+moonbeam-evm-tracer = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-evm-tracer", default-features = false }
 # Vendor rpc-core (Moonbeam)
-moonbeam-rpc-core-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-debug" }
-moonbeam-rpc-core-trace = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-trace" }
-moonbeam-rpc-core-types = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-core-types" }
+moonbeam-rpc-core-debug = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-rpc-core-debug" }
+moonbeam-rpc-core-trace = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-rpc-core-trace" }
+moonbeam-rpc-core-types = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-rpc-core-types" }
 # Vendor rpc (Moonbeam)
-moonbeam-rpc-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-debug" }
-moonbeam-rpc-trace = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-trace" }
+moonbeam-rpc-debug = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-rpc-debug" }
+moonbeam-rpc-trace = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-rpc-trace" }
 # Vendor primitives (Moonbeam)
-evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "evm-tracing-events", default-features = false }
-moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-primitives-debug", default-features = false }
+evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "evm-tracing-events", default-features = false }
+moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "fix/block-hash-block-param", package = "moonbeam-rpc-primitives-debug", default-features = false }
 
 # Attestation
 attestation_pool = { path = "attestor/pool" }
