@@ -191,9 +191,23 @@ async fn emit_local(shared: &Arc<Shared>, attestation: &common::types::Attestati
         err.log_error(digest);
     }
 
-    // Send to gossip. The gossip task will broadcast if/when the mesh is ready.
-    if let Err(err) = shared.gossip_tx.send(vote).await {
-        tracing::warn!(?err, "📭 gossip channel closed");
+    // Send to gossip. `try_send` (not `send().await`) so a wedged or backed-up p2p task can
+    // never apply backpressure into the production loop — blocking here would stall finality for
+    // every chain. A full channel means p2p is already struggling; drop this round's broadcast
+    // (our vote is in the local pool regardless, and peers re-gossip) rather than freeze
+    // production. A closed channel means p2p has exited; the supervisor will act on that.
+    match shared.gossip_tx.try_send(vote) {
+        Ok(()) => {}
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!(
+                height,
+                ?digest,
+                "📭 gossip channel full — dropping broadcast this round"
+            );
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            tracing::warn!(?digest, "📭 gossip channel closed");
+        }
     }
 
     // metrics
@@ -211,6 +225,9 @@ async fn handle_cc3_batch(
     latest_cc3: &mut AttestationInfo,
     mut batch: stream::cc3::StreamEvents,
 ) -> Result<(), Error> {
+    // Steady liveness pulse: a cc3 finalized batch arriving means the connection is live and the
+    // production loop is turning. The watchdog reads this to distinguish "alive" from "wedged".
+    shared.health.note_progress();
     while let Some(event) = batch.try_next().await? {
         handle_one(shared, stream_attestation, latest_cc3, event).await?;
     }
@@ -357,6 +374,9 @@ async fn wait_for_block_attested(
                 tracing::info!(target, "⏲️ still waiting for genesis BlockAttested...");
             }
             Some(mut batch) = events.next() => {
+                // Keep the watchdog fed during a slow genesis wait (can exceed the startup grace
+                // on a slow chain) — batches are still arriving, so we're alive, not wedged.
+                shared.health.note_progress();
                 while let Some(event) = batch.try_next().await? {
                     if let CcEvent::BlockAttested(att) = event {
                         if att.header_number >= target {

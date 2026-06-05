@@ -17,6 +17,7 @@
 pub mod attestation;
 pub mod bls;
 pub mod error;
+pub mod health;
 pub mod proof_cache;
 pub mod retry;
 pub mod secret;
@@ -268,6 +269,7 @@ impl Attestor {
 
             bls_store,
             metrics,
+            health: Arc::new(crate::health::Health::new()),
 
             pool_send,
             gossip_tx,
@@ -360,15 +362,20 @@ impl Attestor {
             }
             Some(joined) = set.join_next() => {
                 match joined {
-                    // A task returning Ok *before* cancellation was requested is not a clean
-                    // shutdown — it's a core service quietly dying while the rest of the pod
-                    // (notably the /metrics endpoint) keeps reporting healthy. Promote it to a
-                    // failure so we cancel + drain + exit nonzero and k8s restarts us, rather
-                    // than limping on half-dead. (After cancellation, an Ok exit is expected
-                    // and handled by the drain loop below.)
+                    // A task returning Ok while the token is still live is not a clean shutdown —
+                    // it's a core service quietly dying while the rest of the pod (notably the
+                    // /metrics endpoint) keeps reporting healthy. Promote it to a failure so we
+                    // cancel + drain + exit nonzero and k8s restarts us, rather than limping on
+                    // half-dead. If the token is already cancelled, ctrl_c won the race and this
+                    // is a legitimate shutdown exit. (No task self-cancels: fatal conditions like
+                    // runtime-metadata drift return Err and are handled below.)
                     Ok(Ok(name)) => {
-                        tracing::error!(task = name, "⛔ task exited before shutdown was requested");
-                        result = Err(Error::TaskExitedEarly(name));
+                        if token.is_cancelled() {
+                            tracing::info!(task = name, "🟢 task exited after shutdown was requested");
+                        } else {
+                            tracing::error!(task = name, "⛔ task exited before shutdown was requested");
+                            result = Err(Error::TaskExitedEarly(name));
+                        }
                     }
                     Ok(Err(err)) => {
                         tracing::error!(%err, "⛔ task failed");
@@ -378,6 +385,11 @@ impl Attestor {
                         tracing::error!(%join_err, "⛔ task join error");
                         result = Err(Error::TaskJoin(join_err));
                     }
+                }
+                // Flip /health to unhealthy now so a livenessProbe restarts us promptly even if
+                // the drain below stalls on a wedged sibling task.
+                if result.is_err() {
+                    shared.health.note_fault();
                 }
                 token.cancel();
             }

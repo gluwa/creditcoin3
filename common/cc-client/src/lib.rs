@@ -222,6 +222,19 @@ pub struct Client {
     /// simultaneously each run their own exponential backoff and can issue thousands of
     /// dial attempts per minute against a node that's still recovering.
     reconnect_state: tokio::sync::Mutex<BackoffState>,
+    /// Wall-clock unix-millis of the most recent `reconnect()` *attempt* (set on entry, before
+    /// the dial). A liveness watchdog reads this to tell "actively riding out an RPC outage"
+    /// (recent value) from "internally wedged" (stale) — a reconnect that's in progress means
+    /// the binary is making forward effort even though no chain data is flowing. 0 = never.
+    last_reconnect_ms: std::sync::atomic::AtomicU64,
+}
+
+/// Wall-clock unix-millis, saturating to 0 if the clock is before the epoch.
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
 }
 
 /// Bound the WS-handshake dial cost inside `Client::reconnect`. See the call site for the
@@ -271,6 +284,7 @@ impl Clone for Client {
             url: self.url.clone(),
             inner: ArcSwap::new(self.inner.load_full()),
             reconnect_state: tokio::sync::Mutex::new(BackoffState::new()),
+            last_reconnect_ms: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
@@ -296,6 +310,7 @@ impl Client {
             url,
             inner: ArcSwap::new(Arc::new(inner)),
             reconnect_state: tokio::sync::Mutex::new(BackoffState::new()),
+            last_reconnect_ms: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -319,6 +334,11 @@ impl Client {
     /// can call this without coordination, and all callers observe the new connection on
     /// their next `api()`/`legacy()`/`rpc()` access.
     pub async fn reconnect(&self) -> Result<(), Error> {
+        // Record the attempt up front (before mutex/dial) so a liveness watchdog sees forward
+        // effort the instant we start riding out an outage, not only after a dial returns.
+        self.last_reconnect_ms
+            .store(now_unix_ms(), std::sync::atomic::Ordering::Relaxed);
+
         // Snapshot the inner we want to replace *before* acquiring the mutex. If another
         // caller swaps the inner between our snapshot and us getting the lock, we'll see
         // pointer inequality and exit early.
@@ -398,6 +418,15 @@ impl Client {
     /// requests such as attestation submission.
     fn rpc(&self) -> RpcClient {
         self.inner.load().rpc.clone()
+    }
+
+    /// Wall-clock unix-millis of the most recent [`reconnect`](Self::reconnect) attempt, or 0 if
+    /// none has happened. A liveness watchdog uses this to avoid restarting the pod while an RPC
+    /// outage is actively being ridden out (every reconnect path funnels through `reconnect`).
+    #[must_use]
+    pub fn last_reconnect_unix_ms(&self) -> u64 {
+        self.last_reconnect_ms
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     #[must_use]
