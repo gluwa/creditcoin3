@@ -22,6 +22,9 @@ use crate::error::Error;
 use crate::shared::Shared;
 use crate::vote::{verify_vote, VerifyResult};
 
+/// Consecutive failed pings on a single connection before we reap it.
+const MAX_PING_FAILURES: u32 = 3;
+
 #[derive(builder::Builder)]
 pub struct Config {
     pub boot_nodes: Vec<libp2p::Multiaddr>,
@@ -104,6 +107,12 @@ pub async fn run(
     const MAX_PENDING_PER_HEIGHT: usize = 32;
     let mut pending_votes: std::collections::HashMap<attestor_primitives::Height, Vec<Vote>> =
         std::collections::HashMap::new();
+
+    // Modern libp2p ping no longer tears down a connection on repeated failures; we do it
+    // ourselves. Tracks consecutive failed pings per connection and reaps the connection once it
+    // crosses MAX_PING_FAILURES so a wedged socket can't silently starve the mesh.
+    let mut ping_failures: std::collections::HashMap<libp2p::swarm::ConnectionId, u32> =
+        std::collections::HashMap::new();
     let mut local_produced_rx = shared.local_produced_rx.clone();
 
     loop {
@@ -151,6 +160,7 @@ pub async fn run(
                     &mut can_broadcast,
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
+                    &mut ping_failures,
                     event,
                 ).await;
             }
@@ -158,6 +168,7 @@ pub async fn run(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_swarm(
     shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
@@ -165,6 +176,7 @@ async fn handle_swarm(
     can_broadcast: &mut bool,
     pending_votes: &mut std::collections::HashMap<attestor_primitives::Height, Vec<Vote>>,
     max_pending_per_height: usize,
+    ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
     event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
 ) {
     use behavior::P2PBehaviorEvent;
@@ -209,9 +221,26 @@ async fn handle_swarm(
             result,
         })) => match result {
             Ok(rtt) => {
+                ping_failures.remove(&connection);
                 tracing::debug!(peer_id = %peer, %connection, rtt_ms = rtt.as_millis(), "🔔 pong")
             }
-            Err(err) => tracing::error!(peer_id = %peer, %connection, %err, "🔕 ping failed"),
+            Err(err) => {
+                let failures = *ping_failures
+                    .entry(connection)
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+                tracing::error!(peer_id = %peer, %connection, failures, %err, "🔕 ping failed");
+                if failures >= MAX_PING_FAILURES {
+                    tracing::warn!(
+                        peer_id = %peer,
+                        %connection,
+                        failures,
+                        "✂️  closing connection after repeated ping failures",
+                    );
+                    ping_failures.remove(&connection);
+                    swarm.close_connection(connection);
+                }
+            }
         },
         SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(libp2p::gossipsub::Event::Message {
             propagation_source,
@@ -235,13 +264,21 @@ async fn handle_swarm(
                 .gossipsub
                 .report_message_validation_result(&message_id, &propagation_source, decision);
         }
+        SwarmEvent::ConnectionClosed { connection_id, .. } => {
+            ping_failures.remove(&connection_id);
+            *can_broadcast = swarm
+                .behaviour()
+                .gossipsub
+                .mesh_peers(&topic.hash())
+                .next()
+                .is_some();
+        }
         SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
             libp2p::gossipsub::Event::Subscribed { .. },
         ))
         | SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
             libp2p::gossipsub::Event::Unsubscribed { .. },
-        ))
-        | SwarmEvent::ConnectionClosed { .. } => {
+        )) => {
             *can_broadcast = swarm
                 .behaviour()
                 .gossipsub
