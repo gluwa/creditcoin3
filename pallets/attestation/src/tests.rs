@@ -8793,6 +8793,82 @@ mod set_target_sample_size_supported_chain_and_drain {
             assert_eq!(PendingAttestationInterval::<Test>::iter().count(), 0);
             assert_eq!(PendingTargetSampleSize::<Test>::iter().count(), 0);
             assert_eq!(PendingMaxCatchup::<Test>::iter().count(), 0);
+        });
+    }
+}
+
+/// `register_chain` ⇒ `on_register_chain` must reject zero-valued attestation parameters that
+/// would otherwise brick `commit_attestation` weight calculation (division by zero in
+/// `proof_len / checkpoint_width`). Mirrors the per-setter `ensure! > 0` checks so registration
+/// can't slip a bad config past them.
+mod on_register_chain_rejects_zero {
+    use super::*;
+    use attestor_primitives::ChainEncodingVersion;
+    use frame_support::assert_noop;
+    use sp_runtime::DispatchError;
+
+    fn register(
+        target_sample_size: Option<u32>,
+        chain_attestation_interval: Option<u64>,
+        attestation_checkpoint_interval: Option<u32>,
+    ) -> sp_runtime::DispatchResult {
+        // Distinct (chain_id, chain_name) per call so each test starts from a clean slot.
+        SupportedChains::register_chain(
+            RuntimeOrigin::root(),
+            9_999,
+            "ZeroParamReject".to_string(),
+            target_sample_size,
+            chain_attestation_interval,
+            attestation_checkpoint_interval,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        )
+    }
+
+    #[test]
+    fn target_sample_size_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(Some(0), None, None),
+                DispatchError::Other("InvalidTargetSampleSize")
+            );
+        })
+    }
+
+    #[test]
+    fn chain_attestation_interval_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, Some(0), None),
+                DispatchError::Other("InvalidAttestationInterval")
+            );
+        })
+    }
+
+    #[test]
+    fn attestation_checkpoint_interval_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, Some(0)),
+                DispatchError::Other("InvalidAttestationsPerCheckpoint")
+            );
+        })
+    }
+
+    #[test]
+    fn all_none_is_accepted_uses_defaults() {
+        ExtBuilder.build_and_execute(|| {
+            assert!(register(None, None, None).is_ok());
+        })
+    }
+
+    #[test]
+    fn all_positive_is_accepted() {
+        ExtBuilder.build_and_execute(|| {
+            assert!(register(Some(3), Some(10), Some(10)).is_ok());
         })
     }
 }
