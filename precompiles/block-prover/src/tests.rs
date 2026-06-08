@@ -414,6 +414,69 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
 }
 
 #[test]
+fn test_verify_continuity_chain_at_checkpoint_height_errors_when_supported_chain_was_removed() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query_height = 100;
+        let chain_key = 1u64;
+
+        let test_block = create_test_block(query_height, 4);
+        let tx_data = test_block.transactions[0].data.clone();
+        let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
+
+        let prev_digest = H256::zero();
+
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        let next_root = H256::from([0x99; 32]);
+        let next_digest = compute_test_digest(query_height + 1, &next_root, &digest);
+
+        let continuity_blocks = vec![
+            Block {
+                block_number: query_height,
+                root,
+                prev_digest,
+                digest,
+            },
+            Block {
+                block_number: query_height + 1,
+                root: next_root,
+                prev_digest: digest,
+                digest: next_digest,
+            },
+        ];
+
+        // Set up a valid checkpoint anchor first.
+        setup_checkpoint(chain_key, query_height + 1, next_digest);
+
+        // Remove the supported chain, but do NOT remove checkpoints.
+        // This specifically tests the SupportedChains::<Runtime>::get(chain_key).is_none()
+        // guard in get_checkpoint().
+        assert_ok!(pallet_supported_chains::Pallet::<Runtime>::remove_chain(
+            RuntimeOrigin::root(),
+            chain_key,
+            false,
+        ));
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify {
+                    chain_key,
+                    height: query_height,
+                    encoded_transaction: tx_data.into(),
+                    merkle_proof,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
+                },
+            )
+            .execute_reverts(|output| {
+                output == b"Continuity proof does not match attestation or checkpoint"
+            });
+    });
+}
+
+#[test]
 fn test_continuity_chain_at_attestation_height() {
     ExtBuilder::default().build().execute_with(|| {
         // Query at an attestation height - query block at index 0
@@ -470,7 +533,7 @@ fn test_continuity_chain_at_attestation_height() {
 #[test]
 fn test_continuity_chain_at_checkpoint_height() {
     ExtBuilder::default().build().execute_with(|| {
-        // Query at a checkpoint height - query block at index 0
+        // Query at a checkpoint height - query block at index 100
         let query_height = 100;
         let test_block = create_test_block(query_height, 4);
         let tx_data = test_block.transactions[0].data.clone();
