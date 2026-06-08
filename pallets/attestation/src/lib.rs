@@ -799,6 +799,10 @@ pub mod pallet {
         AttestationsAlreadyExist,
         // Continuity proof is empty when it shouldn't be
         EmptyContinuityProof,
+        // Continuity proof `roots` exceeds `max_catchup * attestation_interval`.
+        // Defends `validate_attestation_continuity` against an attacker feeding an unbounded
+        // `Vec<H256>` and forcing an O(n) keccak chain inside dispatch.
+        OversizedContinuityProof,
         // Continuity proof is invalid
         InvalidAttestationContinuityProof,
         // Continuity proof tail does not link to last finalized attestation

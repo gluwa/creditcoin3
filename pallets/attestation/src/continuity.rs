@@ -85,6 +85,18 @@ impl<T: Config> Pallet<T> {
             Error::<T>::EmptyContinuityProof
         );
 
+        // Reject oversized proofs BEFORE `compute_continuity_digest` walks every root.
+        // `PrevalidateAttestationCommit` performs the same check at txpool admission, but
+        // dispatch is also reachable from `OnInitialize`/`Inherent`/migration paths that do not
+        // funnel through the signed-extension pipeline, so we re-enforce here.
+        let max_catchup = MaxCatchup::<T>::get(chain_key) as u64;
+        let attestation_interval = Self::chain_attestation_interval(chain_key);
+        let max_roots = max_catchup.saturating_mul(attestation_interval) as usize;
+        ensure!(
+            attestation.continuity_proof.len() <= max_roots,
+            Error::<T>::OversizedContinuityProof
+        );
+
         debug!(
             "📝 Checking Continuity proof, length: {:?}, round: {:?}, last_finalized_digest: {:?}",
             attestation.continuity_proof.len(),
