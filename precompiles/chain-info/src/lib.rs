@@ -11,8 +11,8 @@ use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
 use pallet_attestation::{
-    AttestationChainGenesisBlockNumber, Attestations, CheckpointBuckets, Checkpoints,
-    LastCheckpoint, LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
+    AttestationChainGenesisBlockNumber, Attestations, CheckpointBuckets, LastCheckpoint,
+    LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
 use pallet_supported_chains::SupportedChains;
@@ -253,7 +253,10 @@ where
                 maybe_highest = None;
                 for block_number in candidates {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
-                    if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, block_number) {
+                    if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
+                        chain_key,
+                        block_number,
+                    ) {
                         maybe_highest = Some(HeightHashResult {
                             height: block_number,
                             hash: digest,
@@ -296,8 +299,11 @@ where
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
                 // If we didn't find any attestations below the target height, we fall back to the last checkpoint.
-                let digest = Checkpoints::<Runtime>::get(chain_key, last_checkpoint_height)
-                    .unwrap_or_default();
+                let digest = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
+                    chain_key,
+                    last_checkpoint_height,
+                )
+                .unwrap_or_default();
 
                 HeightHashResult {
                     height: last_checkpoint_height,
@@ -362,7 +368,10 @@ where
                 maybe_lowest = None;
                 for block_number in candidates {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
-                    if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, block_number) {
+                    if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
+                        chain_key,
+                        block_number,
+                    ) {
                         maybe_lowest = Some(HeightHashResult {
                             height: block_number,
                             hash: digest,
@@ -580,7 +589,9 @@ where
     ) -> EvmResult<HashResult> {
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
-        if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, height) {
+        if let Some(digest) =
+            PalletAttestationPoc::<Runtime>::checkpoint_if_stable(chain_key, height)
+        {
             Ok(HashResult {
                 hash: digest,
                 exists: true,
