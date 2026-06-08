@@ -35,7 +35,7 @@
         "test:randomness": "jest --config src/test/blockchain-tests.config.ts --verbose --runInBand --forceExit src/test/blockchain-tests/pallets/randomness"
     },
     "devDependencies": {
-        "@gluwa/usc-sdk": "0.12.2",
+        "@gluwa/usc-sdk": "0.13.0",
         "@polkadot/typegen": "16.5.2",
         "@types/graphqurl": "^1.0.3",
         "@types/jest": "29.5.14",

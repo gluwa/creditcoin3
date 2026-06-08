@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'fs';
-import { blockProver, chainInfo, proofGenerator, utils } from '@gluwa/usc-sdk';
+import { blockProver, chainInfo, proofProvider, utils } from '@gluwa/usc-sdk';
 import EvmV1DecoderABI from '@gluwa/usc-sdk/dist/utils/evmV1DecoderAbi.json';
 import ChainInfoABI from '@gluwa/usc-sdk/dist/chain-info/chain_info.json';
 import { Contract, WebSocketProvider } from 'ethers';
@@ -152,7 +152,7 @@ async function main(
         console.log(`... get proof for source chain block ${blockNumber}`);
         await sleep(500); // rate-limit
         const response = await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
-        const proofData = response.data as proofGenerator.ContinuityResponse;
+        const proofData = response.data as proofProvider.ContinuityResponse;
         if (proofData.txBytes === undefined) {
             console.log('    ... skipping verification. No transactions in block');
             continue;
