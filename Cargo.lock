@@ -1560,7 +1560,6 @@ dependencies = [
  "serde",
  "serde_yaml",
  "sp-core",
- "sp-io",
  "stream",
  "subxt",
  "supported-chains-primitives",
