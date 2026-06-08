@@ -457,6 +457,7 @@ impl Attestor {
             .with_can_attest(std::sync::Arc::clone(&can_attest))
             .with_start_height(start_height)
             .with_account_id(account_id)
+            .with_chain_key(self.config.chain_key)
             .with_metrics(metrics)
             .build();
         let production = worker::production::WorkerAttestationProduction::new(config);
