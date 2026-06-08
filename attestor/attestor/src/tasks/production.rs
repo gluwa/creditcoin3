@@ -307,11 +307,28 @@ async fn handle_one(
             }
         }
 
-        CcEvent::AttestorChilled(_, who) | CcEvent::AttestorKicked(who)
-            if who == shared.account_id =>
-        {
-            tracing::info!("🪫 deactivated/kicked");
-            let _ = shared.can_attest_tx.send(false);
+        // Chill / kick removes the attestor from `ActiveAttestors` on-chain immediately. Refresh
+        // BlsStore and the pool's allow-set on every chill/kick — not just for the local node —
+        // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
+        // Without this, pool pollution persists until the next `AttestorsElected` epoch.
+        CcEvent::AttestorChilled(_, who) | CcEvent::AttestorKicked(who) => {
+            if who == shared.account_id {
+                tracing::info!("🪫 local node deactivated/kicked");
+                let _ = shared.can_attest_tx.send(false);
+            } else {
+                tracing::info!(attestor = %who, "🪫 peer deactivated/kicked");
+            }
+            let attestors = shared
+                .cc3
+                .get_attestor_active_set(shared.chain_key)
+                .await
+                .map_err(Error::Rpc)?;
+            shared
+                .bls_store
+                .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
+                .await
+                .map_err(Error::Rpc)?;
+            shared.pool_send.note_attestors_elected(attestors);
         }
 
         CcEvent::AttestationChainGenesisBlockNumberSet(_, h) => {
