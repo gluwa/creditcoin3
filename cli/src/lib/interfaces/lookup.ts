@@ -3170,6 +3170,7 @@ export default {
             'NoFinalizedAttestation',
             'AttestationsAlreadyExist',
             'EmptyContinuityProof',
+            'OversizedContinuityProof',
             'InvalidAttestationContinuityProof',
             'InvalidAttestationContinuityProofTail',
             'InvalidAttestationContinuityProofHead',

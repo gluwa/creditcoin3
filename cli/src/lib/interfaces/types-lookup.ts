@@ -3708,6 +3708,7 @@ declare module '@polkadot/types/lookup' {
         readonly isNoFinalizedAttestation: boolean;
         readonly isAttestationsAlreadyExist: boolean;
         readonly isEmptyContinuityProof: boolean;
+        readonly isOversizedContinuityProof: boolean;
         readonly isInvalidAttestationContinuityProof: boolean;
         readonly isInvalidAttestationContinuityProofTail: boolean;
         readonly isInvalidAttestationContinuityProofHead: boolean;
@@ -3772,6 +3773,7 @@ declare module '@polkadot/types/lookup' {
             | 'NoFinalizedAttestation'
             | 'AttestationsAlreadyExist'
             | 'EmptyContinuityProof'
+            | 'OversizedContinuityProof'
             | 'InvalidAttestationContinuityProof'
             | 'InvalidAttestationContinuityProofTail'
             | 'InvalidAttestationContinuityProofHead'
