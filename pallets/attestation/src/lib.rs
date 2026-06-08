@@ -35,7 +35,6 @@ pub mod pallet {
     use crate::clear_or_revert::CheckpointPruningState;
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
-        provider::{AttestationProvider, CheckpointProvider},
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
         BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType,
         ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
@@ -1398,33 +1397,6 @@ pub mod pallet {
             Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
             Ok(())
-        }
-    }
-
-    impl<T: Config> CheckpointProvider for Pallet<T> {
-        fn get_checkpoint(chain_key: ChainKey, block_number: u64) -> Option<Digest> {
-            Checkpoints::<T>::get(chain_key, block_number)
-        }
-
-        fn get_checkpoint_interval(chain_key: ChainKey) -> u64 {
-            AttestationCheckpointInterval::<T>::get(chain_key).into()
-        }
-
-        fn get_last_checkpoint_number(chain_key: ChainKey) -> Option<u64> {
-            LastCheckpoint::<T>::get(chain_key).map(|checkpoint| checkpoint.block_number)
-        }
-    }
-
-    impl<T: Config> AttestationProvider<T::Hash, T::AccountId> for Pallet<T> {
-        fn get_attestation(
-            chain_key: ChainKey,
-            digest: Digest,
-        ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
-            Attestations::<T>::get(chain_key, digest)
-        }
-
-        fn get_attestation_interval(chain_key: ChainKey) -> u64 {
-            ChainAttestationInterval::<T>::get(chain_key)
         }
     }
 

@@ -13,7 +13,6 @@ use sp_std::vec::Vec;
 pub mod api;
 pub mod block;
 pub mod bls;
-pub mod provider;
 // Re-export block types for convenience
 pub use block::{Block, ContinuityBlock, ContinuityProof};
 
