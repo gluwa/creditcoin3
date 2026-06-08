@@ -34,7 +34,13 @@ user = { workspace = true }
 serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt", "macros", "signal", "sync", "time"] }
+tokio = { workspace = true, features = [
+    "rt",
+    "macros",
+    "signal",
+    "sync",
+    "time",
+] }
 tokio-retry = { workspace = true }
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }
