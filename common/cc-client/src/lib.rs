@@ -11,6 +11,7 @@ use subxt::{
     },
     config::DefaultExtrinsicParamsBuilder,
     error::RpcError,
+    ext::jsonrpsee::core::client::Error as JsonRpseeError,
     OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
@@ -76,7 +77,9 @@ pub enum Error {
     #[error("No Checkpoint interval set for chain with key {0}")]
     NoCheckpointIntervalSet(ChainKey),
     #[error("Subxt error: {0:?}")]
-    SubxtError(#[from] subxt::Error),
+    SubxtError(subxt::Error),
+    #[error("CC3 connection lost: {0:?}")]
+    ConnectionError(Reconnect),
     #[error("Rpc error: {0:?}")]
     RpcError(#[from] RpcError),
     #[error("Invalid rpc url")]
@@ -93,13 +96,16 @@ pub enum Error {
     TransactionTimeout,
 }
 
-#[derive(Debug)]
 /// Type-safe reconnection wrapper which prevents us from shooting ourselves in the foot by
-/// reconnecting on a non-recoverable error.
-pub struct Reconnect(subxt::Error);
+/// reconnecting on a non-recoverable error. The wrapped error is public so consumers can inspect
+/// the underlying subxt cause if they need more than "this was a recoverable disconnect".
+#[derive(Debug)]
+pub struct Reconnect(pub subxt::Error);
 
 // Filters out connection errors (ws drop, client restart...) and errors which cannot be recovered
-// (insufficient funds, unregistered attestor).
+// (insufficient funds, unregistered attestor). Transient ones become `ConnectionError(Reconnect)`
+// so every cc-client consumer — not just the attestor's `retry.rs` layer — can tell a recoverable
+// disconnect apart from a permanent fault at the error-type level.
 impl From<subxt::Error> for Error {
     fn from(err: subxt::Error) -> Self {
         if is_transient_subxt(&err) {
@@ -189,6 +195,7 @@ impl From<subxt::error::TokenError> for Error {
         Self::CallerDoesntHaveSufficientFunds(err)
     }
 }
+
 
 /// Inner mutable state of [`Client`]: the live subxt RPC handle and its
 /// derived `OnlineClient` / `LegacyRpcMethods`. Stored behind
