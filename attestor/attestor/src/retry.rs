@@ -94,6 +94,9 @@ pub fn is_transient(err: &cc_client::Error) -> bool {
     // is plain `SubxtError`, not `Subxt`).
     let subxt_err = match err {
         cc_client::Error::SubxtError(e) => e,
+        // cc-client's own classifier already routed a recoverable disconnect here; honour it so
+        // this second layer agrees rather than misfiling it as permanent.
+        cc_client::Error::ConnectionError(_) => return true,
         cc_client::Error::RpcError(rpc_err) => return is_transient_rpc(rpc_err),
         // All other variants are domain-level (decoding, dispatch, missing data, transaction
         // outcomes) — permanent for the purpose of "retry & reconnect".
