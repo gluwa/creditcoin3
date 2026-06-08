@@ -896,6 +896,16 @@ pub mod pallet {
                 Error::<T>::InvalidTargetSampleSize
             };
 
+            // Mirror `set_chain_attestation_interval` / `set_max_catchup`: reject pending
+            // entries for chains we don't track. Without this, the epoch hook would write
+            // `TargetSampleSize::<T>::set(bogus_key, _)` and emit an event — and because
+            // `apply_interval_updates` previously bounded its cleanup by the supported-chain
+            // count, surplus bogus entries even survived the clear and re-fired every epoch.
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
             PendingTargetSampleSize::<T>::set(chain_key, Some(new_target_sample_size));
 
             Self::deposit_event(Event::<T>::PendingTargetSampleSizeSet(

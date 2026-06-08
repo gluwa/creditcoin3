@@ -752,7 +752,14 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn apply_interval_updates() {
-        PendingAttestationInterval::<T>::iter().for_each(
+        // Use `drain()` rather than `iter() + bounded clear(num_supported_chains)`. The bounded
+        // clear leaked entries whenever the pending map held more rows than the supported-chain
+        // count — possible when an operator wrote a pending entry for a chain that was later
+        // removed, or via the (now fixed) `set_target_sample_size` bypass. Leaked rows re-fired
+        // every epoch, polluting `ChainAttestationInterval` / `TargetSampleSize` / `MaxCatchup`
+        // with orphaned values and emitting duplicate events. `drain()` removes each row as it
+        // applies it, so every iterated entry is guaranteed gone — no count guess.
+        PendingAttestationInterval::<T>::drain().for_each(
             |(chain_key, new_attestation_interval)| {
                 ChainAttestationInterval::<T>::set(chain_key, new_attestation_interval);
 
@@ -763,7 +770,7 @@ impl<T: Config> Pallet<T> {
             },
         );
 
-        PendingTargetSampleSize::<T>::iter().for_each(|(chain_key, new_target_sample_size)| {
+        PendingTargetSampleSize::<T>::drain().for_each(|(chain_key, new_target_sample_size)| {
             TargetSampleSize::<T>::set(chain_key, new_target_sample_size);
 
             Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
@@ -772,17 +779,11 @@ impl<T: Config> Pallet<T> {
             ));
         });
 
-        PendingMaxCatchup::<T>::iter().for_each(|(chain_key, new_max_catchup)| {
+        PendingMaxCatchup::<T>::drain().for_each(|(chain_key, new_max_catchup)| {
             MaxCatchup::<T>::set(chain_key, new_max_catchup);
 
             Self::deposit_event(Event::<T>::MaxCatchupChanged(chain_key, new_max_catchup));
         });
-
-        // Clear PendingAttestationInterval, PendingTargetSampleSize & PendingMaxCatchup
-        let num_supported_chains = T::SupportedChains::supported_chains().len();
-        let _ = PendingAttestationInterval::<T>::clear(num_supported_chains as u32, None);
-        let _ = PendingTargetSampleSize::<T>::clear(num_supported_chains as u32, None);
-        let _ = PendingMaxCatchup::<T>::clear(num_supported_chains as u32, None);
     }
 
     pub(crate) fn chill_all_attestors_for_chain(chain_key: ChainKey) {
