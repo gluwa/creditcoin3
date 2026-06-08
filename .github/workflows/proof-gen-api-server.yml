@@ -63,7 +63,7 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.81.2
+        uses: taiki-e/install-action@v2.81.8
         with:
           tool: cargo-llvm-cov@0.6.24
 
