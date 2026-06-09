@@ -303,18 +303,24 @@ where
                 // `Checkpoints` read — charge both.
                 handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
-                // If we didn't find any attestations below the target height, we fall back to the last checkpoint.
-                let digest = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
+                // If we didn't find any attestations below the target height, we fall back to
+                // the last checkpoint. `checkpoint_if_stable` returns `None` when the height's
+                // pivot is still being drained post-revert; surface that as `exists: false`
+                // rather than `unwrap_or_default()`-ing to a zero digest with `exists: true`,
+                // which would advertise a stale-but-withheld digest as live data. Matches
+                // `get_checkpoint_for_height`'s behaviour for the same gated read.
+                if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
                     chain_key,
                     last_checkpoint_height,
-                )
-                .unwrap_or_default();
-
-                HeightHashResult {
-                    height: last_checkpoint_height,
-                    hash: digest,
-                    is_attestation: false,
-                    exists: true,
+                ) {
+                    HeightHashResult {
+                        height: last_checkpoint_height,
+                        hash: digest,
+                        is_attestation: false,
+                        exists: true,
+                    }
+                } else {
+                    HeightHashResult::default()
                 }
             } else {
                 // If there are no attestations and no checkpoints, return default.

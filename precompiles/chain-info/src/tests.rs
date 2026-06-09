@@ -968,4 +968,51 @@ mod checkpoint_reads_honour_pruning_window {
                     });
             });
     }
+
+    /// Regression: `find_highest_attested_before`'s fallback path falls through to
+    /// `LastCheckpoint` when no attestation matches. If the last checkpoint's height is in a
+    /// pivot still being drained post-revert, `checkpoint_if_stable` returns `None` — the
+    /// fallback must surface that as `exists: false` rather than advertising a zero digest
+    /// with `exists: true`, matching `get_checkpoint_for_height`'s gated behaviour.
+    #[test]
+    fn find_highest_attested_before_fallback_doesnt_advertise_withheld_digest() {
+        let alice: H160 = Alice.into();
+        // No attestations populated, so the precompile will land in the LastCheckpoint
+        // fallback. Pick LastCheckpoint at an in-flight pivot and a `target_height` ABOVE it
+        // so the outer gate `LastCheckpoint >= target_height` fails and we reach the else
+        // branch holding the fallback.
+        let last_checkpoint_height = in_flight_height();
+        let stale_digest = H256::from_slice(&[0xfe; 32]);
+        let target_height = last_checkpoint_height + 1;
+
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                Checkpoints::<Runtime>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    last_checkpoint_height,
+                    stale_digest,
+                );
+                LastCheckpoint::<Runtime>::set(
+                    SUPPORTED_CHAIN_KEY,
+                    Some(AttestationCheckpoint {
+                        block_number: last_checkpoint_height,
+                        digest: stale_digest,
+                    }),
+                );
+                install_pruning_state(CHECKPOINT_BUCKET_SIZE, in_flight_height());
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::find_highest_attested_before {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            target_height,
+                        },
+                    )
+                    .execute_returns(HeightHashResult::default());
+            });
+    }
 }
