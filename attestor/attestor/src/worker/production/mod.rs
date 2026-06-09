@@ -111,6 +111,7 @@ pub struct Config {
 
     start_height: attestor_primitives::Height,
     account_id: cc_client::AccountId32,
+    chain_key: attestor_primitives::ChainKey,
     metrics: metrics::Metrics,
 }
 
@@ -138,6 +139,9 @@ pub(crate) struct WorkerAttestationProduction {
     // ATTESTOR DATA
     account_id: cc_client::AccountId32,
     can_attest: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// Chain this worker tracks. Needed to refetch `ActiveAttestors` when a
+    /// chill/kick event lands, since `AttestorKicked` doesn't carry a chain_key.
+    chain_key: attestor_primitives::ChainKey,
 }
 
 impl WorkerAttestationProduction {
@@ -159,6 +163,7 @@ impl WorkerAttestationProduction {
 
             account_id: config.account_id,
             can_attest: config.can_attest,
+            chain_key: config.chain_key,
         }
     }
 }
@@ -449,7 +454,15 @@ impl WorkerAttestationProduction {
                 }
 
                 // CASE 8] ATTESTOR DEACTIVATION
-                cc_client::events::CcEvent::AttestorChilled(_chain_key, attestor) => {
+                //
+                // Chill removes the attestor from `ActiveAttestors` on-chain. Without refreshing
+                // BlsStore and the pool allow-set here, peers keep accepting gossip signed by
+                // the chilled attestor's still-cached BLS key until the next `AttestorsElected`
+                // epoch — pool pollution / quorum drag during that window. So mirror the
+                // AttestorsElected refresh path for any chill on this chain.
+                cc_client::events::CcEvent::AttestorChilled(chain_key, attestor)
+                    if chain_key == self.chain_key =>
+                {
                     if attestor == self.account_id {
                         self.can_attest
                             .store(false, std::sync::atomic::Ordering::Release);
@@ -457,10 +470,24 @@ impl WorkerAttestationProduction {
                             attestor_id = %self.account_id,
                             "🪫 Attestor has been deactivated"
                         );
+                    } else {
+                        tracing::info!(
+                            attestor_id = %attestor,
+                            "🪫 Peer attestor has been deactivated"
+                        );
                     }
+                    self.refresh_active_set().await?;
                 }
+                // Chill for a different chain than this worker tracks — ignore.
+                cc_client::events::CcEvent::AttestorChilled(..) => {}
 
                 // CASE 9] ATTESTOR FORCE-KICK
+                //
+                // `AttestorKicked` (from `pallet_staking::Kicked`) is not chain-scoped at the
+                // event layer, but `kick_active_attestor` is per-chain on the runtime, so a
+                // kick may or may not concern this worker's chain. We refresh unconditionally —
+                // it's idempotent; if the kick was on another chain, the refetched active set
+                // is identical.
                 cc_client::events::CcEvent::AttestorKicked(attestor) => {
                     if attestor == self.account_id {
                         self.can_attest
@@ -469,7 +496,13 @@ impl WorkerAttestationProduction {
                             attestor_id = %self.account_id,
                             "💥 Attestor has been kicked"
                         );
+                    } else {
+                        tracing::info!(
+                            attestor_id = %attestor,
+                            "💥 Peer attestor has been kicked"
+                        );
                     }
+                    self.refresh_active_set().await?;
                 }
 
                 // CASE 10] ATTESTATION GENESIS BLOCK NUMBER SET
@@ -514,6 +547,23 @@ impl WorkerAttestationProduction {
             }
         }
 
+        Ok(())
+    }
+
+    /// Refetch the chain's current `ActiveAttestors` and propagate it through `BlsStore` and the
+    /// pool's allow-set — the same refresh path `AttestorsElected` runs. Called from chill/kick
+    /// arms so peer state catches up immediately rather than waiting for the next election epoch.
+    async fn refresh_active_set(&mut self) -> Result<(), Interrupt<Error>> {
+        let attestors = self
+            .cc3
+            .get_attestor_active_set(self.chain_key)
+            .await
+            .map_interrupt(Error::CC3)?;
+        self.bls
+            .note_attestors_elected(&mut self.cc3, &attestors)
+            .await
+            .map_interrupt(Error::Bls)?;
+        self.sender_validation.note_attestors_elected(attestors);
         Ok(())
     }
 }
