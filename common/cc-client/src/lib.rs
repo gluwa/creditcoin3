@@ -107,7 +107,9 @@ fn is_transient_subxt(err: &subxt::Error) -> bool {
                 return false;
             };
             match jr {
-                JsonRpseeError::Transport(_) | JsonRpseeError::RestartNeeded(_) => true,
+                JsonRpseeError::Transport(_)
+                | JsonRpseeError::RestartNeeded(_)
+                | JsonRpseeError::RequestTimeout => true,
                 JsonRpseeError::Call(obj) => is_transient_call_message(obj.message()),
                 JsonRpseeError::Custom(msg) => is_transient_custom_message(msg),
                 _ => false,
@@ -1359,7 +1361,25 @@ impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion 
 
 #[cfg(test)]
 mod transient_classifier_tests {
-    use super::{is_transient_call_message, is_transient_custom_message};
+    use super::{
+        is_transient_call_message, is_transient_custom_message, is_transient_subxt, JsonRpseeError,
+    };
+    use subxt::error::RpcError;
+
+    #[test]
+    fn request_timeout_is_transient() {
+        // The variant that bit production: a half-open cc3 WS trips jsonrpsee's request
+        // watchdog, surfacing as `Rpc(ClientError(RequestTimeout))`. Must reconnect, not crash —
+        // otherwise `StreamCC3` yields it out and the production worker dies (no internal retry
+        // for non-`ConnectionError`).
+        let err = subxt::Error::Rpc(RpcError::ClientError(Box::new(
+            JsonRpseeError::RequestTimeout,
+        )));
+        assert!(
+            is_transient_subxt(&err),
+            "RequestTimeout must classify as transient"
+        );
+    }
 
     #[test]
     fn custom_clean_close_is_transient() {
