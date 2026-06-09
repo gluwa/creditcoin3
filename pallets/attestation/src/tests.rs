@@ -8807,6 +8807,8 @@ mod on_register_chain_rejects_zero {
     use frame_support::assert_noop;
     use sp_runtime::DispatchError;
 
+    // Registers a supported chain with the given attestation parameters, leaving the others as defaults if `None`.
+    // The initial chain key will be 2 since the mock's `ExtBuilder` pre-registers one chain at key 1.
     fn register(
         target_sample_size: Option<u32>,
         chain_attestation_interval: Option<u64>,
@@ -8862,6 +8864,20 @@ mod on_register_chain_rejects_zero {
     fn all_none_is_accepted_uses_defaults() {
         ExtBuilder.build_and_execute(|| {
             assert!(register(None, None, None).is_ok());
+
+            // Assert defaults applied when registering with `None` and pending entries created for the supported chain.
+            assert_eq!(
+                TargetSampleSize::<Test>::get(2),
+                <Test as crate::Config>::DefaultTargetSampleSize::get()
+            );
+            assert_eq!(
+                ChainAttestationInterval::<Test>::get(2),
+                <Test as crate::Config>::DefaultAttestationInterval::get()
+            );
+            assert_eq!(
+                AttestationCheckpointInterval::<Test>::get(2),
+                <Test as crate::Config>::DefaultAttestationsPerCheckpoint::get()
+            );
         })
     }
 
@@ -8869,6 +8885,11 @@ mod on_register_chain_rejects_zero {
     fn all_positive_is_accepted() {
         ExtBuilder.build_and_execute(|| {
             assert!(register(Some(3), Some(10), Some(10)).is_ok());
+
+            // Assert values applied when registering with `Some` and pending entries created for the supported chain.
+            assert_eq!(TargetSampleSize::<Test>::get(2), 3);
+            assert_eq!(ChainAttestationInterval::<Test>::get(2), 10);
+            assert_eq!(AttestationCheckpointInterval::<Test>::get(2), 10);
         })
     }
 }
