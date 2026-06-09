@@ -252,7 +252,10 @@ where
 
                 maybe_highest = None;
                 for block_number in candidates {
-                    handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                    // `checkpoint_if_stable` performs up to two storage reads —
+                    // `CheckpointPruningStates::get` followed by `Checkpoints::get` — so charge
+                    // both lookups unconditionally (matches `block-prover::get_checkpoint`).
+                    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
                     if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
                         chain_key,
                         block_number,
@@ -296,7 +299,9 @@ where
                 }) {
                 highest
             } else if let Some(last_checkpoint_height) = maybe_last_checkpoint_height {
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                // `checkpoint_if_stable` does the `CheckpointPruningStates` guard read plus the
+                // `Checkpoints` read — charge both.
+                handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
                 // If we didn't find any attestations below the target height, we fall back to the last checkpoint.
                 let digest = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
@@ -367,7 +372,9 @@ where
 
                 maybe_lowest = None;
                 for block_number in candidates {
-                    handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                    // See the matching note in `find_highest_attested_before`: the helper does
+                    // up to two storage reads, so charge both lookups unconditionally.
+                    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
                     if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
                         chain_key,
                         block_number,
@@ -587,7 +594,9 @@ where
         chain_key: ChainKey,
         height: u64,
     ) -> EvmResult<HashResult> {
-        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+        // `checkpoint_if_stable` does the `CheckpointPruningStates` guard read plus the
+        // `Checkpoints` read — charge both (matches `block-prover::get_checkpoint`).
+        handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
         if let Some(digest) =
             PalletAttestationPoc::<Runtime>::checkpoint_if_stable(chain_key, height)
