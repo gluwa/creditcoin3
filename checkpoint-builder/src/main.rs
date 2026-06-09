@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
         warn!("Source validation is disabled. If the source is missing any blocks in the specified ranges, checkpoint generation may fail or produce incomplete results.");
     }
 
-    // On-chain starting digest verification (audit item 3).
+    // On-chain starting digest verification.
     // When --cc3-rpc-url is provided we verify that the on-chain last checkpoint for
     // --chain-key matches --starting-digest before generating anything, preventing a
     // wrong anchor from silently poisoning all subsequent checkpoints.
