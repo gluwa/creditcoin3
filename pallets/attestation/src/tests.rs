@@ -8745,3 +8745,54 @@ mod bls_key_uniqueness {
         })
     }
 }
+
+/// Regression: `set_target_sample_size` must reject unsupported chain_keys (like its peers
+/// `set_chain_attestation_interval` and `set_max_catchup`), and `apply_interval_updates` must
+/// `drain` pending entries so nothing leaks across epochs.
+mod set_target_sample_size_supported_chain_and_drain {
+    use super::*;
+    use frame_support::assert_noop;
+
+    const UNSUPPORTED_CHAIN_KEY: ChainKey = 999;
+
+    #[test]
+    fn set_target_sample_size_rejects_unsupported_chain_key() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::set_target_sample_size(
+                    RuntimeOrigin::root(),
+                    UNSUPPORTED_CHAIN_KEY,
+                    7
+                ),
+                Error::<Test>::ChainNotSupported
+            );
+            // And the pending entry didn't slip past the failed dispatch.
+            assert!(PendingTargetSampleSize::<Test>::get(UNSUPPORTED_CHAIN_KEY).is_none());
+        })
+    }
+
+    #[test]
+    fn apply_interval_updates_drains_all_pending_entries() {
+        ExtBuilder.build_and_execute(|| {
+            // Seed pending entries directly under multiple keys — bypassing the setter, which
+            // simulates what could happen historically before the chain-supported guard, or
+            // after a chain is removed but pending entries remain.
+            PendingAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 7);
+            PendingAttestationInterval::<Test>::insert(UNSUPPORTED_CHAIN_KEY, 9);
+
+            PendingTargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3);
+            PendingTargetSampleSize::<Test>::insert(UNSUPPORTED_CHAIN_KEY, 5);
+
+            PendingMaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 11);
+            PendingMaxCatchup::<Test>::insert(UNSUPPORTED_CHAIN_KEY, 13);
+
+            Attestation::apply_interval_updates();
+
+            // Every pending map drained — including entries for chain_keys not present in
+            // SupportedChains. Under the previous bounded-clear, the surplus entries leaked.
+            assert_eq!(PendingAttestationInterval::<Test>::iter().count(), 0);
+            assert_eq!(PendingTargetSampleSize::<Test>::iter().count(), 0);
+            assert_eq!(PendingMaxCatchup::<Test>::iter().count(), 0);
+        })
+    }
+}
