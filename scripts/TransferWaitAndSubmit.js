@@ -18,7 +18,7 @@
  *   --devnet               Use devnet provider URL for source chain
  */
 
-const { proofGenerator } = require('@gluwa/usc-sdk');
+const { proofProvider } = require('@gluwa/usc-sdk');
 const { ethers } = require('ethers');
 const {
     DEFAULT_SOURCE_RPC_URL,
@@ -163,11 +163,11 @@ async function main() {
         console.log('STEP 2: Wait for Attestation');
         console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
 
-        const proofGenApi = new proofGenerator.api.ProverAPIProofGenerator(chainKey, options.apiUrl);
+        const proofBuilder = new proofProvider.service.ProofBuilder(chainKey, options.apiUrl);
 
         console.log(`⏳ Waiting for attestation of block ${blockNumber}...`);
 
-        await proofGenApi.waitUntilHeightAttested(chainKey, blockNumber);
+        await proofBuilder.waitUntilHeightAttested(chainKey, blockNumber);
 
         console.log('✅ Attestation observed in proof server');
 
