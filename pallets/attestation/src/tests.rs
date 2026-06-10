@@ -8865,7 +8865,9 @@ mod on_register_chain_rejects_zero {
         ExtBuilder.build_and_execute(|| {
             assert!(register(None, None, None).is_ok());
 
-            // Assert defaults applied when registering with `None` and pending entries created for the supported chain.
+            // `on_register_chain` writes the per-chain config directly (not via `Pending*` maps —
+            // those only carry operator updates between epoch boundaries). When every param is
+            // `None`, each entry must equal the runtime-config default.
             assert_eq!(
                 TargetSampleSize::<Test>::get(2),
                 <Test as crate::Config>::DefaultTargetSampleSize::get()
@@ -8878,6 +8880,18 @@ mod on_register_chain_rejects_zero {
                 AttestationCheckpointInterval::<Test>::get(2),
                 <Test as crate::Config>::DefaultAttestationsPerCheckpoint::get()
             );
+            assert_eq!(
+                MaxAttestors::<Test>::get(2),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                MaxInvulnerables::<Test>::get(2),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                AttestationChainGenesisBlockNumber::<Test>::get(2),
+                <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
+            );
         })
     }
 
@@ -8886,10 +8900,24 @@ mod on_register_chain_rejects_zero {
         ExtBuilder.build_and_execute(|| {
             assert!(register(Some(3), Some(10), Some(10)).is_ok());
 
-            // Assert values applied when registering with `Some` and pending entries created for the supported chain.
+            // Explicit `Some(_)` values land in storage verbatim for the three
+            // attestation-config params; the others are `None` here, so they should still pick
+            // up the runtime-config defaults.
             assert_eq!(TargetSampleSize::<Test>::get(2), 3);
             assert_eq!(ChainAttestationInterval::<Test>::get(2), 10);
             assert_eq!(AttestationCheckpointInterval::<Test>::get(2), 10);
+            assert_eq!(
+                MaxAttestors::<Test>::get(2),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                MaxInvulnerables::<Test>::get(2),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                AttestationChainGenesisBlockNumber::<Test>::get(2),
+                <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
+            );
         })
     }
 }
