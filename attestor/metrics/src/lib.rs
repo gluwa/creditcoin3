@@ -113,7 +113,7 @@ struct Store {
     /// - _Attestation quorum delay_ ([`Histogram`])
     /// - _Attestation finalization delay_ ([`Histogram`])
     ///
-    /// See [`update_attestation_delay_production`], [`update_attestation_delay_quorum`] and
+    /// See [`update_attestation_handler_delay`], [`update_attestation_delay_quorum`] and
     /// [`update_attestation_delay_finalization`] for implementation details.
     ///
     /// ✅ Values **converging to a low time interval** indicates all is well.
@@ -128,7 +128,7 @@ struct Store {
     /// from a stall.
     ///
     /// [`Histogram`]: prometheus_client::metrics::histogram::Histogram
-    /// [`update_attestation_delay_production`]: Self::update_attestation_delay_production
+    /// [`update_attestation_handler_delay`]: Self::update_attestation_handler_delay
     /// [`update_attestation_delay_quorum`]: Self::update_attestation_delay_quorum
     /// [`update_attestation_delay_finalization`]: Self::update_attestation_delay_finalization
     pub metrics_delay: prometheus_client::metrics::family::Family<
@@ -136,44 +136,53 @@ struct Store {
         prometheus_client::metrics::histogram::Histogram,
     >,
 
-    /// Metrics which keep track of the attestor p2p network’s health.
+    /// Gauges for the attestor p2p network's health.
     ///
-    /// - _Active peer count_ ([`Gauge`])
-    /// - _Gossipsub messages_ ([`Gauge`])
+    /// - _Kademlia routing-table peer count_ ([`Gauge`], `peer_to_peer="routing_peers"`)
     ///
-    /// The gossipsub message count is meant to be interpreted as the change in frequency of
-    /// gossipsub messages via the PromQL [`rate`] function so as to analyze variance in network
-    /// traffic.
+    /// This counts **entries in the Kademlia routing table**, not currently-connected peers —
+    /// libp2p adds an entry on `RoutingUpdated::is_new_peer` and removes it on
+    /// `RoutingUpdated::old_peer` eviction, independently of whether any connection to that
+    /// peer is currently open. A routed peer with no live connection is still counted here,
+    /// and the metric never decrements on `ConnectionClosed`. See [`note_routing_peer_added`]
+    /// and [`note_routing_peer_evicted`].
     ///
-    /// See [`increase_peer_count`], [`decrease_peer_count`] and
-    /// [`increase_gossipsub_message_count`] for implementation details.
+    /// For traffic-rate dashboards see [`metrics_p2p_messages`] (Counter); for actual connected
+    /// peers, instrument `ConnectionEstablished` / `ConnectionClosed` separately (not yet
+    /// exposed).
     ///
-    /// ✅ An active peer count **above the quorum size** indicates all is well.
-    ///
-    /// ✅ A **steady rate** of gossipsub messages indicates votes are being correctly broadcasted
-    /// and network liveness is maintained.
-    ///
-    /// ⚠️ An active peer count **at the quorum size** indicate a node might stop reaching quorum if
-    /// any peer goes down.
-    ///
-    /// ⚠️ An **decreasing rate** of gossipsub messages indicate the attestation network is under
-    /// strain.
-    ///
-    /// ⚠️ An **increasing rate** of gossipsub messages indicates the attestation network is
-    /// recovering from strain.
-    ///
-    /// ❌ An active peer count **under the quorum size** indicates things are very, very wrong!
-    /// Peers are not able to gossip votes and quorum will never be reached! This indicates a failed
-    /// update to the networking policy or that valid nodes have been taken down!
+    /// ✅ Routing-table size **comfortably above quorum** indicates a healthy mesh.
+    /// ⚠️ Routing-table size **at quorum** is borderline; gossip mesh may be smaller.
+    /// ❌ Routing-table size **below quorum** indicates a failed networking policy or that
+    /// valid nodes have been taken down.
     ///
     /// [`Gauge`]: prometheus_client::metrics::gauge::Gauge
-    /// [`rate`]: https://prometheus.io/docs/prometheus/latest/querying/functions/#rate
-    /// [`increase_peer_count`]: Self::increase_peer_count
-    /// [`decrease_peer_count`]: Self::decrease_peer_count
-    /// [`increase_gossipsub_message_count`]: Self::increase_gossipsub_message_count
+    /// [`note_routing_peer_added`]: Self::note_routing_peer_added
+    /// [`note_routing_peer_evicted`]: Self::note_routing_peer_evicted
+    /// [`metrics_p2p_messages`]: Self::metrics_p2p_messages
     pub metrics_p2p: prometheus_client::metrics::family::Family<
         labels::LabelPeerToPeer,
         prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
+    >,
+
+    /// Counter for gossipsub message traffic. Monotonically increasing — meant to be consumed
+    /// via the PromQL [`rate`] function to analyze message-frequency variance.
+    ///
+    /// Was previously a `Gauge` in `metrics_p2p`, but `inc()`-only metrics belong in a
+    /// `Counter` so PromQL `rate()` / `increase()` work correctly across pod restarts (a
+    /// gauge would "reset" silently and confuse rate computations).
+    ///
+    /// See [`increase_gossipsub_message_count`] for implementation details.
+    ///
+    /// ✅ A **steady rate** indicates votes are being broadcast and liveness is maintained.
+    /// ⚠️ A **decreasing rate** indicates the attestation network is under strain.
+    /// ⚠️ An **increasing rate** indicates the attestation network is recovering from strain.
+    ///
+    /// [`rate`]: https://prometheus.io/docs/prometheus/latest/querying/functions/#rate
+    /// [`increase_gossipsub_message_count`]: Self::increase_gossipsub_message_count
+    pub metrics_p2p_messages: prometheus_client::metrics::family::Family<
+        labels::LabelPeerToPeerMessages,
+        prometheus_client::metrics::counter::Counter<u64, std::sync::atomic::AtomicU64>,
     >,
 
     /// Metrics which keep track of failed state.
@@ -224,6 +233,7 @@ impl Metrics {
             )
         });
         let metrics_p2p = prometheus_client::metrics::family::Family::default();
+        let metrics_p2p_messages = prometheus_client::metrics::family::Family::default();
         let metrics_error = prometheus_client::metrics::family::Family::default();
 
         registry.register(
@@ -263,8 +273,14 @@ impl Metrics {
 
         registry.register(
             "peer_to_peer",
-            "Peer-to-peer networking metrics",
+            "Peer-to-peer networking gauges (Kademlia routing-table size)",
             metrics_p2p.clone(),
+        );
+
+        registry.register(
+            "peer_to_peer_messages",
+            "Peer-to-peer message-traffic counters (consume via PromQL rate())",
+            metrics_p2p_messages.clone(),
         );
 
         registry.register(
@@ -280,6 +296,7 @@ impl Metrics {
             metrics_hardware,
             metrics_delay,
             metrics_p2p,
+            metrics_p2p_messages,
             metrics_error,
         }));
 
@@ -427,7 +444,18 @@ impl Metrics {
             .set(lag_cc3);
     }
 
-    pub fn update_attestation_delay_production(&self, delay: std::time::Duration) {
+    /// Observe handler-delay time for the local-emit path: the duration between
+    /// `StreamAttestation` yielding a finished attestation and the production task finishing
+    /// its pool-insert + gossip + cache plumbing for it.
+    ///
+    /// This does NOT include root fetching, merkle-tree construction, or BLS signing — those
+    /// happen inside `StreamAttestation` *before* it yields. The metric name preserved here
+    /// (`Production`) is kept for dashboard compatibility, but the audit's complaint about it
+    /// implying total-generation-latency is real; callers and dashboards should treat this as
+    /// handler-delay only. See [`update_attestation_handler_delay`].
+    ///
+    /// [`update_attestation_handler_delay`]: Self::update_attestation_handler_delay
+    pub fn update_attestation_handler_delay(&self, delay: std::time::Duration) {
         self.0
             .metrics_delay
             .get_or_create(&labels::LabelAttestationLifecycle {
@@ -436,29 +464,32 @@ impl Metrics {
             .observe(delay.as_secs_f64());
     }
 
-    pub fn increase_peer_count(&self) {
+    /// Note a peer was added to the Kademlia routing table. NOT a connection event — see
+    /// `metrics_p2p` doc for what this gauge actually measures.
+    pub fn note_routing_peer_added(&self) {
         self.0
             .metrics_p2p
             .get_or_create(&labels::LabelPeerToPeer {
-                peer_to_peer: labels::PeerToPeer::Peers,
+                peer_to_peer: labels::PeerToPeer::RoutingPeers,
             })
             .inc();
     }
 
-    pub fn decrease_peer_count(&self) {
+    /// Note a peer was evicted from the Kademlia routing table.
+    pub fn note_routing_peer_evicted(&self) {
         self.0
             .metrics_p2p
             .get_or_create(&labels::LabelPeerToPeer {
-                peer_to_peer: labels::PeerToPeer::Peers,
+                peer_to_peer: labels::PeerToPeer::RoutingPeers,
             })
             .dec();
     }
 
     pub fn increase_gossipsub_message_count(&self) {
         self.0
-            .metrics_p2p
-            .get_or_create(&labels::LabelPeerToPeer {
-                peer_to_peer: labels::PeerToPeer::GossipsubMessages,
+            .metrics_p2p_messages
+            .get_or_create(&labels::LabelPeerToPeerMessages {
+                kind: labels::PeerToPeerMessages::Gossipsub,
             })
             .inc();
     }
@@ -590,13 +621,27 @@ mod labels {
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
     pub enum PeerToPeer {
-        Peers,
-        GossipsubMessages,
+        /// Entries in the Kademlia routing table — NOT live connections. Renamed from `Peers`
+        /// after the audit noted that the previous label implied a connection-count semantic
+        /// that the code never delivered (no `ConnectionClosed` decrement, etc.).
+        RoutingPeers,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
     pub struct LabelPeerToPeer {
         pub peer_to_peer: PeerToPeer,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]
+    pub enum PeerToPeerMessages {
+        /// Total gossipsub messages received by this peer. Was a `Gauge` under `metrics_p2p`
+        /// before — moved to a `Counter` family so PromQL `rate()` is well-defined.
+        Gossipsub,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
+    pub struct LabelPeerToPeerMessages {
+        pub kind: PeerToPeerMessages,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelValue)]

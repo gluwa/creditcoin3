@@ -213,7 +213,7 @@ async fn emit_local(shared: &Arc<Shared>, attestation: &common::types::Attestati
     // metrics
     shared
         .metrics
-        .update_attestation_delay_production(now.elapsed());
+        .update_attestation_handler_delay(now.elapsed());
     shared.metrics.set_attestation_local(height);
 }
 
@@ -359,6 +359,23 @@ async fn handle_one(
                 .note_attestation_chain_reversion(stream::util::AttestationInfo { height, digest })
                 .await;
             let _ = shared.latest_finalized_tx.send(Some(info));
+
+            // Reset metrics so operator dashboards reflect the post-rollback state immediately
+            // rather than continuing to show stale local/finalized heights and a misleading lag.
+            // Without this, the gauges would only drift back to reality on the next emit_local
+            // / cc3 finalization, which can be several blocks away after a deep revert.
+            shared.metrics.set_attestation_finalized(height);
+            shared.metrics.set_attestation_local(height);
+            shared.metrics.update_attestation_lag_eth(
+                height,
+                height,
+                shared.attestation_interval(),
+            );
+            shared.metrics.update_attestation_lag_cc3(
+                height,
+                height,
+                shared.attestation_interval(),
+            );
         }
 
         _ => {}
