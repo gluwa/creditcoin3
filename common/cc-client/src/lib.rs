@@ -184,19 +184,6 @@ fn is_transient_call_message(msg: &str) -> bool {
         || m.contains("deadline_exceeded")
 }
 
-impl From<vrf::Error> for Error {
-    fn from(err: vrf::Error) -> Self {
-        Self::FailedToCreateProofOfInclusion(err)
-    }
-}
-
-impl From<subxt::error::TokenError> for Error {
-    fn from(err: subxt::error::TokenError) -> Self {
-        Self::CallerDoesntHaveSufficientFunds(err)
-    }
-}
-
-
 /// Inner mutable state of [`Client`]: the live subxt RPC handle and its
 /// derived `OnlineClient` / `LegacyRpcMethods`. Stored behind
 /// [`ArcSwap`] inside [`Client`] so that a successful [`Client::reconnect`]
