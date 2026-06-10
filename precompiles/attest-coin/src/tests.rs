@@ -736,3 +736,65 @@ fn encode_u256_round_trips() {
     let round_tripped = U256::from_big_endian(&encoded);
     assert_eq!(round_tripped, val);
 }
+
+// ── selector regression: SEL_* must equal keccak256(canonical-signature)[..4] ────────────
+//
+// The constants are hand-rolled and only validated by these asserts. Drift between the
+// constants and the Solidity ABI would route the precompile's sub-calls to a wrong method
+// — `transferFrom` vs `transfer`, etc. — silently, with no compile-time signal.
+
+fn selector_of(sig: &[u8]) -> [u8; 4] {
+    let h = sp_io::hashing::keccak_256(sig);
+    let mut out = [0u8; 4];
+    out.copy_from_slice(&h[..4]);
+    out
+}
+
+#[test]
+fn selector_accrued_matches_abi() {
+    assert_eq!(SEL_ACCRUED, selector_of(b"accrued(bytes32)"));
+}
+
+#[test]
+fn selector_claim_matches_abi() {
+    assert_eq!(
+        SEL_CLAIM,
+        selector_of(b"claim(bytes32,uint256,uint256,uint256,address,bytes32,bytes32)")
+    );
+}
+
+#[test]
+fn selector_deposit_matches_abi() {
+    assert_eq!(SEL_DEPOSIT, selector_of(b"deposit(uint256)"));
+}
+
+#[test]
+fn selector_deposit_to_matches_abi() {
+    assert_eq!(SEL_DEPOSIT_TO, selector_of(b"depositTo(uint256,bytes32)"));
+}
+
+#[test]
+fn selector_withdraw_matches_abi() {
+    assert_eq!(SEL_WITHDRAW, selector_of(b"withdraw(uint256)"));
+}
+
+#[test]
+fn selector_erc20_transfer_matches_abi() {
+    assert_eq!(
+        super::SEL_TRANSFER,
+        selector_of(b"transfer(address,uint256)")
+    );
+}
+
+#[test]
+fn selector_erc20_transfer_from_matches_abi() {
+    assert_eq!(
+        super::SEL_TRANSFER_FROM,
+        selector_of(b"transferFrom(address,address,uint256)")
+    );
+}
+
+#[test]
+fn selector_erc20_balance_of_matches_abi() {
+    assert_eq!(super::SEL_BALANCE_OF, selector_of(b"balanceOf(address)"));
+}

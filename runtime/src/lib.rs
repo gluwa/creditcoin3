@@ -996,12 +996,16 @@ impl pallet_attestation::Config for Runtime {
 parameter_types! {
     /// Reward units (1e18 scale) per **eligible** signer on each successful `commit_attestation`.
     pub const AttestCoinRewardPerEligibleSigner: Balance = 1_000_000_000_000_000_000u128;
+    /// `pallet_assets` asset ID used as on-chain attest-coin. Must match the chain-spec / runtime
+    /// migration that creates the asset with the attest-coin precompile account as admin.
+    pub const AttestCoinAssetId: u32 = 1;
 }
 
 impl pallet_attest_coin_rewards::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RewardPoints = Balance;
     type RewardPerEligibleSigner = AttestCoinRewardPerEligibleSigner;
+    type AttestCoinAssetId = AttestCoinAssetId;
     type WeightInfo = pallet_attest_coin_rewards::weights::WeightInfo<Runtime>;
 }
 

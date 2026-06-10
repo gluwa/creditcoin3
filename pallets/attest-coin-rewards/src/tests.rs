@@ -232,6 +232,43 @@ fn reward_commit_signers_skips_unregistered_attestors() {
 }
 
 #[test]
+fn reward_commit_signers_emits_skipped_event_for_unregistered_attestors() {
+    new_test_ext().execute_with(|| {
+        // bob is not a registered attestor. The reward path must surface this
+        // desync via `RewardSkippedNoStash` so it's observable on operator dashboards
+        // even when no real reward credit happens.
+        crate::Pallet::<Runtime>::reward_commit_signers(CHAIN_KEY, &[bob()]);
+
+        System::assert_has_event(
+            crate::pallet::Event::<Runtime>::RewardSkippedNoStash {
+                chain_key: CHAIN_KEY,
+                skipped: 1,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn reward_commit_signers_emits_skipped_event_independent_of_token_config() {
+    new_test_ext().execute_with(|| {
+        // The CommitSignersRewarded event is gated on AttestCoinErc20 being set
+        // (it's a reward-program-active signal). The desync signal must NOT be gated —
+        // operators need to see desyncs regardless of claim-program activation.
+        assert!(AttestCoinErc20::<Runtime>::get().is_none());
+        crate::Pallet::<Runtime>::reward_commit_signers(CHAIN_KEY, &[bob()]);
+
+        System::assert_has_event(
+            crate::pallet::Event::<Runtime>::RewardSkippedNoStash {
+                chain_key: CHAIN_KEY,
+                skipped: 1,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
 fn reward_commit_signers_emits_event_when_token_configured() {
     new_test_ext().execute_with(|| {
         register_stash(alice());

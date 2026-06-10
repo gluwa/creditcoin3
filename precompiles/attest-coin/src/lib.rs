@@ -18,6 +18,7 @@ use fp_evm::{
     PrecompileHandle, PrecompileOutput, PrecompileResult,
 };
 use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
+use frame_support::traits::Get;
 use pallet_attest_coin_rewards::Pallet as Rewards;
 use pallet_evm::{AddressMapping, GasWeightMapping};
 use parity_scale_codec::Encode;
@@ -45,14 +46,10 @@ const SEL_DEPOSIT: [u8; 4] = [0xb6, 0xb5, 0x5f, 0x25];
 const SEL_DEPOSIT_TO: [u8; 4] = [0xc6, 0xbc, 0x97, 0x5d];
 /// `withdraw(uint256)` — burn Substrate attest coin from caller’s mapped account, send ERC-20 to caller.
 pub const SEL_WITHDRAW: [u8; 4] = [0x2e, 0x1a, 0x7d, 0x4d];
-/// The asset ID for attest coin in `pallet-assets`.
-///
-/// **Must match the chain-spec asset ID** used at genesis (and in any runtime upgrade migration).
-/// At genesis the asset is created via the chain-spec `pallet_assets` genesis config.
-/// During runtime upgrades, if the asset does not yet exist, create it with:
-/// `pallet_assets::Pallet::force_create(root, ATTEST_COIN_ASSET_ID.into(), issuer, false, 1)`
-/// in a storage migration before any precompile call that mints or transfers the asset.
-const ATTEST_COIN_ASSET_ID: u32 = 1;
+// Asset ID for attest coin in `pallet-assets` was previously a magic constant here. It now
+// lives on `pallet_attest_coin_rewards::Config::AttestCoinAssetId`; this precompile reads it
+// from the runtime so a config change can never silently re-target a different asset. See
+// `attest_coin_asset_id::<Runtime>()` below.
 
 /// Minimum gas reserved for the ERC-20 `transfer` subcall in [`AttestCoinPrecompile::withdraw`].
 const WITHDRAW_ERC20_TRANSFER_MIN_GAS: u64 = 80_000;
@@ -128,7 +125,10 @@ where
     <Runtime as pallet_assets::Config>::Balance: From<u128>,
 {
     fn accrued(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
-        handle.record_cost(3_000)?;
+        // One Substrate storage read + u128→U256 marshalling. Pricing aligned to the
+        // `chain-info` precompile's `GAS_STORAGE_LOOKUP = 2_600` baseline plus headroom for
+        // the conversion, so callers can't probe storage at sub-SLOAD prices.
+        handle.record_cost(3_500)?;
         if rest.len() < 32 {
             return Err(bad_input());
         }
@@ -218,8 +218,7 @@ where
             });
         }
 
-        let treasury_balance =
-            erc20_balance_of(handle, token, handle.code_address())?;
+        let treasury_balance = erc20_balance_of(handle, token, handle.code_address())?;
         if treasury_balance < amount_u256 {
             return Err(PrecompileFailure::Revert {
                 exit_status: ExitRevert::Reverted,
@@ -328,13 +327,27 @@ where
         let caller_h160 = handle.context().caller;
         let precompile_h160 = handle.code_address();
 
-        erc20_transfer_from(
-            handle,
-            token,
-            caller_h160,
-            precompile_h160,
-            amount_u256,
-        )?;
+        // Defence-in-depth against a non-standard ERC-20 being configured by governance
+        // (the module doc warns against it, but doesn't enforce). Fee-on-transfer or
+        // rebasing tokens would leave the precompile holding fewer ERC-20 than the amount
+        // about to be minted as attest-coin, silently breaking 1:1 backing for everyone
+        // forever. Bracket `transferFrom` with a balance probe and revert if delta < amount.
+        let balance_before = erc20_balance_of(handle, token, precompile_h160)?;
+        erc20_transfer_from(handle, token, caller_h160, precompile_h160, amount_u256)?;
+        let balance_after = erc20_balance_of(handle, token, precompile_h160)?;
+        if balance_after.saturating_sub(balance_before) < amount_u256 {
+            // We've already taken less-than-expected ERC-20 from the caller. Refund whatever
+            // *did* land in the precompile to preserve value conservation. If the refund
+            // itself fails, surface that explicitly (same policy as the mint-failure path).
+            let received = balance_after.saturating_sub(balance_before);
+            if !received.is_zero() {
+                erc20_transfer(handle, token, caller_h160, received)?;
+            }
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"non-standard token (fee-on-transfer or rebasing)".to_vec(),
+            });
+        }
 
         let issuer = Runtime::AddressMapping::into_account_id(precompile_h160);
 
@@ -342,14 +355,24 @@ where
             handle,
             Some(issuer).into(),
             pallet_assets::Call::<Runtime>::mint {
-                id: ATTEST_COIN_ASSET_ID.into(),
+                id: attest_coin_asset_id::<Runtime>().into(),
                 beneficiary: Runtime::Lookup::unlookup(beneficiary),
                 amount: amount_u128.into(),
             },
         )
         .map_err(PrecompileFailure::from)
         {
-            let _ = erc20_transfer(handle, token, caller_h160, amount_u256);
+            // Mint failed *after* a successful `transferFrom` already moved ERC-20 into the
+            // precompile. We must compensate by transferring it back; if that compensating
+            // transfer ALSO fails, we have a value-conservation violation (ERC-20 sitting in
+            // the precompile with no attest-coin mint to match) and must surface that failure
+            // explicitly rather than silently swallow it and revert with the mint error —
+            // which would hide the stuck-funds condition from the caller and any monitor.
+            //
+            // Returning Err in *either* arm reverts the precompile's EVM call frame, but a
+            // failed refund still warrants the explicit signal: the failure mode is louder
+            // and observable in any event logs / tracing.
+            erc20_transfer(handle, token, caller_h160, amount_u256)?;
             return Err(failure);
         }
 
@@ -363,6 +386,20 @@ where
     ///
     /// ERC-20 is transferred before any Substrate burn so a failed token transfer does not debit
     /// pallet-assets. Uses [`pallet_assets::Call::burn`] as **admin** (precompile account).
+    ///
+    /// # Value-conservation invariant
+    ///
+    /// If the burn dispatch fails *after* the ERC-20 transfer succeeded, returning `Err` reverts
+    /// the precompile's EVM call frame — which under Frontier `PrecompileHandle::call` semantics
+    /// rolls back the prior `handle.call(...)` sub-call to the ERC-20 contract, undoing the
+    /// transfer. **This invariant cannot be exercised in this crate's mock tests** because the
+    /// `MockHandle` does not simulate EVM rollback of sub-call state; the symmetric
+    /// transfer-fails-before-burn case is covered by
+    /// `withdraw_restores_pallet_balance_when_erc20_transfer_fails`, and an end-to-end
+    /// burn-failure-after-transfer test belongs in the runtime integration suite (`cli/`) where
+    /// the full EVM executor is in scope. The pre-burn substrate balance re-check at line 440
+    /// closes the only realistic window where burn could fail post-transfer without an
+    /// integration-test harness.
     fn withdraw(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         handle.record_cost(120_000)?;
         if rest.len() < 32 {
@@ -393,7 +430,8 @@ where
         let admin = Runtime::AddressMapping::into_account_id(precompile_h160);
 
         let amount_asset: <Runtime as pallet_assets::Config>::Balance = amount_u128.into();
-        let asset_id: <Runtime as pallet_assets::Config>::AssetId = ATTEST_COIN_ASSET_ID.into();
+        let asset_id: <Runtime as pallet_assets::Config>::AssetId =
+            attest_coin_asset_id::<Runtime>().into();
         let substrate_balance =
             pallet_assets::Pallet::<Runtime>::balance(asset_id.clone(), &beneficiary);
         if substrate_balance < amount_asset {
@@ -403,8 +441,7 @@ where
             });
         }
 
-        let treasury_balance =
-            erc20_balance_of(handle, token, handle.code_address())?;
+        let treasury_balance = erc20_balance_of(handle, token, handle.code_address())?;
         if treasury_balance < amount_u256 {
             return Err(PrecompileFailure::Revert {
                 exit_status: ExitRevert::Reverted,
@@ -413,7 +450,7 @@ where
         }
 
         let burn_call = pallet_assets::Call::<Runtime>::burn {
-            id: ATTEST_COIN_ASSET_ID.into(),
+            id: attest_coin_asset_id::<Runtime>().into(),
             who: Runtime::Lookup::unlookup(beneficiary.clone()),
             amount: amount_asset,
         };
@@ -440,18 +477,23 @@ where
             });
         }
 
-        try_dispatch_attest_coin_no_pov::<Runtime, _>(
-            handle,
-            Some(admin).into(),
-            burn_call,
-        )
-        .map_err(PrecompileFailure::from)?;
+        try_dispatch_attest_coin_no_pov::<Runtime, _>(handle, Some(admin).into(), burn_call)
+            .map_err(PrecompileFailure::from)?;
 
         Ok(PrecompileOutput {
             exit_status: ExitSucceed::Returned,
             output: Vec::new(),
         })
     }
+}
+
+/// Read the runtime-configured `pallet_assets` ID for attest coin (was a precompile-side
+/// magic constant in earlier revisions).
+fn attest_coin_asset_id<Runtime>() -> u32
+where
+    Runtime: pallet_attest_coin_rewards::Config,
+{
+    <Runtime as pallet_attest_coin_rewards::Config>::AttestCoinAssetId::get()
 }
 
 /// EVM gas charged by [`try_dispatch_attest_coin_no_pov`] for a runtime call (matches its pre-dispatch check).
@@ -574,7 +616,10 @@ fn erc20_balance_of(
 
 fn account_id_to_sr25519_public<AccountId: Encode>(acct: &AccountId) -> Option<sr25519::Public> {
     let enc = acct.encode();
-    if enc.len() < 32 {
+    // Substrate's `AccountId32` is always 32 bytes. A non-32-byte `AccountId` is unsupported
+    // by this precompile — returning `None` here lets the caller fail the signature check
+    // explicitly rather than panic or silently produce a malformed key.
+    if enc.len() != 32 {
         return None;
     }
     let mut a = [0u8; 32];

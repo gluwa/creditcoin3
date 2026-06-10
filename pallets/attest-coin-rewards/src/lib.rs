@@ -50,6 +50,14 @@ pub mod pallet {
         /// [`pallet_attestation::Pallet::commit_attestation`].
         #[pallet::constant]
         type RewardPerEligibleSigner: Get<Self::RewardPoints>;
+
+        /// `pallet_assets` asset ID used as the on-chain attest-coin. The attest-coin
+        /// precompile mints/burns this ID; the runtime must create the asset at genesis (or
+        /// in a migration) with the precompile account as admin/issuer. Surfaced through the
+        /// pallet config rather than as a precompile-side magic constant so a runtime upgrade
+        /// can never silently re-target a different asset.
+        #[pallet::constant]
+        type AttestCoinAssetId: Get<u32>;
     }
 
     pub trait WeightInfo {
@@ -79,6 +87,12 @@ pub mod pallet {
         },
         /// ERC-20 token address configured (governance).
         AttestCoinTokenSet { token: sp_core::H160 },
+        /// At least one eligible signer in the committed attestation had no
+        /// `pallet_attestation::Attestors` entry for `chain_key`, so they were skipped during
+        /// reward accrual. Normal during a chill/kick at the same block; persistent occurrences
+        /// indicate an upstream desync between the attestation eligible-set computation and the
+        /// attestor registry.
+        RewardSkippedNoStash { chain_key: ChainKey, skipped: u32 },
     }
 
     #[pallet::error]
@@ -128,6 +142,7 @@ pub mod pallet {
             }
 
             let mut credited = 0u32;
+            let mut skipped = 0u32;
             for attestor_id in eligible_signers {
                 if let Some(att) =
                     pallet_attestation::Pallet::<T>::attestors(chain_key, attestor_id)
@@ -135,6 +150,8 @@ pub mod pallet {
                     let stash = att.stash;
                     Accrued::<T>::mutate(&stash, |a| Self::saturating_add_accrued(a, per));
                     credited = credited.saturating_add(1);
+                } else {
+                    skipped = skipped.saturating_add(1);
                 }
             }
 
@@ -144,6 +161,12 @@ pub mod pallet {
                     signers: credited,
                     per_signer: per,
                 });
+            }
+            if skipped > 0 {
+                // Always emit, even if the token isn't configured yet — this is a *desync*
+                // signal, not a reward signal. Operators should investigate the upstream
+                // eligible-set vs attestor registry divergence regardless of claim activation.
+                Self::deposit_event(Event::RewardSkippedNoStash { chain_key, skipped });
             }
         }
 
@@ -172,7 +195,13 @@ pub mod pallet {
             AttestCoinErc20::<T>::get()
         }
 
-        /// Restore accrued points after a failed EVM mint (precompile rollback).
+        /// Add accrued points to a stash. Production reward accrual uses
+        /// [`reward_commit_signers`] indirectly; this is exposed for the precompile's
+        /// claim-rollback path (called via [`undo_claim_commit`]) and for test fixtures that
+        /// need to seed `Accrued` directly. New production code paths should prefer the
+        /// higher-level accrual entrypoints.
+        ///
+        /// [`reward_commit_signers`]: Self::reward_commit_signers
         pub fn restore_accrued(stash: &T::AccountId, amount: T::RewardPoints) {
             Accrued::<T>::mutate(stash, |a| Self::saturating_add_accrued(a, amount));
         }
@@ -216,6 +245,12 @@ pub mod pallet {
         }
 
         /// Debit accrued and bump claim nonce after signature verification in the precompile.
+        ///
+        /// Invariant: callers must execute inside a single Substrate dispatch context. Both
+        /// the outer `ClaimNonce` `try_mutate` and the inner `take_accrued_for_claim`'s
+        /// `try_mutate` on `Accrued` get rolled back together when the enclosing dispatch
+        /// errors — that's the only reason it's safe to mutate two storage maps here without
+        /// per-call transactional storage wrapping.
         pub fn commit_claim(
             stash: &T::AccountId,
             expected_nonce: u64,
@@ -229,14 +264,16 @@ pub mod pallet {
             })
         }
 
-        /// Undo [`commit_claim`] if the EVM `transfer` fails (precompile only).
+        /// Undo [`commit_claim`] if the post-commit EVM `transfer` fails inside the precompile.
+        /// Restores the pre-commit nonce and re-credits the accrued points in one place; the
+        /// re-credit uses the same `saturating_add` helper as accrual so it can never overflow.
         pub fn undo_claim_commit(
             stash: &T::AccountId,
             nonce_before_claim: u64,
             amount: T::RewardPoints,
         ) {
             ClaimNonce::<T>::insert(stash, nonce_before_claim);
-            Self::restore_accrued(stash, amount);
+            Accrued::<T>::mutate(stash, |a| Self::saturating_add_accrued(a, amount));
         }
     }
 }

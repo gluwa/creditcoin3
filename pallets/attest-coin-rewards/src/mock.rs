@@ -288,6 +288,7 @@ impl crate::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type RewardPoints = u128;
     type RewardPerEligibleSigner = ConstU128<100>;
+    type AttestCoinAssetId = ConstU32<1>;
     type WeightInfo = crate::weights::WeightInfo<Runtime>;
 }
 
