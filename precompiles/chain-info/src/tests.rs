@@ -1016,3 +1016,191 @@ mod checkpoint_reads_honour_pruning_window {
             });
     }
 }
+
+/// Each public method that takes a `chain_key` reverts when the chain isn't in
+/// `SupportedChains`. Reverting (rather than returning a zero default) prevents Solidity
+/// callers from confusing "no data yet" with "bad input", and refunds remaining gas instead
+/// of burning the rest of the method's lookups.
+mod unsupported_chain_reverts {
+    use super::*;
+
+    const UNSUPPORTED_CHAIN_KEY: u64 = 999;
+    const EXPECTED_REVERT: &[u8] = b"chain not supported";
+
+    #[test]
+    fn get_attestation_genesis_height_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_attestation_genesis_height {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn get_latest_attestation_height_and_hash_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_latest_attestation_height_and_hash {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn get_latest_checkpoint_height_and_hash_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_latest_checkpoint_height_and_hash {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn find_highest_attested_before_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::find_highest_attested_before {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                            target_height: 100,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn find_lowest_attested_after_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::find_lowest_attested_after {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                            target_height: 100,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn is_height_attested_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::is_height_attested {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                            target_height: 100,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn get_attestation_bounds_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_attestation_bounds {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                            target_height: 100,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn get_attestation_height_for_digest_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_attestation_height_for_digest {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                            digest: H256::from_slice(&[0xab; 32]),
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+
+    #[test]
+    fn get_checkpoint_for_height_reverts() {
+        let alice: H160 = Alice.into();
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_checkpoint_for_height {
+                            chain_key: UNSUPPORTED_CHAIN_KEY,
+                            height: 100,
+                        },
+                    )
+                    .execute_reverts(|out| out == EXPECTED_REVERT);
+            });
+    }
+}

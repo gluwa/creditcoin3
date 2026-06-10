@@ -88,6 +88,25 @@ pub struct BoundsCheckResult {
     pub is_attested: bool,
 }
 
+/// Probe `SupportedChains` for `chain_key`. Charges a single storage lookup and reverts the
+/// call if the chain isn't registered.
+///
+/// Why revert rather than return a zero default: most methods here have `exists: false` sentinels
+/// already used for "this height has no data yet" — a Solidity caller can't distinguish that
+/// from "the chain_key you passed is bogus" if both fall through to the default. Reverting
+/// surfaces the input error immediately (and refunds remaining gas, which is cheaper than
+/// burning the rest of the method's lookups against an unsupported key).
+fn ensure_chain_supported<Runtime: pallet_supported_chains::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+) -> EvmResult<()> {
+    handle.record_cost(GAS_STORAGE_LOOKUP)?;
+    if !SupportedChains::<Runtime>::contains_key(chain_key) {
+        return Err(RevertReason::custom("chain not supported").into());
+    }
+    Ok(())
+}
+
 #[precompile_utils::precompile]
 impl<Runtime> ChainInfoPrecompile<Runtime>
 where
@@ -146,6 +165,8 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<u64> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         let height = AttestationChainGenesisBlockNumber::<Runtime>::get(chain_key);
 
         handle.record_db_read::<Runtime>(height.encoded_size())?;
@@ -159,6 +180,8 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         if let Some(last_digest) = LastDigest::<Runtime>::get(chain_key) {
             handle.record_db_read::<Runtime>(last_digest.encoded_size())?;
 
@@ -188,6 +211,8 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         if let Some(last_checkpoint) = LastCheckpoint::<Runtime>::get(chain_key) {
             handle.record_db_read::<Runtime>(last_checkpoint.encoded_size())?;
 
@@ -209,6 +234,8 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         let maybe_last_checkpoint_height =
@@ -340,6 +367,8 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         let maybe_last_checkpoint_height =
@@ -438,6 +467,8 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<bool> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         let maybe_last_checkpoint_height =
@@ -557,6 +588,12 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<BoundsCheckResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
+        // `find_highest_attested_before` / `find_lowest_attested_after` each repeat the
+        // supported-chain check internally. For the supported path that's 2 extra lookups; for
+        // the unsupported path the revert above means they never run at all. Worth the small
+        // redundancy to keep the inner methods self-guarded when called externally.
         let prev_attestation =
             Self::find_highest_attested_before(handle, chain_key, target_height)?;
         let next_attestation = Self::find_lowest_attested_after(handle, chain_key, target_height)?;
@@ -581,6 +618,8 @@ where
         chain_key: ChainKey,
         digest: H256,
     ) -> EvmResult<HeightResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         if let Some(attestation) = Attestations::<Runtime>::get(chain_key, digest) {
@@ -600,6 +639,8 @@ where
         chain_key: ChainKey,
         height: u64,
     ) -> EvmResult<HashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         // `checkpoint_if_stable` does the `CheckpointPruningStates` guard read plus the
         // `Checkpoints` read — charge both (matches `block-prover::get_checkpoint`).
         handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
