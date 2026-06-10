@@ -136,10 +136,6 @@ impl StreamAttestation {
         self.max_catchup
     }
 
-    pub fn latest_tip(&self) -> attestor_primitives::Height {
-        self.tip
-    }
-
     /// Lets the [`StreamAttestation`] know that a new attestation has finalized on-chain.
     ///
     /// This is a no-op if the stream was already notified of a higher attestation finalizing, or

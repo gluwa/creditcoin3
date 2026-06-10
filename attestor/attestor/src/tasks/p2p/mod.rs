@@ -208,11 +208,11 @@ async fn handle_swarm(
         })) => {
             if is_new_peer {
                 tracing::info!(peer_id = %peer, addrs = addresses.len(), "📋 new routing peer");
-                shared.metrics.increase_peer_count();
+                shared.metrics.note_routing_peer_added();
             }
             if let Some(evicted) = old_peer {
                 tracing::info!(peer_id = %evicted, "📋 evicted routing peer");
-                shared.metrics.decrease_peer_count();
+                shared.metrics.note_routing_peer_evicted();
             }
         }
         SwarmEvent::Behaviour(P2PBehaviorEvent::Ping(libp2p::ping::Event {
