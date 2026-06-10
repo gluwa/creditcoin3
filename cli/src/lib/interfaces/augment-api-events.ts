@@ -341,6 +341,18 @@ declare module '@polkadot/api-base/types/events' {
                 { chainKey: u64; signers: u32; perSigner: u128 }
             >;
             /**
+             * At least one eligible signer in the committed attestation had no
+             * `pallet_attestation::Attestors` entry for `chain_key`, so they were skipped during
+             * reward accrual. Normal during a chill/kick at the same block; persistent occurrences
+             * indicate an upstream desync between the attestation eligible-set computation and the
+             * attestor registry.
+             **/
+            RewardSkippedNoStash: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, skipped: u32],
+                { chainKey: u64; skipped: u32 }
+            >;
+            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;

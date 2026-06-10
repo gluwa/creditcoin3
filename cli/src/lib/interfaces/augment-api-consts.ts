@@ -96,6 +96,14 @@ declare module '@polkadot/api-base/types/consts' {
         };
         attestCoinRewards: {
             /**
+             * `pallet_assets` asset ID used as the on-chain attest-coin. The attest-coin
+             * precompile mints/burns this ID; the runtime must create the asset at genesis (or
+             * in a migration) with the precompile account as admin/issuer. Surfaced through the
+             * pallet config rather than as a precompile-side magic constant so a runtime upgrade
+             * can never silently re-target a different asset.
+             **/
+            attestCoinAssetId: u32 & AugmentedConst<ApiType>;
+            /**
              * Points credited to each **stash** backing an eligible signer on a successful
              * [`pallet_attestation::Pallet::commit_attestation`].
              **/

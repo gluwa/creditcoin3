@@ -1474,7 +1474,12 @@ declare module '@polkadot/types/lookup' {
         readonly asAttestCoinTokenSet: {
             readonly token: H160;
         } & Struct;
-        readonly type: 'CommitSignersRewarded' | 'AttestCoinTokenSet';
+        readonly isRewardSkippedNoStash: boolean;
+        readonly asRewardSkippedNoStash: {
+            readonly chainKey: u64;
+            readonly skipped: u32;
+        } & Struct;
+        readonly type: 'CommitSignersRewarded' | 'AttestCoinTokenSet' | 'RewardSkippedNoStash';
     }
 
     /** @name FrameSystemPhase (104) */

@@ -1142,6 +1142,10 @@ export default {
             AttestCoinTokenSet: {
                 token: 'H160',
             },
+            RewardSkippedNoStash: {
+                chainKey: 'u64',
+                skipped: 'u32',
+            },
         },
     },
     /**
