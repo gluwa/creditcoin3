@@ -377,8 +377,6 @@ async fn handle_one(
                 shared.attestation_interval(),
             );
         }
-
-        _ => {}
     }
 
     Ok(())
