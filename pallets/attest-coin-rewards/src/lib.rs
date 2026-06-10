@@ -208,8 +208,14 @@ pub mod pallet {
 
         /// Bytes that must be signed (sr25519) for [`Self::commit_claim`].
         ///
-        /// Layout: `b"AttestCoin:claim:v1:" || stash_id(32) || nonce(le u64) || chain_key(le u64)
-        /// || amount(le u128) || evm_recipient(20)`.
+        /// Layout: `b"AttestCoin:claim:v2:" || genesis_hash(32) || stash_id(32) || nonce(le u64)
+        /// || chain_key(le u64) || amount(le u128) || evm_recipient(20)`.
+        ///
+        /// v2 binds the network's genesis hash into the message so a claim signature is only
+        /// valid on the chain it was produced for — without it, a signature replays on any
+        /// network where the stash has matching nonce and accrued (cross-network replay,
+        /// audit Low #1). Only the bound recipient could perform such a replay, so the v1
+        /// exposure was griefing-adjacent rather than theft, but domain separation is cheap.
         pub fn claim_signing_message(
             stash: &T::AccountId,
             nonce: u64,
@@ -217,10 +223,12 @@ pub mod pallet {
             amount: u128,
             evm_recipient: [u8; 20],
         ) -> Vec<u8> {
-            const PREFIX: &[u8] = b"AttestCoin:claim:v1:";
-            // stash_id(32) + nonce(le u64 = 8) + chain_key(le u64 = 8) + amount(le u128 = 16) + evm_recipient(20)
-            let mut m = Vec::with_capacity(PREFIX.len() + 32 + 8 + 8 + 16 + 20);
+            const PREFIX: &[u8] = b"AttestCoin:claim:v2:";
+            let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
+            // prefix + genesis(32) + stash_id(32) + nonce(8) + chain_key(8) + amount(16) + recipient(20)
+            let mut m = Vec::with_capacity(PREFIX.len() + 32 + 32 + 8 + 8 + 16 + 20);
             m.extend_from_slice(PREFIX);
+            m.extend_from_slice(genesis_hash.as_ref());
             let enc = stash.encode();
             debug_assert!(
                 enc.len() == 32,
@@ -267,11 +275,26 @@ pub mod pallet {
         /// Undo [`commit_claim`] if the post-commit EVM `transfer` fails inside the precompile.
         /// Restores the pre-commit nonce and re-credits the accrued points in one place; the
         /// re-credit uses the same `saturating_add` helper as accrual so it can never overflow.
+        ///
+        /// Guarded: only rolls the nonce back if the on-chain value is exactly
+        /// `nonce_before_claim + 1` — i.e. this undo corresponds to the *immediately preceding*
+        /// commit. A future misuse (calling undo with a stale pre-claim nonce after further
+        /// commits) would otherwise regress the counter and re-enable an already-spent claim
+        /// signature.
         pub fn undo_claim_commit(
             stash: &T::AccountId,
             nonce_before_claim: u64,
             amount: T::RewardPoints,
         ) {
+            let current = ClaimNonce::<T>::get(stash);
+            if current != nonce_before_claim.saturating_add(1) {
+                log::error!(
+                    target: "runtime::attest-coin-rewards",
+                    "undo_claim_commit: nonce mismatch (current {current}, expected {}), refusing rollback",
+                    nonce_before_claim.saturating_add(1)
+                );
+                return;
+            }
             ClaimNonce::<T>::insert(stash, nonce_before_claim);
             Accrued::<T>::mutate(stash, |a| Self::saturating_add_accrued(a, amount));
         }

@@ -133,6 +133,42 @@ fn attach_mock_balance_then_transfer(handle: &mut MockHandle, balance: u128, tra
     }));
 }
 
+/// Mock the deposit ERC-20 subcall sequence: `balanceOf` (before) → `transferFrom` →
+/// `balanceOf` (after). `received` controls the apparent balance delta — set it equal to the
+/// deposit amount for a standard token, lower to simulate fee-on-transfer.
+fn attach_mock_deposit_sequence(handle: &mut MockHandle, received: u128) {
+    use std::cell::Cell;
+    let calls = Cell::new(0u32);
+    handle.subcall_handle = Some(Box::new(move |_subcall| {
+        let n = calls.get();
+        calls.set(n + 1);
+        let output = match n {
+            // balanceOf before the transferFrom
+            0 => encode_u256(0).to_vec(),
+            // transferFrom → ABI-encoded true
+            1 => {
+                let mut out = [0u8; 32];
+                out[31] = 1;
+                out.to_vec()
+            }
+            // balanceOf after the transferFrom
+            2 => encode_u256(received).to_vec(),
+            // any later subcall (refund transfer) → true
+            _ => {
+                let mut out = [0u8; 32];
+                out[31] = 1;
+                out.to_vec()
+            }
+        };
+        SubcallOutput {
+            reason: ExitReason::Succeed(ExitSucceed::Returned),
+            output,
+            cost: 0,
+            logs: vec![],
+        }
+    }));
+}
+
 fn execute(handle: &mut MockHandle) -> fp_evm::PrecompileResult {
     use fp_evm::Precompile as _;
     crate::AttestCoinPrecompile::<Runtime>::execute(handle)
@@ -509,6 +545,62 @@ fn deposit_to_reverts_zero_beneficiary() {
 }
 
 #[test]
+fn deposit_to_accepts_unregistered_stash() {
+    // Regression for audit H-3: the onboarding flow is deposit-then-register — a fresh stash
+    // receives attest-coin *before* any `pallet_attestation::Ledger` entry exists (registration
+    // is what creates it). An attestor-registration gate here would deadlock onboarding.
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+        let caller = H160::repeat_byte(0xAA);
+        let fresh_stash = [0x42u8; 32]; // no Ledger entry, never registered
+        let input = deposit_to_input(1_000, fresh_stash);
+        let mut handle = make_handle(caller, input);
+        attach_mock_deposit_sequence(&mut handle, 1_000);
+
+        let result = execute(&mut handle);
+        // The mint dispatch may fail in the unit mock (asset admin is alice, not the
+        // precompile), but the call must get PAST the beneficiary checks — i.e. it must not
+        // fail with any pre-transfer guard, and specifically not with a registration gate.
+        if let Err(PrecompileFailure::Revert { output, .. }) = &result {
+            assert_ne!(output.as_slice(), b"zero beneficiary");
+            assert_ne!(output.as_slice(), b"token not configured");
+            assert_ne!(output.as_slice(), b"zero amount");
+            assert_ne!(
+                output.as_slice(),
+                b"beneficiary not an attestor stash",
+                "deposit-then-register flow must not be gated on prior registration"
+            );
+            assert_ne!(
+                output.as_slice(),
+                b"non-standard token (fee-on-transfer or rebasing)"
+            );
+        }
+    });
+}
+
+#[test]
+fn deposit_reverts_on_fee_on_transfer_token() {
+    // Regression for audit C-1: a token that delivers less than the requested amount
+    // (fee-on-transfer / rebasing) must be rejected before any attest-coin is minted,
+    // otherwise minted supply exceeds ERC-20 backing forever.
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+        let caller = H160::repeat_byte(0xAA);
+        let input = deposit_input(1_000);
+        let mut handle = make_handle(caller, input);
+        // 5% fee: only 950 of the 1_000 lands in the precompile.
+        attach_mock_deposit_sequence(&mut handle, 950);
+
+        assert_reverts_with(
+            &mut handle,
+            b"non-standard token (fee-on-transfer or rebasing)",
+        );
+    });
+}
+
+#[test]
 fn deposit_succeeds_with_successful_subcall() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
@@ -516,22 +608,13 @@ fn deposit_succeeds_with_successful_subcall() {
         let caller = H160::repeat_byte(0xAA);
         let input = deposit_input(1_000);
         let mut handle = make_handle(caller, input);
-        // Mock a successful ERC-20 transferFrom subcall
-        handle.subcall_handle = Some(Box::new(|_subcall| SubcallOutput {
-            reason: ExitReason::Succeed(ExitSucceed::Returned),
-            output: {
-                // Return ABI-encoded `true`
-                let mut out = [0u8; 32];
-                out[31] = 1;
-                out.to_vec()
-            },
-            cost: 0,
-            logs: vec![],
-        }));
+        // Full deposit subcall sequence with the full amount received (standard token).
+        attach_mock_deposit_sequence(&mut handle, 1_000);
         // The mint call goes through dispatch; the precompile account needs to be the asset admin
         // for it to succeed. In the unit-test mock the asset admin is `alice`, so the mint dispatch
         // will return a pallet-level error — but we assert that the failure is NOT an early-exit
-        // (token not configured, zero amount) to confirm the function reached the mint step.
+        // (token not configured, zero amount, fee-on-transfer probe) to confirm the function
+        // reached the mint step.
         let result = execute(&mut handle);
         // success is also acceptable if mock pallet allows it
         if let Err(PrecompileFailure::Revert { output, .. }) = &result {
@@ -544,6 +627,11 @@ fn deposit_succeeds_with_successful_subcall() {
                 output.as_slice(),
                 b"zero amount",
                 "should not fail at amount check"
+            );
+            assert_ne!(
+                output.as_slice(),
+                b"non-standard token (fee-on-transfer or rebasing)",
+                "full-amount delivery must pass the fee-on-transfer probe"
             );
         }
     });

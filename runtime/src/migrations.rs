@@ -319,6 +319,93 @@ fn apply_roles(
     <Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 4)
 }
 
+/// Migrates pre-attest-coin attestor bonds (audit H-1 + H-2).
+///
+/// Before the attest-coin branch, attestor bonds locked native CTC on the stash via
+/// `LockableCurrency::set_lock(BOND_LOCK_ID = b"b0ndl0ck")`. The branch deleted all lock
+/// handling and re-denominated `Ledger.total_staked` as attest-coin (asset 1) held in the
+/// shared bond pool. Without this migration, an upgraded chain is left with:
+///
+///   - stash CTC locked forever (no remaining code path removes `b0ndl0ck`), and
+///   - legacy `Ledger` entries whose `total_staked` claims attest-coin that the pool does
+///     not hold — so `withdraw_unbonded` / `kill` fail with `BondAssetTransferFailed`
+///     indefinitely.
+///
+/// Strategy (per launch decision — only dev/test networks have live bonds, and mainnet's
+/// bond requirement will be 0): clean break.
+///
+///   1. remove the legacy native-CTC lock from every `Ledger` stash (unlocks their CTC),
+///   2. clear all legacy `Ledger` entries (attestors re-register and re-bond in attest-coin),
+///   3. provision the bond pool account with a provider reference so the non-sufficient
+///      asset can be transferred into it (first `register_attestor` would otherwise fail).
+///
+/// Idempotent: a cleared ledger map and an already-provisioned pool are both no-ops on
+/// re-run. Guarded on ledger entries whose accounts still carry the legacy lock.
+pub struct MigrateLegacyNativeBonds<T>(PhantomData<T>);
+
+impl OnRuntimeUpgrade for MigrateLegacyNativeBonds<Runtime> {
+    fn on_runtime_upgrade() -> Weight {
+        use frame_support::traits::LockableCurrency;
+
+        const LEGACY_BOND_LOCK_ID: [u8; 8] = *b"b0ndl0ck";
+
+        let mut reads: u64 = 1;
+        let mut writes: u64 = 0;
+
+        // 3] Pool provisioning first — cheap, idempotent, and needed even on chains with no
+        //    legacy ledgers at all (H-2: first bond on an upgraded chain fails otherwise).
+        let pool: AccountId = crate::AttestationBondPoolAccount::get();
+        reads = reads.saturating_add(1);
+        if frame_system::Pallet::<Runtime>::providers(&pool) == 0 {
+            frame_system::Pallet::<Runtime>::inc_providers(&pool);
+            writes = writes.saturating_add(1);
+            log::info!(
+                target: "runtime::migrations",
+                "MigrateLegacyNativeBonds: provisioned bond pool account with a provider ref"
+            );
+        }
+
+        // 1] + 2] Legacy lock removal + ledger clearing. A ledger entry is "legacy" iff its
+        //    stash still carries the old native-CTC bond lock — post-upgrade registrations
+        //    never set that lock, so this guard makes the migration idempotent and safe to
+        //    leave in the migration list across multiple upgrades.
+        let stashes: sp_std::vec::Vec<AccountId> =
+            pallet_attestation::Ledger::<Runtime>::iter_keys().collect();
+        reads = reads.saturating_add(stashes.len() as u64);
+
+        let mut migrated: u64 = 0;
+        for stash in &stashes {
+            let has_legacy_lock = pallet_balances::Locks::<Runtime>::get(stash)
+                .iter()
+                .any(|l| l.id == LEGACY_BOND_LOCK_ID);
+            reads = reads.saturating_add(1);
+            if !has_legacy_lock {
+                continue;
+            }
+
+            <pallet_balances::Pallet<Runtime> as LockableCurrency<AccountId>>::remove_lock(
+                LEGACY_BOND_LOCK_ID,
+                stash,
+            );
+            pallet_attestation::Ledger::<Runtime>::remove(stash);
+            // Registration placed a consumer reference on the stash (impls.rs `inc_consumers`);
+            // mirror `kill_stash`'s `dec_consumers` so the account can be reaped once empty.
+            frame_system::Pallet::<Runtime>::dec_consumers(stash);
+            writes = writes.saturating_add(3);
+            migrated = migrated.saturating_add(1);
+        }
+
+        if migrated > 0 {
+            log::info!(
+                target: "runtime::migrations",
+                "MigrateLegacyNativeBonds: removed {migrated} legacy native bonds (locks + ledgers)"
+            );
+        }
+
+        <Runtime as frame_system::Config>::DbWeight::get().reads_writes(reads, writes)
+    }
+}
+
 /// Sets attest-coin asset roles: issuer + admin = precompile; owner + freezer = sudo or precompile.
 pub struct EnsureAttestCoinAssetRoles<T>(PhantomData<T>);
 

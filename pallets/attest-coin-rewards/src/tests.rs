@@ -336,8 +336,26 @@ fn claim_signing_message_has_correct_length() {
             1_000,
             [0u8; 20],
         );
-        // b"AttestCoin:claim:v1:" (20) + stash(32) + nonce(8) + chain_key(8) + amount(16) + recipient(20)
-        assert_eq!(msg.len(), 20 + 32 + 8 + 8 + 16 + 20);
+        // b"AttestCoin:claim:v2:" (20) + genesis(32) + stash(32) + nonce(8) + chain_key(8)
+        // + amount(16) + recipient(20)
+        assert_eq!(msg.len(), 20 + 32 + 32 + 8 + 8 + 16 + 20);
+    });
+}
+
+#[test]
+fn claim_signing_message_binds_genesis_hash() {
+    // The v2 message embeds the network genesis hash for cross-network replay protection
+    // (audit Low #1). Assert the genesis bytes appear immediately after the 20-byte prefix.
+    new_test_ext().execute_with(|| {
+        let msg = crate::Pallet::<Runtime>::claim_signing_message(
+            &alice(),
+            0,
+            CHAIN_KEY,
+            1_000,
+            [0u8; 20],
+        );
+        let genesis = frame_system::Pallet::<Runtime>::block_hash(0u32);
+        assert_eq!(&msg[20..52], genesis.as_ref());
     });
 }
 

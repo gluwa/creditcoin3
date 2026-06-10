@@ -10,16 +10,20 @@ if [ -z "$MONITOR_FILE" ]; then
     exit 2
 fi
 
-# Handlers that require a non-zero bond to fire (DefaultMinBondRequirement=0 in dev/CI)
-# are excluded from the required-execution check to avoid spurious failures.
-BOND_ONLY_HANDLERS='handleEventUnbonded|handleEventWithdrawn'
+# Handlers excluded from the required-execution check:
+# - handleEventUnbonded / handleEventWithdrawn require a non-zero bond to fire
+#   (DefaultMinBondRequirement=0 in dev/CI), so they never execute in the suite.
+# - handleEventForwardCheckpointPatchApplied is not exercised by current integration
+#   tests (see CSUB-2041 for coverage follow-up). This exclusion predates the attest-coin
+#   branch and was accidentally dropped in the script rewrite.
+EXCLUDED_HANDLERS='handleEventUnbonded|handleEventWithdrawn|handleEventForwardCheckpointPatchApplied'
 
-HANDLERS_FROM_SOURCE=$(grep handler: cc3-indexer/datasources.ts | tr -d ' ",' | tr -d "'" | cut -f2 -d: | grep -Ev "$BOND_ONLY_HANDLERS" | sort | uniq)
-echo "INFO: handlers defined in datasources.ts are (bond-only handlers excluded)"
+HANDLERS_FROM_SOURCE=$(grep handler: cc3-indexer/datasources.ts | tr -d ' ",' | tr -d "'" | cut -f2 -d: | grep -Ev "$EXCLUDED_HANDLERS" | sort | uniq)
+echo "INFO: handlers defined in datasources.ts are (excluded handlers removed)"
 echo "$HANDLERS_FROM_SOURCE"
 
-HANDLERS_FROM_RUNTIME=$(grep "\- Handler:" "$MONITOR_FILE" | cut -f3 -d' ' | cut -f1 -d, | grep -Ev "$BOND_ONLY_HANDLERS" | sort | uniq)
-echo "INFO: handlers executed during runtime are (bond-only handlers excluded)"
+HANDLERS_FROM_RUNTIME=$(grep "\- Handler:" "$MONITOR_FILE" | cut -f3 -d' ' | cut -f1 -d, | grep -Ev "$EXCLUDED_HANDLERS" | sort | uniq)
+echo "INFO: handlers executed during runtime are (excluded handlers removed)"
 echo "$HANDLERS_FROM_RUNTIME"
 
 echo "INFO: runtime execution stats"

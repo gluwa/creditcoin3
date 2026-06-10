@@ -281,12 +281,12 @@ where
             });
         }
         let beneficiary = Runtime::AccountId::from(raw);
-        if !pallet_attestation::Ledger::<Runtime>::contains_key(&beneficiary) {
-            return Err(PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: b"beneficiary not an attestor stash".to_vec(),
-            });
-        }
+        // NOTE: no attestor-registration gate here, by design. The intended onboarding flow is
+        // deposit-then-register: a fresh stash receives attest-coin via `depositTo` *first* and
+        // only then calls `register_attestor` (registration is what creates the
+        // `pallet_attestation::Ledger` entry, so a Ledger gate here would make onboarding
+        // impossible — audit H-3). Minting to an arbitrary 32-byte beneficiary is bounded by
+        // the caller's own ERC-20 spend; a typo'd beneficiary loses only the caller's funds.
         Self::deposit_with_beneficiary(handle, &rest[0..32], beneficiary)
     }
 
@@ -568,6 +568,24 @@ fn erc20_subcall(
     }
 }
 
+/// SafeERC20-style result decoding (audit M-4): an ERC-20 `transfer`/`transferFrom` succeeds
+/// iff the sub-call did not revert AND the returndata is either empty (non-standard tokens
+/// like USDT return nothing) or ABI-decodes to `true`. A token returning `false` without
+/// reverting would otherwise be treated as success — letting `claim` debit accrued points or
+/// `withdraw` burn attest-coin without delivering any tokens.
+fn require_erc20_success(ret: &[u8]) -> Result<(), PrecompileFailure> {
+    if ret.is_empty() {
+        return Ok(());
+    }
+    if ret.len() >= 32 && U256::from_big_endian(&ret[..32]) == U256::one() {
+        return Ok(());
+    }
+    Err(PrecompileFailure::Revert {
+        exit_status: ExitRevert::Reverted,
+        output: b"erc20 transfer returned false".to_vec(),
+    })
+}
+
 fn erc20_transfer(
     handle: &mut impl PrecompileHandle,
     token: H160,
@@ -578,7 +596,8 @@ fn erc20_transfer(
     data.extend_from_slice(&SEL_TRANSFER);
     data.extend_from_slice(&encode_address(to.as_fixed_bytes()));
     data.extend_from_slice(&encode_u256(amount));
-    erc20_subcall(handle, token, data).map(|_| ())
+    let ret = erc20_subcall(handle, token, data)?;
+    require_erc20_success(&ret)
 }
 
 fn erc20_transfer_from(
@@ -593,7 +612,8 @@ fn erc20_transfer_from(
     data.extend_from_slice(&encode_address(from.as_fixed_bytes()));
     data.extend_from_slice(&encode_address(to.as_fixed_bytes()));
     data.extend_from_slice(&encode_u256(amount));
-    erc20_subcall(handle, token, data).map(|_| ())
+    let ret = erc20_subcall(handle, token, data)?;
+    require_erc20_success(&ret)
 }
 
 fn erc20_balance_of(

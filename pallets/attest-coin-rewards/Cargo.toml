@@ -15,6 +15,7 @@ manual_inspect = "allow"
 [dependencies]
 frame-support = { workspace = true }
 frame-system = { workspace = true }
+log = { workspace = true, default-features = false }
 parity-scale-codec = { workspace = true, default-features = false, features = [
     "derive",
     "max-encoded-len",
@@ -51,6 +52,7 @@ supported-chains-primitives = { workspace = true }
 [features]
 default = ["std"]
 std = [
+    "log/std",
     "parity-scale-codec/std",
     "scale-info/std",
     "frame-support/std",

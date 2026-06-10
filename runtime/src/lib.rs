@@ -231,6 +231,7 @@ impl frame_system::Config for Runtime {
         migrations::v1_init_attestation::Migration<Runtime>,
         migrations::v1_init_operators::Migration<Runtime>,
         crate::migrations::EnsureAttestCoinAssetRoles<Runtime>,
+        crate::migrations::MigrateLegacyNativeBonds<Runtime>,
     );
     type PreInherents = ();
     type PostInherents = ();
@@ -347,7 +348,10 @@ impl pallet_balances::Config for Runtime {
     type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
 }
 
-/// Attest Coin on `pallet-assets` (18 decimals). Must match genesis + attest-coin precompile mint path.
+/// Attest Coin on `pallet-assets` (18 decimals). Must match genesis + attest-coin precompile
+/// mint path. Single source of truth: the `AttestCoinAssetId` parameter type (used by both
+/// `pallet_attest_coin_rewards::Config` and `pallet_attestation::Config::BondAssetId`) reads
+/// this constant, so all three consumers stay in lockstep (audit Low #4).
 pub const ATTEST_COIN_ASSET_ID: u32 = 1;
 
 /// EVM address of the attest-coin precompile (`hash(4053)`; see `runtime/src/precompiles.rs`).
@@ -977,7 +981,9 @@ impl pallet_attestation::Config for Runtime {
     type NativeCurrency = Balances;
     type BondFungibles = Assets;
     /// Must match [`ATTEST_COIN_ASSET_ID`].
-    type BondAssetId = ConstU32<1>;
+    // Same asset as the attest-coin precompile mints/burns — wired to the single
+    // `AttestCoinAssetId` parameter so the two can never drift (audit Low #4).
+    type BondAssetId = AttestCoinAssetId;
     type BondPoolAccount = AttestationBondPoolAccount;
     type CurrencyBalance = Balance;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
@@ -998,7 +1004,7 @@ parameter_types! {
     pub const AttestCoinRewardPerEligibleSigner: Balance = 1_000_000_000_000_000_000u128;
     /// `pallet_assets` asset ID used as on-chain attest-coin. Must match the chain-spec / runtime
     /// migration that creates the asset with the attest-coin precompile account as admin.
-    pub const AttestCoinAssetId: u32 = 1;
+    pub const AttestCoinAssetId: u32 = ATTEST_COIN_ASSET_ID;
 }
 
 impl pallet_attest_coin_rewards::Config for Runtime {
