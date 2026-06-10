@@ -854,3 +854,165 @@ fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height()
                 .execute_returns(expected_result);
         });
 }
+
+/// Regression: during the async post-revert pruning window `Checkpoints` still holds stale
+/// digests for buckets at or above `CheckpointPruningStates.next_pivot`. Consensus-side
+/// `block-prover` already gates by this state via `checkpoint_if_stable`; the informational
+/// chain-info precompile now does the same so it can't surface a stale digest as live metadata.
+mod checkpoint_reads_honour_pruning_window {
+    use super::*;
+    use pallet_attestation::{
+        clear_or_revert::CheckpointPruningState, CheckpointPruningStates, CHECKPOINT_BUCKET_SIZE,
+    };
+
+    /// Pick a height whose bucket pivot is strictly above `LastCheckpoint.block_number` and
+    /// equal to the test's `next_pivot`, so the pruning state gates it.
+    fn in_flight_height() -> u64 {
+        // 2 * BUCKET_SIZE puts us in the bucket immediately above checkpoint_pivot=1*BUCKET_SIZE.
+        2 * CHECKPOINT_BUCKET_SIZE
+    }
+
+    fn install_pruning_state(stop_height: u64, next_pivot: u64) {
+        CheckpointPruningStates::<Runtime>::insert(
+            SUPPORTED_CHAIN_KEY,
+            CheckpointPruningState {
+                stop_height,
+                next_pivot,
+            },
+        );
+    }
+
+    #[test]
+    fn get_checkpoint_for_height_returns_default_during_pruning() {
+        let alice: H160 = Alice.into();
+        let stale_height = in_flight_height();
+        let stale_digest = H256::from_slice(&[0x9c; 32]);
+
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, stale_height, stale_digest);
+                install_pruning_state(CHECKPOINT_BUCKET_SIZE, in_flight_height());
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_checkpoint_for_height {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            height: stale_height,
+                        },
+                    )
+                    .execute_returns(HashResult::default());
+            });
+    }
+
+    #[test]
+    fn get_checkpoint_for_height_returns_digest_below_pruning_pivot() {
+        let alice: H160 = Alice.into();
+        // A height in a bucket strictly below `next_pivot` is stable (synchronously cleaned
+        // inside `do_revert_to` or never touched by the revert), so reads should pass through.
+        let stable_height = CHECKPOINT_BUCKET_SIZE / 2;
+        let stable_digest = H256::from_slice(&[0x4d; 32]);
+
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, stable_height, stable_digest);
+                install_pruning_state(CHECKPOINT_BUCKET_SIZE, in_flight_height());
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_checkpoint_for_height {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            height: stable_height,
+                        },
+                    )
+                    .execute_returns(HashResult {
+                        hash: stable_digest,
+                        exists: true,
+                    });
+            });
+    }
+
+    #[test]
+    fn get_checkpoint_for_height_returns_digest_when_no_pruning_state() {
+        let alice: H160 = Alice.into();
+        // No `CheckpointPruningStates` entry → no revert in flight → reads pass through
+        // unconditionally, mirroring `checkpoint_if_stable`'s fast path.
+        let height = in_flight_height();
+        let digest = H256::from_slice(&[0x77; 32]);
+
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, height, digest);
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::get_checkpoint_for_height {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            height,
+                        },
+                    )
+                    .execute_returns(HashResult {
+                        hash: digest,
+                        exists: true,
+                    });
+            });
+    }
+
+    /// Regression: `find_highest_attested_before`'s fallback path falls through to
+    /// `LastCheckpoint` when no attestation matches. If the last checkpoint's height is in a
+    /// pivot still being drained post-revert, `checkpoint_if_stable` returns `None` — the
+    /// fallback must surface that as `exists: false` rather than advertising a zero digest
+    /// with `exists: true`, matching `get_checkpoint_for_height`'s gated behaviour.
+    #[test]
+    fn find_highest_attested_before_fallback_doesnt_advertise_withheld_digest() {
+        let alice: H160 = Alice.into();
+        // No attestations populated, so the precompile will land in the LastCheckpoint
+        // fallback. Pick LastCheckpoint at an in-flight pivot and a `target_height` ABOVE it
+        // so the outer gate `LastCheckpoint >= target_height` fails and we reach the else
+        // branch holding the fallback.
+        let last_checkpoint_height = in_flight_height();
+        let stale_digest = H256::from_slice(&[0xfe; 32]);
+        let target_height = last_checkpoint_height + 1;
+
+        ExtBuilder::default()
+            .with_balances(vec![(alice.into(), 300)])
+            .build()
+            .execute_with(|| {
+                Checkpoints::<Runtime>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    last_checkpoint_height,
+                    stale_digest,
+                );
+                LastCheckpoint::<Runtime>::set(
+                    SUPPORTED_CHAIN_KEY,
+                    Some(AttestationCheckpoint {
+                        block_number: last_checkpoint_height,
+                        digest: stale_digest,
+                    }),
+                );
+                install_pruning_state(CHECKPOINT_BUCKET_SIZE, in_flight_height());
+
+                precompiles()
+                    .prepare_test(
+                        alice,
+                        Precompile,
+                        PCall::find_highest_attested_before {
+                            chain_key: SUPPORTED_CHAIN_KEY,
+                            target_height,
+                        },
+                    )
+                    .execute_returns(HeightHashResult::default());
+            });
+    }
+}
