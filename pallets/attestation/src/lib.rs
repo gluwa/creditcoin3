@@ -1412,7 +1412,32 @@ pub mod pallet {
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
             _encoding: ChainEncodingVersion,
-        ) {
+        ) -> Result<(), &'static str> {
+            // Reject zero attestation parameters before any storage write — `Some(0)` would
+            // otherwise bypass the per-setter `ensure! ... > 0` checks (those only fire when an
+            // operator updates the value later, not at registration). A live `Some(0)` for
+            // `chain_attestation_interval` or `attestation_checkpoint_interval` panics the
+            // `commit_attestation` weight calc (`proof_len / checkpoint_width` where
+            // `checkpoint_width = attestation_interval * checkpoint_interval`), bricking the
+            // chain's attestation submission until storage is repaired. The extrinsic in
+            // `pallet-supported-chains::register_chain` is transactional, so returning Err here
+            // rolls back the chain insert too.
+            if let Some(v) = target_sample_size {
+                if v == 0 {
+                    return Err("InvalidTargetSampleSize");
+                }
+            }
+            if let Some(v) = chain_attestation_interval {
+                if v == 0 {
+                    return Err("InvalidAttestationInterval");
+                }
+            }
+            if let Some(v) = attestation_checkpoint_interval {
+                if v == 0 {
+                    return Err("InvalidAttestationsPerCheckpoint");
+                }
+            }
+
             TargetSampleSize::<T>::insert(
                 chain_key,
                 target_sample_size.unwrap_or(T::DefaultTargetSampleSize::get()),
@@ -1471,6 +1496,8 @@ pub mod pallet {
                 attestation_chain_genesis_block_number
                     .unwrap_or(T::DefaultAttestationChainGenesisBlockNumber::get()),
             ));
+
+            Ok(())
         }
     }
 

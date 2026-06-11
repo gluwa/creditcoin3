@@ -8793,6 +8793,152 @@ mod set_target_sample_size_supported_chain_and_drain {
             assert_eq!(PendingAttestationInterval::<Test>::iter().count(), 0);
             assert_eq!(PendingTargetSampleSize::<Test>::iter().count(), 0);
             assert_eq!(PendingMaxCatchup::<Test>::iter().count(), 0);
+        });
+    }
+}
+
+/// `register_chain` ⇒ `on_register_chain` must reject zero-valued attestation parameters that
+/// would otherwise brick `commit_attestation` weight calculation (division by zero in
+/// `proof_len / checkpoint_width`). Mirrors the per-setter `ensure! > 0` checks so registration
+/// can't slip a bad config past them.
+mod on_register_chain_rejects_zero {
+    use super::*;
+    use attestor_primitives::ChainEncodingVersion;
+    use frame_support::assert_noop;
+    use sp_runtime::DispatchError;
+
+    // The mock's `ExtBuilder` pre-registers one chain at key 1, so the chain key created by the
+    // helper `register()` lands at 2.
+    const CHAIN_KEY: u64 = 2;
+
+    // Registers a supported chain with the given attestation parameters, leaving the others as defaults if `None`.
+    fn register(
+        target_sample_size: Option<u32>,
+        chain_attestation_interval: Option<u64>,
+        attestation_checkpoint_interval: Option<u32>,
+    ) -> sp_runtime::DispatchResult {
+        // Distinct (chain_id, chain_name) per call so each test starts from a clean slot.
+        SupportedChains::register_chain(
+            RuntimeOrigin::root(),
+            9_999,
+            "ZeroParamReject".to_string(),
+            target_sample_size,
+            chain_attestation_interval,
+            attestation_checkpoint_interval,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        )
+    }
+
+    #[test]
+    fn target_sample_size_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(Some(0), None, None),
+                DispatchError::Other("InvalidTargetSampleSize")
+            );
+        })
+    }
+
+    #[test]
+    fn chain_attestation_interval_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, Some(0), None),
+                DispatchError::Other("InvalidAttestationInterval")
+            );
+        })
+    }
+
+    #[test]
+    fn attestation_checkpoint_interval_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, Some(0)),
+                DispatchError::Other("InvalidAttestationsPerCheckpoint")
+            );
+        })
+    }
+
+    #[test]
+    fn all_none_is_accepted_uses_defaults() {
+        ExtBuilder.build_and_execute(|| {
+            assert!(register(None, None, None).is_ok());
+
+            // `on_register_chain` writes the per-chain config directly (not via `Pending*` maps —
+            // those only carry operator updates between epoch boundaries). When every param is
+            // `None`, each entry must equal the runtime-config default.
+            assert_eq!(
+                TargetSampleSize::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultTargetSampleSize::get()
+            );
+            assert_eq!(
+                ChainAttestationInterval::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationInterval::get()
+            );
+            assert_eq!(
+                AttestationCheckpointInterval::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationsPerCheckpoint::get()
+            );
+            assert_eq!(
+                MaxAttestors::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                MaxInvulnerables::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
+            );
+        })
+    }
+
+    #[test]
+    fn all_positive_is_accepted() {
+        // Use distinct values per param so each storage entry can only match the one it was
+        // registered with (no accidental cross-pollination between e.g. `TargetSampleSize` and
+        // `ChainAttestationInterval`).
+        const TARGET_SAMPLE_SIZE: u32 = 3;
+        const CHAIN_ATTESTATION_INTERVAL: u64 = 10;
+        const ATTESTATION_CHECKPOINT_INTERVAL: u32 = 5;
+
+        ExtBuilder.build_and_execute(|| {
+            assert!(register(
+                Some(TARGET_SAMPLE_SIZE),
+                Some(CHAIN_ATTESTATION_INTERVAL),
+                Some(ATTESTATION_CHECKPOINT_INTERVAL)
+            )
+            .is_ok());
+
+            // Explicit `Some(_)` values land in storage verbatim for the three
+            // attestation-config params; the others are `None` here, so they should still pick
+            // up the runtime-config defaults.
+            assert_eq!(TargetSampleSize::<Test>::get(CHAIN_KEY), TARGET_SAMPLE_SIZE);
+            assert_eq!(
+                ChainAttestationInterval::<Test>::get(CHAIN_KEY),
+                CHAIN_ATTESTATION_INTERVAL
+            );
+            assert_eq!(
+                AttestationCheckpointInterval::<Test>::get(CHAIN_KEY),
+                ATTESTATION_CHECKPOINT_INTERVAL
+            );
+            assert_eq!(
+                MaxAttestors::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                MaxInvulnerables::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
+            );
         })
     }
 }
