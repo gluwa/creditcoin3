@@ -160,7 +160,8 @@ async function ensureTreasuryBalance(token: ethers.Contract, minBalance: bigint)
 /** Non-sufficient pallet-assets accounts need a native-balance provider on the beneficiary. */
 async function ensureNativeProvider(api: ApiPromise, root: KeyringPair, accountId: Uint8Array | string): Promise<void> {
     const nativeTopUp = new BN('1000000000000000000000000');
-    const who = typeof accountId === 'string' ? accountId : { Id: u8aToHex(accountId) };
+    const accountIdVariant = 'Id';
+    const who = typeof accountId === 'string' ? accountId : { [accountIdVariant]: u8aToHex(accountId) };
     await dispatchRootCall(api, root, (api.tx as any).balances.forceSetBalance(who, nativeTopUp.toString()));
     await forElapsedBlocks(api, { minBlocks: 1 });
 }

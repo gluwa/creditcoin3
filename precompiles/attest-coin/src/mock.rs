@@ -201,7 +201,8 @@ impl supported_chains_primitives::provider::OnRegisterChainProvider for DummyReg
         _max_invulnerables: Option<u32>,
         _attestation_chain_genesis_block_number: Option<u64>,
         _encoding: attestor_primitives::ChainEncodingVersion,
-    ) {
+    ) -> Result<(), &'static str> {
+        Ok(())
     }
 }
 
