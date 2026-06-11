@@ -97,6 +97,7 @@ export async function getValidatorStatus(stash: string | undefined, api: ApiProm
     /* eslint-disable */
     const validatorEntries = await api.query.staking.validators
         .entries()
+        // eslint-disable-next-line @typescript-eslint/no-base-to-string
         .then((r) => r.map((v) => v[0].toHuman()?.toString()));
     /* eslint-enable */
     const activeValidatorsRes = await api.derive.staking.validators();

@@ -1,4 +1,5 @@
 // Substrate
+#[allow(deprecated)]
 use sc_executor::WasmExecutor;
 // Local
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, Hash, Nonce};

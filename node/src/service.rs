@@ -57,6 +57,7 @@ where
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
+#[allow(deprecated)]
 pub fn new_partial<RuntimeApi, BIQ>(
     config: &Configuration,
     eth_config: &EthConfiguration,
@@ -532,9 +533,9 @@ where
             let next_slot = current.timestamp().as_millis() + slot_duration.as_millis();
             let timestamp = sp_timestamp::InherentDataProvider::new(next_slot.into());
             let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-				*timestamp,
-				slot_duration,
-			);
+                *timestamp,
+                slot_duration,
+            );
             let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
             Ok((slot, timestamp, dynamic_fee))
         };

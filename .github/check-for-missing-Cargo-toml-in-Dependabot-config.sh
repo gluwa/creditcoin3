@@ -15,6 +15,7 @@ echo "INFO: Cargo.toml files found in source code"
 echo "$CARGO_FILES_IN_SOURCE_CODE"
 echo "----- END -----"
 echo
+echo
 
 MISSING_FILES=0
 for FILE in $CARGO_FILES_IN_SOURCE_CODE; do

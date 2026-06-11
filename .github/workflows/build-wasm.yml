@@ -24,6 +24,8 @@ jobs:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          lfs: true
 
       - name: Configure rustc version
         run: |

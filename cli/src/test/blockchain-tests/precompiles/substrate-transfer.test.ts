@@ -1,5 +1,6 @@
 import { WebSocketProvider, ethers, parseEther } from 'ethers';
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import { Keyring } from '@polkadot/keyring';
 import { mnemonicGenerate } from '@polkadot/util-crypto';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
