@@ -1,11 +1,12 @@
 import { Keyring } from '@polkadot/keyring';
-import { BN } from '@polkadot/util';
-import { cryptoWaitReady, decodeAddress, mnemonicGenerate } from '@polkadot/util-crypto';
+import { BN, u8aConcat, stringToU8a } from '@polkadot/util';
+import { blake2AsU8a, cryptoWaitReady, decodeAddress, mnemonicGenerate } from '@polkadot/util-crypto';
 import { ethers, hexlify, JsonRpcProvider, parseEther, zeroPadValue, ContractFactory } from 'ethers';
 
-import { newApi, ApiPromise, KeyringPair } from '../../../lib';
+import { newApi, ApiPromise, KeyringPair, MICROUNITS_PER_CTC } from '../../../lib';
 import { chain_Anvil1_Key } from '../pallets/supported-chains/consts';
 import type { SubmittableExtrinsic } from '@polkadot/api/types';
+import { fundFromSudo } from '../../integration-tests/helpers';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import tokenArtifact = require('../artifacts/MockAttestToken.json');
@@ -15,6 +16,8 @@ import { forElapsedBlocks } from '../../utils';
 import { evmAddressToSubstrateAccountId, evmAddressToSubstrateAddress } from '../../../lib/evm/address';
 
 const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
+
+const ATTEST_COIN_ASSET_ID = 1;
 
 /** Headroom for ERC-20 subcall + precompile `mint` dispatch (runtime avoids double-counting PoV vs `try_dispatch`). */
 const DEPOSIT_PRECOMPILE_GAS = 8_000_000n;
@@ -127,6 +130,37 @@ async function dispatchRootCall(api: ApiPromise, root: KeyringPair, inner: Submi
     await signSendInBlock(root, wrapped);
 }
 
+/** Matches `AttestationBondPoolAccount` (`PalletId(*b"att/bond")`). */
+function attestationBondPoolAccountId(): Uint8Array {
+    return blake2AsU8a(u8aConcat(stringToU8a('modl'), stringToU8a('att/bond')));
+}
+
+/** ERC-20 backing required for non-pool pallet-assets attest-coin (see precompile treasury guard). */
+async function getWithdrawableBacking(api: ApiPromise): Promise<bigint> {
+    const assetOpt = await (api.query as any).assets.asset(ATTEST_COIN_ASSET_ID);
+    if (assetOpt.isNone) {
+        return 0n;
+    }
+    const supply = BigInt(assetOpt.unwrap().supply.toString());
+    const poolAcct = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, attestationBondPoolAccountId());
+    const poolBal = poolAcct.isSome ? BigInt(poolAcct.unwrap().balance.toString()) : 0n;
+    return supply > poolBal ? supply - poolBal : 0n;
+}
+
+async function ensureTreasuryBalance(token: ethers.Contract, minBalance: bigint): Promise<void> {
+    const bal: bigint = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
+    if (bal < minBalance) {
+        await (await token.mint(ATTEST_COIN_PRECOMPILE, minBalance - bal)).wait();
+    }
+}
+
+/** Non-sufficient pallet-assets accounts need a native-balance provider on the beneficiary. */
+async function ensureNativeProvider(api: ApiPromise, root: KeyringPair, ss58: string): Promise<void> {
+    const nativeTopUp = new BN('1000000000000000000000000');
+    await dispatchRootCall(api, root, (api.tx as any).balances.forceSetBalance(ss58, nativeTopUp.toString()));
+    await forElapsedBlocks(api, { minBlocks: 1 });
+}
+
 describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     let api: ApiPromise;
     let creditcoinWs: string;
@@ -181,27 +215,31 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
         await forElapsedBlocks(api, { minBlocks: 1 });
 
+        const fundResult = await fundFromSudo(api, evmWalletCc3.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
+        expect(fundResult.status).toBe(0);
+
         // `pallet-assets` balances for non-sufficient assets require the holder to have a native-balance
         // `provider`. Alice's EVM-mapped Substrate account is otherwise empty, so `deposit`/`depositTo`
         // minting into that account reverts with `CannotCreate` / dispatch failure.
         const mappedSs58 = evmAddressToSubstrateAddress(evmWalletCc3.address);
-        const nativeTopUp = new BN('1000000000000000000000000');
-        await dispatchRootCall(api, root, (api.tx as any).balances.forceSetBalance(mappedSs58, nativeTopUp));
-        await forElapsedBlocks(api, { minBlocks: 1 });
+        await ensureNativeProvider(api, root, mappedSs58);
 
         // Substrate `Accrued` / `ClaimNonce` persist on a long-lived dev node; this run's ERC-20 is newly deployed with a
-        // fixed mint. Top up the precompile so `transfer` can cover **all** current accrued points (not just this epoch).
+        // fixed mint. Claims share the treasury with deposit-backed withdraws, so fund accrued rewards **and**
+        // withdrawable pallet-assets supply (total supply minus bond-pool balance).
         const preRead = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, creditcoinEvm);
         const stashRaw = decodeAddress(alice.address);
         const stashB32 = zeroPadValue(hexlify(stashRaw), 32);
         const accruedPts = await preRead.accrued(stashB32);
-        let treasuryBal = await tokenCc3.balanceOf(ATTEST_COIN_PRECOMPILE);
-        if (treasuryBal < accruedPts) {
-            const topUp = await tokenCc3.mint(ATTEST_COIN_PRECOMPILE, accruedPts - treasuryBal);
-            await topUp.wait();
-            treasuryBal = await tokenCc3.balanceOf(ATTEST_COIN_PRECOMPILE);
-        }
-        dbg('treasury vs accrued', { treasuryBal: treasuryBal.toString(), accruedPts: accruedPts.toString() });
+        const withdrawableBacking = await getWithdrawableBacking(api);
+        const treasuryNeeded = accruedPts + withdrawableBacking;
+        await ensureTreasuryBalance(tokenCc3, treasuryNeeded);
+        const treasuryBal = await tokenCc3.balanceOf(ATTEST_COIN_PRECOMPILE);
+        dbg('treasury vs accrued/backing', {
+            treasuryBal: treasuryBal.toString(),
+            accruedPts: accruedPts.toString(),
+            withdrawableBacking: withdrawableBacking.toString(),
+        });
     }, 180_000);
 
     afterAll(async () => {
@@ -230,6 +268,9 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
 
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
+        const withdrawableBacking = await getWithdrawableBacking(api);
+        await ensureTreasuryBalance(token, claimAmt + withdrawableBacking);
+
         const balBefore = await token.balanceOf(evmWalletCc3.address);
 
         const claimNonceBn = BigInt(
@@ -281,16 +322,16 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await (await token.approve(ATTEST_COIN_PRECOMPILE, depositAmt)).wait();
 
         const substrateBeneficiary = evmAddressToSubstrateAccountId(evmWalletCc3.address);
-        const assetId = 1;
+        await ensureNativeProvider(api, root, evmAddressToSubstrateAddress(evmWalletCc3.address));
 
-        const acctBefore = await (api.query as any).assets.account(assetId, substrateBeneficiary);
+        const acctBefore = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, substrateBeneficiary);
         const bal0 = acctBefore.isSome ? BigInt(acctBefore.unwrap().balance.toString()) : 0n;
 
         const beneficiaryB32 = accountIdToBytes32(substrateBeneficiary);
         const tx = await precompile.depositTo(depositAmt, beneficiaryB32, { gasLimit: DEPOSIT_PRECOMPILE_GAS });
         await tx.wait();
 
-        const acctAfter = await (api.query as any).assets.account(assetId, substrateBeneficiary);
+        const acctAfter = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, substrateBeneficiary);
         expect(acctAfter.isSome).toBe(true);
         const bal1 = BigInt(acctAfter.unwrap().balance.toString());
         expect(bal1 - bal0).toEqual(depositAmt);
@@ -299,7 +340,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     test('withdraw burns pallet-assets attest coin and sends ERC-20 back to caller', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
-        const assetId = 1;
+        await ensureNativeProvider(api, root, evmAddressToSubstrateAddress(evmWalletCc3.address));
 
         // First deposit some attest coin so the EVM caller's mapped substrate account has a balance
         // that we can subsequently withdraw back out as ERC-20.
@@ -309,7 +350,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
         const mapped = evmAddressToSubstrateAccountId(evmWalletCc3.address);
 
-        const acctBefore = await (api.query as any).assets.account(assetId, mapped);
+        const acctBefore = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
         const palletBalBefore = acctBefore.isSome ? BigInt(acctBefore.unwrap().balance.toString()) : 0n;
 
         await (
@@ -318,7 +359,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
             })
         ).wait();
 
-        const acctAfterDeposit = await (api.query as any).assets.account(assetId, mapped);
+        const acctAfterDeposit = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
         expect(acctAfterDeposit.isSome).toBe(true);
         const palletBalAfterDeposit = BigInt(acctAfterDeposit.unwrap().balance.toString());
         expect(palletBalAfterDeposit - palletBalBefore).toEqual(amount);
@@ -336,7 +377,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         expect(receipt?.status).toEqual(1);
 
         // Substrate balance decreased by exactly `amount`.
-        const acctAfterWithdraw = await (api.query as any).assets.account(assetId, mapped);
+        const acctAfterWithdraw = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
         const palletBalAfterWithdraw = acctAfterWithdraw.isSome
             ? BigInt(acctAfterWithdraw.unwrap().balance.toString())
             : 0n;
@@ -398,6 +439,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const depositAmt = parseEther('10');
         await (await token.mint(evmWalletCc3.address, depositAmt)).wait();
         await (await token.approve(ATTEST_COIN_PRECOMPILE, depositAmt)).wait();
+        await ensureNativeProvider(api, root, evmAddressToSubstrateAddress(evmWalletCc3.address));
         await (await precompile.deposit(depositAmt, { gasLimit: DEPOSIT_PRECOMPILE_GAS })).wait();
 
         const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
@@ -440,34 +482,35 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     test('withdraw rolls back ERC-20 transfer when burn fails', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
-        const assetId = 1;
         const precompileSubstrate = evmAddressToSubstrateAccountId(ATTEST_COIN_PRECOMPILE);
         const amount = parseEther('2');
 
         await (await token.mint(evmWalletCc3.address, amount)).wait();
         await (await token.approve(ATTEST_COIN_PRECOMPILE, amount)).wait();
         const mapped = evmAddressToSubstrateAccountId(evmWalletCc3.address);
+        await ensureNativeProvider(api, root, evmAddressToSubstrateAddress(evmWalletCc3.address));
 
         await (await precompile.deposit(amount, { gasLimit: DEPOSIT_PRECOMPILE_GAS })).wait();
 
         const erc20Before = await token.balanceOf(evmWalletCc3.address);
         const treasuryBefore = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
-        const acct = await (api.query as any).assets.account(assetId, mapped);
+        const acct = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
         const palletBefore = BigInt(acct.unwrap().balance.toString());
 
-        const assetDetails = (await (api.query as any).assets.asset(assetId)).unwrap();
+        const assetDetails = (await (api.query as any).assets.asset(ATTEST_COIN_ASSET_ID)).unwrap();
+        const isFrozen = assetDetails.status.type === 'Frozen';
         await dispatchRootCall(
             api,
             root,
             (api.tx as any).assets.forceAssetStatus(
-                assetId,
+                ATTEST_COIN_ASSET_ID,
                 precompileSubstrate,
                 precompileSubstrate,
                 alice.address,
                 root.address,
                 assetDetails.minBalance,
                 assetDetails.isSufficient,
-                assetDetails.status.isFrozen,
+                isFrozen,
             ),
         );
         await forElapsedBlocks(api, { minBlocks: 1 });
@@ -476,21 +519,21 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
         expect(await token.balanceOf(evmWalletCc3.address)).toEqual(erc20Before);
         expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBefore);
-        const acctAfter = await (api.query as any).assets.account(assetId, mapped);
+        const acctAfter = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
         expect(BigInt(acctAfter.unwrap().balance.toString())).toEqual(palletBefore);
 
         await dispatchRootCall(
             api,
             root,
             (api.tx as any).assets.forceAssetStatus(
-                assetId,
+                ATTEST_COIN_ASSET_ID,
                 precompileSubstrate,
                 precompileSubstrate,
                 precompileSubstrate,
                 root.address,
                 assetDetails.minBalance,
                 assetDetails.isSufficient,
-                assetDetails.status.isFrozen,
+                isFrozen,
             ),
         );
         await forElapsedBlocks(api, { minBlocks: 1 });
@@ -503,7 +546,6 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     test('deposit attest coin, move to sr25519 stash, then registerAttestor', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
-        const assetId = 1;
 
         const minBondWei = parseEther('100');
         await dispatchRootCall(
@@ -522,9 +564,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const stash = kr.addFromMnemonic(mnemonicGenerate(12));
         const attestor = kr.addFromMnemonic(mnemonicGenerate(12));
 
-        const nativeFund = new BN('1000000000000000000000000');
-        await dispatchRootCall(api, root, (api.tx as any).balances.forceSetBalance(stash.address, nativeFund));
-        await forElapsedBlocks(api, { minBlocks: 1 });
+        await ensureNativeProvider(api, root, stash.address);
 
         await (await token.mint(evmWalletCc3.address, depositAmt)).wait();
         await (await token.approve(ATTEST_COIN_PRECOMPILE, depositAmt)).wait();
@@ -533,7 +573,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await (await precompile.depositTo(depositAmt, stashB32, { gasLimit: DEPOSIT_PRECOMPILE_GAS })).wait();
         await forElapsedBlocks(api, { minBlocks: 1 });
 
-        const stashAcct = await (api.query as any).assets.account(assetId, stash.address);
+        const stashAcct = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, stash.address);
         expect(stashAcct.isSome).toBe(true);
         const stashFree = BigInt(stashAcct.unwrap().balance.toString());
         expect(stashFree >= minBond).toBe(true);

@@ -10,19 +10,15 @@ import {
 } from '../helpers';
 import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
 import { getBalance } from '../../../lib/balance';
-import { getValidatorStatus, validatorStatusTable } from '../../../lib/staking/validatorStatus';
+import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
 import { parseAmount } from '../../../commands/options';
 
-async function nextUnbondingInMs(validatorAddress: string, api: ApiPromise) {
-    const status = await validatorStatusTable(await getValidatorStatus(validatorAddress, api), api, false);
-    const unbondingData = (status.at(-1) as string[]).at(-1) as string;
-
-    if (unbondingData === 'None') {
-        return BigInt(0);
+async function nextUnbondingInMs(validatorAddress: string, api: ApiPromise): Promise<bigint> {
+    const status = await getValidatorStatus(validatorAddress, api);
+    if (!status?.nextUnlocking.length) {
+        return 0n;
     }
-
-    // returns data in milliseconds
-    return BigInt((unbondingData.split(' CTC in ').at(-1) as string).split(';').at(0) as string);
+    return BigInt(status.nextUnlocking[0].millis);
 }
 
 describe('withdraw-unbonded', () => {
@@ -124,10 +120,14 @@ describe('withdraw-unbonded', () => {
             // WARNING: ONLY execute without a proxy b/c we're using `caller.address` directly
             if (process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no') {
                 const blockTime = api.consts.babe.expectedBlockTime.toNumber();
+                const eraLengthBlocks = (await api.derive.session.progress()).eraLength.toNumber();
+                // Per-block samples are ~[blockTime, 2×blockTime]; an era rollover drops ~eraLength blocks.
+                const maxDecreaseMs = eraLengthBlocks * blockTime + blockTime * 2;
                 let oldUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
 
-                // note: 15 blocks * 2 epochs * 7 eras is 210 blocks !
-                const maxIterations = 200;
+                // Sample the countdown for a few blocks, including at least one era boundary while
+                // `waitEras(bondingDuration)` runs in parallel.
+                const maxIterations = 30;
                 for (let i = 0; i < maxIterations; i++) {
                     const errMsg = `Failed on iteration #${i}/${maxIterations}`;
 
@@ -141,11 +141,11 @@ describe('withdraw-unbonded', () => {
 
                     const difference = oldUnbonding - newUnbonding;
 
-                    // diff between 2 consequtive queries is [5, 10] seconds
-                    // the upper range to account for race condition b/c when block is stored
-                    //  on chain and when we actually query for this information
-                    expect(difference, errMsg).toBeGreaterThanOrEqual(blockTime);
-                    expect(difference, errMsg).toBeLessThanOrEqual(blockTime * 2);
+                    expect(difference, errMsg).toBeGreaterThanOrEqual(0);
+                    expect(difference, errMsg).toBeLessThanOrEqual(maxDecreaseMs);
+                    if (difference <= blockTime * 2) {
+                        expect(difference, errMsg).toBeGreaterThanOrEqual(blockTime);
+                    }
 
                     oldUnbonding = newUnbonding;
                 }
