@@ -86,8 +86,8 @@ pub mod v1_init_attestation {
     use super::*;
     use attestor_primitives::ChainKey;
     use pallet_attestation::{
-        AttestationCheckpointInterval, ChainAttestationInterval, MaxAttestors, MaxInvulnerables,
-        TargetSampleSize,
+        AttestationCheckpointInterval, AttestorElectionPolicy, ChainAttestationInterval,
+        ChainElectionPolicy, MaxAttestors, MaxInvulnerables, TargetSampleSize,
     };
 
     pub struct Migration<T>(PhantomData<T>);
@@ -107,7 +107,7 @@ pub mod v1_init_attestation {
                 AttestationCheckpointInterval::<T>::insert(chain_key, 10u32);
                 MaxAttestors::<T>::insert(chain_key, T::MaxAttestationNodes::get());
                 MaxInvulnerables::<T>::insert(chain_key, T::MaxAttestationNodes::get());
-                // No invulnerables or checkpoints for initial config.
+                ChainElectionPolicy::<T>::insert(chain_key, AttestorElectionPolicy::AuthorizedOnly);
 
                 log::info!(
                     target: "runtime::migrations",
