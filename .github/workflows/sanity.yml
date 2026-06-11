@@ -121,9 +121,9 @@ jobs:
           ./generate-metadata-json.sh
           cd ../..
           # Check if metadata JSON files were modified
-          if [ -n "$(git status --short --untracked-files=no precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json)" ]; then
+          if [ -n "$(git status --short --untracked-files=no precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json precompiles/metadata/precompiles-creditcoin3-mainnet.json)" ]; then
             echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh' and commit the changes."
-            git diff precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json
+            git diff precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json precompiles/metadata/precompiles-creditcoin3-mainnet.json
             exit 1
           fi
 
