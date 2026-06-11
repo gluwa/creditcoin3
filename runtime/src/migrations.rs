@@ -3,7 +3,7 @@ use scale_info::prelude::string::String;
 use sp_runtime::traits::Get;
 use sp_std::marker::PhantomData;
 
-/// Initializes `pallet_supported_chains` storage with the Sepolia Ethereum chain.
+/// Initializes `pallet_supported_chains` storage with the Ethereum chain.
 ///
 /// Guards on data absence: runs if `SupportedChains` storage is empty, skips otherwise.
 /// This is intentional — `BeforeAllRuntimeMigrations` auto-syncs `StorageVersion` for new
@@ -25,10 +25,10 @@ pub mod v1_init_supported_chains {
                     "v1_init_supported_chains: running"
                 );
 
-                // Sepolia Ethereum - chain_key 1
+                // Ethereum - chain_key 1
                 let chain_key: ChainKey = 1;
-                let chain_id: u64 = 11155111;
-                let chain_name = "Sepolia ethereum".as_bytes().to_vec();
+                let chain_id: u64 = 1;
+                let chain_name = "Ethereum".as_bytes().to_vec();
 
                 SupportedChains::<T>::insert(
                     chain_key,
@@ -63,7 +63,7 @@ pub mod v1_init_supported_chains {
             let chain_key: attestor_primitives::ChainKey = 1;
             frame_support::ensure!(
                 SupportedChains::<T>::contains_key(chain_key),
-                "post_upgrade: chain_key=1 (Sepolia) not found in SupportedChains"
+                "post_upgrade: chain_key=1 (Ethereum) not found in SupportedChains"
             );
             frame_support::ensure!(
                 ChainKeyValue::<T>::get() == 2u64,
@@ -78,7 +78,7 @@ pub mod v1_init_supported_chains {
     }
 }
 
-/// Initializes `pallet_attestation_poc` storage for chain_key=1 (Sepolia).
+/// Initializes `pallet_attestation_poc` storage for chain_key=1 (Ethereum).
 ///
 /// Guards on data absence: runs if `TargetSampleSize` has no entry for chain_key=1.
 /// See `v1_init_supported_chains` for explanation of why version-based guards cannot be used.
@@ -183,9 +183,9 @@ pub mod v1_init_operators {
                 );
 
                 // Initial operator account — can be removed or supplemented via governance.
-                // 5HbPgFzxtmmMvonZHL7ykepUqN8cnMFgWci2SRJ6LHMt8dcb
+                // 5Co5nmjuasULHzwBouuNZ1wYNKjHiBXubDY6WQz5ep2zHTDc
                 let operator = AccountId32::new(hex_literal::hex!(
-                    "f49493c655bf40a6af007f4f6285f5bf71a8925893b93b4c6526c6c7e874cd47"
+                    "205223b1acdf381019ceedd2a65197b95769b965f67a7693c924536e3b394047"
                 ));
 
                 let members: BoundedVec<T::AccountId, T::MaxMembers> = match BoundedVec::try_from(
