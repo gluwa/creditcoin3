@@ -75,7 +75,7 @@ flowchart TB
     R2 -.->|"typically while registered and active"| A1
 
     subgraph claim_path [4. Claim — liquid token payout]
-        C1[Stash or controller signs claim message sr25519]
+        C1[Stash signs claim message sr25519]
         C2[Same user submits claim tx from EVM recipient]
         C3[Accrued debited nonce bumped]
         C4[ERC-20 transfer from precompile treasury to user]
@@ -97,9 +97,7 @@ flowchart TB
 
 ## How rewards build up
 
-1. **Attestation success** — When an attestation is committed and your role counts as an **eligible signer**, the network can **credit reward points to your stash** (via the configured per-signer rule). Multiple attestor identities can map to the **same stash**; points accrue to that **one** stash.
-2. **Optional operational / test top-ups** — Governance (or automated tests) may also run a **settlement** that **splits a pool** across everyone registered in the attestation ledger. That path exists for **ops and testing**; it is not a substitute for the normal attestation-driven accrual story.
-
+1. **Attestation success** — When an attestation is committed and your role counts as an **eligible signer**, the network credits ** reward points to your stash** (via the configured per-signer rule). Multiple attestor identities can map to the **same stash**; points accrue to that **one** stash.
 Reward points are **per stash** and are tracked **separately** from ERC-20 balances until someone claims.
 
 ---
@@ -108,11 +106,11 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 
 1. **Check points** — The user (or a dApp) reads how many **unclaimed points** the stash has (exposed as an EVM **view** so wallets and apps can show it).
 2. **Choose amount** — The user chooses **how many points to convert** in this transaction, up to their remaining balance.
-3. **Authorize with a Substrate key** — The **stash account**, or in typical setups its **controller**, signs an off-chain message that binds: **stash**, **claim counter**, **chain domain**, **amount**, and **EVM recipient address**. This uses the same family of keys used elsewhere on Creditcoin (sr25519).
+3. **Authorize with the stash key** — The **stash account** (sr25519) signs an off-chain message that binds: **network genesis**, **stash**, **claim counter**, **chain domain**, **amount**, and **EVM recipient address**.
 4. **Submit on EVM** — The user sends a transaction **from the EVM address that should receive the tokens**. That address must **match** the recipient named in the signed message—this stops simple front-running of someone else’s payout.
 5. **Settlement** — If everything checks out, the system **reduces** the stash’s reward points, **bumps** a per-stash **claim counter** (so old signatures can’t be reused), and the **ERC-20 contract** transfers tokens **from the treasury** to the user’s address.
 
-**Important:** The precompile **does not mint** the ERC-20 on claim. **Treasury must already hold** enough tokens. Funding that treasury is a **governance / launch** responsibility (mint to the treasury address, transfer in, etc.).
+**Important:** The precompile **does not mint** the ERC-20 on claim. **Treasury must already hold** enough tokens. Funding must cover both **outstanding reward points** and **ERC-20 backing** for all deposit-minted attest coin (claims cannot drain the pool below what withdraws require). Treasury top-up is a **governance / launch** responsibility.
 
 ---
 
@@ -120,8 +118,8 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 
 | Role | Role |
 |------|------|
-| **Stash** | The account that earns **reward points** and (with a valid signature) authorizes **claims**. |
-| **Controller** | Often the same keys as the stash; if staking uses a separate controller, **either** stash **or** controller may sign, matching common Substrate patterns. |
+| **Stash** | The account that earns **reward points** and must **sign claims** (sr25519). Staking **controllers cannot sign claims**. |
+| **Controller** | May operate attestor identities on-chain, but **does not** authorize attest-coin **claims** — only the stash key does. |
 | **EVM recipient** | The **Ethereum-style address** that actually receives the ERC-20; must be the **sender** of the claim transaction. |
 | **Treasury (precompile-held balance)** | The **ERC-20 balance** attributed to the attest-coin **precompile address**—tokens sit there until claims **transfer** them out. |
 
@@ -130,7 +128,7 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 ## Governance and operations
 
 - **Which ERC-20 counts** — Network governance (root) points the runtime at a **specific ERC-20 contract** for attest-coin. Until that is set, claims are not meaningful.
-- **Treasury funding** — Ensure the precompile’s address on that token holds **enough balance** to cover outstanding reward points you intend to honor (same numeric semantics as points in the current design).
+- **Treasury funding** — Ensure the precompile’s address on that token holds **enough balance** to cover outstanding reward points **and** ERC-20 backing for all **withdrawable** deposit-minted attest coin (total supply minus the attestation bond pool; same numeric semantics as points in the current design).
 - **Claim ordering** — Each stash has a **monotonic claim counter**. Wallets and scripts must use the **current** counter when building signatures; reusing an old one fails by design.
 
 ---
@@ -138,8 +136,8 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 ## Security and abuse notes (non-technical)
 
 - **Recipient = sender on EVM** — You cannot claim to someone else’s address in the same transaction you sign for yourself without their cooperation; the design expects the **recipient wallet** to submit the transaction.
-- **Replay protection** — The claim counter and signed fields stop **re-submitting** the same approval.
-- **Domain separation** — The signed message includes a **chain / domain** field so the same key material is not accidentally reused across unrelated contexts.
+- **Replay protection** — The claim counter, **network genesis hash**, and signed fields stop **re-submitting** the same approval or replaying signatures on another network.
+- **Domain separation** — The signed message includes **genesis hash** and a **chain / domain** field so the same key material is not accidentally reused across unrelated contexts.
 
 ---
 
@@ -156,9 +154,9 @@ Reward points are **per stash** and are tracked **separately** from ERC-20 balan
 |------|----------------|
 | **Accrued / reward points** | Off-chain–visible **ledger** balance before claim; not the same as ERC-20 wallet balance until claimed. |
 | **Claim** | One atomic step: **verify authorization**, **update ledger**, **move ERC-20** to the user. |
-| **Treasury** | The **ERC-20 balance** held by the attest-coin precompile address, used to pay claims. |
+| **Treasury** | The **ERC-20 balance** held by the attest-coin precompile address, used to pay **claims** and to **back withdraws** after **deposits**. |
 | **Substrate asset / native attest coin (`pallet-assets`)** | The **on-chain fungible asset** balance used for **bonding** (and related attestation economics). Created when ERC-20 is **deposited** via the precompile (**mint** to a Substrate `AccountId`). Distinct from **reward points** and from **ERC-20** balances. |
-| **Deposit / bridge** | Optional flow: move ERC-20 into the precompile so the runtime **mints Substrate asset units** for **bonding** (not the same as **claim**, which pays **ERC-20** from treasury). |
+| **Deposit / bridge** | Optional flow: move ERC-20 into the precompile so the runtime **mints Substrate asset units** for **bonding** (not the same as **claim**, which pays **ERC-20** from treasury). **`withdraw`** is the inverse (burn native, receive ERC-20). |
 
 ---
 
