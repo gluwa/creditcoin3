@@ -22,6 +22,13 @@ type EthereumPrecompilesChecks = (AcceptDelegateCall, CallableByContract, Callab
 /// Non-frontier/non-mainnet precompiles: delegatecall *not* allowed (see `common_checks` in precompile-utils).
 type NonEthereumPrecompileChecks = (CallableByContract, CallableByPrecompile);
 
+/// Attest-coin bridges through a configured ERC-20, so it must be allowed to make direct subcalls.
+type AttestCoinPrecompileChecks = (
+    CallableByContract,
+    CallableByPrecompile,
+    SubcallWithMaxNesting<0>,
+);
+
 /// Upper bound on the Creditcoin-precompile numeric address band (covers 4049–5050 today with room above).
 ///
 /// Addresses from `AddressU64<1>` through this exclusive band are routed through the tuple below;
@@ -44,7 +51,7 @@ type GluwaPrecompilesInner<R> = (
     PrecompileAt<AddressU64<4050>, BlockProverPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4051>, ChainInfoPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4052>, AttestorStashPrecompile<R>, NonEthereumPrecompileChecks>,
-    PrecompileAt<AddressU64<4053>, AttestCoinPrecompile<R>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<4053>, AttestCoinPrecompile<R>, AttestCoinPrecompileChecks>,
     PrecompileAt<AddressU64<5049>, Sr25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<5050>, Ed25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
 );

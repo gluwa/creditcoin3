@@ -141,6 +141,13 @@ describe('withdraw-unbonded', () => {
 
                     const difference = oldUnbonding - newUnbonding;
 
+                    // `waitEras(bondingDuration)` runs in parallel; when unbonding completes the
+                    // next chunk disappears and millis snaps to zero (a full-era drop, not ~1 block).
+                    if (newUnbonding === 0n) {
+                        expect(oldUnbonding, errMsg).toBeGreaterThan(0n);
+                        break;
+                    }
+
                     expect(difference, errMsg).toBeGreaterThanOrEqual(0);
                     expect(difference, errMsg).toBeLessThanOrEqual(maxDecreaseMs);
                     if (difference <= blockTime * 2) {
