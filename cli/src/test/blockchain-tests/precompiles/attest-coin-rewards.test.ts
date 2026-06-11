@@ -376,6 +376,126 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         ).rejects.toThrow();
     }, 120_000);
 
+    test('claim reverts when treasury would impair deposit backing', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const stashU8 = decodeAddress(alice.address);
+        const b32 = zeroPadValue(hexlify(stashU8), 32);
+
+        const ptsBefore = await precompile.accrued(b32);
+        if (ptsBefore === 0n) {
+            return;
+        }
+
+        const factory = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode, evmWalletCc3);
+        const isolated = await factory.deploy();
+        await isolated.waitForDeployment();
+        const isolatedAddr = await isolated.getAddress();
+        const token = new ethers.Contract(isolatedAddr, tokenArtifact.abi, evmWalletCc3);
+
+        await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(isolatedAddr));
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        const depositAmt = parseEther('10');
+        await (await token.mint(evmWalletCc3.address, depositAmt)).wait();
+        await (await token.approve(ATTEST_COIN_PRECOMPILE, depositAmt)).wait();
+        await (await precompile.deposit(depositAmt, { gasLimit: DEPOSIT_PRECOMPILE_GAS })).wait();
+
+        const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
+        const claimNonceBn = BigInt(
+            (
+                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
+            ).toString(),
+        );
+
+        const genesisHashHex = await api.rpc.chain.getBlockHash(0);
+        const msg = buildClaimSigningMessage(
+            ethers.getBytes(genesisHashHex),
+            stashU8,
+            claimNonceBn,
+            BigInt(chain_Anvil1_Key),
+            claimAmt,
+            ethers.getBytes(evmWalletCc3.address),
+        );
+        const sig = alice.sign(msg);
+        const sigHi = ethers.hexlify(sig.subarray(0, 32));
+        const sigLo = ethers.hexlify(sig.subarray(32, 64));
+
+        await expect(
+            precompile.claim.staticCall(
+                b32,
+                claimNonceBn,
+                BigInt(chain_Anvil1_Key),
+                claimAmt,
+                evmWalletCc3.address,
+                sigHi,
+                sigLo,
+                { gasLimit: 1_000_000n },
+            ),
+        ).rejects.toThrow(/636c61696d20776f756c6420696d70616972206465706f736974206261636b696e67/);
+
+        await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
+        await forElapsedBlocks(api, { minBlocks: 1 });
+    }, 180_000);
+
+    test('withdraw rolls back ERC-20 transfer when burn fails', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
+        const assetId = 1;
+        const precompileSubstrate = evmAddressToSubstrateAccountId(ATTEST_COIN_PRECOMPILE);
+        const amount = parseEther('2');
+
+        await (await token.mint(evmWalletCc3.address, amount)).wait();
+        await (await token.approve(ATTEST_COIN_PRECOMPILE, amount)).wait();
+        const mapped = evmAddressToSubstrateAccountId(evmWalletCc3.address);
+
+        await (await precompile.deposit(amount, { gasLimit: DEPOSIT_PRECOMPILE_GAS })).wait();
+
+        const erc20Before = await token.balanceOf(evmWalletCc3.address);
+        const treasuryBefore = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
+        const acct = await (api.query as any).assets.account(assetId, mapped);
+        const palletBefore = BigInt(acct.unwrap().balance.toString());
+
+        const assetDetails = (await (api.query as any).assets.asset(assetId)).unwrap();
+        await dispatchRootCall(
+            api,
+            root,
+            (api.tx as any).assets.forceAssetStatus(
+                assetId,
+                precompileSubstrate,
+                precompileSubstrate,
+                alice.address,
+                root.address,
+                assetDetails.minBalance,
+                assetDetails.isSufficient,
+                assetDetails.status.isFrozen,
+            ),
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        await expect(precompile.withdraw.staticCall(amount, { gasLimit: WITHDRAW_PRECOMPILE_GAS })).rejects.toThrow();
+
+        expect(await token.balanceOf(evmWalletCc3.address)).toEqual(erc20Before);
+        expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBefore);
+        const acctAfter = await (api.query as any).assets.account(assetId, mapped);
+        expect(BigInt(acctAfter.unwrap().balance.toString())).toEqual(palletBefore);
+
+        await dispatchRootCall(
+            api,
+            root,
+            (api.tx as any).assets.forceAssetStatus(
+                assetId,
+                precompileSubstrate,
+                precompileSubstrate,
+                precompileSubstrate,
+                root.address,
+                assetDetails.minBalance,
+                assetDetails.isSufficient,
+                assetDetails.status.isFrozen,
+            ),
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
+    }, 180_000);
+
     /**
      * End-to-end: set a non-zero min bond, `depositTo` ERC-20 straight to the sr25519 stash, then
      * `registerAttestor` (no `force_transfer` - user-controlled beneficiary).
