@@ -32,6 +32,25 @@ pub const CONTINUITY_BLOCK_HASH_COST: u64 = 48; // Keccak-256 hash cost: 30 base
 // Gas cost for a storage lookup (matches cold SLOAD)
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
 
+/// Hard upper bound on the number of continuity roots accepted in a single proof.
+///
+/// A legitimate continuity proof spans the gap between the query height and the
+/// anchoring attestation/checkpoint. The current per-chain gap is
+/// `attestation_interval * checkpoint_interval`, but both are mutable, so a proof
+/// into a historically-checkpointed region may legitimately span a wider gap than
+/// the current config implies and the historical width is not recorded on-chain.
+/// This ceiling is therefore deliberately *loose*: it sits far above any plausible
+/// historical checkpoint spacing so it never rejects a valid proof, while still
+/// failing fast on pathological inputs (e.g. the ~100k-root case) before any
+/// allocation/hashing work.
+///
+/// This is defence-in-depth, not a soundness gate: the per-root work is already
+/// gas-metered at the EVM keccak rate, and an oversized proof can only reach the
+/// revert path (success requires a real attestation/checkpoint at the final block,
+/// which an attacker cannot fabricate). It mirrors the bounded arrays used
+/// elsewhere in this precompile (`MaxBatchSize`, `ConstU10MB`).
+pub const MAX_CONTINUITY_ROOTS: usize = 50_000;
+
 // Gas cost constants for calculateTxIndex
 // Base cost: 10 gas units
 pub const CALCULATE_TX_INDEX_BASE_COST: u64 = 10;

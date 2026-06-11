@@ -414,6 +414,88 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
 }
 
 #[test]
+fn test_verify_continuity_chain_rejects_too_many_roots() {
+    ExtBuilder::default().build().execute_with(|| {
+        // A proof with more roots than MAX_CONTINUITY_ROOTS must fail fast,
+        // before any hashing/storage work, with the dedicated revert message.
+        let start_block_number = 1u64;
+        let oversized_len = crate::verify::MAX_CONTINUITY_ROOTS + 1;
+        let continuity_proof =
+            ContinuityProof::new(H256::zero(), vec![H256::zero(); oversized_len]);
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        let result = BlockProverPrecompile::<Runtime>::verify_continuity_chain(
+            &mut handle,
+            &continuity_proof,
+            start_block_number,
+            1, // chain_key
+            start_block_number + oversized_len as u64 - 1,
+        );
+
+        let expected =
+            crate::encode_revert_message("Continuity chain exceeds maximum allowed roots");
+        assert!(
+            matches!(&result, Err(PrecompileFailure::Revert { output, .. }) if *output == expected),
+            "Expected TooManyRoots revert, got {result:?}"
+        );
+
+        // The guard must fire before the upfront per-root gas charge: hashing
+        // MAX_CONTINUITY_ROOTS+1 blocks would otherwise cost far more than this.
+        assert!(
+            handle.gas_used < crate::verify::CONTINUITY_BLOCK_HASH_COST,
+            "Oversized proof should be rejected before charging per-root hashing gas"
+        );
+    });
+}
+
+#[test]
+fn test_verify_continuity_chain_accepts_max_roots_boundary() {
+    ExtBuilder::default().build().execute_with(|| {
+        // A proof at exactly MAX_CONTINUITY_ROOTS must pass the length guard.
+        // It still fails later (no matching attestation/checkpoint), proving the
+        // cap itself did not reject a within-bound proof.
+        let start_block_number = 1u64;
+        let max_len = crate::verify::MAX_CONTINUITY_ROOTS;
+        let continuity_proof = ContinuityProof::new(H256::zero(), vec![H256::zero(); max_len]);
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        let result = BlockProverPrecompile::<Runtime>::verify_continuity_chain(
+            &mut handle,
+            &continuity_proof,
+            start_block_number,
+            1, // chain_key
+            start_block_number + max_len as u64 - 1,
+        );
+
+        let too_many =
+            crate::encode_revert_message("Continuity chain exceeds maximum allowed roots");
+        match result {
+            Err(PrecompileFailure::Revert { output, .. }) => assert_ne!(
+                output, too_many,
+                "Boundary-length proof must not be rejected by the roots cap"
+            ),
+            other => panic!("Expected a (non-TooManyRoots) revert, got {other:?}"),
+        }
+    });
+}
+
+#[test]
 fn test_verify_continuity_chain_at_checkpoint_height_errors_when_supported_chain_was_removed() {
     ExtBuilder::default().build().execute_with(|| {
         let query_height = 100;

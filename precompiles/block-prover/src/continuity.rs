@@ -17,6 +17,8 @@ use crate::BlockProverPrecompile;
 pub enum ContinuityVerificationError {
     /// Continuity chain doesn't have enough blocks
     InsufficientBlocks,
+    /// Continuity chain exceeds the maximum allowed number of roots
+    TooManyRoots,
     /// Continuity chain does not reach query height
     ChainDoesNotReachQueryHeight,
     /// Continuity chain does not end at a valid attestation or checkpoint
@@ -28,6 +30,7 @@ impl ContinuityVerificationError {
     pub fn message(&self) -> &'static str {
         match self {
             Self::InsufficientBlocks => "Continuity chain cannot be empty",
+            Self::TooManyRoots => "Continuity chain exceeds maximum allowed roots",
             Self::ChainDoesNotReachQueryHeight => "Continuity chain does not reach query height",
             Self::NoMatchingAttestationOrCheckpoint => {
                 "Continuity proof does not match attestation or checkpoint"
@@ -97,6 +100,13 @@ where
             return Err(continuity_revert(
                 ContinuityVerificationError::InsufficientBlocks,
             ));
+        }
+
+        // Reject absurdly large proofs early, before any hashing work. Legitimate
+        // proofs are far smaller than this cap; the per-root work is also gas-metered,
+        // so this is a fail-fast guard against pathological calldata.
+        if continuity_proof.roots.len() > crate::verify::MAX_CONTINUITY_ROOTS {
+            return Err(continuity_revert(ContinuityVerificationError::TooManyRoots));
         }
 
         // Validate the continuity chain reaches the query height (fail early before digest computation)
