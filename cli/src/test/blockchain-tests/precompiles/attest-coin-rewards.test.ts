@@ -84,16 +84,18 @@ function toLeU128(n: bigint): Buffer {
 
 /** Must match `pallet_attest_coin_rewards::Pallet::claim_signing_message`. */
 function buildClaimSigningMessage(
+    genesisHash32: Uint8Array,
     stash32: Uint8Array,
     nonce: bigint,
     chainKey: bigint,
     amount: bigint,
     evmRecipient20: Uint8Array,
 ): Uint8Array {
-    const prefix = Buffer.from('AttestCoin:claim:v1:', 'utf8');
+    const prefix = Buffer.from('AttestCoin:claim:v2:', 'utf8');
     return new Uint8Array(
         Buffer.concat([
             prefix,
+            Buffer.from(genesisHash32),
             Buffer.from(stash32),
             toLeU64(nonce),
             toLeU64(chainKey),
@@ -237,7 +239,16 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         );
 
         const evmRecipient = ethers.getBytes(evmWalletCc3.address);
-        const msg = buildClaimSigningMessage(stashU8, claimNonceBn, BigInt(chain_Anvil1_Key), claimAmt, evmRecipient);
+        const genesisHashHex = await api.rpc.chain.getBlockHash(0);
+        const genesisHashU8 = ethers.getBytes(genesisHashHex);
+        const msg = buildClaimSigningMessage(
+            genesisHashU8,
+            stashU8,
+            claimNonceBn,
+            BigInt(chain_Anvil1_Key),
+            claimAmt,
+            evmRecipient,
+        );
         const sig = alice.sign(msg);
         if (sig.length !== 64) {
             throw new Error(`expected 64-byte sr25519 signature, got ${sig.length}`);
