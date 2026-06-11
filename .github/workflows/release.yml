@@ -156,7 +156,7 @@ jobs:
       - deploy-github-runner
     uses: ./.github/workflows/build-native.yml
     with:
-      build-options: "--release ${{ needs.setup.outputs.build_options}}"
+      build-options: "--release --features metadata-hash ${{ needs.setup.outputs.build_options}}"
       build-subkey: true
       build-subxt: true
       git-lfs-checkout: true
@@ -170,7 +170,7 @@ jobs:
       - setup
     uses: ./.github/workflows/build-wasm.yml
     with:
-      build-options: "${{ needs.setup.outputs.build_options }}"
+      build-options: "--features metadata-hash ${{ needs.setup.outputs.build_options }}"
       build-subwasm: true
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
       runs-on: "['ubuntu-24.04']"
@@ -182,7 +182,7 @@ jobs:
       - deploy-github-runner
     uses: ./.github/workflows/build-docker.yml
     with:
-      build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }}"
+      build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash"
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'type-docker']"
     secrets: inherit

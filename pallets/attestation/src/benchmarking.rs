@@ -6,6 +6,7 @@ use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
+use parity_scale_codec::Encode;
 use sp_core::H256;
 use sp_runtime::traits::Bounded;
 use sp_std::{ops::RangeInclusive, vec::Vec};
@@ -39,7 +40,9 @@ pub fn create_funded_user_with_balance<T: Config>(string: &'static str, n: u32) 
 
 impl<T: frame_system::Config> Attestor<T> {
     pub fn new(stash: T::AccountId, attestor: T::AccountId) -> Self {
-        let rng = H256::repeat_byte(123).0;
+        // Each attestor needs a distinct BLS key, otherwise registration fails
+        // with BlsKeyAlreadyRegistered.
+        let rng = sp_io::hashing::blake2_256(&attestor.encode());
         let private_key = PrivateKey::new(rng);
         let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
         let signature = private_key.sign(public_key).as_bytes()[..]

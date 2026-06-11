@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-# Script to generate precompiles metadata JSON files for devnet and testnet
+# Script to generate precompiles metadata JSON files for devnet, testnet and mainnet
 # Usage: ./generate-metadata-json.sh
 # This script extracts precompile information from runtime/src/precompiles.rs
 # to ensure consistency and avoid manual mapping errors.
@@ -14,6 +14,7 @@ sol_directory="sol"
 abi_directory="abi"
 output_devnet="precompiles-creditcoin3-devnet.json"
 output_testnet="precompiles-creditcoin3-testnet.json"
+output_mainnet="precompiles-creditcoin3-mainnet.json"
 runtime_precompiles_file="../../runtime/src/precompiles.rs"
 
 # Function to convert decimal to hex address (H160 format)
@@ -239,5 +240,6 @@ json_array+="]"
 # Format and write to output files
 echo "$json_array" | jq '.' > "$output_devnet"
 echo "$json_array" | jq '.' > "$output_testnet"
+echo "$json_array" | jq '.' > "$output_mainnet"
 
-echo "Generated $output_devnet and $output_testnet successfully"
+echo "Generated $output_devnet, $output_testnet and $output_mainnet successfully"
