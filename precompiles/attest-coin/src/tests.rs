@@ -2,11 +2,13 @@ use crate::mock::*;
 use crate::{SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO, SEL_WITHDRAW};
 use fp_evm::{Context, ExitReason, ExitRevert, ExitSucceed, PrecompileFailure};
 use frame_support::assert_ok;
+use frame_support::traits::Get;
 use pallet_assets::Pallet as AssetsPallet;
 use pallet_attest_coin_rewards::Accrued;
 use pallet_evm::AddressMapping;
 use precompile_utils::testing::{MockHandle, SubcallOutput};
 use sp_core::{sr25519, Pair, H160, U256};
+use sp_runtime::traits::UniqueSaturatedInto;
 
 fn precompile_addr() -> H160 {
     H160::from_low_u64_be(PRECOMPILE_ADDRESS_U64)
@@ -299,6 +301,123 @@ fn claim_succeeds_without_ledger_entry() {
         attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
         assert!(execute(&mut handle).is_ok());
     });
+}
+
+#[test]
+fn claim_reverts_when_would_impair_deposit_backing() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+        let (pair, _) = sr25519::Pair::generate();
+        let stash_raw: [u8; 32] = pair.public().0;
+        let stash = AccountId::from(stash_raw);
+        Accrued::<Runtime>::insert(&stash, 500u128);
+
+        let evm_recipient = H160::zero();
+        let amount = 200u128;
+        let total: u128 = AssetsPallet::<Runtime>::total_supply(1u32).unique_saturated_into();
+        let pool = AttestationBondPoolAccount::get();
+        let pool_bal: u128 = AssetsPallet::<Runtime>::balance(1u32, pool).unique_saturated_into();
+        let withdrawable = total.saturating_sub(pool_bal);
+        let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::claim_signing_message(
+            &stash,
+            0,
+            SUPPORTED_CHAIN_KEY,
+            amount,
+            evm_recipient.0,
+        );
+        let sig = pair.sign(&msg);
+        let mut sig_r = [0u8; 32];
+        let mut sig_s = [0u8; 32];
+        sig_r.copy_from_slice(&sig.0[..32]);
+        sig_s.copy_from_slice(&sig.0[32..]);
+
+        let input = claim_input(
+            stash_raw,
+            0,
+            SUPPORTED_CHAIN_KEY,
+            amount,
+            evm_recipient,
+            sig_r,
+            sig_s,
+        );
+        let mut handle = make_handle(evm_recipient, input);
+        // Treasury covers claim alone but not claim + withdrawable (non-pool) backing.
+        attach_mock_balance_then_transfer(&mut handle, withdrawable + amount - 1, true);
+        assert_reverts_with(&mut handle, b"claim would impair deposit backing");
+    });
+}
+
+#[test]
+fn claim_ignores_bond_pool_balance_in_deposit_backing() {
+    // Bond pool attest coin is not withdrawable via the precompile; claims should only reserve
+    // ERC-20 for (total_supply - pool_balance), not the full supply.
+    let caller = H160::repeat_byte(0xAA);
+    let substrate = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+
+    ExtBuilder::default()
+        .with_balances(vec![(substrate.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+            let pool = AttestationBondPoolAccount::get();
+            assert_ok!(AssetsPallet::<Runtime>::force_asset_status(
+                frame_system::RawOrigin::Root.into(),
+                1,
+                alice(),
+                alice(),
+                alice(),
+                alice(),
+                1,
+                false,
+                false,
+            ));
+            assert_ok!(AssetsPallet::<Runtime>::transfer(
+                RuntimeOrigin::signed(alice()),
+                1,
+                pool.clone(),
+                800,
+            ));
+
+            let (pair, _) = sr25519::Pair::generate();
+            let stash_raw: [u8; 32] = pair.public().0;
+            let stash = AccountId::from(stash_raw);
+            Accrued::<Runtime>::insert(&stash, 500u128);
+
+            let amount = 200u128;
+            let total: u128 = AssetsPallet::<Runtime>::total_supply(1u32).unique_saturated_into();
+            let pool_bal: u128 = AssetsPallet::<Runtime>::balance(1u32, pool).unique_saturated_into();
+            let withdrawable = total.saturating_sub(pool_bal);
+            assert!(pool_bal >= 800, "pool should hold bonded attest coin");
+
+            let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::claim_signing_message(
+                &stash,
+                0,
+                SUPPORTED_CHAIN_KEY,
+                amount,
+                caller.0,
+            );
+            let sig = pair.sign(&msg);
+            let mut sig_r = [0u8; 32];
+            let mut sig_s = [0u8; 32];
+            sig_r.copy_from_slice(&sig.0[..32]);
+            sig_s.copy_from_slice(&sig.0[32..]);
+
+            let input = claim_input(
+                stash_raw,
+                0,
+                SUPPORTED_CHAIN_KEY,
+                amount,
+                caller,
+                sig_r,
+                sig_s,
+            );
+            let mut handle = make_handle(caller, input);
+            // Would pass if backing used full supply (withdrawable + amount - 1 < total + amount - 1).
+            attach_mock_balance_then_transfer(&mut handle, withdrawable + amount, true);
+            assert!(execute(&mut handle).is_ok(), "claim should succeed with withdrawable backing");
+        });
 }
 
 #[test]

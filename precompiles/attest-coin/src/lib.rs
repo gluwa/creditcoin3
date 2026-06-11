@@ -27,7 +27,7 @@ use precompile_utils::prelude::RuntimeHelper;
 use precompile_utils::substrate::TryDispatchError;
 use sp_core::{sr25519, H160, U256};
 use sp_io::crypto::sr25519_verify;
-use sp_runtime::traits::{Dispatchable, StaticLookup};
+use sp_runtime::traits::{Dispatchable, Saturating, StaticLookup, UniqueSaturatedInto};
 use sp_std::vec::Vec;
 
 /// `accrued(bytes32)`
@@ -150,6 +150,11 @@ where
     /// [`pallet_attest_coin_rewards::AttestCoinErc20`] (funded by the protocol treasury).
     /// The claim executes `ERC-20.transfer(evm_recipient, amount)` with
     /// `sub_context.caller = code_address` so the transfer is sent from the precompile's own balance.
+    ///
+    /// Claims may only spend ERC-20 **above** the amount needed to back withdrawable
+    /// [`pallet_assets`] attest-coin (total supply minus bond-pool balance). Bonded
+    /// attest coin in [`pallet_attestation::Config::BondPoolAccount`] is not redeemable via
+    /// `withdraw`, so it does not require ERC-20 headroom during reward claims.
     fn claim(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         // claim(bytes32,uint256,uint256,uint256,address,bytes32,bytes32) — 7 × 32 bytes after selector
         handle.record_cost(120_000)?;
@@ -219,12 +224,10 @@ where
         }
 
         let treasury_balance = erc20_balance_of(handle, token, handle.code_address())?;
-        if treasury_balance < amount_u256 {
-            return Err(PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: b"insufficient treasury balance".to_vec(),
-            });
-        }
+        ensure_treasury_covers_claim_and_deposit_backing::<Runtime>(
+            treasury_balance,
+            amount_u256,
+        )?;
 
         Rewards::<Runtime>::commit_claim(&stash, nonce_u64, amount_pts).map_err(|e| {
             use pallet_attest_coin_rewards::Error as RewardErr;
@@ -494,6 +497,51 @@ where
     Runtime: pallet_attest_coin_rewards::Config,
 {
     <Runtime as pallet_attest_coin_rewards::Config>::AttestCoinAssetId::get()
+}
+
+/// ERC-20 backing required for all non-pool [`pallet_assets`] attest-coin balances.
+fn attest_coin_withdrawable_backing_u256<Runtime>() -> U256
+where
+    Runtime: pallet_assets::Config + pallet_attest_coin_rewards::Config + pallet_attestation::Config,
+    <Runtime as pallet_assets::Config>::AssetId: From<u32>,
+{
+    let asset_id: <Runtime as pallet_assets::Config>::AssetId =
+        attest_coin_asset_id::<Runtime>().into();
+    let supply = pallet_assets::Pallet::<Runtime>::total_supply(asset_id.clone());
+    let pool = <Runtime as pallet_attestation::Config>::BondPoolAccount::get();
+    let pool_bal = pallet_assets::Pallet::<Runtime>::balance(asset_id, &pool);
+    let withdrawable = supply.saturating_sub(pool_bal);
+    let v: u128 = UniqueSaturatedInto::unique_saturated_into(withdrawable);
+    U256::from(v)
+}
+
+/// Claims and withdraws share one ERC-20 treasury. Withdraw burns matching pallet-assets, so
+/// `treasury >= amount` is enough there. Claims do not burn pallet-assets, so they must leave
+/// at least [`attest_coin_withdrawable_backing_u256`] in the treasury after payout.
+fn ensure_treasury_covers_claim_and_deposit_backing<Runtime>(
+    treasury_balance: U256,
+    claim_amount: U256,
+) -> Result<(), PrecompileFailure>
+where
+    Runtime: pallet_assets::Config
+        + pallet_attest_coin_rewards::Config
+        + pallet_attestation::Config,
+    <Runtime as pallet_assets::Config>::AssetId: From<u32>,
+{
+    let deposit_backing = attest_coin_withdrawable_backing_u256::<Runtime>();
+    let required = claim_amount.checked_add(deposit_backing).ok_or_else(|| {
+        PrecompileFailure::Revert {
+            exit_status: ExitRevert::Reverted,
+            output: b"amount too large".to_vec(),
+        }
+    })?;
+    if treasury_balance < required {
+        return Err(PrecompileFailure::Revert {
+            exit_status: ExitRevert::Reverted,
+            output: b"claim would impair deposit backing".to_vec(),
+        });
+    }
+    Ok(())
 }
 
 /// EVM gas charged by [`try_dispatch_attest_coin_no_pov`] for a runtime call (matches its pre-dispatch check).
