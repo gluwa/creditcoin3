@@ -387,7 +387,8 @@ fn claim_ignores_bond_pool_balance_in_deposit_backing() {
 
             let amount = 200u128;
             let total: u128 = AssetsPallet::<Runtime>::total_supply(1u32).unique_saturated_into();
-            let pool_bal: u128 = AssetsPallet::<Runtime>::balance(1u32, pool).unique_saturated_into();
+            let pool_bal: u128 =
+                AssetsPallet::<Runtime>::balance(1u32, pool).unique_saturated_into();
             let withdrawable = total.saturating_sub(pool_bal);
             assert!(pool_bal >= 800, "pool should hold bonded attest coin");
 
@@ -416,7 +417,10 @@ fn claim_ignores_bond_pool_balance_in_deposit_backing() {
             let mut handle = make_handle(caller, input);
             // Would pass if backing used full supply (withdrawable + amount - 1 < total + amount - 1).
             attach_mock_balance_then_transfer(&mut handle, withdrawable + amount, true);
-            assert!(execute(&mut handle).is_ok(), "claim should succeed with withdrawable backing");
+            assert!(
+                execute(&mut handle).is_ok(),
+                "claim should succeed with withdrawable backing"
+            );
         });
 }
 

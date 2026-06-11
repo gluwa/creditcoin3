@@ -224,10 +224,7 @@ where
         }
 
         let treasury_balance = erc20_balance_of(handle, token, handle.code_address())?;
-        ensure_treasury_covers_claim_and_deposit_backing::<Runtime>(
-            treasury_balance,
-            amount_u256,
-        )?;
+        ensure_treasury_covers_claim_and_deposit_backing::<Runtime>(treasury_balance, amount_u256)?;
 
         Rewards::<Runtime>::commit_claim(&stash, nonce_u64, amount_pts).map_err(|e| {
             use pallet_attest_coin_rewards::Error as RewardErr;
@@ -502,7 +499,8 @@ where
 /// ERC-20 backing required for all non-pool [`pallet_assets`] attest-coin balances.
 fn attest_coin_withdrawable_backing_u256<Runtime>() -> U256
 where
-    Runtime: pallet_assets::Config + pallet_attest_coin_rewards::Config + pallet_attestation::Config,
+    Runtime:
+        pallet_assets::Config + pallet_attest_coin_rewards::Config + pallet_attestation::Config,
     <Runtime as pallet_assets::Config>::AssetId: From<u32>,
 {
     let asset_id: <Runtime as pallet_assets::Config>::AssetId =
@@ -523,18 +521,18 @@ fn ensure_treasury_covers_claim_and_deposit_backing<Runtime>(
     claim_amount: U256,
 ) -> Result<(), PrecompileFailure>
 where
-    Runtime: pallet_assets::Config
-        + pallet_attest_coin_rewards::Config
-        + pallet_attestation::Config,
+    Runtime:
+        pallet_assets::Config + pallet_attest_coin_rewards::Config + pallet_attestation::Config,
     <Runtime as pallet_assets::Config>::AssetId: From<u32>,
 {
     let deposit_backing = attest_coin_withdrawable_backing_u256::<Runtime>();
-    let required = claim_amount.checked_add(deposit_backing).ok_or_else(|| {
-        PrecompileFailure::Revert {
-            exit_status: ExitRevert::Reverted,
-            output: b"amount too large".to_vec(),
-        }
-    })?;
+    let required =
+        claim_amount
+            .checked_add(deposit_backing)
+            .ok_or_else(|| PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"amount too large".to_vec(),
+            })?;
     if treasury_balance < required {
         return Err(PrecompileFailure::Revert {
             exit_status: ExitRevert::Reverted,
