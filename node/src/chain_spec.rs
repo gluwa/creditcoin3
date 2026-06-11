@@ -123,7 +123,7 @@ fn properties() -> Properties {
 }
 
 const UNITS: Balance = 1_000_000_000_000_000_000;
-const EVM_CHAINID: u64 = 102036;
+const EVM_CHAINID: u64 = 102030;
 
 /// CC3 chainspec configurations
 pub fn devnet_config() -> Result<ChainSpec, String> {
