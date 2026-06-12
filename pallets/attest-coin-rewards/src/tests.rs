@@ -159,6 +159,25 @@ fn commit_claim_deducts_and_bumps_nonce() {
 }
 
 #[test]
+fn commit_claim_rejects_max_nonce_without_debiting_accrued() {
+    new_test_ext().execute_with(|| {
+        register_stash(alice());
+        crate::Pallet::<Runtime>::restore_accrued(&alice(), 1_000);
+        ClaimNonce::<Runtime>::insert(alice(), u64::MAX);
+
+        assert!(
+            matches!(
+                crate::Pallet::<Runtime>::commit_claim(&alice(), u64::MAX, 100),
+                Err(Error::BadClaimNonce)
+            ),
+            "expected BadClaimNonce when nonce cannot be incremented"
+        );
+        assert_eq!(crate::Pallet::<Runtime>::claim_nonce_of(&alice()), u64::MAX);
+        assert_eq!(crate::Pallet::<Runtime>::accrued_of(&alice()), 1_000);
+    });
+}
+
+#[test]
 fn undo_claim_commit_restores_nonce_and_accrued() {
     new_test_ext().execute_with(|| {
         register_stash(alice());

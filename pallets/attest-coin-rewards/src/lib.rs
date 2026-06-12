@@ -266,8 +266,11 @@ pub mod pallet {
         ) -> Result<(), Error<T>> {
             ClaimNonce::<T>::try_mutate(stash, |nonce| {
                 ensure!(*nonce == expected_nonce, Error::<T>::BadClaimNonce);
+                let next_nonce = expected_nonce
+                    .checked_add(1)
+                    .ok_or(Error::<T>::BadClaimNonce)?;
                 Self::take_accrued_for_claim(stash, amount)?;
-                *nonce = expected_nonce.saturating_add(1);
+                *nonce = next_nonce;
                 Ok(())
             })
         }
@@ -287,11 +290,18 @@ pub mod pallet {
             amount: T::RewardPoints,
         ) {
             let current = ClaimNonce::<T>::get(stash);
-            if current != nonce_before_claim.saturating_add(1) {
+            let Some(expected_current) = nonce_before_claim.checked_add(1) else {
+                log::error!(
+                    target: "runtime::attest-coin-rewards",
+                    "undo_claim_commit: nonce overflow for nonce_before_claim {nonce_before_claim}, refusing rollback"
+                );
+                return;
+            };
+            if current != expected_current {
                 log::error!(
                     target: "runtime::attest-coin-rewards",
                     "undo_claim_commit: nonce mismatch (current {current}, expected {}), refusing rollback",
-                    nonce_before_claim.saturating_add(1)
+                    expected_current
                 );
                 return;
             }
