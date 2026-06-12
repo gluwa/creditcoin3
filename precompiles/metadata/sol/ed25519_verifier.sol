@@ -11,8 +11,8 @@ Ed25519Verifier constant ED25519_VERIFIER_CONTRACT = Ed25519Verifier(ED25519_VER
 interface Ed25519Verifier {
     /// @dev Verifies an ed25519 signature.
     /// @param message The message that was signed.
-    /// @param signature The 64-byte ed25519 signature.
+    /// @param edSignature The 64-byte ed25519 signature.
     /// @param publicKey The 32-byte ed25519 public key.
     /// @return bool true if the signature is valid, false otherwise.
-    function verify(bytes calldata message, bytes calldata signature, bytes32 publicKey) external view returns (bool);
+    function verify(bytes calldata message, bytes calldata edSignature, bytes32 publicKey) external view returns (bool);
 }
