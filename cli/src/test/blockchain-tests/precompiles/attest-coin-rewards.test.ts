@@ -567,9 +567,9 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
             const acctBefore = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
             const palletBefore = acctBefore.isSome ? BigInt(acctBefore.unwrap().balance.toString()) : 0n;
 
-            await expect(
-                precompile.deposit.staticCall(amount, { gasLimit: DEPOSIT_PRECOMPILE_GAS }),
-            ).rejects.toThrow(/6e6f6e2d7374616e6461726420746f6b656e/);
+            await expect(precompile.deposit.staticCall(amount, { gasLimit: DEPOSIT_PRECOMPILE_GAS })).rejects.toThrow(
+                /6e6f6e2d7374616e6461726420746f6b656e/,
+            );
             const tx = await precompile.deposit(
                 amount,
                 await precompileTxOverrides(creditcoinEvm, DEPOSIT_PRECOMPILE_GAS),
