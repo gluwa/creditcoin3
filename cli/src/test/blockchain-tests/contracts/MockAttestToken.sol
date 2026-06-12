@@ -40,7 +40,7 @@ contract MockAttestToken {
         return true;
     }
 
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+    function transferFrom(address from, address to, uint256 amount) public virtual returns (bool) {
         uint256 a = allowance[from][msg.sender];
         require(a >= amount, "insufficient allowance");
         allowance[from][msg.sender] = a - amount;

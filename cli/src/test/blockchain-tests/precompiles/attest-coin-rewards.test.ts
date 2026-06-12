@@ -11,6 +11,8 @@ import { fundFromSudo } from '../../integration-tests/helpers';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import tokenArtifact = require('../artifacts/MockAttestToken.json');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+import feeOnTransferTokenArtifact = require('../artifacts/FeeOnTransferAttestToken.json');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import precompileAbi = require('../artifacts/attest_coin.json');
 import { forElapsedBlocks } from '../../utils';
 import { evmAddressToSubstrateAccountId } from '../../../lib/evm/address';
@@ -155,6 +157,22 @@ async function ensureTreasuryBalance(token: ethers.Contract, minBalance: bigint)
     if (bal < minBalance) {
         await (await token.mint(ATTEST_COIN_PRECOMPILE, minBalance - bal)).wait();
     }
+}
+
+function leU64Hex(n: bigint): string {
+    return hexlify(toLeU64(n));
+}
+
+async function clearAttestCoinToken(api: ApiPromise, root: KeyringPair): Promise<void> {
+    const key = (api.query as any).attestCoinRewards.attestCoinErc20.key();
+    await dispatchRootCall(api, root, (api.tx as any).system.killStorage([key]));
+    await forElapsedBlocks(api, { minBlocks: 1 });
+}
+
+async function setClaimNonce(api: ApiPromise, root: KeyringPair, stash: string, nonce: bigint): Promise<void> {
+    const key = (api.query as any).attestCoinRewards.claimNonce.key(stash);
+    await dispatchRootCall(api, root, (api.tx as any).system.setStorage([[key, leU64Hex(nonce)]]));
+    await forElapsedBlocks(api, { minBlocks: 1 });
 }
 
 async function precompileTxOverrides(provider: WebSocketProvider, gasLimit: number) {
@@ -447,6 +465,171 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await expect(
             precompile.withdraw.staticCall(parseEther('1'), { gasLimit: WITHDRAW_PRECOMPILE_GAS }),
         ).rejects.toThrow();
+    }, 120_000);
+
+    test('claim reverts with bad sr25519 signature', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const stashU8 = decodeAddress(alice.address);
+        const b32 = zeroPadValue(hexlify(stashU8), 32);
+        const claimNonceBn = BigInt(
+            (
+                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
+            ).toString(),
+        );
+        const sigHi = ethers.hexlify(new Uint8Array(32));
+        const sigLo = ethers.hexlify(new Uint8Array(32));
+
+        await expect(
+            precompile.claim.staticCall(
+                b32,
+                claimNonceBn,
+                BigInt(chain_Anvil1_Key),
+                1n,
+                evmWalletCc3.address,
+                sigHi,
+                sigLo,
+                { gasLimit: CLAIM_PRECOMPILE_GAS },
+            ),
+        ).rejects.toThrow(/626164207369676e6174757265/);
+    }, 60_000);
+
+    test('claim reverts with bad nonce', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const stashU8 = decodeAddress(alice.address);
+        const b32 = zeroPadValue(hexlify(stashU8), 32);
+        const currentNonce = BigInt(
+            (
+                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
+            ).toString(),
+        );
+        const badNonce = currentNonce + 1n;
+        const msg = buildClaimSigningMessage(
+            ethers.getBytes(await api.rpc.chain.getBlockHash(0)),
+            stashU8,
+            badNonce,
+            BigInt(chain_Anvil1_Key),
+            1n,
+            ethers.getBytes(evmWalletCc3.address),
+        );
+        const sig = alice.sign(msg);
+
+        await expect(
+            precompile.claim.staticCall(
+                b32,
+                badNonce,
+                BigInt(chain_Anvil1_Key),
+                1n,
+                evmWalletCc3.address,
+                ethers.hexlify(sig.subarray(0, 32)),
+                ethers.hexlify(sig.subarray(32, 64)),
+                { gasLimit: CLAIM_PRECOMPILE_GAS },
+            ),
+        ).rejects.toThrow(/626164206e6f6e6365/);
+    }, 60_000);
+
+    test('deposit reverts when token is not configured', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        try {
+            await clearAttestCoinToken(api, root);
+
+            await expect(
+                precompile.deposit.staticCall(parseEther('1'), { gasLimit: DEPOSIT_PRECOMPILE_GAS }),
+            ).rejects.toThrow(/746f6b656e206e6f7420636f6e66696775726564/);
+        } finally {
+            await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
+            await forElapsedBlocks(api, { minBlocks: 1 });
+        }
+    }, 120_000);
+
+    test('deposit rejects fee-on-transfer ERC-20 and rolls back token transfer', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const factory = new ContractFactory(
+            feeOnTransferTokenArtifact.abi,
+            feeOnTransferTokenArtifact.bytecode,
+            evmWalletCc3,
+        );
+        const deployed = await factory.deploy();
+        await deployed.waitForDeployment();
+        const tokenAddress = await deployed.getAddress();
+        const token = new ethers.Contract(tokenAddress, feeOnTransferTokenArtifact.abi, evmWalletCc3);
+        const amount = parseEther('2');
+        const mapped = evmAddressToSubstrateAccountId(evmWalletCc3.address);
+
+        try {
+            await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddress));
+            await forElapsedBlocks(api, { minBlocks: 1 });
+            await ensureNativeProvider(api, root, mapped);
+            await (await token.mint(evmWalletCc3.address, amount)).wait();
+            await (await token.approve(ATTEST_COIN_PRECOMPILE, amount)).wait();
+
+            const callerBefore = await token.balanceOf(evmWalletCc3.address);
+            const treasuryBefore = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
+            const acctBefore = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
+            const palletBefore = acctBefore.isSome ? BigInt(acctBefore.unwrap().balance.toString()) : 0n;
+
+            await expect(
+                precompile.deposit.staticCall(amount, { gasLimit: DEPOSIT_PRECOMPILE_GAS }),
+            ).rejects.toThrow(/6e6f6e2d7374616e6461726420746f6b656e/);
+            const tx = await precompile.deposit(
+                amount,
+                await precompileTxOverrides(creditcoinEvm, DEPOSIT_PRECOMPILE_GAS),
+            );
+            await expect(tx.wait()).rejects.toThrow();
+
+            expect(await token.balanceOf(evmWalletCc3.address)).toEqual(callerBefore);
+            expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(treasuryBefore);
+            const acctAfter = await (api.query as any).assets.account(ATTEST_COIN_ASSET_ID, mapped);
+            const palletAfter = acctAfter.isSome ? BigInt(acctAfter.unwrap().balance.toString()) : 0n;
+            expect(palletAfter).toEqual(palletBefore);
+        } finally {
+            await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
+            await forElapsedBlocks(api, { minBlocks: 1 });
+        }
+    }, 180_000);
+
+    test('claim rejects max nonce replay without mutating state', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
+        const stashU8 = decodeAddress(alice.address);
+        const b32 = zeroPadValue(hexlify(stashU8), 32);
+        const previousNonce = BigInt(
+            (
+                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
+            ).toString(),
+        );
+        const accruedBefore = await precompile.accrued(b32);
+        const balanceBefore = await token.balanceOf(evmWalletCc3.address);
+        const maxNonce = 2n ** 64n - 1n;
+        const msg = buildClaimSigningMessage(
+            ethers.getBytes(await api.rpc.chain.getBlockHash(0)),
+            stashU8,
+            maxNonce,
+            BigInt(chain_Anvil1_Key),
+            1n,
+            ethers.getBytes(evmWalletCc3.address),
+        );
+        const sig = alice.sign(msg);
+
+        try {
+            await setClaimNonce(api, root, alice.address, maxNonce);
+
+            await expect(
+                precompile.claim.staticCall(
+                    b32,
+                    maxNonce,
+                    BigInt(chain_Anvil1_Key),
+                    1n,
+                    evmWalletCc3.address,
+                    ethers.hexlify(sig.subarray(0, 32)),
+                    ethers.hexlify(sig.subarray(32, 64)),
+                    { gasLimit: CLAIM_PRECOMPILE_GAS },
+                ),
+            ).rejects.toThrow(/626164206e6f6e6365/);
+            expect(await precompile.accrued(b32)).toEqual(accruedBefore);
+            expect(await token.balanceOf(evmWalletCc3.address)).toEqual(balanceBefore);
+        } finally {
+            await setClaimNonce(api, root, alice.address, previousNonce);
+        }
     }, 120_000);
 
     test('claim reverts when treasury would impair deposit backing', async () => {
