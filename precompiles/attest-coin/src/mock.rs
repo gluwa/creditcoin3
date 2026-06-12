@@ -9,7 +9,8 @@ use frame_support::traits::{AsEnsureOriginWithArg, ConstU128, ConstU64, KeyOwner
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
 use pallet_babe::AuthorityId;
 use pallet_evm::{
-    EnsureAddressNever, EnsureAddressRoot, FrameSystemAccountProvider, HashedAddressMapping,
+    AddressMapping, EnsureAddressNever, EnsureAddressRoot, FrameSystemAccountProvider,
+    HashedAddressMapping,
 };
 use pallet_session::historical as pallet_session_historical;
 use pallet_staking::FixedNominationsQuota;
@@ -135,11 +136,19 @@ impl pallet_assets::Config for Runtime {
     type CallbackHandle = ();
 }
 
-use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
+use precompile_utils::precompile_set::{
+    AddressU64, PrecompileAt, PrecompileSetBuilder, SubcallWithMaxNesting,
+};
 
 pub type Precompiles<R> = PrecompileSetBuilder<
     R,
-    (PrecompileAt<AddressU64<PRECOMPILE_ADDRESS_U64>, AttestCoinPrecompile<R>>,),
+    (
+        PrecompileAt<
+            AddressU64<PRECOMPILE_ADDRESS_U64>,
+            AttestCoinPrecompile<R>,
+            SubcallWithMaxNesting<0>,
+        >,
+    ),
 >;
 
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
@@ -439,8 +448,11 @@ impl ExtBuilder {
             .assimilate_storage(&mut t)
             .expect("Pallet balances storage can be assimilated");
 
+        let precompile_account = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(
+            H160::from_low_u64_be(PRECOMPILE_ADDRESS_U64),
+        );
         pallet_assets::GenesisConfig::<Runtime> {
-            assets: vec![(1, alice(), false, 1)],
+            assets: vec![(1, precompile_account, false, 1)],
             metadata: vec![(1, b"AC".to_vec(), b"AC".to_vec(), 18)],
             accounts: vec![(1, alice(), attest_coin), (1, bob(), attest_coin)],
             next_asset_id: Some(2),

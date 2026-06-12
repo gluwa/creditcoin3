@@ -70,3 +70,21 @@ pub type GluwaPrecompiles<R> = PrecompileSetBuilder<
 pub fn used_addresses() -> sp_std::vec::Vec<sp_core::H160> {
     GluwaPrecompiles::<Runtime>::used_addresses_h160().collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use precompile_utils::precompile_set::PrecompileChecks;
+
+    #[test]
+    fn attest_coin_precompile_allows_direct_subcalls_only() {
+        assert_eq!(
+            <AttestCoinPrecompileChecks as PrecompileChecks>::allow_subcalls(),
+            Some(true)
+        );
+        assert_eq!(
+            <AttestCoinPrecompileChecks as PrecompileChecks>::recursion_limit(),
+            Some(Some(0))
+        );
+    }
+}

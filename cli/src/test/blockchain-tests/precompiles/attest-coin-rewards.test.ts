@@ -175,8 +175,8 @@ async function ensureNativeProvider(api: ApiPromise, root: KeyringPair, accountI
     await forElapsedBlocks(api, { minBlocks: 1 });
 }
 
-/** Genesis + migration should set issuer/admin to the precompile; repair if a long-lived dev node drifted. */
-async function ensureAttestCoinAssetRoles(api: ApiPromise, root: KeyringPair): Promise<void> {
+/** Genesis + migration must set issuer/admin to the precompile; deposit/withdraw rely on these roles. */
+async function expectAttestCoinAssetRoles(api: ApiPromise): Promise<void> {
     const precompileAcct = evmAddressToSubstrateAccountId(ATTEST_COIN_PRECOMPILE);
     const assetOpt = await (api.query as any).assets.asset(ATTEST_COIN_ASSET_ID);
     if (assetOpt.isNone) {
@@ -184,27 +184,8 @@ async function ensureAttestCoinAssetRoles(api: ApiPromise, root: KeyringPair): P
     }
     const details = assetOpt.unwrap();
     const precompileHex = u8aToHex(precompileAcct).toLowerCase();
-    const issuerOk = details.issuer.toHex().toLowerCase() === precompileHex;
-    const adminOk = details.admin.toHex().toLowerCase() === precompileHex;
-    if (issuerOk && adminOk) {
-        return;
-    }
-    const isFrozen = details.status.type === 'Frozen';
-    await dispatchRootCall(
-        api,
-        root,
-        (api.tx as any).assets.forceAssetStatus(
-            ATTEST_COIN_ASSET_ID,
-            precompileAcct,
-            precompileAcct,
-            precompileAcct,
-            root.address,
-            details.minBalance,
-            details.isSufficient,
-            isFrozen,
-        ),
-    );
-    await forElapsedBlocks(api, { minBlocks: 1 });
+    expect(details.issuer.toHex().toLowerCase()).toEqual(precompileHex);
+    expect(details.admin.toHex().toLowerCase()).toEqual(precompileHex);
 }
 
 describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
@@ -261,7 +242,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
         await forElapsedBlocks(api, { minBlocks: 1 });
 
-        await ensureAttestCoinAssetRoles(api, root);
+        await expectAttestCoinAssetRoles(api);
 
         const fundResult = await fundFromSudo(api, evmWalletCc3.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
         expect(fundResult.status).toBe(0);

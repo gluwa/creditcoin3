@@ -725,39 +725,26 @@ fn deposit_reverts_on_fee_on_transfer_token() {
 
 #[test]
 fn deposit_succeeds_with_successful_subcall() {
-    ExtBuilder::default().build().execute_with(|| {
-        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+    let caller = H160::repeat_byte(0xAA);
+    let substrate = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
 
-        let caller = H160::repeat_byte(0xAA);
-        let input = deposit_input(1_000);
-        let mut handle = make_handle(caller, input);
-        // Full deposit subcall sequence with the full amount received (standard token).
-        attach_mock_deposit_sequence(&mut handle, 1_000);
-        // The mint call goes through dispatch; the precompile account needs to be the asset admin
-        // for it to succeed. In the unit-test mock the asset admin is `alice`, so the mint dispatch
-        // will return a pallet-level error — but we assert that the failure is NOT an early-exit
-        // (token not configured, zero amount, fee-on-transfer probe) to confirm the function
-        // reached the mint step.
-        let result = execute(&mut handle);
-        // success is also acceptable if mock pallet allows it
-        if let Err(PrecompileFailure::Revert { output, .. }) = &result {
-            assert_ne!(
-                output.as_slice(),
-                b"token not configured",
-                "should not fail at token check"
-            );
-            assert_ne!(
-                output.as_slice(),
-                b"zero amount",
-                "should not fail at amount check"
-            );
-            assert_ne!(
-                output.as_slice(),
-                b"non-standard token (fee-on-transfer or rebasing)",
-                "full-amount delivery must pass the fee-on-transfer probe"
-            );
-        }
-    });
+    ExtBuilder::default()
+        .with_balances(vec![(substrate.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+            let input = deposit_input(1_000);
+            let mut handle = make_handle(caller, input);
+            // Full deposit subcall sequence with the full amount received (standard token).
+            attach_mock_deposit_sequence(&mut handle, 1_000);
+
+            let balance_before = AssetsPallet::<Runtime>::balance(1u32, substrate.clone());
+            let result = execute(&mut handle);
+            assert!(result.is_ok(), "expected deposit ok, got {result:?}");
+            let balance_after = AssetsPallet::<Runtime>::balance(1u32, substrate.clone());
+            assert_eq!(balance_after, balance_before + 1_000);
+        });
 }
 
 // ── withdraw tests ────────────────────────────────────────────────────────────

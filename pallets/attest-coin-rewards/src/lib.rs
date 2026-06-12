@@ -300,8 +300,7 @@ pub mod pallet {
             if current != expected_current {
                 log::error!(
                     target: "runtime::attest-coin-rewards",
-                    "undo_claim_commit: nonce mismatch (current {current}, expected {}), refusing rollback",
-                    expected_current
+                    "undo_claim_commit: nonce mismatch (current {current}, expected {expected_current}), refusing rollback"
                 );
                 return;
             }
