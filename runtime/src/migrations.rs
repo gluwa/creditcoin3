@@ -30,20 +30,41 @@ pub mod v1_init_operators {
                     "v1_init_operators: running"
                 );
 
-                // Initial operator account — can be removed or supplemented via governance.
-                // 5Co5nmjuasULHzwBouuNZ1wYNKjHiBXubDY6WQz5ep2zHTDc
-                let operator = AccountId32::new(hex_literal::hex!(
-                    "205223b1acdf381019ceedd2a65197b95769b965f67a7693c924536e3b394047"
-                ));
+                // Initial operator accounts
+                // 5ELVtGVj6BVa25EJWbUCvo44qWZ8389tPBB7d5dfGCfdbh9X
+                // 5Eh2stFNQX4khuKoh2a1jQBVE91Lv3kyJiVP2Y5webontjRe
+                // 5DzQB8D8cboKyvVqE1rUsGhwMUiFY71Qjc2sqWPV6Lr1V8nc
+                // 5EiFZFResKra1gXUZ1KYXkj1aWdgr7Q78oZETCGrAjftnTTi
+                let mut operators: sp_std::vec::Vec<T::AccountId> = vec![
+                    AccountId32::new(hex_literal::hex!(
+                        "648417311f63813098618f466b63227702ca140b26da0f96cc20367c169acd23"
+                    ))
+                    .into(),
+                    AccountId32::new(hex_literal::hex!(
+                        "742d54eb9c3cc4c3441a9bfaf9fc3869fd9e6e0cdf4222ece6bd4d8d1413d47b"
+                    ))
+                    .into(),
+                    AccountId32::new(hex_literal::hex!(
+                        "552ff68cef679a0543a0f20396bd09f808f2ca3ed304bb557dae5829da32eb5f"
+                    ))
+                    .into(),
+                    AccountId32::new(hex_literal::hex!(
+                        "751b41e92578e184661e790dee41ac2add7b3b7d9b019ccfc136926f5fabca56"
+                    ))
+                    .into(),
+                ];
+                // pallet_membership keeps `Members` sorted (its extrinsics binary-search).
+                operators.sort();
+                operators.dedup();
 
                 let members: BoundedVec<T::AccountId, T::MaxMembers> = match BoundedVec::try_from(
-                    vec![operator.into()],
+                    operators,
                 ) {
                     Ok(v) => v,
                     Err(_) => {
                         log::error!(
                             target: "runtime::migrations",
-                            "v1_init_operators: MaxMembers is 0 — skipping operator initialization"
+                            "v1_init_operators: MaxMembers too small for initial operators — skipping"
                         );
                         return T::DbWeight::get().reads(1);
                     }
@@ -68,8 +89,8 @@ pub mod v1_init_operators {
         #[cfg(feature = "try-runtime")]
         fn post_upgrade(_state: sp_std::vec::Vec<u8>) -> Result<(), sp_runtime::TryRuntimeError> {
             frame_support::ensure!(
-                !Members::<T, OperatorsInstance>::get().is_empty(),
-                "post_upgrade: Operators Members storage is empty after migration"
+                Members::<T, OperatorsInstance>::get().len() == 4,
+                "post_upgrade: expected exactly 4 operators after migration"
             );
             log::info!(
                 target: "runtime::migrations",
