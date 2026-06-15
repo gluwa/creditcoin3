@@ -1,0 +1,34 @@
+{
+  "uscWsUrl": "wss://rpc.cc3-devnet.creditcoin.network",
+  "uscNetworkName": "Creditcoin3 Devnet",
+  "graphqlUrl": "https://graphql-usc.cc3-devnet.creditcoin.network",
+  "ethRpc": [
+    {
+      "chainId": 11155111,
+      "chainKey": 1,
+      "url": ""
+    },
+    {
+      "chainId": 1,
+      "chainKey": 4,
+      "url": ""
+    }
+  ],
+  "balanceChecks": [
+    {
+      "name": "Creditcoin3 Devnet",
+      "baseUrl": "https://creditcoin-devnet.blockscout.com",
+      "rpcUrl": "https://rpc.cc3-devnet.creditcoin.network",
+      "accounts": [
+        {
+          "address": "0xc31e10a8fDefa5ff8b31D3a39A67576dD1d4a71C",
+          "name": "Devnet traffic sim"
+        },
+        {
+          "address": "0x2C317383b8A99537c61042B63C4fB042Df51033a",
+          "name": "NEW_LENDER_ accnt in 1Password. Used for testing"
+        }
+      ]
+    }
+  ]
+}

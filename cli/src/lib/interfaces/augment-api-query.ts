@@ -11,6 +11,9 @@ import type { Bytes, Null, Option, Struct, U256, U8aFixed, Vec, bool, u128, u32,
 import type { AnyNumber, ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Percent, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesAttestor,
+    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     EthereumBlock,
     EthereumReceiptReceiptV3,
@@ -23,6 +26,10 @@ import type {
     FrameSystemEventRecord,
     FrameSystemLastRuntimeUpgradeInfo,
     FrameSystemPhase,
+    PalletAttestationAttestorElectionPolicy,
+    PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationLedgerAttestorLedger,
+    PalletAttestationRetiredAttestorBlsKeyEntry,
     PalletBagsListListBag,
     PalletBagsListListNode,
     PalletBalancesAccountData,
@@ -65,6 +72,7 @@ import type {
     SpStakingExposurePage,
     SpStakingOffenceOffenceDetails,
     SpStakingPagedExposureMetadata,
+    SupportedChainsPrimitivesSupportedChain,
 } from '@polkadot/types/lookup';
 import type { Observable } from '@polkadot/types/types';
 
@@ -73,6 +81,280 @@ export type __QueryableStorageEntry<ApiType extends ApiTypes> = QueryableStorage
 
 declare module '@polkadot/api-base/types/storage' {
     interface AugmentedQueries<ApiType extends ApiTypes> {
+        attestation: {
+            activeAttestors: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<AccountId32>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The genesis block number for the attestation chain.
+             * This is used to determine the starting point for the attestation chain.
+             **/
+            attestationChainGenesisBlockNumber: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            attestationCheckpointInterval: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * A queue containing the digests of attestations to be removed from storage. When the queue fills beyond
+             * AttestationRetentionDuration, we remove attestations from the queue and from the Attestations storage
+             * map.
+             **/
+            attestationRemovalQueues: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<H256>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The duration in number of attestations for which we keep attestations that have already been
+             * condensed in a checkpoint. Keeping these for a time ensures that proofs generated using the
+             * attestations in question remain verifyable long enough to be submitted on-chain.
+             **/
+            attestationRetentionDuration: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            attestations: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: H256 | string | Uint8Array,
+                ) => Observable<Option<AttestorPrimitivesSignedAttestation>>,
+                [u64, H256]
+            > &
+                QueryableStorageEntry<ApiType, [u64, H256]>;
+            attestors: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<AttestorPrimitivesAttestor>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Number of registered attestors per chain. Maintained incrementally in
+             * [`Pallet::try_insert_attestor_and_emit_event`] and
+             * [`Pallet::remove_attestor_and_emit_event`] so that
+             * [`Pallet::attestor_list_has_space`] is O(1) rather than O(N) over
+             * [`Attestors`].
+             **/
+            attestorsCount: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
+            authorizedAttestors: AugmentedQuery<
+                ApiType,
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: AccountId32 | string | Uint8Array) => Observable<Null>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Maps an active BLS public key on a chain to its owning attestor controller account.
+             *
+             * Used to enforce that no two attestors on the same chain register the same BLS public
+             * key. Without this map, distinct [`Attestors`] entries can share a BLS pubkey (each
+             * passing the proof-of-possession check independently), which collapses the BLS
+             * aggregation quorum: one BLS private key can satisfy threshold-of-N because aggregated
+             * keys/signatures are linear in the underlying key.
+             *
+             * Lifetime: inserted by [`Pallet::start_attesting`], rotated when an idle attestor
+             * re-attests with a new key, retained through retirement (the BLS key stays "claimed"
+             * while the corresponding [`RetiredAttestorBlsKeys`] entry is still live so attestations
+             * referencing the retired controller can still be verified), and finally removed when
+             * the retired entry is purged in [`Pallet::withdraw_unbonded`] or when the chain itself
+             * is removed.
+             **/
+            blsKeyOwner: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: U8aFixed | string | Uint8Array,
+                ) => Observable<Option<AccountId32>>,
+                [u64, U8aFixed]
+            > &
+                QueryableStorageEntry<ApiType, [u64, U8aFixed]>;
+            /**
+             * Progress markers for removing checkpoint buckets associated with source chains that are undergoing
+             * chain reversion or are no longer supported.
+             **/
+            bucketClearingCursors: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<Bytes>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            chainAttestationInterval: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u64>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The current election policy for each chain.
+             * Represents the policy used when electing new attestors after each epoch.
+             **/
+            chainElectionPolicy: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<PalletAttestationAttestorElectionPolicy>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            checkpointBuckets: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: u64 | AnyNumber | Uint8Array,
+                    arg3: u64 | AnyNumber | Uint8Array,
+                ) => Observable<Null>,
+                [u64, u64, u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64, u64, u64]>;
+            /**
+             * Progress markers for removing the checkpoints associated with source chains that are no
+             * longer supported. Maps from a chain_key to a cursor representing the point up to which
+             * that chain's checkpoints have been removed.
+             **/
+            checkpointClearingCursors: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<Bytes>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            checkpointingQueues: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Vec<H256>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
+             * we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
+             **/
+            checkpointPruningStates: AugmentedQuery<
+                ApiType,
+                (
+                    arg: u64 | AnyNumber | Uint8Array,
+                ) => Observable<Option<PalletAttestationClearOrRevertCheckpointPruningState>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            checkpoints: AugmentedQuery<
+                ApiType,
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: u64 | AnyNumber | Uint8Array) => Observable<Option<H256>>,
+                [u64, u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64, u64]>;
+            invulnerables: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<bool>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            lastCheckpoint: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<AttestorPrimitivesAttestationCheckpoint>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            lastDigest: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<ITuple<[u64, H256]>>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Map from all (unlocked) "controller" accounts to info regarding staking.
+             *
+             * Note: All the reads and mutations to this storage *MUST* be done through the methods exposed
+             * by [`AttestorLedger`] to ensure data and lock consistency.
+             **/
+            ledger: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Option<PalletAttestationLedgerAttestorLedger>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            maxAttestors: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * The maximum catchup bound (in **blocks**) per chain. During catchup,
+             * each attestation's continuity proof will span **at most** this many
+             * blocks, preventing unbounded proof sizes from stalling the
+             * execution chain.
+             **/
+            maxCatchup: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
+            maxInvulnerables: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
+            minBondRequirement: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<u128>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            pendingAttestationInterval: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u64>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            pendingMaxCatchup: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u32>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            pendingTargetSampleSize: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u32>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * BLS public keys kept after [`unregister_attestor`](Pallet::unregister_attestor) so
+             * aggregated attestations that still list this controller can be verified until the unbond
+             * delay elapses. Purged in [`withdraw_unbonded`](Pallet::withdraw_unbonded) once
+             * `purge_at_era` is reached.
+             **/
+            retiredAttestorBlsKeys: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<PalletAttestationRetiredAttestorBlsKeyEntry>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
+             * Stash accounts with pending [`RetiredAttestorBlsKeys`] entries (for pruning on withdraw).
+             **/
+            retiredAttestorKeysByStash: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<Vec<ITuple<[u64, AccountId32]>>>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
         authorship: {
             /**
              * Author of current block.
@@ -836,6 +1118,22 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             [key: string]: QueryableStorageEntry<ApiType>;
         };
+        operators: {
+            /**
+             * The current membership, stored as an ordered Vec.
+             **/
+            members: AugmentedQuery<ApiType, () => Observable<Vec<AccountId32>>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * The current prime member, if one exists.
+             **/
+            prime: AugmentedQuery<ApiType, () => Observable<Option<AccountId32>>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
         proxy: {
             /**
              * The announcements made by the proxy (key).
@@ -856,6 +1154,19 @@ declare module '@polkadot/api-base/types/storage' {
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
+        randomness: {
+            lastSeenEpochIndex: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
+            randomnessByEpochIndex: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<U8aFixed>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Generic query
              **/
@@ -1368,6 +1679,25 @@ declare module '@polkadot/api-base/types/storage' {
              **/
             key: AugmentedQuery<ApiType, () => Observable<Option<AccountId32>>, []> &
                 QueryableStorageEntry<ApiType, []>;
+            /**
+             * Generic query
+             **/
+            [key: string]: QueryableStorageEntry<ApiType>;
+        };
+        supportedChains: {
+            chainIdAndNameToUniqKey: AugmentedQuery<
+                ApiType,
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: Bytes | string | Uint8Array) => Observable<Option<u64>>,
+                [u64, Bytes]
+            > &
+                QueryableStorageEntry<ApiType, [u64, Bytes]>;
+            chainKeyValue: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
+            supportedChains: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesSupportedChain>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Generic query
              **/

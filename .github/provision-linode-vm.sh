@@ -4,7 +4,7 @@ set -x
 
 # Install linode-cli
 python3 --version
-pipx install linode-cli
+pip install -r .github/requirements.txt
 linode-cli --version
 
 # Authorize hosted-runner
@@ -23,11 +23,18 @@ done < .github/authorized_keys
 
 # retry until we get a VM
 IP_ADDRESS=""
+COUNTER=0
 while [ -z "$IP_ADDRESS" ]; do
     # if all jobs retry rate-limited queries at the same time they still hit the limit
     # and subsequently fail. Max number of retries is hard-coded to 3 in linodecli
     # use up to 60 sec random delay to avoid everything being scheduled at once!
     sleep $((RANDOM % 60))
+
+    VM_KIND=${VM_KIND:-github-runner}
+    echo "INFO: VM_KIND=$VM_KIND"
+
+    KEEP_UNTIL=${KEEP_UNTIL:-$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "+5 hours")}
+    echo "INFO: KEEP_UNTIL=$KEEP_UNTIL UTC"
 
     # WARNING: we do not specify --authorized_keys for root b/c
     # linode-cli expects each key as a separate argument and iteratively constructing
@@ -38,9 +45,12 @@ while [ -z "$IP_ADDRESS" ]; do
         --image 'linode/ubuntu24.04' --region "$LINODE_REGION" \
         --type "$LINODE_VM_SIZE" --label "$LC_RUNNER_VM_NAME" \
         --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
-        --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > output.json
+        --tags "$VM_KIND" --tags "keep_until_$KEEP_UNTIL" \
+        --metadata.user_data "$(base64 --wrap 0 < .github/linode-cloud-init.template)" > "retry_$COUNTER.json"
 
-    IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < output.json)
+    IP_ADDRESS=$(jq -r '.[0].ipv4[0]' < "retry_$COUNTER.json")
+
+    (( COUNTER=COUNTER+1 ))
 done
 
 # provision the GitHub Runner binary on the VM
@@ -48,9 +58,28 @@ done
 SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
 echo "INFO: $SSH_USER_AT_HOSTNAME"
 
+# make sure we have ssh connectivity first by retrying multiple times
+echo "INFO: checking for ssh connectivity ..."
 until ssh -i ~/.ssh/id_rsa \
-  -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh; do
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" cat /etc/os-release; do
   echo "DEBUG: retrying ssh connection ..."
   sleep 30
 done
+
+# explicitly upgrade before doing anything else to prevent accidental restarts
+echo "INFO: attempting Ubuntu upgrade ..."
+ssh -i ~/.ssh/id_rsa \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/apply-ubuntu-upgrades.sh
+
+# WARNING: commands below won't be retried if they fail b/c we want to
+# detect such failures and not continue further
+set -euo pipefail
+
+echo "INFO: installing upstream Docker Engine ..."
+ssh -i ~/.ssh/id_rsa \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/install-docker-engine-from-upstream.sh
+
+echo "INFO: provisioning GitHub runner ..."
+ssh -i ~/.ssh/id_rsa \
+  -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
+  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh

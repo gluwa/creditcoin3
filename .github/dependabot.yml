@@ -15,7 +15,14 @@ updates:
 
   # Maintain dependencies for Docker images
   - package-ecosystem: "docker"
-    directory: "/"
+    directories:
+      - "/"
+      - "/cc3-indexer"
+      - "/cc3-indexer/postgres"
+      - "/proof-gen-api-server"
+      - "/scripts/stress-test"
+      - "/scripts/traffic-simulator"
+      - "/scripts/usc-audit-automation"
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 5
@@ -25,30 +32,67 @@ updates:
         dependency-type: "production"
         applies-to: version-updates
 
+  # Maintain dependencies for docker-compose files
+  - package-ecosystem: "docker-compose"
+    directories:
+      - "/"
+      - "/cc3-indexer"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 5
+    rebase-strategy: "disabled"
+    groups:
+      docker-compose:
+        dependency-type: "production"
+        applies-to: version-updates
+
   # Maintain dependencies for Rust
   # Note: Dependabot can't recursively search directories at the moment
   - package-ecosystem: "cargo"
     directories:
       - "/"
-      - "/client/evm-tracing"
-      - "/client/rpc-core/debug"
-      - "/client/rpc-core/trace"
-      - "/client/rpc-core/types"
-      - "/client/rpc/debug"
-      - "/client/rpc/trace"
+      - "/attestor/attestor"
+      - "/attestor/pool"
+      - "/attestor/metrics"
+      - "/attestor/common"
+      - "/attestor/zombienet"
+      - "/checkpoint-builder"
+      - "/common/cc-client"
+      - "/common/continuity"
+      - "/common/eth"
+      - "/common/merkle"
+      - "/common/utils"
+      - "/common/vrf"
+      - "/common/prometheus"
+      - "/common/indexer-client"
+      - "/common/builder"
+      - "/common/streams/eth"
+      - "/common/streams/cc3"
+      - "/common/streams/attestation"
+      - "/common/streams/util"
+      - "/common/streams/stream"
       - "/node"
       - "/node/cli-opt"
+      - "/pallets/attestation"
+      - "/pallets/randomness"
+      - "/pallets/supported-chains"
+      - "/precompiles/attestor-stash"
+      - "/precompiles/chain-info"
+      - "/precompiles/block-prover"
       - "/precompiles/ed25519-verifier"
-      - "/precompiles/substrate-transfer"
       - "/precompiles/sr25519-verifier"
+      - "/precompiles/substrate-transfer"
+      - "/proof-gen-api-server"
       - "/primitives/account"
+      - "/primitives/attestor"
       - "/primitives/core"
-      - "/primitives/ext"
-      - "/primitives/rpc/debug"
-      - "/primitives/rpc/evm-tracing-events"
+      - "/primitives/randomness"
+      - "/primitives/supported-chains"
+      - "/primitives/user"
+      - "/query-cli"
       - "/runtime"
-      - "/runtime/evm_tracer"
       - "/runtime/generate-bags"
+      - "/archiver"
     groups:
       prod-dependencies:
         dependency-type: "production"
@@ -62,10 +106,16 @@ updates:
   # Maintain dependencies for Node.js
   - package-ecosystem: "npm"
     directories:
+      - "/attestor/scripts"
+      - "/cc3-indexer"
+      - "/checkpoint-verifier"
       - "/cli"
+      - "/common/eth/contracts"
+      - "/common/eth/contracts/get-contract-state"
       - "/docs/smart-contract-development/with-hardhat"
       - "/docs/smart-contract-development/with-ethers.js"
-      - "/testing"
+      - "/scripts"
+      - "/scripts/changelog-warnings"
     groups:
       prod-dependencies:
         dependency-type: "production"
@@ -73,9 +123,19 @@ updates:
       dev-dependencies:
         dependency-type: "development"
         applies-to: version-updates
-
     schedule:
       interval: "monthly"
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+
+  # Python dependencies for Linode
+  - package-ecosystem: "pip"
+    directories:
+      - "/.github"
+    groups:
+      linode-dependencies:
+        dependency-type: "production"
+        applies-to: version-updates
+    schedule:
+      interval: "monthly"

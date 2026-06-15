@@ -1,0 +1,9 @@
+# Environment files with secrets
+.env
+k8s/secrets.yaml
+
+# Deno cache
+.deno/
+
+# Compiled binary
+simulator

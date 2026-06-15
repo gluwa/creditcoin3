@@ -1,7 +1,8 @@
+# checkov:skip=CKV2_GHA_1:Caller is responsible for permissions
 ---
 name: Reusable workflow to build a native client
 
-on:
+"on":
   workflow_call:
     inputs:
       build-options:
@@ -10,19 +11,44 @@ on:
       version-string:
         required: true
         type: string
+      git-lfs-checkout:
+        required: true
+        type: boolean
       cache-key-name:
         required: false
         type: string
+      runs-on:
+        required: true
+        type: string
+      build-subkey:
+        required: false
+        type: boolean
+      build-subxt:
+        required: false
+        type: boolean
+      use-new-metadata:
+        required: false
+        type: boolean
 
 permissions: read-all
 
 jobs:
   build-creditcoin-node:
-    runs-on: ubuntu-24.04
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout code regularly
+        if: ${{ ! inputs.use-new-metadata }}
+        uses: actions/checkout@v6
         with:
-          lfs: true
+          lfs: ${{ inputs.git-lfs-checkout }}
+
+      - name: Checkout code for typedefs update
+        if: ${{ inputs.use-new-metadata }}
+        uses: actions/checkout@v6
+        with:
+          lfs: ${{ inputs.git-lfs-checkout }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -45,20 +71,78 @@ jobs:
         with:
           shared-key: ${{ inputs.cache-key-name }}
 
+      - name: Download new_metadata.diff
+        if: ${{ inputs.use-new-metadata }}
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata.diff
+          path: /var/tmp
+
+      - name: Apply new metadata patch
+        if: ${{ inputs.use-new-metadata }}
+        run: |
+          git apply /var/tmp/new-metadata.diff
+          git diff --binary
+
       - name: Build SUT
         uses: gluwa/cargo@dev
         with:
           command: build
           args: ${{ inputs.build-options }}
 
-      - name: Upload creditcoin-node binary
+      - name: Upload binaries
         uses: actions/upload-artifact@v7
         with:
           name: binary-for-${{ inputs.version-string }}
-          path: target/release/creditcoin3-node
+          path: |
+            target/release/archiver
+            target/release/attestor
+            target/release/attestor_zombienet
+            target/release/checkpoint-builder
+            target/release/creditcoin3-node
+            target/release/proof-gen-api-server
+            target/release/query-cli
 
       - name: Upload WASM runtime
         uses: actions/upload-artifact@v7
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
-          path: target/release/wbuild/creditcoin3-runtime/creditcoin_next_runtime.compact.compressed.wasm
+          path: target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
+
+      - name: Install subkey
+        if: ${{ inputs.build-subkey }}
+        uses: gluwa/cargo@dev
+        with:
+          command: install
+          args: --locked --git https://github.com/paritytech/polkadot-sdk --rev 7304295 subkey
+
+      - name: Upload subkey binary
+        if: ${{ inputs.build-subkey }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: subkey
+          path: ~/.cargo/bin/subkey
+
+      - name: Install subxt
+        if: ${{ inputs.build-subxt }}
+        uses: gluwa/cargo@dev
+        with:
+          command: install
+          args: subxt-cli@0.37.0 --locked
+
+      - name: Upload subxt binary
+        if: ${{ inputs.build-subxt }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: subxt
+          path: ~/.cargo/bin/subxt
+
+      - name: Commit typedefs and metadata changes after successfull build
+        if: ${{ inputs.use-new-metadata }}
+        uses: EndBug/add-and-commit@v10
+        with:
+          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update metadata & TypeScript type definitions"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}

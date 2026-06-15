@@ -1,0 +1,10 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "user"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]

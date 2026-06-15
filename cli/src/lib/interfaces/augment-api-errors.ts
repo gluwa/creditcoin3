@@ -11,6 +11,134 @@ export type __AugmentedError<ApiType extends ApiTypes> = AugmentedError<ApiType>
 
 declare module '@polkadot/api-base/types/errors' {
     interface AugmentedErrors<ApiType extends ApiTypes> {
+        attestation: {
+            /**
+             * The call the urnegister_invulnerable failed because the address is not invulnerable
+             **/
+            AddressIsNotInvulnerable: AugmentedError<ApiType>;
+            /**
+             * the address supplied is not currently registered as an attestor
+             **/
+            AddressNotAttestor: AugmentedError<ApiType>;
+            /**
+             * The AccountId supplied has already been registered
+             **/
+            AlreadyAttestor: AugmentedError<ApiType>;
+            AlreadyBonded: AugmentedError<ApiType>;
+            AttestationExists: AugmentedError<ApiType>;
+            AttestationFoundWhileImporting: AugmentedError<ApiType>;
+            AttestationNotFound: AugmentedError<ApiType>;
+            AttestationsAlreadyExist: AugmentedError<ApiType>;
+            AttestorAlreadyAuthorized: AugmentedError<ApiType>;
+            /**
+             * Attestor is already idle and cannot chill again.
+             **/
+            AttestorAlreadyIdle: AugmentedError<ApiType>;
+            /**
+             * A voluntary chill is already scheduled for this attestor.
+             **/
+            AttestorChillAlreadyScheduled: AugmentedError<ApiType>;
+            /**
+             * The attestor list is at the max size allowed by the current configuration
+             **/
+            AttestorListFull: AugmentedError<ApiType>;
+            AttestorNotActive: AugmentedError<ApiType>;
+            AttestorNotAuthorized: AugmentedError<ApiType>;
+            AttestorNotIdle: AugmentedError<ApiType>;
+            AttestorWithInvalidPublicKey: AugmentedError<ApiType>;
+            /**
+             * The BLS public key supplied is already registered to another attestor controller
+             * on this chain (active or retired). BLS keys must be unique per chain so the
+             * aggregation quorum reflects independent signers.
+             **/
+            BlsKeyAlreadyRegistered: AugmentedError<ApiType>;
+            /**
+             * The chain is not supported
+             **/
+            ChainNotSupported: AugmentedError<ApiType>;
+            CheckpointCreationError: AugmentedError<ApiType>;
+            CheckpointingQueueDrained: AugmentedError<ApiType>;
+            /**
+             * Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
+             **/
+            CheckpointMaintenanceInProgress: AugmentedError<ApiType>;
+            /**
+             * More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+             **/
+            CheckpointSuffixWipeTooLarge: AugmentedError<ApiType>;
+            CheckpointTargetNotFound: AugmentedError<ApiType>;
+            CheckpointWidthIsZero: AugmentedError<ApiType>;
+            /**
+             * Operator forward patch contained no checkpoints.
+             **/
+            EmptyCheckpointPatch: AugmentedError<ApiType>;
+            EmptyContinuityProof: AugmentedError<ApiType>;
+            InsufficientBalance: AugmentedError<ApiType>;
+            /**
+             * The attestation lists enough distinct controller accounts but they map to fewer
+             * distinct BLS public keys than the threshold. Without this check a single BLS
+             * signer could satisfy the threshold by being aliased under multiple controller
+             * accounts.
+             **/
+            InsufficientUniqueSigners: AugmentedError<ApiType>;
+            /**
+             * The call to attest_block failed, the block's cryptographic committments were invalid
+             **/
+            InvalidAttestation: AugmentedError<ApiType>;
+            InvalidAttestationBlockNumber: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProof: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofBlock: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofBlockGenesis: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofHead: AugmentedError<ApiType>;
+            InvalidAttestationContinuityProofTail: AugmentedError<ApiType>;
+            InvalidAttestationInterval: AugmentedError<ApiType>;
+            InvalidAttestationPrevDigest: AugmentedError<ApiType>;
+            InvalidAttestationsPerCheckpoint: AugmentedError<ApiType>;
+            InvalidAttestorAccount: AugmentedError<ApiType>;
+            InvalidAttestorFound: AugmentedError<ApiType>;
+            InvalidBlsPublicKey: AugmentedError<ApiType>;
+            InvalidBlsSignature: AugmentedError<ApiType>;
+            InvalidMaxCatchup: AugmentedError<ApiType>;
+            InvalidProofOfPossession: AugmentedError<ApiType>;
+            InvalidTargetSampleSize: AugmentedError<ApiType>;
+            /**
+             * The invulnerable list is full
+             **/
+            InvulnerableListFull: AugmentedError<ApiType>;
+            LastCheckpointEmpty: AugmentedError<ApiType>;
+            LastCheckpointNotSet: AugmentedError<ApiType>;
+            MajorityNotReached: AugmentedError<ApiType>;
+            /**
+             * The call to set_max_invulnerables, most likely because the current list is longer than the new requested maximum
+             **/
+            MaxInvulnerablesCannotBeChanged: AugmentedError<ApiType>;
+            NoFinalizedAttestation: AugmentedError<ApiType>;
+            NoMoreChunks: AugmentedError<ApiType>;
+            NoPreviousDigest: AugmentedError<ApiType>;
+            NoSuchCheckpoint: AugmentedError<ApiType>;
+            NoSupportedChains: AugmentedError<ApiType>;
+            /**
+             * `register_attestor` was called under `AuthorizedOnly` without a prior `authorize_attestor`
+             * for this attestor controller account.
+             **/
+            NotPreAuthorizedToRegister: AugmentedError<ApiType>;
+            NotStash: AugmentedError<ApiType>;
+            NotYourAttestor: AugmentedError<ApiType>;
+            /**
+             * Too many retired attestor key entries are queued for this stash
+             **/
+            RetiredAttestorPendingFull: AugmentedError<ApiType>;
+            TooManyAttestations: AugmentedError<ApiType>;
+            /**
+             * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+             **/
+            TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
+            TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
         babe: {
             /**
              * A given equivocation report is valid but already previously reported.
@@ -523,6 +651,24 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             [key: string]: AugmentedError<ApiType>;
         };
+        operators: {
+            /**
+             * Already a member.
+             **/
+            AlreadyMember: AugmentedError<ApiType>;
+            /**
+             * Not a member.
+             **/
+            NotMember: AugmentedError<ApiType>;
+            /**
+             * Too many members.
+             **/
+            TooManyMembers: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
         proxy: {
             /**
              * Account is already a proxy.
@@ -556,6 +702,12 @@ declare module '@polkadot/api-base/types/errors' {
              * A call which is incompatible with the proxy type's filter was attempted.
              **/
             Unproxyable: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
+        randomness: {
             /**
              * Generic error
              **/
@@ -726,6 +878,28 @@ declare module '@polkadot/api-base/types/errors' {
              * Sender must be the Sudo account.
              **/
             RequireSudo: AugmentedError<ApiType>;
+            /**
+             * Generic error
+             **/
+            [key: string]: AugmentedError<ApiType>;
+        };
+        supportedChains: {
+            /**
+             * Math overflow/underflow
+             **/
+            Arithmetic: AugmentedError<ApiType>;
+            /**
+             * The chain is already registered
+             **/
+            ChainAlreadyRegistered: AugmentedError<ApiType>;
+            /**
+             * The chain is not supported
+             **/
+            ChainNotSupported: AugmentedError<ApiType>;
+            /**
+             * Maturity strategy doesn't match one in the expected set
+             **/
+            InvalidMaturityStrategy: AugmentedError<ApiType>;
             /**
              * Generic error
              **/

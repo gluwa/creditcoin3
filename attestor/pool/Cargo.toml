@@ -1,0 +1,38 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "attestation_pool"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+# Attestor
+common = { path = "../common" }
+
+# Creditcoin
+attestor-primitives = { workspace = true }
+bls-signatures = { workspace = true }
+builder = { workspace = true }
+cc-client = { workspace = true }
+stream = { workspace = true }
+
+# Substrate
+sp-core = { workspace = true }
+
+# Async & Parallelism
+futures = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+
+# Logging
+tracing = { workspace = true }
+
+# other
+parking_lot = { workspace = true }
+
+[dev-dependencies]
+assert_matches = { workspace = true }
+pretty_assertions = { workspace = true }
+rstest = { workspace = true }
+tokio-test = { workspace = true }

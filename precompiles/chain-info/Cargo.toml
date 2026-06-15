@@ -1,0 +1,87 @@
+[package]
+authors = { workspace = true }
+description = "A precompile to fetch attestation data and expose it in the evm"
+edition = "2021"
+name = "pallet-evm-precompile-chain-info"
+version = "0.1.0"
+
+[lints.clippy]
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+no_effect_underscore_binding = "allow"
+type_complexity = "allow"
+
+[dependencies]
+# Moonbeam
+precompile-utils = { workspace = true }
+
+# Primitives
+attestor-primitives = { workspace = true }
+
+# Substrate
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+pallet-attestation = { workspace = true }
+pallet-balances = { workspace = true }
+pallet-supported-chains = { workspace = true }
+pallet-timestamp = { workspace = true }
+parity-scale-codec = { workspace = true, features = [
+    "max-encoded-len",
+], default-features = false }
+scale-info = { workspace = true, features = ["derive"] }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+
+# Frontier
+fp-evm = { workspace = true }
+pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
+
+[dev-dependencies]
+derive_more = { workspace = true }
+env_logger = { workspace = true }
+frame-election-provider-support = { workspace = true }
+pallet-babe = { workspace = true }
+pallet-session = { workspace = true }
+pallet-staking = { workspace = true }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
+precompile-utils = { workspace = true, features = ["std", "testing"] }
+serde = { workspace = true }
+sp-staking = { workspace = true }
+supported-chains-primitives = { workspace = true }
+
+[features]
+default = ["std"]
+runtime-benchmarks = [
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-attestation/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-evm/runtime-benchmarks",
+    "pallet-supported-chains/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+]
+std = [
+    "precompile-utils/std",
+    "fp-evm/std",
+    "frame-support/std",
+    "frame-system/std",
+    "pallet-balances/std",
+    "pallet-timestamp/std",
+    "pallet-evm/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "sp-core/std",
+    "sp-io/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "pallet-supported-chains/std",
+    "attestor-primitives/std",
+    "pallet-attestation/std",
+    "pallet-babe/std",
+    "sp-staking/std",
+    "pallet-staking/std",
+    "supported-chains-primitives/std",
+]

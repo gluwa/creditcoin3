@@ -3,8 +3,10 @@ import {
     parseBoolean,
     parseIntegerInternal,
     parseZeroOrPositiveIntegerInternal,
+    parsePositiveIntegerInternal,
     parseHexStringInternal,
     parsePercentAsPerbillInternal,
+    parseU64,
 } from '../../lib/parsing';
 
 import { parseAmount, parseSubstrateAddress } from '../../commands/options';
@@ -175,6 +177,44 @@ describe('parseZeroOrPositiveInteger', () => {
     });
 });
 
+describe('parsePositiveIntegerInternal', () => {
+    test('with valid argument, > 0, returns the same integer', () => {
+        const parsedInteger = parsePositiveIntegerInternal('1');
+        expect(parsedInteger).toBe(1);
+    });
+
+    test('with valid argument, > 0, explicit + sign, returns the same integer', () => {
+        const parsedInteger = parsePositiveIntegerInternal('+21');
+        expect(parsedInteger).toBe(21);
+    });
+
+    test('with invalid argument, 0, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('0');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with invalid argument, < 0, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('-1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with float argument, decimal dot, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('0.1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with float argument, decimal comma, throws an error', () => {
+        const parsedInvalid = () => parsePositiveIntegerInternal('0,1');
+        expect(parsedInvalid).toThrowError(Error);
+    });
+
+    test('with string argument throws an error', () => {
+        const integer = 'abcdef';
+        const parsedInvalid = () => parsePositiveIntegerInternal(integer);
+        expect(parsedInvalid).toThrowError(Error);
+    });
+});
+
 describe('parseHexString', () => {
     test('with valid argument, lower case, returns the same hex string', () => {
         const hexString = '0x1234567890abcdef';
@@ -241,5 +281,58 @@ describe('parsePercentAsPerbill', () => {
         const perbill = 'abcdef';
         const parsedInvalid = () => parsePercentAsPerbillInternal(perbill);
         expect(parsedInvalid).toThrowError(Error);
+    });
+});
+
+describe('parseU64', () => {
+    it('with valid integer argument, returns the correct input', () => {
+        const input = 100000000;
+        const result = parseU64(input);
+        const expected = BigInt(input);
+
+        expect(result).toBe(expected);
+    });
+
+    it('with valid string argument, returns the correct input', () => {
+        const input = '100000000';
+        const result = parseU64(input);
+        const expected = BigInt(input);
+
+        expect(result).toBe(expected);
+    });
+
+    it('with invalid argument, integer < lower boundary, throws an error', () => {
+        const input = -10;
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be non-negative'));
+    });
+
+    it('with invalid argument, string < lower boundary, throws an error', () => {
+        const input = '-100';
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be non-negative'));
+    });
+
+    it('with invalid argument, integer > upper boundary, throws an error', () => {
+        const input = 340282366920938463463374607431768211455n;
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be a valid unsigned 64-bit integer (u64)'));
+    });
+
+    it('with invalid argument, string > upper boundary, throws an error', () => {
+        const input = '340282366920938463463374607431768211455';
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be a valid unsigned 64-bit integer (u64)'));
+    });
+
+    it('with invalid argument, non integer input, throws an error', () => {
+        const input = 'Foo';
+        const parseU64Invalid = () => parseU64(input);
+
+        expect(parseU64Invalid).toThrow(Error('Must be a valid integer'));
     });
 });

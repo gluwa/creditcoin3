@@ -59,14 +59,19 @@ impl SubstrateCli for Cli {
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn ChainSpec>, String> {
         let ret = match id {
-            "dev" => {
-                let enable_manual_seal = self.sealing.map(|_| true);
-                Box::new(chain_spec::development_config(enable_manual_seal))
-            }
+            // CC3
             "devnet" => Box::new(chain_spec::devnet_config()?),
             "testnet" => Box::new(chain_spec::testnet_config()?),
-            "" | "local" => Box::new(chain_spec::local_testnet_config()),
             "mainnet" => Box::new(chain_spec::mainnet_config()?),
+
+            // USC
+            "dev" => {
+                let enable_manual_seal = self.sealing.map(|_| true);
+                Box::new(chain_spec::usc_development_config(enable_manual_seal))
+            }
+            "usc_devnet" => Box::new(chain_spec::usc_devnet_config()?),
+            "usc_testnet" => Box::new(chain_spec::usc_testnet_config()?),
+            "" | "local" => Box::new(chain_spec::usc_local_testnet_config()),
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),
             )?),
@@ -138,7 +143,7 @@ pub fn run() -> sc_cli::Result<()> {
                                     "Cannot purge `{:?}` database",
                                     config.database
                                 )
-                                .into());
+                                .into())
                             }
                         };
                         cmd.run(frontier_database_config)?;
@@ -153,11 +158,9 @@ pub fn run() -> sc_cli::Result<()> {
                                 eprintln!("{:?} did not exist.", &db_path);
                             }
                             Err(err) => {
-                                return Err(format!(
-                                    "Cannot purge `{:?}` database: {:?}",
-                                    db_path, err,
+                                return Err(
+                                    format!("Cannot purge `{db_path:?}` database: {err:?}",).into(),
                                 )
-                                .into());
                             }
                         };
                     }
@@ -182,7 +185,7 @@ pub fn run() -> sc_cli::Result<()> {
             use crate::benchmarking::{
                 inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder,
             };
-            use creditcoin3_runtime::{Block, ExistentialDeposit};
+            use creditcoin3_runtime::{ExistentialDeposit, Hashing};
             use frame_benchmarking_cli::{
                 BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE,
             };
@@ -190,7 +193,9 @@ pub fn run() -> sc_cli::Result<()> {
             let runner = cli.create_runner(cmd)?;
             match cmd {
                 BenchmarkCmd::Pallet(cmd) => runner.sync_run(|config| {
-                    cmd.run::<sp_runtime::traits::HashingFor<Block>, ()>(config)
+                    cmd.run_with_spec::<Hashing, crate::client::HostFunctions>(Some(
+                        config.chain_spec,
+                    ))
                 }),
                 BenchmarkCmd::Block(cmd) => runner.sync_run(|mut config| {
                     let (client, _, _, _, _) = service::new_chain_ops(&mut config, &cli.eth)?;
@@ -233,9 +238,11 @@ pub fn run() -> sc_cli::Result<()> {
             }
         }
         #[cfg(not(feature = "runtime-benchmarks"))]
-        Some(Subcommand::Benchmark) => Err("Benchmarking wasn't enabled when building the node. \
+        Some(Subcommand::Benchmark(_)) => {
+            Err("Benchmarking wasn't enabled when building the node. \
 			You can enable it with `--features runtime-benchmarks`."
-            .into()),
+                .into())
+        }
         Some(Subcommand::FrontierDb(cmd)) => {
             let runner = cli.create_runner(cmd)?;
             runner.sync_run(|mut config| {

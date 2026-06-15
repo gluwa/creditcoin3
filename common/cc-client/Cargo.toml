@@ -1,0 +1,49 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "cc-client"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lints.clippy]
+large_enum_variant = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+no_effect_underscore_binding = "allow"
+pedantic = "warn"
+redundant_slicing = "allow"
+too_many_arguments = "allow"
+
+[dependencies]
+anyhow = "1.0"
+arc-swap = { workspace = true }
+
+# Substrate
+subxt = { workspace = true, features = ["jsonrpsee"] }
+subxt-signer = { workspace = true }
+
+# Creditcoin deps
+attestor-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
+vrf = { workspace = true }
+
+# workspace deps
+sp-core = { workspace = true, default-features = false }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-retry = { workspace = true }
+tracing = { workspace = true }
+usc-abi-encoding = { workspace = true, optional = true }
+
+[features]
+default = ["std"]
+std = [
+    "vrf/std",
+    "sp-core/std",
+    "attestor-primitives/std",
+    "supported-chains-primitives/std",
+    "usc-abi-encoding",
+]

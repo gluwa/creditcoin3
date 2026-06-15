@@ -2,9 +2,9 @@ import { InvalidArgumentError, Option } from 'commander';
 import { isAddress, parseUnits } from 'ethers';
 import { validateAddress } from '@polkadot/util-crypto/address';
 import { BN } from '..';
-import { parseZeroOrPositiveIntegerOrExit } from '../lib/parsing';
+import { parseZeroOrPositiveIntegerOrExit, parseU64OrExit } from '../lib/parsing';
 
-// Most used options are URL, NO INPUT, JSON, eCDSA, aDDRESS, AMOUNT, TO, EMV-ADDRESS
+// Most used options are URL, NO INPUT, JSON, ADDRESS, AMOUNT, TO, EMV-ADDRESS
 // Create consts for each one using the Option class and export them to be used by other commands
 
 // Connection
@@ -58,6 +58,28 @@ export function parseAddress(value: string): ValidatedAddress {
     }
 }
 
+/* eslint-disable @typescript-eslint/naming-convention */
+export type RewardDestination = { Account: string } | 'Stash' | 'None';
+
+export function parsePayee(value: string): RewardDestination {
+    const lowercasedValue = value.toLowerCase();
+
+    if (lowercasedValue === 'stash') {
+        return 'Stash';
+    }
+    if (lowercasedValue === 'none') {
+        return 'None';
+    }
+
+    try {
+        validateAddress(value);
+    } catch (_e: any) {
+        throw new InvalidArgumentError('Must be either a valid Substrate address, "Stash" or "None".');
+    }
+
+    return { Account: value };
+}
+
 // Amounts
 export const amountOption = new Option('--amount [amount]', 'CTC amount').argParser(parseAmount);
 // Amount parsing
@@ -93,8 +115,6 @@ export const jsonOption = new Option('--json', 'Output as JSON');
 export const noInputOption = new Option('--no-input', 'Disable interactive prompts');
 
 // Crypto
-export const ecdsaOption = new Option('--ecdsa', 'Use ECDSA signature instead of mnemonic');
-
 export const ProxyTypes = ['All', 'Staking', 'NonTransfer'];
 export const proxyTypeOption = new Option(
     '--type [type]',
@@ -113,3 +133,14 @@ export const proxyForOption = new Option(
     '--proxy-for [substrate-address]',
     'Use proxy account for this call. Needs to specify the proxied Substrate address',
 ).argParser(parseSubstrateAddress);
+
+export const attestorAddressOption = new Option('-a, --attestor [attestor]', 'Specify the attestor account').argParser(
+    parseSubstrateAddress,
+);
+
+export const chainKeyOption = new Option('-c, --chain [chain]', 'Specify chain key').argParser(parseU64OrExit);
+
+export const payeeOption = new Option(
+    '-p, --payee [payee]',
+    'Specify payee. Needs to specify either a valid Substrate address, "Stash" or "None"',
+).argParser(parsePayee);

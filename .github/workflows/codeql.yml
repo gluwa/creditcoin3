@@ -12,9 +12,13 @@
 ---
 name: "CodeQL"
 
-on:
+"on":
   pull_request:
-    branches: ["dev"]
+    branches: [usc-dev]
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
 
 permissions: read-all
 

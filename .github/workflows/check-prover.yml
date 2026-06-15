@@ -1,0 +1,97 @@
+---
+name: Check Prover
+
+"on":
+  schedule:
+    - cron: "0 */12 * * 1-5"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  check-for:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # CC3 Devnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
+            chainKey: 1
+
+          # CC3 Devnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
+            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
+            chainKey: 4
+
+          # CC3 Testnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
+            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
+            chainKey: 1
+
+          # USC Testnet v2, Sepolia from 10,050,300
+          - creditcoinUrl: "wss://rpc.usc-testnet2.creditcoin.network/ws"
+            proverUrl: "https://proof-gen-api.usc-testnet2.creditcoin.network"
+            indexerUrl: "https://attestations-graphql.usc-testnet2.creditcoin.network"
+            chainKey: 1
+
+    name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Install & build
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn build
+
+      - name: Execute prover-check.ts on checkpoint boundaries
+        working-directory: ./cli
+        env:
+          GO_BACK_BLOCKS: '3600'
+        run: |
+          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts on random blocks
+        working-directory: ./cli
+        env:
+          # LAST_SOURCE_BLOCK: '1000000'
+          GO_BACK_BLOCKS: '4000'
+          STEP_THROUGH_BLOCKS: '7'
+        run: |
+          node dist/scripts/prover-check.js ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Report result to Slack
+        if: always()
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          inputs: ${{ toJson(matrix) }}
+          channel: "#noti-creditcoin-snapshots"
+          message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! cc <@U028EMRHS3S>"

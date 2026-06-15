@@ -1,81 +1,63 @@
-use pallet_evm::{
-    IsPrecompileResult, Precompile, PrecompileHandle, PrecompileResult, PrecompileSet,
-};
-use pallet_evm_precompile_ed25519_verifier::Ed25519VerifierPrecompile;
-use pallet_evm_precompile_sr25519_verifier::Sr25519VerifierPrecompile;
-use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
-use sp_core::H160;
-use sp_std::marker::PhantomData;
+//! EVM [`pallet_evm::PrecompileSet`] wiring with delegate-call and caller checks (Frontier /
+//! Moonbeam [`precompile_utils::precompile_set`] pattern).
 
+use crate::Runtime;
+use pallet_evm_precompile_attestor_stash::AttestorStashPrecompile;
+use pallet_evm_precompile_block_prover::BlockProverPrecompile;
+use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
+use pallet_evm_precompile_chain_info::ChainInfoPrecompile;
+use pallet_evm_precompile_ed25519_verifier::Ed25519VerifierPrecompile;
 use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
+use pallet_evm_precompile_sr25519_verifier::Sr25519VerifierPrecompile;
+use pallet_evm_precompile_substrate_transfer::SubstrateTransferPrecompile;
 
-use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
+use precompile_utils::precompile_set::*;
 
-pub struct FrontierPrecompiles<R>(PhantomData<R>);
+/// Standard Ethereum Istanbul precompile addresses: matched with Ethereum (delegatecall allowed).
+type EthereumPrecompilesChecks = (AcceptDelegateCall, CallableByContract, CallableByPrecompile);
 
-impl<R> FrontierPrecompiles<R>
-where
-    R: pallet_evm::Config,
-{
-    pub fn new() -> Self {
-        Self(Default::default())
-    }
-    pub fn used_addresses() -> [H160; 13] {
-        [
-            hash(1),    // 0x0000000000000000000000000000000000000001
-            hash(2),    // 0x0000000000000000000000000000000000000002
-            hash(3),    // 0x0000000000000000000000000000000000000003
-            hash(4),    // 0x0000000000000000000000000000000000000004
-            hash(5),    // 0x0000000000000000000000000000000000000005
-            hash(6),    // 0x0000000000000000000000000000000000000006
-            hash(7),    // 0x0000000000000000000000000000000000000007
-            hash(8),    // 0x0000000000000000000000000000000000000008
-            hash(1024), // 0x0000000000000000000000000000000000000400
-            hash(1025), // 0x0000000000000000000000000000000000000401
-            hash(4049), // 0x0000000000000000000000000000000000000Fd1
-            hash(5049), // 0x00000000000000000000000000000000000013B9
-            hash(5050), // 0x00000000000000000000000000000000000013BA
-        ]
-        // see fn execute() below for an address-->precompile map
-    }
-}
-impl<R> PrecompileSet for FrontierPrecompiles<R>
-where
-    SubstrateTransferPrecompile<R>: Precompile,
-    R: pallet_evm::Config,
-{
-    fn execute(&self, handle: &mut impl PrecompileHandle) -> Option<PrecompileResult> {
-        match handle.code_address() {
-            // Ethereum precompiles :
-            a if a == hash(1) => Some(ECRecover::execute(handle)),
-            a if a == hash(2) => Some(Sha256::execute(handle)),
-            a if a == hash(3) => Some(Ripemd160::execute(handle)),
-            a if a == hash(4) => Some(Identity::execute(handle)),
-            a if a == hash(5) => Some(Modexp::execute(handle)),
-            a if a == hash(6) => Some(Bn128Add::execute(handle)),
-            a if a == hash(7) => Some(Bn128Mul::execute(handle)),
-            a if a == hash(8) => Some(Bn128Pairing::execute(handle)),
-            // Non-Frontier specific nor Ethereum precompiles :
-            a if a == hash(1024) => Some(Sha3FIPS256::execute(handle)),
-            a if a == hash(1025) => Some(ECRecoverPublicKey::execute(handle)),
-            a if a == hash(4049) => Some(SubstrateTransferPrecompile::<R, ()>::execute(handle)),
-            a if a == hash(5049) => Some(Sr25519VerifierPrecompile::<R>::execute(handle)),
-            a if a == hash(5050) => Some(Ed25519VerifierPrecompile::<R>::execute(handle)),
-            _ => None,
-        }
-    }
+/// Non-frontier/non-mainnet precompiles: delegatecall *not* allowed (see `common_checks` in precompile-utils).
+type NonEthereumPrecompileChecks = (CallableByContract, CallableByPrecompile);
 
-    fn is_precompile(&self, address: H160, _gas: u64) -> IsPrecompileResult {
-        IsPrecompileResult::Answer {
-            is_precompile: Self::used_addresses().contains(&address),
-            extra_cost: 0,
-        }
-    }
-}
+/// Upper bound on the Creditcoin-precompile numeric address band (covers 4049–5050 today with room above).
+///
+/// Addresses from `AddressU64<1>` through this exclusive band are routed through the tuple below;
+/// callers outside `[1, MAX_PRECOMPILE_NUM]` skip the fragment (same pattern as Moonbeam's 1–4095 range).
+pub const MAX_PRECOMPILE_NUM: u64 = 8191;
 
-fn hash(a: u64) -> H160 {
-    // just converts the argument to its hex value
-    H160::from_low_u64_be(a)
+#[precompile_utils::precompile_name_from_address]
+type GluwaPrecompilesInner<R> = (
+    PrecompileAt<AddressU64<1>, ECRecover, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<2>, Sha256, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<3>, Ripemd160, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<4>, Identity, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<5>, Modexp, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<6>, Bn128Add, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<7>, Bn128Mul, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<8>, Bn128Pairing, EthereumPrecompilesChecks>,
+    PrecompileAt<AddressU64<1024>, Sha3FIPS256, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<1025>, ECRecoverPublicKey, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<4049>, SubstrateTransferPrecompile<R, ()>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<4050>, BlockProverPrecompile<R>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<4051>, ChainInfoPrecompile<R>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<4052>, AttestorStashPrecompile<R>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<5049>, Sr25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<5050>, Ed25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
+);
+
+/// Installed [`PrecompileSet`](pallet_evm::PrecompileSet) type for Creditcoin runtime.
+pub type GluwaPrecompiles<R> = PrecompileSetBuilder<
+    R,
+    (
+        PrecompilesInRangeInclusive<
+            (AddressU64<1>, AddressU64<{ MAX_PRECOMPILE_NUM }>),
+            GluwaPrecompilesInner<R>,
+        >,
+    ),
+>;
+
+pub fn used_addresses() -> sp_std::vec::Vec<sp_core::H160> {
+    GluwaPrecompiles::<Runtime>::used_addresses_h160().collect()
 }

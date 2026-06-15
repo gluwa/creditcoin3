@@ -1,10 +1,12 @@
 ---
 name: Create Devnet release
 
-on:
+"on":
   schedule:
     # every month, on the 2nd @ 6am
     - cron: "0 6 2 * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
 
 permissions: read-all
 
@@ -38,7 +40,7 @@ jobs:
           git status
           git diff
 
-      - name: Commit, tag & push changes to dev branch
+      - name: Commit, tag & push changes to usc-dev branch
         uses: EndBug/add-and-commit@v10
         with:
           push: true

@@ -1,13 +1,14 @@
-# hadolint global ignore=DL3008,DL3009,DL3016,SC3046,DL4006,SC2086
-FROM ubuntu:24.04 as runtime-base
+# hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
+FROM ubuntu:24.04 AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends ca-certificates curl && \
     update-ca-certificates && \
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y gcc make nodejs --no-install-recommends && \
+    apt-get install -y libdw1t64 libpq5 nodejs --no-install-recommends && \
     npm install -g yarn node-gyp
+# WARNING: devel dependencies should go into the devel-base image below
 
 RUN useradd --home-dir /creditcoin-node --create-home creditcoin
 USER creditcoin
@@ -16,10 +17,17 @@ WORKDIR /creditcoin-node
 
 
 FROM runtime-base AS devel-base
+USER 0
+# NOTE: only devel releated dependencies here
+RUN apt-get install -y --no-install-recommends \
+    software-properties-common \
+    gcc libpq-dev make jq
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 
+USER creditcoin
 
-FROM devel-base as rust-builder
+
+FROM devel-base AS rust-builder
 ARG BUILD_ARGS=""
 USER 0
 RUN apt-get install -y --no-install-recommends \
@@ -35,6 +43,11 @@ RUN source ~/.cargo/env && \
 
 
 FROM devel-base AS cli-builder
+WORKDIR /creditcoin-node/precompiles/metadata
+
+WORKDIR /creditcoin-node/docs/smart-contract-development/with-hardhat
+RUN npm install && npx hardhat compile
+
 WORKDIR /creditcoin-node/cli
 RUN yarn install && yarn build && yarn pack
 
@@ -48,6 +61,12 @@ ENTRYPOINT [ "/bin/creditcoin3-node" ]
 COPY --from=cli-builder  --chown=creditcoin:creditcoin /creditcoin-node/cli/creditcoin-v*.tgz /creditcoin-node/
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/creditcoin3-node /bin/creditcoin3-node
 COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/chainspecs /
+
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor /bin/attestor
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/attestor_zombienet /bin/attestor_zombienet
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/proof-gen-api-server /bin/proof-gen-api-server
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/archiver /bin/archiver
+COPY --from=rust-builder --chown=creditcoin:creditcoin /creditcoin-node/target/release/query-cli /bin/query-cli
 
 USER 0
 RUN npm install -g /creditcoin-node/creditcoin-v*.tgz

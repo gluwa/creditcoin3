@@ -13,9 +13,11 @@ if [ "$RESULT" != "0" ]; then
     exit $RESULT
 fi
 
-# Check if there are any .toml files that have changed
-if git diff --cached --name-only | grep -q '\.toml$'; then
-    taplo format --check
+# Check .toml files excluding 'target/'
+TOML_FILES=$(git diff --cached --name-only '*.toml' ':!target/*')
+
+if [ -n "$TOML_FILES" ]; then
+    taplo format --check "$TOML_FILES"
     RESULT=$?
     if [ "$RESULT" != "0" ]; then
         echo "INFO: pre-commit: taplo format failed"
@@ -24,4 +26,19 @@ if git diff --cached --name-only | grep -q '\.toml$'; then
     fi
 fi
 
-exit $RESULT
+for TARGET_DIR in "cc3-indexer" "cli" "docs/smart-contract-development/with-hardhat" "scripts" "scripts/changelog-warnings"; do
+    if [ -n "$(git diff --cached --name-only $TARGET_DIR)" ]; then
+        pushd "$TARGET_DIR" || exit 2
+        yarn check-format
+        RESULT=$?
+        popd || exit 3
+
+        if [ "$RESULT" != "0" ]; then
+            echo "INFO: pre-commit: yarn check-format failed in $TARGET_DIR"
+            echo "FAIL: pre-commit: aborting the commit"
+            exit $RESULT
+        fi
+    fi
+done
+
+exit 0

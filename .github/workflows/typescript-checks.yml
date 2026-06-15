@@ -1,0 +1,101 @@
+---
+name: typescript-checks
+
+# Controls when the action will run.
+"on":
+  pull_request:
+    branches: [main, usc-testnet, usc-dev]
+    paths:
+      - '**.ts'
+      - '**.js'
+      - '**.json'
+      - '**package.json'
+      - '**package-lock.json'
+      - '**yarn.lock'
+      - '**deno.json'
+      - '**deno.lock'
+      # controls the version of deno we test with
+      - 'scripts/stress-test/Dockerfile'
+      - 'scripts/traffic-simulator/Dockerfile'
+      - 'scripts/usc-audit-automation/Dockerfile'
+      - '.github/workflows/typescript-checks.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  execute-command:
+    name: ${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        directory:
+          # note: add also in .github/hooks/pre-commit
+          [cc3-indexer, cli, docs/smart-contract-development/with-hardhat, scripts, scripts/changelog-warnings, checkpoint-verifier]
+        command: [lint, typecheck, check-format]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Run tools
+        working-directory: ${{ matrix.directory }}
+        run: |
+          if [ -f yarn.lock ]; then
+              yarn install
+          else
+              npm clean-install
+          fi
+          yarn ${{ matrix.command }}
+
+  deno-checks:
+    name: ${{ matrix.command }} / ${{ matrix.directory }}
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        directory: [scripts/stress-test, scripts/traffic-simulator, scripts/usc-audit-automation]
+        command: [lint, check, fmt-check]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract Deno version from Dockerfile
+        id: deno_version
+        working-directory: ${{ matrix.directory }}
+        run: |
+          # Extract version from "FROM denoland/deno:X.Y.Z" line
+          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | tr -d '[:space:]')
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract Deno version from Dockerfile"
+            exit 1
+          fi
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Extracted Deno version: v${VERSION}"
+
+      - name: Install Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ steps.deno_version.outputs.version }}
+
+      - name: Run deno task ${{ matrix.command }}
+        working-directory: ${{ matrix.directory }}
+        run: deno task ${{ matrix.command }}

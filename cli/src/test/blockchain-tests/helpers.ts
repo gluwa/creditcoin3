@@ -2,6 +2,48 @@ import { ethers } from 'ethers';
 import { readFile } from 'fs/promises';
 import path from 'path';
 
+// matches artifacts/proof_example_erc20.json
+export const validQuery = {
+    chainId: 5, // not checked by Cairo
+    height: 23,
+    index: 0,
+    // note: must be `layout` when sending to verify() precompile
+    layoutSegments: [
+        {
+            offset: 448,
+            size: 32,
+        },
+        {
+            offset: 192,
+            size: 32,
+        },
+        {
+            offset: 224,
+            size: 32,
+        },
+        {
+            offset: 800,
+            size: 32,
+        },
+        {
+            offset: 928,
+            size: 32,
+        },
+        {
+            offset: 960,
+            size: 32,
+        },
+        {
+            offset: 992,
+            size: 32,
+        },
+        {
+            offset: 1056,
+            size: 32,
+        },
+    ],
+};
+
 export const deployContract = async (
     contractName: string,
     // deno-lint-ignore no-explicit-any

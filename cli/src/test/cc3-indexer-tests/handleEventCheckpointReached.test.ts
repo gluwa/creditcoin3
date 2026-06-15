@@ -1,0 +1,78 @@
+import { newApi, ApiPromise } from '../../lib';
+import { chain_Anvil1_Key, chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import { graphQLQuery } from './common';
+
+describe('handleEventCheckpointReached()', () => {
+    let api: ApiPromise;
+    let lastBlockNumber: bigint;
+
+    beforeAll(async () => {
+        ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
+
+        const lastCheckpoint = await api.query.attestation.lastCheckpoint(chain_Anvil1_Key);
+        expect(lastCheckpoint.isSome).toBeTruthy();
+        lastBlockNumber = lastCheckpoint.unwrap().blockNumber.toBigInt();
+    }, 30_000);
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    describe('when there are checkpoints on chain', () => {
+        it('graphQL returns known Checkpoint entities', async () => {
+            const response = await graphQLQuery(
+                `query { checkpoints(orderBy: AT_BLOCK_NUMBER_ASC, last: 10) { nodes { id, whoId, atBlockNumber, chainKey, blockNumber, digest, timestamp }}}`,
+            );
+            expect(response.data.checkpoints.nodes).toBeTruthy();
+            expect(response.data.checkpoints.nodes.length).toBeGreaterThanOrEqual(1);
+
+            let onChainBlockNumber = 0n;
+            let checkpointBlockNumber = 0n;
+            for (const node of response.data.checkpoints.nodes) {
+                expect([chain_Anvil1_Key.toString(), chain_Anvil3_Key.toString()]).toContain(node.chainKey);
+                // commit_attestation() contains ensure_none(origin)?;
+                // whoId is Origin::none()
+                expect(node.whoId).toBeTruthy();
+
+                // these increase for every entity. We allow the first checkpoint to have block number 0.
+                expect(BigInt(node.atBlockNumber)).toBeGreaterThanOrEqual(onChainBlockNumber);
+                onChainBlockNumber = BigInt(node.atBlockNumber);
+                expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(checkpointBlockNumber);
+                checkpointBlockNumber = BigInt(node.blockNumber);
+
+                expect(node.digest).toBeTruthy();
+
+                // 0 means that the block timestamp wasn't present, and it defaulted to 0, which is a problem
+                expect(BigInt(node.timestamp)).toBeGreaterThan(0);
+                expect(BigInt(node.timestamp)).toBeLessThan(Date.now());
+
+                // query each node individually to cover this endpoint too
+                const response2 = await graphQLQuery(
+                    `query { checkpoint(id: "${node.id}") { id, whoId, atBlockNumber, chainKey, blockNumber, digest, timestamp } }`,
+                );
+                expect(response2.data.checkpoint).toBeTruthy();
+                expect(response2.data.checkpoint.id).toEqual(node.id);
+                expect(response2.data.checkpoint.whoId).toEqual(node.whoId);
+                expect(response2.data.checkpoint.atBlockNumber).toEqual(node.atBlockNumber);
+                expect(response2.data.checkpoint.blockNumber).toEqual(node.blockNumber);
+                expect(response2.data.checkpoint.chainKey).toEqual(node.chainKey);
+                expect(response2.data.checkpoint.digest).toEqual(node.digest);
+                expect(response2.data.checkpoint.timestamp).toEqual(node.timestamp);
+            }
+        });
+
+        it('graphQL returns updated AttestationChainData entity', async () => {
+            let foundMatch = false;
+            const response = await graphQLQuery(
+                `query { attestationChainData(orderBy: CHAIN_KEY_ASC, last: 10) { nodes { id, chainKey, lastCheckpointHeaderNumber }}}`,
+            );
+            for (const node of response.data.attestationChainData.nodes) {
+                if (node.chainKey === chain_Anvil1_Key.toString()) {
+                    foundMatch = true;
+                    expect(BigInt(node.lastCheckpointHeaderNumber)).toEqual(lastBlockNumber);
+                }
+            }
+            expect(foundMatch).toEqual(true);
+        });
+    });
+});

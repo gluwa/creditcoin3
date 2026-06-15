@@ -1,0 +1,177 @@
+import { U64 } from '@polkadot/types-codec';
+import { WebSocketProvider } from 'ethers';
+import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { getChainStatus } from '../../lib/chain/status';
+import {
+    chain_Anvil1_Key,
+    chain_Anvil1_Url,
+    chain_Anvil2_Key,
+} from '../blockchain-tests/pallets/supported-chains/consts';
+import { randomIntBetween } from '../utils';
+
+describe('BlockAttested events', (): void => {
+    let api: ApiPromise;
+    let root: KeyringPair;
+    let startingEpoch = 0;
+    let chain_Anvil1_AttestationInterval = 0;
+    let startBlock_Anvil1 = 0;
+    let provider_Anvil1: WebSocketProvider;
+    const maxBlocks = 250; // ~ 21 mins
+
+    beforeAll(async () => {
+        ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
+        startingEpoch = (await api.query.babe.epochIndex()).toNumber();
+        root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        // check that we have enough attestors
+        const attestorsForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).encodedLength;
+        expect(attestorsForAnvil1).toBeGreaterThanOrEqual(3);
+
+        const attestorsForAnvil2 = (await api.query.attestation.activeAttestors(chain_Anvil2_Key)).encodedLength;
+        expect(attestorsForAnvil2).toBeGreaterThanOrEqual(3);
+
+        // NOTE: this stays constant during test execution
+        chain_Anvil1_AttestationInterval = (
+            await api.query.attestation.chainAttestationInterval(chain_Anvil1_Key)
+        ).toNumber();
+
+        provider_Anvil1 = new WebSocketProvider(chain_Anvil1_Url);
+        startBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
+    });
+
+    afterAll(async () => {
+        await api.disconnect();
+    });
+
+    test('are emitted frequently enough and match Ethereum', async (): Promise<void> => {
+        /* eslint-disable @typescript-eslint/naming-convention */
+        const attestedEvents: { [key: string]: number } = {
+            '2': 0,
+            '4': 0,
+        };
+
+        const electionEvents: { [key: string]: number } = {
+            '2': 0,
+            '4': 0,
+        };
+        const intervalChangedEvents: { [key: string]: number } = {
+            '2': 0,
+            '4': 0,
+        };
+        const initialBlock = (await getChainStatus(api)).bestNumber;
+
+        return new Promise((resolve, reject): void => {
+            // Subscribe to system events via storage
+            api.query.system
+                .events(async (events) => {
+                    console.log(`Received ${events.length} events`);
+
+                    // Loop through the Vec<EventRecord>
+                    for (const record of events) {
+                        const { event, phase: _ } = record;
+
+                        if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
+                            // Show what we are busy with
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            const [supportedChainKey, _headerNumber, _digest] = event.data;
+                            const supportedChainKeyStr = (supportedChainKey as U64).toString();
+
+                            attestedEvents[supportedChainKeyStr]++;
+                        }
+
+                        if (`${event.section}.${event.method}` === 'attestation.AttestationIntervalChanged') {
+                            // Show what we are busy with
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            const [chainKey, _interval] = event.data;
+                            const chainKeyStr = (chainKey as U64).toString();
+
+                            intervalChangedEvents[chainKeyStr]++;
+                        }
+
+                        if (`${event.section}.${event.method}` === 'attestation.AttestorsElected') {
+                            // Show what we are busy with
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            const [epoch, chainKey, _attestors] = event.data;
+                            const supportedChainKeyStr = (chainKey as U64).toString();
+
+                            electionEvents[supportedChainKeyStr]++;
+
+                            const chainKeyAsNum = (chainKey as U64).toNumber();
+                            const epochAsNum = (epoch as U64).toNumber();
+                            if (epochAsNum % 2 === 0 && chainKeyAsNum === chain_Anvil2_Key) {
+                                const defaultInterval = (
+                                    api.consts.attestation.defaultAttestationInterval as U64
+                                ).toNumber();
+                                const newInterval = randomIntBetween(defaultInterval - 5, defaultInterval + 5);
+
+                                // note: using chain Anvil-2 b/c changing interval for Anvil-1
+                                // may lead to side effects in other test scenarios
+                                const nonce = await api.rpc.system.accountNextIndex(root.address);
+                                await api.tx.sudo
+                                    .sudo(api.tx.attestation.setChainAttestationInterval(chain_Anvil2_Key, newInterval))
+                                    .signAndSend(root, { nonce });
+                                console.log(`**** DEBUG: NEW INTERVAL for ${chain_Anvil2_Key} will be ${newInterval}`);
+                            }
+                        }
+                    } // loop over events
+
+                    const currentBlock = (await getChainStatus(api)).bestNumber;
+                    if (currentBlock - initialBlock >= maxBlocks) {
+                        resolve(undefined);
+                    }
+                })
+                .catch((error) => reject(new Error(error)));
+        }).then(async () => {
+            // b/c we always start from scratch in CI expect that there is
+            // a checkpoint for the genesis block of the ingested chain
+            let checkpointsForGenesis = 0;
+            const checkpoints = await api.query.attestation.checkpoints.entries(chain_Anvil1_Key);
+            checkpoints.forEach(([key, _attestation]) => {
+                if (key.args[1].toNumber() === 0) {
+                    checkpointsForGenesis++;
+                }
+            });
+            expect(checkpointsForGenesis).toBe(1);
+
+            // note: this test is started *after* we have min 3 attestors already elected on each chain
+            const currentEpoch = (await api.query.babe.epochIndex()).toNumber();
+            const expectedElectionEvents = currentEpoch - startingEpoch;
+
+            expect(electionEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedElectionEvents - 1);
+            expect(electionEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedElectionEvents + 1);
+
+            expect(electionEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(expectedElectionEvents - 1);
+            expect(electionEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(expectedElectionEvents + 1);
+
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
+
+            const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
+            // There are 10013 initial blocks which will result in 20 attestations for each 500
+            // until we catch up, then every 10 blocks
+            const expectedBlockAttestedEvents_Anvil1 =
+                20 + Math.floor((endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval);
+
+            // however we don't start listening immediately
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(15);
+            // so allow for some timing differences
+            expect(attestedEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedBlockAttestedEvents_Anvil1 + 2);
+
+            // note: interval for Anvil2 changes dynamically during this test
+            expect(attestedEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(40);
+
+            // match the frequency b/c we don't want this to pass if only a few events are recorded
+            // and then something suddenly fails/disconnects
+            expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(4);
+            expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(4);
+            // note that this isn't super robust b/c we still don't quite know what the
+            // average distance between these events is, see CSUB-1268 but
+            // nevertheless should be good enough for CI to detect if something suddenly
+            // starts failing
+
+            expect(intervalChangedEvents[chain_Anvil1_Key]).toBe(0);
+            // this test loops over roughly 15 epochs and we make a change every 2
+            expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
+        });
+    }, 1_500_000); // 250 blocks is 1250 sec + reserve to avoid timeouts
+});

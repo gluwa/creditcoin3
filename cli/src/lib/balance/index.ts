@@ -15,6 +15,10 @@ export function parseCTCString(amount: string): BN {
 }
 
 export function toCTCString(amount: BN, decimals = 18): string {
+    const amountStrLen = amount.toString().length;
+    if (amountStrLen < 18 - decimals) {
+        decimals = 18;
+    }
     const CTC = amount.div(MICROUNITS_PER_CTC);
     const remainder = amount.mod(MICROUNITS_PER_CTC);
     const remainderString = remainder.toString().padStart(18, '0').slice(0, decimals);
@@ -52,7 +56,7 @@ export async function getBalance(address: string, api: ApiPromise) {
     return balance;
 }
 
-async function getBalancesAll(address: string, api: ApiPromise) {
+export async function getBalancesAll(address: string, api: ApiPromise) {
     const balance = await api.derive.balances.all(address);
     return balance;
 }

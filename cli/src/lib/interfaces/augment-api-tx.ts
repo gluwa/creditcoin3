@@ -12,7 +12,20 @@ import type {
     SubmittableExtrinsicFunction,
 } from '@polkadot/api-base/types';
 import type { Data } from '@polkadot/types';
-import type { Bytes, Compact, Option, U256, Vec, bool, u128, u16, u32, u64 } from '@polkadot/types-codec';
+import type {
+    Bytes,
+    Compact,
+    Option,
+    Text,
+    U256,
+    U8aFixed,
+    Vec,
+    bool,
+    u128,
+    u16,
+    u32,
+    u64,
+} from '@polkadot/types-codec';
 import type { AnyNumber, IMethod, ITuple } from '@polkadot/types-codec/types';
 import type {
     AccountId32,
@@ -25,10 +38,14 @@ import type {
     Permill,
 } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesChainEncodingVersion,
+    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
     EthereumTransactionTransactionV2,
+    PalletAttestationAttestorElectionPolicy,
     PalletBalancesAdjustmentDirection,
     PalletIdentityJudgement,
     PalletIdentityLegacyIdentityInfo,
@@ -64,6 +81,241 @@ export type __SubmittableExtrinsicFunction<ApiType extends ApiTypes> = Submittab
 
 declare module '@polkadot/api-base/types/submittable' {
     interface AugmentedSubmittables<ApiType extends ApiTypes> {
+        attestation: {
+            attest: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    blsPublicKey: U8aFixed | string | Uint8Array,
+                    proofOfPossession: U8aFixed | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, U8aFixed, U8aFixed]
+            >;
+            authorizeAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            chill: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            /**
+             * Inclusion fees are assessed up front for every caller ([`Pays::Yes`] via
+             * [`CommitAttestationWeight`]) so the transaction pool cannot admit zero-fee spam from
+             * callers who are not active attestors. On successful commit, active attestors receive
+             * [`PostDispatchInfo`] with [`Pays::No`] so the final fee is waived.
+             **/
+            commitAttestation: AugmentedSubmittable<
+                (
+                    attestation:
+                        | AttestorPrimitivesSignedAttestation
+                        | { attestation?: any; signature?: any; attestors?: any; continuityProof?: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [AttestorPrimitivesSignedAttestation]
+            >;
+            /**
+             * Force apply all pending configuration updates immediately.
+             *
+             * This applies pending attestation intervals, target sample sizes,
+             * and max catchup values for all supported chains without waiting
+             * for the next epoch boundary.
+             **/
+            forceApplyUpdates: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
+            /**
+             * Force trigger an attestor election.
+             *
+             * A randomness of [0; 32] is used since randomness is not currently
+             * used in the election logic.
+             **/
+            forceElection: AugmentedSubmittable<
+                (epoch: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u64]
+            >;
+            /**
+             * Overwrite or insert checkpoints and optionally drop every checkpoint above the batch tip.
+             *
+             * Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
+             * **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
+             * ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+             *
+             * Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
+             * attestations after recovery.
+             *
+             * When `wipe_suffix` is true, every checkpoint strictly above the batch tip is removed in this
+             * dispatch (bounded by [`crate::impls::MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`]).
+             **/
+            forwardPatchCheckpoints: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    wipeSuffix: bool | boolean | Uint8Array,
+                    checkpoints:
+                        | Vec<AttestorPrimitivesAttestationCheckpoint>
+                        | (
+                              | AttestorPrimitivesAttestationCheckpoint
+                              | { blockNumber?: any; digest?: any }
+                              | string
+                              | Uint8Array
+                          )[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, bool, Vec<AttestorPrimitivesAttestationCheckpoint>]
+            >;
+            importCheckpoints: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    checkpoints:
+                        | Vec<AttestorPrimitivesAttestationCheckpoint>
+                        | (
+                              | AttestorPrimitivesAttestationCheckpoint
+                              | { blockNumber?: any; digest?: any }
+                              | string
+                              | Uint8Array
+                          )[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, Vec<AttestorPrimitivesAttestationCheckpoint>]
+            >;
+            kickActiveAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                    unregister: bool | boolean | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32, bool]
+            >;
+            registerAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            registerInvulnerable: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestor: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            removeAuthorizedAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            /**
+             * Revert an attestation chain to the given checkpoint digest. This should only
+             * be called if a deep reorg occurred on the corresponding source chain and one
+             * or more attestations have become invalid.
+             **/
+            revertTo: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    checkpointHeight: u64 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u64]
+            >;
+            setAttestationChainGenesisBlockNumber: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    genesisBlockNumber: u64 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u64]
+            >;
+            setAttestationsPerCheckpoint: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestationsPerCheckpoint: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
+            setChainAttestationInterval: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    chainAttestationInterval: u64 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u64]
+            >;
+            setElectionPolicy: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    newPolicy:
+                        | PalletAttestationAttestorElectionPolicy
+                        | 'OpenToAny'
+                        | 'AuthorizedOnly'
+                        | 'DeniedToAll'
+                        | number
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, PalletAttestationAttestorElectionPolicy]
+            >;
+            setMaxAttestors: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    newMax: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
+            /**
+             * Set the maximum catchup bound (in **blocks**) for a given chain.
+             * During catchup, continuity proofs will span at most this many
+             * blocks per attestation. Must be greater than zero. Takes effect
+             * at the next checkpoint.
+             **/
+            setMaxCatchup: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    maxCatchup: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
+            setMaxInvulnerables: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    newMax: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
+            setMinBondRequirement: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    minBondRequirement: u128 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u128]
+            >;
+            setTargetSampleSize: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    newTargetSampleSize: u32 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, u32]
+            >;
+            unregisterAttestor: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestorId: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            unregisterInvulnerable: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    attestor: AccountId32 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, AccountId32]
+            >;
+            withdrawUnbonded: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
         babe: {
             /**
              * Plan an epoch config change. The epoch config change is recorded and will be enacted on
@@ -1767,6 +2019,136 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
         };
+        operators: {
+            /**
+             * Add a member `who` to the set.
+             *
+             * May only be called from `T::AddOrigin`.
+             **/
+            addMember: AugmentedSubmittable<
+                (
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Swap out the sending member for some other key `new`.
+             *
+             * May only be called from `Signed` origin of a current member.
+             *
+             * Prime membership is passed from the origin account to `new`, if extant.
+             **/
+            changeKey: AugmentedSubmittable<
+                (
+                    updated:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Remove the prime member if it exists.
+             *
+             * May only be called from `T::PrimeOrigin`.
+             **/
+            clearPrime: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
+            /**
+             * Remove a member `who` from the set.
+             *
+             * May only be called from `T::RemoveOrigin`.
+             **/
+            removeMember: AugmentedSubmittable<
+                (
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Change the membership to a new set, disregarding the existing membership. Be nice and
+             * pass `members` pre-sorted.
+             *
+             * May only be called from `T::ResetOrigin`.
+             **/
+            resetMembers: AugmentedSubmittable<
+                (members: Vec<AccountId32> | (AccountId32 | string | Uint8Array)[]) => SubmittableExtrinsic<ApiType>,
+                [Vec<AccountId32>]
+            >;
+            /**
+             * Set the prime member. Must be a current member.
+             *
+             * May only be called from `T::PrimeOrigin`.
+             **/
+            setPrime: AugmentedSubmittable<
+                (
+                    who:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress]
+            >;
+            /**
+             * Swap out one member `remove` for another `add`.
+             *
+             * May only be called from `T::SwapOrigin`.
+             *
+             * Prime membership is *not* passed from `remove` to `add`, if extant.
+             **/
+            swapMember: AugmentedSubmittable<
+                (
+                    remove:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                    add:
+                        | MultiAddress
+                        | { Id: any }
+                        | { Index: any }
+                        | { Raw: any }
+                        | { Address32: any }
+                        | { Address20: any }
+                        | string
+                        | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [MultiAddress, MultiAddress]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
         proxy: {
             /**
              * Register a proxy account for the sender that is able to make calls on its behalf.
@@ -2060,6 +2442,12 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [MultiAddress, Creditcoin3RuntimeProxyFilter, u32]
             >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
+        randomness: {
             /**
              * Generic tx
              **/
@@ -2829,6 +3217,52 @@ declare module '@polkadot/api-base/types/submittable' {
                     weight: SpWeightsWeightV2Weight | { refTime?: any; proofSize?: any } | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [Call, SpWeightsWeightV2Weight]
+            >;
+            /**
+             * Generic tx
+             **/
+            [key: string]: SubmittableExtrinsicFunction<ApiType>;
+        };
+        supportedChains: {
+            /**
+             * Registers a supported chain with the given parameters. The chain key is automatically generated and returned in the ChainRegistered event.
+             * Only accounts in the Operators membership can call this extrinsic.
+             **/
+            registerChain: AugmentedSubmittable<
+                (
+                    chainId: u64 | AnyNumber | Uint8Array,
+                    chainName: Text | string,
+                    targetSampleSize: Option<u32> | null | Uint8Array | u32 | AnyNumber,
+                    chainAttestationInterval: Option<u64> | null | Uint8Array | u64 | AnyNumber,
+                    attestationCheckpointInterval: Option<u32> | null | Uint8Array | u32 | AnyNumber,
+                    maxAttestors: Option<u32> | null | Uint8Array | u32 | AnyNumber,
+                    maxInvulnerables: Option<u32> | null | Uint8Array | u32 | AnyNumber,
+                    attestationChainGenesisBlockNumber: Option<u64> | null | Uint8Array | u64 | AnyNumber,
+                    encoding: AttestorPrimitivesChainEncodingVersion | 'V1' | number | Uint8Array,
+                    maturityStrategy: Option<Text> | null | Uint8Array | Text | string,
+                ) => SubmittableExtrinsic<ApiType>,
+                [
+                    u64,
+                    Text,
+                    Option<u32>,
+                    Option<u64>,
+                    Option<u32>,
+                    Option<u32>,
+                    Option<u32>,
+                    Option<u64>,
+                    AttestorPrimitivesChainEncodingVersion,
+                    Option<Text>,
+                ]
+            >;
+            /**
+             * Removes a supported chain by its chain key. Only accounts in the Operators membership can call this extrinsic.
+             **/
+            removeChain: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    removeCheckpoints: bool | boolean | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, bool]
             >;
             /**
              * Generic tx

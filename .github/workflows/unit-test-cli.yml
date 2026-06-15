@@ -1,0 +1,49 @@
+---
+name: unit-test-cli
+
+"on":
+  pull_request:
+    branches: [main, usc-testnet, usc-dev]
+    paths:
+      - "cli/yarn.lock"
+      - "cli/src/commands/**"
+      - "cli/src/lib/**"
+      - "cli/src/test/unit-tests/**"
+      - ".github/workflows/unit-test-cli.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  unit-test-cli:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate precompiles ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Execute tests
+        working-directory: ./cli
+        run: |
+          yarn install
+          yarn test:unit

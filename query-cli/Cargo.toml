@@ -1,0 +1,35 @@
+[package]
+edition = "2021"
+license = "MIT"
+name = "query-cli"
+publish = false
+version = "0.1.0"
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+alloy = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+stream = { workspace = true, default-features = false, features = ["cc3"] }
+tokio = { workspace = true, features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+attestor-primitives = { workspace = true }
+cc-client = { workspace = true }
+eth = { workspace = true }
+merkle = { workspace = true }
+sp-core = { workspace = true }
+user = { workspace = true }
+
+anyhow.workspace = true
+continuity = { path = "../common/continuity" }
+usc-abi-encoding = { workspace = true }
+usc-query-builder = { workspace = true }
+utils = { path = "../common/utils" }

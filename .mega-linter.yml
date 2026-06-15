@@ -8,3 +8,10 @@ DISABLE_LINTERS:
   - RUST_CLIPPY
   - SPELL_CSPELL
   - SPELL_MISSPELL
+  - GRAPHQL_GRAPHQL_SCHEMA_LINTER
+
+GITHUB_COMMENT_REPORTER: false
+JSON_PRETTIER_ARGUMENTS: --no-error-on-unmatched-pattern
+# Git LFS pointer stubs (see .gitattributes) are not real JSON — jsonlint would fail on them.
+# Raw chainspecs are huge anyway.
+JSON_JSONLINT_FILTER_REGEX_EXCLUDE: '(chainspecs/(dryRunSpec\.json|dryRunSpecRaw\.json|mainnetSpecRaw\.json))'

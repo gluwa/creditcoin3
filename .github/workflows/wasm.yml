@@ -1,12 +1,19 @@
 ---
 name: Build WASM Runtime
 
-on:
-  push:
-    branches: [main, testnet, dev]
+"on":
   pull_request:
-    branches: [cc3-testnet, cc3-dev]
+    branches: [main, usc-testnet, usc-dev]
+    paths:
+      - '**.rs'
+      - '**.toml'
+      - '**Cargo**'
+      - '.github/workflows/wasm.yml'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
 
 permissions: read-all
 
@@ -14,79 +21,7 @@ jobs:
   build:
     uses: ./.github/workflows/build-wasm.yml
     with:
-      build-options: "--features fast-runtime --features devnet --features metadata-hash"
+      build-options: "--features devnet"
+      build-subwasm: true
       version-string: ${{ github.sha }}
-
-  # try installing subwasm b/c we use this version in multiple places
-  # and need to know whether it builds with current rustc
-  dry-run-install-subwasm:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          lfs: true
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-
-      - name: Install Subwasm
-        uses: gluwa/cargo@dev
-        with:
-          command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
-
-  upgrade-devnet:
-    runs-on: ubuntu-24.04
-    needs: build
-    if: github.ref == 'refs/heads/dev'
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          lfs: true
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: binary-for-wasm
-          path: wasm
-
-      - name: Configure rustc version
-        run: |
-          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
-          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUSTC_VERSION }}
-
-      - name: Install Subwasm
-        uses: gluwa/cargo@dev
-        with:
-          command: install
-          args: --locked --git https://github.com/chevdor/subwasm --tag v0.19.0
-
-      - name: Install JS Dependencies
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20
-      - working-directory: cli
-        run: |
-          npm install -g yarn
-          npm install -g node-gyp
-          yarn install
-          yarn build
-
-      - name: Upgrade WASM
-        working-directory: cli
-        env:
-          DEVNET_URL: wss://rpc.cc3-devnet.creditcoin.network/ws
-          SUDO_SEED: ${{ secrets.DEVNET_SUDO_SEED }}
-        run: |
-          node dist/scripts/runtimeUpgrade.js "$DEVNET_URL" ../wasm/creditcoin-${{ github.sha }}-runtime.wasm "$SUDO_SEED" 0
+      runs-on: "['ubuntu-24.04']"

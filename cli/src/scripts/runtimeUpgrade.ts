@@ -55,9 +55,10 @@ async function doRuntimeUpgrade(
         const keyring = initKeyringPair(sudoKeyUri);
 
         if (process.env.NEW_SUDO_BALANCE !== undefined) {
+            const nonce1 = await api.rpc.system.accountNextIndex(keyring.address);
             await api.tx.sudo
                 .sudo(api.tx.balances.forceSetBalance(keyring.address, new BN(process.env.NEW_SUDO_BALANCE)))
-                .signAndSend(keyring, { nonce: -1 });
+                .signAndSend(keyring, { nonce: nonce1 });
             // wait for 60 sec for blocks to finalize
             await sleep(60_000);
         }
@@ -100,10 +101,11 @@ async function doRuntimeUpgrade(
         };
 
         // schedule the upgrade
+        const nonce2 = await api.rpc.system.accountNextIndex(keyring.address);
         await new Promise<void>((resolve, reject) => {
             const unsubscribe = api.tx.sudo
                 .sudoUncheckedWeight(callback, overrideWeight)
-                .signAndSend(keyring, { nonce: -1 }, async ({ dispatchError, events, status }) => {
+                .signAndSend(keyring, { nonce: nonce2 }, async ({ dispatchError, events, status }) => {
                     const finish = (fn: () => void) => {
                         unsubscribe
                             .then((unsub) => {

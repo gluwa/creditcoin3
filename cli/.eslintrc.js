@@ -40,6 +40,7 @@ module.exports = {
                 default: 'array',
             },
         ],
+        '@typescript-eslint/ban-ts-comment': 'off',
         '@typescript-eslint/no-wrapper-object-types': 'error',
         '@typescript-eslint/consistent-type-assertions': 'error',
         '@typescript-eslint/dot-notation': 'error',

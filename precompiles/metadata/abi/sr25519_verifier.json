@@ -1,59 +1,31 @@
-{
-  "contracts": {
-    "sol/sr25519_verifier.sol:Sr25519Verifier": {
-      "abi": [
-        {
-          "inputs": [
-            {
-              "internalType": "bytes",
-              "name": "message",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes",
-              "name": "signature",
-              "type": "bytes"
-            },
-            {
-              "internalType": "bytes32",
-              "name": "publicKey",
-              "type": "bytes32"
-            }
-          ],
-          "name": "verify",
-          "outputs": [
-            {
-              "internalType": "bool",
-              "name": "",
-              "type": "bool"
-            }
-          ],
-          "stateMutability": "view",
-          "type": "function"
-        }
-      ],
-      "devdoc": {
-        "kind": "dev",
-        "methods": {
-          "verify(bytes,bytes,bytes32)": {
-            "details": "Verifies an sr25519 signature.",
-            "params": {
-              "message": "The message that was signed.",
-              "publicKey": "The 32-byte sr25519 public key.",
-              "signature": "The 64-byte sr25519 signature."
-            },
-            "returns": {
-              "_0": "bool true if the signature is valid, false otherwise."
-            }
-          }
-        },
-        "title": "Sr25519Verifier interface",
-        "version": 1
+[
+  {
+    "inputs": [
+      {
+        "internalType": "bytes",
+        "name": "message",
+        "type": "bytes"
       },
-      "hashes": {
-        "verify(bytes,bytes,bytes32)": "c4d06258"
+      {
+        "internalType": "bytes",
+        "name": "srSignature",
+        "type": "bytes"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "publicKey",
+        "type": "bytes32"
       }
-    }
-  },
-  "version": "0.8.30+commit.73712a01.Linux.g++"
-}
+    ],
+    "name": "verify",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

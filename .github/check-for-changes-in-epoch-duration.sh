@@ -1,18 +1,10 @@
 #!/bin/bash
 
-set -euo pipefail
+set -xeuo pipefail
 
 # Colorful output.
 function greenprint {
     echo -e "\033[1;32m[$(date -Isecond)] ${1}\033[0m"
-}
-
-function yellowprint {
-    echo -e "\033[1;33m[$(date -Isecond)] ${1}\033[0m"
-}
-
-function redprint {
-    echo -e "\033[1;31m[$(date -Isecond)] ${1}\033[0m"
 }
 
 check_block_time() {
@@ -20,12 +12,11 @@ check_block_time() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'MILLISECS_PER_BLOCK' | grep const | grep --regexp='^[\+|\-]'; then
-        redprint "FAIL: modified line(s) referencing MILLISECS_PER_BLOCK found!"
-        redprint "FAIL: Don't change the value of this variable! This will brick the blockchain!"
+    if git --no-pager diff "${from}...${to}" | grep 'MILLISECS_PER_BLOCK'; then
+        greenprint "FAIL: MILLISECS_PER_BLOCK has been modified! This will brick the blockchain!"
         exit 1
     else
-        greenprint "PASS: modified lines referencing MILLISECS_PER_BLOCK not found!"
+        greenprint "PASS: MILLISECS_PER_BLOCK has not been modified!"
     fi
 }
 
@@ -34,12 +25,11 @@ check_blocks_for_faster_epoch() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'BLOCKS_FOR_FASTER_EPOCH' | grep const | grep --regexp='^[\+|\-]'; then
-        redprint "FAIL: modified line(s) referencing BLOCKS_FOR_FASTER_EPOCH found!"
-        redprint "FAIL: Don't change the value of this variable! This will brick Devnet!"
+    if git --no-pager diff "${from}...${to}" | grep 'EPOCH_DURATION_IN_BLOCKS'; then
+        greenprint "FAIL: EPOCH_DURATION_IN_BLOCKS has been modified! This MAY brick existing chains!"
         exit 1
     else
-        greenprint "PASS: modified lines referencing BLOCKS_FOR_FASTER_EPOCH not found!"
+        greenprint "PASS: EPOCH_DURATION_IN_BLOCKS has not been modified!"
     fi
 }
 
@@ -48,12 +38,11 @@ check_epoch_duration() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'EPOCH_DURATION' | grep const | grep --regexp='^[\+|\-]'; then
-        redprint "FAIL: modified line(s) referencing EPOCH_DURATION found!"
-        redprint "FAIL: Don't change the value of this variable! This will brick the blockchain!"
+    if git --no-pager diff "${from}...${to}" | grep 'EPOCH_DURATION'; then
+        greenprint "FAIL: EPOCH_DURATION has been modified! This will brick the blockchain!"
         exit 1
     else
-        greenprint "PASS: modified lines referencing EPOCH_DURATION not found!"
+        greenprint "PASS: EPOCH_DURATION has not been modified!"
     fi
 }
 
@@ -62,39 +51,38 @@ check_slot_duration() {
     from=$1
     to=$2
 
-    if git --no-pager diff "${from}...${to}" -- runtime/ | grep 'SLOT_DURATION' | grep const | grep --regexp='^[\+|\-]'; then
-        redprint "FAIL: modified line(s) referencing SLOT_DURATION found!"
-        redprint "FAIL: Don't change the value of this variable! This will brick the blockchain!"
+    if git --no-pager diff "${from}...${to}" | grep 'SLOT_DURATION'; then
+        greenprint "FAIL: SLOT_DURATION has been modified! This will brick the blockchain!"
         exit 1
     else
-        greenprint "PASS: modified lines referencing SLOT_DURATION not found!"
+        greenprint "PASS: SLOT_DURATION has not been modified!"
     fi
 }
 
 
 #### main part
 
-FROM=$(git rev-parse "${1:-origin/cc3-dev}")
+FROM=$(git rev-parse "${1:-origin/usc-dev}")
 TO=$(git rev-parse "${2:-HEAD}")
 
-yellowprint "DEBUG: Inspecting range $FROM...$TO"
+greenprint "DEBUG: Inspecting range $FROM..$TO"
 
 if [ -z "$FROM" ]; then
-    redprint "ERROR: FROM is empty. Exiting..."
+    echo "ERROR: FROM is empty. Exiting..."
     exit 2
 fi
 
 if [ -z "$TO" ]; then
-    redprint "ERROR: TO is empty. Exiting..."
+    echo "ERROR: TO is empty. Exiting..."
     exit 2
 fi
 
 if git --no-pager diff --name-only "${FROM}"..."${TO}" | grep -e '^runtime'; then
-    yellowprint "INFO: runtime/ dir has been modified. Checking for critical changes!"
+    greenprint "INFO: runtime/ has been modified. Checking for changes in EPOCH_DURATION!"
     check_block_time "${FROM}" "${TO}"
     check_blocks_for_faster_epoch "${FROM}" "${TO}"
     check_epoch_duration "${FROM}" "${TO}"
     check_slot_duration "${FROM}" "${TO}"
 else
-    greenprint "INFO: runtime/ dir has NOT been modified. All good!"
+    greenprint "INFO: runtime/ has NOT been modified. Will NOT check for changes in EPOCH_DURATION!"
 fi

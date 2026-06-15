@@ -19,6 +19,8 @@ import { makeConvertAddressCommand } from './commands/convertAddress';
 import { makeProxyCommands } from './commands/proxy/commands';
 import { noInputOption, urlOption } from './commands/options';
 
+import { makeAttestorCommand } from './commands/attestor';
+
 const program = new Command();
 
 // Add commands. WARNING: DO NOT ADD SUB COMMANDS HERE!
@@ -51,4 +53,5 @@ program.commands.forEach((cmd) => {
 // (I think the 2nd one) shadows the actual value specified on the command line
 program.addCommand(makeEvmCommand());
 program.addCommand(makeProxyCommands());
+program.addCommand(makeAttestorCommand());
 program.parse(process.argv);

@@ -1,0 +1,21 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "stream"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+stream_attestation = { workspace = true, optional = true }
+stream_cc3 = { workspace = true, optional = true }
+stream_eth = { workspace = true, optional = true }
+stream_util = { workspace = true, optional = true }
+
+[features]
+attestation = ["dep:stream_attestation"]
+cc3 = ["dep:stream_cc3"]
+default = ["attestation", "eth", "util", "cc3"]
+eth = ["dep:stream_eth"]
+util = ["dep:stream_util"]

@@ -1,13 +1,19 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import execa = require('execa');
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import fs = require('fs');
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import os = require('os');
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import path = require('path');
 
 import { commandSync } from 'execa';
 
 import type { EventRecord, Balance, DispatchError } from '../lib';
-import { ApiPromise, expectNoDispatchError, newApi } from '../lib';
+import { ApiPromise, expectNoEventError, expectNoDispatchError, newApi } from '../lib';
 import { getChainStatus } from '../lib/chain/status';
 
 export const describeIf = (condition: boolean, name: string, fn: any) =>
@@ -15,6 +21,30 @@ export const describeIf = (condition: boolean, name: string, fn: any) =>
 
 export const testIf = (condition: boolean, name: string, fn: any, timeout = 30000) =>
     condition ? test(name, fn, timeout) : test.skip(name, fn, timeout);
+
+export const try_catch_else_finally = function (
+    protected_code: any,
+    handler_code: any,
+    else_code: any,
+    finally_code: any = undefined,
+) {
+    try {
+        let success = true;
+        try {
+            protected_code();
+        } catch (error: any) {
+            success = false;
+            handler_code(error);
+        }
+        if (success) {
+            else_code();
+        }
+    } finally {
+        if (finally_code) {
+            finally_code();
+        }
+    }
+};
 
 export const extractFee = async (
     resolve: any,
@@ -26,6 +56,8 @@ export const extractFee = async (
     status: any,
 ): Promise<void> => {
     expectNoDispatchError(api, dispatchError);
+    if (events) events.forEach((event) => expectNoEventError(api, event));
+
     if (status.isInBlock) {
         const balancesWithdraw = events.find(({ event: { method, section } }) => {
             return section === 'balances' && method === 'Withdraw';
@@ -56,6 +88,7 @@ export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve
 export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: number; maxRetries?: number }) => {
     const { maxRetries = 10, minBlocks = 2 } = opts ?? {};
     const initialCreditcoinBlockNumber = (await getChainStatus(api)).bestNumber;
+    const blockTime = api.consts.babe.expectedBlockTime.toNumber();
 
     let retriesCount = 0;
     let creditcoinBlockNumber = initialCreditcoinBlockNumber;
@@ -63,7 +96,7 @@ export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: num
     // wait a min amount of blocks since the initial call to give time to any pending
     // transactions, e.g. test setup to make it into a block
     while (retriesCount < maxRetries && creditcoinBlockNumber <= initialCreditcoinBlockNumber + minBlocks) {
-        await sleep(5000);
+        await sleep(blockTime);
         creditcoinBlockNumber = (await getChainStatus(api)).bestNumber;
         retriesCount++;
     }
@@ -123,4 +156,14 @@ export async function expectIsFinalizing() {
     // disconnect b/c Alice will start reporting: Too many connections. Please try again later.
     // which causes the calling beforeEach() to timeout after the 8th .test.ts file is executed
     await api.disconnect();
+}
+
+export function randomIntBetween(min: number, max: number) {
+    return min + Math.floor(Math.random() * (max - min));
+}
+
+// Function to calculate the threshold for a committee set size to reach majority vote
+// Duplicate of pub fn calculate_threshold(target_sample_size: u32) -> u32 (Path: creditcoin3-next/primitives/attestor/src/lib.rs)
+export function calculateThreshold(targetSampleSize: bigint): bigint {
+    return (BigInt(2) * targetSampleSize) / BigInt(3);
 }

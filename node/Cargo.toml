@@ -1,6 +1,6 @@
 [package]
-name = "creditcoin3-node"
 description = "Creditcoin3"
+name = "creditcoin3-node"
 
 authors = { workspace = true }
 edition = { workspace = true }
@@ -14,8 +14,10 @@ build = "build.rs"
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
 
+[lints.clippy]
+result_large_err = "allow"
+
 [dependencies]
-serde_json = { workspace = true }
 async-trait = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
@@ -23,11 +25,13 @@ hex-literal = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
 parity-scale-codec = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync"] }
 
 # Substrate
-substrate-prometheus-endpoint = { workspace = true }
+frame-metadata-hash-extension = { workspace = true, default-features = false }
+pallet-attestation = { workspace = true }
 sc-basic-authorship = { workspace = true }
 sc-chain-spec = { workspace = true }
 sc-cli = { workspace = true }
@@ -44,6 +48,7 @@ sc-network-sync = { workspace = true }
 sc-offchain = { workspace = true }
 sc-rpc = { workspace = true }
 sc-service = { workspace = true }
+sc-sync-state-rpc = { workspace = true, default-features = true }
 sc-telemetry = { workspace = true }
 sc-transaction-pool = { workspace = true }
 sc-transaction-pool-api = { workspace = true }
@@ -63,7 +68,7 @@ sp-session = { workspace = true, features = ["default"] }
 sp-state-machine = { workspace = true, features = ["default"] }
 sp-timestamp = { workspace = true, features = ["default"] }
 sp-transaction-pool = { workspace = true, features = ["default"] }
-frame-metadata-hash-extension = { workspace = true, default-features = false }
+substrate-prometheus-endpoint = { workspace = true }
 
 # These dependencies are used for RPC
 frame-system-rpc-runtime-api = { workspace = true }
@@ -71,8 +76,8 @@ pallet-transaction-payment-rpc = { workspace = true }
 pallet-transaction-payment-rpc-runtime-api = { workspace = true }
 substrate-frame-rpc-system = { workspace = true }
 # These dependencies are used for runtime benchmarking
-frame-benchmarking = { workspace = true, optional = true }
-frame-benchmarking-cli = { workspace = true, optional = true }
+frame-benchmarking = { workspace = true }
+frame-benchmarking-cli = { workspace = true }
 frame-system = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 
@@ -92,33 +97,40 @@ fp-rpc = { workspace = true, features = ["default"] }
 # Gluwa
 creditcoin3-runtime = { workspace = true, features = ["std"], optional = true }
 
-creditcoin3-cli-opt = { workspace = true }
-
 # Tracing
+creditcoin3-cli-opt = { workspace = true }
 creditcoin3-primitives-ext = { workspace = true }
 moonbeam-rpc-debug = { workspace = true }
 moonbeam-rpc-primitives-debug = { workspace = true }
 moonbeam-rpc-trace = { workspace = true }
 
+# Attestation
+attestor-primitives = { workspace = true }
+randomness-primitives = { workspace = true }
+supported-chains-primitives = { workspace = true }
+
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
+
+[package.metadata.cargo-machete]
+ignored = ["substrate-build-script-utils"]
 
 [features]
 default = ["creditcoin3-runtime", "rocksdb", "sql", "txpool"]
 rocksdb = [
-  "sc-cli/rocksdb",
-  "sc-service/rocksdb",
-  "fc-cli/rocksdb",
-  "fc-db/rocksdb",
-  "fc-mapping-sync/rocksdb",
-  "fc-rpc/rocksdb",
+    "sc-cli/rocksdb",
+    "sc-service/rocksdb",
+    "fc-cli/rocksdb",
+    "fc-db/rocksdb",
+    "fc-mapping-sync/rocksdb",
+    "fc-rpc/rocksdb",
+]
+rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-benchmarking-cli/runtime-benchmarks",
+    "sc-service/runtime-benchmarks",
+    "creditcoin3-runtime/runtime-benchmarks",
 ]
 sql = ["fc-db/sql", "fc-mapping-sync/sql"]
 txpool = ["fc-rpc/txpool"]
-rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
-runtime-benchmarks = [
-  "frame-benchmarking/runtime-benchmarks",
-  "frame-benchmarking-cli/runtime-benchmarks",
-  "sc-service/runtime-benchmarks",
-  "creditcoin3-runtime/runtime-benchmarks",
-]

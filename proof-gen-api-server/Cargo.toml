@@ -1,0 +1,78 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "proof-gen-api-server"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "proof-gen-api-server"
+path = "bin/server.rs"
+
+[lints.clippy]
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+enum_variant_names = "allow"
+from_over_into = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+module_name_repetitions = "allow"
+no_effect_underscore_binding = "allow"
+redundant_slicing = "allow"
+struct_field_names = "allow"
+
+[package.metadata.release]
+release = false
+
+[dependencies]
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.4", features = ["derive", "deprecated", "env"] }
+dotenvy = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1.22", features = ["v4"] }
+
+## OpenAPI / Swagger
+utoipa = { version = "5.4", features = ["chrono", "non_strict_integers"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum", "vendored"] }
+
+## Workspace dependencies
+alloy = { workspace = true, features = ["full"] }
+anyhow = { workspace = true }
+axum = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true, default-features = false, features = ["derive"] }
+serde_json = { workspace = true, default-features = false }
+serde_yaml = { workspace = true }
+sp-core = { workspace = true, default-features = false }
+thiserror = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+
+# Creditcoin / USC dependencies
+attestor-primitives = { workspace = true }
+cc-client = { workspace = true }
+continuity = { workspace = true, features = ["block_cache"] }
+eth = { workspace = true, features = ["block_cache"] }
+hex = { workspace = true }
+merkle = { workspace = true }
+prometheus-client = { workspace = true }
+stream = { workspace = true, default-features = false, features = ["cc3"] }
+sysinfo = { workspace = true }
+
+[features]
+default = []
+integration-tests = []
+
+[dev-dependencies]
+alloy-node-bindings = "0.11"       # kept at 0.11 due to compatibility with alloy
+async-trait = { workspace = true }
+parameterized = "2.1.0"
+reqwest = { workspace = true }
+wiremock = "0.6"

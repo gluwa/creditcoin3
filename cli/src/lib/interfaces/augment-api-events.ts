@@ -11,6 +11,7 @@ import type {
     Null,
     Option,
     Result,
+    Text,
     U256,
     U8aFixed,
     Vec,
@@ -23,11 +24,14 @@ import type {
 import type { ITuple } from '@polkadot/types-codec/types';
 import type { AccountId32, H160, H256, Perbill, Permill } from '@polkadot/types/interfaces/runtime';
 import type {
+    AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesChainEncodingVersion,
     Creditcoin3RuntimeProxyFilter,
     EthereumLog,
     EvmCoreErrorExitReason,
     FrameSupportDispatchDispatchInfo,
     FrameSupportTokensMiscBalanceStatus,
+    PalletAttestationAttestorElectionPolicy,
     PalletImOnlineSr25519AppSr25519Public,
     PalletNominationPoolsCommissionChangeRate,
     PalletNominationPoolsCommissionClaimPermission,
@@ -44,6 +48,105 @@ export type __AugmentedEvent<ApiType extends ApiTypes> = AugmentedEvent<ApiType>
 
 declare module '@polkadot/api-base/types/events' {
     interface AugmentedEvents<ApiType extends ApiTypes> {
+        attestation: {
+            /**
+             * Attestation chain genesis block number was set for a chain.
+             **/
+            AttestationChainGenesisBlockNumberSet: AugmentedEvent<ApiType, [u64, u64]>;
+            /**
+             * Note a change in the attestation interval for a source chain. Also notes the
+             * block number of the latest attestation for that source chain at the time of
+             * the interval change.
+             **/
+            AttestationIntervalChanged: AugmentedEvent<ApiType, [u64, u64]>;
+            AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32, U8aFixed]>;
+            AttestorChilled: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * Emitted when an attestor is properly registered with the attestation system
+             **/
+            AttestorRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            AttestorsElected: AugmentedEvent<
+                ApiType,
+                [epoch: u64, chainKey: u64, attestors: Vec<AccountId32>],
+                { epoch: u64; chainKey: u64; attestors: Vec<AccountId32> }
+            >;
+            AttestorUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * An attestor was authorized for a specific chain.
+             **/
+            AuthorizedAttestorAdded: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * An attestor was unauthorized for a specific chain.
+             **/
+            AuthorizedAttestorRemoved: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            BlockAttested: AugmentedEvent<ApiType, [u64, u64, H256]>;
+            Bonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            /**
+             * Note a change in the attestor election policy.
+             **/
+            ChangedElectionPolicy: AugmentedEvent<ApiType, [u64, PalletAttestationAttestorElectionPolicy]>;
+            CheckpointIntervalChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            CheckpointReached: AugmentedEvent<ApiType, [u64, AttestorPrimitivesAttestationCheckpoint]>;
+            /**
+             * Signals that checkpoints were cleared for a chain that is no longer supported.
+             * A fixed number of checkpoints will be cleared per block until none remain.
+             **/
+            CheckpointsCleared: AugmentedEvent<ApiType, [u64]>;
+            /**
+             * A source chain was removed via pallet supported chains. Associated storage
+             * in pallet attestation was cleaned up.
+             **/
+            ClearedStorageForRemovedChain: AugmentedEvent<ApiType, [u64]>;
+            /**
+             * A force election was triggered via sudo.
+             **/
+            ForcedElection: AugmentedEvent<ApiType, [epoch: u64], { epoch: u64 }>;
+            /**
+             * Pending updates were force-applied via operator call.
+             **/
+            ForcedUpdatesApplied: AugmentedEvent<ApiType, []>;
+            /**
+             * Operator forward-patched checkpoints (overwrite / optional suffix wipe).
+             **/
+            ForwardCheckpointPatchApplied: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, wipedSuffix: bool, tipBlockNumber: u64],
+                { chainKey: u64; wipedSuffix: bool; tipBlockNumber: u64 }
+            >;
+            /**
+             * Emitted when an invulnerable is properly registered with the attestation system
+             **/
+            InvulnerableRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            InvulnerableUnregistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
+            /**
+             * Max attestors changed for a chain
+             **/
+            MaxAttestorsChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            MaxCatchupChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            MinBondRequirementUpdated: AugmentedEvent<ApiType, [u64, u128]>;
+            PendingAttestationIntervalSet: AugmentedEvent<ApiType, [u64, u64]>;
+            PendingMaxCatchupSet: AugmentedEvent<ApiType, [u64, u32]>;
+            PendingTargetSampleSizeSet: AugmentedEvent<ApiType, [u64, u32]>;
+            /**
+             * A chain reversion was triggered
+             **/
+            RevertedAttestationChainTo: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, checkpointHeight: u64, checkpointDigest: H256],
+                { chainKey: u64; checkpointHeight: u64; checkpointDigest: H256 }
+            >;
+            TargetSampleSizeChanged: AugmentedEvent<ApiType, [u64, u32]>;
+            Unbonded: AugmentedEvent<ApiType, [stash: AccountId32, amount: u128], { stash: AccountId32; amount: u128 }>;
+            Withdrawn: AugmentedEvent<
+                ApiType,
+                [stash: AccountId32, amount: u128],
+                { stash: AccountId32; amount: u128 }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
         balances: {
             /**
              * A balance was set by root.
@@ -594,6 +697,36 @@ declare module '@polkadot/api-base/types/events' {
              **/
             [key: string]: AugmentedEvent<ApiType>;
         };
+        operators: {
+            /**
+             * Phantom member, never used.
+             **/
+            Dummy: AugmentedEvent<ApiType, []>;
+            /**
+             * One of the members' keys changed.
+             **/
+            KeyChanged: AugmentedEvent<ApiType, []>;
+            /**
+             * The given member was added; see the transaction for who.
+             **/
+            MemberAdded: AugmentedEvent<ApiType, []>;
+            /**
+             * The given member was removed; see the transaction for who.
+             **/
+            MemberRemoved: AugmentedEvent<ApiType, []>;
+            /**
+             * The membership was reset; see the transaction for who the new set is.
+             **/
+            MembersReset: AugmentedEvent<ApiType, []>;
+            /**
+             * Two members were swapped; see the transaction for who.
+             **/
+            MembersSwapped: AugmentedEvent<ApiType, []>;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
         proxy: {
             /**
              * An announcement was placed to make a call in the future.
@@ -645,6 +778,17 @@ declare module '@polkadot/api-base/types/events' {
                     proxyType: Creditcoin3RuntimeProxyFilter;
                     disambiguationIndex: u16;
                 }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        randomness: {
+            StoreRandomnessForEpoch: AugmentedEvent<
+                ApiType,
+                [epochIndex: u64, randomness: U8aFixed],
+                { epochIndex: u64; randomness: U8aFixed }
             >;
             /**
              * Generic event
@@ -807,6 +951,52 @@ declare module '@polkadot/api-base/types/events' {
                 ApiType,
                 [sudoResult: Result<Null, SpRuntimeDispatchError>],
                 { sudoResult: Result<Null, SpRuntimeDispatchError> }
+            >;
+            /**
+             * Generic event
+             **/
+            [key: string]: AugmentedEvent<ApiType>;
+        };
+        supportedChains: {
+            /**
+             * A chain has been registered with a given ID
+             **/
+            ChainRegistered: AugmentedEvent<
+                ApiType,
+                [
+                    chainKey: u64,
+                    chainId: u64,
+                    chainName: Bytes,
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion,
+                    maturityStrategy: Text,
+                ],
+                {
+                    chainKey: u64;
+                    chainId: u64;
+                    chainName: Bytes;
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion;
+                    maturityStrategy: Text;
+                }
+            >;
+            /**
+             * A chain has been removed with a given ID
+             **/
+            ChainRemoved: AugmentedEvent<
+                ApiType,
+                [
+                    chainKey: u64,
+                    chainId: u64,
+                    chainName: Bytes,
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion,
+                    maturityStrategy: Text,
+                ],
+                {
+                    chainKey: u64;
+                    chainId: u64;
+                    chainName: Bytes;
+                    chainEncoding: AttestorPrimitivesChainEncodingVersion;
+                    maturityStrategy: Text;
+                }
             >;
             /**
              * Generic event

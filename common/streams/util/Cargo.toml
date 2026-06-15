@@ -1,0 +1,12 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "stream_util"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+attestor-primitives = { workspace = true, default-features = true }
+futures = { workspace = true }

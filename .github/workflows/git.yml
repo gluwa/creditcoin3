@@ -1,0 +1,231 @@
+---
+name: git
+
+"on":
+  pull_request:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  setup:
+    runs-on: ubuntu-24.04
+    outputs:
+      previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Devnet ENV
+        id: devnet-env
+        if: github.base_ref == 'usc-dev'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Testnet ENV
+        id: testnet-env
+        if: github.base_ref == 'usc-testnet'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "testnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Mainnet ENV
+        id: mainnet-env
+        if: github.base_ref == 'main'
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "mainnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  check-changelog:
+    if: github.base_ref == 'usc-testnet' || github.base_ref == 'main'
+    needs: setup
+    uses: ./.github/workflows/generate-changelog.yml
+    with:
+      previous-release: "${{ needs.setup.outputs.previous_release }}"
+    secrets: inherit
+
+  sanity:
+    # note: github.{base_ref|head_ref} only available on pull requests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # checks out the branch of the PR, not in a detached state,
+          ref: ${{ github.head_ref }}
+
+      - name: Setup
+        run: |
+          # checks out the base branch so it is a known reference
+          git checkout "$GITHUB_BASE_REF"
+
+          # switch back to the branch of the PR
+          git checkout "$GITHUB_HEAD_REF"
+
+      - name: Check for Merge commit(s)
+        run: |
+          commits=$(git log "$GITHUB_BASE_REF".."$GITHUB_HEAD_REF" | grep "Merge: " || echo -n)
+          if [ -n "$commits" ]; then
+              echo "FAIL: found Merge: commit(s)"
+              exit 1
+          fi
+
+      - name: Check for duplicate files
+        run: |
+          .github/check-for-duplicate-files.sh
+
+      - name: Install Solidity compiler
+        run: |
+          sudo .github/install-solidity-compiler.sh
+
+      - name: Generate ABI from source code
+        working-directory: ./precompiles/metadata
+        run: |
+          solc --version
+          ./abi-creator.sh
+
+      - name: Check for broken symlinks
+        run: |
+          .github/check-for-broken-symlinks.sh
+
+  rebase-check:
+    runs-on: ubuntu-24.04
+    if: github.base_ref == 'usc-dev'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff
+          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-usc-testnet" >> "$GITHUB_ENV"
+
+      - name: Rebase current PR against `usc-testnet` branch
+        run: |
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
+          git checkout -b "${{ env.BRANCH_NAME }}"
+          git branch
+          git rebase "origin/usc-testnet"
+
+      - name: TODO
+        if: always()
+        run: |
+          # note: GitHub appears to display these in reverse order
+          echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
+          echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
+          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'usc-testnet' branch and/or merge default into 'usc-testnet'."
+
+      - name: DEBUG
+        if: always()
+        continue-on-error: true
+        run: |
+          cat .git/rebase-merge/git-rebase-todo.backup || echo
+          git status
+          git branch
+          git diff --diff-filter=U | colordiff
+
+          echo "Most Recent Common Ancestor"
+          git merge-base "${{ env.BRANCH_NAME }}" origin/usc-testnet --all
+
+  merge-check:
+    runs-on: ubuntu-24.04
+    if: github.base_ref == 'usc-dev'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          sudo apt-get install colordiff
+
+      - name: Merge current PR into `usc-testnet` branch
+        env:
+          BRANCH_NAME: merge+pr-${{ github.event.pull_request.number }}-into-usc-testnet
+        run: |
+          git config --global user.email "creditcoin@gluwa.com"
+          git config --global user.name "gluwa-bot"
+
+          # make a branch first b/c we need it
+          git checkout -b "${{ env.BRANCH_NAME }}"
+          git branch
+
+          # then switch to usc-testnet branch and merge the incoming changes
+          git checkout -b usc-testnet "origin/usc-testnet"
+          git merge "${{ env.BRANCH_NAME }}"
+
+      - name: TODO
+        if: always()
+        run: |
+          # note: GitHub appears to display these in reverse order
+          echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
+          echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
+          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'usc-testnet' branch and/or merge default into 'usc-testnet'."
+
+      - name: DEBUG
+        if: always()
+        continue-on-error: true
+        run: |
+          echo "INFO: Number of conflicts found"
+          grep "<<< HEAD" ./* -R | wc -l
+
+          echo "INFO: git status"
+          git status
+          git branch
+          git diff --diff-filter=U | colordiff
+
+          echo "INFO: short list of commits that may be causing this conflict"
+          git log --merge | grep "^commit "
+
+          echo "INFO: long list of commits that may be causing this conflict"
+          git log --merge
+
+  target-branch-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check the target branch of this PR
+        run: |
+          TARGET_BRANCH="${{ github.base_ref }}"
+
+          if [ "$TARGET_BRANCH" == "usc-dev" ]; then
+            exit 0
+          fi
+
+          if [ "$TARGET_BRANCH" == "usc-testnet" ]; then
+            exit 0
+          fi
+
+          if [ "$TARGET_BRANCH" == "main" ]; then
+            exit 0
+          fi
+
+          # note: GitHub appears to display these in reverse order
+          echo "::warning::Existing CI jobs may not be scheduled! Look out for missing statuses!"
+          echo "::warning::Target branch for this PR is a non-standard one!"
+          exit 1

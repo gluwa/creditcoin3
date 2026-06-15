@@ -1,0 +1,32 @@
+[package]
+edition.workspace = true
+license.workspace = true
+name = "archiver"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "archiver"
+path = "src/main.rs"
+
+[dependencies]
+eth = { path = "../common/eth" }
+sp-core = { workspace = true, features = ["std"] }
+stream_eth = { workspace = true }
+
+anyhow = { workspace = true }
+axum = { workspace = true }
+clap = { workspace = true }
+dotenvy = "0.15"
+futures = { workspace = true }
+serde = { workspace = true, features = ["std", "derive"] }
+sled = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tower-http = { workspace = true, features = ["trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+url = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

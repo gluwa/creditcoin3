@@ -1,0 +1,94 @@
+[package]
+name = "attestor"
+
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+name = "attestor"
+path = "./src/lib.rs"
+
+[[bin]]
+name = "attestor"
+path = "./src/main.rs"
+
+[dependencies]
+# Attestor
+attestation_pool = { path = "../pool" }
+common = { path = "../common" }
+metrics = { path = "../metrics" }
+
+# Ethereum
+alloy = { workspace = true, features = ["full"] }
+eth = { workspace = true, default-features = true }
+
+# Creditcoin
+attestor-primitives = { workspace = true }
+bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
+bls-signatures = { workspace = true }
+builder = { workspace = true }
+cc-client = { workspace = true }
+stream = { workspace = true }
+supported-chains-primitives = { workspace = true }
+usc-abi-encoding = { workspace = true }
+
+# Substrate
+parity-scale-codec = { workspace = true }
+sp-core = { workspace = true }
+sp-io = { workspace = true }
+subxt = { workspace = true }
+
+# Async & Parallelism
+arc-swap = { workspace = true }
+futures = { workspace = true }
+tokio = { workspace = true, features = ["signal"] }
+tokio-tungstenite = { workspace = true, features = ["url"] }
+
+# P2P
+libp2p = { workspace = true, features = [
+    "tokio",
+    "macros",
+    "ed25519",
+    "dns",
+    "quic",
+    "tcp",
+    "noise",
+    "yamux",
+    "identify",
+    "ping",
+    "mdns",
+    "kad",
+    "gossipsub",
+] }
+
+# Parsing
+clap = { workspace = true, features = ["cargo"] }
+hex = { workspace = true }
+serde = { workspace = true }
+serde_yaml = { workspace = true }
+url = { workspace = true, features = ["serde"] }
+
+# Logging
+tracing = { workspace = true }
+tracing-appender = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["json"] }
+
+# Api
+axum = { workspace = true }
+
+# Errors
+anyhow = { workspace = true }
+
+# other
+rand = { workspace = true, features = ["std_rng"] }
+user = { workspace = true }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+assert_matches = { workspace = true }
+rstest = { workspace = true }
+tokio-test = { workspace = true }

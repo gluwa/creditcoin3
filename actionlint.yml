@@ -1,10 +1,42 @@
+---
 self-hosted-runner:
   labels:
+    - proxy-attestor-chaos
+    - proxy-attestator-network
+    - proxy-benchmark
+    - proxy-blockchain
+    - proxy-build-proof-gen
+    - proxy-clippy
+    - proxy-check
+    - proxy-docker-build
+    - proxy-docker-test
+    - proxy-rebuild-new-metadata
+    - proxy-smart-contract
+    - proxy-unit-test-creditcoin
+    - proxy-cc3-indexer
+    - proxy-proof-gen-api-server-integration-tests
+    - proxy-submit-proof
+    - proxy-try-runtime
+    - type-devnet
+    - type-docker
+    - type-loan-flow-example
+    - type-mainnet
+    - type-native
+    - type-testnet
     - type-runtime-upgrade
+    - type-wasm
 paths:
   .github/workflows/**/*.{yml,yaml}:
     ignore:
       # Ignore the specific error from shellcheck
       - "shellcheck reported issue in this script: SC2129:.+"
+  .github/workflows/release.yml:
+    ignore:
+      # Ignore the specific error from shellcheck
+      - "shellcheck reported issue in this script: SC2129:.+"
+  .github/workflows/ci.yml:
+    ignore:
+      # jobs disabled until we have a new testnet deployed, see CSUB-1907
       - "condition \"false\" is always evaluated to false. remove the if: section.*"
       - "constant expression \"false\" in condition. remove the if: section.*"
+      - "property \"changes\" is not defined in object type"

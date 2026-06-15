@@ -1,0 +1,272 @@
+---
+name: rust
+
+"on":
+  pull_request:
+    branches: [main, usc-testnet, usc-dev]
+    paths:
+      - "**.rs"
+      - "**.toml"
+      - "**Cargo**"
+      - ".github/workflows/rust.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  cargo-audit:
+    if: github.base_ref == 'usc-dev'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Install cargo audit
+        run: |
+          cargo install cargo-audit --features=fix --locked
+
+      - name: Run cargo audit
+        run: |
+          cargo audit || true
+          CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin3-node" || true)
+
+          # fail for anything which is a 1st level dependency of Creditcoin
+          if [ -n "$CC_MATCH" ]; then
+              echo "FAIL: Direct dependencies of Creditcoin found in audit report"
+              echo "INFO: Inspect the output above for more information"
+              exit 1
+          else
+              echo "INFO: No direct dependencies of Creditcoin found in audit report"
+              exit 0
+          fi
+
+  cargo-fmt:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          components: rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Check formatting
+        uses: gluwa/cargo@dev
+        with:
+          command: fmt
+          args: -- --check
+
+      - name: Check TOML formatting
+        run: |
+          cargo install taplo-cli --locked
+          taplo format --check
+
+  cargo-check:
+    runs-on: ubuntu-24.04
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v6
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Check featalign
+        run: |
+          set -o pipefail
+
+          cargo install --locked cargo-featalign@0.7.0
+
+          # produces a human readable output
+          cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check | jq
+
+      - name: Check Build
+        run: |
+          SKIP_WASM_BUILD=1 cargo check --release
+
+      - name: Check Build for Benchmarking
+        run: |
+          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
+
+  cargo-clippy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32-unknown-unknown
+          components: clippy, rust-src
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Print clippy's version
+        uses: gluwa/cargo@dev
+        with:
+          command: clippy
+          args: --version
+
+      - name: Run Clippy
+        uses: gluwa/cargo@dev
+        with:
+          command: clippy
+          args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
+
+  cargo-machete:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Execute cargo machete
+        uses: bnjbvr/cargo-machete@main
+
+  cargo-test:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GLUWA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          components: llvm-tools-preview, rust-src
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: build-creditcoin-node
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2.77.7
+        with:
+          tool: cargo-llvm-cov@0.6.24
+
+      - name: Run tests
+        run: |
+          cargo llvm-cov \
+              --release \
+              --workspace --html --show-missing-lines --hide-instantiations \
+              --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
+
+      - name: Run simulations
+        id: simulation
+        env:
+          PROPTEST_CASES: 10000
+        run: |
+          cargo test \
+            --release \
+            --features simulation \
+            -p stream_attestation \
+            simulate
+
+      - name: Commit regression files
+        uses: EndBug/add-and-commit@v10
+        if: always()
+        with:
+          push: true
+          add: common/streams/attestation/proptest-regressions/simulation/mod.txt
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "test(simulation): found new bug"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: target/llvm-cov/html/

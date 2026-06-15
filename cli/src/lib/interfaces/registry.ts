@@ -6,6 +6,13 @@
 import '@polkadot/types/types/registry';
 
 import type {
+    AttestorPrimitivesAttestationCheckpoint,
+    AttestorPrimitivesAttestationData,
+    AttestorPrimitivesAttestor,
+    AttestorPrimitivesAttestorStatus,
+    AttestorPrimitivesBlockContinuityProof,
+    AttestorPrimitivesChainEncodingVersion,
+    AttestorPrimitivesSignedAttestation,
     Creditcoin3RuntimeOpaqueSessionKeys,
     Creditcoin3RuntimeOriginCaller,
     Creditcoin3RuntimeProxyFilter,
@@ -64,6 +71,15 @@ import type {
     FrameSystemLimitsBlockWeights,
     FrameSystemLimitsWeightsPerClass,
     FrameSystemPhase,
+    PalletAttestationAttestorElectionPolicy,
+    PalletAttestationCall,
+    PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationError,
+    PalletAttestationEvent,
+    PalletAttestationExtensionsPrevalidateAttestationCommit,
+    PalletAttestationLedgerAttestorLedger,
+    PalletAttestationLedgerUnlockChunk,
+    PalletAttestationRetiredAttestorBlsKeyEntry,
     PalletBabeCall,
     PalletBabeError,
     PalletBagsListCall,
@@ -116,6 +132,9 @@ import type {
     PalletImOnlineHeartbeat,
     PalletImOnlineSr25519AppSr25519Public,
     PalletImOnlineSr25519AppSr25519Signature,
+    PalletMembershipCall,
+    PalletMembershipError,
+    PalletMembershipEvent,
     PalletNominationPoolsBondExtra,
     PalletNominationPoolsBondedPoolInner,
     PalletNominationPoolsCall,
@@ -143,6 +162,9 @@ import type {
     PalletProxyError,
     PalletProxyEvent,
     PalletProxyProxyDefinition,
+    PalletRandomnessCall,
+    PalletRandomnessError,
+    PalletRandomnessEvent,
     PalletSessionCall,
     PalletSessionError,
     PalletSessionEvent,
@@ -167,6 +189,9 @@ import type {
     PalletSudoCall,
     PalletSudoError,
     PalletSudoEvent,
+    PalletSupportedChainsCall,
+    PalletSupportedChainsError,
+    PalletSupportedChainsEvent,
     PalletTimestampCall,
     PalletTransactionPaymentChargeTransactionPayment,
     PalletTransactionPaymentEvent,
@@ -207,10 +232,18 @@ import type {
     SpVersionRuntimeVersion,
     SpWeightsRuntimeDbWeight,
     SpWeightsWeightV2Weight,
+    SupportedChainsPrimitivesSupportedChain,
 } from '@polkadot/types/lookup';
 
 declare module '@polkadot/types/types/registry' {
     interface InterfaceTypes {
+        AttestorPrimitivesAttestationCheckpoint: AttestorPrimitivesAttestationCheckpoint;
+        AttestorPrimitivesAttestationData: AttestorPrimitivesAttestationData;
+        AttestorPrimitivesAttestor: AttestorPrimitivesAttestor;
+        AttestorPrimitivesAttestorStatus: AttestorPrimitivesAttestorStatus;
+        AttestorPrimitivesBlockContinuityProof: AttestorPrimitivesBlockContinuityProof;
+        AttestorPrimitivesChainEncodingVersion: AttestorPrimitivesChainEncodingVersion;
+        AttestorPrimitivesSignedAttestation: AttestorPrimitivesSignedAttestation;
         Creditcoin3RuntimeOpaqueSessionKeys: Creditcoin3RuntimeOpaqueSessionKeys;
         Creditcoin3RuntimeOriginCaller: Creditcoin3RuntimeOriginCaller;
         Creditcoin3RuntimeProxyFilter: Creditcoin3RuntimeProxyFilter;
@@ -269,6 +302,15 @@ declare module '@polkadot/types/types/registry' {
         FrameSystemLimitsBlockWeights: FrameSystemLimitsBlockWeights;
         FrameSystemLimitsWeightsPerClass: FrameSystemLimitsWeightsPerClass;
         FrameSystemPhase: FrameSystemPhase;
+        PalletAttestationAttestorElectionPolicy: PalletAttestationAttestorElectionPolicy;
+        PalletAttestationCall: PalletAttestationCall;
+        PalletAttestationClearOrRevertCheckpointPruningState: PalletAttestationClearOrRevertCheckpointPruningState;
+        PalletAttestationError: PalletAttestationError;
+        PalletAttestationEvent: PalletAttestationEvent;
+        PalletAttestationExtensionsPrevalidateAttestationCommit: PalletAttestationExtensionsPrevalidateAttestationCommit;
+        PalletAttestationLedgerAttestorLedger: PalletAttestationLedgerAttestorLedger;
+        PalletAttestationLedgerUnlockChunk: PalletAttestationLedgerUnlockChunk;
+        PalletAttestationRetiredAttestorBlsKeyEntry: PalletAttestationRetiredAttestorBlsKeyEntry;
         PalletBabeCall: PalletBabeCall;
         PalletBabeError: PalletBabeError;
         PalletBagsListCall: PalletBagsListCall;
@@ -321,6 +363,9 @@ declare module '@polkadot/types/types/registry' {
         PalletImOnlineHeartbeat: PalletImOnlineHeartbeat;
         PalletImOnlineSr25519AppSr25519Public: PalletImOnlineSr25519AppSr25519Public;
         PalletImOnlineSr25519AppSr25519Signature: PalletImOnlineSr25519AppSr25519Signature;
+        PalletMembershipCall: PalletMembershipCall;
+        PalletMembershipError: PalletMembershipError;
+        PalletMembershipEvent: PalletMembershipEvent;
         PalletNominationPoolsBondExtra: PalletNominationPoolsBondExtra;
         PalletNominationPoolsBondedPoolInner: PalletNominationPoolsBondedPoolInner;
         PalletNominationPoolsCall: PalletNominationPoolsCall;
@@ -348,6 +393,9 @@ declare module '@polkadot/types/types/registry' {
         PalletProxyError: PalletProxyError;
         PalletProxyEvent: PalletProxyEvent;
         PalletProxyProxyDefinition: PalletProxyProxyDefinition;
+        PalletRandomnessCall: PalletRandomnessCall;
+        PalletRandomnessError: PalletRandomnessError;
+        PalletRandomnessEvent: PalletRandomnessEvent;
         PalletSessionCall: PalletSessionCall;
         PalletSessionError: PalletSessionError;
         PalletSessionEvent: PalletSessionEvent;
@@ -372,6 +420,9 @@ declare module '@polkadot/types/types/registry' {
         PalletSudoCall: PalletSudoCall;
         PalletSudoError: PalletSudoError;
         PalletSudoEvent: PalletSudoEvent;
+        PalletSupportedChainsCall: PalletSupportedChainsCall;
+        PalletSupportedChainsError: PalletSupportedChainsError;
+        PalletSupportedChainsEvent: PalletSupportedChainsEvent;
         PalletTimestampCall: PalletTimestampCall;
         PalletTransactionPaymentChargeTransactionPayment: PalletTransactionPaymentChargeTransactionPayment;
         PalletTransactionPaymentEvent: PalletTransactionPaymentEvent;
@@ -412,5 +463,6 @@ declare module '@polkadot/types/types/registry' {
         SpVersionRuntimeVersion: SpVersionRuntimeVersion;
         SpWeightsRuntimeDbWeight: SpWeightsRuntimeDbWeight;
         SpWeightsWeightV2Weight: SpWeightsWeightV2Weight;
+        SupportedChainsPrimitivesSupportedChain: SupportedChainsPrimitivesSupportedChain;
     } // InterfaceTypes
 } // declare module

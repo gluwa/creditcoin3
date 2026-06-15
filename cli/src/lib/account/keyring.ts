@@ -16,11 +16,6 @@ export function initKeyringPair(seed: string) {
     const pair = keyring.addFromUri(`${seed}`);
     return pair;
 }
-export function initECDSAKeyringPairFromPK(pk: string) {
-    const keyring = new Keyring({ type: 'ecdsa' });
-    const pair = keyring.addFromUri(`${pk}`);
-    return pair;
-}
 
 export function initEthKeyringPair(seed: string, accIndex = 0) {
     const keyring = new Keyring({ type: 'ethereum' });
@@ -35,9 +30,7 @@ export async function initKeyringFromEnvOrPrompt(
 ): Promise<KeyringPair> {
     // General configs
     const interactive = setInteractivity(options);
-    const inputName = options.useEcdsa ? 'private key' : 'seed phrase';
-    const validateInput = options.useEcdsa ? () => true : mnemonicValidate;
-    const generateKeyring = options.useEcdsa ? initECDSAKeyringPairFromPK : initKeyringPair;
+    const inputName = 'seed phrase';
 
     if (!interactive && !process.env[envVar]) {
         throw new Error(
@@ -47,8 +40,8 @@ export async function initKeyringFromEnvOrPrompt(
 
     if (typeof process.env[envVar] === 'string') {
         const input = getStringFromEnvVar(process.env[envVar]);
-        if (validateInput(input)) {
-            return generateKeyring(input);
+        if (mnemonicValidate(input)) {
+            return initKeyringPair(input);
         } else {
             throw new Error(`Error: Seed phrase provided in environment variable ${envVar} is invalid.`);
         }
@@ -58,13 +51,13 @@ export async function initKeyringFromEnvOrPrompt(
                 type: 'password',
                 name: 'seed',
                 message: `Specify a ${inputName} for the ${accountRole} account`,
-                validate: (input) => validateInput(input as string),
+                validate: (input) => mnemonicValidate(input as string),
             },
         ]);
         // If SIGTERM is issued while prompting, it will log a bogus address anyways and exit without error.
         // To avoid this, we check if prompt was successful, before returning.
         if (promptResult.seed) {
-            return generateKeyring(promptResult.seed as string);
+            return initKeyringPair(promptResult.seed as string);
         }
     }
     throw new Error(`Error: Could not retrieve ${inputName}`);
@@ -75,6 +68,55 @@ export function getStringFromEnvVar(envVar: string | undefined): string {
         throw new Error('Error: Unexpected type; could not retrieve seed phrase or PK from environment variable.');
     }
     return envVar;
+}
+
+/**
+ * Read a raw secret (BIP39 mnemonic) from the given env var, or prompt the user
+ * for one when stdin is a TTY and `--input` was not disabled. Mirrors
+ * {@link initKeyringFromEnvOrPrompt} but returns the secret string itself,
+ * which is what EVM/precompile-based commands need (they derive the EVM key
+ * via `HDNodeWallet.fromPhrase`, not a Substrate `KeyringPair`).
+ *
+ * Used by attestor commands that go through the attestor-stash precompile
+ * (`register`, `unregister`, `chill`, `withdraw-unbonded`) so they keep the
+ * same env-or-prompt UX as every other write-path CLI command.
+ */
+export async function getSecretFromEnvOrPrompt(
+    envVar: string,
+    accountRole: string,
+    options: OptionValues,
+): Promise<string> {
+    const interactive = setInteractivity(options);
+    const inputName = 'seed phrase';
+
+    if (typeof process.env[envVar] === 'string') {
+        const input = getStringFromEnvVar(process.env[envVar]);
+        if (!mnemonicValidate(input)) {
+            throw new Error(`Error: Seed phrase provided in environment variable ${envVar} is invalid.`);
+        }
+        return input;
+    }
+
+    if (!interactive) {
+        throw new Error(
+            `Error: Must specify a ${inputName} for the ${accountRole} account in the environment variable ${envVar} or use an interactive shell.`,
+        );
+    }
+
+    const promptResult = await prompts([
+        {
+            type: 'password',
+            name: 'seed',
+            message: `Specify a ${inputName} for the ${accountRole} account`,
+            validate: (input) => mnemonicValidate(input as string),
+        },
+    ]);
+
+    // If SIGTERM is issued while prompting, prompts() resolves with no value.
+    if (typeof promptResult.seed !== 'string' || promptResult.seed.length === 0) {
+        throw new Error(`Error: Could not retrieve ${inputName}`);
+    }
+    return promptResult.seed;
 }
 
 export type ProxyKeyring = {

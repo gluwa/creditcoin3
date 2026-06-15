@@ -1,0 +1,55 @@
+---
+name: Creditcoin USC Audit Automation Check
+
+"on":
+  schedule:
+    - cron: "0 */12 * * *"
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  usc-audit:
+    runs-on: ubuntu-24.04
+
+    strategy:
+      matrix:
+        include:
+          - config: devnet
+            slack_channel_id: C0AR9BM30UU
+          - config: testnet
+            slack_channel_id: C09BX3KSL3C
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract Deno version from Dockerfile
+        id: deno_version
+        working-directory: scripts/usc-audit-automation
+        run: |
+          # Extract version from "FROM denoland/deno:X.Y.Z" line
+          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | tr -d '[:space:]')
+          if [ -z "$VERSION" ]; then
+            echo "Error: Could not extract Deno version from Dockerfile"
+            exit 1
+          fi
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Extracted Deno version: v${VERSION}"
+
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ steps.deno_version.outputs.version }}
+
+      - name: Run USC Audit Automation for ${{ matrix.config }}
+        working-directory: scripts/usc-audit-automation
+        env:
+          USC_NOTI_SLACK_BOT_TOKEN: ${{ secrets.USC_NOTI_SLACK_BOT_TOKEN }}
+          USC_NOTI_SLACK_CHANNEL_ID: ${{ matrix.slack_channel_id }}
+          USC_SLACK_ALERT_GROUP: ${{ secrets.USC_SLACK_ALERT_GROUP }}
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+        run: |
+          deno task start -- --config config-${{ matrix.config }}.json

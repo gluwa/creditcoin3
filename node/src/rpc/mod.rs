@@ -28,6 +28,7 @@ use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
 use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
+use fc_storage::StorageOverride;
 use sc_client_api::BlockOf;
 use sp_block_builder::BlockBuilder;
 use sp_core::H256;
@@ -58,6 +59,8 @@ pub struct FullDeps<C, P, SC, BE, A: ChainApi, CT, CIDP> {
     pub grandpa: Option<GrandpaDeps<BE>>,
 
     pub select_chain: SC,
+    /// A copy of the chain spec.
+    pub chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
 }
 
 /// Dependencies for GRANDPA
@@ -80,7 +83,7 @@ pub struct BabeDeps {
 }
 
 pub struct DefaultEthConfig<C, BE>(std::marker::PhantomData<(C, BE)>);
-use fc_storage::StorageOverride;
+
 pub struct SpawnTasksParams<'a, B: BlockT, C, BE> {
     pub task_manager: &'a TaskManager,
     pub client: Arc<C>,
@@ -143,6 +146,7 @@ where
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
     use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};
     use sc_consensus_manual_seal::rpc::{ManualSeal, ManualSealApiServer};
+    use sc_sync_state_rpc::{SyncState, SyncStateApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut io = RpcModule::new(());
@@ -157,6 +161,7 @@ where
         },
         select_chain,
         grandpa,
+        chain_spec,
     } = deps;
 
     io.merge(System::new(Arc::clone(&client), Arc::clone(&pool)).into_rpc())?;
@@ -170,7 +175,7 @@ where
         )?;
     }
 
-    if let Some(babe_worker) = babe_worker {
+    if let Some(babe_worker) = babe_worker.clone() {
         io.merge(Babe::new(client.clone(), babe_worker, keystore, select_chain).into_rpc())?;
     }
 
@@ -185,13 +190,24 @@ where
         io.merge(
             Grandpa::new(
                 subscription_executor,
-                shared_authority_set,
+                shared_authority_set.clone(),
                 shared_voter_state,
                 justification_stream,
                 finality_provider,
             )
             .into_rpc(),
         )?;
+        if let Some(babe_worker) = babe_worker {
+            io.merge(
+                SyncState::new(
+                    chain_spec,
+                    client.clone(),
+                    shared_authority_set,
+                    babe_worker,
+                )?
+                .into_rpc(),
+            )?;
+        }
     }
 
     if let Some(tracing_config) = maybe_tracing_config {

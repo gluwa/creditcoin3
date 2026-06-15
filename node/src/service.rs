@@ -1,10 +1,9 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
-use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
-
-use fc_rpc::{StorageOverride, StorageOverrideHandler};
 use futures::{channel::mpsc, prelude::*};
+use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
 // Substrate
+use fc_rpc::{StorageOverride, StorageOverrideHandler};
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
@@ -16,6 +15,7 @@ use sp_api::ConstructRuntimeApi;
 use sp_consensus_babe::BabeApi;
 use sp_core::U256;
 use substrate_prometheus_endpoint::Registry;
+
 // Runtime
 use creditcoin3_cli_opt::EthApi as EthApiCmd;
 use creditcoin3_runtime::{opaque::Block, Hash, TransactionConverter};
@@ -88,6 +88,7 @@ where
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: BaseRuntimeApiCollection + EthCompatRuntimeApiCollection,
     RuntimeApi::RuntimeApi: BabeApi<Block>,
+
     BIQ: FnOnce(
         &EthConfiguration,
         Basics<RuntimeApi>,
@@ -173,7 +174,7 @@ where
                 std::num::NonZeroU32::new(eth_config.frontier_sql_backend_num_ops_timeout),
                 overrides.clone(),
             ))
-            .unwrap_or_else(|err| panic!("failed creating sql backend: {:?}", err));
+            .unwrap_or_else(|err| panic!("failed creating sql backend: {err:?}"));
             FrontierBackend::Sql(sc_service::Arc::new(backend))
         }
     };
@@ -243,6 +244,7 @@ pub fn build_babe_grandpa_import_queue<RuntimeApi>(
 >
 where
     RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
 {
@@ -268,6 +270,7 @@ where
 
         let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
             fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+
         Ok((slot, timestamp, dynamic_fee))
     };
 
@@ -313,6 +316,7 @@ pub fn build_manual_seal_import_queue<RuntimeApi>(
 >
 where
     RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
 {
@@ -342,6 +346,7 @@ pub async fn new_full<RuntimeApi, Net>(
 ) -> Result<TaskManager, ServiceError>
 where
     RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
     Net: sc_network::service::traits::NetworkBackend<Block, Hash>,
@@ -454,6 +459,7 @@ where
     let name = config.network.node_name.clone();
     let enable_grandpa = !config.disable_grandpa && sealing.is_none();
     let prometheus_registry = config.prometheus_registry().cloned();
+    let client = client.clone();
 
     // Channel for the rpc handler to communicate with the authorship task.
     let (command_sink, commands_stream) = mpsc::channel(1000);
@@ -544,6 +550,7 @@ where
         let justification_stream = grandpa_link.justification_stream();
         let shared_voter_state = shared_voter_state.clone();
 
+        let chain_spec = config.chain_spec.cloned_box();
         Box::new(
             move |subscription_task_executor: sc_rpc::SubscriptionTaskExecutor| {
                 let eth_deps = rpc::EthDeps {
@@ -591,6 +598,7 @@ where
                         shared_voter_state: shared_voter_state.clone(),
                         subscription_executor: subscription_task_executor.clone(),
                     }),
+                    chain_spec: chain_spec.cloned_box(),
                 };
                 rpc::create_full(
                     deps,
@@ -677,6 +685,7 @@ where
 
             let dynamic_fee: fp_dynamic_fee::InherentDataProvider =
                 fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+
             Ok((slot, timestamp, dynamic_fee))
         };
 
@@ -769,6 +778,7 @@ fn run_manual_seal_authorship<RuntimeApi>(
 ) -> Result<(), ServiceError>
 where
     RuntimeApi: ConstructRuntimeApi<Block, FullClient<RuntimeApi>>,
+
     RuntimeApi: Send + Sync + 'static,
     RuntimeApi::RuntimeApi: RuntimeApiCollection,
 {

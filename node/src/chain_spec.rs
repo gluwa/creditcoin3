@@ -1,17 +1,19 @@
+use hex_literal::hex;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet},
     str::FromStr,
 };
+use supported_chains_primitives::{MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY_10};
 
-use hex_literal::hex;
-use serde::{Deserialize, Serialize};
 // Substrate
-use sc_chain_spec::{ChainType, Properties};
+use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion, ChainId};
+use sc_chain_spec::{ChainSpecExtension, ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
 use sp_core::ecdsa;
-use sp_core::{sr25519, storage::Storage, Pair, Public, H160, U256};
+use sp_core::{crypto::Ss58Codec, sr25519, storage::Storage, Pair, Public, H160, U256};
 use sp_runtime::{
     traits::{IdentifyAccount, Verify},
     Perbill,
@@ -19,16 +21,26 @@ use sp_runtime::{
 use sp_state_machine::BasicExternalities;
 // Frontier
 use creditcoin3_runtime::{
-    opaque::SessionKeys, pallet_evm::AddressMapping as _, AccountId, AddressMapping, BabeConfig,
-    Balance, EnableManualSeal, ImOnlineId, RuntimeGenesisConfig, SS58Prefix, SessionConfig,
-    Signature, StakingConfig, WASM_BINARY,
+    opaque::SessionKeys, pallet_evm::AddressMapping as _, used_addresses, AccountId,
+    AddressMapping, AttestationConfig, BabeConfig, Balance, EnableManualSeal, ImOnlineId,
+    RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig,
+    SupportedChainsConfig, WASM_BINARY,
 };
 
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
+/// Node `ChainSpec` extensions.
+///
+/// Additional parameters for some Substrate core modules,
+/// customizable from the chain spec.
+#[derive(Default, Clone, Serialize, Deserialize, ChainSpecExtension)]
+#[serde(rename_all = "camelCase")]
+pub struct Extensions {
+    /// The light sync state extension used by the sync-state rpc.
+    pub light_sync_state: sc_sync_state_rpc::LightSyncStateExtension,
+}
 
-/// Specialized `ChainSpec`. This is a specialization of the general Substrate ChainSpec type.
-pub type ChainSpec = sc_service::GenericChainSpec;
+pub type ChainSpec = sc_service::GenericChainSpec<Extensions>;
 
 /// Extension for the dev genesis config to support a custom changes to the genesis state.
 #[derive(Serialize, Deserialize)]
@@ -52,7 +64,7 @@ impl sp_runtime::BuildStorage for DevGenesisExt {
 
 /// Generate a crypto pair from seed.
 pub fn get_from_seed<TPublic: Public>(seed: &str) -> <TPublic::Pair as Pair>::Public {
-    TPublic::Pair::from_string(&format!("//{}", seed), None)
+    TPublic::Pair::from_string(&format!("//{seed}"), None)
         .expect("static values are valid; qed")
         .public()
 }
@@ -72,13 +84,25 @@ where
 
 type AuthorityKeys = (AccountId, GrandpaId, BabeId, ImOnlineId);
 
-/// Generate authority keys.
+/// Generate authority keys from seed.
 pub fn authority_keys_from_seed(s: &str) -> AuthorityKeys {
     (
         get_account_id_from_seed::<sr25519::Public>(s),
         get_from_seed::<GrandpaId>(s),
         get_from_seed::<BabeId>(s),
         get_from_seed::<ImOnlineId>(s),
+    )
+}
+
+/// Generate authority keys from SS58 addresses.
+/// - `sr25519_ss58`: Used for AccountId, BabeId, and ImOnlineId
+/// - `ed25519_ss58`: Used for GrandpaId
+pub fn authority_keys_from_ss58(sr25519_ss58: &str, ed25519_ss58: &str) -> AuthorityKeys {
+    (
+        AccountId::from_ss58check(sr25519_ss58).expect("valid sr25519 SS58 address"),
+        GrandpaId::from_ss58check(ed25519_ss58).expect("valid ed25519 SS58 address"),
+        BabeId::from_ss58check(sr25519_ss58).expect("valid sr25519 SS58 address"),
+        ImOnlineId::from_ss58check(sr25519_ss58).expect("valid sr25519 SS58 address"),
     )
 }
 
@@ -99,7 +123,9 @@ fn properties() -> Properties {
 }
 
 const UNITS: Balance = 1_000_000_000_000_000_000;
+const EVM_CHAINID: u64 = 102030;
 
+/// CC3 chainspec configurations
 pub fn devnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/devnetSpecRaw.json")[..])
 }
@@ -112,10 +138,19 @@ pub fn mainnet_config() -> Result<ChainSpec, String> {
     ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/mainnetSpecRaw.json")[..])
 }
 
-pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
+/// USC chainspec configurations
+pub fn usc_devnet_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/uscDevnetSpecRaw.json")[..])
+}
+
+pub fn usc_testnet_config() -> Result<ChainSpec, String> {
+    ChainSpec::from_json_bytes(&include_bytes!("../../chainspecs/uscTestnetSpecRaw.json")[..])
+}
+
+pub fn usc_development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
-    let rgc = testnet_genesis(
+    let rgc = devnet_genesis(
         wasm_binary,
         // Sudo account (Alice)
         get_account_id_from_seed::<sr25519::Public>("Alice"),
@@ -141,11 +176,55 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
         vec![authority_keys_from_seed("Alice")],
         // Ethereum chain ID
         SS58Prefix::get() as u64,
+        vec![
+            AttestationChainConfiguration {
+                chain_key: 1,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                target_sample_size: 3,
+                checkpoints: vec![],
+            },
+            AttestationChainConfiguration {
+                chain_key: 2,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                target_sample_size: 3,
+                checkpoints: vec![],
+            },
+            AttestationChainConfiguration {
+                chain_key: 3,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                target_sample_size: 1,
+                checkpoints: vec![],
+            },
+            AttestationChainConfiguration {
+                chain_key: 4,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                target_sample_size: 3,
+                checkpoints: vec![],
+            },
+            AttestationChainConfiguration {
+                chain_key: 5,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                target_sample_size: 3,
+                checkpoints: vec![],
+            },
+            AttestationChainConfiguration {
+                chain_key: 6,
+                attestation_interval: 10,
+                attestations_per_checkpoint: 10,
+                target_sample_size: 3,
+                checkpoints: vec![],
+            },
+        ],
     );
 
     let config_json = serde_json::to_value(rgc).expect("Could not build genesis config.");
 
-    ChainSpec::builder(wasm_binary, None)
+    ChainSpec::builder(wasm_binary, Default::default())
         .with_name("Development")
         .with_id("dev")
         .with_chain_type(ChainType::Development)
@@ -154,44 +233,39 @@ pub fn development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
         .build()
 }
 
-pub fn local_testnet_config() -> ChainSpec {
+pub fn usc_local_testnet_config() -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
+
+    const SUDO: &str = "5FTtKTjpLBeYxMFbrG3eMMpMQgj4uaQ2tsy3PZSemFDZTEZw";
+    const VALIDATOR_SR25519: &str = "5HQZj4t8mJ7gn6a4Jbcsh6iEBQAZy348QZdDbGtmscSJiBKp";
+    const VALIDATOR_ED25519: &str = "5CS8RgyWmk3JJpJGQ9PN3L4Wfbt5z28LW8JrGc1QboT1bZN6";
+
+    let sudo_account = AccountId::from_ss58check(SUDO).expect("valid SS58 address");
+    let validator = authority_keys_from_ss58(VALIDATOR_SR25519, VALIDATOR_ED25519);
 
     let rgc = testnet_genesis(
         wasm_binary,
-        // Initial PoA authorities
-        // Sudo account (Alice)
-        get_account_id_from_seed::<sr25519::Public>("Alice"),
-        // Pre-funded accounts
-        vec![
-            get_account_id_from_seed::<sr25519::Public>("Alice"),
-            get_account_id_from_seed::<sr25519::Public>("Bob"),
-            get_account_id_from_seed::<sr25519::Public>("Charlie"),
-            get_account_id_from_seed::<sr25519::Public>("Dave"),
-            get_account_id_from_seed::<sr25519::Public>("Eve"),
-            get_account_id_from_seed::<sr25519::Public>("Ferdie"),
-        ],
-        vec![
-            hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac"), // Alith
-            hex!("3Cd0A705a2DC65e5b1E1205896BaA2be8A07c6e0"), // Baltathar
-            hex!("798d4Ba9baf0064Ec19eB4F0a1a45785ae9D6DFc"), // Charleth
-            hex!("773539d4Ac0e786233D90A233654ccEE26a613D9"), // Dorothy
-            hex!("Ff64d3F6efE2317EE2807d223a0Bdc4c0c49dfDB"), // Ethan
-            hex!("C0F0f4ab324C46e55D02D0033343B4Be8A55532d"), // Faith
-        ],
-        vec![
-            authority_keys_from_seed("Alice"),
-            authority_keys_from_seed("Bob"),
-        ],
-        SS58Prefix::get() as u64,
+        sudo_account.clone(),
+        vec![sudo_account, validator.0.clone()],
+        vec![],
+        vec![validator],
+        EVM_CHAINID,
+        vec![AttestationChainConfiguration {
+            chain_key: 1,
+            attestation_interval: 10,
+            attestations_per_checkpoint: 10,
+
+            target_sample_size: 9,
+            checkpoints: vec![],
+        }],
     );
 
     let config_json = serde_json::to_value(rgc).expect("Could not build genesis config.");
 
-    ChainSpec::builder(wasm_binary, None)
-        .with_name("Local Testnet")
-        .with_id("local_testnet")
-        .with_chain_type(ChainType::Local)
+    ChainSpec::builder(wasm_binary, Default::default())
+        .with_name("Creditcoin3 USC Testnet")
+        .with_id("creditcoin3_usc_testnet")
+        .with_chain_type(ChainType::Live)
         .with_genesis_config(config_json)
         .with_properties(properties())
         .build()
@@ -210,14 +284,14 @@ fn eth_acct(b: [u8; 20]) -> AccountId {
     AddressMapping::into_account_id(H160::from(b))
 }
 
-/// Configure initial storage state for FRAME modules.
-fn testnet_genesis(
+fn devnet_genesis(
     _wasm_binary: &[u8],
     sudo_key: AccountId,
     endowed_accounts: Vec<AccountId>,
     endowed_evm_accounts: Vec<[u8; 20]>,
     initial_authorities: Vec<AuthorityKeys>,
-    chain_id: u64,
+    chain_id: ChainId,
+    attestation_chain_configurations: Vec<AttestationChainConfiguration>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
         BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
@@ -227,6 +301,12 @@ fn testnet_genesis(
     // all funds locked in staking.
     const STASH: u128 = 100_000 * UNITS;
     const ENDOWMENT: u128 = 1_000_000 * UNITS;
+
+    // This is the simplest bytecode to revert without returning any data.
+    // We will pre-deploy it under all of our precompiles to ensure they can be called from
+    // within contracts.
+    // (PUSH1 0x00 PUSH1 0x00 REVERT)
+    let revert_bytecode = vec![0x60, 0x00, 0x60, 0x00, 0xFD];
 
     RuntimeGenesisConfig {
         // System
@@ -300,23 +380,26 @@ fn testnet_genesis(
         evm: EVMConfig {
             accounts: {
                 let mut map = BTreeMap::new();
-                map.insert(
-                    // H160 address for benchmark usage
-                    H160::from_str("1000000000000000000000000000000000000001")
-                        .expect("internal H160 is valid; qed"),
-                    fp_evm::GenesisAccount {
-                        nonce: U256::from(1),
-                        balance: U256::from(1_000_000_000_000_000_000_000_000u128),
-                        storage: Default::default(),
-                        code: vec![0x00],
-                    },
-                );
                 let one_mil = U256::from_str("0xd3c21bcecceda1000000").unwrap();
                 for acct in endowed_evm_accounts {
                     let acct = H160::from(acct);
                     map.insert(acct, genesis_account(one_mil));
                 }
-                eprintln!("EVM accounts: {:?}", map);
+
+                for addr in used_addresses() {
+                    map.insert(
+                        addr,
+                        fp_evm::GenesisAccount {
+                            nonce: Default::default(),
+                            balance: Default::default(),
+                            storage: Default::default(),
+                            code: revert_bytecode.clone(),
+                        },
+                    );
+                }
+
+                eprintln!("EVM accounts: {map:?}");
+
                 map
             },
             ..Default::default()
@@ -325,5 +408,206 @@ fn testnet_genesis(
         dynamic_fee: Default::default(),
         base_fee: Default::default(),
         nomination_pools: Default::default(),
+        attestation: AttestationConfig {
+            invulnerables: vec![],
+            attestation_chain_configurations,
+        },
+        supported_chains: SupportedChainsConfig {
+            supported_chains: vec![
+                // The chain keys resulting from these entries are in numerical order
+                // NOTE: DO NOT CHANGE THE ORDER OF CHAINS UNLESS YOU KNOW WHAT YOU ARE DOING
+                // 1. Ethereum
+                (
+                    1,
+                    "Ethereum".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_FIXED_DELAY_10.to_string(),
+                ),
+                // 2 Anvil network one
+                (
+                    31337,
+                    "Anvil1".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_FIXED_DELAY_10.to_string(),
+                ),
+                // 3. Sepolia ethereum
+                (
+                    11155111,
+                    "Sepolia ethereum".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_FIXED_DELAY_10.to_string(),
+                ),
+                // 4. Anvil network two
+                (
+                    31338,
+                    "Anvil2".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_FIXED_DELAY_10.to_string(),
+                ),
+                // 5. Anvil network three // Due to a restart of the anvil network on devnet
+                // This makes it so the the devnet anvil endpoint is still compatible with local dev setup
+                (
+                    31339,
+                    "Anvil3".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_FIXED_DELAY_10.to_string(),
+                ),
+                // 6. Polygon amoy testnet
+                (
+                    80002,
+                    "Polygon amoy testnet".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_FIXED_DELAY_10.to_string(),
+                ),
+            ],
+            _phantom: Default::default(),
+        },
+        operators: Default::default(),
+        // prover: Default::default(),
+    }
+}
+
+/// Configure initial storage state for FRAME modules.
+fn testnet_genesis(
+    _wasm_binary: &[u8],
+    sudo_key: AccountId,
+    endowed_accounts: Vec<AccountId>,
+    endowed_evm_accounts: Vec<[u8; 20]>,
+    initial_authorities: Vec<AuthorityKeys>,
+    chain_id: ChainId,
+    attestation_chain_configurations: Vec<AttestationChainConfiguration>,
+) -> RuntimeGenesisConfig {
+    use creditcoin3_runtime::{
+        BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
+    };
+
+    // STASH must be less than ENDOWMENT to avoid having
+    // all funds locked in staking.
+    const STASH: u128 = 100_000 * UNITS;
+    const ENDOWMENT: u128 = 1_000_000 * UNITS;
+
+    // This is the simplest bytecode to revert without returning any data.
+    // We will pre-deploy it under all of our precompiles to ensure they can be called from
+    // within contracts.
+    // (PUSH1 0x00 PUSH1 0x00 REVERT)
+    let revert_bytecode = vec![0x60, 0x00, 0x60, 0x00, 0xFD];
+
+    RuntimeGenesisConfig {
+        // System
+        system: SystemConfig {
+            // Add Wasm runtime to storage.
+            ..Default::default()
+        },
+        sudo: SudoConfig {
+            // Assign network admin rights.
+            key: Some(sudo_key),
+        },
+
+        // Monetary
+        balances: BalancesConfig {
+            balances: endowed_accounts
+                .iter()
+                .cloned()
+                .chain(initial_authorities.iter().map(|x| x.0.clone()))
+                .collect::<HashSet<_>>()
+                .into_iter()
+                .map(|k| (k, ENDOWMENT))
+                .collect(),
+        },
+        transaction_payment: Default::default(),
+
+        // Consensus
+        babe: BabeConfig {
+            epoch_config: creditcoin3_runtime::BABE_GENESIS_EPOCH_CONFIG,
+            ..Default::default()
+        },
+        grandpa: Default::default(),
+
+        im_online: Default::default(),
+        session: SessionConfig {
+            keys: initial_authorities
+                .iter()
+                .map(|(acct, grandpa, babe, imon)| {
+                    (
+                        acct.clone(),
+                        acct.clone(),
+                        session_keys(grandpa.clone(), babe.clone(), imon.clone()),
+                    )
+                })
+                .collect(),
+            non_authority_keys: vec![],
+        },
+        staking: StakingConfig {
+            validator_count: initial_authorities.len() as u32,
+            minimum_validator_count: 1,
+            stakers: initial_authorities
+                .iter()
+                .map(|x| {
+                    (
+                        x.0.clone(),
+                        x.0.clone(),
+                        STASH,
+                        creditcoin3_runtime::StakerStatus::Validator,
+                    )
+                })
+                .collect(),
+            invulnerables: initial_authorities.iter().map(|x| x.0.clone()).collect(),
+            slash_reward_fraction: Perbill::from_percent(10),
+            ..Default::default()
+        },
+
+        // EVM compatibility
+        evm_chain_id: EVMChainIdConfig {
+            chain_id,
+            ..Default::default()
+        },
+        evm: EVMConfig {
+            accounts: {
+                let mut map = BTreeMap::new();
+                let one_mil = U256::from_str("0xd3c21bcecceda1000000").unwrap();
+                for acct in endowed_evm_accounts {
+                    let acct = H160::from(acct);
+                    map.insert(acct, genesis_account(one_mil));
+                }
+
+                for addr in used_addresses() {
+                    map.insert(
+                        addr,
+                        fp_evm::GenesisAccount {
+                            nonce: Default::default(),
+                            balance: Default::default(),
+                            storage: Default::default(),
+                            code: revert_bytecode.clone(),
+                        },
+                    );
+                }
+
+                eprintln!("EVM accounts: {map:?}");
+
+                map
+            },
+            ..Default::default()
+        },
+        ethereum: Default::default(),
+        dynamic_fee: Default::default(),
+        base_fee: Default::default(),
+        nomination_pools: Default::default(),
+        attestation: AttestationConfig {
+            invulnerables: vec![],
+            attestation_chain_configurations,
+        },
+        supported_chains: SupportedChainsConfig {
+            supported_chains: vec![
+                // 1. Sepolia ethereum
+                (
+                    11155111,
+                    "Sepolia ethereum".as_bytes().to_vec(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_EVM_SAFE.to_string(),
+                ),
+            ],
+            _phantom: Default::default(),
+        },
+        operators: Default::default(),
     }
 }

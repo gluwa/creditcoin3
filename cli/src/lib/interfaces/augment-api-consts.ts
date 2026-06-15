@@ -6,7 +6,7 @@
 import '@polkadot/api-base/types/consts';
 
 import type { ApiTypes, AugmentedConst } from '@polkadot/api-base/types';
-import type { Vec, u128, u16, u32, u64, u8 } from '@polkadot/types-codec';
+import type { Text, Vec, u128, u16, u32, u64, u8 } from '@polkadot/types-codec';
 import type { Codec } from '@polkadot/types-codec/types';
 import type {
     FrameSupportPalletId,
@@ -20,6 +20,41 @@ export type __AugmentedConst<ApiType extends ApiTypes> = AugmentedConst<ApiType>
 
 declare module '@polkadot/api-base/types/consts' {
     interface AugmentedConsts<ApiType extends ApiTypes> {
+        attestation: {
+            /**
+             * Number of eras that staked funds must remain bonded for.
+             **/
+            bondingDuration: u32 & AugmentedConst<ApiType>;
+            committmentInterval: u64 & AugmentedConst<ApiType>;
+            defaultAttestationChainGenesisBlockNumber: u64 & AugmentedConst<ApiType>;
+            defaultAttestationInterval: u64 & AugmentedConst<ApiType>;
+            /**
+             * Default duration in number of attestations for which we keep attestations after they are condensed in a checkpoint.
+             **/
+            defaultAttestationRetentionDuration: u32 & AugmentedConst<ApiType>;
+            defaultAttestationsPerCheckpoint: u32 & AugmentedConst<ApiType>;
+            /**
+             * The default maximum catchup bound, expressed in **blocks**.
+             * When an attestation chain falls behind the source chain (e.g.
+             * during bootstrap or after a network stall), attestors produce
+             * larger-than-usual attestations whose continuity proofs span
+             * more blocks. To prevent unbounded proof sizes from overwhelming
+             * runtime validation (risking an execution chain stall), this
+             * parameter caps the continuity proof size: each catchup
+             * attestation covers **at most** this many blocks.
+             **/
+            defaultMaxCatchup: u32 & AugmentedConst<ApiType>;
+            defaultMinBondRequirement: u128 & AugmentedConst<ApiType>;
+            defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
+            maxAttestationNodes: u32 & AugmentedConst<ApiType>;
+            maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
+            maxCheckpointsImportedPerCall: u32 & AugmentedConst<ApiType>;
+            maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
         babe: {
             /**
              * The amount of time, in slots, that each epoch should last.
@@ -308,6 +343,27 @@ declare module '@polkadot/api-base/types/consts' {
              * should be applied immediately, without opportunity for intervention.
              **/
             slashDeferDuration: u32 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
+        supportedChains: {
+            /**
+             * Determines which maturity strategy attestors will use when fetching source chain
+             * blocks and building attestations. Strict strategies such as EvmFinalized delay
+             * longer before building attestations, ensuring that attestations won't be created
+             * from blocks which could be re-orged.
+             *
+             * Maturity strategies use the String type for extensability.
+             *
+             * Expected strategies:
+             * - "EvmFinalized" Gets blocks once they are finalized
+             * - "EvmSafe" Gets blocks once they are confirmed
+             * - "EvmLatest" Gets blocks as soon as available
+             * - "FixedDelay: X" Gets blocks after they are X blocks old
+             **/
+            defaultMaturityStrategy: Text & AugmentedConst<ApiType>;
             /**
              * Generic const
              **/

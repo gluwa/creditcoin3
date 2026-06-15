@@ -1,4 +1,4 @@
-import { KeyringPair, Wallet, mnemonicGenerate } from '../lib';
+import { KeyringPair, Wallet, mnemonicGenerate, POINT_01_CTC } from '../lib';
 import { initKeyringPair } from '../lib/account/keyring';
 
 const createSigner = (who: 'alice' | 'bob' | 'random' | 'sudo'): KeyringPair => {
@@ -74,6 +74,10 @@ const setup = () => {
 
     if ((global as any).CREDITCOIN_HAS_EVM_TRACING === undefined) {
         (global as any).CREDITCOIN_HAS_EVM_TRACING = true;
+    }
+
+    if ((global as any).CREDITCOIN_MINIMUM_TXN_FEE === undefined) {
+        (global as any).CREDITCOIN_MINIMUM_TXN_FEE = POINT_01_CTC;
     }
 };
 

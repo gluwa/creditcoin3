@@ -1,0 +1,23 @@
+---
+volumes:
+  validator_data:
+
+services:
+  validator:
+    container_name: creditcoin-validator
+    volumes:
+      - validator_data:/creditcoin-node/data
+    image: gluwa/creditcoin3
+    entrypoint: /bin/creditcoin3-node
+    command:
+      - --dev
+      - --validator
+      - --pruning
+      - archive
+      - --node-key
+      - d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463
+      - --base-path
+      - /creditcoin-node/data
+      - --unsafe-rpc-external
+    expose:
+      - 9944

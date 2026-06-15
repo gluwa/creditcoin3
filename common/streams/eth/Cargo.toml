@@ -1,0 +1,43 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "stream_eth"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[[bench]]
+harness = false
+name = "block_sync"
+
+[dependencies]
+# Ethereum
+eth = { workspace = true, default-features = true }
+
+# Creditcoin
+attestor-primitives = { workspace = true, default-features = true }
+usc-abi-encoding = { workspace = true }
+
+# Async & Parallelism
+async-stream = { workspace = true }
+futures = { workspace = true }
+sync_wrapper = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tokio-retry = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# Util
+builder = { workspace = true }
+stream_util = { workspace = true }
+user = { workspace = true }
+
+[dev-dependencies]
+# Parsing
+clap = { workspace = true, features = ["cargo"] }
+url = { workspace = true, features = ["serde"] }
+
+# Logging
+tracing-subscriber = { workspace = true, features = ["json"] }

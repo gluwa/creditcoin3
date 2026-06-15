@@ -1,7 +1,7 @@
 ---
 name: Reusable workflow to check a chain snapshot
 
-on:
+"on":
   workflow_call:
     inputs:
       target-chain:
@@ -42,6 +42,9 @@ jobs:
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
           echo "snapshot_container=cc3-devnet" >> "$GITHUB_ENV"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Testnet ENV
         if: inputs.target-chain == 'testnet'
@@ -49,11 +52,14 @@ jobs:
           # shellcheck disable=SC2129
           echo "target_chain=testnet" >> "$GITHUB_ENV"
           echo "boot_node=/dns4/cc3-test-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWAxmsWr6iEjFyLqQBzfLvbCRTAhYBeszyr8UWgQx6Zu7K" >> "$GITHUB_ENV"
-          echo "https_rpc_url=https://rpc.cc3-testnet.creditcoin.network/rpc" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-testnet.creditcoin.network" >> "$GITHUB_ENV"
           RELEASE_TAG=$(.github/extract-release-tag.sh "testnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
           echo "snapshot_container=cc3-testnet" >> "$GITHUB_ENV"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Mainnet ENV
         if: inputs.target-chain == 'mainnet'
@@ -61,11 +67,14 @@ jobs:
           # shellcheck disable=SC2129
           echo "target_chain=mainnet" >> "$GITHUB_ENV"
           echo "boot_node=/dns4/cc3-bootnode.creditcoin.network/tcp/30333/p2p/12D3KooWLGyvbdQ3wTGjRAEueFsDnstZnV8fN3iyPTmHeyswSPGy" >> "$GITHUB_ENV"
-          echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network/rpc" >> "$GITHUB_ENV"
+          echo "https_rpc_url=https://rpc.cc3-mainnet.creditcoin.network" >> "$GITHUB_ENV"
           RELEASE_TAG=$(.github/extract-release-tag.sh "mainnet")
           echo "release_tag=$RELEASE_TAG" >> "$GITHUB_ENV"
           echo "snapshot_container=cc3-mainnet" >> "$GITHUB_ENV"
           echo "artifact_name=creditcoin-$RELEASE_TAG-$(uname -m)-unknown-linux-gnu.zip" >> "$GITHUB_ENV"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Fetch last block info
         run: |
@@ -125,10 +134,11 @@ jobs:
       - name: Download creditcoin3-node for release ${{ env.release_tag }}
         uses: i3h/download-release-asset@v1
         with:
-          owner: gluwa
-          repo: creditcoin3
+          owner: ${{ github.repository_owner }}
+          repo: ${{ github.event.repository.name }}
           tag: ${{ env.release_tag }}
           file: ${{ env.artifact_name }}
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
       - name: Sync with ${{ env.target_chain }} past block number ${{ env.last_block_number }}
         run: |

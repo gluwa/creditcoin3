@@ -1,0 +1,25 @@
+{
+  "uscWsUrl": "wss://rpc.cc3-testnet.creditcoin.network",
+  "uscNetworkName": "Creditcoin3 Testnet",
+  "graphqlUrl": "https://graphql-usc.cc3-testnet.creditcoin.network",
+  "ethRpc": [
+    {
+      "chainId": 11155111,
+      "chainKey": 1,
+      "url": ""
+    }
+  ],
+  "balanceChecks": [
+    {
+      "name": "Creditcoin3 Testnet",
+      "baseUrl": "https://creditcoin-testnet.blockscout.com/",
+      "rpcUrl": "https://rpc.cc3-testnet.creditcoin.network",
+      "accounts": [
+        {
+          "address": "0x2C317383b8A99537c61042B63C4fB042Df51033a",
+          "name": "NEW_LENDER_ accnt in 1Password. Used for testing"
+        }
+      ]
+    }
+  ]
+}
