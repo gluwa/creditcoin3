@@ -231,6 +231,8 @@ impl ContinuityService {
                 latest = ?checkpoint_map.keys().next_back(),
                 "🚀 ✅ 📝 Checkpoint cache populated from CC3"
             );
+            metrics
+                .set_last_checkpoint_height(chain_key, checkpoint_map.keys().next_back().copied());
 
             // Populate attestation cache from CC3 on startup.
             tracing::debug!(
@@ -258,6 +260,8 @@ impl ContinuityService {
                 latest = ?attestation_map.keys().next_back(),
                 "🚀 ✅ 📜 Attestation cache populated from CC3"
             );
+            let latest_attested_height = attestation_map.keys().next_back().copied();
+            metrics.set_last_attested_height(chain_key, latest_attested_height);
 
             chains.insert(
                 chain_key,
@@ -407,6 +411,38 @@ impl ContinuityService {
     pub async fn attested_height(&self, chain_key: u64) -> ServiceResult<Option<u64>> {
         let chain = self.chain_state(chain_key)?;
 
+        Ok(Self::cached_attested_height(chain.as_ref()).await)
+    }
+
+    /// Insert an attestation into the in-memory cache (called from event handler).
+    pub async fn insert_attestation(&self, chain_key: u64, block_number: u64, digest: H256) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            {
+                chain
+                    .attestation_cache
+                    .write()
+                    .await
+                    .insert(block_number, digest);
+            }
+            tracing::debug!(
+                chain_key,
+                block_number,
+                ?digest,
+                "🔧 📦 📜 attestation cached"
+            );
+            self.metrics.set_last_attested_height(
+                chain_key,
+                Self::cached_attestation_height(chain.as_ref()).await,
+            );
+        }
+    }
+
+    async fn cached_attestation_height(chain: &ChainState) -> Option<u64> {
+        let cache = chain.attestation_cache.read().await;
+        cache.keys().next_back().copied()
+    }
+
+    async fn cached_attested_height(chain: &ChainState) -> Option<u64> {
         let mut last_height = {
             let cache = chain.attestation_cache.read().await;
             cache.keys().next_back().copied()
@@ -417,24 +453,12 @@ impl ContinuityService {
             last_height = checkpoint_cache.keys().next_back().copied();
         }
 
-        Ok(last_height)
+        last_height
     }
 
-    /// Insert an attestation into the in-memory cache (called from event handler).
-    pub async fn insert_attestation(&self, chain_key: u64, block_number: u64, digest: H256) {
-        if let Some(chain) = self.chains.get(&chain_key) {
-            chain
-                .attestation_cache
-                .write()
-                .await
-                .insert(block_number, digest);
-            tracing::debug!(
-                chain_key,
-                block_number,
-                ?digest,
-                "🔧 📦 📜 attestation cached"
-            );
-        }
+    async fn cached_checkpoint_height(chain: &ChainState) -> Option<u64> {
+        let checkpoint_cache = chain.checkpoint_cache.read().await;
+        checkpoint_cache.keys().next_back().copied()
     }
 
     /// Truncate attestation and checkpoint caches to the given revert height.
@@ -472,6 +496,14 @@ impl ContinuityService {
             // Reset the builder's last-checkpoint hint so that
             // determine_checkpoint_info does not skip checks based on stale state.
             chain.builder.reset_last_checkpoint_block().await;
+            self.metrics.set_last_attested_height(
+                chain_key,
+                Self::cached_attestation_height(chain.as_ref()).await,
+            );
+            self.metrics.set_last_checkpoint_height(
+                chain_key,
+                Self::cached_checkpoint_height(chain.as_ref()).await,
+            );
         }
     }
 
@@ -490,40 +522,52 @@ impl ContinuityService {
     /// only ones the verifier will accept as proof anchors.
     pub async fn prune_attestations_at_or_below(&self, chain_key: u64, height: u64) {
         if let Some(chain) = self.chains.get(&chain_key) {
-            let split_key = height.saturating_add(1);
-            let mut att = chain.attestation_cache.write().await;
-            // split_off mutates `att` in place to hold entries < split_key
-            // and returns entries >= split_key. We want to keep the latter,
-            // so reassign unconditionally — guarding this on `removed > 0`
-            // would silently wipe the cache whenever nothing needed pruning.
-            let kept = att.split_off(&split_key);
-            let removed = att.len();
-            *att = kept;
-            if removed > 0 {
-                tracing::debug!(
-                    chain_key,
-                    height,
-                    removed,
-                    remaining = att.len(),
-                    "🔧 🧹 pruned consumed attestations after checkpoint"
-                );
+            {
+                let split_key = height.saturating_add(1);
+                let mut att = chain.attestation_cache.write().await;
+                // split_off mutates `att` in place to hold entries < split_key
+                // and returns entries >= split_key. We want to keep the latter,
+                // so reassign unconditionally — guarding this on `removed > 0`
+                // would silently wipe the cache whenever nothing needed pruning.
+                let kept = att.split_off(&split_key);
+                let removed = att.len();
+                *att = kept;
+                if removed > 0 {
+                    tracing::debug!(
+                        chain_key,
+                        height,
+                        removed,
+                        remaining = att.len(),
+                        "🔧 🧹 pruned consumed attestations after checkpoint"
+                    );
+                }
             }
+            self.metrics.set_last_attested_height(
+                chain_key,
+                Self::cached_attestation_height(chain.as_ref()).await,
+            );
         }
     }
 
     /// Insert a checkpoint into the in-memory cache (called from event handler).
     pub async fn insert_checkpoint(&self, chain_key: u64, block_number: u64, digest: H256) {
         if let Some(chain) = self.chains.get(&chain_key) {
-            chain
-                .checkpoint_cache
-                .write()
-                .await
-                .insert(block_number, digest);
+            {
+                chain
+                    .checkpoint_cache
+                    .write()
+                    .await
+                    .insert(block_number, digest);
+            }
             tracing::debug!(
                 chain_key,
                 block_number,
                 ?digest,
                 "🔧 📦 🚩 checkpoint cached"
+            );
+            self.metrics.set_last_checkpoint_height(
+                chain_key,
+                Self::cached_checkpoint_height(chain.as_ref()).await,
             );
         }
     }
