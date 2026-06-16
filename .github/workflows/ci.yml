@@ -1282,8 +1282,7 @@ jobs:
             verify \
             --eth-rpc-url ws://127.0.0.1:8141 \
             --block-height ${{ steps.native-transfer-anvil-1.outputs.block_number }} \
-            --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }} \
-            --data-choice 4
+            --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
