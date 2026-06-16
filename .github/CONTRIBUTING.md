@@ -1,8 +1,8 @@
 ## Before we get started
 
 In this document we will explain how to run `Creditcoin3` with `Universal Smart Contracts` locally
-and verify blockchain state from a source chain. This is a fully featured example on how to run 
-your own local Creditcoin chain, source chain, and attestation network, then use the native query 
+and verify blockchain state from a source chain. This is a fully featured example on how to run
+your own local Creditcoin chain, source chain, and attestation network, then use the native query
 verification precompile to prove state availability.
 
 ## Definitions

@@ -4,7 +4,7 @@ A Creditcoin3 node with the Ethereum RPC support, ready for deploying smart cont
 
 ## What is Creditcoin?
 
-Creditcoin is a Substrate based layer 1 blockchain with full EVM support. Users and builders on Creditcoin can benefit from a growing ecosystem of [1st and 3rd party dApps](https://penguinbase.com/). 
+Creditcoin is a Substrate based layer 1 blockchain with full EVM support. Users and builders on Creditcoin can benefit from a growing ecosystem of [1st and 3rd party dApps](https://penguinbase.com/).
 
 ## Key Capabilities of Creditcoin
 
