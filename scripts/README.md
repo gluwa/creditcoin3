@@ -208,7 +208,7 @@ When enabled with `-v` or `--verbose`, the script outputs detailed debugging inf
 node SubmitProof.js 3 9986381 0xd93880ebc927784c9ab2605d319a1e4ff78c3d91e7d744012ee2defae273f85f \
   --private-key 0x1234...5678 \
   --api-url https://prover.cc3-devnet.creditcoin.network \
-  --cc3-rpc-url https://rpc.usc-devnet.creditcoin.network \
+  --cc3-rpc-url https://rpc.cc3-devnet.creditcoin.network \
   -v
 ```
 
