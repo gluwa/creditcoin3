@@ -37,18 +37,15 @@ The following setup instructions and tips are most relevant for core contributor
 are already familiar with the big picture design of Creditcoin and USC. For those new
 to the project, it is highly recommended to start by reading the [Creditcoin Gitbook](https://docs.creditcoin.org/).
 
-## Supported operating system
+## Supported operating systems
 
-The only supported OS is Linux / x86_64 - see the `runs-on:` sections in
-`.github/workflows/ci.yml` for the actual distro/version used during testing.
+Creditcoin3 is actively developed and tested on Linux and macOS.
 
-**WARNING:** this repository makes heavy use of symbolic links to account for
-inter-dependencies between various components and to avoid artifacts in different
-directories diverging from one another. This works well on Linux and MacOS, however
-symbolic links are not supported on Windows! If you see a symlink file being removed
-by git and replaced by its content that is most likely the reason.
+Supported architectures:
+- x86_64 (Intel/AMD)
+- ARM64 (Apple Silicon, ARM servers)
 
-This is a mistake and should be corrected before merging!
+Windows is not currently supported.
 
 ## Dev environment setup
 
