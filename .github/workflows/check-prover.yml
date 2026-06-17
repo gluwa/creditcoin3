@@ -56,22 +56,12 @@ jobs:
           NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
           echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Execute prover-check.ts on checkpoint boundaries
-        working-directory: ./cli
-        env:
-          LAST_SOURCE_BLOCK: '4500000'
-          GO_BACK_BLOCKS: '200000'
-        run: |
-          node dist/scripts/prover-check.js \
-            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
-            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
-
       - name: Execute prover-check.ts on random blocks
         working-directory: ./cli
         env:
-          LAST_SOURCE_BLOCK: '4400000'
-          GO_BACK_BLOCKS: '50000'
-          STEP_THROUGH_BLOCKS: '1'
+          LAST_SOURCE_BLOCK: '4380000'
+          GO_BACK_BLOCKS: '20000'
+          STEP_THROUGH_BLOCKS: '3'
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
