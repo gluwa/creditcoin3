@@ -1,0 +1,12 @@
+[profile.default]
+fs_permissions = [
+    { access = "read-write", path = "./" },
+    { access = "read-write", path = "../" },
+]
+libs = ["lib"]
+out = "out"
+solc = "0.8.24"
+src = "src"
+
+[profile.default.fmt]
+line_length = 100
