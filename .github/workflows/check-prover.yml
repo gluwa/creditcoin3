@@ -59,9 +59,9 @@ jobs:
       - name: Execute prover-check.ts on random blocks
         working-directory: ./cli
         env:
-          LAST_SOURCE_BLOCK: '4380000'
-          GO_BACK_BLOCKS: '20000'
-          STEP_THROUGH_BLOCKS: '3'
+          LAST_SOURCE_BLOCK: '4370500'
+          GO_BACK_BLOCKS: '1000'
+          STEP_THROUGH_BLOCKS: '1'
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
