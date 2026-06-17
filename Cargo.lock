@@ -2022,8 +2022,8 @@ dependencies = [
 
 [[package]]
 name = "bls-signatures"
-version = "0.15.0"
-source = "git+https://github.com/gluwa/bls-signatures?tag=v0.15.0#ce93cd5f3ca8e9fd569005a0d7c848433de3855e"
+version = "0.16.0"
+source = "git+https://github.com/gluwa/bls-signatures?tag=v0.16.0#59058474cec4a06405986b2448d2157343b8b76f"
 dependencies = [
  "acid_io",
  "bls12_381",

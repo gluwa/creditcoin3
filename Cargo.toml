@@ -324,7 +324,7 @@ randomness-primitives = { path = "primitives/randomness", default-features = fal
 user = { path = "primitives/user" }
 
 # Common
-bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.15.0", default-features = false, features = [
+bls-signatures = { git = "https://github.com/gluwa/bls-signatures", tag = "v0.16.0", default-features = false, features = [
     "pairing",
 ] }
 builder = { path = "common/builder" }
