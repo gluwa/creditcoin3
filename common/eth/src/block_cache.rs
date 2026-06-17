@@ -285,6 +285,11 @@ impl Client {
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
             fallback_providers,
+            // The cache path uses the standard primary + fallbacks walk for
+            // fetching; the load-balanced fetch pool is left disabled.
+            fetch_providers: Vec::new(),
+            fetch_inflight: std::sync::Arc::new(Vec::new()),
+            fetch_cursor: std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             chain_id,
             cache: Some(cache),
         })

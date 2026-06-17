@@ -15,23 +15,30 @@ use alloy::{
         Identity, Provider, ProviderBuilder, RootProvider,
     },
     rpc::{
-        client::WsConnect,
+        client::{RpcClient, WsConnect},
         types::{
             eth::{Block, BlockId, BlockNumberOrTag},
             ConversionError, Transaction, TransactionReceipt,
         },
     },
     signers::{k256::ecdsa::SigningKey, local::PrivateKeySigner},
-    transports::{http::reqwest::Url, TransportErrorKind},
+    transports::{
+        http::{reqwest::Url, Http},
+        TransportErrorKind,
+    },
 };
 
 use anyhow::{Context, Result};
 use hex::FromHexError;
 use sp_core::H256;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use thiserror::Error;
 use tracing::{error, info, trace};
-use usc_abi_encoding::common::EncodingVersion;
+// `pub` so external callers of [`Client::get_block`] can name the encoding
+// argument without depending on `usc_abi_encoding` directly.
+pub use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
 use utils::block_item_traits::BlockItem;
 
@@ -399,11 +406,43 @@ pub struct Client {
     /// behavior). Each provider is tried in declared order whenever the
     /// primary returns `Ok(None)` or errors. See [`FallbackProvider`].
     fallback_providers: Vec<FallbackProvider>,
+    /// Load-balanced pool of providers used exclusively for block fetching
+    /// (`get_block`). Empty = disabled, in which case block fetches fall back
+    /// to the `[primary, fallbacks...]` walk. When non-empty, each `get_block`
+    /// call routes to the pool member with the fewest in-flight fetches
+    /// (least-outstanding), so faster endpoints — which drain their in-flight
+    /// count sooner — naturally receive more work and a slow/rate-limited
+    /// endpoint throttles itself out. The WS primary is kept out of this pool so
+    /// it is reserved for subscriptions and tip queries. Tip/subscription calls
+    /// never use this pool. See [`Client::new_with_round_robin_fetch`].
+    fetch_providers: Vec<FallbackProvider>,
+    /// Per-provider in-flight fetch counters, parallel to `fetch_providers`
+    /// (same length). Incremented while a provider is the chosen primary for a
+    /// block fetch and decremented when that fetch finishes. `Arc` so all clones
+    /// of a [`Client`] (the block-fetch path clones the client per task) share
+    /// one set of counters and the balancing is global rather than per-clone.
+    fetch_inflight: Arc<Vec<AtomicUsize>>,
+    /// Shared rotation cursor used only to break ties between pool members that
+    /// have equal in-flight counts, so equally-idle endpoints are chosen fairly.
+    fetch_cursor: Arc<AtomicUsize>,
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
     #[cfg(feature = "block_cache")]
     cache: Option<block_cache::Cache>,
+}
+
+/// RAII guard that decrements a provider's in-flight fetch counter on drop, so
+/// the count is released on every exit path of a block fetch (success, error,
+/// or early return). See [`Client::fetch_walk_order`].
+struct FetchInflightGuard<'a> {
+    counter: &'a AtomicUsize,
+}
+
+impl Drop for FetchInflightGuard<'_> {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 impl Client {
@@ -412,9 +451,28 @@ impl Client {
         let url_scheme = url.scheme();
 
         let rpc_provider = match url_scheme {
-            "http" | "https" => ProviderBuilder::new()
-                .network::<Ethereum>()
-                .on_http(url.clone()),
+            "http" | "https" => {
+                // Build the HTTP transport from a reqwest client with response
+                // compression enabled. RPC bodies (especially `eth_getBlockReceipts`)
+                // are large JSON that compresses ~5-10x, so requesting gzip/brotli
+                // (advertised via `Accept-Encoding`; transparently decoded) is the
+                // dominant win when block fetching is download-bandwidth bound.
+                let http_client = reqwest::Client::builder()
+                    .gzip(true)
+                    .brotli(true)
+                    .build()
+                    .map_err(|e| {
+                        Error::ClientError(anyhow::anyhow!(
+                            "failed to build compressed reqwest client: {e}"
+                        ))
+                    })?;
+                let transport = Http::with_client(http_client, url.clone());
+                // `is_local = false`: these are remote RPC endpoints.
+                let rpc_client = RpcClient::new(transport, false);
+                ProviderBuilder::new()
+                    .network::<Ethereum>()
+                    .on_client(rpc_client)
+            }
 
             "ws" | "wss" => {
                 let ws = WsConnect::new(url.clone());
@@ -450,6 +508,50 @@ impl Client {
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
             fallback_providers: Vec::new(),
+            fetch_providers: Vec::new(),
+            fetch_inflight: Arc::new(Vec::new()),
+            fetch_cursor: Arc::new(AtomicUsize::new(0)),
+            chain_id,
+            #[cfg(feature = "block_cache")]
+            cache: None,
+        })
+    }
+
+    /// Build a [`Client`] with a round-robin block-fetch pool.
+    ///
+    /// `url` is the primary URL: used for subscriptions and tip queries
+    /// (`eth_blockNumber`, `eth_chainId`). For the archiver this is the WS
+    /// endpoint, which stays reserved for the new-head subscription.
+    ///
+    /// `fetch_urls` form a round-robin pool used **only** for block fetching
+    /// (`get_block`): each fetch starts its provider walk at a rotating offset
+    /// into the pool, spreading request load evenly across the endpoints, and
+    /// still falls through to the remaining pool members on error. Each fetch
+    /// URL is connected to at startup and must report the same `chain_id` as
+    /// `url`.
+    ///
+    /// When `fetch_urls` is empty this is equivalent to [`Client::new`].
+    pub async fn new_with_round_robin_fetch(
+        url: &str,
+        fetch_urls: &[String],
+        private_key: Option<&str>,
+    ) -> anyhow::Result<Self> {
+        let (url, rpc_provider, chain_id) = Self::init_rpc(url).await?;
+        let fetch_providers = Self::init_fallback_providers(chain_id, fetch_urls).await?;
+        let fetch_inflight = Arc::new(
+            std::iter::repeat_with(|| AtomicUsize::new(0))
+                .take(fetch_providers.len())
+                .collect(),
+        );
+
+        anyhow::Ok(Self {
+            url,
+            private_key: private_key.map(|s| s.to_owned()),
+            rpc_provider,
+            fallback_providers: Vec::new(),
+            fetch_providers,
+            fetch_inflight,
+            fetch_cursor: Arc::new(AtomicUsize::new(0)),
             chain_id,
             #[cfg(feature = "block_cache")]
             cache: None,
@@ -481,6 +583,9 @@ impl Client {
             private_key: private_key.map(|s| s.to_owned()),
             rpc_provider,
             fallback_providers,
+            fetch_providers: Vec::new(),
+            fetch_inflight: Arc::new(Vec::new()),
+            fetch_cursor: Arc::new(AtomicUsize::new(0)),
             chain_id,
             #[cfg(feature = "block_cache")]
             cache: None,
@@ -531,9 +636,46 @@ impl Client {
             }
         }
 
+        // Reconnect the round-robin fetch pool too, on the same best-effort
+        // basis as the fallbacks above: a pool member that fails to reconnect
+        // (transport error or chain_id mismatch) keeps its previous provider
+        // and is retried on its own next time it is hit.
+        let mut new_fetch = Vec::with_capacity(self.fetch_providers.len());
+        for (idx, fp) in self.fetch_providers.iter().enumerate() {
+            match Self::init_rpc(fp.url.as_ref()).await {
+                Ok((fp_url, fp_provider, fp_chain_id)) => {
+                    if fp_chain_id != chain_id {
+                        tracing::error!(
+                            fetch_index = idx,
+                            fetch_url = %redact_url_query(fp.url.as_str()),
+                            fetch_chain_id = fp_chain_id,
+                            primary_chain_id = chain_id,
+                            "⛔ Round-robin fetch RPC chain_id mismatch on reconnect; keeping previous provider"
+                        );
+                        new_fetch.push(fp.clone());
+                    } else {
+                        new_fetch.push(FallbackProvider {
+                            url: fp_url,
+                            provider: fp_provider,
+                        });
+                    }
+                }
+                Err(err) => {
+                    tracing::error!(
+                        fetch_index = idx,
+                        fetch_url = %redact_url_query(fp.url.as_str()),
+                        error = %err,
+                        "⛔ Failed to reconnect round-robin fetch RPC; keeping previous provider"
+                    );
+                    new_fetch.push(fp.clone());
+                }
+            }
+        }
+
         self.url = url;
         self.rpc_provider = rpc_provider;
         self.fallback_providers = new_fallbacks;
+        self.fetch_providers = new_fetch;
         self.chain_id = chain_id;
 
         Ok(())
@@ -584,6 +726,41 @@ impl Client {
             ));
         }
         out
+    }
+
+    /// Order the fetch pool for a single block fetch, least-outstanding first.
+    ///
+    /// Returns pool indices sorted by current in-flight count (ascending), with
+    /// ties broken by a rotating cursor so equally-idle endpoints are chosen
+    /// fairly. The first index is the chosen primary; the rest serve as
+    /// fallbacks (in the same load order) if the primary errors. The caller is
+    /// responsible for registering the primary as in-flight via
+    /// [`FetchInflightGuard`]. Returns empty when the pool is disabled, in which
+    /// case [`try_fetch_block`](Self::try_fetch_block) uses the standard
+    /// `[primary, fallbacks...]` walk instead.
+    fn fetch_walk_order(&self) -> Vec<usize> {
+        let pool_len = self.fetch_providers.len();
+        if pool_len == 0 {
+            return Vec::new();
+        }
+
+        let tie = self.fetch_cursor.fetch_add(1, Ordering::Relaxed) % pool_len;
+        let mut order: Vec<usize> = (0..pool_len).collect();
+        order.sort_by_key(|&i| {
+            let inflight = self.fetch_inflight[i].load(Ordering::Relaxed);
+            // Rotate the index used for tie-breaking so equal-load providers
+            // are not always tried in the same fixed order.
+            (inflight, (i + pool_len - tie) % pool_len)
+        });
+        order
+    }
+
+    /// Label a fetch-pool provider for log output (`fetch[i]@<redacted-url>`).
+    fn fetch_label(&self, i: usize) -> String {
+        format!(
+            "fetch[{i}]@{}",
+            redact_url_query(self.fetch_providers[i].url.as_str())
+        )
     }
 
     pub fn chain_id(&self) -> u64 {
@@ -647,11 +824,29 @@ impl Client {
         // `eth_getBlockReceipts` on the same peer) is only resolvable by re-fetching, so we
         // back off and retry the whole sweep instead of bailing on the first pass.
         const MAX_ATTEMPTS: usize = 5;
-        const DELAY_BASE: u64 = 10;
-        const DELAY_MAX: u64 = 60;
+        // Backoff between full sweeps, in milliseconds. Kept sub-second at the
+        // base so a single transient failure (e.g. a provider 429) does not
+        // stall one block for many seconds — with strictly-ordered downstream
+        // consumers a single straggler otherwise blocks a whole window of
+        // already-fetched blocks. Caps at 10s for sustained outages.
+        const DELAY_BASE_MS: u64 = 500;
+        const DELAY_MAX_MS: u64 = 10_000;
 
         let mut attempt: usize = 0;
-        let mut delay = DELAY_BASE;
+        let mut delay = DELAY_BASE_MS;
+
+        // Choose the fetch-pool walk for this block (least-outstanding first)
+        // and register the chosen primary as in-flight so concurrent fetches
+        // route to other endpoints. The guard releases the count on every exit
+        // path. Empty `order` means the pool is disabled — fall back to the
+        // standard `[primary, fallbacks...]` walk below.
+        let order = self.fetch_walk_order();
+        let _inflight_guard = order.first().map(|&primary| {
+            self.fetch_inflight[primary].fetch_add(1, Ordering::Relaxed);
+            FetchInflightGuard {
+                counter: &self.fetch_inflight[primary],
+            }
+        });
 
         loop {
             attempt += 1;
@@ -662,7 +857,18 @@ impl Client {
             let mut transport_errs: Vec<(String, Error)> = Vec::new();
             let mut payload_inconsistent_errs: Vec<(String, Error)> = Vec::new();
 
-            for (label, provider) in self.providers_with_labels() {
+            // Build this sweep's walk: the least-outstanding pool order when the
+            // pool is enabled, otherwise the standard `[primary, fallbacks...]`.
+            let walk: Vec<(String, &AlloyProvider)> = if order.is_empty() {
+                self.providers_with_labels()
+            } else {
+                order
+                    .iter()
+                    .map(|&i| (self.fetch_label(i), &self.fetch_providers[i].provider))
+                    .collect()
+            };
+
+            for (label, provider) in walk {
                 match Self::fetch_block_and_receipts_from_provider(provider, number).await {
                     Ok((block, receipts)) => {
                         match OrderedBlock::try_from_fetched_block(
@@ -757,11 +963,11 @@ impl Client {
             );
 
             tokio::select! {
-                _ = tokio::time::sleep(std::time::Duration::from_secs(delay)) => {},
+                _ = tokio::time::sleep(std::time::Duration::from_millis(delay)) => {},
                 _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
             }
 
-            delay = (delay * 2).min(DELAY_MAX);
+            delay = (delay * 2).min(DELAY_MAX_MS);
         }
     }
 

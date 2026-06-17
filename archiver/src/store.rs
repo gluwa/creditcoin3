@@ -126,12 +126,59 @@ impl RootStore {
         Ok(results)
     }
 
+    /// Stream roots for an inclusive block range [from, to] in ascending height
+    /// order, without buffering the whole range in memory.
+    ///
+    /// Unlike [`get_range`](Self::get_range), this is suitable for comparing very
+    /// large spans since it yields one `(height, root)` pair at a time.
+    pub fn iter_range(&self, from: u64, to: u64) -> impl Iterator<Item = Result<(u64, H256)>> + '_ {
+        self.db
+            .range(from.to_be_bytes()..=to.to_be_bytes())
+            .map(|item| {
+                let (key, value) = item.context("failed to read from sled")?;
+                Ok((parse_height(&key)?, parse_h256(&value)?))
+            })
+    }
+
     /// Get the latest (highest) stored block height, or None if empty.
     pub fn latest_height(&self) -> Result<Option<u64>> {
         match self.db.last()? {
             Some((key, _)) => Ok(Some(parse_height(&key)?)),
             None => Ok(None),
         }
+    }
+
+    /// Find the missing heights within an explicit inclusive `[from, to]`
+    /// window, returned as `(start, end)` inclusive ranges.
+    ///
+    /// Unlike [`find_gaps`](Self::find_gaps), this is bounded to the requested
+    /// window and also reports holes *before* the first stored key and *after*
+    /// the last one within the window (so an empty database over `[from, to]`
+    /// yields the single range `[(from, to)]`). Used by fast-catchup to fetch
+    /// only what is missing, which makes the catch-up idempotent and
+    /// restart-safe.
+    pub fn missing_ranges(&self, from: u64, to: u64) -> Result<Vec<(u64, u64)>> {
+        if from > to {
+            return Ok(Vec::new());
+        }
+
+        let mut missing = Vec::new();
+        let mut expected = from;
+
+        for item in self.db.range(from.to_be_bytes()..=to.to_be_bytes()) {
+            let (key, _) = item.context("failed to read from sled")?;
+            let height = parse_height(&key)?;
+            if height > expected {
+                missing.push((expected, height - 1));
+            }
+            expected = height + 1;
+        }
+
+        if expected <= to {
+            missing.push((expected, to));
+        }
+
+        Ok(missing)
     }
 
     /// Find gaps in the stored block range.
@@ -200,6 +247,35 @@ mod tests {
         assert_eq!(range[0], (42, root));
         assert_eq!(store.get_range(43, 43).unwrap().len(), 0);
         assert_eq!(store.latest_height().unwrap(), Some(42));
+    }
+
+    #[test]
+    fn missing_ranges_reports_holes_and_endpoints() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        // Empty DB: whole window is missing.
+        assert_eq!(store.missing_ranges(10, 20).unwrap(), vec![(10, 20)]);
+
+        // Store 12, 13, 17 — within window [10, 20] this leaves holes before
+        // the first key, between keys, and after the last key.
+        store
+            .put_roots(&[
+                (12, H256::random()),
+                (13, H256::random()),
+                (17, H256::random()),
+            ])
+            .unwrap();
+
+        assert_eq!(
+            store.missing_ranges(10, 20).unwrap(),
+            vec![(10, 11), (14, 16), (18, 20)]
+        );
+
+        // Fully-populated sub-window yields nothing.
+        assert_eq!(store.missing_ranges(12, 13).unwrap(), Vec::new());
+        // Inverted range is empty.
+        assert_eq!(store.missing_ranges(20, 10).unwrap(), Vec::new());
     }
 
     #[test]

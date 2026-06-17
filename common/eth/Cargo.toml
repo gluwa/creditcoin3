@@ -15,6 +15,11 @@ async-trait = { workspace = true }
 futures = "0.3.30"
 futures-util = { workspace = true }
 hex = { workspace = true }
+# Pulled in to enable response compression on alloy's HTTP transport: alloy uses
+# this same `reqwest` internally and Cargo unifies features, so enabling gzip +
+# brotli here turns it on for every block fetch. Receipt-heavy JSON compresses
+# ~5-10x, which is decisive when archival is download-bandwidth bound.
+reqwest = { workspace = true, features = ["gzip", "brotli"] }
 redis = { workspace = true, features = [
     "cluster",
     "cluster-async",
