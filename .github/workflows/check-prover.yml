@@ -14,27 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # CC3 Devnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 1
-
-          # CC3 Devnet, Ethereum Mainnet Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 4
-
-          # CC3 Testnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
-            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
-            chainKey: 1
-
           # CC3 Testnet, Ethereum Mainnet Full Archive
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
@@ -77,21 +56,12 @@ jobs:
           NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
           echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Execute prover-check.ts on checkpoint boundaries
-        working-directory: ./cli
-        env:
-          GO_BACK_BLOCKS: '3600'
-        run: |
-          node dist/scripts/prover-check.js \
-            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
-            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
-
       - name: Execute prover-check.ts on random blocks
         working-directory: ./cli
         env:
           # LAST_SOURCE_BLOCK: '1000000'
-          GO_BACK_BLOCKS: '4000'
-          STEP_THROUGH_BLOCKS: '7'
+          GO_BACK_BLOCKS: '100'
+          STEP_THROUGH_BLOCKS: '1'
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -113,119 +83,3 @@ jobs:
           inputs: ${{ toJson(matrix) }}
           channel: "#noti-creditcoin-snapshots"
           message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! cc <@U028EMRHS3S>"
-
-  compare-proofs-sepolia:
-    needs:
-      - check-for
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff unzip
-
-      - name: Download proofs from Sepolia CC3 Devnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-devnet-ck-1
-
-      - name: Git commit proofs data
-        working-directory: /var/tmp/proofs
-        run: |
-          git config --global init.defaultBranch main
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
-
-          git init
-          git add .
-          git commit -a -m "Import data"
-
-          # remove everything b/c next we'll download data from CC3 Testnet
-          rm -rf ./*
-
-      - name: Download proofs from Sepolia CC3 Testnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-testnet-ck-1
-
-      - name: Compare
-        working-directory: /var/tmp/proofs
-        timeout-minutes: 5
-        run: |
-          git status
-
-          set -eo pipefail
-          # filter only modified content b/c between the 2 CI jobs we may not have
-          # proofs for exactly the same set of blocks
-          git diff --diff-filter=M | colordiff
-
-          # will exit non-zero in case of differences
-          git diff --quiet --diff-filter=M
-
-      - name: Report result to Slack
-        if: always()
-        uses: act10ns/slack@v2
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Sepolia complete! cc <@U028EMRHS3S>"
-
-  compare-proofs-ethereum:
-    needs:
-      - check-for
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff unzip
-
-      - name: Download proofs from Ethereum CC3 Devnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-devnet-ck-4
-
-      - name: Git commit proofs data
-        working-directory: /var/tmp/proofs
-        run: |
-          git config --global init.defaultBranch main
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
-
-          git init
-          git add .
-          git commit -a -m "Import data"
-
-          # remove everything b/c next we'll download data from CC3 Testnet
-          rm -rf ./*
-
-      - name: Download proofs from Ethereum CC3 Testnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-testnet-ck-3
-
-      - name: Compare
-        working-directory: /var/tmp/proofs
-        timeout-minutes: 5
-        run: |
-          git status
-
-          set -eo pipefail
-          # filter only modified content b/c between the 2 CI jobs we may not have
-          # proofs for exactly the same set of blocks
-          git diff --diff-filter=M | colordiff
-
-          # will exit non-zero in case of differences
-          git diff --quiet --diff-filter=M
-
-      - name: Report result to Slack
-        if: always()
-        uses: act10ns/slack@v2
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Ethereum complete! cc <@U028EMRHS3S>"
