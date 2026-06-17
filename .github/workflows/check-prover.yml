@@ -42,6 +42,13 @@ jobs:
             evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
             chainKey: 3
 
+          # CC3 Mainnet, Ethereum Mainnet, No Archive
+          - creditcoinUrl: "wss://rpc.cc3-mainnet.creditcoin.network/ws"
+            proverUrl: "https://proofbuilder.cc3-mainnet-usc.creditcoin.network"
+            indexerUrl: "https://graphql-usc.cc3-mainnet-usc.creditcoin.network"
+            evmV1Decoder: "0x9D094C9f22B10FCf842c2fC6A0981630A4F94B5C"
+            chainKey: 1
+
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-24.04
     steps:
@@ -207,7 +214,30 @@ jobs:
           path: /var/tmp/proofs
           pattern: proofs-for-cc3-testnet-ck-3
 
-      - name: Compare
+      - name: Compare Testnet vs Devnet
+        working-directory: /var/tmp/proofs
+        timeout-minutes: 5
+        run: |
+          git status
+
+          set -eo pipefail
+          # filter only modified content b/c between the 2 CI jobs we may not have
+          # proofs for exactly the same set of blocks
+          git diff --diff-filter=M | colordiff
+
+          # will exit non-zero in case of differences
+          git diff --quiet --diff-filter=M
+
+          # remove everything b/c next we'll download data from CC3 Mainnet
+          rm -rf ./*
+
+      - name: Download proofs from Ethereum CC3 Mainnet
+        uses: actions/download-artifact@v8
+        with:
+          path: /var/tmp/proofs
+          pattern: proofs-for-cc3-mainnet-ck-1
+
+      - name: Compare Mainnet vs Devnet
         working-directory: /var/tmp/proofs
         timeout-minutes: 5
         run: |
