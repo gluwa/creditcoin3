@@ -50,5 +50,5 @@ pub const MAX_CONCURRENT_RPC_CALLS: std::num::NonZeroUsize = std::num::NonZero::
 pub const WORKER_COUNT: usize = 4;
 
 /// Minimum balance required for an attestor to operate.
-/// This is equivalent to 100 CTC.
-pub const MIN_BALANCE: u128 = 100_000_000_000_000_000_000;
+/// This is equivalent to 1 CTC.
+pub const MIN_BALANCE: u128 = 1_000_000_000_000_000_000;
