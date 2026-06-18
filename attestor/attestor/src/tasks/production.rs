@@ -123,6 +123,12 @@ pub async fn run(
             height: info.height,
             digest: info.digest,
         });
+        // Tell the pool too (mirrors the steady-state `BlockAttested` handler) — otherwise the
+        // pool's on-chain finalized floor stays unset and stale genesis-fork votes linger until
+        // some later height happens to exceed the genesis cursor.
+        shared
+            .pool_send
+            .note_attestation_finalization(info.height, info.digest);
         let _ = shared.latest_finalized_tx.send(Some(info));
         shared.proof_cache.note_finalized(info.height);
         shared.metrics.set_attestation_finalized(info.height);
