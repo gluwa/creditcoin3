@@ -151,8 +151,6 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 pub struct ContinuityService {
     chains: HashMap<u64, Arc<ChainState>>,
     start_time: Instant,
-    /// Total number of proof requests processed (for health endpoint statistics)
-    total_proof_requests: AtomicU64,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
@@ -277,7 +275,6 @@ impl ContinuityService {
         Ok(Self {
             chains,
             start_time: Instant::now(),
-            total_proof_requests: AtomicU64::new(0),
             metrics,
             max_batch_size,
             max_batch_span,
@@ -370,14 +367,6 @@ impl ContinuityService {
 
     pub fn uptime_seconds(&self) -> u64 {
         self.start_time.elapsed().as_secs()
-    }
-
-    /// Get total number of proof requests processed.
-    /// Returns (total_requests) for use in health endpoint.
-    pub async fn get_proofs_counts(&self) -> anyhow::Result<i64> {
-        // Return total proof requests processed since service start
-        let total = self.total_proof_requests.load(Ordering::Relaxed) as i64;
-        Ok(total)
     }
 
     /// Health check for CC3 RPC connectivity
@@ -804,9 +793,6 @@ impl ContinuityService {
         self.build_continuity(chain, headers)
             .await
             .inspect(|proof| {
-                // Increment total proof requests counter
-                self.total_proof_requests.fetch_add(1, Ordering::Relaxed);
-
                 // Record metrics
                 self.metrics.observe_proof_blocks(proof.roots.len() as u64);
                 // Record timestamp of successful proof generation
