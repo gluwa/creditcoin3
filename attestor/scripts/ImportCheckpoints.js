@@ -2,6 +2,7 @@ require('dotenv').config(); // Load environment variables from .env
 const { ApiPromise, WsProvider, Keyring } = require('@polkadot/api');
 const { hexToU8a } = require('@polkadot/util');
 const fs = require('fs');
+const readline = require('readline');
 
 // Flag handling
 const IS_DEV = process.argv.includes('--dev');
@@ -10,6 +11,8 @@ const BATCH_SIZE = 100;
 const MAX_RETRIES = 10;
 // Decrease the retry delay when running with --dev
 const RETRY_DELAY_MS = IS_DEV ? 6000 : 15000;
+// Wait at least 30s between batch submissions so each batch settles first.
+const BATCH_DELAY_MS = 30000;
 
 function parseArgs() {
     const args = process.argv.slice(2);
@@ -18,12 +21,76 @@ function parseArgs() {
         if (args[i] === '--file' && args[i + 1]) result.file = args[++i];
         else if (args[i] === '--chain-key' && args[i + 1]) result.chainKey = args[++i];
         else if (args[i] === '--rpc' && args[i + 1]) result.rpc = args[++i];
+        else if (args[i] === '--keystore' && args[i + 1]) result.keystore = args[++i];
     }
     return result;
 }
 
 async function delay(ms) {
     return new Promise((res) => setTimeout(res, ms));
+}
+
+// --- Resume support ---------------------------------------------------------
+// Progress is computed from on-chain state (the source of truth) rather than a
+// local file, so a crashed/interrupted/concurrent run can be safely re-run:
+// checkpoints already present on-chain are skipped, only the missing ones are
+// imported. Checkpoints live in the attestation.checkpoints double map keyed by
+// (chainKey, block_number) -> digest.
+//
+// Returns a Map<blockNumber(string), onChainDigestHex(string)> for the entries
+// that already exist on-chain.
+async function fetchExistingDigests(api, chainKey, entries, chunkSize = 1000) {
+    const existing = new Map();
+    for (let i = 0; i < entries.length; i += chunkSize) {
+        const chunk = entries.slice(i, i + chunkSize);
+        const keys = chunk.map((e) => [chainKey, e.blockNumber]);
+        const results = await api.query.attestation.checkpoints.multi(keys);
+        results.forEach((res, idx) => {
+            if (res.isSome) {
+                existing.set(chunk[idx].blockNumber, res.unwrap().toHex().toLowerCase());
+            }
+        });
+        console.log(`  checked ${Math.min(i + chunkSize, entries.length)}/${entries.length} checkpoints on-chain…`);
+    }
+    return existing;
+}
+
+// Prompt for a password without echoing it to the terminal.
+function promptPassword(question) {
+    return new Promise((resolve) => {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        const onData = () => rl.output.write('\x1B[2K\r' + question);
+        rl.input.on('data', onData);
+        rl.question(question, (answer) => {
+            rl.input.off('data', onData);
+            rl.close();
+            process.stdout.write('\n');
+            resolve(answer);
+        });
+    });
+}
+
+// Build the signing keypair from either an encrypted keystore JSON (prompts for
+// the password unless KEYSTORE_PASSWORD is set) or a raw MNEMONIC/seed suri.
+async function resolveSigner(keyring, cliArgs) {
+    const keystoreFile = cliArgs.keystore || process.env.KEYSTORE_FILE;
+    if (keystoreFile) {
+        const json = JSON.parse(fs.readFileSync(keystoreFile, 'utf8'));
+        const password = process.env.KEYSTORE_PASSWORD || (await promptPassword('Keystore password: '));
+        const pair = keyring.addFromJson(json);
+        try {
+            pair.decodePkcs8(password);
+        } catch (err) {
+            throw new Error(`Failed to unlock keystore (wrong password or unsupported format): ${err.message}`);
+        }
+        return pair;
+    }
+
+    const mnemonic = process.env.MNEMONIC;
+    if (!mnemonic) {
+        throw new Error('No signer configured. Use --keystore <file> or set MNEMONIC in the environment');
+    }
+    return keyring.addFromUri(mnemonic);
 }
 
 async function main() {
@@ -34,11 +101,6 @@ async function main() {
     const cliArgs = parseArgs();
 
     // Resolve config: CLI args take priority over env vars
-    const mnemonic = process.env.MNEMONIC;
-    if (!mnemonic) {
-        throw new Error('MNEMONIC not found in environment');
-    }
-
     const csvFile = cliArgs.file || process.env.CHECKPOINTS_FILE;
     if (!csvFile) {
         throw new Error('CSV file not specified. Use --file <path> or set CHECKPOINTS_FILE env var');
@@ -58,9 +120,13 @@ async function main() {
     const provider = new WsProvider(destinationChain);
     const api = await ApiPromise.create({ provider });
 
+    // sudo.wrap is ON by default; set USE_SUDO=0 (or false) to sign
+    // import_checkpoints directly via the operator origin.
+    const useSudo = process.env.USE_SUDO !== '0' && process.env.USE_SUDO !== 'false';
+
     const keyring = new Keyring({ type: 'sr25519' });
-    const sudo = keyring.addFromUri(mnemonic);
-    console.log('Sudo address:', sudo.address);
+    const signer = await resolveSigner(keyring, cliArgs);
+    console.log(`Signer address: ${signer.address} (USE_SUDO=${useSudo})`);
 
     // Parse CSV: each line is "block_number,digest_hash"
     const rawData = fs.readFileSync(csvFile, 'utf8');
@@ -82,8 +148,36 @@ async function main() {
 
     console.log(`Loaded ${reversedEntries.length} checkpoints from ${csvFile}`);
 
-    for (let i = 0; i < reversedEntries.length; i += BATCH_SIZE) {
-        const batch = reversedEntries.slice(i, i + BATCH_SIZE);
+    // Compute progress from chain state: skip checkpoints already imported so a
+    // crashed/interrupted/concurrent run can be safely re-run.
+    console.log('Computing progress from chain state…');
+    const existing = await fetchExistingDigests(api, chainKey, reversedEntries);
+
+    let mismatches = 0;
+    const pending = [];
+    for (const e of reversedEntries) {
+        const onChain = existing.get(e.blockNumber);
+        if (onChain === undefined) {
+            pending.push(e);
+        } else if (onChain !== e.digestHex.toLowerCase()) {
+            mismatches++;
+            console.warn(`⚠️ Digest mismatch at block ${e.blockNumber}: on-chain ${onChain} vs CSV ${e.digestHex} (leaving on-chain value untouched)`);
+        }
+    }
+
+    console.log(
+        `${existing.size} already on-chain, ${pending.length} pending to import` +
+            (mismatches ? `, ${mismatches} digest mismatches (see warnings above)` : ''),
+    );
+
+    if (pending.length === 0) {
+        console.log('✅ Nothing to import — all checkpoints already present on-chain.');
+        process.exit(0);
+    }
+
+    const totalBatches = Math.ceil(pending.length / BATCH_SIZE);
+    for (let i = 0; i < pending.length; i += BATCH_SIZE) {
+        const batch = pending.slice(i, i + BATCH_SIZE);
 
         const checkpointVec = batch.map(({ blockNumber, digestHex }) => {
             return api.createType('AttestorPrimitivesAttestationCheckpoint', {
@@ -96,16 +190,16 @@ async function main() {
         const boundedVec = api.createType('BoundedVec<AttestorPrimitivesAttestationCheckpoint, 100>', checkpointVec);
 
         const call = api.tx.attestation.importCheckpoints(chainKey, boundedVec);
-        const sudoCall = api.tx.sudo.sudo(call);
+        const tx = useSudo ? api.tx.sudo.sudo(call) : call;
 
         let attempt = 0;
         while (attempt < MAX_RETRIES) {
-            console.log(`Submitting batch ${Math.floor(i / BATCH_SIZE) + 1}, attempt ${attempt + 1}...`);
+            console.log(`Submitting batch ${Math.floor(i / BATCH_SIZE) + 1}/${totalBatches}, attempt ${attempt + 1}...`);
             try {
                 await new Promise((resolve, reject) => {
                     let unsub;
-                    sudoCall
-                        .signAndSend(sudo, (result) => {
+                    tx
+                        .signAndSend(signer, (result) => {
                             if (result.status.isInBlock) {
                                 console.log(`📦 Batch included in block: ${result.status.asInBlock}`);
                                 if (unsub) unsub();
@@ -132,7 +226,8 @@ async function main() {
             }
         }
 
-        await delay(RETRY_DELAY_MS);
+        // Wait at least 30s before submitting the next batch.
+        await delay(BATCH_DELAY_MS);
     }
 
     console.log('✅ All checkpoint batches submitted.');
