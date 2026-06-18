@@ -3708,7 +3708,6 @@ declare module '@polkadot/types/lookup' {
         readonly isNoFinalizedAttestation: boolean;
         readonly isAttestationsAlreadyExist: boolean;
         readonly isEmptyContinuityProof: boolean;
-        readonly isOversizedContinuityProof: boolean;
         readonly isInvalidAttestationContinuityProof: boolean;
         readonly isInvalidAttestationContinuityProofTail: boolean;
         readonly isInvalidAttestationContinuityProofHead: boolean;
@@ -3725,6 +3724,7 @@ declare module '@polkadot/types/lookup' {
         readonly isEmptyCheckpointPatch: boolean;
         readonly isCheckpointSuffixWipeTooLarge: boolean;
         readonly isTooManyAttestationsForForwardPatchClear: boolean;
+        readonly isOversizedContinuityProof: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3773,7 +3773,6 @@ declare module '@polkadot/types/lookup' {
             | 'NoFinalizedAttestation'
             | 'AttestationsAlreadyExist'
             | 'EmptyContinuityProof'
-            | 'OversizedContinuityProof'
             | 'InvalidAttestationContinuityProof'
             | 'InvalidAttestationContinuityProofTail'
             | 'InvalidAttestationContinuityProofHead'
@@ -3789,7 +3788,8 @@ declare module '@polkadot/types/lookup' {
             | 'CheckpointMaintenanceInProgress'
             | 'EmptyCheckpointPatch'
             | 'CheckpointSuffixWipeTooLarge'
-            | 'TooManyAttestationsForForwardPatchClear';
+            | 'TooManyAttestationsForForwardPatchClear'
+            | 'OversizedContinuityProof';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (421) */
