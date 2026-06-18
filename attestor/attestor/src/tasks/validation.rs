@@ -128,27 +128,37 @@ async fn handle_quorum(
             pool_rx.mark_skipped(permit);
             return Ok(());
         }
-        Err(ValidationError::InsufficientVotes { needed, got }) => {
-            // Live threshold is higher than our quorum size. Unlock the height in the pool
-            // (so new gossiped votes can re-trigger a quorum at the bigger threshold) and
-            // re-inject our existing votes so they're not lost. We never submitted, so no
-            // fees were burned and no on-chain race was created.
+        Err(ValidationError::InsufficientVotes {
+            needed,
+            got,
+            target_sample_size,
+        }) => {
+            // The live threshold is higher than the pool's configured quorum target — submitting
+            // now would hit `MajorityNotReached` at runtime level. Two things must happen:
+            //
+            //   1. Raise the pool's target to the live value so it stops re-yielding this same
+            //      sub-threshold fork on the next `recv()` (otherwise we busy-loop re-validating
+            //      it). `note_target_sample_size_change` is idempotent with production's own
+            //      handler.
+            //   2. Drop the permit *without* `mark_valid`. `mark_valid` would `split_off` the
+            //      fork (discarding the votes we still need) and lock the height, rejecting the
+            //      very gossiped votes required to reach the bigger threshold. Dropping the
+            //      permit leaves the fork in place so it re-surfaces once enough votes arrive.
+            //
+            // We never submitted, so no fees were burned and no on-chain race was created.
             tracing::warn!(
                 ?digest,
                 height,
                 needed,
                 got,
-                "🗳️ insufficient votes for current threshold — re-injecting"
+                "🗳️ insufficient votes for current threshold — raising pool target, awaiting more votes"
             );
-            shared.pool_send.note_majority_not_reached(height);
-            for vote in quorum.votes {
-                let digest = vote.digest();
-                match shared.pool_send.send(vote) {
-                    Some(Ok(())) | None => {}
-                    Some(Err(err)) => err.log_error(digest),
-                }
-            }
-            pool_rx.mark_valid(permit);
+            shared
+                .pool_send
+                .note_target_sample_size_change(target_sample_size);
+            // `Permit` is `Copy` with no Drop side effect; explicitly discard it (it's
+            // `#[must_use]`) without `mark_valid`/`mark_invalid` so the fork stays in the pool.
+            let _ = permit;
             return Ok(());
         }
         Err(ValidationError::External(e)) => return Err(e),
@@ -280,10 +290,13 @@ enum ValidationError {
     /// Live `target_sample_size` is higher than our quorum size — submitting now would hit
     /// `MajorityNotReached` at runtime level. Bail before signing so we never burn fees/turns
     /// on an extrinsic the chain is guaranteed to reject; let the pool keep collecting until
-    /// enough peer votes gossip in.
+    /// enough peer votes gossip in. Carries the live `target_sample_size` so the handler can
+    /// raise the pool's quorum target to match (otherwise the pool keeps re-yielding the same
+    /// sub-threshold fork).
     InsufficientVotes {
         needed: usize,
         got: usize,
+        target_sample_size: u32,
     },
     External(Error),
 }
@@ -348,6 +361,7 @@ async fn aggregate_and_validate(
         return Err(ValidationError::InsufficientVotes {
             needed: threshold,
             got: quorum.votes.len(),
+            target_sample_size,
         });
     }
 
