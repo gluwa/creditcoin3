@@ -3172,7 +3172,6 @@ export default {
             'NoFinalizedAttestation',
             'AttestationsAlreadyExist',
             'EmptyContinuityProof',
-            'OversizedContinuityProof',
             'InvalidAttestationContinuityProof',
             'InvalidAttestationContinuityProofTail',
             'InvalidAttestationContinuityProofHead',
@@ -3189,6 +3188,7 @@ export default {
             'EmptyCheckpointPatch',
             'CheckpointSuffixWipeTooLarge',
             'TooManyAttestationsForForwardPatchClear',
+            'OversizedContinuityProof',
         ],
     },
     /**
