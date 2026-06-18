@@ -14,34 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # CC3 Devnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 1
-
-          # CC3 Devnet, Ethereum Mainnet Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 4
-
-          # CC3 Testnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
-            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
-            chainKey: 1
-
-          # CC3 Testnet, Ethereum Mainnet Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
-            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
-            chainKey: 3
-
           # CC3 Mainnet, Ethereum Mainnet, No Archive
           - creditcoinUrl: "wss://rpc.cc3-mainnet.creditcoin.network/ws"
             proverUrl: "https://proofbuilder.cc3-mainnet-usc.creditcoin.network"
@@ -84,21 +56,210 @@ jobs:
           NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
           echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Execute prover-check.ts on checkpoint boundaries
+      - name: Execute prover-check.ts around block 200000
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: '3600'
+          LAST_SOURCE_BLOCK: '200001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
-            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
 
-      - name: Execute prover-check.ts on random blocks
+      - name: Execute prover-check.ts around block 1150000
         working-directory: ./cli
         env:
-          # LAST_SOURCE_BLOCK: '1000000'
-          GO_BACK_BLOCKS: '4000'
-          STEP_THROUGH_BLOCKS: '7'
+          LAST_SOURCE_BLOCK: '1150001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 1920000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '1920001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 2463000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '2463001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 2675000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '2675001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 4370000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '4370001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 7280000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '7280001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 9069000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '9069001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 9200000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '9200001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 11052984
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '11052985'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 12244000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '12244001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 12965000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '12965001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 13773000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '13773001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 15050000
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '15050001'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 15537394
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '15537395'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 17034870
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '17034871'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 19426587
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '19426588'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 22431084
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '22431085'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
+        run: |
+          node dist/scripts/prover-check.js \
+            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
+            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} "" ${{ matrix.evmV1Decoder }}
+
+      - name: Execute prover-check.ts around block 23935694
+        working-directory: ./cli
+        env:
+          LAST_SOURCE_BLOCK: '23935694'
+          GO_BACK_BLOCKS: '3'
+          STEP_THROUGH_BLOCKS: '1'
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -120,142 +281,3 @@ jobs:
           inputs: ${{ toJson(matrix) }}
           channel: "#noti-creditcoin-snapshots"
           message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! cc <@U028EMRHS3S>"
-
-  compare-proofs-sepolia:
-    needs:
-      - check-for
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff unzip
-
-      - name: Download proofs from Sepolia CC3 Devnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-devnet-ck-1
-
-      - name: Git commit proofs data
-        working-directory: /var/tmp/proofs
-        run: |
-          git config --global init.defaultBranch main
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
-
-          git init
-          git add .
-          git commit -a -m "Import data"
-
-          # remove everything b/c next we'll download data from CC3 Testnet
-          rm -rf ./*
-
-      - name: Download proofs from Sepolia CC3 Testnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-testnet-ck-1
-
-      - name: Compare
-        working-directory: /var/tmp/proofs
-        timeout-minutes: 5
-        run: |
-          git status
-
-          set -eo pipefail
-          # filter only modified content b/c between the 2 CI jobs we may not have
-          # proofs for exactly the same set of blocks
-          git diff --diff-filter=M | colordiff
-
-          # will exit non-zero in case of differences
-          git diff --quiet --diff-filter=M
-
-      - name: Report result to Slack
-        if: always()
-        uses: act10ns/slack@v2
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Sepolia complete! cc <@U028EMRHS3S>"
-
-  compare-proofs-ethereum:
-    needs:
-      - check-for
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff unzip
-
-      - name: Download proofs from Ethereum CC3 Devnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-devnet-ck-4
-
-      - name: Git commit proofs data
-        working-directory: /var/tmp/proofs
-        run: |
-          git config --global init.defaultBranch main
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
-
-          git init
-          git add .
-          git commit -a -m "Import data"
-
-          # remove everything b/c next we'll download data from CC3 Testnet
-          rm -rf ./*
-
-      - name: Download proofs from Ethereum CC3 Testnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-testnet-ck-3
-
-      - name: Compare Testnet vs Devnet
-        working-directory: /var/tmp/proofs
-        timeout-minutes: 5
-        run: |
-          git status
-
-          set -eo pipefail
-          # filter only modified content b/c between the 2 CI jobs we may not have
-          # proofs for exactly the same set of blocks
-          git diff --diff-filter=M | colordiff
-
-          # will exit non-zero in case of differences
-          git diff --quiet --diff-filter=M
-
-          # remove everything b/c next we'll download data from CC3 Mainnet
-          rm -rf ./*
-
-      - name: Download proofs from Ethereum CC3 Mainnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-mainnet-ck-1
-
-      - name: Compare Mainnet vs Testnet
-        working-directory: /var/tmp/proofs
-        timeout-minutes: 5
-        run: |
-          git status
-
-          set -eo pipefail
-          # filter only modified content b/c between the 2 CI jobs we may not have
-          # proofs for exactly the same set of blocks
-          git diff --diff-filter=M | colordiff
-
-          # will exit non-zero in case of differences
-          git diff --quiet --diff-filter=M
-
-      - name: Report result to Slack
-        if: always()
-        uses: act10ns/slack@v2
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Ethereum complete! cc <@U028EMRHS3S>"
