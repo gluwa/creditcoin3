@@ -114,6 +114,7 @@ pub async fn run(
     let mut ping_failures: std::collections::HashMap<libp2p::swarm::ConnectionId, u32> =
         std::collections::HashMap::new();
     let mut local_produced_rx = shared.local_produced_rx.clone();
+    let mut latest_finalized_rx = shared.latest_finalized_rx.clone();
 
     loop {
         tokio::select! {
@@ -140,7 +141,10 @@ pub async fn run(
                 }
             }
 
-            // Local production cached new AttestationData → drain any votes we held back.
+            // Local production cached new AttestationData → drain any votes we held back at this
+            // height, then bulk-prune everything at or below it. We produce each height at most
+            // once, so lower entries (including off-schedule heights a peer may have injected)
+            // can never become verifiable and would otherwise linger forever.
             res = local_produced_rx.changed() => {
                 if res.is_err() { return Ok(()); }
                 let Some(h) = *local_produced_rx.borrow() else { continue; };
@@ -148,6 +152,18 @@ pub async fn run(
                     for vote in queued {
                         let _ = retry_pending_vote(&shared, vote).await;
                     }
+                }
+                pending_votes.retain(|&height, _| height > h);
+            }
+
+            // An attestation finalized on chain → drop every buffered vote at or below it. Bounds
+            // the buffer even when our local production schedule never reaches the heights a peer
+            // buffered (e.g. it stalled, or the votes were just shy of producible).
+            res = latest_finalized_rx.changed() => {
+                if res.is_err() { return Ok(()); }
+                let finalized = latest_finalized_rx.borrow().map(|info| info.height);
+                if let Some(fin) = finalized {
+                    pending_votes.retain(|&height, _| height > fin);
                 }
             }
 
@@ -365,11 +381,37 @@ async fn handle_vote_msg(
             None => Acceptance::Ignore,
         },
         VerifyResult::NoLocal => {
-            // We haven't produced at this height yet. Queue the vote — when production caches
-            // local data at this height it'll signal us via `local_produced_rx` and we'll drain
-            // the queue + re-verify. Bounded per height; once full, return Ignore so gossipsub
-            // retransmission can fill in later. Still return Ignore on gossip propagation
-            // (not Accept) so we don't propagate a vote we haven't verified yet.
+            // We haven't produced at this height yet. Before buffering, gate on two cheap checks
+            // so a peer can't grow this map without bound:
+            //   * membership — we can't BLS-verify without local data, but we CAN check the sender
+            //     is in the active attestor set. `verify_vote` returns `NoLocal` *before* its
+            //     membership check, so do it here; an unknown sender is rejected outright rather
+            //     than buffered.
+            //   * producible height — the height must be one we could actually produce locally
+            //     (on the attestation schedule and within the catch-up window). Off-schedule or
+            //     far-future heights never gain local data, so buffering them is pure memory-
+            //     attack surface; drop them (Ignore) instead.
+            if pubkey.is_none() {
+                tracing::warn!(
+                    attestor = %vote.attestor,
+                    height = vote.height,
+                    "👤 unknown attestor at no-local height — rejecting"
+                );
+                return Acceptance::Reject;
+            }
+            if !worth_buffering(shared, vote.height) {
+                tracing::debug!(
+                    digest = ?vote.digest,
+                    height = vote.height,
+                    "🚮 no-local vote outside producible window — dropping"
+                );
+                return Acceptance::Ignore;
+            }
+            // Queue the vote — when production caches local data at this height it'll signal us via
+            // `local_produced_rx` and we'll drain the queue + re-verify. Bounded per height; once
+            // full, return Ignore so gossipsub retransmission can fill in later. Still return
+            // Ignore on gossip propagation (not Accept) so we don't propagate a vote we haven't
+            // verified yet.
             let entry = pending_votes.entry(vote.height).or_default();
             if entry.len() < max_pending_per_height {
                 tracing::debug!(
@@ -410,6 +452,44 @@ async fn handle_vote_msg(
     }
 }
 
+/// Whether a `NoLocal` vote at `height` is worth buffering. It must sit on the local attestation
+/// schedule (so matching local data could ever exist for it) and inside the same admission window
+/// the pool itself uses. Anything off-schedule or out-of-window can never become verifiable and
+/// would only grow the pending buffer — the call sites drop those.
+fn worth_buffering(shared: &Arc<Shared>, height: attestor_primitives::Height) -> bool {
+    let interval = shared.attestation_interval().get();
+    let finalized = shared
+        .latest_finalized_rx
+        .borrow()
+        .map(|info| info.height)
+        .unwrap_or(shared.start_height);
+    is_bufferable(height, shared.genesis, interval, finalized)
+}
+
+/// Pure predicate behind [`worth_buffering`], split out so the schedule/window logic is unit
+/// testable without a full [`Shared`].
+fn is_bufferable(
+    height: attestor_primitives::Height,
+    genesis: attestor_primitives::Height,
+    interval: attestor_primitives::Height,
+    finalized: attestor_primitives::Height,
+) -> bool {
+    // `StreamAttestation` emits the genesis attestation once and every later attestation at an
+    // absolute multiple of the interval (`next - next % interval`). A height that is neither can
+    // never gain local data.
+    if height != genesis && height % interval != 0 {
+        return false;
+    }
+    // Bound to the window the pool would admit (see `ValidateQuorum::height_admissible`): strictly
+    // above the last finalized attestation and within `max_catchup` intervals of it. Anchoring on
+    // the finalized height (not local production, which only climbs) keeps the buffer bounded to
+    // at most `max_catchup` distinct heights.
+    let window = common::constants::MAX_CATCHUP
+        .get()
+        .saturating_mul(interval);
+    height > finalized && height <= finalized.saturating_add(window)
+}
+
 /// Re-process a vote that was previously queued because local data was missing. Local data
 /// should now be present (production just signaled us); this is the same verify + pool-send
 /// pipeline `handle_vote_msg` runs, minus the queueing fallback.
@@ -433,5 +513,55 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
                 "🕳️ pending vote no longer admissible at retry"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_bufferable;
+
+    // MAX_CATCHUP = 500, so the admission window is 500 * interval above the finalized height.
+    const INTERVAL: u64 = 30;
+    const GENESIS: u64 = 100;
+
+    #[test]
+    fn aligned_height_in_window_is_bufferable() {
+        // 150 is a multiple of 30, above finalized (120), well within the window.
+        assert!(is_bufferable(150, GENESIS, INTERVAL, 120));
+    }
+
+    #[test]
+    fn misaligned_height_is_rejected() {
+        // 151 is neither genesis nor a multiple of the interval — production never emits there.
+        assert!(!is_bufferable(151, GENESIS, INTERVAL, 120));
+    }
+
+    #[test]
+    fn genesis_height_is_allowed_even_if_not_interval_aligned() {
+        // genesis (100) is not a multiple of 30 but is produced once; allow it while still
+        // unfinalized.
+        assert!(is_bufferable(GENESIS, GENESIS, INTERVAL, 90));
+    }
+
+    #[test]
+    fn height_at_or_below_finalized_is_rejected() {
+        // Equal to finalized — already attested, nothing to wait for.
+        assert!(!is_bufferable(120, GENESIS, INTERVAL, 120));
+        // Below finalized.
+        assert!(!is_bufferable(90, GENESIS, INTERVAL, 120));
+    }
+
+    #[test]
+    fn window_edge_is_inclusive_but_beyond_is_rejected() {
+        let window = 500 * INTERVAL;
+        // Exactly at finalized + window (and interval-aligned) is admitted.
+        assert!(is_bufferable(120 + window, GENESIS, INTERVAL, 120));
+        // One interval past the window is dropped.
+        assert!(!is_bufferable(
+            120 + window + INTERVAL,
+            GENESIS,
+            INTERVAL,
+            120
+        ));
     }
 }

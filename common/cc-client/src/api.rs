@@ -2,8 +2,13 @@ use user::prelude::*;
 
 /// Auto-reconnecting substrate [`RuntimeApi`].
 ///
-/// Will attempt to restore connection on any failed runtime call. Reconnection attempts are
-/// unbounded and can only be aborted via manual user cancellation (Ctrl-C).
+/// Restores the connection on *transient* runtime-call failures (ws drop, restart-needed,
+/// request timeout, server-side "unavailable / shutting down" replies — see
+/// [`crate::Error::from`]). Reconnection attempts are unbounded and can only be aborted via
+/// manual user cancellation (Ctrl-C). A *deterministic* failure (decode error, metadata drift,
+/// a structurally invalid call) is surfaced to the caller instead of reconnected — reconnecting
+/// would re-issue the same call against a healthy connection and loop forever without ever
+/// returning an error.
 ///
 /// Holds a borrow of the underlying [`crate::Client`] (taken as `&mut` for
 /// historical reasons — every consumer here calls through a mutable handle).
@@ -40,9 +45,16 @@ impl<'a> ReconnectingRuntimeApi<'a> {
         loop {
             match self.runtime_api.call(call()).await {
                 Ok(res) => break Ok(res),
-                Err(err) => {
-                    self.runtime_api = reconnect(self.client, err).await?;
-                }
+                // Classify before reacting. `crate::Error::from` runs the shared transient
+                // classifier: only a recoverable disconnect becomes `ConnectionError`.
+                Err(err) => match crate::Error::from(err) {
+                    crate::Error::ConnectionError(crate::Reconnect(err)) => {
+                        self.runtime_api = reconnect(self.client, err).await?;
+                    }
+                    // Deterministic fault — reconnecting can't fix it and would hot-loop the
+                    // same failure. Surface it so the caller decides.
+                    fatal => break Err(Interrupt::Cont(fatal)),
+                },
             }
         }
     }
