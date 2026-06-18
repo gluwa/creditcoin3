@@ -87,7 +87,7 @@ impl StreamCC3 {
 
             loop {
                 match finalized.try_next().await {
-                    Ok(Some(block)) => {
+                    Ok(Some(mut block)) => {
                         let n = block.number() as u64;
                         if n <= latest {
                             // Re-delivery (sub-fork retraction etc.). Skip — we already
@@ -99,11 +99,27 @@ impl StreamCC3 {
                         // Walk parents until we close the gap to `latest`. Accumulate
                         // (n, events) tuples in `backfill`, then drain in reverse so
                         // downstream sees them in ascending order.
-                        let head_events = match block.events().await {
-                            Ok(e) => e,
-                            Err(err) => {
-                                tracing::warn!(n, ?err, "🛜 events fetch failed for head block");
-                                continue;
+                        //
+                        // Retry the head block's events fetch the same way the parent walk does
+                        // below: a transient failure (usually a connection drop) must not silently
+                        // skip this finalized height. Re-fetch the block by hash on each retry so
+                        // we're never bound to a dead connection. Unbounded + backoff, matching the
+                        // resubscribe policy — a finalized block's events are always eventually
+                        // fetchable once the connection is healthy.
+                        let mut head_backoff = RESUBSCRIBE_BACKOFF_START;
+                        let head_events = loop {
+                            match block.events().await {
+                                Ok(e) => break e,
+                                Err(err) => {
+                                    tracing::warn!(n, ?err, "🛜 events fetch failed for head block — retrying");
+                                    let _ = cc3.reconnect().await;
+                                    tokio::time::sleep(head_backoff).await;
+                                    head_backoff = (head_backoff * 2).min(RESUBSCRIBE_BACKOFF_MAX);
+                                    match cc3.api().blocks().at(block.hash()).await {
+                                        Ok(b) => block = b,
+                                        Err(e) => tracing::warn!(n, ?e, "🛜 head block re-fetch failed — retrying"),
+                                    }
+                                }
                             }
                         };
                         let mut walk_n = n;

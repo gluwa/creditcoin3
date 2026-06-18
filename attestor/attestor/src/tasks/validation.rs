@@ -232,7 +232,17 @@ async fn handle_submission_result(
                 shared.pool_send.note_majority_not_reached(height);
             }
             _ => {
-                tracing::warn!(height, ?err, "⛔ runtime rejected submission");
+                // A real runtime rejection (e.g. a continuity-proof error). Our extrinsic did
+                // not land, so unlock the height: leaving `locally_validated_height` set would
+                // reject all future votes there until some unrelated recovery. A genuinely bad
+                // fork gets re-validated and tombstoned (`mark_invalid`) on the retry, so this
+                // can't loop.
+                tracing::warn!(
+                    height,
+                    ?err,
+                    "⛔ runtime rejected submission — unlocking height"
+                );
+                shared.pool_send.note_majority_not_reached(height);
             }
         },
         Outcome::Eligible {
@@ -250,7 +260,10 @@ async fn handle_submission_result(
         Outcome::Eligible {
             result: Err(err), ..
         } => {
-            tracing::warn!(height, ?err, "⛔ submission rpc error");
+            // RPC/transport failure: the extrinsic didn't land. Unlock the height so a future
+            // quorum can retry rather than stay stuck behind the validation lock.
+            tracing::warn!(height, ?err, "⛔ submission rpc error — unlocking height");
+            shared.pool_send.note_majority_not_reached(height);
         }
         Outcome::Finalized => {
             tracing::info!(height, "✅ finalized externally");
