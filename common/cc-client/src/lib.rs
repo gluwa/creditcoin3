@@ -401,6 +401,17 @@ impl Client {
         self.inner.load().api.clone()
     }
 
+    /// Identity of the live connection. Changes only when [`reconnect`](Self::reconnect)
+    /// actually swaps the inner connection (not on failed attempts). Long-lived subscribers
+    /// (e.g. the runtime updater) snapshot this when they bind a subscription and re-check it
+    /// to detect that they're now pinned to a superseded connection and must rebind — a clone
+    /// of the live `OnlineClient` keeps the old backend alive, so the stale subscription would
+    /// otherwise never end on its own.
+    #[must_use]
+    pub fn connection_id(&self) -> usize {
+        std::sync::Arc::as_ptr(&self.inner.load_full()) as usize
+    }
+
     /// Snapshot of the live subxt `LegacyRpcMethods`. See [`Client::api`] for
     /// snapshot semantics.
     #[must_use]

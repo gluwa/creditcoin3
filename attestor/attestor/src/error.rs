@@ -57,6 +57,10 @@ pub enum Error {
     /// Attestation interval / sample size missing.
     MissingAttestationInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),
+
+    /// Ctrl+C / SIGTERM arrived while we were still in the synchronous startup phase (waiting on
+    /// RPC endpoints or election). Not a failure — `run` maps it to a clean exit.
+    ShutdownDuringStartup,
 }
 
 impl std::fmt::Display for Error {
@@ -90,6 +94,7 @@ impl std::fmt::Display for Error {
             Self::MissingTargetSampleSize(k) => {
                 write!(f, "missing target sample size for chain {k}")
             }
+            Self::ShutdownDuringStartup => write!(f, "shutdown requested during startup"),
         }
     }
 }

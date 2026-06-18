@@ -68,6 +68,19 @@ impl Attestor {
     pub async fn run(self) -> Result<(), Error> {
         let token = CancellationToken::new();
 
+        // Watch for Ctrl+C / SIGTERM from the very first await so a shutdown during the
+        // synchronous startup phase (waiting on RPC endpoints, election) takes effect promptly
+        // instead of hanging until the task supervisor is up. The supervisor below also selects
+        // on `ctrl_c`; both cancelling the same token is idempotent.
+        tokio::spawn({
+            let token = token.clone();
+            async move {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    token.cancel();
+                }
+            }
+        });
+
         // ----------------------------------* identity *--------------------------------------- //
 
         let chain_key = self.config.chain_key;
@@ -89,8 +102,20 @@ impl Attestor {
 
         // ----------------------------------* endpoints *-------------------------------------- //
 
-        startup::wait_for_endpoints(&self.config.stream.url_eth, &self.config.stream.url_cc3)
-            .await?;
+        match startup::wait_for_endpoints(
+            &token,
+            &self.config.stream.url_eth,
+            &self.config.stream.url_cc3,
+        )
+        .await
+        {
+            Ok(()) => {}
+            Err(Error::ShutdownDuringStartup) => {
+                tracing::info!("🔌 shutdown during startup (endpoint wait)");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        }
 
         // ONE cc3 client, shared everywhere.
         let cc3_raw = cc_client::Client::new(
@@ -147,7 +172,15 @@ impl Attestor {
         // ----------------------------------* register + eligibility *------------------------- //
 
         startup::register_bls(chain_key, &cc3, &account_id, &bls_key).await?;
-        let attestors = startup::wait_for_eligible(chain_key, &cc3, &account_id).await?;
+        let attestors = match startup::wait_for_eligible(&token, chain_key, &cc3, &account_id).await
+        {
+            Ok(a) => a,
+            Err(Error::ShutdownDuringStartup) => {
+                tracing::info!("🔌 shutdown during startup (election wait)");
+                return Ok(());
+            }
+            Err(e) => return Err(e),
+        };
 
         let bls_store = Arc::new(
             bls::BlsStore::new(&cc3, &token, chain_key, &attestors)

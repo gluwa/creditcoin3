@@ -83,7 +83,7 @@ pub async fn run(
     // event on the same subscription we use in the main loop.
 
     let cc3_cfg = stream::cc3::ConfigBuilder::new()
-        .with_cc3((*shared.cc3).clone())
+        .with_cc3(shared.cc3.clone())
         .with_chain_keys(vec![shared.chain_key])
         .build();
     let mut events = stream::cc3::StreamCC3::new(cc3_cfg)
@@ -359,6 +359,10 @@ async fn handle_one(
                 .note_attestation_chain_reversion(stream::util::AttestationInfo { height, digest })
                 .await;
             let _ = shared.latest_finalized_tx.send(Some(info));
+            // Roll local-production tracking back to the revert height too. Otherwise p2p keeps
+            // the pre-revert (higher) height as "locally produced", skewing its pending-vote
+            // pruning until production re-produces past the rollback.
+            let _ = shared.local_produced_tx.send(Some(height));
 
             // Reset metrics so operator dashboards reflect the post-rollback state immediately
             // rather than continuing to show stale local/finalized heights and a misleading lag.

@@ -70,6 +70,12 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
         // (and its stream) is dropped at the end of the inner scope.
         let api = shared.cc3.api();
         let updater = api.updater();
+        // Snapshot the connection identity we're binding to. Another task can swap the live
+        // connection via `cc3.reconnect()` while we hold this `updater`; because the cloned
+        // `OnlineClient` keeps the old backend alive, our `runtime_updates()` subscription would
+        // never end on its own and we'd stay pinned to the superseded connection, missing every
+        // upgrade on the live one. We poll `connection_id()` below and rebind when it changes.
+        let bound_conn = shared.cc3.connection_id();
 
         let mut stream = match updater.runtime_updates().await {
             Ok(s) => s,
@@ -88,6 +94,15 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
         loop {
             tokio::select! {
                 _ = shared.token.cancelled() => return Ok(()),
+                // Periodically check whether the live connection was swapped out from under us by
+                // another task's reconnect. If so, break to rebind `updater`/`stream` against the
+                // fresh client.
+                _ = tokio::time::sleep(Duration::from_secs(5)) => {
+                    if shared.cc3.connection_id() != bound_conn {
+                        tracing::info!("runtime updates: live connection swapped — rebinding");
+                        break;
+                    }
+                }
                 next = stream.next() => match next {
                     None => {
                         tracing::info!("runtime updates stream ended — rebinding");

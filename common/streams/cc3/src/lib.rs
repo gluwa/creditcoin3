@@ -35,7 +35,11 @@ const DEFAULT_BACKFILL_MIN_INTERVAL: std::time::Duration = std::time::Duration::
 
 #[derive(Debug, builder::Builder)]
 pub struct Config {
-    cc3: cc_client::Client,
+    /// Shared client handle. Held as `Arc` (not a value `Client`) so the stream's
+    /// `reconnect()` calls swap the connection and bump the reconnect timestamp on the *same*
+    /// instance every other task and `/health` observe — a value clone gets an independent
+    /// `ArcSwap` + reconnect state, so its recoveries would be invisible to the rest of the node.
+    cc3: std::sync::Arc<cc_client::Client>,
     chain_keys: Vec<attestor_primitives::ChainKey>,
     /// Minimum interval between consecutive parent-block fetches during backfill — applies only
     /// to gap recovery, not to the live `subscribe_finalized` flow.

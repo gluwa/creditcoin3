@@ -62,16 +62,19 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
                     tracing::info!("📮 attestation pool closed — exiting validation loop");
                     return Ok(());
                 };
-                // If we're already submitting at this height, drop the quorum on the floor —
-                // the pool will keep us informed, and re-stashing the same height is wasted
-                // work.
+                // If we're already submitting at this height, drop this fork on the floor — the
+                // height is already locked by the in-flight submission, and re-stashing the same
+                // height is wasted work. Use `mark_skipped`, NOT `mark_valid`: this fork was never
+                // run through `aggregate_and_validate`, and `mark_valid` would overwrite
+                // `digest_local` with this unvalidated (possibly different) digest and re-lock the
+                // height. `mark_skipped` just removes the stray fork.
                 if Some(quorum.height) == in_flight_height {
                     tracing::debug!(
                         height = quorum.height,
                         digest = ?quorum.digest,
                         "🪞 duplicate-height quorum while submitting — discarding"
                     );
-                    pool_rx.mark_valid(permit);
+                    pool_rx.mark_skipped(permit);
                     continue;
                 }
                 handle_quorum(

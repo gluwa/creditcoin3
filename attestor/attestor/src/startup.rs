@@ -9,6 +9,7 @@ use std::sync::Arc;
 use anyhow::Context as _;
 use bls_signatures::Serialize as _;
 use futures::{StreamExt as _, TryStreamExt as _};
+use tokio_util::sync::CancellationToken;
 
 use attestor_primitives::{AttestorStatus, ChainKey};
 use cc_client::{AccountId32, Client};
@@ -16,8 +17,13 @@ use cc_client::{AccountId32, Client};
 use crate::error::Error;
 use crate::secret::RpcSecret;
 
-/// Loop until both RPCs accept a WebSocket connection. Returns once both are reachable.
-pub async fn wait_for_endpoints(url_eth: &RpcSecret, url_cc3: &RpcSecret) -> Result<(), Error> {
+/// Loop until both RPCs accept a WebSocket connection. Returns once both are reachable, or
+/// [`Error::ShutdownDuringStartup`] if cancellation fires while we wait.
+pub async fn wait_for_endpoints(
+    token: &CancellationToken,
+    url_eth: &RpcSecret,
+    url_cc3: &RpcSecret,
+) -> Result<(), Error> {
     use common::constants::RETRY_DELAY;
 
     async fn poke(label: &str, url: &RpcSecret) {
@@ -32,9 +38,13 @@ pub async fn wait_for_endpoints(url_eth: &RpcSecret, url_cc3: &RpcSecret) -> Res
         }
     }
 
-    poke("Eth", url_eth).await;
-    poke("CC3", url_cc3).await;
-    Ok(())
+    tokio::select! {
+        _ = token.cancelled() => Err(Error::ShutdownDuringStartup),
+        () = async {
+            poke("Eth", url_eth).await;
+            poke("CC3", url_cc3).await;
+        } => Ok(()),
+    }
 }
 
 /// Register a BLS key with the runtime if our status is `Idle`.
@@ -68,8 +78,10 @@ pub async fn register_bls(
     Ok(())
 }
 
-/// Wait until `account_id` is in the active attestor set. Listens to `AttestorsElected`.
+/// Wait until `account_id` is in the active attestor set. Listens to `AttestorsElected`. Returns
+/// [`Error::ShutdownDuringStartup`] if cancellation fires while we wait.
 pub async fn wait_for_eligible(
+    token: &CancellationToken,
     chain_key: ChainKey,
     cc3: &Arc<Client>,
     account_id: &AccountId32,
@@ -83,7 +95,7 @@ pub async fn wait_for_eligible(
     }
 
     let config = stream::cc3::ConfigBuilder::new()
-        .with_cc3((**cc3).clone())
+        .with_cc3(Arc::clone(cc3))
         .with_chain_keys(vec![chain_key])
         .build();
     let mut events = stream::cc3::StreamCC3::new(config)
@@ -93,6 +105,7 @@ pub async fn wait_for_eligible(
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
         tokio::select! {
+            _ = token.cancelled() => return Err(Error::ShutdownDuringStartup),
             Some(mut batch) = events.next() => {
                 while let Some(event) = batch.try_next().await? {
                     if let CcEvent::AttestorsElected(key, list) = event {
