@@ -91,7 +91,6 @@ impl Server {
                 &config,
                 cc3_client.clone(),
                 chain,
-                prom_metrics.clone(),
                 &checkpoint_intervals,
                 &last_checkpoint_blocks,
             )
@@ -113,7 +112,6 @@ impl Server {
         global: &Config,
         cc3_client: CcClient,
         chain: &ChainConfig,
-        prom_metrics: Arc<ProofGenMetrics>,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
         last_checkpoint_blocks: &Arc<RwLock<HashMap<u64, u64>>>,
     ) -> Result<Arc<ContinuityBuilder>> {
@@ -134,42 +132,12 @@ impl Server {
 
         let eth_fallback_urls: &[String] = &chain.eth_rpc_fallback_urls;
 
-        let eth_client = if let Some(ref redis_url) = global.redis_url {
-            debug!(
-                chain_key,
-                redis_url = %redact_url_query(redis_url),
-                cluster_mode = global.redis_cluster_mode,
-                eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
-                eth_rpc_fallback_count = eth_fallback_urls.len(),
-                "🚀 [startup] connecting source chain ETH client with Redis block cache"
-            );
-            let block_cache_metrics = prom_metrics.block_cache_metrics();
-            let cache_config = eth::block_cache::BlockCacheConfig {
-                redis_url: redis_url.clone(),
-                redis_cluster_mode: global.redis_cluster_mode,
-                metrics: block_cache_metrics,
-            };
-            EthClient::new_with_cache_and_fallbacks(
-                &chain.eth_rpc_url,
-                eth_fallback_urls,
-                None,
-                cache_config,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, fallback_count={}, redis={})",
-                    redact_url_query(&chain.eth_rpc_url),
-                    eth_fallback_urls.len(),
-                    redact_url_query(redis_url)
-                )
-            })?
-        } else {
+        let eth_client = {
             debug!(
                 chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
                 eth_rpc_fallback_count = eth_fallback_urls.len(),
-                "🚀 [startup] connecting source chain ETH client (no Redis)"
+                "🚀 [startup] connecting source chain ETH client"
             );
             EthClient::new_with_fallbacks(&chain.eth_rpc_url, eth_fallback_urls, None)
                 .await

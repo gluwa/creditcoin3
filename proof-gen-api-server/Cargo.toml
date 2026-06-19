@@ -58,8 +58,8 @@ tracing = { workspace = true }
 # Creditcoin / USC dependencies
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
-continuity = { workspace = true, features = ["block_cache"] }
-eth = { workspace = true, features = ["block_cache"] }
+continuity = { workspace = true }
+eth = { workspace = true }
 hex = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true }
