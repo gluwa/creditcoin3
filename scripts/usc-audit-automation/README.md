@@ -59,6 +59,9 @@ variables.
 - **uscWsUrl**, **graphqlUrl**: Required
 - **ethRpc**: Array of `{ chainId, chainKey?, url }`; `chainKey` optional
   (discovered from USC if omitted)
+- **balanceChecks**: Optional native/EVM account balance checks. Use
+  `type: "substrate"` for SS58 accounts queried through `uscWsUrl`; omit `type`
+  for EVM accounts queried through Blockscout/`eth_getBalance`.
 - **slackBotToken**, **slackChannelId**, **slackAlertGroup**: Optional; required
   only when not using `--no-slack`
 
