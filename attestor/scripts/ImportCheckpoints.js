@@ -170,10 +170,46 @@ async function main() {
         return firstChar >= '0' && firstChar <= '9';
     });
 
-    const entries = dataLines.map((line) => {
-        const [blockNumber, digestHex] = line.trim().split(',');
-        return { blockNumber: blockNumber.trim(), digestHex: digestHex.trim() };
-    });
+    // Build entries while detecting intra-file digest conflicts: if the same
+    // block number appears on multiple rows with different digests we refuse
+    // to import (rather than silently committing whichever row wins after the
+    // later reverse + chain-state compare). CompareCheckpoints.js applies the
+    // same rule on its side.
+    const seenDigest = new Map();
+    const conflicts = [];
+    const entries = [];
+    let duplicateRows = 0;
+    for (const line of dataLines) {
+        const [blockNumberRaw, digestRaw] = line.trim().split(',');
+        const blockNumber = (blockNumberRaw || '').trim();
+        const digestHex = (digestRaw || '').trim();
+        if (seenDigest.has(blockNumber)) {
+            duplicateRows++;
+            const previous = seenDigest.get(blockNumber);
+            if (previous.toLowerCase() !== digestHex.toLowerCase()) {
+                conflicts.push(`block ${blockNumber}: ${previous} vs ${digestHex}`);
+            }
+            continue; // keep the first digest seen
+        }
+        seenDigest.set(blockNumber, digestHex);
+        entries.push({ blockNumber, digestHex });
+    }
+
+    if (conflicts.length > 0) {
+        console.error(`❌ CSV contains ${conflicts.length} intra-file digest conflict(s) (first ${Math.min(conflicts.length, 20)} shown):`);
+        for (const c of conflicts.slice(0, 20)) {
+            console.error(`  ${c}`);
+        }
+        if (conflicts.length > 20) {
+            console.error(`  … and ${conflicts.length - 20} more`);
+        }
+        console.error('Refusing to import an ambiguous CSV. Resolve the conflicts (or use CompareCheckpoints.js to diff sources) and re-run.');
+        process.exit(2);
+    }
+
+    if (duplicateRows > 0) {
+        console.log(`Note: ignored ${duplicateRows} duplicate row(s) with identical digests in ${csvFile}.`);
+    }
 
     // Reversing entries so that we insert them from newest to oldest
     const reversedEntries = entries.reverse();
