@@ -15,7 +15,6 @@ pub struct HealthCheckResponse {
     status: String,
     cc3_rpc_connected: bool,
     eth_rpc_connected: bool,
-    total_proof_requests: i64,
     uptime_seconds: u64,
 }
 
@@ -29,8 +28,7 @@ pub async fn health_check(
     Extension(service): Extension<Arc<ContinuityService>>,
 ) -> Json<HealthCheckResponse> {
     // Check RPC connectivity in parallel with timeout
-    let (total_requests, cc3_connected, eth_connected) = tokio::join!(
-        async { timeout(HEALTH_CHECK_TIMEOUT, service.get_proofs_counts()).await },
+    let (cc3_connected, eth_connected) = tokio::join!(
         async {
             timeout(HEALTH_CHECK_TIMEOUT, service.check_cc3_connectivity())
                 .await
@@ -43,11 +41,6 @@ pub async fn health_check(
         }
     );
 
-    let total_proof_requests = match total_requests {
-        Ok(Ok(count)) => count,
-        Ok(Err(_)) | Err(_) => 0,
-    };
-
     let status = if cc3_connected && eth_connected {
         "healthy".to_string()
     } else {
@@ -58,7 +51,6 @@ pub async fn health_check(
         status,
         cc3_rpc_connected: cc3_connected,
         eth_rpc_connected: eth_connected,
-        total_proof_requests,
         uptime_seconds: service.uptime_seconds(),
     })
 }
