@@ -30,6 +30,38 @@ async function delay(ms) {
     return new Promise((res) => setTimeout(res, ms));
 }
 
+// Decode a polkadot.js DispatchError into a human-readable string
+// ("<pallet>.<error>: <docs>" for module errors, otherwise the raw toString).
+function formatDispatchError(api, dispatchError) {
+    if (dispatchError.isModule) {
+        try {
+            const decoded = api.registry.findMetaError(dispatchError.asModule);
+            const docs = (decoded.docs || []).join(' ').trim();
+            return `${decoded.section}.${decoded.name}${docs ? `: ${docs}` : ''}`;
+        } catch (_err) {
+            // fall through to generic stringification
+        }
+    }
+    return dispatchError.toString();
+}
+
+// Scan events for sudo.Sudid / sudo.SudoAsDone. Their first field is a
+// Result<(), DispatchError>; if it's Err we surface the inner error so a
+// rejected sudo-wrapped call is not silently treated as success.
+function findSudoFailure(api, events) {
+    if (!events) return null;
+    for (const record of events) {
+        const { event } = record;
+        if (event.section !== 'sudo') continue;
+        if (event.method !== 'Sudid' && event.method !== 'SudoAsDone') continue;
+        const result = event.data[0];
+        if (result && typeof result.isErr !== 'undefined' && result.isErr) {
+            return formatDispatchError(api, result.asErr);
+        }
+    }
+    return null;
+}
+
 // --- Resume support ---------------------------------------------------------
 // Progress is computed from on-chain state (the source of truth) rather than a
 // local file, so a crashed/interrupted/concurrent run can be safely re-run:
@@ -211,7 +243,24 @@ async function main() {
                             if (result.status.isInBlock) {
                                 console.log(`📦 Batch included in block: ${result.status.asInBlock}`);
                                 if (unsub) unsub();
-                                resolve();
+                                // Top-level dispatch error (e.g. operator origin
+                                // call was rejected by the runtime).
+                                if (result.dispatchError) {
+                                    const msg = formatDispatchError(api, result.dispatchError);
+                                    const err = new Error(`Dispatch error: ${msg}`);
+                                    err.fatal = true;
+                                    return reject(err);
+                                }
+                                // When wrapped in sudo.sudo the outer extrinsic
+                                // can succeed while the inner call failed; the
+                                // result is in the sudo.Sudid event.
+                                const sudoErr = findSudoFailure(api, result.events);
+                                if (sudoErr) {
+                                    const err = new Error(`Sudo dispatch error: ${sudoErr}`);
+                                    err.fatal = true;
+                                    return reject(err);
+                                }
+                                return resolve();
                             } else if (result.isError) {
                                 console.error('❌ Transaction error reported');
                                 if (unsub) unsub();
@@ -226,6 +275,11 @@ async function main() {
                 break; // exit retry loop on success
             } catch (err) {
                 console.error(`⚠️ Error submitting batch: ${err.message}`);
+                // Dispatch errors are deterministic — retrying won't help and
+                // can mask the real failure. Surface immediately.
+                if (err.fatal) {
+                    throw err;
+                }
                 attempt++;
                 if (attempt >= MAX_RETRIES) {
                     throw new Error(`❌ Failed to submit batch after ${MAX_RETRIES} attempts`);
