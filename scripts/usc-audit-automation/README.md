@@ -80,7 +80,7 @@ directory, so it works regardless of current working directory.
 
 - `config-devnet.json` - Creditcoin3 Devnet
 - `config-testnet.json` - Creditcoin USC Testnet
-- `config-testnet-v1.json` - Creditcoin USC Testnet V1 (legacy, old release)
+- `config-mainnet.json` - Creditcoin3 Mainnet
 
 ## Development
 
