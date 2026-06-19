@@ -30,6 +30,11 @@ pub use services::errors::ErrorResponse;
 /// strings *and* secret-looking path segments (Chainstack/Alchemy style).
 use eth::redact_url_query;
 
+/// Max finalized source blocks held in the per-chain in-process block cache. Sized to comfortably
+/// cover a continuity range (last checkpoint → query height) plus recent inclusion-proof blocks,
+/// while bounding memory (each entry is one block's txs+receipts).
+const BLOCK_CACHE_CAPACITY: usize = 512;
+
 pub struct Server {
     config: Config,
     cc3_client: CcClient,
@@ -148,6 +153,10 @@ impl Server {
                         eth_fallback_urls.len()
                     )
                 })?
+                // In-process cache of finalized source blocks. Overlapping continuity ranges and
+                // batched requests re-fetch the same low blocks every time; caching them removes
+                // the repeat RPC + merkle work. Finalized blocks are immutable, so no invalidation.
+                .with_block_cache(BLOCK_CACHE_CAPACITY)
         };
 
         let chain_id = eth_client.chain_id();
