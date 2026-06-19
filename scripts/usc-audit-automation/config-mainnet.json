@@ -9,5 +9,40 @@
       "url": ""
     }
   ],
-  "balanceChecks": []
+  "balanceChecks": [
+    {
+      "name": "Creditcoin3 Mainnet",
+      "type": "substrate",
+      "accounts": [
+        {
+          "address": "5Hpuq9HvbRUH2KJHP4eEd3C3LWfitC846TMnWvpR7J1xv9Z1",
+          "name": "Mainnet attestor 1"
+        },
+        {
+          "address": "5HiovHziE1o1yA17NgpNLy5iMpoTVmNMy9nJB9sFqZcfpahP",
+          "name": "Mainnet attestor 2"
+        },
+        {
+          "address": "5Eq2uorS2yezuMSc4gtmR5a9LaYVzp6ukM96C8Sz69m6mokf",
+          "name": "Mainnet attestor 3"
+        },
+        {
+          "address": "5DUFeRJBYj2gq4R8jP5i45gevJe5ytM7MQv1MKg6C4eZq7FD",
+          "name": "Mainnet attestor 4"
+        },
+        {
+          "address": "5HQxawfJsEmUjToan5dMCmcmNiNC9Q13ZceydEtFWp6zpnae",
+          "name": "Mainnet attestor 5"
+        },
+        {
+          "address": "5GxdTesDGgdDTjYybYQuhL5sPX3D3dGoxMef1Wk25dGE425Z",
+          "name": "Mainnet attestor 6"
+        },
+        {
+          "address": "5GZFes9duK14NnRdbMa4machWfdQ1Uw3MFoVwcUvjaZCk3zQ",
+          "name": "Mainnet attestor 7"
+        }
+      ]
+    }
+  ]
 }
