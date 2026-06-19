@@ -52,20 +52,6 @@ pub struct ProofGenApiServer {
     #[arg(
         long,
         required = false,
-        help = "Redis connection URL for block caching layer"
-    )]
-    redis_url: Option<String>,
-
-    #[arg(
-        long,
-        default_value_t = false,
-        help = "Use Redis Cluster client (required when Redis is in cluster mode, e.g. ElastiCache)"
-    )]
-    redis_cluster_mode: bool,
-
-    #[arg(
-        long,
-        required = false,
         hide = true,
         help = "[DEPRECATED — ignored] CC3 Indexer GraphQL URL. The indexer is no longer used."
     )]
@@ -128,24 +114,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_init();
 
     let resolved_cc3_key = args.cc3_key.or_else(|| env::var("CC3_KEY").ok());
-    let resolved_redis_url = args.redis_url.or_else(|| env::var("REDIS_URL").ok());
-    let resolved_redis_cluster_mode = args.redis_cluster_mode
-        || env::var("REDIS_CLUSTER_MODE")
-            .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes"))
-            .unwrap_or(false);
 
     let config = if let Some(path) = args.config.clone() {
         let mut c = Config::from_yaml_file(&path, args.cc3_rpc_url.clone())?;
         if c.cc3_key.is_none() {
             c.cc3_key = resolved_cc3_key;
-        }
-        // Env/CLI overrides take precedence over YAML defaults for optional fields,
-        // so users migrating from single-chain mode keep their .env working.
-        if c.redis_url.is_none() {
-            c.redis_url = resolved_redis_url;
-        }
-        if !c.redis_cluster_mode {
-            c.redis_cluster_mode = resolved_redis_cluster_mode;
         }
         // MAX_BATCH_SIZE env/CLI overrides YAML when explicitly set.
         if let Ok(raw) = env::var("MAX_BATCH_SIZE") {
@@ -180,8 +153,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 archiver_url: args.archiver_url,
                 block_confirmation_depth: args.block_confirmation_depth,
             }],
-            redis_url: resolved_redis_url,
-            redis_cluster_mode: resolved_redis_cluster_mode,
             max_batch_size: args.max_batch_size,
             max_batch_span: args.max_batch_span,
         }

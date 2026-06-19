@@ -829,13 +829,15 @@ impl ContinuityService {
         // Record block range metric
         self.metrics.observe_block_range(header_number);
 
-        let continuity_proof = self
-            .get_continuity_proof_for(chain, &[header_number])
-            .await?;
-
-        let merkle = self
-            .generate_merkle_proof(chain, header_number, tx_index)
-            .await?;
+        // Build the continuity proof (a range fetch over many blocks) and the inclusion merkle
+        // proof (a single block) concurrently. They touch disjoint RPC and have no data
+        // dependency, so overlapping them makes the latency ~max(continuity, merkle) instead of
+        // their sum.
+        let headers = [header_number];
+        let (continuity_proof, merkle) = tokio::try_join!(
+            self.get_continuity_proof_for(chain, &headers),
+            self.generate_merkle_proof(chain, header_number, tx_index),
+        )?;
 
         let tx_hash = merkle.tx_hash.map(|h| format!("0x{h:x}"));
         let tx_bytes = merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b)));
@@ -895,10 +897,6 @@ impl ContinuityService {
             self.metrics.observe_block_range(header_number);
         }
 
-        let continuity_proof = self
-            .get_continuity_proof_for(chain, &header_numbers)
-            .await?;
-
         let mut merkle_proofs = BTreeMap::new();
 
         // We flatten the list of queries into a list of (header_number, tx_index) pairs to generate merkle proofs for,
@@ -937,11 +935,17 @@ impl ContinuityService {
         use futures::StreamExt as _;
         use futures::TryStreamExt as _;
 
-        for (header_number, tx_index, entry) in futures::stream::iter(merkle_futures)
-            .buffer_unordered(self.max_batch_size)
-            .try_collect::<Vec<_>>()
-            .await?
-        {
+        // Build the continuity proof (range fetch) concurrently with all per-tx merkle proofs.
+        // Disjoint RPC, no data dependency — overlap the continuity range fetch with the merkle
+        // batch instead of running them back to back.
+        let (continuity_proof, merkle_results) = tokio::try_join!(
+            self.get_continuity_proof_for(chain, &header_numbers),
+            futures::stream::iter(merkle_futures)
+                .buffer_unordered(self.max_batch_size)
+                .try_collect::<Vec<_>>(),
+        )?;
+
+        for (header_number, tx_index, entry) in merkle_results {
             merkle_proofs
                 .entry(header_number)
                 .or_insert_with(BTreeMap::new)

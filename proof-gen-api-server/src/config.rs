@@ -43,8 +43,6 @@ pub struct Config {
     pub cc3_rpc_url: String,
     pub cc3_key: Option<String>,
     pub chains: Vec<ChainConfig>,
-    pub redis_url: Option<String>,
-    pub redis_cluster_mode: bool,
     pub max_batch_size: NonZeroUsize,
     pub max_batch_span: u64,
 }
@@ -64,8 +62,6 @@ impl Config {
                 archiver_url: None,
                 block_confirmation_depth: 0,
             }],
-            redis_url: None,
-            redis_cluster_mode: false,
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
             max_batch_span: DEFAULT_MAX_BATCH_SPAN,
         }
@@ -97,10 +93,6 @@ pub struct ConfigFile {
     #[serde(default)]
     pub cc3_key: Option<String>,
     pub chains: Vec<ChainConfigFile>,
-    #[serde(default)]
-    pub redis_url: Option<String>,
-    #[serde(default)]
-    pub redis_cluster_mode: bool,
     /// Deprecated – accepted for backward compat but ignored at runtime.
     #[serde(default)]
     pub indexer_url: Option<String>,
@@ -167,8 +159,6 @@ impl ConfigFile {
             cc3_rpc_url,
             cc3_key: self.cc3_key,
             chains,
-            redis_url: self.redis_url,
-            redis_cluster_mode: self.redis_cluster_mode,
             max_batch_size: self.max_batch_size,
             max_batch_span: self.max_batch_span,
         })

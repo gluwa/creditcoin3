@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicI64, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use eth::metrics::BlockCacheMetrics;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
@@ -118,9 +117,6 @@ pub struct ProofGenMetrics {
     cpu_usage_percent: Gauge<f64, AtomicU64>,
     memory_usage_bytes: Gauge<f64, AtomicU64>,
     thread_count: Gauge<i64, AtomicI64>,
-
-    // Block cache metrics (for Redis block cache)
-    block_cache_metrics: BlockCacheMetrics,
 }
 
 impl ProofGenMetrics {
@@ -246,9 +242,6 @@ impl ProofGenMetrics {
             }),
         );
 
-        // Block cache metrics (for Redis block cache, registered in the same registry)
-        let block_cache_metrics = BlockCacheMetrics::new(&mut registry);
-
         Self {
             registry,
             requests,
@@ -265,13 +258,7 @@ impl ProofGenMetrics {
             cpu_usage_percent,
             memory_usage_bytes,
             thread_count,
-            block_cache_metrics,
         }
-    }
-
-    /// Get block cache metrics for use with the eth client's Redis cache.
-    pub fn block_cache_metrics(&self) -> BlockCacheMetrics {
-        self.block_cache_metrics.clone()
     }
 
     /// Encode all metrics to OpenMetrics text format.

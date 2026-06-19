@@ -568,6 +568,17 @@ impl ContinuityBuilder {
             .await
     }
 
+    /// Fetch a block's transaction bytes and the tx hash at `tx_index` from a single block fetch.
+    pub async fn get_block_tx_bytes_and_tx_hash(
+        &self,
+        block_number: u64,
+        tx_index: u64,
+    ) -> Result<(Vec<Vec<u8>>, Option<H256>)> {
+        self.eth_provider
+            .get_block_tx_bytes_and_tx_hash(block_number, tx_index)
+            .await
+    }
+
     /// Resolve a transaction hash to its block number and index.
     ///
     /// # Arguments
