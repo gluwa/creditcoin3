@@ -171,6 +171,14 @@ async function main() {
     );
 
     if (pending.length === 0) {
+        if (mismatches > 0) {
+            console.error(
+                `❌ Nothing to import, but ${mismatches} digest mismatch(es) between CSV and chain ` +
+                    `(see warnings above). On-chain values were left untouched. ` +
+                    `Resolve the conflict before treating this run as successful.`,
+            );
+            process.exit(2);
+        }
         console.log('✅ Nothing to import — all checkpoints already present on-chain.');
         process.exit(0);
     }
@@ -228,6 +236,16 @@ async function main() {
 
         // Wait at least 30s before submitting the next batch.
         await delay(BATCH_DELAY_MS);
+    }
+
+    if (mismatches > 0) {
+        console.error(
+            `❌ All pending checkpoint batches submitted, but ${mismatches} digest mismatch(es) ` +
+                `between CSV and chain were detected (see warnings above). On-chain values for the ` +
+                `mismatched blocks were left untouched. Resolve the conflict before treating this run ` +
+                `as fully successful.`,
+        );
+        process.exit(2);
     }
 
     console.log('✅ All checkpoint batches submitted.');
