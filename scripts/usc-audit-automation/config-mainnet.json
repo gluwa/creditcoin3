@@ -1,0 +1,13 @@
+{
+  "uscWsUrl": "wss://rpc.cc3-mainnet.creditcoin.network",
+  "uscNetworkName": "Creditcoin3 Mainnet",
+  "graphqlUrl": "https://attestations-graphql.cc3-mainnet-usc.creditcoin.network",
+  "ethRpc": [
+    {
+      "chainId": 1,
+      "chainKey": 1,
+      "url": ""
+    }
+  ],
+  "balanceChecks": []
+}
