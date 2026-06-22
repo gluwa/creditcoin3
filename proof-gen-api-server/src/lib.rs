@@ -283,6 +283,7 @@ impl Server {
         let service = Arc::new(service);
 
         ProofGenMetrics::spawn_hardware_updater(self.prom_metrics.clone());
+        ContinuityService::spawn_merkle_backfill(service.clone());
 
         let allowed: std::collections::HashSet<u64> = self.config.chain_keys();
         let app = build_app(service.clone(), allowed, self.prom_metrics.clone());

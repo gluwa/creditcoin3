@@ -242,6 +242,10 @@ impl EthRpcProvider for ArchiverEthProvider {
             .await
     }
 
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        self.eth_fallback.get_block_tx_data(block_number).await
+    }
+
     async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {
         self.eth_fallback.get_tx_position_by_hash(tx_hash).await
     }
