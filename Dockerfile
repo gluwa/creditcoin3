@@ -28,7 +28,7 @@ USER creditcoin
 
 
 FROM devel-base AS rust-builder
-ARG BUILD_ARGS=""
+ARG BUILD_ARGS="--features metadata-hash"
 USER 0
 RUN apt-get install -y --no-install-recommends \
     cmake pkg-config libssl-dev git build-essential clang libclang-dev protobuf-compiler
