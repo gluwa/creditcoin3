@@ -1,0 +1,3 @@
+.env
+contracts/out/*
+contracts/cache/*

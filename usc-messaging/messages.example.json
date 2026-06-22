@@ -1,0 +1,11 @@
+{
+  "messages": [
+    {
+      "messageId": "0x0000000000000000000000000000000000000000000000000000000000000001",
+      "emitterAddress": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      "destinationContract": "REPLACE_WITH_TEST_DESTINATION_FROM_deployments.json",
+      "payloadData": "0x48656c6c6f2055534321",
+      "votes": "0x"
+    }
+  ]
+}
