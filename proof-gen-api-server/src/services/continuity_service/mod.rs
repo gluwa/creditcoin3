@@ -8,21 +8,24 @@ use std::sync::{
     atomic::{AtomicU64, Ordering},
     Arc,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::prom::Metrics;
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof;
 use continuity::ContinuityBuilder;
 use merkle::proof::TransactionMerkleProof;
+use merkle_cache::MerkleProofCache;
 
 pub mod helpers;
+mod merkle_cache;
 
 /// Per-source-chain state: ETH-backed builder and CC3-derived caches.
 pub struct ChainState {
     pub builder: Arc<ContinuityBuilder>,
     pub checkpoint_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
     pub attestation_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
+    pub merkle_proof_cache: MerkleProofCache,
     pub attestation_genesis_block: AtomicU64,
 }
 
@@ -161,6 +164,11 @@ pub struct ContinuityService {
     max_batch_span: u64,
 }
 
+const MERKLE_BACKFILL_POLL_INTERVAL: Duration = Duration::from_secs(15);
+const MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK: usize = 50;
+const MERKLE_BACKFILL_MAX_CONCURRENCY: usize = 8;
+const MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER: u64 = 4;
+
 impl ContinuityService {
     /// Create a new ContinuityService, fetching the attestation genesis block from the chain.
     ///
@@ -267,6 +275,7 @@ impl ContinuityService {
                     builder,
                     checkpoint_cache: tokio::sync::RwLock::new(checkpoint_map),
                     attestation_cache: tokio::sync::RwLock::new(attestation_map),
+                    merkle_proof_cache: MerkleProofCache::default(),
                     attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
                 }),
             );
@@ -293,6 +302,215 @@ impl ContinuityService {
 
     pub(crate) fn configured_chain_keys(&self) -> std::collections::HashSet<u64> {
         self.chains.keys().copied().collect()
+    }
+
+    pub fn spawn_merkle_backfill(service: Arc<Self>) {
+        for chain in service.chains.values().cloned().collect::<Vec<_>>() {
+            let service = service.clone();
+            tokio::spawn(async move {
+                tracing::info!(
+                    chain_key = chain.builder.config.chain_key,
+                    poll_interval_secs = MERKLE_BACKFILL_POLL_INTERVAL.as_secs(),
+                    max_blocks_per_tick = MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK,
+                    max_concurrency = MERKLE_BACKFILL_MAX_CONCURRENCY,
+                    "merkle proof cache backfill worker started"
+                );
+                loop {
+                    if let Err(err) = service.backfill_merkle_cache_for_chain(chain.clone()).await {
+                        tracing::warn!(
+                            chain_key = chain.builder.config.chain_key,
+                            error = %err,
+                            "merkle proof cache backfill tick failed"
+                        );
+                    }
+                    tokio::time::sleep(MERKLE_BACKFILL_POLL_INTERVAL).await;
+                }
+            });
+        }
+    }
+
+    async fn backfill_merkle_cache_for_chain(&self, chain: Arc<ChainState>) -> anyhow::Result<()> {
+        let chain_key = chain.builder.config.chain_key;
+        let (_, confirmed_tip) = chain.builder.get_confirmed_last_block().await?;
+        let Some(latest_attested_height) = Self::cached_attested_height(chain.as_ref()).await
+        else {
+            tracing::info!(
+                chain_key,
+                confirmed_tip,
+                "merkle proof cache backfill waiting for attested height"
+            );
+            return Ok(());
+        };
+        let cache_tip = latest_attested_height.min(confirmed_tip);
+        let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref());
+        let genesis = chain.attestation_genesis_block.load(Ordering::Relaxed);
+        let start = cache_tip.saturating_sub(retention_blocks).max(genesis);
+
+        if start > cache_tip {
+            return Ok(());
+        }
+
+        let heights = chain
+            .merkle_proof_cache
+            .unprocessed_heights_desc(start, cache_tip, MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK)
+            .await;
+        if heights.is_empty() {
+            tracing::info!(
+                chain_key,
+                confirmed_tip,
+                latest_attested_height,
+                cache_tip,
+                retained_from = start,
+                retention_blocks,
+                "merkle proof cache backfill already warm for retained range"
+            );
+            return Ok(());
+        }
+
+        use futures::StreamExt as _;
+
+        let concurrency = self
+            .max_batch_size
+            .clamp(1, MERKLE_BACKFILL_MAX_CONCURRENCY);
+        let results = futures::stream::iter(heights.into_iter().map(|height| {
+            let chain = chain.clone();
+            async move {
+                let result = self.precompute_merkle_cache_block(&chain, height).await;
+                (height, result)
+            }
+        }))
+        .buffer_unordered(concurrency)
+        .collect::<Vec<_>>()
+        .await;
+
+        let mut cached_blocks = 0usize;
+        let mut cached_txs = 0usize;
+        let mut failed_blocks = 0usize;
+        let mut min_height = u64::MAX;
+        let mut max_height = 0u64;
+
+        for (height, result) in results {
+            min_height = min_height.min(height);
+            max_height = max_height.max(height);
+            match result {
+                Ok(tx_count) => {
+                    cached_blocks += 1;
+                    cached_txs += tx_count;
+                    tracing::debug!(
+                        chain_key,
+                        height,
+                        tx_count,
+                        "merkle proof cache backfilled source block"
+                    );
+                }
+                Err(err) => {
+                    failed_blocks += 1;
+                    tracing::warn!(
+                        chain_key,
+                        height,
+                        error = %err,
+                        "failed to backfill merkle proof cache block"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            chain_key,
+            confirmed_tip,
+            latest_attested_height,
+            cache_tip,
+            retained_from = start,
+            min_height,
+            max_height,
+            cached_blocks,
+            cached_txs,
+            failed_blocks,
+            "merkle proof cache backfill tick completed"
+        );
+
+        let min_retained = cache_tip.saturating_sub(retention_blocks).max(genesis);
+        let removed = chain.merkle_proof_cache.prune_below(min_retained).await;
+        if removed > 0 {
+            tracing::info!(
+                chain_key,
+                min_retained,
+                removed,
+                "pruned old merkle proof cache blocks after backfill"
+            );
+        }
+
+        Ok(())
+    }
+
+    async fn precompute_merkle_cache_block(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        let txs = chain
+            .builder
+            .get_block_tx_data(header_number)
+            .await
+            .map_err(|err| map_eth_rpc_anyhow_to_service_error(err, header_number))?;
+
+        if txs.is_empty() {
+            chain
+                .merkle_proof_cache
+                .mark_processed_empty(header_number)
+                .await;
+            return Ok(0);
+        }
+
+        Ok(chain
+            .merkle_proof_cache
+            .insert_block(header_number, txs)
+            .await)
+    }
+
+    async fn precompute_merkle_cache_block_for_tx(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+        tx_index: u64,
+    ) -> ServiceResult<Option<MerkleProofItem>> {
+        let txs = chain
+            .builder
+            .get_block_tx_data(header_number)
+            .await
+            .map_err(|err| map_eth_rpc_anyhow_to_service_error(err, header_number))?;
+
+        if txs.is_empty() {
+            chain
+                .merkle_proof_cache
+                .mark_processed_empty(header_number)
+                .await;
+            return Ok(None);
+        }
+
+        let (tx_count, item) = chain
+            .merkle_proof_cache
+            .insert_block_and_get(chain.builder.config.chain_key, header_number, txs, tx_index)
+            .await;
+
+        tracing::info!(
+            chain_key = chain.builder.config.chain_key,
+            header_number,
+            tx_index,
+            tx_count,
+            cache_hit = item.is_some(),
+            "merkle proof cache on-demand fill completed"
+        );
+
+        Ok(item)
+    }
+
+    fn merkle_cache_retention_blocks(&self, chain: &ChainState) -> u64 {
+        chain
+            .builder
+            .config
+            .checkpoint_block_interval()
+            .saturating_mul(MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER)
     }
 
     /// Update the continuity builder's last-checkpoint hint (from on-chain events).
@@ -482,6 +700,16 @@ impl ContinuityService {
                 );
             }
 
+            let removed_merkle = chain.merkle_proof_cache.prune_above(revert_height).await;
+            if removed_merkle > 0 {
+                tracing::info!(
+                    chain_key,
+                    revert_height,
+                    removed = removed_merkle,
+                    "🔧 ↩️  Reverted merkle proof cache"
+                );
+            }
+
             // Reset the builder's last-checkpoint hint so that
             // determine_checkpoint_info does not skip checks based on stale state.
             chain.builder.reset_last_checkpoint_block().await;
@@ -558,6 +786,19 @@ impl ContinuityService {
                 chain_key,
                 Self::cached_checkpoint_height(chain.as_ref()).await,
             );
+
+            let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref());
+            let min_retained = block_number.saturating_sub(retention_blocks);
+            let removed = chain.merkle_proof_cache.prune_below(min_retained).await;
+            if removed > 0 {
+                tracing::debug!(
+                    chain_key,
+                    block_number,
+                    min_retained,
+                    removed,
+                    "🔧 🧹 pruned merkle proof cache after checkpoint"
+                );
+            }
         }
     }
 
@@ -855,6 +1096,56 @@ impl ContinuityService {
         })
     }
 
+    async fn get_proof_with_cached_merkle(
+        &self,
+        chain: &Arc<ChainState>,
+        merkle: MerkleProofItem,
+    ) -> ServiceResult<SingleContinuityResponse> {
+        if merkle.tx_index.is_none() {
+            return Err(ServiceError::Internal {
+                message: "cached merkle proof missing tx_index".to_string(),
+            });
+        }
+        let header_number = merkle.header_number;
+        let chain_key = chain.builder.config.chain_key;
+
+        self.validate_blocks(chain, &[header_number]).await?;
+        self.metrics.observe_block_range(header_number);
+
+        let headers = [header_number];
+        let continuity_proof = self.get_continuity_proof_for(chain, &headers).await?;
+
+        Ok(Self::single_response_from_merkle(
+            chain_key,
+            continuity_proof,
+            merkle,
+            true,
+        ))
+    }
+
+    fn single_response_from_merkle(
+        chain_key: u64,
+        continuity_proof: ContinuityProof,
+        merkle: MerkleProofItem,
+        cached: bool,
+    ) -> SingleContinuityResponse {
+        let tx_index = merkle.tx_index.unwrap_or_default();
+        let tx_hash = merkle.tx_hash.map(|h| format!("0x{h:x}"));
+        let tx_bytes = merkle.tx_bytes.map(|b| format!("0x{}", hex::encode(&b)));
+
+        SingleContinuityResponse {
+            chain_key,
+            header_number: merkle.header_number,
+            tx_index,
+            tx_hash,
+            tx_bytes,
+            continuity_proof,
+            merkle_proof: merkle.merkle_proof,
+            cached,
+            generated_at: Utc::now(),
+        }
+    }
+
     /// Get batch of proofs for a list of blocks, optionally including merkle proof for specific transactions.
     ///
     /// `queries` is guaranteed to be non-empty and ordered both per header and per transaction index, so we can safely unwrap when building the response.
@@ -971,11 +1262,91 @@ impl ContinuityService {
         tx_hash: String,
     ) -> ServiceResult<SingleContinuityResponse> {
         let tx_h256 = parse_tx_hash(&tx_hash)?;
+
+        if let Some(merkle) = chain
+            .merkle_proof_cache
+            .get_by_tx_hash(chain.builder.config.chain_key, tx_h256)
+            .await
+        {
+            tracing::info!(
+                chain_key = chain.builder.config.chain_key,
+                tx_hash = ?tx_h256,
+                header_number = merkle.header_number,
+                tx_index = ?merkle.tx_index,
+                "merkle proof cache hit by tx hash"
+            );
+            let response = self.get_proof_with_cached_merkle(chain, merkle).await?;
+            return match &response.tx_hash {
+                Some(computed_hash) if parse_tx_hash(computed_hash)? == tx_h256 => Ok(response),
+                Some(computed_hash) => Err(ServiceError::TxHashNotFound {
+                    tx_hash: format!(
+                        "Cached transaction hash mismatch: requested 0x{tx_h256:x}, found {computed_hash} at block {} index {}",
+                        response.header_number, response.tx_index
+                    ),
+                }),
+                None => Err(ServiceError::Internal {
+                    message: format!(
+                        "tx_hash missing from cached proof. tx_hash: {tx_h256:x}"
+                    ),
+                }),
+            };
+        }
+
         let (header_number, tx_index) = self
             .get_height_and_index_for_tx_hash(chain, tx_h256)
             .await?;
 
-        let response = self.get_proof(chain, header_number, tx_index).await?;
+        let headers = [header_number];
+        self.validate_blocks(chain, &headers).await?;
+        self.metrics.observe_block_range(header_number);
+
+        let (continuity_proof, on_demand_merkle) = tokio::try_join!(
+            self.get_continuity_proof_for(chain, &headers),
+            self.precompute_merkle_cache_block_for_tx(chain, header_number, tx_index),
+        )?;
+
+        let cached_merkle = if on_demand_merkle.is_some() {
+            on_demand_merkle
+        } else if let Some(merkle) = chain
+            .merkle_proof_cache
+            .get_by_tx_hash(chain.builder.config.chain_key, tx_h256)
+            .await
+        {
+            Some(merkle)
+        } else {
+            chain
+                .merkle_proof_cache
+                .get_by_block_index(chain.builder.config.chain_key, header_number, tx_index)
+                .await
+        };
+
+        tracing::info!(
+            chain_key = chain.builder.config.chain_key,
+            header_number,
+            tx_index,
+            tx_hash = ?tx_h256,
+            cache_hit = cached_merkle.is_some(),
+            "resolved proof-by-tx merkle cache after on-demand precompute"
+        );
+
+        let response = if let Some(merkle) = cached_merkle {
+            Self::single_response_from_merkle(
+                chain.builder.config.chain_key,
+                continuity_proof,
+                merkle,
+                true,
+            )
+        } else {
+            let merkle = self
+                .generate_merkle_proof(chain, header_number, tx_index)
+                .await?;
+            Self::single_response_from_merkle(
+                chain.builder.config.chain_key,
+                continuity_proof,
+                merkle,
+                false,
+            )
+        };
 
         // Verify tx_hash matches
         match &response.tx_hash {

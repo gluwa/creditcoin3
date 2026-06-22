@@ -16,7 +16,7 @@ futures = { workspace = true }
 hex = { workspace = true }
 reqwest = { workspace = true }
 serde = { workspace = true }
-stream = { workspace = true, default-features = false, features = ["cc3"] }
+stream = { workspace = true, features = ["cc3"] }
 tokio = { workspace = true, features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

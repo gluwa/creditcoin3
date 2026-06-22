@@ -247,6 +247,18 @@ pub trait EthRpcProvider: Send + Sync {
         Ok((bytes, hash))
     }
 
+    /// Fetch all tx hashes and encoded tx bytes for a block in canonical order.
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        let bytes = self.get_block_tx_bytes(block_number).await?;
+        let mut txs = Vec::with_capacity(bytes.len());
+        for (idx, tx_bytes) in bytes.into_iter().enumerate() {
+            if let Some(tx_hash) = self.get_tx_hash_by_index(block_number, idx as u64).await? {
+                txs.push((tx_hash, tx_bytes));
+            }
+        }
+        Ok(txs)
+    }
+
     /// Resolve a transaction hash to its position.
     ///
     /// # Returns
@@ -414,6 +426,23 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
                 .get(tx_index as usize)
                 .map(|item| H256::from_slice(&item.tx_hash().0));
             Ok((bytes, hash))
+        })
+        .await
+    }
+
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        self.run("get_block_tx_data", move |client| async move {
+            let ordered = client
+                .get_block(block_number, EncodingVersion::V1)
+                .await
+                .unwrap_interrupt("Not handling user interrupts yet")
+                .context("Failed to fetch block")?;
+
+            Ok(ordered
+                .items()
+                .iter()
+                .map(|item| (H256::from_slice(&item.tx_hash().0), item.to_bytes()))
+                .collect())
         })
         .await
     }

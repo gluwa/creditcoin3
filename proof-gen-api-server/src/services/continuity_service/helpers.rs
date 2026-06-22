@@ -30,7 +30,7 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
 /// `RpcUnavailable` for everything else. Use
 /// [`map_eth_rpc_anyhow_to_service_error_with`] when the non-inconsistent fallback
 /// should be a different variant (e.g. `Internal`).
-fn map_eth_rpc_anyhow_to_service_error(
+pub(crate) fn map_eth_rpc_anyhow_to_service_error(
     err: AnyhowError,
     fallback_block_number: u64,
 ) -> ServiceError {
