@@ -28,6 +28,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use hex::FromHexError;
 use sp_core::H256;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{error, info, trace};
@@ -466,7 +467,7 @@ impl Client {
     /// `capacity` finalized blocks. Opt-in; the cache only serves blocks fetched through
     /// [`Client::get_block`]. Safe only for callers that fetch finalized/immutable blocks.
     #[must_use]
-    pub fn with_block_cache(mut self, capacity: usize) -> Self {
+    pub fn with_block_cache(mut self, capacity: NonZeroUsize) -> Self {
         self.mem_cache = Some(std::sync::Arc::new(mem_block_cache::MemBlockCache::new(
             capacity,
         )));

@@ -38,9 +38,6 @@ chains:
   - chain_key: 3
     eth_rpc_url: "http://localhost:8546"
 
-# redis_url: "redis://127.0.0.1:6379"
-redis_cluster_mode: false
-
 max_batch_size: 10
 # Maximum allowed block span (highest − lowest block) in a single batch request.
 # Prevents small batches from forcing proof generation over extremely large ranges.
