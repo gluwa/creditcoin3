@@ -19,7 +19,7 @@ mod mock;
 mod tests;
 
 /// Solidity selector of the Transfer log, which is the Keccak of the Log signature.
-pub const SELECTOR_LOG_TRANSFER: [u8; 32] = keccak256!("Transfer(bytes32,uint256)");
+pub const SELECTOR_LOG_TRANSFER: [u8; 32] = keccak256!("Transfer(address,bytes32,uint256)");
 
 /// Alias for the Balance type for the provided Runtime and Instance.
 pub type BalanceOf<Runtime, Instance = ()> =
