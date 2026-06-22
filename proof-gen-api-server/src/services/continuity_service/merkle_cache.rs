@@ -178,19 +178,15 @@ impl MerkleProofCache {
 
     pub async fn prune_above(&self, max_height: u64) -> usize {
         let split_key = max_height.saturating_add(1);
-        let removed_blocks = {
-            let mut cache = self.inner.write().await;
-            let removed_blocks = cache.by_block.split_off(&split_key);
-            cache.processed_blocks.split_off(&split_key);
-            removed_blocks
-        };
+        let mut cache = self.inner.write().await;
+        let removed_blocks = cache.by_block.split_off(&split_key);
+        cache.processed_blocks.split_off(&split_key);
 
         let removed = removed_blocks.len();
         if removed == 0 {
             return 0;
         }
 
-        let mut cache = self.inner.write().await;
         for block in removed_blocks.into_values() {
             for tx_hash in &block.tx_hashes {
                 cache.by_tx_hash.remove(tx_hash);
