@@ -148,9 +148,10 @@ async function main(
         contract = new Contract(decoderAddress, EvmV1DecoderABI, creditcoinWs);
     }
 
+    const sleepTime = parseInt(process.env.SLEEP_TIME || '500', 10);
     for (const blockNumber of blocksToInspect) {
         console.log(`... get proof for source chain block ${blockNumber}`);
-        await sleep(500); // rate-limit
+        await sleep(sleepTime); // rate-limit
         const response = await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
         const proofData = response.data as proofProvider.ContinuityResponse;
         if (proofData.txBytes === undefined) {
