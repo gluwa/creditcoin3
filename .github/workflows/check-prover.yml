@@ -47,7 +47,7 @@ jobs:
             proverUrl: "https://proofbuilder.cc3-mainnet-usc.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-mainnet-usc.creditcoin.network"
             evmV1Decoder: "0x9D094C9f22B10FCf842c2fC6A0981630A4F94B5C"
-            GO_BACK_BLOCKS: 1000
+            GO_BACK_BLOCKS: 250
             SLEEP_TIME: 6500
             chainKey: 1
 
