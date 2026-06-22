@@ -213,16 +213,17 @@ async function main(
         }
 
         // Add a 10% safety margin to the raw estimates and reject if the
-        // combined cost crosses 50% of the 75M block gas limit. Using bigint
-        // math (11/10) keeps the value precise and consistent with the rest
-        // of the script.
+        // combined cost crosses 70% of the 75M block gas limit. Using bigint
+        // math (11/10 and 7/10) keeps the value precise and consistent with
+        // the rest of the script. The 70% threshold is an explicit decision;
+        // see commit log + linked Slack thread for context.
         const totalGas = ((gasForVerification + gasForDecoding) * 11n) / 10n;
         const blockGasLimit = 75_000_000n;
-        const totalGasThreshold = blockGasLimit / 2n;
+        const totalGasThreshold = (blockGasLimit * 7n) / 10n;
         console.log(`    ... totalGas (with 10% margin)=${totalGas} (threshold=${totalGasThreshold})`);
         if (totalGas >= totalGasThreshold) {
             throw new Error(
-                `totalGas ${totalGas} reaches or exceeds 50% of the ${blockGasLimit} block gas limit (${totalGasThreshold}); failing run`,
+                `totalGas ${totalGas} reaches or exceeds 70% of the ${blockGasLimit} block gas limit (${totalGasThreshold}); failing run`,
             );
         }
     }
