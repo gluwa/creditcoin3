@@ -57,6 +57,10 @@ attestor/scripts/checkpoints.json
 **/ignition/deployments/
 docs/smart-contract-development/with-hardhat/artifacts/*
 
+# USC Messaging PoC
+usc-messaging/deployments.json
+usc-messaging/messages.json
+
 # Bridge usage example
 bridge-usage-example/out/*
 bridge-usage-example/lib/*
