@@ -16,6 +16,7 @@
 //! encodings on one client would require an encoding-aware key.
 
 use std::collections::BTreeMap;
+use std::num::NonZeroUsize;
 use std::sync::Mutex;
 
 use crate::OrderedBlock;
@@ -28,11 +29,11 @@ pub struct MemBlockCache {
 }
 
 impl MemBlockCache {
-    /// Create a cache holding at most `capacity` blocks (clamped to ≥ 1).
+    /// Create a cache holding at most `capacity` blocks.
     #[must_use]
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: NonZeroUsize) -> Self {
         Self {
-            capacity: capacity.max(1),
+            capacity: capacity.get(),
             inner: Mutex::new(BTreeMap::new()),
         }
     }

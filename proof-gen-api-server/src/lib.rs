@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
@@ -33,7 +34,10 @@ use eth::redact_url_query;
 /// Max finalized source blocks held in the per-chain in-process block cache. Sized to comfortably
 /// cover a continuity range (last checkpoint → query height) plus recent inclusion-proof blocks,
 /// while bounding memory (each entry is one block's txs+receipts).
-const BLOCK_CACHE_CAPACITY: usize = 512;
+const BLOCK_CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(512) {
+    Some(n) => n,
+    None => panic!("512 is non-zero"),
+};
 
 pub struct Server {
     config: Config,
