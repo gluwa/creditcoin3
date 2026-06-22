@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { blockProver, chainInfo, proofProvider, utils } from '@gluwa/usc-sdk';
 import EvmV1DecoderABI from '@gluwa/usc-sdk/dist/utils/evmV1DecoderAbi.json';
 import ChainInfoABI from '@gluwa/usc-sdk/dist/chain-info/chain_info.json';
-import { Contract, WebSocketProvider } from 'ethers';
+import { Contract, Wallet, WebSocketProvider } from 'ethers';
 import { createClient } from 'graphqurl';
 import axios from 'axios';
 
@@ -148,6 +148,16 @@ async function main(
         contract = new Contract(decoderAddress, EvmV1DecoderABI, creditcoinWs);
     }
 
+    // NOTE: an ephemeral wallet is used purely as a `from` address for
+    // `estimateGas`. No transaction is submitted, so this account never
+    // needs to be funded and there is no on-chain side effect.
+    const estimateGasSigner = Wallet.createRandom().connect(creditcoinWs);
+    const blockProverContractWithSigner = prover.blockProverContract.connect(estimateGasSigner);
+    // ABI fragment for the state-changing `verifyAndEmit` precompile entry-point;
+    // mirrors the constant used inside @gluwa/usc-sdk's PrecompileBlockProver.
+    const verifyAndEmitSingleFragment =
+        'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))';
+
     const sleepTime = parseInt(process.env.SLEEP_TIME || '500', 10);
     for (const blockNumber of blocksToInspect) {
         console.log(`... get proof for source chain block ${blockNumber}`);
@@ -175,10 +185,45 @@ async function main(
             throw new Error('...... proof verification failed');
         }
 
+        // Record the gas it WOULD cost to call verifyAndEmitSingle on this proof.
+        // We deliberately call estimateGas rather than submitting the tx so that
+        // running prover-check in parallel for the same signer cannot trip on
+        // nonce collisions or actually move on-chain state. If estimateGas
+        // fails the whole run is allowed to fail so the problem surfaces.
+        const estimate = await blockProverContractWithSigner
+            .getFunction(verifyAndEmitSingleFragment)
+            .estimateGas(
+                proofData.chainKey,
+                proofData.headerNumber,
+                proofData.txBytes,
+                proofData.merkleProof,
+                proofData.continuityProof,
+            );
+        const gasForVerification = BigInt(estimate);
+        console.log(`    ... gasForVerification=${gasForVerification}`);
+
+        let gasForDecoding = 0n;
         if (contract !== undefined) {
             console.log('    ..... trying to decode proof');
-            const decoded = await utils.decoder.decodeEvmV1Transaction(proofData.txBytes, contract);
-            console.log(`    ... decoded as type ${decoded.type}`);
+            const decoded = await utils.decoder.decodeEvmV1Transaction(proofData.txBytes, contract, {
+                trackGas: true,
+            });
+            gasForDecoding = decoded.gasUsed ?? 0n;
+            console.log(`    ... decoded as type ${decoded.type}, gasForDecoding=${gasForDecoding}`);
+        }
+
+        // Add a 10% safety margin to the raw estimates and reject if the
+        // combined cost crosses 50% of the 75M block gas limit. Using bigint
+        // math (11/10) keeps the value precise and consistent with the rest
+        // of the script.
+        const totalGas = ((gasForVerification + gasForDecoding) * 11n) / 10n;
+        const blockGasLimit = 75_000_000n;
+        const totalGasThreshold = blockGasLimit / 2n;
+        console.log(`    ... totalGas (with 10% margin)=${totalGas} (threshold=${totalGasThreshold})`);
+        if (totalGas >= totalGasThreshold) {
+            throw new Error(
+                `totalGas ${totalGas} reaches or exceeds 50% of the ${blockGasLimit} block gas limit (${totalGasThreshold}); failing run`,
+            );
         }
     }
     console.log('**** INFO: done');
