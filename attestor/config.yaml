@@ -70,3 +70,42 @@ attestation:
   #   overrides it.
   #
   # interval: 10
+
+write_ability:
+  # USC cross-chain message attestation. Disabled unless `enabled: true` (or the
+  # --message-attestation flag). When on, the attestor watches the Creditcoin L1
+  # Outbox for this chain_key and gossips ECDSA message votes on the existing p2p
+  # swarm (new topic {chain_key}/message-votes/v1). It never relays.
+  #
+  # enabled: false
+
+  # Creditcoin L1 EVM JSON-RPC endpoint (watches the Outbox). Required when enabled.
+  #
+  # cc3_eth_url: "ws://localhost:8546"
+
+  # Authorized message-vote signer EVM addresses (the static attester set). The
+  # 2N/3+1 quorum is derived from its size. Your own derived signer address is
+  # logged at startup — register it in the destination EOAValidator and include it
+  # here. (Alternatively set validator_address to read an on-chain IVoteValidator —
+  # not yet wired in the attestor.)
+  #
+  # attesters:
+  #   - "0x0000000000000000000000000000000000000001"
+  #   - "0x0000000000000000000000000000000000000002"
+
+  # Optional outbox resolution overrides. By default the Outbox factory is read from
+  # the chain-info precompile (SupportedChains::OutboxFactories) and the bytes32 key
+  # is derived from chain_key.
+  #
+  # outbox_factory_address: "0x..."
+  # write_ability_chain_key: "0x..."
+  # outbox_address: "0x..."          # direct override, skips the factory lookup
+
+  # Confirmation depth below the EVM tip before signing a MessagePublished log.
+  #
+  # block_confirmation_depth: 12
+
+  # Anti-abuse bounds.
+  #
+  # max_tracked_messages: 10000
+  # vote_ttl_secs: 3600

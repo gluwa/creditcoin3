@@ -34,7 +34,9 @@ supported-chains-primitives = { workspace = true }
 usc-abi-encoding = { workspace = true }
 
 # Ethereum
+alloy = { workspace = true, features = ["full"] }
 eth = { workspace = true, default-features = true }
+write-ability = { workspace = true }
 
 # Async & Parallelism
 futures = { workspace = true }
@@ -79,3 +81,10 @@ axum = { workspace = true }
 # Misc
 rand = { workspace = true, features = ["std_rng"] }
 zeroize = { workspace = true }
+
+[dev-dependencies]
+# Anvil bindings for the write-ability end-to-end test (`tests/e2e_anvil.rs`, #[ignore]d; needs
+# the `anvil` binary from foundry installed).
+alloy-node-bindings = "0.11"
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

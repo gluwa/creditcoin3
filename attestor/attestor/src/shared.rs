@@ -63,6 +63,11 @@ pub struct Shared {
     /// (committee changes) and the p2p task must never block production on backpressure.
     pub peer_deactivated_tx: mpsc::UnboundedSender<attestor_primitives::AttestorId>,
 
+    /// USC write-ability message-vote state, shared between the `write_ability` task (which
+    /// produces votes) and the `p2p` task (which publishes them and validates incoming peer
+    /// votes on the same swarm). `None` when message attestation is disabled.
+    pub message_votes: Option<Arc<crate::tasks::write_ability::MessageVoteState>>,
+
     pub can_attest_tx: watch::Sender<bool>,
     pub can_attest_rx: watch::Receiver<bool>,
 

@@ -18,6 +18,10 @@ pub enum Error {
     /// libp2p transport / dial / gossipsub error.
     P2p(anyhow::Error),
 
+    /// USC write-ability (cross-chain message attestation) failure: outbox resolution, EVM RPC,
+    /// signing-key derivation, or message-vote gossip setup.
+    WriteAbility(anyhow::Error),
+
     /// BLS verification / aggregation error.
     Bls(bls_signatures::Error),
 
@@ -71,6 +75,7 @@ impl std::fmt::Display for Error {
             Self::Cc3Stream(e) => write!(f, "cc3 stream: {e}"),
             Self::Subxt(e) => write!(f, "subxt: {e}"),
             Self::P2p(e) => write!(f, "p2p: {e}"),
+            Self::WriteAbility(e) => write!(f, "write-ability: {e}"),
             Self::Bls(e) => write!(f, "bls: {e}"),
             Self::Io(e) => write!(f, "io: {e}"),
             Self::TaskJoin(e) => write!(f, "task join: {e}"),

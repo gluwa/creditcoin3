@@ -1,0 +1,12 @@
+---
+description: Git commit conventions — no Cursor co-author trailers
+alwaysApply: true
+---
+
+# Git commits
+
+When creating git commits for this project:
+
+- Do **not** add `Co-authored-by: Cursor` or any other Cursor/agent co-author trailer to commit messages.
+- Use plain commit messages only (title + body via HEREDOC); no `Signed-off-by` or co-author lines unless the user explicitly asks.
+- If a hook or tool injects co-author metadata, warn the user rather than amending unless they request it.
