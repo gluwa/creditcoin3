@@ -80,8 +80,25 @@ interface AttestorStash {
     function getAttestorsCount(uint64 chainKey) external view returns (uint32 count);
 
     /// @notice Returns ledger info for the given stash account.
+    /// @param stash The **hashed** `AccountId32` produced by the runtime's `AddressMapping`
+    ///        from the EVM address — NOT the raw 20-byte EVM address zero-padded to 32
+    ///        bytes. EVM consumers emitting events tied to their own `msg.sender` should
+    ///        prefer `getLedgerByAddress` or `getCallerLedger` to avoid the silently-empty
+    ///        ledger foot-gun.
     /// @return info `LedgerInfo` struct (`exists == false` if no ledger).
     function getLedger(bytes32 stash) external view returns (LedgerInfo memory info);
+
+    /// @notice Returns ledger info for the EVM `addr`.
+    /// @dev Applies the runtime's `AddressMapping` internally so EVM-side consumers can
+    ///      look up their own ledger using the same identifier (the EVM `address`) that
+    ///      events and state-changing calls in this precompile already use.
+    /// @return info `LedgerInfo` struct (`exists == false` if no ledger).
+    function getLedgerByAddress(address addr) external view returns (LedgerInfo memory info);
+
+    /// @notice Returns ledger info for `msg.sender`.
+    /// @dev Convenience entry equivalent to `getLedgerByAddress(msg.sender)`.
+    /// @return info `LedgerInfo` struct (`exists == false` if no ledger).
+    function getCallerLedger() external view returns (LedgerInfo memory info);
 
     /// @notice Returns the minimum bond requirement for `chainKey`.
     function getMinBondRequirement(uint64 chainKey) external view returns (uint128 minBond);
