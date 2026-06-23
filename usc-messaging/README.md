@@ -74,9 +74,9 @@ the workspace root:
 
 ```bash
 # Attestor with message attestation enabled (see attestor/config.yaml `write_ability:` section,
-# or flags --message-attestation --cc3-eth-url <creditcoin-evm-rpc>). Needs a running CC3 node
+# or flags --writeability --cc3-eth-url <creditcoin-evm-rpc>). Needs a running CC3 node
 # where the chain_key is supported and this attestor is elected.
-./target/release/attestor --message-attestation --cc3-eth-url ws://127.0.0.1:8546 ...
+./target/release/attestor --writeability --cc3-eth-url ws://127.0.0.1:8546 ...
 
 # Relayer (subscribes to the same {chain_key}/message-votes/v1 topic and delivers to the Inbox):
 cargo run -p message-relayer -- --config <relayer.yaml>

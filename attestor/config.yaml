@@ -73,7 +73,7 @@ attestation:
 
 write_ability:
   # USC cross-chain message attestation. Disabled unless `enabled: true` (or the
-  # --message-attestation flag). When on, the attestor watches the Creditcoin L1
+  # --writeability flag). When on, the attestor watches the Creditcoin L1
   # Outbox for this chain_key and gossips ECDSA message votes on the existing p2p
   # swarm (new topic {chain_key}/message-votes/v1). It never relays.
   #
