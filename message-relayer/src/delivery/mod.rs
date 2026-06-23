@@ -111,7 +111,7 @@ pub async fn run(
     }
 }
 
-async fn handle_job<P: Provider>(
+async fn handle_job<P: Provider + Clone + 'static>(
     route: &ChainRoute,
     delivery_config: &DeliveryConfig,
     provider: &P,
@@ -241,8 +241,8 @@ async fn handle_job<P: Provider>(
             );
             // Best-effort retry; we do not block delivery of subsequent messages on this.
             spawn_pending_retry(
-                provider.clone(),
-                inbox.address(),
+                (*provider).clone(),
+                *inbox.address(),
                 job.message_id,
                 route.chain_key,
             );
