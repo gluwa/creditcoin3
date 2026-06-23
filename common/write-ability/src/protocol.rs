@@ -15,7 +15,7 @@ pub fn message_votes_topic(chain_key: u64) -> String {
 }
 
 /// Canonical mapping of a Substrate `ChainKey` (`u64`) to the Solidity `bytes32` chain key passed
-/// to `IOutboxFactory.getOutbox` and asserted against `Outbox.chainKey()` (research §2.3).
+/// to `IOutboxFactory.getOutbox` and bound into each `messageHash` (research §2.3).
 ///
 /// The `u64` is stored big-endian in the **low** 8 bytes (left-padded with zeros), i.e.
 /// `bytes32(uint256(value))` in Solidity terms.
