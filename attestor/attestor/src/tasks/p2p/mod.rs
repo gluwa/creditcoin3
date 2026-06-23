@@ -280,8 +280,20 @@ async fn handle_swarm(
                 .gossipsub
                 .report_message_validation_result(&message_id, &propagation_source, decision);
         }
-        SwarmEvent::ConnectionClosed { connection_id, .. } => {
-            shared.metrics.note_peer_disconnected();
+        SwarmEvent::ConnectionClosed {
+            connection_id,
+            num_established,
+            ..
+        } => {
+            // Only decrement the per-peer gauge when this was the *last* connection to the
+            // remote peer (`num_established` is the post-close count). The swarm allows multiple
+            // simultaneous transports (TCP + QUIC) and up to a per-peer connection limit, so
+            // a single peer can produce several ConnectionEstablished / ConnectionClosed pairs.
+            // Counting all of them would inflate the gauge and let it diverge from “distinct
+            // peers I'm actually talking to right now”.
+            if num_established == 0 {
+                shared.metrics.note_peer_disconnected();
+            }
             ping_failures.remove(&connection_id);
             *can_broadcast = swarm
                 .behaviour()
@@ -314,14 +326,20 @@ async fn handle_swarm(
         SwarmEvent::ConnectionEstablished {
             peer_id,
             connection_id,
+            num_established,
             ..
         } => {
             tracing::info!(%peer_id, %connection_id, "🔗 connection up");
-            // Track currently-connected peers independently from the Kademlia routing-table
-            // gauge (`note_routing_peer_added`). The two diverge — a peer can be in the
-            // routing table without an active connection — so dashboards asking “how many
-            // peers am I actually talking to right now” need this separate counter.
-            shared.metrics.note_peer_connected();
+            // Track *distinct* connected peers — only bump the gauge when this is the first
+            // established connection to the remote peer (`num_established == 1` includes this
+            // one). The swarm enables both TCP and QUIC and allows multiple simultaneous
+            // connections per peer, so a single peer can fire ConnectionEstablished several
+            // times; counting each one would have the gauge measure connections, not peers.
+            // Separate from the Kademlia routing-table gauge (`note_routing_peer_added`),
+            // which can hold a peer with no live connection.
+            if num_established.get() == 1 {
+                shared.metrics.note_peer_connected();
+            }
         }
         SwarmEvent::OutgoingConnectionError {
             peer_id,
