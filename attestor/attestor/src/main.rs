@@ -93,15 +93,8 @@ struct ConfigAttestation {
 struct ConfigFileWriteAbility {
     #[serde(default)]
     enabled: bool,
-    /// Creditcoin L1 EVM JSON-RPC endpoint (watches the Outbox). Required when enabled.
-    cc3_eth_url: Option<url::Url>,
-    /// Outbox factory address override; when unset, resolved from the chain-info precompile.
-    outbox_factory_address: Option<alloy::primitives::Address>,
-    /// `bytes32` write-ability chain key; when unset, derived from the `u64` chain_key.
-    write_ability_chain_key: Option<alloy::primitives::B256>,
-    /// Direct Outbox address override (skips the factory lookup).
-    outbox_address: Option<alloy::primitives::Address>,
-    /// Confirmation depth below the EVM tip before signing a `MessagePublished` log.
+    /// Confirmation depth below the EVM tip before signing a `MessagePublished` log. Defaults to
+    /// 3 blocks (the usual time-to-finality on Creditcoin) when unset.
     block_confirmation_depth: Option<u64>,
     /// Anti-abuse cap on distinct tracked message hashes.
     max_tracked_messages: Option<usize>,
@@ -266,22 +259,11 @@ impl Config {
                         "Enable USC write-ability message attestation. \
                         When set, the attestor watches the Creditcoin L1 Outbox for this chain_key \
                         and gossips ECDSA message votes on the existing p2p swarm. \
-                        Requires --cc3-eth-url and a configured attester set (write_ability section)."
+                        Uses the cc3 RPC endpoint and a configured attester set (write_ability section)."
                     )
                     .env("ATTESTOR_WRITEABILITY")
                     .required(false)
                     .action(clap::ArgAction::SetTrue),
-            )
-            .arg(
-                clap::arg!(--"cc3-eth-url" <URL>)
-                    .help("Creditcoin L1 EVM RPC url (for write-ability)")
-                    .long_help(
-                        "Creditcoin L1 EVM JSON-RPC url used by write-ability to watch the \
-                        Outbox contract. Only used when --writeability is enabled."
-                    )
-                    .env("ATTESTOR_CC3_ETH_URL")
-                    .required(false)
-                    .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
                 clap::arg!(--"expose-urls-in-logs")
@@ -414,7 +396,7 @@ impl Config {
             attestor::secret::RpcSecret::new_opaque(eth_url)
         };
 
-        let cc3_url = match matches.get_one::<url::Url>("cc3-url") {
+        let cc3_url_raw = match matches.get_one::<url::Url>("cc3-url") {
             Some(url) => url.clone(),
             None => config_file
                 .cc3
@@ -422,9 +404,9 @@ impl Config {
                 .expect("CC3 url is set either in config or by clap"),
         };
         let cc3_url = if expose_url {
-            attestor::secret::RpcSecret::new_exposed(cc3_url)
+            attestor::secret::RpcSecret::new_exposed(cc3_url_raw.clone())
         } else {
-            attestor::secret::RpcSecret::new_opaque(cc3_url)
+            attestor::secret::RpcSecret::new_opaque(cc3_url_raw.clone())
         };
 
         let start_height = matches
@@ -439,7 +421,8 @@ impl Config {
 
         let no_mdns = matches.get_flag("no-mdns") || config_file.p2p.no_mdns;
 
-        let write_ability = build_write_ability(&matches, config_file.write_ability);
+        let write_ability =
+            Self::build_write_ability(&matches, config_file.write_ability, chain_key, &cc3_url_raw);
 
         Ok(Config {
             name,
@@ -458,42 +441,42 @@ impl Config {
             write_ability,
         })
     }
-}
 
-/// Assemble the write-ability config from CLI/env (highest priority) over the `write_ability:`
-/// config-file section. CLI provides only the enable flag + EVM RPC url; the attester set and
-/// outbox-resolution overrides come from the config file.
-fn build_write_ability(
-    matches: &clap::ArgMatches,
-    file: ConfigFileWriteAbility,
-) -> attestor::tasks::write_ability::Config {
-    use attestor::tasks::write_ability::{config, AttesterSet, Config as WaConfig};
+    /// Assemble the write-ability config from the `--writeability` flag and the `write_ability:`
+    /// config-file section, reusing already-resolved top-level config to avoid redundant and
+    /// error-prone duplication: the Creditcoin EVM RPC endpoint is derived from the top-level
+    /// `cc3` url, and the `bytes32` write-ability chain key from the top-level `chain_key`. Outbox
+    /// addresses are not configurable — they are resolved on-chain from `chain_key` at runtime.
+    fn build_write_ability(
+        matches: &clap::ArgMatches,
+        file: ConfigFileWriteAbility,
+        chain_key: attestor_primitives::ChainKey,
+        cc3_url: &url::Url,
+    ) -> attestor::tasks::write_ability::Config {
+        use attestor::tasks::write_ability::{config, AttesterSet, Config as WaConfig};
 
-    let enabled = matches.get_flag("writeability") || file.enabled;
-    let cc3_eth_rpc_url = matches
-        .get_one::<url::Url>("cc3-eth-url")
-        .cloned()
-        .or(file.cc3_eth_url);
+        let enabled = matches.get_flag("writeability") || file.enabled;
 
-    let attester_set = match file.validator_address {
-        Some(addr) => AttesterSet::OnChainValidator(addr),
-        None => AttesterSet::Static(file.attesters),
-    };
+        let attester_set = match file.validator_address {
+            Some(addr) => AttesterSet::OnChainValidator(addr),
+            None => AttesterSet::Static(file.attesters),
+        };
 
-    WaConfig {
-        enabled,
-        cc3_eth_rpc_url,
-        outbox_factory_address: file.outbox_factory_address,
-        write_ability_chain_key: file.write_ability_chain_key,
-        outbox_address: file.outbox_address,
-        block_confirmation_depth: file.block_confirmation_depth.unwrap_or(0),
-        max_tracked_messages: file
-            .max_tracked_messages
-            .unwrap_or(config::DEFAULT_MAX_TRACKED_MESSAGES),
-        vote_ttl: file
-            .vote_ttl_secs
-            .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
-        attester_set,
+        WaConfig {
+            enabled,
+            cc3_eth_rpc_url: Some(cc3_url.clone()),
+            write_ability_chain_key: chain_key,
+            block_confirmation_depth: file
+                .block_confirmation_depth
+                .unwrap_or(config::DEFAULT_BLOCK_CONFIRMATION_DEPTH),
+            max_tracked_messages: file
+                .max_tracked_messages
+                .unwrap_or(config::DEFAULT_MAX_TRACKED_MESSAGES),
+            vote_ttl: file
+                .vote_ttl_secs
+                .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
+            attester_set,
+        }
     }
 }
 

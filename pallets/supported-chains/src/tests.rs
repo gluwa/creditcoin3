@@ -572,7 +572,7 @@ fn set_outbox_factory_addr_works() {
         assert_eq!(OutboxFactories::<Test>::get(chain_key), Some(address));
 
         System::assert_last_event(
-            crate::Event::OutboxCreated {
+            crate::Event::OutboxFactoryRegistered {
                 chain_key,
                 outbox_factory_addr: address,
             }

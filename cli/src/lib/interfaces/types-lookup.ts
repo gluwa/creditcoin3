@@ -1256,12 +1256,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
             readonly maturityStrategy: Text;
         } & Struct;
-        readonly isOutboxCreated: boolean;
-        readonly asOutboxCreated: {
+        readonly isOutboxFactoryRegistered: boolean;
+        readonly asOutboxFactoryRegistered: {
             readonly chainKey: u64;
             readonly outboxFactoryAddr: H160;
         } & Struct;
-        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'OutboxCreated';
+        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'OutboxFactoryRegistered';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (99) */
