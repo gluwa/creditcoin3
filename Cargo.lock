@@ -1709,6 +1709,8 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "attestor"
 version = "3.132.0"
 dependencies = [
+ "alloy",
+ "alloy-node-bindings",
  "anyhow",
  "attestor-primitives",
  "attestor_pool",
@@ -1741,6 +1743,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
+ "write-ability",
  "zeroize",
 ]
 
@@ -8084,6 +8087,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "write-ability",
  "zeroize",
 ]
 
@@ -18216,6 +18220,21 @@ dependencies = [
  "unicode-xid",
  "wasmparser 0.244.0",
 ]
+
+[[package]]
+name = "write-ability"
+version = "3.128.0"
+dependencies = [
+ "alloy",
+ "parity-scale-codec",
+ "sha3",
+]
+
+[[package]]
+name = "write16"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d1890f4022759daae28ed4fe62859b1236caebfc61ede2f63ed4e695f3f6d936"
 
 [[package]]
 name = "writeable"
