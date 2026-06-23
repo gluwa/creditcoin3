@@ -1009,6 +1009,14 @@ declare module '@polkadot/api-base/types/events' {
                 { chainKey: u64; outboxFactoryAddr: H160 }
             >;
             /**
+             * The USC write-ability config for a supported chain has been set.
+             **/
+            WriteAbilityConfigSet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, writeAbilityChainKey: U8aFixed, messageAttestationEnabled: bool],
+                { chainKey: u64; writeAbilityChainKey: U8aFixed; messageAttestationEnabled: bool }
+            >;
+            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;
