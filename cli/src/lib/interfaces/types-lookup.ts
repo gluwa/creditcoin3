@@ -1267,7 +1267,7 @@ declare module '@polkadot/types/lookup' {
             readonly writeAbilityChainKey: U8aFixed;
             readonly messageAttestationEnabled: bool;
         } & Struct;
-        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'OutboxCreated' | 'WriteAbilityConfigSet' | 'OutboxFactoryRegistered';
+        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'OutboxFactoryRegistered' | 'WriteAbilityConfigSet';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (99) */
