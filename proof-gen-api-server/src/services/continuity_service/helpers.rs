@@ -280,13 +280,15 @@ impl ContinuityService {
             .await
             .map_err(|e| map_eth_rpc_anyhow_to_service_error(e, header_number))?;
         if tx_bytes.is_empty() {
-            if tx_index != 0 {
-                return Err(ServiceError::TxIndexOutOfBounds {
-                    height: header_number,
-                    tx_index,
-                    len: 0,
-                });
-            }
+            // An empty block has no transactions, so there is nothing to build a transaction
+            // merkle proof for. We previously accepted `tx_index == 0` here and returned an
+            // empty `TransactionMerkleProof`, but the block-prover precompile rejects empty
+            // transaction bytes ("Transaction data cannot be empty"), so those proofs could
+            // never verify on-chain. Fail the API request explicitly instead of returning a
+            // payload that is guaranteed to fail downstream.
+            return Err(ServiceError::EmptyBlockTxProof {
+                height: header_number,
+            });
         } else if tx_index as usize >= tx_bytes.len() {
             return Err(ServiceError::TxIndexOutOfBounds {
                 height: header_number,
@@ -299,14 +301,13 @@ impl ContinuityService {
         // transactions this is O(n) keccak hashing; running it inline would stall the async
         // worker (and every other future sharing it) under concurrent batch load. `tx_bytes` is
         // moved in and handed back so we can still use it afterwards without cloning.
+        //
+        // Empty-block handling: the empty-block branch is gated by the EmptyBlockTxProof early
+        // return above, so `tx_bytes` is guaranteed non-empty here.
         let (tx_bytes, proof_result, merkle_root) = tokio::task::spawn_blocking(move || {
             let tree = merkle::keccak_merkle_tree::KeccakMerkleTree::new(&tx_bytes);
             let root = tree.root();
-            let proof = if tx_bytes.is_empty() {
-                Ok(TransactionMerkleProof::new(root, vec![]))
-            } else {
-                tree.generate_proof(tx_index as usize)
-            };
+            let proof = tree.generate_proof(tx_index as usize);
             (tx_bytes, proof, root)
         })
         .await
@@ -318,23 +319,15 @@ impl ContinuityService {
         })?;
 
         // The real transaction hash comes from the block fetch above (RLP-derived, not computed
-        // from the ABI-encoded bytes). For an empty block there's no tx, so no hash.
-        let tx_hash_opt = if tx_bytes.is_empty() {
-            None
-        } else {
-            fetched_tx_hash
-        };
+        // from the ABI-encoded bytes).
+        let tx_hash_opt = fetched_tx_hash;
 
         // Record merkle proof generation duration
         self.metrics
             .observe_merkle_generation(merkle_start.elapsed());
 
         // Build Proof items for DB Insert
-        let tx_bytes_for_cache = if tx_bytes.is_empty() {
-            None
-        } else {
-            Some(tx_bytes[tx_index as usize].clone())
-        };
+        let tx_bytes_for_cache = Some(tx_bytes[tx_index as usize].clone());
         Ok(MerkleProofItem {
             chain_key,
             header_number,
