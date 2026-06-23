@@ -87,7 +87,7 @@ struct ConfigAttestation {
 }
 
 /// `write_ability:` section — USC cross-chain message attestation. Disabled unless `enabled: true`
-/// (or `--message-attestation`). When on, the attestor watches the Creditcoin L1 Outbox over the
+/// (or `--writeability`). When on, the attestor watches the Creditcoin L1 Outbox over the
 /// EVM RPC and gossips message votes on the existing p2p swarm.
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileWriteAbility {
@@ -260,7 +260,7 @@ impl Config {
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
-                clap::arg!(--"message-attestation")
+                clap::arg!(--"writeability")
                     .help("Enable USC write-ability message attestation")
                     .long_help(
                         "Enable USC write-ability message attestation. \
@@ -268,16 +268,16 @@ impl Config {
                         and gossips ECDSA message votes on the existing p2p swarm. \
                         Requires --cc3-eth-url and a configured attester set (write_ability section)."
                     )
-                    .env("ATTESTOR_MESSAGE_ATTESTATION")
+                    .env("ATTESTOR_WRITEABILITY")
                     .required(false)
                     .action(clap::ArgAction::SetTrue),
             )
             .arg(
                 clap::arg!(--"cc3-eth-url" <URL>)
-                    .help("Creditcoin L1 EVM RPC url (for message attestation)")
+                    .help("Creditcoin L1 EVM RPC url (for write-ability)")
                     .long_help(
-                        "Creditcoin L1 EVM JSON-RPC url used by message attestation to watch the \
-                        Outbox contract. Only used when --message-attestation is enabled."
+                        "Creditcoin L1 EVM JSON-RPC url used by write-ability to watch the \
+                        Outbox contract. Only used when --writeability is enabled."
                     )
                     .env("ATTESTOR_CC3_ETH_URL")
                     .required(false)
@@ -469,7 +469,7 @@ fn build_write_ability(
 ) -> attestor::tasks::write_ability::Config {
     use attestor::tasks::write_ability::{config, AttesterSet, Config as WaConfig};
 
-    let enabled = matches.get_flag("message-attestation") || file.enabled;
+    let enabled = matches.get_flag("writeability") || file.enabled;
     let cc3_eth_rpc_url = matches
         .get_one::<url::Url>("cc3-eth-url")
         .cloned()
