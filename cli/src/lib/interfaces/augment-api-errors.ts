@@ -104,6 +104,13 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestorFound: AugmentedError<ApiType>;
             InvalidBlsPublicKey: AugmentedError<ApiType>;
             InvalidBlsSignature: AugmentedError<ApiType>;
+            /**
+             * Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
+             * ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
+             * `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
+             * would either overflow those bounds or undercharge weight.
+             **/
+            InvalidMaxAttestors: AugmentedError<ApiType>;
             InvalidMaxCatchup: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
