@@ -12,7 +12,7 @@
 //! ))
 //! ```
 //!
-//! This must be byte-identical to what attesters sign and what the inbox recomputes inside
+//! This must be byte-identical to what attestors sign and what the inbox recomputes inside
 //! `validateVotes`. The golden-vector tests at the bottom of this file are the contract: any
 //! drift here will silently break delivery.
 

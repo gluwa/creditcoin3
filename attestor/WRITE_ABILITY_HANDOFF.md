@@ -11,7 +11,7 @@
 - **Branch:** `attestor_v2_writability` (note: no middle "e"). Already pushed to `origin`.
 - **Latest commits on the branch (most recent last):**
   - `7dd190456` `feat(attestor): USC write-ability message attestation` — the whole pipeline + shared crate + CLI + tests.
-  - `fc581fb53` `chore(usc-messaging): remove superseded TS attester + relayer`.
+  - `fc581fb53` `chore(usc-messaging): remove superseded TS attestor + relayer`.
   - `8e323b265` `chore(attestor): rename --message-attestation flag to --writeability`.
 - **Toolchain:** the repo pins a Rust toolchain (`rust-toolchain.toml`). Foundry (`anvil`/`forge`/`solc`) is needed only for the `#[ignore]`d e2e test.
 
@@ -23,7 +23,7 @@ canonical `messageHash` (ECDSA) → gossip a vote on `{chain_key}/message-votes/
 the votes and deliver to a destination **Inbox**; the **attestor never relays**. Disabled by default
 (opt-in via `--writeability`). Source-of-truth research lives in a sibling repo
 `usc-write-ability-research` (esp. `documents/confluence-attestor-write-ability-poc.md`, the A1–A11
-checklist, and `requirements/01-attesters-requirements.md`).
+checklist, and `requirements/01-attestors-requirements.md`).
 
 ## Design decisions (preserve these — don't undo)
 
@@ -40,7 +40,7 @@ checklist, and `requirements/01-attesters-requirements.md`).
    cannot diverge on hash/wire/topic/ABI. Change these in ONE place.
 4. **Config fallback for resolution.** Resolver prefers on-chain (chain-info precompile `0x…0fD3`
    → `IOutboxFactory.getOutbox`), but every input has a config override so the PoC runs before the
-   factory/runtime fields exist. Static attester set works today; `OnChainValidator` does not yet.
+   factory/runtime fields exist. Static attestor set works today; `OnChainValidator` does not yet.
 
 ## Project conventions (the user enforces these)
 
@@ -72,11 +72,11 @@ blocked on §3 (colleague-owned) + the ABI unification.
 - [x] A9 Metrics / A10 Wiring — `MessageVote` counter; spawned in `lib.rs` JoinSet via `Shared.message_votes`.
 - [x] CLI/config — `--writeability`, `--cc3-eth-url`, `ATTESTOR_*` env, `write_ability:` block in `attestor/config.yaml`.
 - [x] Tests — hash vectors, signing, aggregator, ingest abuse, anvil e2e (`tests/e2e_anvil.rs`, `#[ignore]`).
-- [x] Removed superseded TS attester + relayer from `usc-messaging/`.
+- [x] Removed superseded TS attestor + relayer from `usc-messaging/`.
 - [x] Fixed pre-existing `message-relayer` build breakage + clippy warnings.
 
 ### 2. Attestor follow-ups ⏳ (same owner — hardening)
-- [ ] `AttesterSet::OnChainValidator` — only `Static` works today (reading `IVoteValidator.attesters()` needs a destination-chain RPC; bails with a clear log).
+- [ ] `AttestorSet::OnChainValidator` — only `Static` works today (reading `IVoteValidator.attestors()` needs a destination-chain RPC; bails with a clear log).
 - [ ] Probabilistic finality when the gadget is paused (research §6.8) — fixed confirmation-depth today.
 - [ ] GossipSub peer-scoring + per-peer rate limits for the message-vote topic (defaults today).
 - [ ] `getOutbox` → `address(0)` backoff + subscribe `OutboxCreated` (today: fail-fast).
@@ -86,7 +86,7 @@ blocked on §3 (colleague-owned) + the ABI unification.
 ### 3. Colleague-owned blockers 🚧 (required for live cross-chain)
 - [ ] **Runtime `SupportedChain` write-ability fields + migration + RPC** (R1–R3): `write_ability_chain_key` (bytes32) + `message_attestation_enabled`, via `get_supported_chain`. **Conditional importance:** only required if the bytes32 chain key is registry-assigned/opaque; if it's the right-padded-`u64` convention (research §2.3 option A, what `chain_key_to_bytes32` implements) the attestor can derive it and this is ops-only. `outbox_factory_address` already shipped (PR #873, already merged on this branch).
 - [ ] **`OutboxFactory` contract** (`getOutbox(bytes32)`) + factory-created Outbox. Use `outbox_address` config override until then.
-- [ ] **Production `EOAValidator`** replacing PoC `DummyVoteValidator` (accepts everything) + a process to keep its on-chain attester address set in sync with attestors' derived EVM addresses.
+- [ ] **Production `EOAValidator`** replacing PoC `DummyVoteValidator` (accepts everything) + a process to keep its on-chain attestor address set in sync with attestors' derived EVM addresses.
 - [ ] **⚠️ ABI unification (the #1 PoC blocker).** Three shapes disagree:
   - Binding (`common/write-ability/src/abi.rs`): `MessagePublished(bytes32 messageId, address emitterAddress, bytes payload)` + expects `Outbox.chainKey()`.
   - PoC `usc-messaging/contracts/src/SimpleOutbox.sol`: `MessagePublished(bytes32 messageId, bytes32 emitterAddress, bool requiresAck, bytes payload)` and has **no `chainKey()`**.
@@ -113,7 +113,7 @@ is fixed via the shared crate. The deployed contracts must agree:
 
 1. **Unify the Outbox `MessagePublished` ABI** (§3) — the one true blocker; one small change unblocks the flow.
 2. **Pin the messageHash inputs** across the deployed Outbox/Inbox (above).
-3. Config-only: `outbox_address` override (skip factory), `Static` attester set, keep `DummyVoteValidator`. No `OutboxFactory`/`EOAValidator`/runtime fields needed for the PoC.
+3. Config-only: `outbox_address` override (skip factory), `Static` attestor set, keep `DummyVoteValidator`. No `OutboxFactory`/`EOAValidator`/runtime fields needed for the PoC.
 The quoter is a **separate** economic-layer workstream (relayer team), not needed for the PoC.
 
 ## How to enable
@@ -123,13 +123,13 @@ The quoter is a **separate** economic-layer workstream (relayer team), not neede
 write_ability:
   enabled: true
   cc3_eth_url: "ws://<creditcoin-evm-rpc>"
-  attesters: ["0x<attester-evm-addr>", ...]   # include your own boot-logged signer address
+  attestors: ["0x<attestor-evm-addr>", ...]   # include your own boot-logged signer address
   # PoC overrides until the factory/runtime fields exist:
   # outbox_address: "0x..."        # skip factory lookup
   # write_ability_chain_key: "0x..."
 ```
 CLI equivalent: `--writeability --cc3-eth-url ws://…` (env: `ATTESTOR_WRITEABILITY`, `ATTESTOR_CC3_ETH_URL`).
-On boot the attestor logs its **derived EVM signer address** — register it in the `EOAValidator` and list it in `attesters`.
+On boot the attestor logs its **derived EVM signer address** — register it in the `EOAValidator` and list it in `attestors`.
 
 ## Build & test
 

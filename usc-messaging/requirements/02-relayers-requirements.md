@@ -6,7 +6,7 @@ This document translates the usc-write-ability-research into specific requiremen
 
 ## Executive Summary
 
-Relayers pick up messages and **deliver** them. They need to hold native currency on the destination chain. They are **not** part of security—they are paid for delivery. Attester clients must **never** be relayers. The model is one Relayer Contract per client chain, with many Relayer Clients (one-to-many) that can be shared across chains.
+Relayers pick up messages and **deliver** them. They need to hold native currency on the destination chain. They are **not** part of security—they are paid for delivery. Attestor clients must **never** be relayers. The model is one Relayer Contract per client chain, with many Relayer Clients (one-to-many) that can be shared across chains.
 
 ---
 
@@ -41,9 +41,9 @@ Relayers pick up messages and **deliver** them. They need to hold native currenc
 
 ### Out of Scope
 
-- Attestation / voting (handled by attesters)
+- Attestation / voting (handled by attestors)
 - Quotation logic (handled by quotation system; relayer contract accepts quotes)
-- Running attester and relayer in the same client (forbidden)
+- Running attestor and relayer in the same client (forbidden)
 
 ---
 
@@ -51,7 +51,7 @@ Relayers pick up messages and **deliver** them. They need to hold native currenc
 
 | Constraint | Description |
 |------------|-------------|
-| **Attester ≠ Relayer** | An attester client must **never** be a relayer. Do not consider it. |
+| **Attestor ≠ Relayer** | An attestor client must **never** be a relayer. Do not consider it. |
 | **No trust for security** | Relayers are paid for delivery; they are not part of the security model. |
 | **Native currency** | Relayers need to hold a lot of native currency on the destination chain. |
 | **One contract per chain** | One Relayer Contract per client chain. |
@@ -83,7 +83,7 @@ Relayer Clients (many, can be shared across chains)
 ### Message Flow
 
 1. dApp calls RelayerContract (fee validation/payment) then Outbox (publish) — two separate calls.
-2. Attesters vote on P2P.
+2. Attestors vote on P2P.
 3. Relayer clients observe votes; when 2/3+1 reached, pick up message.
 4. Relayer client delivers to inbox on destination chain (pays gas in native currency).
 5. Relayer pool distributes profits to clients based on performance (network-specific).
@@ -100,9 +100,9 @@ Relayer Clients (many, can be shared across chains)
 
 The following must be **removed or corrected**:
 
-- **"Relayers can be run by attesters"** — **Incorrect.** Forbidden.
-- **"Attesters can participate as relayers"** — **Incorrect.** Forbidden.
-- **QoS via attester-relayer overlap** — **Incorrect.** Use separate mechanisms (e.g., spy nodes, relayer network incentives).
+- **"Relayers can be run by attestors"** — **Incorrect.** Forbidden.
+- **"Attestors can participate as relayers"** — **Incorrect.** Forbidden.
+- **QoS via attestor-relayer overlap** — **Incorrect.** Use separate mechanisms (e.g., spy nodes, relayer network incentives).
 
 ---
 
@@ -172,14 +172,14 @@ Deploy a minimal inbox that:
 | 3 | Relayer client: listen to P2P for 2/3+1 messages | Protocol Team |
 | 4 | Relayer client: deliver to inbox, pay gas in native currency | Protocol Team |
 | 5 | Relayer pool / profit distribution design (optional for v1) | Protocol / Smart Contract |
-| 6 | Update architecture docs to remove attester-relayer overlap | Research |
+| 6 | Update architecture docs to remove attestor-relayer overlap | Research |
 
 ---
 
 ## Dependencies
 
 - **Quotation system** — Relayer contract accepts quotes; build quotation before or in parallel.
-- **Attesters** — Must produce votes so relayer clients know when to deliver.
+- **Attestors** — Must produce votes so relayer clients know when to deliver.
 - **Inbox contract** — Must be deployed on destination chain.
 - **Outbox contract** — For message publishing (dApp flow); relayer does not call it.
 
@@ -200,4 +200,4 @@ Deploy a minimal inbox that:
 - [Quotation System](../07-quotation-system.md)
 - [Quotation Requirements](./03-quotation-requirements.md)
 - [Inbox Contract](../04-inbox-contract.md)
-- [Attesters Requirements](./01-attesters-requirements.md)
+- [Attestors Requirements](./01-attestors-requirements.md)
