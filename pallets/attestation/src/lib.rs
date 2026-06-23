@@ -758,6 +758,11 @@ pub mod pallet {
         InvalidMaxCatchup,
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
+        /// Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
+        /// ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
+        /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
+        /// would either overflow those bounds or undercharge weight.
+        InvalidMaxAttestors,
         // Tried to import checkpoints for chain key that already has attestations.
         AttestationFoundWhileImporting,
         // Invalid attestation chain block number.
@@ -949,6 +954,25 @@ pub mod pallet {
             new_max: u32,
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
+
+            // Bound by the runtime-level ceiling. This is the same value that backs the
+            // `BoundedVec` capacities used elsewhere for active attestors and that drives
+            // the `commit_attestation` weight benchmark, so accepting a per-chain `new_max`
+            // above it would either overflow those bounds or silently undercharge dispatch
+            // weight. Also reject zero so the operator can't accidentally disable
+            // attestations for a chain through this path — chain removal has its own flow.
+            ensure!(new_max > 0, Error::<T>::InvalidMaxAttestors);
+            ensure!(
+                new_max <= T::MaxAttestationNodes::get(),
+                Error::<T>::InvalidMaxAttestors
+            );
+
+            // Mirror the other setters: pending updates for unsupported chains are useless
+            // storage churn at best and surface bogus events at worst.
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
 
             MaxAttestors::<T>::insert(chain_key, new_max);
 
