@@ -24,7 +24,9 @@ use cc3::runtime_types::{
         AttestationCheckpoint as CcAttestationCheckpoint, AttestationData as CcAttestationData,
         ChainEncodingVersion as CcChainEncodingVersion, SignedAttestation as CcSignedAttestation,
     },
-    supported_chains_primitives::SupportedChain as CcSupportedChain,
+    supported_chains_primitives::{
+        SupportedChain as CcSupportedChain, WriteAbilityConfig as CcWriteAbilityConfig,
+    },
 };
 
 use attestor_primitives::{
@@ -32,7 +34,7 @@ use attestor_primitives::{
     AttestorId, AttestorStatus, BlsPublicKey, BlsSignature, ChainEncodingVersion, ChainKey, Digest,
     SignedAttestation,
 };
-use supported_chains_primitives::SupportedChain;
+use supported_chains_primitives::{SupportedChain, WriteAbilityConfig};
 
 #[subxt::subxt(
     runtime_metadata_path = "artifacts/metadata.scale",
@@ -481,6 +483,44 @@ impl Client {
             .await?;
 
         Ok(result.map(Into::into))
+    }
+
+    pub async fn get_write_ability_config(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<WriteAbilityConfig>, Error> {
+        let address = cc3::storage()
+            .supported_chains()
+            .write_ability_configs(chain_key);
+
+        let result = self
+            .api()
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&address)
+            .await?;
+
+        Ok(result.map(Into::into))
+    }
+
+    pub async fn get_outbox_factory_address(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<sp_core::H160>, Error> {
+        let address = cc3::storage()
+            .supported_chains()
+            .outbox_factories(chain_key);
+
+        let result = self
+            .api()
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&address)
+            .await?;
+
+        Ok(result.map(|addr| sp_core::H160(addr.0)))
     }
 
     pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>, Error> {
@@ -1304,6 +1344,15 @@ impl From<CcSupportedChain> for SupportedChain {
             chain_name: chain.chain_name,
             chain_encoding: ChainEncodingVersion::from(chain.chain_encoding),
             maturity_strategy: chain.maturity_strategy,
+        }
+    }
+}
+
+impl From<CcWriteAbilityConfig> for WriteAbilityConfig {
+    fn from(config: CcWriteAbilityConfig) -> Self {
+        WriteAbilityConfig {
+            write_ability_chain_key: config.write_ability_chain_key,
+            message_attestation_enabled: config.message_attestation_enabled,
         }
     }
 }

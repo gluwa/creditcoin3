@@ -233,6 +233,7 @@ import type {
     SpWeightsRuntimeDbWeight,
     SpWeightsWeightV2Weight,
     SupportedChainsPrimitivesSupportedChain,
+    SupportedChainsPrimitivesWriteAbilityConfig,
 } from '@polkadot/types/lookup';
 
 declare module '@polkadot/types/types/registry' {
@@ -464,5 +465,6 @@ declare module '@polkadot/types/types/registry' {
         SpWeightsRuntimeDbWeight: SpWeightsRuntimeDbWeight;
         SpWeightsWeightV2Weight: SpWeightsWeightV2Weight;
         SupportedChainsPrimitivesSupportedChain: SupportedChainsPrimitivesSupportedChain;
+        SupportedChainsPrimitivesWriteAbilityConfig: SupportedChainsPrimitivesWriteAbilityConfig;
     } // InterfaceTypes
 } // declare module

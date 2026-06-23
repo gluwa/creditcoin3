@@ -63,4 +63,20 @@ mod benchmarks {
             H160::zero(),
         )
     }
+
+    #[benchmark]
+    fn set_write_ability_config() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        // In mock.rs we set up a single supported chain with chain_key 1
+        let chain_key: ChainKey = 1;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_key,
+            [0u8; 32],
+            true,
+        )
+    }
 }
