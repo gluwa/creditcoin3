@@ -3154,6 +3154,7 @@ export default {
             'InvalidAttestationsPerCheckpoint',
             'InvalidMaxCatchup',
             'InvalidTargetSampleSize',
+            'InvalidMaxAttestors',
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',
             'InvalidAttestorFound',
