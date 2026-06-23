@@ -132,11 +132,13 @@ impl MerkleProofCache {
     }
 
     pub async fn mark_processed_empty(&self, header_number: u64) {
-        self.inner
-            .write()
-            .await
-            .processed_blocks
-            .insert(header_number);
+        let mut cache = self.inner.write().await;
+        if let Some(old) = cache.by_block.remove(&header_number) {
+            for tx_hash in &old.tx_hashes {
+                cache.by_tx_hash.remove(tx_hash);
+            }
+        }
+        cache.processed_blocks.insert(header_number);
     }
 
     pub async fn is_processed(&self, header_number: u64) -> bool {
@@ -296,6 +298,21 @@ mod tests {
             .is_none());
         assert!(cache.is_processed(100).await);
         assert!(!cache.is_processed(200).await);
+    }
+
+    #[tokio::test]
+    async fn mark_processed_empty_removes_stale_cached_block() {
+        let cache = MerkleProofCache::default();
+        cache.insert_block(100, vec![tx(1), tx(2)]).await.unwrap();
+
+        cache.mark_processed_empty(100).await;
+
+        assert!(cache
+            .get_by_tx_hash(7, H256::from_low_u64_be(1))
+            .await
+            .is_none());
+        assert!(cache.get_by_block_index(7, 100, 0).await.is_none());
+        assert!(cache.is_processed(100).await);
     }
 
     #[tokio::test]
