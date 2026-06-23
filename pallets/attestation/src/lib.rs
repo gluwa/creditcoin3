@@ -947,17 +947,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(4)]
-        // Add one read on top of the benchmarked weight to account for the new
-        // `SupportedChains::is_chain_supported` storage read added below. The benchmark file
-        // pre-dates this guard and re-running it requires the full runtime; in the meantime
-        // this conservative overhead keeps dispatch from undercharging weight. Sister setters
-        // (`set_target_sample_size`, `set_chain_attestation_interval`, etc.) carry the same
-        // stale-weight gap and should be re-benchmarked together in a follow-up.
-        //
-        // Kept on one line because the sanity `checks` workflow greps `#[pallet::weight(...)]`
-        // and fails on a multi-line attribute (see `pallet-supported-chains::remove_chain` for
-        // the same pattern).
-        #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors().saturating_add(T::DbWeight::get().reads(1)))]
+        #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors())]
         pub fn set_max_attestors(
             origin: OriginFor<T>,
             chain_key: ChainKey,
