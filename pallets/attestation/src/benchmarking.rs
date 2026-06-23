@@ -5,7 +5,7 @@ use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
-use frame_support::traits::OriginTrait;
+use frame_support::traits::{Get, OriginTrait};
 use sp_core::H256;
 use sp_runtime::traits::Bounded;
 use sp_std::{ops::RangeInclusive, vec::Vec};
@@ -325,11 +325,16 @@ mod benchmarks {
 
         log::info!("Benchmark parameters: s = {s}, m = {m}");
 
-        // Ensure pallet limits allow `m` attestors
+        // Ensure pallet limits allow `m` attestors. `set_max_attestors` rejects values above
+        // the runtime ceiling `MaxAttestationNodes`, and the benchmark `m` parameter already
+        // ranges in `1..=MAX_ATTESTORS` which matches the ceiling, so the per-chain cap is set
+        // to exactly the runtime maximum here. (Pre-existing mock attestors are no longer a
+        // concern because the prior `MAX_ATTESTORS + 5` slop now exceeds the runtime ceiling
+        // and would trip the new `InvalidMaxAttestors` guard.)
         assert_ok!(Attestation::<T>::set_max_attestors(
             root_origin.clone(),
             DEV_CHAIN_KEY,
-            MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
+            T::MaxAttestationNodes::get()
         ));
 
         // Set checkpoint interval to 10 (production-realistic: checkpoint every 100 blocks
