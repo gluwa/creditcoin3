@@ -9,9 +9,6 @@ use libp2p::StreamProtocol;
 pub const IDENTIFY: &str = "/gluwa/relayer-id/1.0.0";
 pub const KADEMLIA: StreamProtocol = StreamProtocol::new("/gluwa/relayer-kad/1.0.0");
 
-/// Build the gossipsub topic the relayer subscribes to for a given USC chain_key. Must match
-/// the topic attesters publish on (PoC §6.1).
-#[must_use]
-pub fn message_votes_topic(chain_key: u64) -> String {
-    format!("{chain_key}/message-votes/v1")
-}
+/// The gossipsub topic the relayer subscribes to for a given USC chain_key. Defined in the shared
+/// [`write_ability`] crate so it always matches the topic attesters publish on (PoC §6.1).
+pub use write_ability::protocol::message_votes_topic;

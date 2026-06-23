@@ -18,9 +18,12 @@ use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
 use attestor_primitives::AttestorId;
+use write_ability::envelope::MessageVote;
+use write_ability::protocol::message_votes_topic;
 
 use crate::error::Error;
 use crate::shared::Shared;
+use crate::tasks::write_ability::ingest;
 use crate::vote::{verify_vote, VerifyResult};
 
 /// Consecutive failed pings on a single connection before we reap it.
@@ -61,6 +64,7 @@ pub async fn run(
     cfg: Config,
     mut gossip_rx: mpsc::UnboundedReceiver<Vote>,
     mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
+    mut mv_publish_rx: mpsc::Receiver<MessageVote>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
 
@@ -98,6 +102,23 @@ pub async fn run(
     // rather than dropped from the routing table.
     let mut boot_peers: std::collections::HashSet<libp2p::PeerId> =
         std::collections::HashSet::new();
+
+    // Write-ability piggybacks on this same swarm: when message attestation is enabled we subscribe
+    // to the message-vote topic too (same peers / discovery), and the dispatch in `handle_swarm`
+    // routes frames by topic. `None` when disabled — no extra subscription, no behaviour change.
+    let mv_topic = shared.message_votes.is_some().then(|| {
+        let t = libp2p::gossipsub::IdentTopic::new(message_votes_topic(chain_key));
+        tracing::info!(topic = %t, "📫 subscribing to message-vote gossip");
+        t
+    });
+    if let Some(mv_topic) = &mv_topic {
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(mv_topic)
+            .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+    }
+
     for address in cfg.boot_nodes {
         let Some(peer_id) = address.iter().find_map(|p| match p {
             libp2p::multiaddr::Protocol::P2p(pid) => Some(pid),
@@ -264,12 +285,27 @@ pub async fn run(
                 handle_peer_deactivated(&shared, &mut swarm, &peers_by_attestor, &attestor);
             }
 
+            // Outgoing — the write_ability task produced a signed message vote to gossip. Best
+            // effort: a publish with no mesh peers yet is logged and dropped (PoC scope).
+            Some(vote) = mv_publish_rx.recv(), if mv_topic.is_some() => {
+                if let Some(mv_topic) = &mv_topic {
+                    match swarm.behaviour_mut().gossipsub.publish(mv_topic.hash(), vote.encode_bytes()) {
+                        Ok(_) => tracing::info!(
+                            chain_key = vote.chain_key,
+                            "✉️ gossiped message vote",
+                        ),
+                        Err(err) => tracing::warn!(%err, "✉️ message-vote publish failed"),
+                    }
+                }
+            }
+
             // Incoming events from the swarm.
             event = swarm.select_next_some() => {
                 let could_broadcast = can_broadcast;
                 handle_swarm(
                     &shared,
                     &mut swarm,
+                    mv_topic.as_ref(),
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
@@ -336,6 +372,7 @@ fn drain_pending_votes(
 async fn handle_swarm(
     shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    mv_topic: Option<&libp2p::gossipsub::IdentTopic>,
     pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
@@ -427,31 +464,38 @@ async fn handle_swarm(
         })) => {
             shared.metrics.increase_gossipsub_message_count();
 
-            let (acceptance, learned) = handle_vote_msg(
-                shared,
-                pending_votes,
-                max_pending_per_height,
-                peers_by_attestor,
-                message.source,
-                &message.data,
-            )
-            .await;
+            // Route by topic: message votes (write-ability) vs block attestations. Both ride this
+            // one swarm; `mv_topic` is `Some` only when message attestation is enabled.
+            let is_message_vote = mv_topic.is_some_and(|t| message.topic == t.hash());
+            let decision = if is_message_vote {
+                handle_message_vote(shared, &message.data)
+            } else {
+                let (acceptance, learned) = handle_vote_msg(
+                    shared,
+                    pending_votes,
+                    max_pending_per_height,
+                    peers_by_attestor,
+                    message.source,
+                    &message.data,
+                )
+                .await;
 
-            // Learn the attestor → peer id binding from the *original signer* of a BLS-verified
-            // vote (`message.source`, preserved across relays), not the relaying neighbour. Only
-            // recorded when the vote cryptographically verified as the attestor's, so the binding
-            // is trustworthy. This is what later lets us evict / deny that peer once its attestor
-            // is chilled.
-            if let (Some(attestor), Some(source)) = (learned, message.source) {
-                note_attestor_peer(peers_by_attestor, attestor, source);
-            }
+                // Learn the attestor → peer id binding from the *original signer* of a BLS-verified
+                // vote (`message.source`, preserved across relays), not the relaying neighbour. Only
+                // recorded when the vote cryptographically verified as the attestor's, so the binding
+                // is trustworthy. This is what later lets us evict / deny that peer once its attestor
+                // is chilled.
+                if let (Some(attestor), Some(source)) = (learned, message.source) {
+                    note_attestor_peer(peers_by_attestor, attestor, source);
+                }
 
-            let decision = match acceptance {
-                Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
-                Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
-                Acceptance::Reject => {
-                    shared.metrics.increase_invalid_gossipsub_count();
-                    libp2p::gossipsub::MessageAcceptance::Reject
+                match acceptance {
+                    Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
+                    Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
+                    Acceptance::Reject => {
+                        shared.metrics.increase_invalid_gossipsub_count();
+                        libp2p::gossipsub::MessageAcceptance::Reject
+                    }
                 }
             };
             swarm
@@ -774,6 +818,34 @@ enum Acceptance {
     Accept,
     Ignore,
     Reject,
+}
+
+/// Validate + count an incoming message vote (write-ability), mapping the result to a gossipsub
+/// acceptance. Delegates the real work to [`ingest::validate_and_count`]; we only translate the
+/// decision and surface a reached-threshold milestone.
+fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub::MessageAcceptance {
+    use libp2p::gossipsub::MessageAcceptance;
+    let Some(state) = &shared.message_votes else {
+        // Topic isn't subscribed when disabled, so this is unreachable in practice.
+        return MessageAcceptance::Ignore;
+    };
+    match ingest::validate_and_count(state, shared.chain_key, bytes) {
+        ingest::Acceptance::Accept {
+            reached_threshold,
+            message_hash,
+        } => {
+            shared.metrics.note_message_vote();
+            if reached_threshold {
+                ingest::note_threshold(shared.chain_key, &message_hash);
+            }
+            MessageAcceptance::Accept
+        }
+        ingest::Acceptance::Ignore => MessageAcceptance::Ignore,
+        ingest::Acceptance::Reject => {
+            shared.metrics.increase_invalid_gossipsub_count();
+            MessageAcceptance::Reject
+        }
+    }
 }
 
 async fn handle_vote_msg(
