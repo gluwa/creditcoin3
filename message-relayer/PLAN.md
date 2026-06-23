@@ -2,9 +2,9 @@
 
 ## Context
 
-`relayer-poc.pdf` (15 pages, repo root) describes the **USC Write-Ability Relayer**: an off-chain service that delivers cross-chain messages emitted by the Creditcoin L1 `Outbox` to destination-chain `Inbox` contracts. The relayer is **not part of the security model** — it transports evidence (attester signatures gossiped on libp2p) and pays destination gas. Validity comes from `attester quorum + inbox math`, not from the relayer.
+`relayer-poc.pdf` (15 pages, repo root) describes the **USC Write-Ability Relayer**: an off-chain service that delivers cross-chain messages emitted by the Creditcoin L1 `Outbox` to destination-chain `Inbox` contracts. The relayer is **not part of the security model** — it transports evidence (attestor signatures gossiped on libp2p) and pays destination gas. Validity comes from `attestor quorum + inbox math`, not from the relayer.
 
-This crate is the Phase-1 PoC. Goal: a single binary that for one or more `(creditcoin_chain_key → destination_chain)` routes will (1) discover finalized `MessagePublished` events on Creditcoin, (2) snoop attester votes on the existing P2P mesh, (3) aggregate ECDSA signatures up to a `2/3+1` threshold, and (4) submit `Inbox.deliverMessage(...)` on the destination chain. Phasing/quoting/profit-sharing (L11–L12) and acknowledgment proofs (PDF §8) are explicitly out of scope.
+This crate is the Phase-1 PoC. Goal: a single binary that for one or more `(creditcoin_chain_key → destination_chain)` routes will (1) discover finalized `MessagePublished` events on Creditcoin, (2) snoop attestor votes on the existing P2P mesh, (3) aggregate ECDSA signatures up to a `2/3+1` threshold, and (4) submit `Inbox.deliverMessage(...)` on the destination chain. Phasing/quoting/profit-sharing (L11–L12) and acknowledgment proofs (PDF §8) are explicitly out of scope.
 
 The user asked for "good enough for starting", so the plan favors pragmatic copies of existing workspace patterns over architectural purity.
 
@@ -77,13 +77,13 @@ pub struct ChainRoute {
     pub inbox_address: alloy::primitives::Address,
     pub signer_key: Option<String>,            // hex / mnemonic; required to deliver, optional read-only
     pub block_confirmation_depth: u64,
-    pub attester_set: AttesterSet,             // allowlist source
+    pub attestor_set: AttestorSet,             // allowlist source
     pub threshold_override: Option<u32>,
 }
 
-pub enum AttesterSet {
+pub enum AttestorSet {
     Static(Vec<alloy::primitives::Address>),
-    OnChain { source: AttesterSource },        // EVM contract or CC3 chain-key lookup
+    OnChain { source: AttestorSource },        // EVM contract or CC3 chain-key lookup
 }
 
 pub struct P2pConfig {
@@ -135,7 +135,7 @@ Implemented via `alloy::sol_types::SolValue::abi_encode` so encoding is bit-exac
 Per-route Outbox watcher. Implementation:
 1. Resolve outbox: if `route.outbox_address` is `Some`, use it directly; else call a factory (planned `bytes32` chain-key lookup) — see *Factory resolution* below.
 2. Use `eth::Client::subscribe()`-style WS subscription to the `MessagePublished` topic on the Outbox, with a fallback `eth_getLogs` poller (use `block_confirmation_depth` to avoid reorg-prone heads — same pattern as `proof-gen-api-server/src/lib.rs:232`).
-3. Validate the event shape (scale-encoded fields per attester spec), compute `messageHash`, push `IndexedMessage` into a shared `Arc<RwLock<HashMap<H256, IndexedMessage>>>` (the **chain-first allowlist** per PDF §6.2 — votes for unindexed `messageHash`es are dropped).
+3. Validate the event shape (scale-encoded fields per attestor spec), compute `messageHash`, push `IndexedMessage` into a shared `Arc<RwLock<HashMap<H256, IndexedMessage>>>` (the **chain-first allowlist** per PDF §6.2 — votes for unindexed `messageHash`es are dropped).
 
 ### `p2p/mod.rs`
 
@@ -160,7 +160,7 @@ pub struct MessageVote {
 }
 ```
 
-Decoded with `parity_scale_codec::Decode` (matches attestor codec). When the canonical attester envelope ships, replace this with a `From` impl and delete the local definition.
+Decoded with `parity_scale_codec::Decode` (matches attestor codec). When the canonical attestor envelope ships, replace this with a `From` impl and delete the local definition.
 
 ### `pool/mod.rs`
 
@@ -178,10 +178,10 @@ struct MessageState {
 
 API:
 - `note_indexed(IndexedMessage)` — chain-first allowlist
-- `try_insert_vote(MessageVote, &AttesterSet) -> InsertOutcome` — apply PDF §6.2 checks (codec, allowlist, `ecrecover`, signer ∈ allowlist, dedup) and increment metrics
+- `try_insert_vote(MessageVote, &AttestorSet) -> InsertOutcome` — apply PDF §6.2 checks (codec, allowlist, `ecrecover`, signer ∈ allowlist, dedup) and increment metrics
 - `ready_for_delivery(threshold) -> Option<DeliveryJob>` — fires when `unique_signers >= threshold`
 
-Threshold is computed from `AttesterSet` length (`2*N/3 + 1`, matching PDF §6.3) unless `threshold_override` is set.
+Threshold is computed from `AttestorSet` length (`2*N/3 + 1`, matching PDF §6.3) unless `threshold_override` is set.
 
 ### `delivery/mod.rs`
 
@@ -272,10 +272,10 @@ No edits to existing crates required for the PoC scope. The relayer is purely ad
 
 ## Open questions / explicit assumptions (flag these in PR descriptions)
 
-1. **Vote envelope canonical schema** — `MessageVote` codec is a best-effort interpretation of PDF §6.1; will need a one-line swap when the attester write-ability work merges its envelope type. Tracking comment in `p2p/envelope.rs`.
-2. **Attester set source** — PoC supports only static allowlist (Phase 1). On-chain `IVoteValidator` introspection is wired through `AttesterSet::OnChain { source }` but the resolver is a stub (returns config'd allowlist) until the validator contract ships. Equivalent to PDF Open Question 5.
+1. **Vote envelope canonical schema** — `MessageVote` codec is a best-effort interpretation of PDF §6.1; will need a one-line swap when the attestor write-ability work merges its envelope type. Tracking comment in `p2p/envelope.rs`.
+2. **Attestor set source** — PoC supports only static allowlist (Phase 1). On-chain `IVoteValidator` introspection is wired through `AttestorSet::OnChain { source }` but the resolver is a stub (returns config'd allowlist) until the validator contract ships. Equivalent to PDF Open Question 5.
 3. **Outbox factory** — placeholder resolver, returns `route.outbox_address` directly; tracked next to PDF L2.
-4. **Signer alignment** — assumes attesters publish 65-byte ECDSA over the EVM `messageHash`; if attesters use a different scheme (BLS over a different msg) the PoC will fail at the `ecrecover` step and we revisit (PDF §6.5).
+4. **Signer alignment** — assumes attestors publish 65-byte ECDSA over the EVM `messageHash`; if attestors use a different scheme (BLS over a different msg) the PoC will fail at the `ecrecover` step and we revisit (PDF §6.5).
 5. **Threshold formula** — `2N/3 + 1` matching PDF §6.3 / IVoteValidator default. `threshold_override` exists for tests.
 6. **Phase-2 hooks** — `validateAndCollectFee` quoter integration and acknowledgment proofs are deliberately deferred; not instrumented in metrics names that would later collide.
 
@@ -285,7 +285,7 @@ No edits to existing crates required for the PoC scope. The relayer is purely ad
 - `cargo clippy -p message-relayer --all-targets` must pass (workspace runs `-D warnings`).
 - `cargo test -p message-relayer` (golden hash, votes-encoding, pool unit tests) must pass on every PR.
 - `cargo test -p message-relayer --features integration-tests` must pass on PR5+ (E2E, race, abuse).
-- Manual: copy `config.example.yaml`, point at a local CC3 node + Anvil + a single attester fixture, run `cargo run -p message-relayer -- --config relayer.yaml`, observe a `MessagePublished` → P2P vote → `deliverMessage` flow end-to-end. Check `/metrics` for the counters listed in §10 and `/health` returns 200.
+- Manual: copy `config.example.yaml`, point at a local CC3 node + Anvil + a single attestor fixture, run `cargo run -p message-relayer -- --config relayer.yaml`, observe a `MessagePublished` → P2P vote → `deliverMessage` flow end-to-end. Check `/metrics` for the counters listed in §10 and `/health` returns 200.
 - CI: add `-p message-relayer` to existing build/test/clippy matrices in `.github/workflows/` (no new pipelines).
 
 ## What is *not* in this plan

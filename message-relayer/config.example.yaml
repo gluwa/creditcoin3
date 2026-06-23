@@ -18,7 +18,7 @@ p2p:
   # Public DNS / address advertised to peers (omit for OS-assigned ipv4).
   # public_addr: relayer-eu-1.example.com
   boot_nodes:
-    # - "/dns4/attester-1.example.com/tcp/9000/p2p/12D3KooWXX...XX"
+    # - "/dns4/attestor-1.example.com/tcp/9000/p2p/12D3KooWXX...XX"
   # Set true to disable mDNS local discovery (recommended on Kubernetes).
   no_mdns: false
   # BIP39 mnemonic or 0x-prefixed 32-byte hex seed for the libp2p identity.
@@ -47,7 +47,7 @@ routes:
     # may be omitted while the relayer runs read-only for testing.
     # signer_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     block_confirmation_depth: 12
-    attester_set:
+    attestor_set:
       kind: static
       addresses:
         - "0x000000000000000000000000000000000000000a"
@@ -63,6 +63,6 @@ routes:
   #   destination_rpc_url: "https://polygon-rpc.com"
   #   inbox_address: "0x..."
   #   block_confirmation_depth: 64
-  #   attester_set:
+  #   attestor_set:
   #     kind: cc3_active_set
   #     chain_key: 7

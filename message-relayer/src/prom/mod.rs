@@ -86,7 +86,7 @@ impl RelayerMetrics {
         let votes = Family::default();
         registry.register(
             "relayer_votes_received",
-            "Attester votes received over the P2P mesh, by outcome",
+            "Attestor votes received over the P2P mesh, by outcome",
             votes.clone(),
         );
 

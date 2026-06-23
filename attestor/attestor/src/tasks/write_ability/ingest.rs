@@ -5,7 +5,7 @@
 //! block attestation, adding only the second topic. The decision returned maps straight onto a
 //! gossipsub `MessageAcceptance`:
 //!
-//! * **Reject** — undecodable, wrong chain key, bad/forged signature, or a non-attester signer.
+//! * **Reject** — undecodable, wrong chain key, bad/forged signature, or a non-attestor signer.
 //!   Never propagate.
 //! * **Ignore** — valid but redundant (duplicate signer) or not-yet-chain-seen (allowlist miss):
 //!   don't count, don't propagate, but don't penalise the sender.
@@ -54,7 +54,7 @@ pub fn validate_and_count(
     let message_hash = B256::from(vote.message_hash);
 
     // Recover the signer from the signature and require it to match the advertised `signer` field
-    // and to be in the active attester set. Recovering first stops a forged `signer` being trusted.
+    // and to be in the active attestor set. Recovering first stops a forged `signer` being trusted.
     let recovered = match recover_signer(&message_hash, &vote.signature) {
         Ok(addr) => addr,
         Err(err) => {
@@ -67,7 +67,7 @@ pub fn validate_and_count(
         return Acceptance::Reject;
     }
     if !state.active_set.contains(&recovered) {
-        tracing::warn!(signer = %recovered, "👤 message vote from non-attester — rejecting");
+        tracing::warn!(signer = %recovered, "👤 message vote from non-attestor — rejecting");
         return Acceptance::Reject;
     }
 
@@ -173,10 +173,10 @@ mod tests {
     }
 
     #[test]
-    fn vote_from_non_attester_is_rejected() {
-        let attester = MessageSigner::from_seed(&[1u8; 32]).unwrap();
+    fn vote_from_non_attestor_is_rejected() {
+        let attestor = MessageSigner::from_seed(&[1u8; 32]).unwrap();
         let outsider = MessageSigner::from_seed(&[2u8; 32]).unwrap();
-        let state = state_with(&[&attester], 1); // only `attester` is authorized
+        let state = state_with(&[&attestor], 1); // only `attestor` is authorized
         let hash = B256::from([0xABu8; 32]);
         state.aggregator.lock().note_indexed(hash.0, Instant::now());
 
@@ -189,15 +189,15 @@ mod tests {
 
     #[test]
     fn forged_signer_field_is_rejected() {
-        let attester = MessageSigner::from_seed(&[1u8; 32]).unwrap();
+        let attestor = MessageSigner::from_seed(&[1u8; 32]).unwrap();
         let impostor = MessageSigner::from_seed(&[2u8; 32]).unwrap();
-        let state = state_with(&[&attester], 1);
+        let state = state_with(&[&attestor], 1);
         let hash = B256::from([0xABu8; 32]);
         state.aggregator.lock().note_indexed(hash.0, Instant::now());
 
-        // Sign with the impostor but claim to be the attester: recovery won't match `signer`.
+        // Sign with the impostor but claim to be the attestor: recovery won't match `signer`.
         let mut vote = signed_vote(&impostor, hash);
-        vote.signer = attester.address().into_array();
+        vote.signer = attestor.address().into_array();
         assert_eq!(
             validate_and_count(&state, CHAIN_KEY, &vote.encode_bytes()),
             Acceptance::Reject

@@ -1,12 +1,12 @@
-# Attesters (Message Validators) — Requirements & Implementation Plan
+# Attestors (Message Validators) — Requirements & Implementation Plan
 
 ## Document Purpose
 
-This document translates the usc-write-ability-research into specific requirements for the Attester component of the USC Write-Ability Layer. It defines scope, constraints, and a development approach using dummy contracts and dummy data.
+This document translates the usc-write-ability-research into specific requirements for the Attestor component of the USC Write-Ability Layer. It defines scope, constraints, and a development approach using dummy contracts and dummy data.
 
 ## Executive Summary
 
-Attesters are **message validators** that pick up messages from outbox votes, vote on the P2P layer, and focus exclusively on security. They do **not** relay messages. Mixing validation with delivery is explicitly forbidden—attesters and relayers scale differently (few attesters, many relayer clients).
+Attestors are **message validators** that pick up messages from outbox votes, vote on the P2P layer, and focus exclusively on security. They do **not** relay messages. Mixing validation with delivery is explicitly forbidden—attestors and relayers scale differently (few attestors, many relayer clients).
 
 ---
 
@@ -14,7 +14,7 @@ Attesters are **message validators** that pick up messages from outbox votes, vo
 
 ### In Scope
 
-1. **Attester Client** — Software that:
+1. **Attestor Client** — Software that:
    - Listens to one outbox contract per chain (one contract, one event hash per chain)
    - Picks up `MessagePublished` events from the outbox
    - Votes on the P2P layer for message validation
@@ -22,10 +22,10 @@ Attesters are **message validators** that pick up messages from outbox votes, vo
    - Does **not** require funds to operate
    - Does **not** relay or deliver messages
 
-2. **Per-Chain Attester Model**
-   - One attester instance per client chain
-   - Cannot share a single attester across many chains
-   - Each attester listens to one outbox contract (one chain)
+2. **Per-Chain Attestor Model**
+   - One attestor instance per client chain
+   - Cannot share a single attestor across many chains
+   - Each attestor listens to one outbox contract (one chain)
 
 3. **Finality Rules**
    - Primary: vote on finalized events
@@ -42,7 +42,7 @@ Attesters are **message validators** that pick up messages from outbox votes, vo
 - Message delivery / relaying (handled by relayers)
 - Quotation or fee logic (handled by relayer network)
 - Acknowledgment voting (delivery uses native USC proving directly)
-- Running attester and relayer in the same client (forbidden)
+- Running attestor and relayer in the same client (forbidden)
 
 ---
 
@@ -50,12 +50,12 @@ Attesters are **message validators** that pick up messages from outbox votes, vo
 
 | Constraint | Description |
 |------------|-------------|
-| **No relaying** | Attester clients must **never** act as relayers. Mixing validation with delivery is a design mistake. |
-| **No funds** | Attesters do not need native currency or tokens to operate. |
-| **Per-chain** | One attester per chain. Cannot share attester across many chains. |
+| **No relaying** | Attestor clients must **never** act as relayers. Mixing validation with delivery is a design mistake. |
+| **No funds** | Attestors do not need native currency or tokens to operate. |
+| **Per-chain** | One attestor per chain. Cannot share attestor across many chains. |
 | **One contract, one event** | For listening: one outbox contract, one event hash per chain. Keep it simple. |
 | **Finality** | Vote on finalized events; if finality paused, use probabilistic finality with bounded lag. |
-| **Scaling** | Few attesters, many relayer clients. Design for this asymmetry. |
+| **Scaling** | Few attestors, many relayer clients. Design for this asymmetry. |
 
 ---
 
@@ -66,16 +66,16 @@ Attesters are **message validators** that pick up messages from outbox votes, vo
 ```
 Outbox Contract (per chain) → MessagePublished event
          ↓
-Attester Client (per chain) → Parse event, compute message hash
+Attestor Client (per chain) → Parse event, compute message hash
          ↓
 P2P Voting Layer → Sign and gossip vote
          ↓
-2/3+1 threshold → Message ready for relay (by relayers, not attesters)
+2/3+1 threshold → Message ready for relay (by relayers, not attestors)
 ```
 
 ### Message Hash (for voting)
 
-Attesters sign the hash:
+Attestors sign the hash:
 
 ```
 keccak256(abi.encode(messageId, emitterAddress, destinationChainKey, creditcoinChainId, payload))
@@ -165,9 +165,9 @@ The attestor network lives in `creditcoin3-next/attestor`. This section gives ro
 
 The following in `01-architecture-overview.md` and `07-quotation-system.md` must be **removed or corrected**:
 
-- **"Relayers can be run by attesters"** — **Incorrect.** Attester client must never be a relayer.
-- **"Attesters can participate as relayers"** — **Incorrect.** Same as above.
-- **QoS via attester-relayer overlap** — **Incorrect.** Security (attestation) and delivery (relaying) are separate roles.
+- **"Relayers can be run by attestors"** — **Incorrect.** Attestor client must never be a relayer.
+- **"Attestors can participate as relayers"** — **Incorrect.** Same as above.
+- **QoS via attestor-relayer overlap** — **Incorrect.** Security (attestation) and delivery (relaying) are separate roles.
 
 ---
 
@@ -179,7 +179,7 @@ To unblock development before full outbox/inbox deployment:
 
 1. Use **dummy outbox contracts** that emit `MessagePublished` with synthetic data.
 2. Use **dummy event hashes** and **dummy chain keys** for testing.
-3. Feed attester clients with **dummy RPC endpoints** or **mock event streams**.
+3. Feed attestor clients with **dummy RPC endpoints** or **mock event streams**.
 
 ### Dummy Outbox Contract
 
@@ -214,7 +214,7 @@ interface IDummyOutbox {
 
 ### Development Flow
 
-1. **Phase 1**: Attester client connects to dummy outbox RPC, subscribes to `MessagePublished`.
+1. **Phase 1**: Attestor client connects to dummy outbox RPC, subscribes to `MessagePublished`.
 2. **Phase 2**: On each event, compute message hash and submit vote to P2P (or mock P2P).
 3. **Phase 3**: Integrate with real attestor-gossip when ready.
 4. **Phase 4**: Swap dummy outbox for real outbox once deployed.
@@ -226,11 +226,11 @@ interface IDummyOutbox {
 | # | Deliverable | Owner |
 |---|-------------|-------|
 | 1 | Dummy outbox contract (Solidity) emitting `MessagePublished` | Smart Contract Team |
-| 2 | Attester client: event listener + message hash computation | Protocol Team |
-| 3 | Attester client: P2P vote submission (extend attestor-gossip) | Protocol Team |
+| 2 | Attestor client: event listener + message hash computation | Protocol Team |
+| 3 | Attestor client: P2P vote submission (extend attestor-gossip) | Protocol Team |
 | 4 | Finality logic: finalized vs probabilistic with bounded lag | Protocol Team |
-| 5 | Per-chain attester configuration and deployment docs | Protocol Team |
-| 6 | Update `01-architecture-overview.md` to remove attester-relayer overlap | Research |
+| 5 | Per-chain attestor configuration and deployment docs | Protocol Team |
+| 6 | Update `01-architecture-overview.md` to remove attestor-relayer overlap | Research |
 
 ---
 
@@ -246,7 +246,7 @@ interface IDummyOutbox {
 
 1. **Probabilistic finality**: Exact definition of "cannot fall too far back" (block depth, time window)?
 2. **Attestor-gossip**: Does the existing gossip protocol need a new message type for outbox votes?
-3. **Chain registry**: How does attester discover outbox address per `chainKey`?
+3. **Chain registry**: How does attestor discover outbox address per `chainKey`?
 
 ---
 

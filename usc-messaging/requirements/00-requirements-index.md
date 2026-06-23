@@ -8,14 +8,14 @@ This folder contains implementation plans and requirements derived from the usc-
 
 | Document | Description |
 |----------|-------------|
-| [01-attesters-requirements.md](./01-attesters-requirements.md) | Attesters (message validators): vote on outbox events, P2P only, no relaying |
+| [01-attestors-requirements.md](./01-attestors-requirements.md) | Attestors (message validators): vote on outbox events, P2P only, no relaying |
 | [02-relayers-requirements.md](./02-relayers-requirements.md) | Relayers: pick up messages, deliver to inbox, one contract per chain, many clients |
 | [03-quotation-requirements.md](./03-quotation-requirements.md) | Quotation: exchange rates, core fee, build before relayers |
 
 ## Key Principles (from CTO)
 
-1. **Attester ≠ Relayer** — Attester clients must never be relayers. Mixing validation with delivery is forbidden.
-2. **Separation of concerns** — Attesters scale as few; relayers scale as many. Design for this.
+1. **Attestor ≠ Relayer** — Attestor clients must never be relayers. Mixing validation with delivery is forbidden.
+2. **Separation of concerns** — Attestors scale as few; relayers scale as many. Design for this.
 3. **One Relayer Contract per client chain** — Many Relayer Clients can share across chains.
 4. **Quotation before relayers** — Relayer contract accepts a quote; build quotation in parallel or first.
 5. **Per relayer network** — Each relayer network builds its own quotation; typically won't trust another's.
@@ -35,7 +35,7 @@ All plans recommend using dummy contracts and dummy data to start development im
 ## Build Order (Suggested)
 
 1. **Quotation** — Dummy quoter + exchange rate module (needed by relayer contract)
-2. **Attesters** — Dummy outbox → event listener → P2P vote submission
+2. **Attestors** — Dummy outbox → event listener → P2P vote submission
 3. **Relayers** — Dummy inbox + relayer client → deliver with pre-signed votes
 4. **Integration** — Swap dummies for production contracts as they become available
 
@@ -43,8 +43,8 @@ All plans recommend using dummy contracts and dummy data to start development im
 
 The following statements in existing research docs must be corrected:
 
-- **01-architecture-overview.md**: Remove "Relayers can be run by attesters" and "attesters can participate as relayers"
-- **07-quotation-system.md**: Same removals; QoS should not rely on attester-relayer overlap
+- **01-architecture-overview.md**: Remove "Relayers can be run by attestors" and "attestors can participate as relayers"
+- **07-quotation-system.md**: Same removals; QoS should not rely on attestor-relayer overlap
 
 ## Related Research
 

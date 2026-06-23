@@ -1,6 +1,6 @@
 //! End-to-end test (PoC test T2) — placeholder.
 //!
-//! Asserts that `MessagePublished -> attester votes -> deliverMessage -> MessageDelivered`
+//! Asserts that `MessagePublished -> attestor votes -> deliverMessage -> MessageDelivered`
 //! works against a local Anvil node (hosting both the Outbox and Inbox, co-located for test
 //! simplicity) and a fixture libp2p mesh. Gated behind the `integration-tests` feature like
 //! proof-gen-api-server's E2E tests.
@@ -12,7 +12,7 @@
 #![cfg(feature = "integration-tests")]
 
 #[tokio::test]
-#[ignore = "requires alloy-node-bindings (anvil) + a fixture attester publisher"]
+#[ignore = "requires alloy-node-bindings (anvil) + a fixture attestor publisher"]
 async fn message_published_to_message_delivered_round_trip() {
     // Steps:
     // 1. Boot anvil via alloy-node-bindings; deploy dummy Outbox + Inbox (co-located on one node

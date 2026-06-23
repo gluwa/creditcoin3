@@ -4,7 +4,7 @@
 //! validator**: it watches the Creditcoin L1 Outbox for its `chain_key`, signs the canonical
 //! `messageHash` of each finalized `MessagePublished`, and gossips an ECDSA [`MessageVote`] on
 //! `{chain_key}/message-votes/v1`. Relayers snoop the same topic and deliver once 2/3+1 unique
-//! attesters have voted — the attestor never relays or touches the destination chain (§1).
+//! attestors have voted — the attestor never relays or touches the destination chain (§1).
 //!
 //! **Transport reuse:** message votes ride the *existing* attestor libp2p swarm — same peers,
 //! discovery (kad/mdns/identify), and bootnodes — adding only the new topic. This task therefore
@@ -43,11 +43,11 @@ use write_ability::envelope::MessageVote;
 use crate::error::Error;
 use crate::shared::Shared;
 
-pub use config::{AttesterSet, Config};
+pub use config::{AttestorSet, Config};
 
 /// Message-vote state shared between this task (producer) and the p2p task (publisher + incoming
 /// validator). Lives on [`Shared`](crate::shared::Shared) as `Option`, set only when message
-/// attestation is enabled with a usable attester set.
+/// attestation is enabled with a usable attestor set.
 pub struct MessageVoteState {
     /// In-memory vote aggregator (chain-first allowlist, dedup, threshold, anti-abuse caps).
     pub aggregator: Mutex<aggregator::VoteAggregator>,
@@ -65,19 +65,19 @@ pub fn build_state(cfg: &Config) -> Option<(Arc<MessageVoteState>, mpsc::Receive
     if !cfg.enabled {
         return None;
     }
-    let active_set = match &cfg.attester_set {
-        AttesterSet::Static(addrs) if !addrs.is_empty() => {
+    let active_set = match &cfg.attestor_set {
+        AttestorSet::Static(addrs) if !addrs.is_empty() => {
             addrs.iter().copied().collect::<HashSet<Address>>()
         }
-        AttesterSet::Static(_) => {
-            tracing::error!("message attestation enabled but attester_set is empty — disabling");
+        AttestorSet::Static(_) => {
+            tracing::error!("message attestation enabled but attestor_set is empty — disabling");
             return None;
         }
-        AttesterSet::OnChainValidator(addr) => {
+        AttestorSet::OnChainValidator(addr) => {
             tracing::error!(
                 %addr,
-                "on-chain validator attester set is not yet wired into the attestor; \
-                 configure a static attester_set — disabling message attestation"
+                "on-chain validator attestor set is not yet wired into the attestor; \
+                 configure a static attestor_set — disabling message attestation"
             );
             return None;
         }
@@ -92,7 +92,7 @@ pub fn build_state(cfg: &Config) -> Option<(Arc<MessageVoteState>, mpsc::Receive
         publish_tx,
     });
     tracing::info!(
-        attesters = state.active_set.len(),
+        attestors = state.active_set.len(),
         threshold,
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
@@ -119,15 +119,27 @@ pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) ->
         .await
         .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
 
-    let resolved = resolver::resolve(&provider, &cfg)
+    // No Outbox factory / Outbox registered on-chain for our chain_key: write-ability is not
+    // available here, so disable it for the rest of this run (the attestor keeps doing block
+    // attestation). We do not retry — resolution is one-shot at startup; once the factory/Outbox is
+    // created, restart the attestor. See the dynamic-discovery TODO in resolver.rs.
+    let Some(resolved) = resolver::resolve(&provider, &cfg)
         .await
-        .map_err(Error::WriteAbility)?;
+        .map_err(Error::WriteAbility)?
+    else {
+        tracing::warn!(
+            "📭 no Outbox factory/Outbox registered on-chain for this chain_key — write-ability \
+             disabled for this run"
+        );
+        shared.token.cancelled().await;
+        return Ok(());
+    };
 
     let signer = signing::MessageSigner::from_seed(&seed).map_err(Error::WriteAbility)?;
     let our_address = signer.address();
     tracing::info!(
         evm_address = %our_address,
-        "🔑 message-vote signer ready — register this address in the EOAValidator attester set"
+        "🔑 message-vote signer ready — register this address in the EOAValidator attestor set"
     );
 
     // Listener runs as a child task feeding us finalized messages; we sign, count, and publish.
