@@ -133,9 +133,11 @@ async function registerOutboxFactory(
   chainKey: bigint,
   factoryAddr: string,
 ): Promise<void> {
-  const wsUrl =
-    process.env.CREDITCOIN_SUBSTRATE_WS_URL ?? toWs(requireEnv("CREDITCOIN_RPC_URL"));
-  const sudoSuri = process.env.CREDITCOIN_SUDO_SURI ?? "//Alice";
+  // Note: `??` only falls back on undefined/null, but these env vars are commonly present-but-empty
+  // (`CREDITCOIN_SUBSTRATE_WS_URL=""` in .env.example), so treat blank as unset.
+  const configuredWs = process.env.CREDITCOIN_SUBSTRATE_WS_URL?.trim();
+  const wsUrl = configuredWs ? configuredWs : toWs(requireEnv("CREDITCOIN_RPC_URL"));
+  const sudoSuri = process.env.CREDITCOIN_SUDO_SURI?.trim() || "//Alice";
 
   const api = await ApiPromise.create({
     provider: new WsProvider(wsUrl),
