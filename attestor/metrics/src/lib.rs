@@ -166,8 +166,13 @@ struct Store {
         prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
     >,
 
-    /// Currently connected p2p peers — incremented on libp2p `ConnectionEstablished`,
-    /// decremented on `ConnectionClosed`.
+    /// Currently connected p2p peers (distinct remote peers, not raw connections).
+    ///
+    /// Bumped only when libp2p `ConnectionEstablished` fires with `num_established == 1`
+    /// (first established connection to that peer), and decremented only when
+    /// `ConnectionClosed` fires with `num_established == 0` (last remaining connection
+    /// closed). The swarm enables TCP + QUIC and allows multiple connections per peer, so
+    /// counting every connection event would inflate the gauge above the actual peer count.
     ///
     /// This is distinct from [`metrics_p2p`] (Kademlia routing-table size): routing-table
     /// entries and live connections drift apart in normal operation — a peer can stay in the
@@ -507,14 +512,18 @@ impl Metrics {
     }
 
     /// Increment the *currently connected* peer gauge — call from libp2p
-    /// `SwarmEvent::ConnectionEstablished`. Independent from [`Self::note_routing_peer_added`],
-    /// which tracks the Kademlia routing-table.
+    /// `SwarmEvent::ConnectionEstablished` **only when `num_established == 1`** (first
+    /// connection to the remote peer). Subsequent connections from the same peer (additional
+    /// transports, parallel dials) must not bump this gauge or it stops representing distinct
+    /// peers. Independent from [`Self::note_routing_peer_added`], which tracks the Kademlia
+    /// routing-table.
     pub fn note_peer_connected(&self) {
         self.0.metrics_connected_peers.inc();
     }
 
     /// Decrement the *currently connected* peer gauge — call from libp2p
-    /// `SwarmEvent::ConnectionClosed`. Counterpart to [`Self::note_peer_connected`].
+    /// `SwarmEvent::ConnectionClosed` **only when `num_established == 0`** (last connection
+    /// to the remote peer closed). Counterpart to [`Self::note_peer_connected`].
     pub fn note_peer_disconnected(&self) {
         self.0.metrics_connected_peers.dec();
     }
