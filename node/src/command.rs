@@ -181,11 +181,23 @@ pub fn run() -> sc_cli::Result<()> {
                 // import. BABE is reverted first because its aux entries are produced
                 // earlier in the import pipeline and GRANDPA's revert is the cheaper
                 // catch-all if the first call fails for an unrelated reason.
-                let aux_revert = Box::new(move |client: Arc<_>, backend, blocks| {
-                    sc_consensus_babe::revert(client.clone(), backend, blocks)?;
-                    sc_consensus_grandpa::revert(client, blocks)?;
-                    Ok(())
-                });
+                //
+                // The closure arg types match `AuxRevertHandler<C, BA, B>` in
+                // sc_cli::commands::revert_cmd, where C/BA/B are inferred from the
+                // `cmd.run(client, backend, ...)` call below. Spell them out so
+                // `sc_consensus_babe::revert` (generic over C and BA) can resolve its
+                // type parameters — inference fails on stable rustc otherwise.
+                let aux_revert = Box::new(
+                    move |client: Arc<crate::client::Client>,
+                          backend: Arc<crate::client::FullBackend>,
+                          blocks: sp_runtime::traits::NumberFor<
+                        creditcoin3_runtime::opaque::Block,
+                    >| {
+                        sc_consensus_babe::revert(client.clone(), backend, blocks)?;
+                        sc_consensus_grandpa::revert(client, blocks)?;
+                        Ok(())
+                    },
+                );
                 Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
             })
         }
