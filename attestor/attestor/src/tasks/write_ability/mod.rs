@@ -119,7 +119,7 @@ pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) ->
         .await
         .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
 
-    let resolved = resolver::resolve(&provider, shared.chain_key, &cfg)
+    let resolved = resolver::resolve(&provider, &cfg)
         .await
         .map_err(Error::WriteAbility)?;
 

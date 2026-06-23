@@ -169,10 +169,10 @@ pub mod pallet {
             maturity_strategy: String,
         },
 
-        /// The outbox factory for a supported chain has been set.
+        /// The outbox factory for a supported chain has been registered.
         /// This signals to attestors that they can fetch the outbox
         /// address and begin listening for writability messages.
-        OutboxCreated {
+        OutboxFactoryRegistered {
             chain_key: ChainKey,
             outbox_factory_addr: H160,
         },
@@ -327,7 +327,7 @@ pub mod pallet {
 
             OutboxFactories::<T>::insert(chain_key, address);
 
-            Self::deposit_event(Event::OutboxCreated {
+            Self::deposit_event(Event::OutboxFactoryRegistered {
                 chain_key,
                 outbox_factory_addr: address,
             });

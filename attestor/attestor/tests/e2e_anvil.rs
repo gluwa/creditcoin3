@@ -1,12 +1,17 @@
 //! End-to-end test for the write-ability EVM path (confluence T2, single-node slice).
 //!
-//! Boots a real local Anvil node, deploys a fixture Outbox whose `MessagePublished` event matches
+//! Boots a real local Anvil node standing in for the **Creditcoin L1 EVM** — the chain the Outbox
+//! and its factory live on — deploys a fixture Outbox there whose `MessagePublished` event matches
 //! the attestor's `IOutbox` binding, then drives the **actual** attestor modules against the live
 //! chain:
 //!
 //!   resolve Outbox (`resolver`) → emit `MessagePublished` → index it (`listener::poll_once`,
 //!   real `eth_getLogs`) → recompute `messageHash` → sign (`signing`) → validate + count to quorum
 //!   (`ingest` + `aggregator`).
+//!
+//! The attestor only ever watches the Outbox on the Creditcoin L1 EVM; it never interacts with the
+//! destination chain or the Inbox (those live on the relayer's delivery path). So the Anvil node
+//! here represents the Creditcoin L1 EVM, not a destination chain.
 //!
 //! This covers the one gap the in-crate unit tests can't: real EVM log decoding + hash binding
 //! against a live node. The libp2p gossip transport is exercised separately; here we hand the
@@ -28,7 +33,7 @@ use parking_lot::Mutex;
 
 use attestor::tasks::write_ability::aggregator::VoteAggregator;
 use attestor::tasks::write_ability::MessageVoteState;
-use attestor::tasks::write_ability::{config::Config, ingest, listener, resolver, signing};
+use attestor::tasks::write_ability::{ingest, listener, resolver, signing};
 use write_ability::envelope::MessageVote;
 use write_ability::hash::message_hash;
 use write_ability::protocol::chain_key_to_bytes32;
@@ -51,7 +56,8 @@ sol! {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "requires the anvil binary (foundry) on PATH"]
 async fn outbox_publish_indexed_signed_and_reaches_quorum() {
-    // 1. Boot Anvil and build a wallet-backed provider from its first dev key.
+    // 1. Boot Anvil (the Creditcoin L1 EVM in this test) and build a wallet-backed provider from
+    //    its first dev key.
     let anvil = Anvil::new()
         .try_spawn()
         .expect("spawn anvil — is foundry installed?");
@@ -61,20 +67,23 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         .wallet(EthereumWallet::from(signer))
         .on_http(anvil.endpoint_url());
 
-    // 2. Deploy the fixture Outbox bound to our chain key.
+    // 2. Deploy the fixture Outbox on the Creditcoin L1 EVM, bound to our chain key.
     let chain_key: u64 = 7;
     let ck_b32 = chain_key_to_bytes32(chain_key);
     let outbox = TestOutbox::deploy(&provider, ck_b32)
         .await
         .expect("deploy TestOutbox");
 
-    // 3. Resolve it through the real resolver (config override path); the chain key comes from config.
-    let mut cfg = Config::disabled();
-    cfg.outbox_address = Some(*outbox.address());
-    cfg.write_ability_chain_key = Some(ck_b32);
-    let resolved = resolver::resolve(&provider, chain_key, &cfg)
-        .await
-        .expect("resolve outbox");
+    // 3. Build the resolved Outbox directly, pointing the listener at the fixture we just deployed.
+    //    `resolver::resolve` now resolves on-chain via the chain-info precompile + Outbox factory,
+    //    which this bare anvil node does not provide. TODO(write-ability): exercise `resolve` once
+    //    the fixture deploys a factory and registers it with the precompile.
+    let creditcoin_chain_id = provider.get_chain_id().await.unwrap();
+    let resolved = resolver::ResolvedOutbox {
+        address: *outbox.address(),
+        destination_chain_key: ck_b32,
+        creditcoin_chain_id,
+    };
     assert_eq!(resolved.address, *outbox.address());
     assert_eq!(resolved.destination_chain_key, ck_b32);
 
