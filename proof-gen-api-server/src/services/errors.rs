@@ -94,6 +94,13 @@ pub enum ServiceError {
         tx_index: u64,
         len: usize,
     },
+    /// The block at `height` contains no transactions, so there is no transaction proof to
+    /// build. The block-prover precompile rejects empty transaction bytes, so returning the
+    /// previous "empty merkle proof at tx_index=0" payload only produced proofs that fail
+    /// on-chain verification. Callers wanting a continuity-only attestation for an empty
+    /// block should use a continuity-only endpoint instead.
+    #[error("block {height} is empty; tx proof unavailable (use a continuity-only proof)")]
+    EmptyBlockTxProof { height: u64 },
     #[error("rpc unavailable: {message}")]
     RpcUnavailable { message: String },
     #[error("merkle proof generation failed: {message}")]
@@ -161,6 +168,7 @@ impl ServiceError {
             ServiceError::AttestationsMissing { .. } => "AttestationsMissing",
             ServiceError::QueryOutOfRange { .. } => "QueryOutOfRange",
             ServiceError::TxIndexOutOfBounds { .. } => "TxIndexOutOfBounds",
+            ServiceError::EmptyBlockTxProof { .. } => "EmptyBlockTxProof",
             ServiceError::RpcUnavailable { .. } => "RpcUnavailable",
             ServiceError::MerkleError { .. } => "MerkleError",
             ServiceError::InvalidParameter { .. } => "InvalidParameter",
@@ -203,9 +211,11 @@ impl ServiceError {
             // is more accurate than 404 Not Found and lets clients distinguish
             // "keep waiting / retry" from "this will never exist".
             // Same semantics as BlockNotReady: request may be valid but payload cannot be processed.
-            Self::UnsupportedBlockFormat { .. } | Self::BlockNotReady { .. } => {
-                StatusCode::UNPROCESSABLE_ENTITY
-            }
+            // EmptyBlockTxProof joins this group: the request is well-formed and the block
+            // exists, but no transaction proof can ever be produced for an empty block.
+            Self::UnsupportedBlockFormat { .. }
+            | Self::BlockNotReady { .. }
+            | Self::EmptyBlockTxProof { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             Self::MerkleError { .. } | Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -314,6 +324,7 @@ impl GetErrorType for ServiceError {
             ServiceError::AttestationsMissing { .. } => ErrorType::AttestationsMissing,
             ServiceError::QueryOutOfRange { .. } => ErrorType::QueryOutOfRange,
             ServiceError::TxIndexOutOfBounds { .. } => ErrorType::TxIndexOutOfBounds,
+            ServiceError::EmptyBlockTxProof { .. } => ErrorType::EmptyBlockTxProof,
             ServiceError::RpcUnavailable { .. } => ErrorType::RpcUnavailable,
             ServiceError::MerkleError { .. } => ErrorType::MerkleError,
             ServiceError::InvalidParameter { .. } => ErrorType::InvalidParameter,

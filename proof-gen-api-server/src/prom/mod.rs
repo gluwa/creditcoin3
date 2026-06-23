@@ -497,6 +497,7 @@ mod labels {
         InvalidParameter,
         TxHashNotFound,
         TxIndexOutOfBounds,
+        EmptyBlockTxProof,
         AttestationsMissing,
         QueryOutOfRange,
         TxHashLookupUnavailable,
