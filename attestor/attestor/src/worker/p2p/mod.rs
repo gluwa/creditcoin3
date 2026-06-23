@@ -584,6 +584,11 @@ impl WorkerP2P {
                 ..
             } => {
                 tracing::info!(%peer_id, connection = %connection_id, "🔗 Connection established");
+                // Track *currently connected* peers separately from the Kademlia routing-table
+                // gauge (increase_peer_count below), which only fires on routing-table
+                // inserts. The two values drift in normal operation — a peer can be in the
+                // routing table without an active connection.
+                self.metrics.note_peer_connected();
             }
 
             // Disconnected from an existing remote peer
@@ -593,6 +598,7 @@ impl WorkerP2P {
                 ..
             } => {
                 tracing::info!(%peer_id, connection = %connection_id, "⛓️‍💥 Connection closed");
+                self.metrics.note_peer_disconnected();
 
                 self.ping_failures.remove(&connection_id);
 

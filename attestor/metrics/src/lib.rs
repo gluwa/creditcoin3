@@ -176,6 +176,26 @@ struct Store {
         prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
     >,
 
+    /// Monotonic counter of gossipsub messages observed by this node.
+    ///
+    /// Stored alongside the legacy `metrics_p2p` Gauge representation (kept for backwards-
+    /// compatible dashboards), but the Counter is the right type for an ever-increasing
+    /// quantity — a gauge silently drops on overflow / wrap and is harder to reason about
+    /// when computing rates.
+    pub metrics_gossipsub_messages_total:
+        prometheus_client::metrics::counter::Counter<u64, std::sync::atomic::AtomicU64>,
+
+    /// Number of *currently connected* p2p peers (libp2p `ConnectionEstablished` minus
+    /// `ConnectionClosed`).
+    ///
+    /// This is distinct from `metrics_p2p[peer_to_peer=peers]`, which tracks the Kademlia
+    /// routing-table size (insertions / evictions). Routing-table peers and connected peers
+    /// drift apart in normal operation — a node can be in the routing table without an
+    /// active connection — so operators querying “number of attestors I'm actually talking
+    /// to right now” need a separate gauge.
+    pub metrics_connected_peers:
+        prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
+
     /// Metrics which keep track of failed state.
     ///
     /// - _Known invalid attestations_ ([`Counter`])
@@ -263,8 +283,27 @@ impl Metrics {
 
         registry.register(
             "peer_to_peer",
-            "Peer-to-peer networking metrics",
+            "Peer-to-peer networking metrics (Kademlia routing-table peers + legacy gossipsub message gauge)",
             metrics_p2p.clone(),
+        );
+
+        let metrics_gossipsub_messages_total = prometheus_client::metrics::counter::Counter::<
+            u64,
+            std::sync::atomic::AtomicU64,
+        >::default();
+        registry.register(
+            "gossipsub_messages_total",
+            "Monotonic count of gossipsub messages observed (use rate() for traffic).",
+            metrics_gossipsub_messages_total.clone(),
+        );
+
+        let metrics_connected_peers =
+            prometheus_client::metrics::gauge::Gauge::<u64, std::sync::atomic::AtomicU64>::default(
+            );
+        registry.register(
+            "connected_peers",
+            "Currently connected p2p peers (ConnectionEstablished minus ConnectionClosed).",
+            metrics_connected_peers.clone(),
         );
 
         registry.register(
@@ -280,6 +319,8 @@ impl Metrics {
             metrics_hardware,
             metrics_delay,
             metrics_p2p,
+            metrics_gossipsub_messages_total,
+            metrics_connected_peers,
             metrics_error,
         }));
 
@@ -455,12 +496,30 @@ impl Metrics {
     }
 
     pub fn increase_gossipsub_message_count(&self) {
+        // Bump both representations during the deprecation window:
+        // - The legacy gauge keeps existing dashboards working (they use `rate()` on a gauge).
+        // - The new counter is the correct type for monotonic counts and is what new
+        //   dashboards should target.
         self.0
             .metrics_p2p
             .get_or_create(&labels::LabelPeerToPeer {
                 peer_to_peer: labels::PeerToPeer::GossipsubMessages,
             })
             .inc();
+        self.0.metrics_gossipsub_messages_total.inc();
+    }
+
+    /// Increment the *connected* peer gauge — call from libp2p `SwarmEvent::ConnectionEstablished`.
+    /// This is independent from [`Self::increase_peer_count`], which tracks the Kademlia routing
+    /// table.
+    pub fn note_peer_connected(&self) {
+        self.0.metrics_connected_peers.inc();
+    }
+
+    /// Decrement the *connected* peer gauge — call from libp2p `SwarmEvent::ConnectionClosed`.
+    /// Counterpart to [`Self::note_peer_connected`].
+    pub fn note_peer_disconnected(&self) {
+        self.0.metrics_connected_peers.dec();
     }
 
     pub fn increase_invalid_attestation_count(&self) {

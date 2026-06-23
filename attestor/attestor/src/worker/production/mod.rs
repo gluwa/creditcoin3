@@ -530,6 +530,29 @@ impl WorkerAttestationProduction {
                         .store(height, std::sync::atomic::Ordering::Release);
                     self.attestation_local = height;
 
+                    // Reset the production / lag metrics so dashboards reflect the rollback
+                    // immediately instead of showing the pre-revert heights. Without this,
+                    // operators see stale `attestation_local` / `attestation_finalized` and
+                    // a negative lag spike until the next forward step nudges the gauges.
+                    self.metrics.set_attestation_local(height);
+                    self.metrics.set_attestation_finalized(height);
+                    // Recompute the lag values against the rolled-back local height so the
+                    // gauges land on the right baseline. We use the last-known eth/cc3 tips
+                    // here because the stream-driven tip refresh runs on a separate arm and
+                    // may be one cycle behind. `attestation_latest_cc3 == height` after a
+                    // revert by definition, so the cc3 lag collapses to zero.
+                    let latest_eth_tip = self.stream_attestation.latest_tip();
+                    self.metrics.update_attestation_lag_eth(
+                        height,
+                        latest_eth_tip,
+                        self.attestation_interval,
+                    );
+                    self.metrics.update_attestation_lag_cc3(
+                        height,
+                        height,
+                        self.attestation_interval,
+                    );
+
                     // 1. Update the attestation pool
                     //
                     // Upon chain reversion, we clear all pending attestations in the attestation pool.
