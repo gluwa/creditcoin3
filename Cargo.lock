@@ -959,6 +959,7 @@ dependencies = [
  "stream_eth",
  "supported-chains-primitives",
  "tempfile",
+ "thiserror 1.0.69",
  "tokio",
  "tower-http 0.6.7",
  "tracing",
