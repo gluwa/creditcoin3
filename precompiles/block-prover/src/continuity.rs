@@ -23,6 +23,11 @@ pub enum ContinuityVerificationError {
     ChainDoesNotReachQueryHeight,
     /// Continuity chain does not end at a valid attestation or checkpoint
     NoMatchingAttestationOrCheckpoint,
+    /// `start_block_number + (roots.len() - 1)` would overflow `u64`. Caller-supplied
+    /// `start_block_number` plus a maximally-sized proof must stay within `u64` range;
+    /// rejecting overflow here keeps the precompile from depending on overflow-checking
+    /// build flags to surface bogus inputs.
+    RangeOverflow,
 }
 
 impl ContinuityVerificationError {
@@ -35,6 +40,7 @@ impl ContinuityVerificationError {
             Self::NoMatchingAttestationOrCheckpoint => {
                 "Continuity proof does not match attestation or checkpoint"
             }
+            Self::RangeOverflow => "Continuity chain range overflows u64",
         }
     }
 }
@@ -109,8 +115,22 @@ where
             return Err(continuity_revert(ContinuityVerificationError::TooManyRoots));
         }
 
-        // Validate the continuity chain reaches the query height (fail early before digest computation)
-        let final_block_number = start_block_number + (continuity_proof.roots.len() - 1) as u64;
+        // Validate the continuity chain reaches the query height (fail early before digest computation).
+        //
+        // `start_block_number` is caller-supplied via EVM calldata and `roots.len()` is bounded by
+        // `MAX_CONTINUITY_ROOTS` above, but the sum is still attacker-controlled and could in
+        // principle wrap `u64`. Release builds previously relied on wrapping behavior and the
+        // height check below to reject pathological inputs; overflow-checking builds would panic.
+        // Use checked arithmetic so both build profiles return a clean revert instead.
+        let roots_len_minus_one = (continuity_proof.roots.len() as u64).saturating_sub(1);
+        let final_block_number = match start_block_number.checked_add(roots_len_minus_one) {
+            Some(n) => n,
+            None => {
+                return Err(continuity_revert(
+                    ContinuityVerificationError::RangeOverflow,
+                ))
+            }
+        };
 
         if final_block_number < height {
             debug!(

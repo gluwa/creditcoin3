@@ -343,8 +343,17 @@ where
             return Self::revert_with_message("Continuity chain cannot be empty");
         }
 
-        let last_block_number =
-            start_block_number + (shared_continuity_proof.roots.len() - 1) as u64;
+        // `start_block_number` and the proof length are caller-supplied. The earlier emptiness
+        // check guarantees `roots.len() >= 1`, but their sum can still wrap `u64`. Reject
+        // overflow explicitly so overflow-checking builds don't panic and release builds
+        // don't silently wrap into a spuriously-low `last_block_number`.
+        let roots_len_minus_one = (shared_continuity_proof.roots.len() as u64).saturating_sub(1);
+        let last_block_number = match start_block_number.checked_add(roots_len_minus_one) {
+            Some(n) => n,
+            None => {
+                return Self::revert_with_message("Continuity chain range overflows u64");
+            }
+        };
         if last_block_number < max_height {
             return Self::revert_with_message(
                 "Continuity chain doesn't cover maximum query height",
