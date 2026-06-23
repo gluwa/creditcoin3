@@ -378,9 +378,23 @@ async fn main() -> anyhow::Result<()> {
     // ----------------------* Attestor registration (on-chain confirmation) *---------------------
 
     if to_register > 0 {
+        // Only count AttestorRegistered events that belong to *our* chain and one of *our*
+        // attestor accounts. Without this filter a parallel zombienet run could satisfy our
+        // counter with its own registrations and we'd start attestors before the on-chain
+        // state really reflects them.
+        let expected_chain_key = args.chain_key;
+        let expected_accounts: std::collections::BTreeSet<cc_client::AccountId32> = attestor_info
+            .iter()
+            .map(|(_, _, account_id)| account_id.clone())
+            .collect();
         wait_for_event::<cc_client::cc3::attestation::events::AttestorRegistered>(
             to_register,
             blocks,
+            |ev| {
+                let cc_client::cc3::attestation::events::AttestorRegistered(chain_key, account_id) =
+                    ev;
+                *chain_key == expected_chain_key && expected_accounts.contains(account_id)
+            },
         )
         .await?;
     }
@@ -514,8 +528,23 @@ async fn main() -> anyhow::Result<()> {
 
     // ------------------------* Attestor chilling (on-chain confirmation) *-----------------------
 
-    wait_for_event::<cc_client::cc3::attestation::events::AttestorChilled>(attestor_count, blocks)
-        .await?;
+    // Same rationale as the registration filter above: confirm chill events only against
+    // *our* chain_key and *our* attestor accounts so parallel test runs can't fool the
+    // counter.
+    let expected_chain_key = args.chain_key;
+    let expected_accounts: std::collections::BTreeSet<cc_client::AccountId32> = attestor_info
+        .iter()
+        .map(|(_, _, account_id)| account_id.clone())
+        .collect();
+    wait_for_event::<cc_client::cc3::attestation::events::AttestorChilled>(
+        attestor_count,
+        blocks,
+        |ev| {
+            let cc_client::cc3::attestation::events::AttestorChilled(chain_key, account_id) = ev;
+            *chain_key == expected_chain_key && expected_accounts.contains(account_id)
+        },
+    )
+    .await?;
 
     // --------------------------------* Attestor un-registration *--------------------------------
 
@@ -567,9 +596,19 @@ async fn main() -> anyhow::Result<()> {
     anyhow::Ok(())
 }
 
+/// Wait until `count` decoded events of type `Event` matching `is_match` have been observed
+/// on the block stream.
+///
+/// Filtering by pallet + variant only — the previous behaviour — is unsafe when multiple
+/// tests run concurrently against the same development chain: an event emitted by another
+/// test for a different chain or account would still satisfy the counter and the test
+/// would falsely consider its work confirmed. Decoding the event payload and checking
+/// `chain_key` / `account_id` (or whatever fields are relevant) makes the wait deterministic
+/// against parallel test traffic.
 async fn wait_for_event<Event>(
     mut count: usize,
     mut blocks: common::types::SubxtBlockStream,
+    mut is_match: impl FnMut(&Event) -> bool,
 ) -> anyhow::Result<()>
 where
     Event: subxt::events::StaticEvent,
@@ -613,13 +652,22 @@ where
         for event in events.iter() {
             let event = event.context("Failed to get next block events")?;
 
-            if (Event::PALLET, Event::EVENT) == (event.pallet_name(), event.variant_name()) {
-                tracing::debug!("Observed event");
+            // Decode only when the pallet+variant prefix matches. as_event returns Ok(None)
+            // when the wire bytes are for a different event variant; we treat it like a
+            // mismatch and keep scanning.
+            let Ok(Some(decoded)) = event.as_event::<Event>() else {
+                continue;
+            };
 
-                count = count.saturating_sub(1);
-                if count == 0 {
-                    break 'outer;
-                }
+            if !is_match(&decoded) {
+                continue;
+            }
+
+            tracing::debug!("Observed matching event");
+
+            count = count.saturating_sub(1);
+            if count == 0 {
+                break 'outer;
             }
         }
     }
