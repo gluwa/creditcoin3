@@ -2,6 +2,14 @@
 
 USC Write-Ability
 
+> **Note — attester & relayer are now in Rust.** The TypeScript mock **attester** and **relayer**
+> workers that used to live here (`src/attester/`, `src/relayer/`) have been removed: the attester
+> is now the attestor's `tasks/write_ability` module (`attestor/attestor/`), and the relayer is the
+> `message-relayer` crate. What remains in this package is the still-TS-only **quoter**, the
+> **dApp ack worker**, the Solidity **contracts**, and the demo/deploy scripts. The end-to-end demo
+> steps below that invoked `npm run dev:attester` / `dev:relayer` therefore now point at the Rust
+> components instead.
+
 ## Full Demonstration Steps
 ### 0. Install dependencies and Set Environment Vars
 
@@ -59,23 +67,27 @@ npx tsx scripts/deploy.ts
 This script also saves the addresses of all deployed contracts in `.env` for
 later use.
 
-### 3. Run mock Attestor, Relayer, Quoter, and DApp Message Acknowledgement worker
-First start the attestor:
+### 3. Run the Attestor, Relayer, Quoter, and DApp Message Acknowledgement worker
+
+The **attestor** and **relayer** are now Rust components (the TS mocks were removed). Run them from
+the workspace root:
+
 ```bash
-npm run dev:attester
+# Attestor with message attestation enabled (see attestor/config.yaml `write_ability:` section,
+# or flags --message-attestation --cc3-eth-url <creditcoin-evm-rpc>). Needs a running CC3 node
+# where the chain_key is supported and this attestor is elected.
+./target/release/attestor --message-attestation --cc3-eth-url ws://127.0.0.1:8546 ...
+
+# Relayer (subscribes to the same {chain_key}/message-votes/v1 topic and delivers to the Inbox):
+cargo run -p message-relayer -- --config <relayer.yaml>
 ```
 
-Then start the relayer:
-```bash
-npm run dev:relayer
-```
-
-Then start the Quoter:
+Then start the Quoter (still TS):
 ```bash
 npm run dev:quoter
 ```
 
-Finally, start the dApp's acknowledgement worker:
+Finally, start the dApp's acknowledgement worker (still TS):
 ```bash
 npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
 ```
@@ -210,14 +222,9 @@ See `usc-write-ability-research/documents/requirements/03-quotation-requirements
 
 ---
 
-The relayer watches `messages.json` and POST `/deliver` for messages. After deploy, `deployments.json` contains `inbox`, `destination`, `relayer` addresses.
+## Relayer (Rust)
 
-### Relayer Config
-
-| Env / CLI | Default | Description |
-|-----------|---------|-------------|
-| `DESTINATION_CHAIN_RPC_URL` / `--rpc-url` | http://127.0.0.1:8545 | Destination chain RPC |
-| `INBOX_ADDR` / `--inbox` | from deployments.json | SimpleInbox address |
-| `DESTINATION_CHAIN_PRIVATE_KEY` | (Anvil #1) | Key that pays gas |
-| `RELAYER_MESSAGES_FILE` | ./messages.json | Mock P2P messages file |
-| `RELAYER_HTTP_PORT` | 3301 | POST /deliver endpoint |
+The relayer is the `message-relayer` crate (workspace root), not part of this package. It watches the
+Creditcoin L1 Outbox for `MessagePublished`, snoops attester votes on the
+`{chain_key}/message-votes/v1` gossip topic, aggregates 2N/3+1, and calls `Inbox.deliverMessage`.
+See `message-relayer/README`/`PLAN.md` and `message-relayer/config.example.yaml` for configuration.
