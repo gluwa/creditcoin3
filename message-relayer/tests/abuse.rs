@@ -73,9 +73,9 @@ async fn pool_drops_unknown_messages_and_emits_no_jobs() {
     tokio::time::sleep(Duration::from_millis(200)).await;
 
     // No DeliveryJob should ever be produced.
-    match tokio::time::timeout(Duration::from_millis(50), delivery_rx.recv()).await {
-        Ok(Some(job)) => panic!("unexpected delivery job: {job:?}"),
-        Ok(None) | Err(_) => {}
+    if let Ok(Some(job)) = tokio::time::timeout(Duration::from_millis(50), delivery_rx.recv()).await
+    {
+        panic!("unexpected delivery job: {job:?}");
     }
 
     cancel.cancel();
@@ -143,9 +143,10 @@ async fn pool_drops_votes_from_unknown_signers() {
         let _ = vote_tx.send(vote).await;
     }
 
-    match tokio::time::timeout(Duration::from_millis(150), delivery_rx.recv()).await {
-        Ok(Some(job)) => panic!("unexpected delivery from unknown signers: {job:?}"),
-        Ok(None) | Err(_) => {}
+    if let Ok(Some(job)) =
+        tokio::time::timeout(Duration::from_millis(150), delivery_rx.recv()).await
+    {
+        panic!("unexpected delivery from unknown signers: {job:?}");
     }
 
     cancel.cancel();
