@@ -953,10 +953,11 @@ pub mod pallet {
         // this conservative overhead keeps dispatch from undercharging weight. Sister setters
         // (`set_target_sample_size`, `set_chain_attestation_interval`, etc.) carry the same
         // stale-weight gap and should be re-benchmarked together in a follow-up.
-        #[pallet::weight(
-            <T as Config>::WeightInfo::set_max_attestors()
-                .saturating_add(T::DbWeight::get().reads(1))
-        )]
+        //
+        // Kept on one line because the sanity `checks` workflow greps `#[pallet::weight(...)]`
+        // and fails on a multi-line attribute (see `pallet-supported-chains::remove_chain` for
+        // the same pattern).
+        #[pallet::weight(<T as Config>::WeightInfo::set_max_attestors().saturating_add(T::DbWeight::get().reads(1)))]
         pub fn set_max_attestors(
             origin: OriginFor<T>,
             chain_key: ChainKey,
