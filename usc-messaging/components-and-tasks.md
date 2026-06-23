@@ -20,14 +20,21 @@ Offchain HTTP service that receives quoting requests from dApp and returns them 
 
 ## Attester
 
+> **Implemented in Rust.** The TS mock attester has been removed; this is now the attestor's
+> `tasks/write_ability` module (`attestor/attestor/`). It listens to the Outbox for
+> `MessagePublished`, signs the canonical `messageHash` (ECDSA), and gossips votes on
+> `{chain_key}/message-votes/v1` over the existing attestor p2p swarm. The questions below are
+> answered: yes, integrated into the attestor codebase; voting reuses the existing gossip stack
+> (separate topic, ECDSA instead of BLS).
+
 Simple offchain worker which listens to the `SimpleOutboxContract` for `MessagePublished` events and votes on them.
 
 Once message is voted call HTTP endpoint in relayer with message to deliver.
 
 ### Questions
 
-* Should they be integrated into the current attestor codebase?
-* If part of the attestors, voting should happend in a similar manner attestions are voted?
+* Should they be integrated into the current attestor codebase? — **Yes (done).**
+* If part of the attestors, voting should happend in a similar manner attestions are voted? — **Yes**, reuses the gossip swarm on a separate topic; ECDSA (not BLS) per the EOAValidator.
 
 ## DummyRelayerContract
 
@@ -40,6 +47,10 @@ Simple contract which accepts the quotes submitted from the dApp
 * How can a relayer know when to distribute rewards to it's linked relayers?
 
 ## SimpleRelayer
+
+> **Implemented in Rust.** The TS mock relayer has been removed; this is now the `message-relayer`
+> crate (workspace root). It snoops the message-vote gossip topic, aggregates 2N/3+1, and calls
+> `Inbox.deliverMessage`.
 
 Offchain worker who picks up voted messages from the relayers and calls the destination inbox contract with the message payload.
 
