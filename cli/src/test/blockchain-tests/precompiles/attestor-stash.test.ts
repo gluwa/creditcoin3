@@ -125,6 +125,52 @@ describe('Precompile: AttestorStash', (): void => {
     });
 
     // -----------------------------------------------------------------------------
+    // getLedger / getLedgerByAddress / getCallerLedger
+    //
+    // Audit follow-up: `getLedger(bytes32)` expects the *hashed* AccountId32 that
+    // AddressMapping derives from the EVM address, which is easy to misuse — EVM
+    // consumers tend to convert the emitted `address` to bytes32 and get an empty
+    // ledger back. The two new entries surface the same data keyed by the EVM
+    // `address`, so we cross-check that all three return identical results once a
+    // ledger exists for the caller.
+    // -----------------------------------------------------------------------------
+
+    test('getLedger / getLedgerByAddress / getCallerLedger all return the same ledger', async () => {
+        const minBond = (await contract.getMinBondRequirement(chainKey)) as bigint;
+        expect(minBond).toBeGreaterThan(0n);
+
+        // `getLedger` keyed by the *hashed* AccountId32.
+        const byStash = await contract.getLedger(stashAccountIdHex);
+        // `getLedgerByAddress` keyed by the EVM address (precompile applies
+        // AddressMapping internally) — must match.
+        const byAddress = await contract.getLedgerByAddress(alith.address);
+        // `getCallerLedger()` uses msg.sender so the result should equal `byAddress`.
+        const byCaller = await contract.getCallerLedger();
+
+        // The stash actually has a ledger after registerAttestor above.
+        expect(byStash.exists).toBe(true);
+        expect(byStash.totalStaked).toBe(minBond);
+        expect(byStash.active).toBe(minBond);
+        expect(byStash.unlockingChunks).toBe(0n);
+        expect(byStash.withdrawable).toBe(0n);
+
+        // Cross-entry equality is the core invariant: any divergence here would
+        // re-introduce the silently-empty-ledger foot-gun the new entries were
+        // added to prevent.
+        expect(byAddress.exists).toBe(byStash.exists);
+        expect(byAddress.totalStaked).toBe(byStash.totalStaked);
+        expect(byAddress.active).toBe(byStash.active);
+        expect(byAddress.unlockingChunks).toBe(byStash.unlockingChunks);
+        expect(byAddress.withdrawable).toBe(byStash.withdrawable);
+
+        expect(byCaller.exists).toBe(byStash.exists);
+        expect(byCaller.totalStaked).toBe(byStash.totalStaked);
+        expect(byCaller.active).toBe(byStash.active);
+        expect(byCaller.unlockingChunks).toBe(byStash.unlockingChunks);
+        expect(byCaller.withdrawable).toBe(byStash.withdrawable);
+    });
+
+    // -----------------------------------------------------------------------------
     // chill
     // -----------------------------------------------------------------------------
 

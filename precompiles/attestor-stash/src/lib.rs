@@ -304,12 +304,15 @@ where
 
     /// Same as [`Self::get_ledger_by_address`] but uses the EVM caller (`msg.sender`).
     /// Convenience entry for self-lookups; saves the caller from passing their own address.
+    ///
+    /// Implemented as a delegation to [`Self::get_ledger_by_address`] so the
+    /// `AddressMapping::into_account_id` step lives in exactly one place — keeps the two
+    /// helpers from drifting if the mapping behavior ever changes.
     #[precompile::public("getCallerLedger()")]
     #[precompile::view]
     fn get_caller_ledger(handle: &mut impl PrecompileHandle) -> EvmResult<LedgerInfo> {
         let caller_evm = handle.context().caller;
-        let account = Runtime::AddressMapping::into_account_id(caller_evm);
-        Self::get_ledger_for_account(handle, account)
+        Self::get_ledger_by_address(handle, Address(caller_evm))
     }
 
     /// Shared ledger lookup body. Kept private so all three public entries (`getLedger`,
