@@ -80,8 +80,8 @@ jobs:
       - name: Execute prover-check.ts on checkpoint boundaries
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: ${{ matrix.GO_BACK_BLOCKS || 3600 }}
-          SLEEP_TIME: ${{ matrix.SLEEP_TIME || 500 }}
+          GO_BACK_BLOCKS: '3600'
+          SLEEP_TIME: '500'
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -91,9 +91,9 @@ jobs:
         working-directory: ./cli
         env:
           # LAST_SOURCE_BLOCK: '1000000'
-          GO_BACK_BLOCKS: ${{ matrix.GO_BACK_BLOCKS || 4000 }}
+          GO_BACK_BLOCKS: '4000'
           STEP_THROUGH_BLOCKS: '7'
-          SLEEP_TIME: ${{ matrix.SLEEP_TIME || 500 }}
+          SLEEP_TIME: '500'
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
