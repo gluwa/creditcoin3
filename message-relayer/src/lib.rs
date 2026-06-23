@@ -1,7 +1,7 @@
 //! USC write-ability message relayer.
 //!
 //! See `relayer-poc.pdf` (repo root) and `PLAN.md` (this crate) for the full design. This
-//! crate is the Phase-1 PoC — it observes attester votes on a libp2p mesh, aggregates them up
+//! crate is the Phase-1 PoC — it observes attestor votes on a libp2p mesh, aggregates them up
 //! to the configured threshold, and submits `Inbox.deliverMessage(...)` on the destination
 //! chains for one or more `(creditcoin_chain_key → destination_chain)` routes.
 //!
@@ -41,12 +41,12 @@ pub mod pool;
 pub mod prom;
 
 pub use config::{
-    AttesterSet, AttesterSource, ChainRoute, Config, DeliveryConfig, P2pConfig, VoteCacheConfig,
+    AttestorSet, AttestorSource, ChainRoute, Config, DeliveryConfig, P2pConfig, VoteCacheConfig,
 };
 pub use delivery::DeliveryJob;
 pub use events::{ConfigOverrideResolver, FactoryResolver, IndexedMessage, OutboxResolver};
 pub use p2p::MessageVote;
-pub use pool::{calculate_threshold, RouteAttesters};
+pub use pool::{calculate_threshold, RouteAttestors};
 pub use prom::{Metrics, MetricsTrait, NoopMetrics, RelayerMetrics};
 
 /// Capacities tuned for "indexer pace": Outbox events are slow, votes can spike. Both are
@@ -80,7 +80,7 @@ impl Server {
                 inbox = %route.inbox_address,
                 outbox = ?route.outbox_address,
                 destination_rpc = %redact_url_query(&route.destination_rpc_url),
-                attester_set = ?attester_set_summary(&route.attester_set),
+                attestor_set = ?attestor_set_summary(&route.attestor_set),
                 threshold_override = ?route.threshold_override,
                 "📨 Route configured"
             );
@@ -96,10 +96,10 @@ impl Server {
         let cancel = CancellationToken::new();
         let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
-        // Resolve attester sets up-front so the pool only sees concrete addresses.
-        let mut route_attesters: Vec<RouteAttesters> = Vec::with_capacity(self.config.routes.len());
+        // Resolve attestor sets up-front so the pool only sees concrete addresses.
+        let mut route_attestors: Vec<RouteAttestors> = Vec::with_capacity(self.config.routes.len());
         for route in &self.config.routes {
-            route_attesters.push(resolve_attesters(route)?);
+            route_attestors.push(resolve_attestors(route)?);
         }
 
         // Channels.
@@ -135,7 +135,7 @@ impl Server {
                 delivery_txs,
             };
             tasks.spawn(async move {
-                if let Err(err) = pool::run(route_attesters, cache, handles, m, c).await {
+                if let Err(err) = pool::run(route_attestors, cache, handles, m, c).await {
                     error!(%err, "vote pool exited with error");
                 }
             });
@@ -225,28 +225,28 @@ impl Server {
     }
 }
 
-/// Convert an [`AttesterSet`] into the concrete [`RouteAttesters`] the pool expects. Static sets
+/// Convert an [`AttestorSet`] into the concrete [`RouteAttestors`] the pool expects. Static sets
 /// translate directly; on-chain sets are not implemented in PoC and yield an explanatory error.
-fn resolve_attesters(route: &ChainRoute) -> Result<RouteAttesters> {
-    let attesters: Vec<Address> = match &route.attester_set {
-        AttesterSet::Static(addrs) => addrs.clone(),
-        AttesterSet::OnChain { source } => {
+fn resolve_attestors(route: &ChainRoute) -> Result<RouteAttestors> {
+    let attestors: Vec<Address> = match &route.attestor_set {
+        AttestorSet::Static(addrs) => addrs.clone(),
+        AttestorSet::OnChain { source } => {
             bail!(
-                "chain_key {}: on-chain attester resolution ({:?}) is not implemented in PoC \
-                 — configure `attester_set: kind: static` for now",
+                "chain_key {}: on-chain attestor resolution ({:?}) is not implemented in PoC \
+                 — configure `attestor_set: kind: static` for now",
                 route.chain_key,
                 source
             );
         }
     };
-    let n = attesters.len();
+    let n = attestors.len();
     let threshold = route
         .threshold_override
         .map(|t| t as usize)
         .unwrap_or_else(|| calculate_threshold(n));
-    Ok(RouteAttesters {
+    Ok(RouteAttestors {
         chain_key: route.chain_key,
-        attesters,
+        attestors,
         threshold,
     })
 }
@@ -258,12 +258,12 @@ fn redact_url_query(url: &str) -> String {
         .unwrap_or_else(|| url.to_string())
 }
 
-fn attester_set_summary(set: &AttesterSet) -> String {
+fn attestor_set_summary(set: &AttestorSet) -> String {
     match set {
-        AttesterSet::Static(addresses) => format!("static({} addresses)", addresses.len()),
-        AttesterSet::OnChain { source } => match source {
-            AttesterSource::Evm { address } => format!("evm_contract({address})"),
-            AttesterSource::Cc3 { chain_key } => format!("cc3_active_set(chain_key={chain_key})"),
+        AttestorSet::Static(addresses) => format!("static({} addresses)", addresses.len()),
+        AttestorSet::OnChain { source } => match source {
+            AttestorSource::Evm { address } => format!("evm_contract({address})"),
+            AttestorSource::Cc3 { chain_key } => format!("cc3_active_set(chain_key={chain_key})"),
         },
     }
 }

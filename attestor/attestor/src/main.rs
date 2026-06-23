@@ -100,10 +100,10 @@ struct ConfigFileWriteAbility {
     max_tracked_messages: Option<usize>,
     /// TTL (seconds) for incomplete vote aggregates.
     vote_ttl_secs: Option<u64>,
-    /// Authorized message-vote signer EVM addresses (the static attester set).
+    /// Authorized message-vote signer EVM addresses (the static attestor set).
     #[serde(default)]
-    attesters: Vec<alloy::primitives::Address>,
-    /// On-chain `IVoteValidator` address; if set, takes precedence over `attesters` (not yet wired
+    attestors: Vec<alloy::primitives::Address>,
+    /// On-chain `IVoteValidator` address; if set, takes precedence over `attestors` (not yet wired
     /// in the attestor — it lives on the destination chain — so this currently disables the task
     /// with a clear log).
     validator_address: Option<alloy::primitives::Address>,
@@ -259,7 +259,7 @@ impl Config {
                         "Enable USC write-ability message attestation. \
                         When set, the attestor watches the Creditcoin L1 Outbox for this chain_key \
                         and gossips ECDSA message votes on the existing p2p swarm. \
-                        Uses the cc3 RPC endpoint and a configured attester set (write_ability section)."
+                        Uses the cc3 RPC endpoint and a configured attestor set (write_ability section)."
                     )
                     .env("ATTESTOR_WRITEABILITY")
                     .required(false)
@@ -453,13 +453,13 @@ impl Config {
         chain_key: attestor_primitives::ChainKey,
         cc3_url: &url::Url,
     ) -> attestor::tasks::write_ability::Config {
-        use attestor::tasks::write_ability::{config, AttesterSet, Config as WaConfig};
+        use attestor::tasks::write_ability::{config, AttestorSet, Config as WaConfig};
 
         let enabled = matches.get_flag("writeability") || file.enabled;
 
-        let attester_set = match file.validator_address {
-            Some(addr) => AttesterSet::OnChainValidator(addr),
-            None => AttesterSet::Static(file.attesters),
+        let attestor_set = match file.validator_address {
+            Some(addr) => AttestorSet::OnChainValidator(addr),
+            None => AttestorSet::Static(file.attestors),
         };
 
         WaConfig {
@@ -475,7 +475,7 @@ impl Config {
             vote_ttl: file
                 .vote_ttl_secs
                 .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
-            attester_set,
+            attestor_set,
         }
     }
 }

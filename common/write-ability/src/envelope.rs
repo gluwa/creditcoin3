@@ -1,4 +1,4 @@
-//! `MessageVote` — the envelope attesters gossip on `{chain_key}/message-votes/v1`.
+//! `MessageVote` — the envelope attestors gossip on `{chain_key}/message-votes/v1`.
 //!
 //! This is the canonical wire type, shared by the attestor (which signs and publishes votes) and
 //! the `message-relayer` (which snoops the topic, counts unique signers, and assembles the inbox
@@ -9,12 +9,12 @@
 
 use parity_scale_codec::{Decode, Encode};
 
-/// Vote envelope as published by attesters and consumed by the relayer.
+/// Vote envelope as published by attestors and consumed by the relayer.
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
 pub struct MessageVote {
     /// USC chain_key this vote is scoped to. Must match the gossipsub topic prefix.
     pub chain_key: u64,
-    /// Outbox `messageId` the attester is voting on.
+    /// Outbox `messageId` the attestor is voting on.
     pub message_id: [u8; 32],
     /// `keccak256(abi.encode(...))` per PoC §5.2 — the signed digest.
     pub message_hash: [u8; 32],

@@ -56,7 +56,7 @@ impl OutboxResolver for FactoryResolver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AttesterSet, ChainRoute};
+    use crate::config::{AttestorSet, ChainRoute};
     use alloy::primitives::address;
 
     fn route_with(outbox: Option<Address>) -> ChainRoute {
@@ -68,7 +68,7 @@ mod tests {
             inbox_address: address!("0000000000000000000000000000000000000002"),
             signer_key: None,
             block_confirmation_depth: 0,
-            attester_set: AttesterSet::Static(vec![address!(
+            attestor_set: AttestorSet::Static(vec![address!(
                 "000000000000000000000000000000000000000a"
             )]),
             threshold_override: None,

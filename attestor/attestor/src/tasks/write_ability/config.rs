@@ -19,16 +19,16 @@ use attestor_primitives::ChainKey;
 /// signers outside this set are rejected, and the quorum `N` is derived from its size
 /// (confluence §6.6, §5.3).
 #[derive(Clone, Debug)]
-pub enum AttesterSet {
-    /// Static list of EVM attester addresses (PoC / config fallback).
+pub enum AttestorSet {
+    /// Static list of EVM attestor addresses (PoC / config fallback).
     Static(Vec<Address>),
-    /// Read `IVoteValidator.attesters()` from the on-chain validator at this address.
+    /// Read `IVoteValidator.attestors()` from the on-chain validator at this address.
     OnChainValidator(Address),
 }
 
-impl Default for AttesterSet {
+impl Default for AttestorSet {
     fn default() -> Self {
-        AttesterSet::Static(Vec::new())
+        AttestorSet::Static(Vec::new())
     }
 }
 
@@ -59,7 +59,7 @@ pub struct Config {
     pub vote_ttl: Duration,
 
     /// Source of the authorized signer set / quorum size.
-    pub attester_set: AttesterSet,
+    pub attestor_set: AttestorSet,
 }
 
 impl Config {
@@ -74,7 +74,7 @@ impl Config {
             block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
-            attester_set: AttesterSet::default(),
+            attestor_set: AttestorSet::default(),
         }
     }
 }

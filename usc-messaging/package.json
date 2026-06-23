@@ -1,7 +1,7 @@
 {
   "name": "@creditcoin3/usc-messaging",
   "version": "0.1.0",
-  "description": "USC Write-Ability Layer: quoter, dApp ack worker, contracts (attester + relayer are implemented in Rust — see the attestor crate and message-relayer)",
+  "description": "USC Write-Ability Layer: quoter, dApp ack worker, contracts (attestor + relayer are implemented in Rust — see the attestor crate and message-relayer)",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -14,6 +14,7 @@
     "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": {
+    "@polkadot/api": "16.5.2",
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",
     "ethers": "^6.16.0",

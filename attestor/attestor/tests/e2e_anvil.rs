@@ -113,7 +113,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     assert_eq!(indexed.message_id, message_id);
     assert_eq!(indexed.emitter, emitter);
 
-    // The listener's hash must equal an independent recomputation (the binding attesters sign).
+    // The listener's hash must equal an independent recomputation (the binding attestors sign).
     let expected = message_hash(
         message_id,
         emitter,
@@ -123,7 +123,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     );
     assert_eq!(indexed.message_hash, expected, "messageHash must match");
 
-    // 6. Sign and run the full validate+count path; a single-attester set (threshold 1) reaches quorum.
+    // 6. Sign and run the full validate+count path; a single-attestor set (threshold 1) reaches quorum.
     let msigner = signing::MessageSigner::from_seed(&[9u8; 32]).unwrap();
     let active_set: HashSet<_> = std::iter::once(msigner.address()).collect();
     let state = MessageVoteState {
@@ -154,6 +154,6 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
                 ..
             }
         ),
-        "valid chain-seen vote from an attester should reach quorum, got {decision:?}"
+        "valid chain-seen vote from an attestor should reach quorum, got {decision:?}"
     );
 }

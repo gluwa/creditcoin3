@@ -18,9 +18,9 @@ Offchain HTTP service that receives quoting requests from dApp and returns them 
 
 * In order for the relayer to validate the quotes, some form of registration seems to be necessary in the relayer contract?
 
-## Attester
+## Attestor
 
-> **Implemented in Rust.** The TS mock attester has been removed; this is now the attestor's
+> **Implemented in Rust.** The TS mock attestor has been removed; this is now the attestor's
 > `tasks/write_ability` module (`attestor/attestor/`). It listens to the Outbox for
 > `MessagePublished`, signs the canonical `messageHash` (ECDSA), and gossips votes on
 > `{chain_key}/message-votes/v1` over the existing attestor p2p swarm. The questions below are
@@ -61,14 +61,14 @@ Since relayers end up calling the destination contract they need enough gas in t
 ### Questions
 
 * How can relayers ensure that messages they relay have been paid for?
-* How do relayers listen for voting results? Do they live in the same P2P network as attesters?
+* How do relayers listen for voting results? Do they live in the same P2P network as attestors?
 * If the relayer determines that the cost is higher than the original reward, should it be able to request a new quote itself?
 
 ## SimpleInboxContract
 
 Contract that receives messages from the relayers, validates them and the tries to forward them to the destination contract
 
-In order to validate message votes, contract must expose method to register attesters
+In order to validate message votes, contract must expose method to register attestors
 
 Can use https://github.com/gluwa/usc-write-ability-research/blob/contracts-dev/contracts/Inbox.sol as basis for it.
 
@@ -89,7 +89,7 @@ Of all the components the `SimpleQuoter` and `DummyRelayerContract` don't seem t
 One approach that comes to mind is that the caller would first call the `deliverMessage` in `SimpleOutboxContract` and the note the `messageId` emited, with that he would call the `SimpleQuoter` which would attach a quote to that messageId valid for
 a given number of blocks. Then submit that quote to the `DummyRelayerContract` which would then emit an event that the `SimpleRelayer` would read marking that messageId as paid, so that when the message has been voted the relayers know they can attempte delivery.
 
-Regarding `ack` flows it seems necessary for the attesters/relayers or whatever other component to list to the `SimpleInboxContract` for the `MessageDelivered` event and then from that call the `SimpleOutboxContract.acknowledge` function.
+Regarding `ack` flows it seems necessary for the attestors/relayers or whatever other component to list to the `SimpleInboxContract` for the `MessageDelivered` event and then from that call the `SimpleOutboxContract.acknowledge` function.
 
 # Phase 1
 
@@ -97,4 +97,4 @@ Regarding `ack` flows it seems necessary for the attesters/relayers or whatever 
 * Simple mock dApp (listener + script)
 
 ## Didac
-* Attester
+* Attestor

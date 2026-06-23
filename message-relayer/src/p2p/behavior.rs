@@ -3,9 +3,9 @@
 //! Mirrors `attestor/attestor/src/worker/p2p/behavior.rs` with two intentional differences:
 //!
 //!  * relayer-namespaced identify / kad protocol ids ([`super::protocols`]) so peers can tell
-//!    relayers and attesters apart on the wire,
+//!    relayers and attestors apart on the wire,
 //!  * gossipsub uses **permissive** validation mode so we can subscribe without participating
-//!    in attester-only signing: relayers do not need to sign the messages they republish.
+//!    in attestor-only signing: relayers do not need to sign the messages they republish.
 
 use libp2p::swarm::NetworkBehaviour;
 
@@ -67,7 +67,7 @@ impl RelayerBehavior {
             libp2p::gossipsub::MessageAuthenticity::Signed(key.clone()),
             libp2p::gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(std::time::Duration::from_secs(10))
-                // Strict gossipsub-level validation matches the attester mesh; the relayer
+                // Strict gossipsub-level validation matches the attestor mesh; the relayer
                 // additionally validates the *envelope* before counting votes (PoC §6.2).
                 .validation_mode(libp2p::gossipsub::ValidationMode::Strict)
                 .validate_messages()

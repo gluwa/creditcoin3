@@ -32,15 +32,15 @@ pub fn calculate_threshold(n: usize) -> usize {
     (2 * n) / 3 + 1
 }
 
-/// Pre-resolved attester allowlist for a route. The runtime resolves [`AttesterSet`] (which may
+/// Pre-resolved attestor allowlist for a route. The runtime resolves [`AttestorSet`] (which may
 /// be `OnChain`) into this concrete shape during `Server::new`, so the pool only deals with
 /// EVM addresses + a fixed threshold.
 ///
-/// [`AttesterSet`]: crate::config::AttesterSet
+/// [`AttestorSet`]: crate::config::AttestorSet
 #[derive(Clone, Debug)]
-pub struct RouteAttesters {
+pub struct RouteAttestors {
     pub chain_key: u64,
-    pub attesters: Vec<Address>,
+    pub attestors: Vec<Address>,
     pub threshold: usize,
 }
 
@@ -53,7 +53,7 @@ pub struct PoolHandles {
 
 /// Run the pool task. Returns when `cancel` fires or both inputs close.
 pub async fn run(
-    routes: Vec<RouteAttesters>,
+    routes: Vec<RouteAttestors>,
     cache: VoteCacheConfig,
     handles: PoolHandles,
     metrics: Metrics,
@@ -115,7 +115,7 @@ struct State {
 }
 
 struct RouteState {
-    attesters: Vec<Address>,
+    attestors: Vec<Address>,
     threshold: usize,
     by_message: HashMap<B256, MessageSlot>,
     /// Insertion order, used together with [`MessageSlot::inserted_at`] for TTL/LRU eviction.
@@ -131,7 +131,7 @@ struct MessageSlot {
 }
 
 impl State {
-    fn new(routes: Vec<RouteAttesters>, cache: VoteCacheConfig) -> Self {
+    fn new(routes: Vec<RouteAttestors>, cache: VoteCacheConfig) -> Self {
         let cap = cache.max_messages;
         Self {
             by_route: routes
@@ -140,7 +140,7 @@ impl State {
                     (
                         r.chain_key,
                         RouteState {
-                            attesters: r.attesters,
+                            attestors: r.attestors,
                             threshold: r.threshold,
                             by_message: HashMap::new(),
                             order: VecDeque::new(),
@@ -204,7 +204,7 @@ impl State {
         let claimed_signer = Address::from(vote.signer);
 
         // Allowlist check — cheap, do before `ecrecover`.
-        if !route.attesters.contains(&claimed_signer) {
+        if !route.attestors.contains(&claimed_signer) {
             metrics.inc_vote(chain_key, VoteOutcome::Reject);
             return None;
         }
@@ -327,11 +327,11 @@ mod tests {
     use crate::prom::NoopMetrics;
     use alloy::primitives::address;
 
-    fn route_for(chain_key: u64, attesters: Vec<Address>) -> RouteAttesters {
-        let threshold = calculate_threshold(attesters.len());
-        RouteAttesters {
+    fn route_for(chain_key: u64, attestors: Vec<Address>) -> RouteAttestors {
+        let threshold = calculate_threshold(attestors.len());
+        RouteAttestors {
             chain_key,
-            attesters,
+            attestors,
             threshold,
         }
     }

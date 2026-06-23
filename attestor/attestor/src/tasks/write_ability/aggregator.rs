@@ -11,7 +11,7 @@
 //!   least-recently-updated *incomplete* entry, plus TTL expiry of stale incomplete aggregates.
 //! * **Dedup** — a signer's second vote for the same hash does not advance the count.
 //!
-//! Signer authorization (signer ∈ active attester set) and signature verification happen in the
+//! Signer authorization (signer ∈ active attestor set) and signature verification happen in the
 //! gossip layer before a vote reaches the aggregator; this structure only counts authorized,
 //! verified, chain-seen votes. It is deliberately synchronous and clock-injected so it can be unit
 //! tested without a network or real time.
