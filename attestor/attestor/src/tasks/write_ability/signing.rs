@@ -1,13 +1,13 @@
 //! Message-vote signing (confluence §7.3 A5 / §6.3).
 //!
 //! Message votes use **ECDSA / secp256k1** to match the reference `EOAValidator`, distinct from the
-//! BLS scheme used for block attestations (§6.7). Each attester signs the raw 32-byte `messageHash`
+//! BLS scheme used for block attestations (§6.7). Each attestor signs the raw 32-byte `messageHash`
 //! directly — **no** EIP-191 / `personal_sign` prefix — producing a 65-byte `(r, s, v)` signature
 //! that `ecrecover` on-chain maps back to the signer's EVM address.
 //!
 //! The EVM signing key is derived deterministically from the attestor's existing secret with domain
 //! separation, so an operator manages one secret and gets a stable EVM address to register in the
-//! validator's attester set (§6.3 option B). The signed bytes and recovery here are byte-identical
+//! validator's attestor set (§6.3 option B). The signed bytes and recovery here are byte-identical
 //! to what `message-relayer` recovers (`recover_address_from_prehash` over the same 65 bytes).
 
 use alloy::primitives::{keccak256, Address, PrimitiveSignature, B256};
@@ -19,7 +19,7 @@ use anyhow::{Context, Result};
 /// keys derived from the same seed.
 const EVM_SIGNER_DOMAIN: &[u8] = b"usc/write-ability/evm-signer/v1";
 
-/// Holds the attester's EVM message-vote signing key.
+/// Holds the attestor's EVM message-vote signing key.
 pub struct MessageSigner {
     signer: PrivateKeySigner,
     address: Address,
@@ -38,7 +38,7 @@ impl MessageSigner {
         Ok(Self { signer, address })
     }
 
-    /// The EVM address that must be registered in the on-chain `EOAValidator` attester set.
+    /// The EVM address that must be registered in the on-chain `EOAValidator` attestor set.
     #[must_use]
     pub fn address(&self) -> Address {
         self.address

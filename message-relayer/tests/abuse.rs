@@ -3,7 +3,7 @@
 //! Spawns the real pool task and floods it with junk gossip:
 //!
 //!  * votes for `messageHash`es never indexed (chain-first allowlist drop),
-//!  * votes by signers not in the attester allowlist,
+//!  * votes by signers not in the attestor allowlist,
 //!  * grossly more messages than `vote_cache.max_messages` permits.
 //!
 //! Asserts no [`DeliveryJob`] is emitted and the pool process keeps running.
@@ -15,7 +15,7 @@ use alloy::primitives::address;
 use message_relayer::config::VoteCacheConfig;
 use message_relayer::events::IndexedMessage;
 use message_relayer::p2p::MessageVote;
-use message_relayer::pool::{run as run_pool, PoolHandles, RouteAttesters};
+use message_relayer::pool::{run as run_pool, PoolHandles, RouteAttestors};
 use message_relayer::prom::NoopMetrics;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -26,9 +26,9 @@ async fn pool_drops_unknown_messages_and_emits_no_jobs() {
     let (vote_tx, vote_rx) = mpsc::channel::<MessageVote>(8192);
     let (delivery_tx, mut delivery_rx) = mpsc::channel(16);
 
-    let route = RouteAttesters {
+    let route = RouteAttestors {
         chain_key: 2,
-        attesters: vec![address!("000000000000000000000000000000000000000a")],
+        attestors: vec![address!("000000000000000000000000000000000000000a")],
         threshold: 1,
     };
 
@@ -89,9 +89,9 @@ async fn pool_drops_votes_from_unknown_signers() {
     let (delivery_tx, mut delivery_rx) = mpsc::channel(16);
 
     let allowed = address!("000000000000000000000000000000000000000a");
-    let route = RouteAttesters {
+    let route = RouteAttestors {
         chain_key: 2,
-        attesters: vec![allowed],
+        attestors: vec![allowed],
         threshold: 1,
     };
     let mut delivery_txs = HashMap::new();

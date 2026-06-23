@@ -12,7 +12,7 @@ use alloy::primitives::Address;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use message_relayer::config::{
-    AttesterSet, ChainRoute, Config, P2pConfig, DEFAULT_BLOCK_CONFIRMATION_DEPTH, DEFAULT_P2P_PORT,
+    AttestorSet, ChainRoute, Config, P2pConfig, DEFAULT_BLOCK_CONFIRMATION_DEPTH, DEFAULT_P2P_PORT,
 };
 use message_relayer::Server;
 use tracing::{debug, info};
@@ -40,7 +40,7 @@ struct Cli {
     #[arg(long, default_value_t = 3200, env = "RELAYER_BIND_PORT")]
     bind_port: u16,
 
-    /// Creditcoin Substrate RPC (WebSocket). Used by future on-chain attester resolution.
+    /// Creditcoin Substrate RPC (WebSocket). Used by future on-chain attestor resolution.
     #[arg(
         long,
         default_value = "ws://localhost:9944",
@@ -89,9 +89,9 @@ struct Cli {
     #[arg(long, env = "RELAYER_SIGNER_KEY", required = false)]
     signer_key: Option<String>,
 
-    /// Comma-separated EVM addresses of trusted attesters (static allowlist).
-    #[arg(long, env = "RELAYER_ATTESTER_SET", required = false)]
-    attester_set: Option<String>,
+    /// Comma-separated EVM addresses of trusted attestors (static allowlist).
+    #[arg(long, env = "RELAYER_ATTESTOR_SET", required = false)]
+    attestor_set: Option<String>,
 
     /// Override the `2N/3 + 1` quorum threshold (development).
     #[arg(long, env = "RELAYER_THRESHOLD_OVERRIDE", required = false)]
@@ -156,9 +156,9 @@ fn single_route_config(cli: Cli) -> Result<Config> {
     let inbox_raw = cli
         .inbox_address
         .context("--inbox-address is required for --single-route")?;
-    let attester_csv = cli
-        .attester_set
-        .context("--attester-set is required for --single-route")?;
+    let attestor_csv = cli
+        .attestor_set
+        .context("--attestor-set is required for --single-route")?;
 
     let inbox_address = Address::from_str(inbox_raw.trim())
         .with_context(|| format!("invalid --inbox-address: {inbox_raw}"))?;
@@ -170,14 +170,14 @@ fn single_route_config(cli: Cli) -> Result<Config> {
         })
         .transpose()?;
 
-    let attester_addresses: Vec<Address> = attester_csv
+    let attestor_addresses: Vec<Address> = attestor_csv
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|s| Address::from_str(s).with_context(|| format!("invalid attester address: {s}")))
+        .map(|s| Address::from_str(s).with_context(|| format!("invalid attestor address: {s}")))
         .collect::<Result<Vec<_>>>()?;
-    if attester_addresses.is_empty() {
-        bail!("--attester-set must contain at least one EVM address");
+    if attestor_addresses.is_empty() {
+        bail!("--attestor-set must contain at least one EVM address");
     }
 
     let route = ChainRoute {
@@ -188,7 +188,7 @@ fn single_route_config(cli: Cli) -> Result<Config> {
         inbox_address,
         signer_key: cli.signer_key,
         block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
-        attester_set: AttesterSet::Static(attester_addresses),
+        attestor_set: AttestorSet::Static(attestor_addresses),
         threshold_override: cli.threshold_override,
     };
 

@@ -18,7 +18,7 @@ sol! {
     contract IOutbox {
         /// A new cross-chain message has been published to this outbox.
         ///
-        /// `messageId` is the unique handle attesters and the inbox use to track delivery.
+        /// `messageId` is the unique handle attestors and the inbox use to track delivery.
         /// `emitterAddress` is the dApp that called `publishMessage`. `requiresAck` flags
         /// whether the message must be acknowledged on-chain before it is considered complete.
         /// `payload` is the opaque bytes the inbox will hand to the destination dApp's
@@ -34,8 +34,8 @@ sol! {
     #[sol(rpc)]
     #[derive(Debug)]
     contract IInbox {
-        /// Submit an aggregated set of attester votes that prove `messageId` was finalized
-        /// on Creditcoin. Calldata is byte-identical to what attesters signed.
+        /// Submit an aggregated set of attestor votes that prove `messageId` was finalized
+        /// on Creditcoin. Calldata is byte-identical to what attestors signed.
         function deliverMessage(
             bytes32 messageId,
             address emitterAddress,
@@ -68,7 +68,7 @@ sol! {
     #[derive(Debug)]
     contract IOutboxFactory {
         /// Resolve the per-destination Outbox instance for a USC chain key. The factory creates
-        /// one Outbox per `bytes32 chainKey`; attesters call this to discover the address to watch.
+        /// one Outbox per `bytes32 chainKey`; attestors call this to discover the address to watch.
         /// Returns `address(0)` when no outbox has been created for `chainKey` yet.
         function getOutbox(bytes32 chainKey) external view returns (address);
 
@@ -91,9 +91,9 @@ sol! {
     #[sol(rpc)]
     #[derive(Debug)]
     contract IVoteValidator {
-        /// Active attester EVM addresses for this validator. Queried once at startup when the
-        /// attester set is sourced from the on-chain validator.
-        function attesters() external view returns (address[] memory);
+        /// Active attestor EVM addresses for this validator. Queried once at startup when the
+        /// attestor set is sourced from the on-chain validator.
+        function attestors() external view returns (address[] memory);
 
         /// Quorum threshold (e.g. 2N/3 + 1). Mirrored locally so callers do not burn gas on
         /// transactions that are guaranteed to revert.

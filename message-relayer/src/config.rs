@@ -38,8 +38,8 @@ pub const DEFAULT_BLOCK_CONFIRMATION_DEPTH: u64 = 0;
 pub struct Config {
     pub bind_host: String,
     pub bind_port: u16,
-    /// Creditcoin Substrate RPC. Reserved for future on-chain attester-set resolution; not
-    /// strictly required when all routes use a static `attester_set`.
+    /// Creditcoin Substrate RPC. Reserved for future on-chain attestor-set resolution; not
+    /// strictly required when all routes use a static `attestor_set`.
     pub cc3_rpc_url: String,
     /// Creditcoin EVM RPC. The relayer reads `MessagePublished` events from the configured
     /// Outboxes and `eth_chainId` from this endpoint.
@@ -59,20 +59,20 @@ pub struct ChainRoute {
     pub inbox_address: Address,
     pub signer_key: Option<String>,
     pub block_confirmation_depth: u64,
-    pub attester_set: AttesterSet,
+    pub attestor_set: AttestorSet,
     pub threshold_override: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
-pub enum AttesterSet {
+pub enum AttestorSet {
     /// Static EVM-address allowlist supplied in config. Used for the PoC.
     Static(Vec<Address>),
     /// On-chain `IVoteValidator` introspection (stub until validator contract is finalized).
-    OnChain { source: AttesterSource },
+    OnChain { source: AttestorSource },
 }
 
 #[derive(Debug, Clone)]
-pub enum AttesterSource {
+pub enum AttestorSource {
     /// Validator contract on the destination chain.
     Evm { address: Address },
     /// Active attestor set on the Creditcoin runtime for `chain_key`.
@@ -259,14 +259,14 @@ pub struct ChainRouteFile {
     pub signer_key: Option<String>,
     #[serde(default)]
     pub block_confirmation_depth: u64,
-    pub attester_set: AttesterSetFile,
+    pub attestor_set: AttestorSetFile,
     #[serde(default)]
     pub threshold_override: Option<u32>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
-pub enum AttesterSetFile {
+pub enum AttestorSetFile {
     Static { addresses: Vec<String> },
     EvmContract { address: String },
     Cc3ActiveSet { chain_key: u64 },
@@ -342,38 +342,38 @@ impl ChainRouteFile {
             .transpose()
             .with_context(|| format!("invalid outbox_address for chain_key {}", self.chain_key))?;
 
-        let attester_set = match self.attester_set {
-            AttesterSetFile::Static { addresses } => {
+        let attestor_set = match self.attestor_set {
+            AttestorSetFile::Static { addresses } => {
                 let mut parsed = Vec::with_capacity(addresses.len());
                 for raw in addresses {
                     parsed.push(parse_address(&raw).with_context(|| {
                         format!(
-                            "invalid attester address `{raw}` for chain_key {}",
+                            "invalid attestor address `{raw}` for chain_key {}",
                             self.chain_key
                         )
                     })?);
                 }
                 if parsed.is_empty() {
                     bail!(
-                        "attester_set.static.addresses must be non-empty for chain_key {}",
+                        "attestor_set.static.addresses must be non-empty for chain_key {}",
                         self.chain_key
                     );
                 }
-                AttesterSet::Static(parsed)
+                AttestorSet::Static(parsed)
             }
-            AttesterSetFile::EvmContract { address } => {
+            AttestorSetFile::EvmContract { address } => {
                 let address = parse_address(&address).with_context(|| {
                     format!(
-                        "invalid attester_set.evm_contract.address for chain_key {}",
+                        "invalid attestor_set.evm_contract.address for chain_key {}",
                         self.chain_key
                     )
                 })?;
-                AttesterSet::OnChain {
-                    source: AttesterSource::Evm { address },
+                AttestorSet::OnChain {
+                    source: AttestorSource::Evm { address },
                 }
             }
-            AttesterSetFile::Cc3ActiveSet { chain_key } => AttesterSet::OnChain {
-                source: AttesterSource::Cc3 { chain_key },
+            AttestorSetFile::Cc3ActiveSet { chain_key } => AttestorSet::OnChain {
+                source: AttestorSource::Cc3 { chain_key },
             },
         };
 
@@ -385,7 +385,7 @@ impl ChainRouteFile {
             inbox_address,
             signer_key: self.signer_key,
             block_confirmation_depth: self.block_confirmation_depth,
-            attester_set,
+            attestor_set,
             threshold_override: self.threshold_override,
         })
     }
@@ -424,7 +424,7 @@ routes:
     destination_rpc_url: "http://localhost:8545"
     inbox_address: "0x0000000000000000000000000000000000000002"
     block_confirmation_depth: 12
-    attester_set:
+    attestor_set:
       kind: static
       addresses:
         - "0x000000000000000000000000000000000000000a"
@@ -441,7 +441,7 @@ routes:
         assert_eq!(cfg.routes.len(), 1);
         assert_eq!(cfg.routes[0].chain_key, 2);
         assert_eq!(cfg.cc3_rpc_url, "ws://cc3:9944");
-        assert!(matches!(cfg.routes[0].attester_set, AttesterSet::Static(_)));
+        assert!(matches!(cfg.routes[0].attestor_set, AttestorSet::Static(_)));
     }
 
     #[test]
@@ -454,14 +454,14 @@ routes:
     creditcoin_chain_id: 1
     destination_rpc_url: "http://x"
     inbox_address: "0x0000000000000000000000000000000000000002"
-    attester_set:
+    attestor_set:
       kind: static
       addresses: ["0x000000000000000000000000000000000000000a"]
   - chain_key: 2
     creditcoin_chain_id: 1
     destination_rpc_url: "http://y"
     inbox_address: "0x0000000000000000000000000000000000000003"
-    attester_set:
+    attestor_set:
       kind: static
       addresses: ["0x000000000000000000000000000000000000000a"]
 "#;
@@ -483,7 +483,7 @@ routes:
     }
 
     #[test]
-    fn empty_static_attester_set_rejected() {
+    fn empty_static_attestor_set_rejected() {
         let yaml = r#"
 bind_host: "0.0.0.0"
 bind_port: 3200
@@ -492,7 +492,7 @@ routes:
     creditcoin_chain_id: 1
     destination_rpc_url: "http://x"
     inbox_address: "0x0000000000000000000000000000000000000002"
-    attester_set:
+    attestor_set:
       kind: static
       addresses: []
 "#;
@@ -513,7 +513,7 @@ routes:
     creditcoin_chain_id: 1
     destination_rpc_url: "http://x"
     inbox_address: "not-an-address"
-    attester_set:
+    attestor_set:
       kind: static
       addresses: ["0x000000000000000000000000000000000000000a"]
 "#;

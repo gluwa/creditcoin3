@@ -5,7 +5,7 @@
 //!
 //! Finality: events are only surfaced once they are `block_confirmation_depth` blocks below the
 //! chain tip. That is the probabilistic-finality bound of §6.8 — signing from the unsafe head would
-//! let honest attesters disagree after a reorg. Polling (rather than `eth_subscribe`) avoids the
+//! let honest attestors disagree after a reorg. Polling (rather than `eth_subscribe`) avoids the
 //! silent-stream-stall failure mode, matching the relayer.
 
 use std::time::Duration;
@@ -32,7 +32,7 @@ pub struct IndexedMessage {
     pub message_id: B256,
     pub emitter: Address,
     pub payload: Vec<u8>,
-    /// `keccak256(abi.encode(...))` — the digest the attester signs (PoC §5.2).
+    /// `keccak256(abi.encode(...))` — the digest the attestor signs (PoC §5.2).
     pub message_hash: B256,
 }
 
