@@ -116,7 +116,11 @@ async fn main() -> Result<()> {
 
     // ── Backfill gaps ────────────────────────────────────────────────────
     if cfg.backfill {
-        let gaps = store.find_gaps()?;
+        // Pass `cfg.start_height` so the gap-finder also reports a pre-first-stored gap
+        // when the database begins at an intermediate height (e.g. partial snapshot
+        // restore). Without an explicit anchor, `find_gaps` could only see neighbour-pair
+        // gaps and would silently miss blocks below the first persisted entry.
+        let gaps = store.find_gaps(Some(cfg.start_height))?;
         if gaps.is_empty() {
             tracing::info!("backfill: no gaps found");
         } else {
