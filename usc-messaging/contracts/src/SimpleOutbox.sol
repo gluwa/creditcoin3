@@ -11,7 +11,10 @@ contract Outbox {
 
     // Events
     event MessagePublished(
-        bytes32 indexed messageId, bytes32 indexed emitterAddress, bool requiresAck, bytes payload
+        bytes32 indexed messageId,
+        address indexed emitterAddress,
+        bool requiresAck,
+        bytes payload
     );
 
     event MessageAcknowledged(bytes32 indexed messageId);
@@ -45,7 +48,7 @@ contract Outbox {
 
         messageRequiresAck[messageId] = requiresAck;
 
-        emit MessagePublished(messageId, bytes32(bytes20(usContract)), requiresAck, payload);
+        emit MessagePublished(messageId, usContract, requiresAck, payload);
     }
 
     function acknowledgeMessage(bytes32 messageId) public {
