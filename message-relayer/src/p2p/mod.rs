@@ -1,4 +1,4 @@
-//! Read-only libp2p subscriber for attester message-vote gossip.
+//! Read-only libp2p subscriber for attestor message-vote gossip.
 //!
 //! Builds one swarm shared across all configured routes (the libp2p mesh is one network — only
 //! the topics differ by chain_key). For each gossipsub `Message` event the worker decodes a
@@ -64,7 +64,7 @@ pub async fn run(
     let mut topic_to_chain_key: HashMap<TopicHash, u64> = HashMap::new();
     for ck in &chain_keys {
         let topic = IdentTopic::new(protocols::message_votes_topic(*ck));
-        info!(chain_key = ck, topic = %topic, "📥 subscribing to attester votes");
+        info!(chain_key = ck, topic = %topic, "📥 subscribing to attestor votes");
         swarm
             .behaviour_mut()
             .gossipsub

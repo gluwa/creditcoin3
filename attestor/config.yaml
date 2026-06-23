@@ -72,38 +72,36 @@ attestation:
   # interval: 10
 
 write_ability:
-  # USC cross-chain message attestation. Disabled unless `enabled: true` (or the
-  # --writeability flag). When on, the attestor watches the Creditcoin L1
-  # Outbox for this chain_key and gossips ECDSA message votes on the existing p2p
-  # swarm (new topic {chain_key}/message-votes/v1). It never relays.
+  # USC cross-chain message attestation. When enabled, the attestor watches the
+  # Creditcoin L1 Outbox for its chain_key and gossips ECDSA message votes on the
+  # existing p2p swarm (topic {chain_key}/message-votes/v1). It never relays.
   #
-  # enabled: false
+  # The Creditcoin L1 EVM RPC used to watch the Outbox is derived from the `cc3:`
+  # url above, and the Outbox is resolved entirely on-chain from chain_key
+  # (chain-info precompile -> OutboxFactory -> getOutbox). If no factory/Outbox is
+  # registered for this chain_key, write-ability stays disabled for the run (the
+  # rest of the attestor keeps running normally).
+  enabled: true
 
-  # Creditcoin L1 EVM JSON-RPC endpoint (watches the Outbox). Required when enabled.
-  #
-  # cc3_eth_url: "ws://localhost:8546"
+  # Authorized message-vote signer EVM addresses (the static attestor set). The
+  # 2N/3+1 quorum is derived from its size. Each attestor logs its own derived
+  # signer address at startup. These defaults are the deterministic addresses of
+  # the first three zombienet attestors launched with `--well-known-keys`
+  # (//Alice, //Bob, //Charlie).
+  attestors:
+    - "0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC"  # zombie 0 (//Alice)
+    - "0x0aC32750Ed79f301248afD9B398cc5723911c392"  # zombie 1 (//Bob)
+    - "0x4910156288781F080d81c607E3a830a7019d9Bc6"  # zombie 2 (//Charlie)
 
-  # Authorized message-vote signer EVM addresses (the static attester set). The
-  # 2N/3+1 quorum is derived from its size. Your own derived signer address is
-  # logged at startup — register it in the destination EOAValidator and include it
-  # here. (Alternatively set validator_address to read an on-chain IVoteValidator —
-  # not yet wired in the attestor.)
+  # Optional: on-chain IVoteValidator address; if set, takes precedence over
+  # `attestors` (not yet wired in the attestor).
   #
-  # attesters:
-  #   - "0x0000000000000000000000000000000000000001"
-  #   - "0x0000000000000000000000000000000000000002"
-
-  # Optional outbox resolution overrides. By default the Outbox factory is read from
-  # the chain-info precompile (SupportedChains::OutboxFactories) and the bytes32 key
-  # is derived from chain_key.
-  #
-  # outbox_factory_address: "0x..."
-  # write_ability_chain_key: "0x..."
-  # outbox_address: "0x..."          # direct override, skips the factory lookup
+  # validator_address: "0x..."
 
   # Confirmation depth below the EVM tip before signing a MessagePublished log.
+  # Defaults to 3 (matches Creditcoin time-to-finality).
   #
-  # block_confirmation_depth: 12
+  # block_confirmation_depth: 3
 
   # Anti-abuse bounds.
   #
