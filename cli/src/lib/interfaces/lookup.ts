@@ -978,7 +978,7 @@ export default {
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
                 maturityStrategy: 'Text',
             },
-            OutboxCreated: {
+            OutboxFactoryRegistered: {
                 chainKey: 'u64',
                 outboxFactoryAddr: 'H160',
             },
