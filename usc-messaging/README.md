@@ -83,33 +83,31 @@ later use (including `OUTBOX_FACTORY_ADDR` for the factory and `OUTBOX_ADDR` for
 
 ### 3. Start the attestors, then the Relayer, Quoter, and dApp acknowledgement worker
 
-Now that the factory and Outbox are registered on-chain (step 2), start the attestor zombienet —
-this is **step 3 of CONTRIBUTING.md**. Run it with `--well-known-keys` so the three attestors use the
-`//Alice`/`//Bob`/`//Charlie` seeds, whose message-vote addresses are already pinned in
-`attestor/config.yaml`:
+Now that the factory and Outbox are registered on-chain (step 2), start the attestors. Use the
+helper script below — it launches the attestor zombienet (CONTRIBUTING step 3), discovers each
+attestor's derived message-vote EVM address from its logs, writes that set into
+`attestor/config.yaml` (`write_ability.attestors`), and prints/saves the matching `--attestor-set`
+value for the relayer. It then stays in the foreground streaming the zombienet logs, like running
+the zombienet directly (Ctrl-C to stop):
 
 ```bash
-./target/release/attestor_zombienet \
-    -n 3 \
-    --bin=./target/release/attestor \
-    --eth-url=ws://localhost:8545 \
-    --cc3-url=ws://localhost:9944 \
-    --funding-address='//Alice' \
-    --well-known-keys \
-    --config=./attestor/config.yaml
+bash usc-messaging/scripts/launch-attestors.sh        # add a number to run N != 3 attestors
 ```
 
-> Start this **after** the deploy in step 2. If you start it earlier, the attestors find no factory/
-> Outbox for `chain_key 2` and leave write-ability disabled for the run — restart the zombienet after
-> deploying.
+> Run this **after** the deploy in step 2. The attestors only log a signer address once write-ability
+> resolves the Outbox on-chain; if no factory/Outbox is registered for `chain_key 2` yet, write-ability
+> stays disabled and the script times out. (The script uses random — but deterministic — attestor
+> keys, not `--well-known-keys`, so the addresses it writes stay valid across restarts.)
 
-The **relayer** is the Rust `message-relayer` crate (the TS mock was removed). It snoops the attestors'
-`{chain_key}/message-votes/v1` votes, aggregates a 2N/3+1 quorum, and calls `Inbox.deliverMessage`
-on the destination anvil chain. Run it from the workspace root with the local dev defaults (the
-addresses come from the `.env` written by step 2):
+When the script prints the attestor set, copy it (also saved to `usc-messaging/scripts/.attestor-set`)
+and, in a **separate terminal**, start the relayer. The relayer is the Rust `message-relayer` crate;
+it snoops the attestors' `{chain_key}/message-votes/v1` votes, aggregates a 2N/3+1 quorum, and calls
+`Inbox.deliverMessage` on the destination anvil chain:
 
 ```bash
-source .env   # exports $OUTBOX_ADDR and $INBOX_ADDR
+cd usc-messaging
+source .env                                  # exports $OUTBOX_ADDR and $INBOX_ADDR
+ATTESTOR_SET=$(cat scripts/.attestor-set)    # the set written by launch-attestors.sh
 
 cargo run -p message-relayer -- --single-route \
   --cc3-rpc-url ws://localhost:9944 \
@@ -120,29 +118,32 @@ cargo run -p message-relayer -- --single-route \
   --destination-rpc-url http://localhost:8545 \
   --inbox-address "$INBOX_ADDR" \
   --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-  --attestor-set 0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC,0x0aC32750Ed79f301248afD9B398cc5723911c392,0x4910156288781F080d81c607E3a830a7019d9Bc6
+  --attestor-set "$ATTESTOR_SET"
 ```
 
 Notes on the relayer flags:
 - `--chain-key 2` / `--cc3-chain-id 42` match the dev anvil chain key and the Creditcoin `--dev` EVM
   chain id; both are bound into `messageHash`, so they must agree with the attestors.
-- `--attestor-set` must equal the zombienet attestors' vote addresses (the well-known
-  `//Alice`/`//Bob`/`//Charlie` values from step 0); the relayer drops votes from signers outside it.
+- `--attestor-set` is the value produced by `launch-attestors.sh`; the relayer drops votes from
+  signers outside it.
 - `--signer-key` is anvil's default account 0 — it pays for `deliverMessage` on the destination.
 
 Then start the Quoter (still TS):
 ```bash
+cd usc-messaging
 npm run dev:quoter
 ```
 
 Finally, start the dApp's acknowledgement worker (still TS):
 ```bash
+cd usc-messaging
 npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
 ```
 
 ### 4. Submit message request to dApp contract
 To submit our message, run the following:
 ```bash
+cd usc-messaging
 npx tsx scripts/publish-message/publish-message.ts
 ```
 
