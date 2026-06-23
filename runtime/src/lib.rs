@@ -228,9 +228,12 @@ impl frame_system::Config for Runtime {
         pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
         pallet_attestation::MigrateAttestorsCountV1ToV2<Runtime>,
         pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
-        migrations::v1_init_supported_chains::Migration<Runtime>,
-        migrations::v1_init_attestation::Migration<Runtime>,
-        migrations::v1_init_operators::Migration<Runtime>,
+        // NOTE: the one-time genesis-init migrations (`v1_init_supported_chains`,
+        // `v1_init_attestation`, `v1_init_operators`) have already run on every network
+        // (devnet/testnet/mainnet) and are intentionally NOT registered here. Their modules
+        // are kept in `migrations.rs` for reference. Re-registering them is unsafe: their
+        // `post_upgrade` checks assert the original genesis state (e.g. `ChainKeyValue == 2`),
+        // which no longer holds on the evolved live chains.
     );
     type PreInherents = ();
     type PostInherents = ();

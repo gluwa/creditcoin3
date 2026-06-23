@@ -1,3 +1,11 @@
+//! One-time genesis-init migrations.
+//!
+//! These have already run on every network (devnet/testnet/mainnet), so they are no longer
+//! registered in the runtime's `SingleBlockMigrations` tuple (see `lib.rs`). They are kept
+//! here for reference and historical record only. The `Migration` structs are therefore
+//! intentionally never constructed, hence the module-wide `dead_code` allow.
+#![allow(dead_code)]
+
 use frame_support::{traits::OnRuntimeUpgrade, weights::Weight};
 use scale_info::prelude::string::String;
 use sp_runtime::traits::Get;
