@@ -106,8 +106,14 @@ where
     BE: Backend<Block> + 'static,
 {
     type EstimateGasAdapter = ();
+    // The runtime maps EVM addresses to AccountId32 via HashedAddressMapping<BlakeTwo256>
+    // (see runtime/src/lib.rs::AddressMapping), so state overrides for eth_call /
+    // eth_estimateGas must target the System.Account storage key derived from AccountId32.
+    // The previous SystemAccountId20StorageOverride hashed the 20-byte EVM address directly,
+    // producing a System.Account key the runtime never reads — balance/nonce overrides were
+    // silently ignored.
     type RuntimeStorageOverride =
-        fc_rpc::frontier_backend_client::SystemAccountId20StorageOverride<Block, C, BE>;
+        fc_rpc::frontier_backend_client::SystemAccountId32StorageOverride<Block, C, BE>;
 }
 
 /// Instantiate all Full RPC extensions.
