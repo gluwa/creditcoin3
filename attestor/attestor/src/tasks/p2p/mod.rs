@@ -281,6 +281,7 @@ async fn handle_swarm(
                 .report_message_validation_result(&message_id, &propagation_source, decision);
         }
         SwarmEvent::ConnectionClosed { connection_id, .. } => {
+            shared.metrics.note_peer_disconnected();
             ping_failures.remove(&connection_id);
             *can_broadcast = swarm
                 .behaviour()
@@ -316,6 +317,11 @@ async fn handle_swarm(
             ..
         } => {
             tracing::info!(%peer_id, %connection_id, "🔗 connection up");
+            // Track currently-connected peers independently from the Kademlia routing-table
+            // gauge (`note_routing_peer_added`). The two diverge — a peer can be in the
+            // routing table without an active connection — so dashboards asking “how many
+            // peers am I actually talking to right now” need this separate counter.
+            shared.metrics.note_peer_connected();
         }
         SwarmEvent::OutgoingConnectionError {
             peer_id,

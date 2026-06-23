@@ -148,8 +148,8 @@ struct Store {
     /// and [`note_routing_peer_evicted`].
     ///
     /// For traffic-rate dashboards see [`metrics_p2p_messages`] (Counter); for actual connected
-    /// peers, instrument `ConnectionEstablished` / `ConnectionClosed` separately (not yet
-    /// exposed).
+    /// peers, see [`metrics_connected_peers`] which is incremented on `ConnectionEstablished`
+    /// and decremented on `ConnectionClosed`.
     ///
     /// ✅ Routing-table size **comfortably above quorum** indicates a healthy mesh.
     /// ⚠️ Routing-table size **at quorum** is borderline; gossip mesh may be smaller.
@@ -160,10 +160,21 @@ struct Store {
     /// [`note_routing_peer_added`]: Self::note_routing_peer_added
     /// [`note_routing_peer_evicted`]: Self::note_routing_peer_evicted
     /// [`metrics_p2p_messages`]: Self::metrics_p2p_messages
+    /// [`metrics_connected_peers`]: Self::metrics_connected_peers
     pub metrics_p2p: prometheus_client::metrics::family::Family<
         labels::LabelPeerToPeer,
         prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
     >,
+
+    /// Currently connected p2p peers — incremented on libp2p `ConnectionEstablished`,
+    /// decremented on `ConnectionClosed`.
+    ///
+    /// This is distinct from [`metrics_p2p`] (Kademlia routing-table size): routing-table
+    /// entries and live connections drift apart in normal operation — a peer can stay in the
+    /// routing table without an active connection — so operators querying “how many attestors
+    /// am I actually talking to right now” need this separate gauge.
+    pub metrics_connected_peers:
+        prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
 
     /// Counter for gossipsub message traffic. Monotonically increasing — meant to be consumed
     /// via the PromQL [`rate`] function to analyze message-frequency variance.
@@ -234,6 +245,9 @@ impl Metrics {
         });
         let metrics_p2p = prometheus_client::metrics::family::Family::default();
         let metrics_p2p_messages = prometheus_client::metrics::family::Family::default();
+        let metrics_connected_peers =
+            prometheus_client::metrics::gauge::Gauge::<u64, std::sync::atomic::AtomicU64>::default(
+            );
         let metrics_error = prometheus_client::metrics::family::Family::default();
 
         registry.register(
@@ -284,6 +298,12 @@ impl Metrics {
         );
 
         registry.register(
+            "connected_peers",
+            "Currently connected p2p peers (ConnectionEstablished minus ConnectionClosed)",
+            metrics_connected_peers.clone(),
+        );
+
+        registry.register(
             "failed_states",
             "Counts of various failure states",
             metrics_error.clone(),
@@ -297,6 +317,7 @@ impl Metrics {
             metrics_delay,
             metrics_p2p,
             metrics_p2p_messages,
+            metrics_connected_peers,
             metrics_error,
         }));
 
@@ -483,6 +504,19 @@ impl Metrics {
                 peer_to_peer: labels::PeerToPeer::RoutingPeers,
             })
             .dec();
+    }
+
+    /// Increment the *currently connected* peer gauge — call from libp2p
+    /// `SwarmEvent::ConnectionEstablished`. Independent from [`Self::note_routing_peer_added`],
+    /// which tracks the Kademlia routing-table.
+    pub fn note_peer_connected(&self) {
+        self.0.metrics_connected_peers.inc();
+    }
+
+    /// Decrement the *currently connected* peer gauge — call from libp2p
+    /// `SwarmEvent::ConnectionClosed`. Counterpart to [`Self::note_peer_connected`].
+    pub fn note_peer_disconnected(&self) {
+        self.0.metrics_connected_peers.dec();
     }
 
     pub fn increase_gossipsub_message_count(&self) {
