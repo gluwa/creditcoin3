@@ -3692,6 +3692,7 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidAttestationsPerCheckpoint: boolean;
         readonly isInvalidMaxCatchup: boolean;
         readonly isInvalidTargetSampleSize: boolean;
+        readonly isInvalidMaxAttestors: boolean;
         readonly isAttestationFoundWhileImporting: boolean;
         readonly isInvalidAttestationBlockNumber: boolean;
         readonly isInvalidAttestorFound: boolean;
@@ -3756,6 +3757,7 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidAttestationsPerCheckpoint'
             | 'InvalidMaxCatchup'
             | 'InvalidTargetSampleSize'
+            | 'InvalidMaxAttestors'
             | 'AttestationFoundWhileImporting'
             | 'InvalidAttestationBlockNumber'
             | 'InvalidAttestorFound'
