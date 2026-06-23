@@ -367,30 +367,36 @@ async fn main() -> anyhow::Result<()> {
         });
     }
 
-    let mut to_register = 0;
+    // Track the accounts whose `register_attestor` call we actually submitted this run.
+    // Attestors that were already registered (the `else` branch of the spawn above returns
+    // None) must not be expected to emit a fresh `AttestorRegistered` event, otherwise a
+    // concurrent zombienet run on the same chain_key could satisfy our counter with one of
+    // their events for an account we never re-registered.
+    let mut just_registered: std::collections::BTreeSet<cc_client::AccountId32> =
+        std::collections::BTreeSet::new();
     while let Some(res) = futures_register.join_next().await {
         if let Some((name, account_id)) = res?? {
             tracing::info!(name, attestor_id = %account_id, "👷   Successfully registered attestor");
-            to_register += 1;
+            just_registered.insert(account_id);
         }
     }
 
     // ----------------------* Attestor registration (on-chain confirmation) *---------------------
 
-    if to_register > 0 {
-        // Only count AttestorRegistered events that belong to *our* chain and one of *our*
-        // attestor accounts. Without this filter a parallel zombienet run could satisfy our
-        // counter with its own registrations and we'd start attestors before the on-chain
-        // state really reflects them.
+    if !just_registered.is_empty() {
+        // Only count AttestorRegistered events that belong to *our* chain AND to an account
+        // we just submitted a fresh registration for. Filtering against the full
+        // `attestor_info` set was too broad: when only a subset of attestors needed
+        // registering, a parallel run on the same chain_key could emit a matching event for a
+        // different (already-registered) expected account and satisfy our counter before our
+        // newly-submitted registrations actually landed.
         let expected_chain_key = args.chain_key;
-        let expected_accounts: std::collections::BTreeSet<cc_client::AccountId32> = attestor_info
-            .iter()
-            .map(|(_, _, account_id)| account_id.clone())
-            .collect();
+        let expected_accounts = just_registered.clone();
+        let to_register = expected_accounts.len();
         wait_for_event::<cc_client::cc3::attestation::events::AttestorRegistered>(
             to_register,
             blocks,
-            |ev| {
+            move |ev| {
                 let cc_client::cc3::attestation::events::AttestorRegistered(chain_key, account_id) =
                     ev;
                 *chain_key == expected_chain_key && expected_accounts.contains(account_id)
