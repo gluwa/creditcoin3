@@ -86,6 +86,7 @@ import type {
     SpStakingOffenceOffenceDetails,
     SpStakingPagedExposureMetadata,
     SupportedChainsPrimitivesSupportedChain,
+    SupportedChainsPrimitivesWriteAbilityConfig,
 } from '@polkadot/types/lookup';
 import type { Observable } from '@polkadot/types/types';
 
@@ -1716,6 +1717,15 @@ declare module '@polkadot/api-base/types/storage' {
             supportedChains: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesSupportedChain>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Per-chain USC write-ability metadata
+             **/
+            writeAbilityConfigs: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesWriteAbilityConfig>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
