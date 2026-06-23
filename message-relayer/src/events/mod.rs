@@ -21,6 +21,7 @@ use crate::abi::IOutbox;
 use crate::config::ChainRoute;
 use crate::hash::message_hash;
 use crate::prom::Metrics;
+use write_ability::protocol::chain_key_to_bytes32;
 
 pub mod factory;
 
@@ -69,13 +70,10 @@ pub async fn watch_outbox(
         .await
         .with_context(|| format!("chain_key {chain_key}: outbox resolution failed"))?;
 
-    // The outbox stores its destination chain_key as bytes32. We read it once at startup and
-    // then bind it into messageHash for every event seen on this outbox — see PoC §5.1.
-    let destination_chain_key = read_destination_chain_key(&provider, outbox)
-        .await
-        .with_context(|| {
-            format!("chain_key {chain_key}: failed to read Outbox.chainKey() at {outbox}")
-        })?;
+    // The destination chain_key is known locally — derived from the route's `u64` chain_key — and
+    // bound into messageHash for every event seen on this outbox (see PoC §5.1). It is not read
+    // back from the Outbox.
+    let destination_chain_key = chain_key_to_bytes32(chain_key);
 
     let creditcoin_chain_id = provider.get_chain_id().await.with_context(|| {
         format!("chain_key {chain_key}: failed to read Creditcoin EVM chain id")
@@ -120,16 +118,6 @@ pub async fn watch_outbox(
             }
         }
     }
-}
-
-async fn read_destination_chain_key<P: Provider>(provider: &P, outbox: Address) -> Result<B256> {
-    let contract = IOutbox::new(outbox, provider);
-    let value = contract
-        .chainKey()
-        .call()
-        .await
-        .context("Outbox.chainKey() call reverted")?;
-    Ok(value._0)
 }
 
 #[allow(clippy::too_many_arguments)]
