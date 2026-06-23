@@ -47,6 +47,11 @@ pub struct Config {
     attestation: attestation::Config,
     p2p: tasks::p2p::ConfigIncomplete,
     api: tasks::api::ConfigIncomplete,
+
+    /// USC write-ability (cross-chain message attestation). Defaults to disabled so the binary
+    /// behaves exactly as before until message attestation is explicitly turned on.
+    #[default(tasks::write_ability::Config::disabled())]
+    write_ability: tasks::write_ability::Config,
 }
 
 // ---------------------------------------- [ Attestor ] ---------------------------------------- //
@@ -94,6 +99,11 @@ impl Attestor {
         let keypair_p2p =
             libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed).expect("ed25519 keypair");
         let peer_id = libp2p::PeerId::from_public_key(&keypair_p2p.public());
+
+        // Write-ability derives its EVM signing key from the same secret (domain-separated).
+        // Capture the seed before `seed` is consumed by the block-attestation p2p setup below.
+        // Message votes ride the existing p2p swarm (just a new topic), so no separate keypair.
+        let write_ability_seed = self.config.stream.secret.to_seed_bytes_32();
 
         let bls_seed = self.config.stream.secret.to_bls_seed_bytes();
         let bls_key = bls_signatures::PrivateKey::new(bls_seed.as_slice());
@@ -288,6 +298,19 @@ impl Attestor {
         let (local_produced_tx, local_produced_rx) =
             watch::channel::<Option<attestor_primitives::Height>>(None);
 
+        // Build write-ability message-vote state (if enabled) before Shared so the p2p task can
+        // share the aggregator + active set. `mv_publish_rx` is the channel the p2p task drains to
+        // publish our outgoing votes; a dummy (immediately-closed) receiver stands in when disabled
+        // and is never polled (the p2p arm is guarded on `message_votes.is_some()`).
+        let (message_votes, mv_publish_rx) =
+            match tasks::write_ability::build_state(&self.config.write_ability) {
+                Some((state, rx)) => (Some(state), rx),
+                None => (
+                    None,
+                    mpsc::channel::<write_ability::envelope::MessageVote>(1).1,
+                ),
+            };
+
         let shared = Arc::new(Shared {
             name: self.config.name.clone(),
             chain_key,
@@ -306,6 +329,8 @@ impl Attestor {
 
             pool_send,
             gossip_tx,
+
+            message_votes,
 
             can_attest_tx,
             can_attest_rx,
@@ -344,7 +369,11 @@ impl Attestor {
                 .with_keypair(keypair_p2p)
                 .with_chain_key(chain_key)
                 .build();
-            set.spawn(async move { tasks::p2p::run(shared, cfg, gossip_rx).await.map(|_| "p2p") });
+            set.spawn(async move {
+                tasks::p2p::run(shared, cfg, gossip_rx, mv_publish_rx)
+                    .await
+                    .map(|_| "p2p")
+            });
         }
 
         {
@@ -371,6 +400,16 @@ impl Attestor {
                 tasks::runtime_updater::run(shared)
                     .await
                     .map(|_| "runtime_updater")
+            });
+        }
+
+        {
+            let shared = shared.clone();
+            let wa_cfg = self.config.write_ability;
+            set.spawn(async move {
+                tasks::write_ability::run(shared, wa_cfg, write_ability_seed)
+                    .await
+                    .map(|_| "write_ability")
             });
         }
 

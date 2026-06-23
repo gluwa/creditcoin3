@@ -24,6 +24,7 @@ members = [
     "common/merkle",
     "common/utils",
     "common/builder",
+    "common/write-ability",
     "common/streams/eth",
     "common/streams/cc3",
     "common/streams/attestation",
@@ -342,6 +343,7 @@ stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
+write-ability = { path = "common/write-ability" }
 
 [profile.release]
 # Substrate runtime requires unwinding.

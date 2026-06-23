@@ -1539,6 +1539,8 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 name = "attestor"
 version = "3.126.0"
 dependencies = [
+ "alloy",
+ "alloy-node-bindings",
  "anyhow",
  "attestor-primitives",
  "attestor_pool",
@@ -1571,6 +1573,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
+ "write-ability",
  "zeroize",
 ]
 
@@ -8056,6 +8059,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "write-ability",
  "zeroize",
 ]
 
@@ -17763,6 +17767,15 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "wasmparser 0.244.0",
+]
+
+[[package]]
+name = "write-ability"
+version = "3.126.0"
+dependencies = [
+ "alloy",
+ "parity-scale-codec",
+ "sha3",
 ]
 
 [[package]]

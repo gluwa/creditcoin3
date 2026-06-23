@@ -494,6 +494,16 @@ impl Metrics {
             .inc();
     }
 
+    /// Count a USC write-ability message vote that was accepted and counted toward quorum.
+    pub fn note_message_vote(&self) {
+        self.0
+            .metrics_p2p_messages
+            .get_or_create(&labels::LabelPeerToPeerMessages {
+                kind: labels::PeerToPeerMessages::MessageVote,
+            })
+            .inc();
+    }
+
     pub fn increase_invalid_attestation_count(&self) {
         self.0
             .metrics_error
@@ -637,6 +647,8 @@ mod labels {
         /// Total gossipsub messages received by this peer. Was a `Gauge` under `metrics_p2p`
         /// before — moved to a `Counter` family so PromQL `rate()` is well-defined.
         Gossipsub,
+        /// USC write-ability message votes that were accepted and counted toward quorum.
+        MessageVote,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]

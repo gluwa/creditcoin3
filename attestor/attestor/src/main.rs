@@ -21,6 +21,7 @@ struct Config {
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
     no_mdns: bool,
+    write_ability: attestor::tasks::write_ability::Config,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -37,6 +38,8 @@ struct ConfigFile {
     cc3: ConfigFileCC3,
     #[serde(default)]
     attestation: ConfigAttestation,
+    #[serde(default)]
+    write_ability: ConfigFileWriteAbility,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -81,6 +84,36 @@ struct ConfigFileCC3 {
 struct ConfigAttestation {
     start_height: Option<attestor_primitives::Height>,
     interval: Option<std::num::NonZero<attestor_primitives::Height>>,
+}
+
+/// `write_ability:` section — USC cross-chain message attestation. Disabled unless `enabled: true`
+/// (or `--message-attestation`). When on, the attestor watches the Creditcoin L1 Outbox over the
+/// EVM RPC and gossips message votes on the existing p2p swarm.
+#[derive(Debug, Default, serde::Deserialize)]
+struct ConfigFileWriteAbility {
+    #[serde(default)]
+    enabled: bool,
+    /// Creditcoin L1 EVM JSON-RPC endpoint (watches the Outbox). Required when enabled.
+    cc3_eth_url: Option<url::Url>,
+    /// Outbox factory address override; when unset, resolved from the chain-info precompile.
+    outbox_factory_address: Option<alloy::primitives::Address>,
+    /// `bytes32` write-ability chain key; when unset, derived from the `u64` chain_key.
+    write_ability_chain_key: Option<alloy::primitives::B256>,
+    /// Direct Outbox address override (skips the factory lookup).
+    outbox_address: Option<alloy::primitives::Address>,
+    /// Confirmation depth below the EVM tip before signing a `MessagePublished` log.
+    block_confirmation_depth: Option<u64>,
+    /// Anti-abuse cap on distinct tracked message hashes.
+    max_tracked_messages: Option<usize>,
+    /// TTL (seconds) for incomplete vote aggregates.
+    vote_ttl_secs: Option<u64>,
+    /// Authorized message-vote signer EVM addresses (the static attester set).
+    #[serde(default)]
+    attesters: Vec<alloy::primitives::Address>,
+    /// On-chain `IVoteValidator` address; if set, takes precedence over `attesters` (not yet wired
+    /// in the attestor — it lives on the destination chain — so this currently disables the task
+    /// with a clear log).
+    validator_address: Option<alloy::primitives::Address>,
 }
 
 impl Config {
@@ -224,6 +257,30 @@ impl Config {
                     )
                     .env("ATTESTOR_CC3_URL")
                     .required(config_file.cc3.url.is_none())
+                    .value_parser(clap::value_parser!(url::Url)),
+            )
+            .arg(
+                clap::arg!(--"message-attestation")
+                    .help("Enable USC write-ability message attestation")
+                    .long_help(
+                        "Enable USC write-ability message attestation. \
+                        When set, the attestor watches the Creditcoin L1 Outbox for this chain_key \
+                        and gossips ECDSA message votes on the existing p2p swarm. \
+                        Requires --cc3-eth-url and a configured attester set (write_ability section)."
+                    )
+                    .env("ATTESTOR_MESSAGE_ATTESTATION")
+                    .required(false)
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
+                clap::arg!(--"cc3-eth-url" <URL>)
+                    .help("Creditcoin L1 EVM RPC url (for message attestation)")
+                    .long_help(
+                        "Creditcoin L1 EVM JSON-RPC url used by message attestation to watch the \
+                        Outbox contract. Only used when --message-attestation is enabled."
+                    )
+                    .env("ATTESTOR_CC3_ETH_URL")
+                    .required(false)
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
@@ -382,6 +439,8 @@ impl Config {
 
         let no_mdns = matches.get_flag("no-mdns") || config_file.p2p.no_mdns;
 
+        let write_ability = build_write_ability(&matches, config_file.write_ability);
+
         Ok(Config {
             name,
             logs,
@@ -396,7 +455,45 @@ impl Config {
             start_height,
             attestation_interval,
             no_mdns,
+            write_ability,
         })
+    }
+}
+
+/// Assemble the write-ability config from CLI/env (highest priority) over the `write_ability:`
+/// config-file section. CLI provides only the enable flag + EVM RPC url; the attester set and
+/// outbox-resolution overrides come from the config file.
+fn build_write_ability(
+    matches: &clap::ArgMatches,
+    file: ConfigFileWriteAbility,
+) -> attestor::tasks::write_ability::Config {
+    use attestor::tasks::write_ability::{config, AttesterSet, Config as WaConfig};
+
+    let enabled = matches.get_flag("message-attestation") || file.enabled;
+    let cc3_eth_rpc_url = matches
+        .get_one::<url::Url>("cc3-eth-url")
+        .cloned()
+        .or(file.cc3_eth_url);
+
+    let attester_set = match file.validator_address {
+        Some(addr) => AttesterSet::OnChainValidator(addr),
+        None => AttesterSet::Static(file.attesters),
+    };
+
+    WaConfig {
+        enabled,
+        cc3_eth_rpc_url,
+        outbox_factory_address: file.outbox_factory_address,
+        write_ability_chain_key: file.write_ability_chain_key,
+        outbox_address: file.outbox_address,
+        block_confirmation_depth: file.block_confirmation_depth.unwrap_or(0),
+        max_tracked_messages: file
+            .max_tracked_messages
+            .unwrap_or(config::DEFAULT_MAX_TRACKED_MESSAGES),
+        vote_ttl: file
+            .vote_ttl_secs
+            .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
+        attester_set,
     }
 }
 
@@ -545,6 +642,7 @@ async fn main() -> anyhow::Result<()> {
                 .build(),
         )
         .with_api(attestor::tasks::api::ConfigBuilder::new().with_port(args.api_port))
+        .with_write_ability(args.write_ability)
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------

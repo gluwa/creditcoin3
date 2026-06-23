@@ -17,9 +17,12 @@ use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
+use write_ability::envelope::MessageVote;
+use write_ability::protocol::message_votes_topic;
 
 use crate::error::Error;
 use crate::shared::Shared;
+use crate::tasks::write_ability::ingest;
 use crate::vote::{verify_vote, VerifyResult};
 
 /// Consecutive failed pings on a single connection before we reap it.
@@ -43,6 +46,7 @@ pub async fn run(
     shared: Arc<Shared>,
     cfg: Config,
     mut gossip_rx: mpsc::Receiver<Vote>,
+    mut mv_publish_rx: mpsc::Receiver<MessageVote>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
 
@@ -71,6 +75,22 @@ pub async fn run(
         .gossipsub
         .subscribe(&topic)
         .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+
+    // Write-ability piggybacks on this same swarm: when message attestation is enabled we subscribe
+    // to the message-vote topic too (same peers / discovery), and the dispatch in `handle_swarm`
+    // routes frames by topic. `None` when disabled — no extra subscription, no behaviour change.
+    let mv_topic = shared.message_votes.is_some().then(|| {
+        let t = libp2p::gossipsub::IdentTopic::new(message_votes_topic(chain_key));
+        tracing::info!(topic = %t, "📫 subscribing to message-vote gossip");
+        t
+    });
+    if let Some(mv_topic) = &mv_topic {
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(mv_topic)
+            .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+    }
 
     for address in cfg.boot_nodes {
         let Some(peer_id) = address.iter().find_map(|p| match p {
@@ -167,12 +187,27 @@ pub async fn run(
                 }
             }
 
+            // Outgoing — the write_ability task produced a signed message vote to gossip. Best
+            // effort: a publish with no mesh peers yet is logged and dropped (PoC scope).
+            Some(vote) = mv_publish_rx.recv(), if mv_topic.is_some() => {
+                if let Some(mv_topic) = &mv_topic {
+                    match swarm.behaviour_mut().gossipsub.publish(mv_topic.hash(), vote.encode_bytes()) {
+                        Ok(_) => tracing::info!(
+                            chain_key = vote.chain_key,
+                            "✉️ gossiped message vote",
+                        ),
+                        Err(err) => tracing::warn!(%err, "✉️ message-vote publish failed"),
+                    }
+                }
+            }
+
             // Incoming events from the swarm.
             event = swarm.select_next_some() => {
                 handle_swarm(
                     &shared,
                     &mut swarm,
                     &topic,
+                    mv_topic.as_ref(),
                     &mut can_broadcast,
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
@@ -189,6 +224,7 @@ async fn handle_swarm(
     shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     topic: &libp2p::gossipsub::IdentTopic,
+    mv_topic: Option<&libp2p::gossipsub::IdentTopic>,
     can_broadcast: &mut bool,
     pending_votes: &mut std::collections::HashMap<attestor_primitives::Height, Vec<Vote>>,
     max_pending_per_height: usize,
@@ -265,14 +301,21 @@ async fn handle_swarm(
         })) => {
             shared.metrics.increase_gossipsub_message_count();
 
-            let acceptance =
-                handle_vote_msg(shared, pending_votes, max_pending_per_height, &message.data).await;
-            let decision = match acceptance {
-                Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
-                Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
-                Acceptance::Reject => {
-                    shared.metrics.increase_invalid_gossipsub_count();
-                    libp2p::gossipsub::MessageAcceptance::Reject
+            // Route by topic: message votes (write-ability) vs block attestations. Both ride this
+            // one swarm; `mv_topic` is `Some` only when message attestation is enabled.
+            let is_message_vote = mv_topic.is_some_and(|t| message.topic == t.hash());
+            let decision = if is_message_vote {
+                handle_message_vote(shared, &message.data)
+            } else {
+                match handle_vote_msg(shared, pending_votes, max_pending_per_height, &message.data)
+                    .await
+                {
+                    Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
+                    Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
+                    Acceptance::Reject => {
+                        shared.metrics.increase_invalid_gossipsub_count();
+                        libp2p::gossipsub::MessageAcceptance::Reject
+                    }
                 }
             };
             swarm
@@ -344,6 +387,34 @@ enum Acceptance {
     Accept,
     Ignore,
     Reject,
+}
+
+/// Validate + count an incoming message vote (write-ability), mapping the result to a gossipsub
+/// acceptance. Delegates the real work to [`ingest::validate_and_count`]; we only translate the
+/// decision and surface a reached-threshold milestone.
+fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub::MessageAcceptance {
+    use libp2p::gossipsub::MessageAcceptance;
+    let Some(state) = &shared.message_votes else {
+        // Topic isn't subscribed when disabled, so this is unreachable in practice.
+        return MessageAcceptance::Ignore;
+    };
+    match ingest::validate_and_count(state, shared.chain_key, bytes) {
+        ingest::Acceptance::Accept {
+            reached_threshold,
+            message_hash,
+        } => {
+            shared.metrics.note_message_vote();
+            if reached_threshold {
+                ingest::note_threshold(shared.chain_key, &message_hash);
+            }
+            MessageAcceptance::Accept
+        }
+        ingest::Acceptance::Ignore => MessageAcceptance::Ignore,
+        ingest::Acceptance::Reject => {
+            shared.metrics.increase_invalid_gossipsub_count();
+            MessageAcceptance::Reject
+        }
+    }
 }
 
 async fn handle_vote_msg(
