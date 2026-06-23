@@ -26,6 +26,8 @@ use creditcoin3_runtime::{
     RuntimeGenesisConfig, SS58Prefix, SessionConfig, Signature, StakingConfig,
     SupportedChainsConfig, WASM_BINARY,
 };
+// Writability
+use write_ability::protocol::chain_key_to_bytes32;
 
 // The URL for the telemetry server.
 // const STAGING_TELEMETRY_URL: &str = "wss://telemetry.polkadot.io/submit/";
@@ -460,6 +462,23 @@ fn devnet_genesis(
                     MATURITY_EVM_SAFE.to_string(),
                 ),
             ],
+            write_ability_configs: vec![
+                (1, *chain_key_to_bytes32(1), true),
+                (2, *chain_key_to_bytes32(2), true),
+                (3, *chain_key_to_bytes32(3), true),
+                (4, *chain_key_to_bytes32(4), true),
+                (5, *chain_key_to_bytes32(5), true),
+                (6, *chain_key_to_bytes32(6), true),
+            ],
+            // TODO: Replace with address of deployed outbox factory contract on local devnet once contract is completed
+            outbox_factories: vec![
+                (1, H160(hex!("0000000000000000000000000000000000000000"))),
+                (2, H160(hex!("0000000000000000000000000000000000000000"))),
+                (3, H160(hex!("0000000000000000000000000000000000000000"))),
+                (4, H160(hex!("0000000000000000000000000000000000000000"))),
+                (5, H160(hex!("0000000000000000000000000000000000000000"))),
+                (6, H160(hex!("0000000000000000000000000000000000000000"))),
+            ],
             _phantom: Default::default(),
         },
         operators: Default::default(),
@@ -606,6 +625,8 @@ fn testnet_genesis(
                     MATURITY_EVM_SAFE.to_string(),
                 ),
             ],
+            write_ability_configs: Default::default(),
+            outbox_factories: Default::default(),
             _phantom: Default::default(),
         },
         operators: Default::default(),

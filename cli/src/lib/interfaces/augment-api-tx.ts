@@ -3272,6 +3272,18 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, H160]
             >;
             /**
+             * Sets the USC write-ability config for a supported chain. Only accounts in the Operators
+             * membership (or root) can call this extrinsic.
+             **/
+            setWriteAbilityConfig: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    writeAbilityChainKey: U8aFixed | string | Uint8Array,
+                    messageAttestationEnabled: bool | boolean | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, U8aFixed, bool]
+            >;
+            /**
              * Generic tx
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;

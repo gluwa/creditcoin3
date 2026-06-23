@@ -982,6 +982,11 @@ export default {
                 chainKey: 'u64',
                 outboxFactoryAddr: 'H160',
             },
+            WriteAbilityConfigSet: {
+                chainKey: 'u64',
+                writeAbilityChainKey: '[u8;32]',
+                messageAttestationEnabled: 'bool',
+            },
         },
     },
     /**
@@ -2699,6 +2704,11 @@ export default {
                 chainKey: 'u64',
                 address: 'H160',
             },
+            set_write_ability_config: {
+                chainKey: 'u64',
+                writeAbilityChainKey: '[u8;32]',
+                messageAttestationEnabled: 'bool',
+            },
         },
     },
     /**
@@ -3207,67 +3217,74 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup423: pallet_supported_chains::pallet::Error<T>
+     * Lookup423: supported_chains_primitives::WriteAbilityConfig
+     **/
+    SupportedChainsPrimitivesWriteAbilityConfig: {
+        writeAbilityChainKey: '[u8;32]',
+        messageAttestationEnabled: 'bool',
+    },
+    /**
+     * Lookup424: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
     },
     /**
-     * Lookup428: pallet_randomness::pallet::Error<T>
+     * Lookup429: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup430: pallet_membership::pallet::Error<T, I>
+     * Lookup431: pallet_membership::pallet::Error<T, I>
      **/
     PalletMembershipError: {
         _enum: ['AlreadyMember', 'NotMember', 'TooManyMembers'],
     },
     /**
-     * Lookup433: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup434: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup434: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup435: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup435: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup436: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup436: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup437: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup439: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup440: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup440: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup441: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup441: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup442: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup442: frame_metadata_hash_extension::CheckMetadataHash<T>
+     * Lookup443: frame_metadata_hash_extension::CheckMetadataHash<T>
      **/
     FrameMetadataHashExtensionCheckMetadataHash: {
         mode: 'FrameMetadataHashExtensionMode',
     },
     /**
-     * Lookup443: frame_metadata_hash_extension::Mode
+     * Lookup444: frame_metadata_hash_extension::Mode
      **/
     FrameMetadataHashExtensionMode: {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup444: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
+     * Lookup445: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
      **/
     PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
     /**
-     * Lookup446: creditcoin3_runtime::Runtime
+     * Lookup447: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
