@@ -1,5 +1,6 @@
 ---
 name: Runtime Upgrade
+# DEBUG
 
 "on":
   pull_request:
