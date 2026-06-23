@@ -274,10 +274,51 @@ where
     }
 
     /// Returns ledger info for a given stash account.
+    ///
+    /// `stash` must be the **hashed** `AccountId32` produced by `AddressMapping` from the EVM
+    /// address — not the raw 20-byte EVM address zero-padded to 32 bytes. EVM consumers
+    /// emitting events tied to their own `msg.sender` should prefer
+    /// [`Self::get_ledger_by_address`] or [`Self::get_caller_ledger`], which apply
+    /// `AddressMapping` internally and avoid the silently-empty-ledger foot-gun.
     #[precompile::public("getLedger(bytes32)")]
     #[precompile::view]
     fn get_ledger(handle: &mut impl PrecompileHandle, stash: H256) -> EvmResult<LedgerInfo> {
         let account = Runtime::AccountId::from(stash.0);
+        Self::get_ledger_for_account(handle, account)
+    }
+
+    /// Same as [`Self::get_ledger`] but takes the raw EVM `address` and applies the runtime's
+    /// `AddressMapping` internally. This is what EVM-side consumers usually want: events and
+    /// state-changing calls in this precompile already use the EVM `address` as the caller
+    /// identifier, so symmetric reads with the same key avoid the historical foot-gun where
+    /// users converted the emitted address to `bytes32` and got an empty ledger back.
+    #[precompile::public("getLedgerByAddress(address)")]
+    #[precompile::view]
+    fn get_ledger_by_address(
+        handle: &mut impl PrecompileHandle,
+        addr: Address,
+    ) -> EvmResult<LedgerInfo> {
+        let account = Runtime::AddressMapping::into_account_id(addr.into());
+        Self::get_ledger_for_account(handle, account)
+    }
+
+    /// Same as [`Self::get_ledger_by_address`] but uses the EVM caller (`msg.sender`).
+    /// Convenience entry for self-lookups; saves the caller from passing their own address.
+    #[precompile::public("getCallerLedger()")]
+    #[precompile::view]
+    fn get_caller_ledger(handle: &mut impl PrecompileHandle) -> EvmResult<LedgerInfo> {
+        let caller_evm = handle.context().caller;
+        let account = Runtime::AddressMapping::into_account_id(caller_evm);
+        Self::get_ledger_for_account(handle, account)
+    }
+
+    /// Shared ledger lookup body. Kept private so all three public entries (`getLedger`,
+    /// `getLedgerByAddress`, `getCallerLedger`) charge the same gas and return identical
+    /// results.
+    fn get_ledger_for_account(
+        handle: &mut impl PrecompileHandle,
+        account: Runtime::AccountId,
+    ) -> EvmResult<LedgerInfo> {
         match Ledger::<Runtime>::get(&account) {
             None => {
                 handle.record_db_read::<Runtime>(0)?;
