@@ -6,7 +6,7 @@
 
 use alloy::primitives::B256;
 
-/// Build the gossipsub topic attesters publish message votes on for a given USC `chain_key`, and
+/// Build the gossipsub topic attestors publish message votes on for a given USC `chain_key`, and
 /// the relayer subscribes to. Distinct from the block-attestation topic `{chain_key}/attest`
 /// (PoC §4, §6.1).
 #[must_use]

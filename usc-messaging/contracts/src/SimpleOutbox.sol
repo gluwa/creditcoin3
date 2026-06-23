@@ -33,6 +33,27 @@ contract Outbox {
     // Sequence numbers per Universal Contract used to generate nonces for message IDs
     mapping(address => uint64) public uscSequences;
 
+    // Destination chain this outbox publishes toward. Set once by the factory at creation.
+    bytes32 public chainKey;
+
+    // Validator authorized to verify acknowledgment delivery proofs for this outbox. Supplied by
+    // the factory at creation.
+    // TODO(write-ability): once the acknowledgment delivery-proof flow is implemented, gate
+    // `acknowledgeMessage` on this validator (see the TODO on that function).
+    address public validator;
+
+    // Owner shared with the factory — the factory passes its own owner in so the same account
+    // controls the factory and every outbox it creates.
+    address public owner;
+
+    // Created by `OutboxFactory.createOutbox` (see SimpleOutboxFactory.sol). The factory passes its
+    // own owner so the same account controls both.
+    constructor(bytes32 _chainKey, address _validator, address _owner) {
+        chainKey = _chainKey;
+        validator = _validator;
+        owner = _owner;
+    }
+
     function publishMessage(bool requiresAck, bytes calldata payload)
         external
         returns (bytes32 messageId)
@@ -51,6 +72,9 @@ contract Outbox {
         emit MessagePublished(messageId, usContract, requiresAck, payload);
     }
 
+    // TODO(write-ability): restrict this to the configured `validator` once the acknowledgment
+    // delivery-proof verification flow is implemented. It is currently permissionless — any caller
+    // can acknowledge any message — which is insecure and only acceptable for the PoC.
     function acknowledgeMessage(bytes32 messageId) public {
         Message storage m = messages[messageId];
 

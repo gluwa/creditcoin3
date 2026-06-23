@@ -2,61 +2,61 @@
 
 USC Write-Ability
 
-> **Note — attester & relayer are now in Rust.** The TypeScript mock **attester** and **relayer**
-> workers that used to live here (`src/attester/`, `src/relayer/`) have been removed: the attester
+> **Note — attestor & relayer are now in Rust.** The TypeScript mock **attestor** and **relayer**
+> workers that used to live here (`src/attestor/`, `src/relayer/`) have been removed: the attestor
 > is now the attestor's `tasks/write_ability` module (`attestor/attestor/`), and the relayer is the
 > `message-relayer` crate. What remains in this package is the still-TS-only **quoter**, the
 > **dApp ack worker**, the Solidity **contracts**, and the demo/deploy scripts. The end-to-end demo
-> steps below that invoked `npm run dev:attester` / `dev:relayer` therefore now point at the Rust
+> steps below that invoked `npm run dev:attestor` / `dev:relayer` therefore now point at the Rust
 > components instead.
 
 ## Full Demonstration Steps
-### 0. Install dependencies and Set Environment Vars
 
-- Anvil
-- Forge
-- npm install
+### 0. Prerequisite — Creditcoin chain and anvil
 
-**.env setup**:
+This demo runs on top of the standard local stack described in
+[`.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md). **Complete steps 0–2 of that guide first**
+(build, Creditcoin `--dev` node, anvil). **Do not start the attestor zombienet yet** — that is
+CONTRIBUTING step 3, which we run in step 3 below, *after* deploying.
 
-Next you'll need to set up your environment variables. This should be straightforward.
-For a typical setup with local chains just copy `.env.example`:
+### 1. Set environment variables
+
+Install this package's Node dependencies (provides `tsx` and the `@polkadot/api` used by the deploy
+script to register the factory on-chain), then copy `.env.example`:
 ```bash
+cd usc-messaging
+npm install
 cp .env.example .env
 ```
 
-TODO: Use Sepolia and Creditcoin3 Testnet as the chains for this demo. Then fund
-accounts using faucets.
+The private keys in `.env.example` are well-known dev keys, and the defaults already match the local
+stack above (`CREDITCOIN_RPC_URL=http://127.0.0.1:9944`,
+`DESTINATION_CHAIN_RPC_URL=http://127.0.0.1:8545`, sudo `//Alice`, `chain_key 2`, EVM chain id `42`).
 
-The private keys in this .env.example are well known dev keys, but you will still have
-to fund the address corresponding to `CREDITCOIN_CHAIN_PRIVATE_KEY` manually:
-
-TODO: How to fund creditcoin evm address on local chain
-
-### 1. Run Local Chains
-
-First we spin up a local anvil destination chain:
-```bash
-anvil --block-time 6
-```
-
-Then we build and launch our local Creditcoin chain:
-```bash
-cd ..
-cargo build --features=fast-runtime --release
-./target/release/creditcoin3-node --dev --tmp
-```
+TODO: Offer option to use Sepolia and Creditcoin3 Testnet as the chains for this demo, funding accounts via faucets.
 
 ### 2. Deploy Write-ability Contracts
 
 We want to deploy several contracts in this step:
 1. The sample `dApp contract`. This contract lives on Creditcoin and will request to send writability messages
 2. The `relayer contract`. This contract lives on Creditcoin and processes quotes + payments for messages.
-3. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and processed
-4. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
-5. The `vote validator contract`. This contract lives on the destination chain and validates attestor votes on messages
+3. The `outbox factory contract`. This contract lives on Creditcoin. It is USC-operated and creates one
+  `outbox contract` per destination chain, passing its own owner to each outbox so the same account controls both.
+4. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and
+  processed. **It is not deployed directly** — the outbox factory creates it (see below).
+5. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
+6. The `vote validator contract`. This contract lives on the destination chain and validates attestor votes on messages
   forwarded from the inbox.
-6. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
+7. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
+
+The outbox follows a **"create factory first → use factory to create outbox"** pattern: the deploy
+script deploys the `OutboxFactory`, then calls `createOutbox(chainKey, validator)` on it to create
+the chain's outbox, and reads the resulting address back via `getOutbox(chainKey)`. The dApp is then
+wired to that factory-created outbox.
+
+> Note: the `validator` passed into `createOutbox` is currently a placeholder, and the outbox's
+> `acknowledgeMessage` is still permissionless. Proper validator-gated acknowledgment access control
+> is a TODO (see the comments in `SimpleOutbox.sol`).
 
 We have simplified the deployment of these contracts with a single script:
 ```bash
@@ -64,23 +64,71 @@ cd usc-messaging
 npx tsx scripts/deploy.ts
 ```
 
+After creating the outbox factory and outbox, the script also **registers the factory on-chain** by
+submitting `supportedChains.setOutboxFactoryAddr(chainKey, factoryAddress)` to Creditcoin. This is
+required so the real (Rust) attestor and relayer can resolve the outbox on-chain via the chain-info
+precompile (`outbox_factory_address` → factory → `getOutbox(chainKey)`); the previous dummy
+attestor/relayer skipped this. Notes:
+
+- It is a **Substrate extrinsic** (not an EVM tx) and is operator-gated. On a `--dev` node the
+  script submits it via **sudo** using `//Alice` (override with `CREDITCOIN_SUDO_SURI`). It connects
+  over the Substrate WS RPC (`CREDITCOIN_SUBSTRATE_WS_URL`, defaulting to `CREDITCOIN_RPC_URL` with a
+  `ws://` scheme).
+- The chain (`chainKey`) must already be a **supported chain**. The dev genesis seeds `chain_key = 2`
+  (the local anvil, `Anvil1`) with a zero-address factory placeholder, which this step overwrites with
+  the real factory; otherwise the extrinsic reverts with `ChainNotSupported`.
+
 This script also saves the addresses of all deployed contracts in `.env` for
-later use.
+later use (including `OUTBOX_FACTORY_ADDR` for the factory and `OUTBOX_ADDR` for the outbox it created).
 
-### 3. Run the Attestor, Relayer, Quoter, and DApp Message Acknowledgement worker
+### 3. Start the attestors, then the Relayer, Quoter, and dApp acknowledgement worker
 
-The **attestor** and **relayer** are now Rust components (the TS mocks were removed). Run them from
-the workspace root:
+Now that the factory and Outbox are registered on-chain (step 2), start the attestor zombienet —
+this is **step 3 of CONTRIBUTING.md**. Run it with `--well-known-keys` so the three attestors use the
+`//Alice`/`//Bob`/`//Charlie` seeds, whose message-vote addresses are already pinned in
+`attestor/config.yaml`:
 
 ```bash
-# Attestor with message attestation enabled (see attestor/config.yaml `write_ability:` section,
-# or flags --writeability --cc3-eth-url <creditcoin-evm-rpc>). Needs a running CC3 node
-# where the chain_key is supported and this attestor is elected.
-./target/release/attestor --writeability --cc3-eth-url ws://127.0.0.1:8546 ...
-
-# Relayer (subscribes to the same {chain_key}/message-votes/v1 topic and delivers to the Inbox):
-cargo run -p message-relayer -- --config <relayer.yaml>
+./target/release/attestor_zombienet \
+    -n 3 \
+    --bin=./target/release/attestor \
+    --eth-url=ws://localhost:8545 \
+    --cc3-url=ws://localhost:9944 \
+    --funding-address='//Alice' \
+    --well-known-keys \
+    --config=./attestor/config.yaml
 ```
+
+> Start this **after** the deploy in step 2. If you start it earlier, the attestors find no factory/
+> Outbox for `chain_key 2` and leave write-ability disabled for the run — restart the zombienet after
+> deploying.
+
+The **relayer** is the Rust `message-relayer` crate (the TS mock was removed). It snoops the attestors'
+`{chain_key}/message-votes/v1` votes, aggregates a 2N/3+1 quorum, and calls `Inbox.deliverMessage`
+on the destination anvil chain. Run it from the workspace root with the local dev defaults (the
+addresses come from the `.env` written by step 2):
+
+```bash
+source .env   # exports $OUTBOX_ADDR and $INBOX_ADDR
+
+cargo run -p message-relayer -- --single-route \
+  --cc3-rpc-url ws://localhost:9944 \
+  --creditcoin-eth-rpc-url http://localhost:9944 \
+  --chain-key 2 \
+  --cc3-chain-id 42 \
+  --outbox-address "$OUTBOX_ADDR" \
+  --destination-rpc-url http://localhost:8545 \
+  --inbox-address "$INBOX_ADDR" \
+  --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+  --attestor-set 0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC,0x0aC32750Ed79f301248afD9B398cc5723911c392,0x4910156288781F080d81c607E3a830a7019d9Bc6
+```
+
+Notes on the relayer flags:
+- `--chain-key 2` / `--cc3-chain-id 42` match the dev anvil chain key and the Creditcoin `--dev` EVM
+  chain id; both are bound into `messageHash`, so they must agree with the attestors.
+- `--attestor-set` must equal the zombienet attestors' vote addresses (the well-known
+  `//Alice`/`//Bob`/`//Charlie` values from step 0); the relayer drops votes from signers outside it.
+- `--signer-key` is anvil's default account 0 — it pays for `deliverMessage` on the destination.
 
 Then start the Quoter (still TS):
 ```bash
@@ -109,10 +157,10 @@ detect a `MessagePublished` event and print something like:
 [Relayer] messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376 successfully notified to relayer
 ```
 
-2. Next the attester notifies the relayer, which logs its message delivery process:
+2. Next the attestor notifies the relayer, which logs its message delivery process:
 
 ```
-[Attester] Received messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 from attester
+[Attestor] Received messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 from attestor
 [Worker] Queued messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 (queue size: 1)
 [Worker] Processing 1 pending message(s)
 [Inbox] MessageDelivered messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753
@@ -225,6 +273,6 @@ See `usc-write-ability-research/documents/requirements/03-quotation-requirements
 ## Relayer (Rust)
 
 The relayer is the `message-relayer` crate (workspace root), not part of this package. It watches the
-Creditcoin L1 Outbox for `MessagePublished`, snoops attester votes on the
+Creditcoin L1 Outbox for `MessagePublished`, snoops attestor votes on the
 `{chain_key}/message-votes/v1` gossip topic, aggregates 2N/3+1, and calls `Inbox.deliverMessage`.
 See `message-relayer/README`/`PLAN.md` and `message-relayer/config.example.yaml` for configuration.
