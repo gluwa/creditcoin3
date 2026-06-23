@@ -109,6 +109,9 @@ attestor-primitives = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
+# Writability
+write-ability = { workspace = true }
+
 [build-dependencies]
 substrate-build-script-utils = { workspace = true }
 

@@ -24,6 +24,16 @@ pub struct SupportedChain {
     pub maturity_strategy: String,
 }
 
+/// Per-chain USC write-ability metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode, TypeInfo)]
+pub struct WriteAbilityConfig {
+    /// The destination-chain identifier (`bytes32`) used in the cross-chain `messageHash` and to
+    /// resolve the Outbox via `IOutboxFactory.getOutbox(bytes32)`.
+    pub write_ability_chain_key: [u8; 32],
+    /// Whether attestors should produce message-attestation votes for this chain.
+    pub message_attestation_enabled: bool,
+}
+
 // Maturity strategy enum used for robustness in attestors
 #[derive(Debug, Clone)]
 pub enum MaturityStrategy {

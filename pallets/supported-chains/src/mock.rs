@@ -130,6 +130,8 @@ impl ExtBuilder {
                 ChainEncodingVersion::V1,
                 MATURITY_FIXED_DELAY_10.to_string(),
             )],
+            write_ability_configs: Default::default(),
+            outbox_factories: Default::default(),
             _phantom: Default::default(),
         };
 
@@ -160,6 +162,8 @@ impl ExtBuilder {
 
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
             supported_chains,
+            write_ability_configs: Default::default(),
+            outbox_factories: Default::default(),
             _phantom: Default::default(),
         };
 
