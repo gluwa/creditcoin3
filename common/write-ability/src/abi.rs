@@ -1,10 +1,9 @@
 //! Solidity ABI bindings for the USC write-ability contracts.
 //!
-//! Shared by the attestor (which decodes `MessagePublished` from the Creditcoin Outbox and reads
-//! `Outbox.chainKey()`) and the `message-relayer` (which additionally calls `Inbox.deliverMessage`
-//! / `validateVotes`). Keeping one definition here means both crates decode the *same* event
-//! signature and recompute the *same* `messageHash` — a mismatch would make every signature verify
-//! as invalid on-chain.
+//! Shared by the attestor (which decodes `MessagePublished` from the Creditcoin Outbox) and the
+//! `message-relayer` (which additionally calls `Inbox.deliverMessage` / `validateVotes`). Keeping
+//! one definition here means both crates decode the *same* event signature and recompute the
+//! *same* `messageHash` — a mismatch would make every signature verify as invalid on-chain.
 //!
 //! Inline `alloy::sol!` declarations are used while the production contracts are finalized — when
 //! they ship, switch each block to the JSON form (`#[sol(rpc)] interface X, "contracts/x.json"`)
@@ -20,17 +19,16 @@ sol! {
         /// A new cross-chain message has been published to this outbox.
         ///
         /// `messageId` is the unique handle attesters and the inbox use to track delivery.
-        /// `emitterAddress` is the dApp that called `publishMessage`. `payload` is the
-        /// opaque bytes the inbox will hand to the destination dApp's `receiveMessage`.
+        /// `emitterAddress` is the dApp that called `publishMessage`. `requiresAck` flags
+        /// whether the message must be acknowledged on-chain before it is considered complete.
+        /// `payload` is the opaque bytes the inbox will hand to the destination dApp's
+        /// `receiveMessage`.
         event MessagePublished(
             bytes32 indexed messageId,
             address indexed emitterAddress,
+            bool requiresAck,
             bytes payload
         );
-
-        /// One outbox is bound to one destination chain. `chainKey()` is that destination's
-        /// USC chain key, used in `messageHash`. Read once at startup per route.
-        function chainKey() external view returns (bytes32);
     }
 
     #[sol(rpc)]

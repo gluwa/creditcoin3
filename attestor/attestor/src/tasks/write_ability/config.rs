@@ -43,8 +43,8 @@ pub struct Config {
     /// `SupportedChains::OutboxFactories`).
     pub outbox_factory_address: Option<Address>,
 
-    /// `bytes32` write-ability chain key passed to `getOutbox` and asserted against
-    /// `Outbox.chainKey()`. When `None`, derived from the `u64` chain_key via
+    /// `bytes32` write-ability chain key passed to `getOutbox` and bound into each `messageHash`.
+    /// When `None`, derived from the `u64` chain_key via
     /// [`write_ability::protocol::chain_key_to_bytes32`].
     pub write_ability_chain_key: Option<B256>,
 
