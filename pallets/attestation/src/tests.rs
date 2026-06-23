@@ -280,7 +280,8 @@ fn set_min_bond_requirement_should_succeed_when_signed_by_operator() {
 #[test]
 fn set_max_attestors_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        let max_attestors = 200;
+        // Stay at-or-below the mock runtime ceiling (`MaxAttestorsDefault = 100`).
+        let max_attestors = 50;
 
         assert_ok!(Attestation::set_max_attestors(
             RuntimeOrigin::root(),
@@ -300,13 +301,48 @@ fn set_max_attestors_should_update_storage_and_emit_event() {
 #[test]
 fn set_max_attestors_should_succeed_when_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
-        let max_attestors = 200;
+        let max_attestors = 50;
 
         assert_ok!(Attestation::set_max_attestors(
             RuntimeOrigin::signed(ALICE),
             SUPPORTED_CHAIN_KEY,
             max_attestors
         ));
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_zero() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 0),
+            Error::<Test>::InvalidMaxAttestors
+        );
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        // Mock runtime ceiling is `MaxAttestorsDefault = 100`. Anything above it must be
+        // rejected: the runtime ceiling backs the `BoundedVec` capacities used elsewhere
+        // and drives the `commit_attestation` weight benchmark, so silently storing a
+        // higher per-chain value would overflow those bounds or undercharge weight.
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 101),
+            Error::<Test>::InvalidMaxAttestors
+        );
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_unsupported_chain() {
+    ExtBuilder.build_and_execute(|| {
+        let unsupported_chain: ChainKey = 999;
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), unsupported_chain, 50),
+            Error::<Test>::ChainNotSupported
+        );
     })
 }
 
