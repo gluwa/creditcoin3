@@ -71,6 +71,9 @@ sol! {
         /// one Outbox per `bytes32 chainKey`; attesters call this to discover the address to watch.
         /// Returns `address(0)` when no outbox has been created for `chainKey` yet.
         function getOutbox(bytes32 chainKey) external view returns (address);
+
+        /// @notice Emitted when a new outbox is created
+        event OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress);
     }
 
     #[sol(rpc)]
