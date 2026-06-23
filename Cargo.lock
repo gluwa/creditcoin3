@@ -2888,6 +2888,7 @@ dependencies = [
  "supported-chains-primitives",
  "thiserror 1.0.69",
  "tokio",
+ "write-ability",
 ]
 
 [[package]]
@@ -9701,6 +9702,7 @@ dependencies = [
  "frame-benchmarking",
  "frame-support",
  "frame-system",
+ "log",
  "pallet-membership",
  "parity-scale-codec",
  "rstest 0.18.2",
@@ -15331,6 +15333,7 @@ dependencies = [
  "precompile-utils",
  "scale-info",
  "sp-api",
+ "sp-core",
  "sp-std",
 ]
 
