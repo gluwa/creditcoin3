@@ -214,6 +214,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::MaxAttestors` (r:0 w:1)
 	/// Proof: `Attestation::MaxAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_max_attestors() -> Weight {
@@ -221,9 +223,14 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		//  Measured:  `20`
 		//  Estimated: `1505`
 		// Minimum execution time: 17_720_000 picoseconds.
+		// NOTE: the `reads(4) -> reads(5)` bump (and the SupportedChains storage line above)
+		// is a manual adjustment for the `is_chain_supported` guard added to
+		// `set_max_attestors`; the recorded measurement predates that guard. A full
+		// `cargo run --features runtime-benchmarks -- benchmark pallet` refresh will
+		// regenerate this exactly; until then the extra read is charged conservatively.
 		Weight::from_parts(19_940_000, 0)
 			.saturating_add(Weight::from_parts(0, 1505))
-			.saturating_add(T::DbWeight::get().reads(4))
+			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
 	/// Storage: `Attestation::Invulnerables` (r:1 w:1)
