@@ -6,7 +6,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use sp_core::{Encode, H256};
+use sp_core::{Encode, H160, H256};
 use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
@@ -15,7 +15,7 @@ use pallet_attestation::{
     LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
-use pallet_supported_chains::SupportedChains;
+use pallet_supported_chains::{OutboxFactories, SupportedChains};
 use precompile_utils::{prelude::*, solidity::Codec};
 
 // Gas cost constants
@@ -55,6 +55,12 @@ impl ChainInfoResult {
             exists: true,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
+pub struct OutboxFactoryResult {
+    pub factory_addr: Address,
+    pub exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
@@ -156,6 +162,33 @@ where
         } else {
             // We want an empty return rather than a revert here
             Ok(ChainInfoResult::default())
+        }
+    }
+
+    #[precompile::public("outbox_factory_address(uint64)")]
+    #[precompile::view]
+    fn outbox_factory_address(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+    ) -> EvmResult<OutboxFactoryResult> {
+        let maybe_address = OutboxFactories::<Runtime>::get(chain_key);
+
+        handle.record_db_read::<Runtime>(
+            maybe_address
+                .as_ref()
+                .map(|address| address.encoded_size())
+                .unwrap_or_default(),
+        )?;
+
+        match maybe_address {
+            Some(address) => Ok(OutboxFactoryResult {
+                factory_addr: Address(address),
+                exists: true,
+            }),
+            None => Ok(OutboxFactoryResult {
+                factory_addr: Address(H160::zero()),
+                exists: false,
+            }),
         }
     }
 
