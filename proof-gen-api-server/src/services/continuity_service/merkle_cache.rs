@@ -28,6 +28,12 @@ impl CachedMerkleBlock {
         }
     }
 
+    async fn build(header_number: u64, txs: Vec<(H256, Vec<u8>)>) -> Result<Self, String> {
+        tokio::task::spawn_blocking(move || Self::new(header_number, txs))
+            .await
+            .map_err(|err| format!("merkle cache build task panicked: {err}"))
+    }
+
     fn proof_item(&self, chain_key: u64, tx_index: usize) -> Option<MerkleProofItem> {
         let tx_hash = *self.tx_hashes.get(tx_index)?;
         let tx_bytes = self.tx_bytes.get(tx_index)?.clone();
@@ -81,13 +87,17 @@ impl MerkleProofCache {
         block.proof_item(chain_key, tx_index as usize)
     }
 
-    pub async fn insert_block(&self, header_number: u64, txs: Vec<(H256, Vec<u8>)>) -> usize {
-        let block = Arc::new(CachedMerkleBlock::new(header_number, txs));
+    pub async fn insert_block(
+        &self,
+        header_number: u64,
+        txs: Vec<(H256, Vec<u8>)>,
+    ) -> Result<usize, String> {
+        let block = Arc::new(CachedMerkleBlock::build(header_number, txs).await?);
         let tx_count = block.tx_hashes.len();
 
         self.insert_cached_block(header_number, block).await;
 
-        tx_count
+        Ok(tx_count)
     }
 
     pub async fn insert_block_and_get(
@@ -96,14 +106,14 @@ impl MerkleProofCache {
         header_number: u64,
         txs: Vec<(H256, Vec<u8>)>,
         tx_index: u64,
-    ) -> (usize, Option<MerkleProofItem>) {
-        let block = Arc::new(CachedMerkleBlock::new(header_number, txs));
+    ) -> Result<(usize, Option<MerkleProofItem>), String> {
+        let block = Arc::new(CachedMerkleBlock::build(header_number, txs).await?);
         let tx_count = block.tx_hashes.len();
         let item = block.proof_item(chain_key, tx_index as usize);
 
         self.insert_cached_block(header_number, block).await;
 
-        (tx_count, item)
+        Ok((tx_count, item))
     }
 
     async fn insert_cached_block(&self, header_number: u64, block: Arc<CachedMerkleBlock>) {
@@ -208,7 +218,10 @@ mod tests {
     #[tokio::test]
     async fn lookup_returns_proof_for_cached_tx() {
         let cache = MerkleProofCache::default();
-        cache.insert_block(100, vec![tx(1), tx(2), tx(3)]).await;
+        cache
+            .insert_block(100, vec![tx(1), tx(2), tx(3)])
+            .await
+            .unwrap();
 
         let item = cache
             .get_by_tx_hash(7, H256::from_low_u64_be(2))
@@ -228,7 +241,10 @@ mod tests {
     #[tokio::test]
     async fn lookup_by_block_index_returns_proof_for_cached_tx() {
         let cache = MerkleProofCache::default();
-        cache.insert_block(100, vec![tx(1), tx(2), tx(3)]).await;
+        cache
+            .insert_block(100, vec![tx(1), tx(2), tx(3)])
+            .await
+            .unwrap();
 
         let item = cache
             .get_by_block_index(7, 100, 2)
@@ -245,8 +261,8 @@ mod tests {
     #[tokio::test]
     async fn prune_below_removes_tx_index_and_processed_blocks() {
         let cache = MerkleProofCache::default();
-        cache.insert_block(100, vec![tx(1)]).await;
-        cache.insert_block(200, vec![tx(2)]).await;
+        cache.insert_block(100, vec![tx(1)]).await.unwrap();
+        cache.insert_block(200, vec![tx(2)]).await.unwrap();
 
         assert_eq!(cache.prune_below(150).await, 1);
 
@@ -265,8 +281,8 @@ mod tests {
     #[tokio::test]
     async fn prune_above_removes_reverted_blocks() {
         let cache = MerkleProofCache::default();
-        cache.insert_block(100, vec![tx(1)]).await;
-        cache.insert_block(200, vec![tx(2)]).await;
+        cache.insert_block(100, vec![tx(1)]).await.unwrap();
+        cache.insert_block(200, vec![tx(2)]).await.unwrap();
 
         assert_eq!(cache.prune_above(150).await, 1);
 

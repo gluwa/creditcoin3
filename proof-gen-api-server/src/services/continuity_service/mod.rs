@@ -27,6 +27,7 @@ pub struct ChainState {
     pub attestation_cache: tokio::sync::RwLock<BTreeMap<u64, H256>>,
     pub merkle_proof_cache: MerkleProofCache,
     pub attestation_genesis_block: AtomicU64,
+    pub checkpoint_interval: AtomicU64,
 }
 
 // Single block proof query object, used in batch requests to specify which transactions to include merkle proofs for. If a block is included in the batch but not listed in the tx_indexes, it will be processed with tx_index = None (continuity proof only)
@@ -268,6 +269,7 @@ impl ContinuityService {
             );
             let latest_attested_height = attestation_map.keys().next_back().copied();
             metrics.set_last_attested_height(chain_key, latest_attested_height);
+            let checkpoint_interval = builder.config.checkpoint_interval;
 
             chains.insert(
                 chain_key,
@@ -277,6 +279,7 @@ impl ContinuityService {
                     attestation_cache: tokio::sync::RwLock::new(attestation_map),
                     merkle_proof_cache: MerkleProofCache::default(),
                     attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
+                    checkpoint_interval: AtomicU64::new(checkpoint_interval),
                 }),
             );
         }
@@ -462,10 +465,11 @@ impl ContinuityService {
             return Ok(0);
         }
 
-        Ok(chain
+        chain
             .merkle_proof_cache
             .insert_block(header_number, txs)
-            .await)
+            .await
+            .map_err(|message| ServiceError::MerkleError { message })
     }
 
     async fn precompute_merkle_cache_block_for_tx(
@@ -491,7 +495,8 @@ impl ContinuityService {
         let (tx_count, item) = chain
             .merkle_proof_cache
             .insert_block_and_get(chain.builder.config.chain_key, header_number, txs, tx_index)
-            .await;
+            .await
+            .map_err(|message| ServiceError::MerkleError { message })?;
 
         tracing::info!(
             chain_key = chain.builder.config.chain_key,
@@ -506,10 +511,12 @@ impl ContinuityService {
     }
 
     fn merkle_cache_retention_blocks(&self, chain: &ChainState) -> u64 {
+        let checkpoint_interval = chain.checkpoint_interval.load(Ordering::Relaxed);
         chain
             .builder
             .config
-            .checkpoint_block_interval()
+            .attestation_interval
+            .saturating_mul(checkpoint_interval)
             .saturating_mul(MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER)
     }
 
@@ -520,6 +527,15 @@ impl ContinuityService {
                 .builder
                 .update_last_checkpoint_block(block_number)
                 .await;
+        }
+    }
+
+    /// Update the checkpoint interval used by merkle-cache retention sizing.
+    pub fn update_checkpoint_interval(&self, chain_key: u64, checkpoint_interval: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .checkpoint_interval
+                .store(checkpoint_interval, Ordering::Relaxed);
         }
     }
 
