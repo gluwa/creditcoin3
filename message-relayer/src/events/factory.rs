@@ -72,6 +72,7 @@ mod tests {
                 "000000000000000000000000000000000000000a"
             )]),
             threshold_override: None,
+            ack: None,
         }
     }
 

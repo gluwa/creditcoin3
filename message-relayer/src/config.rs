@@ -61,6 +61,24 @@ pub struct ChainRoute {
     pub block_confirmation_depth: u64,
     pub attestor_set: AttestorSet,
     pub threshold_override: Option<u32>,
+    /// Opt-in trust-minimized acknowledgment. When set, the relayer watches the destination
+    /// Inbox for `MessageDelivered`, fetches a native USC delivery proof from the proof-gen API,
+    /// and submits it to the source-chain `AcknowledgmentValidator`. `None` disables ack for the
+    /// route (the default).
+    pub ack: Option<AckConfig>,
+}
+
+/// Off-chain acknowledgment submitter config (research §05/§10). See [`ChainRoute::ack`].
+#[derive(Debug, Clone)]
+pub struct AckConfig {
+    /// Base URL of the proof-gen API server (e.g. `http://127.0.0.1:8080`). The submitter calls
+    /// `GET {base}/api/v1/proof-by-tx/{chain_key}/{tx_hash}`.
+    pub proof_gen_url: String,
+    /// `AcknowledgmentValidator` contract on the Creditcoin (source) chain — the submit target.
+    pub validator_address: Address,
+    /// EVM key used to sign `submitAcknowledgment` txs on the Creditcoin chain. Submission is
+    /// permissionless (the proof is self-validating), so this only needs gas, not authority.
+    pub signer_key: String,
 }
 
 #[derive(Debug, Clone)]
@@ -262,6 +280,15 @@ pub struct ChainRouteFile {
     pub attestor_set: AttestorSetFile,
     #[serde(default)]
     pub threshold_override: Option<u32>,
+    #[serde(default)]
+    pub ack: Option<AckConfigFile>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AckConfigFile {
+    pub proof_gen_url: String,
+    pub validator_address: String,
+    pub signer_key: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -377,6 +404,23 @@ impl ChainRouteFile {
             },
         };
 
+        let ack = self
+            .ack
+            .map(|a| {
+                let validator_address = parse_address(&a.validator_address).with_context(|| {
+                    format!(
+                        "invalid ack.validator_address for chain_key {}",
+                        self.chain_key
+                    )
+                })?;
+                anyhow::Ok(AckConfig {
+                    proof_gen_url: a.proof_gen_url,
+                    validator_address,
+                    signer_key: a.signer_key,
+                })
+            })
+            .transpose()?;
+
         Ok(ChainRoute {
             chain_key: self.chain_key,
             creditcoin_chain_id: self.creditcoin_chain_id,
@@ -387,6 +431,7 @@ impl ChainRouteFile {
             block_confirmation_depth: self.block_confirmation_depth,
             attestor_set,
             threshold_override: self.threshold_override,
+            ack,
         })
     }
 }
