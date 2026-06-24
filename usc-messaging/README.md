@@ -57,12 +57,14 @@ script deploys the `OutboxFactory`, then calls `createOutbox(chainKey, validator
 the chain's outbox, and reads the resulting address back via `getOutbox(chainKey)`. The dApp is then
 wired to that factory-created outbox.
 
-> Note: the **source-chain `validator` passed into `createOutbox`** is the **ack authority** — the
-> account authorized to call `acknowledgeMessage` (now access-gated on it; the deploy passes the
-> operator/deployer EOA). This closes the previously-permissionless hole. A trust-minimized ack
-> (attestors vote on the destination `MessageDelivered` and this becomes an `EOAValidator` verifying
-> those votes) is a documented follow-up — see the TODO on `acknowledgeMessage`. This is distinct
-> from the **destination-chain vote validator** (contract 6 above), the real `EOAValidator`.
+> Note: the **source-chain `validator` passed into `createOutbox`** is the **`AcknowledgmentValidator`
+> contract** (deployed on Creditcoin). `Outbox.acknowledgeMessage` is `onlyValidator`, so only it can
+> acknowledge — and it only does so after verifying a **native USC delivery proof** (block-prover
+> precompile: merkle inclusion + continuity) that the destination `MessageDelivered` event was
+> emitted in a finalized block, then decoding the messageIds (research §05/§10). The off-chain
+> submitter (delivery infra/relayer) that assembles + submits the proof is the remaining piece. This
+> is distinct from the **destination-chain vote validator** (contract 6 above), the `EOAValidator`
+> that gates `deliverMessage`.
 
 We have simplified the deployment of these contracts with a single script:
 ```bash
