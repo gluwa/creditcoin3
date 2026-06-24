@@ -11,10 +11,7 @@ contract Outbox {
 
     // Events
     event MessagePublished(
-        bytes32 indexed messageId,
-        address indexed emitterAddress,
-        bool requiresAck,
-        bytes payload
+        bytes32 indexed messageId, address indexed emitterAddress, bool requiresAck, bytes payload
     );
 
     event MessageAcknowledged(bytes32 indexed messageId);
@@ -23,6 +20,7 @@ contract Outbox {
     error MessageDoesNotRequireAck(bytes32 messageId);
     error MessageNotFound(bytes32 messageId);
     error MessageAlreadyAcknowledged(bytes32 messageId);
+    error NotValidator();
 
     // Mapping of messageId to Message struct for stored messages (e.g. requiresAck = true)
     mapping(bytes32 => Message) public messages;
@@ -36,10 +34,12 @@ contract Outbox {
     // Destination chain this outbox publishes toward. Set once by the factory at creation.
     bytes32 public chainKey;
 
-    // Validator authorized to verify acknowledgment delivery proofs for this outbox. Supplied by
-    // the factory at creation.
-    // TODO(write-ability): once the acknowledgment delivery-proof flow is implemented, gate
-    // `acknowledgeMessage` on this validator (see the TODO on that function).
+    // Account authorized to acknowledge messages on this outbox (the ack authority). Supplied by
+    // the factory at creation. `acknowledgeMessage` is gated on this address.
+    // NOTE: this is access-control only — `validator` is trusted to acknowledge truthfully. A
+    // trust-minimized flow (attestors vote on the destination MessageDelivered event and this
+    // becomes an EOAValidator that verifies those votes) is the planned follow-up; see the TODO on
+    // `acknowledgeMessage`.
     address public validator;
 
     // Owner shared with the factory — the factory passes its own owner in so the same account
@@ -72,10 +72,16 @@ contract Outbox {
         emit MessagePublished(messageId, usContract, requiresAck, payload);
     }
 
-    // TODO(write-ability): restrict this to the configured `validator` once the acknowledgment
-    // delivery-proof verification flow is implemented. It is currently permissionless — any caller
-    // can acknowledge any message — which is insecure and only acceptable for the PoC.
+    // Gated on the configured `validator` (the authorized ack authority) — closes the previously
+    // permissionless hole where any caller could acknowledge any message.
+    // TODO(write-ability): for a trust-minimized ack, replace this simple access check with
+    // verification of attestor delivery votes (attestors vote on the destination MessageDelivered
+    // event; `validator` becomes an EOAValidator verifying those votes), mirroring the forward path.
     function acknowledgeMessage(bytes32 messageId) public {
+        if (msg.sender != validator) {
+            revert NotValidator();
+        }
+
         Message storage m = messages[messageId];
 
         if (m.emitter == address(0)) {
