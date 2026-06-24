@@ -530,6 +530,7 @@ fn get_ledger_after_register_returns_staked_amount() {
                 .prepare_test(alice, Precompile, PCall::get_ledger { stash: alice_h256 })
                 .execute_returns(LedgerInfo {
                     exists: true,
+                    stash: alice_h256,
                     total_staked: MIN_BOND,
                     active: MIN_BOND,
                     unlocking_chunks: 0,
@@ -578,6 +579,7 @@ fn get_ledger_by_address_returns_same_as_get_ledger() {
             // AddressMapping translation to read their own ledger.
             let expected = LedgerInfo {
                 exists: true,
+                stash: alice_h256,
                 total_staked: MIN_BOND,
                 active: MIN_BOND,
                 unlocking_chunks: 0,
@@ -622,10 +624,12 @@ fn get_caller_ledger_uses_msg_sender() {
                 )
                 .execute_returns(true);
 
+            let alice_h256: H256 = Alice.into();
             precompiles()
                 .prepare_test(alice, Precompile, PCall::get_caller_ledger {})
                 .execute_returns(LedgerInfo {
                     exists: true,
+                    stash: alice_h256,
                     total_staked: MIN_BOND,
                     active: MIN_BOND,
                     unlocking_chunks: 0,
