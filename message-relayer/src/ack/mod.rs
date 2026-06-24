@@ -20,6 +20,7 @@
 
 use std::collections::HashSet;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::time::Duration;
 
 use alloy::network::EthereumWallet;
@@ -34,6 +35,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
 use crate::abi::{ContinuityProof, IInbox, MerkleProof, MerkleProofEntry};
+use crate::checkpoint::CheckpointStore;
 use crate::config::{AckConfig, ChainRoute};
 
 /// Poll cadence for the destination `MessageDelivered` watcher and the pending-proof retry queue.
@@ -44,9 +46,11 @@ pub const ACK_POLL_INTERVAL_SECS: u64 = 6;
 pub async fn run(
     route: ChainRoute,
     creditcoin_eth_rpc_url: String,
+    checkpoint: Option<Arc<CheckpointStore>>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let chain_key = route.chain_key;
+    let checkpoint_key = format!("ack:{chain_key}");
     let Some(ack) = route.ack.clone() else {
         debug!(chain_key, "ack disabled for route; submitter not started");
         return Ok(());
@@ -92,9 +96,21 @@ pub async fn run(
         "🧾 acknowledgment submitter online"
     );
 
-    let mut last_seen = dest_provider.get_block_number().await.with_context(|| {
-        format!("chain_key {chain_key}: ack submitter failed to read chain head")
-    })?;
+    // Resume from the persisted cursor so MessageDelivered events emitted while we were down are
+    // not skipped; fall back to the current head on first run / when persistence is disabled.
+    let mut last_seen = match checkpoint.as_ref().and_then(|c| c.get(&checkpoint_key)) {
+        Some(block) => {
+            info!(
+                chain_key,
+                resume_from = block + 1,
+                "↩️ resuming ack scan from checkpoint"
+            );
+            block
+        }
+        None => dest_provider.get_block_number().await.with_context(|| {
+            format!("chain_key {chain_key}: ack submitter failed to read chain head")
+        })?,
+    };
 
     // Destination tx hashes seen but not yet acknowledged (proof not ready / transient failure).
     let mut pending: HashSet<B256> = HashSet::new();
@@ -111,15 +127,23 @@ pub async fn run(
                 return Ok(());
             }
             _ = tick.tick() => {
-                if let Err(err) = discover_delivered(
+                match discover_delivered(
                     chain_key,
                     route.inbox_address,
+                    ack.confirmation_depth,
                     &dest_provider,
                     &mut last_seen,
                     &mut pending,
                     &done,
                 ).await {
-                    warn!(chain_key, %err, "ack discovery iteration failed; will retry");
+                    Ok(()) => {
+                        if let Some(cp) = &checkpoint {
+                            if let Err(err) = cp.set(&checkpoint_key, last_seen) {
+                                warn!(chain_key, %err, "failed to persist ack checkpoint");
+                            }
+                        }
+                    }
+                    Err(err) => warn!(chain_key, %err, "ack discovery iteration failed; will retry"),
                 }
 
                 process_pending(
@@ -136,16 +160,21 @@ pub async fn run(
 }
 
 /// Poll the destination Inbox for new `MessageDelivered` events and enqueue their tx hashes.
+///
+/// Scans only up to `tip - confirmation_depth` so a destination reorg on the unsafe head cannot
+/// enqueue an ack for a delivery that later disappears.
 async fn discover_delivered<P: Provider>(
     chain_key: u64,
     inbox: alloy::primitives::Address,
+    confirmation_depth: u64,
     provider: &P,
     last_seen: &mut u64,
     pending: &mut HashSet<B256>,
     done: &HashSet<B256>,
 ) -> Result<()> {
     let tip = provider.get_block_number().await?;
-    if tip <= *last_seen {
+    let to_block = tip.saturating_sub(confirmation_depth);
+    if to_block <= *last_seen {
         return Ok(());
     }
     let from_block = *last_seen + 1;
@@ -154,10 +183,10 @@ async fn discover_delivered<P: Provider>(
         .address(inbox)
         .event_signature(IInbox::MessageDelivered::SIGNATURE_HASH)
         .from_block(from_block)
-        .to_block(tip);
+        .to_block(to_block);
 
     let logs = provider.get_logs(&filter).await.with_context(|| {
-        format!("eth_getLogs MessageDelivered from {from_block} to {tip} failed")
+        format!("eth_getLogs MessageDelivered from {from_block} to {to_block} failed")
     })?;
 
     for log in logs {
@@ -174,7 +203,7 @@ async fn discover_delivered<P: Provider>(
         debug!(chain_key, %tx_hash, "🧾 observed MessageDelivered; queued for acknowledgment");
     }
 
-    *last_seen = tip;
+    *last_seen = to_block;
     Ok(())
 }
 
