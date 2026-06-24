@@ -8,14 +8,15 @@
 //! The destination chain key is the attestor's configured write-ability chain key; its `bytes32`
 //! form is computed locally and bound into `messageHash`, never read back from the Outbox.
 //!
-//! TODO(write-ability): support dynamic (re)discovery of the Outbox factory + Outbox while the
-//! attestor is running. Today resolution happens once at startup, so an attestor must be restarted
-//! after the factory is registered / the Outbox is created. Instead, an attestor with write-ability
-//! activated should run normally with signing disabled when no factory/Outbox is configured yet,
-//! then activate write-ability signing automatically once they are created — and likewise pick up
-//! later additions/changes. It would learn of these by subscribing (via the cc3 client) to the
-//! `OutboxFactoryRegistered` event (`pallets/supported-chains/src/lib.rs`) and the `OutboxCreated`
-//! event (`common/write-ability/src/abi.rs`).
+//! Activation is dynamic: the write-ability task ([`super::run`]) retries `resolve` on a timer, so
+//! an attestor started before the factory/Outbox is registered activates automatically once they
+//! exist — no restart needed. It runs normal block attestation in the meantime.
+//!
+//! TODO(write-ability): pick up a later *re-registration* (factory address change / new Outbox)
+//! mid-run. The polling activation above only fires until the first successful resolve; reacting to
+//! changes after that would mean subscribing (via the cc3 client) to the `OutboxFactoryRegistered`
+//! event (`pallets/supported-chains/src/lib.rs`) and the `OutboxCreated` event
+//! (`common/write-ability/src/abi.rs`) and re-resolving.
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;

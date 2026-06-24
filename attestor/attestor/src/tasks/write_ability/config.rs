@@ -42,6 +42,11 @@ pub struct Config {
     /// Derived from the top-level `cc3` RPC url at configuration generation.
     pub cc3_eth_rpc_url: Option<url::Url>,
 
+    /// Destination-chain EVM JSON-RPC endpoint — the chain this attestor set attests block heights
+    /// for (its `eth` URL), where the Inbox and `EOAValidator` live. Only read when
+    /// [`AttestorSet::OnChainValidator`] is configured, to fetch the authorized attestor set.
+    pub destination_eth_rpc_url: Option<url::Url>,
+
     /// Write-ability chain key (`u64`) for this attestor, set from the top-level `chain_key` at
     /// configuration generation. Used as the `u64` key to resolve the Outbox on-chain (chain-info
     /// precompile → factory) and, via [`write_ability::protocol::chain_key_to_bytes32`], as the
@@ -70,6 +75,7 @@ impl Config {
         Self {
             enabled: false,
             cc3_eth_rpc_url: None,
+            destination_eth_rpc_url: None,
             write_ability_chain_key: 0,
             block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
