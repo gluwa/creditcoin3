@@ -52,9 +52,15 @@ pub struct AttestorInfo {
 /// elapsed (i.e. chunks that `withdrawUnbonded` would actually return). It
 /// lets callers distinguish between "funds are unlocking but not yet ready"
 /// and "funds are ready to withdraw" without a second call.
+///
+/// `stash` is the hashed `AccountId32` the ledger is keyed by. It lets callers
+/// (and tests) confirm which account a ledger actually belongs to, rather than
+/// trusting that two lookups returning identical balances refer to the same
+/// stash. It is `H256::zero()` when `exists == false`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct LedgerInfo {
     pub exists: bool,
+    pub stash: H256,
     pub total_staked: u128,
     pub active: u128,
     pub unlocking_chunks: u32,
@@ -322,6 +328,7 @@ where
         handle: &mut impl PrecompileHandle,
         account: Runtime::AccountId,
     ) -> EvmResult<LedgerInfo> {
+        let stash = H256::from(Into::<[u8; 32]>::into(account.clone()));
         match Ledger::<Runtime>::get(&account) {
             None => {
                 handle.record_db_read::<Runtime>(0)?;
@@ -342,6 +349,7 @@ where
                     );
                 Ok(LedgerInfo {
                     exists: true,
+                    stash,
                     total_staked: ledger.total_staked.unique_saturated_into(),
                     active: ledger.active.unique_saturated_into(),
                     unlocking_chunks: ledger.unlocking.len() as u32,
