@@ -32,6 +32,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 pub mod abi;
+pub mod ack;
 pub mod config;
 pub mod delivery;
 pub mod events;
@@ -159,6 +160,23 @@ impl Server {
         // Drop the parent indexed_tx so the pool can detect the channel closing once every
         // watcher has exited (avoids a stray clone keeping the pool alive forever).
         drop(indexed_tx);
+
+        // Acknowledgment submitters (per route, opt-in). Each watches the destination Inbox for
+        // `MessageDelivered`, fetches a native USC delivery proof, and submits it to the
+        // source-chain `AcknowledgmentValidator`. Routes without `ack` config return immediately.
+        for route in &self.config.routes {
+            if route.ack.is_none() {
+                continue;
+            }
+            let r = route.clone();
+            let url = self.config.creditcoin_eth_rpc_url.clone();
+            let c = cancel.clone();
+            tasks.spawn(async move {
+                if let Err(err) = ack::run(r.clone(), url, c).await {
+                    error!(chain_key = r.chain_key, %err, "ack submitter exited with error");
+                }
+            });
+        }
 
         // libp2p worker (one shared swarm).
         {
