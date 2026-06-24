@@ -45,6 +45,10 @@ use crate::shared::Shared;
 
 pub use config::{AttestorSet, Config};
 
+/// How often to re-attempt Outbox resolution while it is not yet registered on-chain (dynamic
+/// activation without a restart).
+const OUTBOX_RESOLVE_RETRY_SECS: u64 = 12;
+
 /// Message-vote state shared between this task (producer) and the p2p task (publisher + incoming
 /// validator). Lives on [`Shared`](crate::shared::Shared) as `Option`, set only when message
 /// attestation is enabled with a usable attestor set.
@@ -61,27 +65,13 @@ pub struct MessageVoteState {
 /// `None` when message attestation is disabled / not yet supported. Pure (no async) so it can run
 /// during `lib.rs` startup before tasks spawn. Called from `lib.rs`.
 #[must_use]
-pub fn build_state(cfg: &Config) -> Option<(Arc<MessageVoteState>, mpsc::Receiver<MessageVote>)> {
+pub async fn build_state(
+    cfg: &Config,
+) -> Option<(Arc<MessageVoteState>, mpsc::Receiver<MessageVote>)> {
     if !cfg.enabled {
         return None;
     }
-    let active_set = match &cfg.attestor_set {
-        AttestorSet::Static(addrs) if !addrs.is_empty() => {
-            addrs.iter().copied().collect::<HashSet<Address>>()
-        }
-        AttestorSet::Static(_) => {
-            tracing::error!("message attestation enabled but attestor_set is empty — disabling");
-            return None;
-        }
-        AttestorSet::OnChainValidator(addr) => {
-            tracing::error!(
-                %addr,
-                "on-chain validator attestor set is not yet wired into the attestor; \
-                 configure a static attestor_set — disabling message attestation"
-            );
-            return None;
-        }
-    };
+    let active_set = resolve_active_set(cfg).await?;
     let threshold = attestor_primitives::calculate_threshold(active_set.len() as u32) as usize;
     let aggregator =
         aggregator::VoteAggregator::new(threshold, cfg.max_tracked_messages, cfg.vote_ttl);
@@ -97,6 +87,63 @@ pub fn build_state(cfg: &Config) -> Option<(Arc<MessageVoteState>, mpsc::Receive
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
     Some((state, publish_rx))
+}
+
+/// Resolve the authorized signer set. Returns `None` (with a logged reason) when the set can't be
+/// determined, which disables message attestation for the run while the rest of the attestor keeps
+/// working.
+///
+/// * [`AttestorSet::Static`] — the configured address list.
+/// * [`AttestorSet::OnChainValidator`] — read `EOAValidator.attestors()` from the **destination
+///   chain** (the chain this attestor set attests, where the validator lives), via
+///   `destination_eth_rpc_url`. This is the on-chain source of truth, kept in sync with the Inbox.
+async fn resolve_active_set(cfg: &Config) -> Option<HashSet<Address>> {
+    match &cfg.attestor_set {
+        AttestorSet::Static(addrs) if !addrs.is_empty() => Some(addrs.iter().copied().collect()),
+        AttestorSet::Static(_) => {
+            tracing::error!("message attestation enabled but attestor_set is empty — disabling");
+            None
+        }
+        AttestorSet::OnChainValidator(validator) => {
+            let Some(url) = cfg.destination_eth_rpc_url.as_ref() else {
+                tracing::error!(
+                    %validator,
+                    "OnChainValidator attestor set configured but no destination_eth_rpc_url — disabling"
+                );
+                return None;
+            };
+            let provider = match ProviderBuilder::new().on_builtin(url.as_str()).await {
+                Ok(p) => p,
+                Err(err) => {
+                    tracing::error!(%err, "failed to connect destination chain to read EOAValidator — disabling");
+                    return None;
+                }
+            };
+            match write_ability::abi::IVoteValidator::new(*validator, &provider)
+                .attestors()
+                .call()
+                .await
+            {
+                Ok(ret) => {
+                    let set: HashSet<Address> = ret._0.into_iter().collect();
+                    if set.is_empty() {
+                        tracing::error!(%validator, "EOAValidator.attestors() returned an empty set — disabling");
+                        return None;
+                    }
+                    tracing::info!(
+                        %validator,
+                        attestors = set.len(),
+                        "🧑‍⚖️ read attestor set from on-chain EOAValidator"
+                    );
+                    Some(set)
+                }
+                Err(err) => {
+                    tracing::error!(%validator, %err, "EOAValidator.attestors() call failed — disabling");
+                    None
+                }
+            }
+        }
+    }
 }
 
 /// Entry point spawned from `lib.rs`. Drives the Outbox listener and produces signed votes; the
@@ -119,21 +166,30 @@ pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) ->
         .await
         .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
 
-    // No Outbox factory / Outbox registered on-chain for our chain_key: write-ability is not
-    // available here, so disable it for the rest of this run (the attestor keeps doing block
-    // attestation). We do not retry — resolution is one-shot at startup; once the factory/Outbox is
-    // created, restart the attestor. See the dynamic-discovery TODO in resolver.rs.
-    let Some(resolved) = resolver::resolve(&provider, &cfg)
-        .await
-        .map_err(Error::WriteAbility)?
-    else {
-        tracing::warn!(
-            "📭 no Outbox factory/Outbox registered on-chain for this chain_key — write-ability \
-             disabled for this run"
-        );
-        shared.token.cancelled().await;
-        return Ok(());
+    // Resolve the Outbox, retrying until it's available rather than disabling for the whole run:
+    // an attestor can be started before the factory/Outbox is registered on-chain and will activate
+    // write-ability automatically once they are, with no restart. While unresolved it just keeps
+    // doing block attestation. (Polling is simpler and more robust than event subscription; picking
+    // up a later Outbox *re-registration* mid-run remains a finer-grained TODO in resolver.rs.)
+    let resolved = loop {
+        match resolver::resolve(&provider, &cfg).await {
+            Ok(Some(r)) => break r,
+            Ok(None) => {
+                tracing::info!(
+                    retry_secs = OUTBOX_RESOLVE_RETRY_SECS,
+                    "📭 no Outbox factory/Outbox registered on-chain yet — write-ability idle; will retry"
+                );
+            }
+            Err(err) => {
+                tracing::warn!(%err, retry_secs = OUTBOX_RESOLVE_RETRY_SECS, "Outbox resolution failed — will retry");
+            }
+        }
+        tokio::select! {
+            () = shared.token.cancelled() => return Ok(()),
+            () = tokio::time::sleep(std::time::Duration::from_secs(OUTBOX_RESOLVE_RETRY_SECS)) => {}
+        }
     };
+    tracing::info!(outbox = %resolved.address, "✅ write-ability activated — Outbox resolved");
 
     let signer = signing::MessageSigner::from_seed(&seed).map_err(Error::WriteAbility)?;
     let our_address = signer.address();
