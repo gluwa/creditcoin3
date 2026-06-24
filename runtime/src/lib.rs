@@ -21,8 +21,8 @@ use sp_core::{
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
-        BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable, Get, IdentifyAccount,
-        NumberFor, One, OpaqueKeys, PostDispatchInfoOf, StaticLookup, Verify,
+        AccountIdConversion, BlakeTwo256, Block as BlockT, Convert, DispatchInfoOf, Dispatchable,
+        Get, IdentifyAccount, NumberFor, One, OpaqueKeys, PostDispatchInfoOf, StaticLookup, Verify,
     },
     transaction_validity::{
         TransactionPriority, TransactionSource, TransactionValidity, TransactionValidityError,
@@ -38,8 +38,8 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
-        OnTimestampSet,
+        AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter,
+        KeyOwnerProofSystem, OnFinalize, OnTimestampSet,
     },
     weights::{
         constants::WEIGHT_REF_TIME_PER_MILLIS, constants::WEIGHT_REF_TIME_PER_NANOS,
@@ -77,10 +77,9 @@ use pallet_transaction_payment::Multiplier;
 use randomness_primitives::provider::RandomnessPalletProvider;
 use supported_chains_primitives::{provider::SupportedChainsProvider, MATURITY_EVM_SAFE};
 
+mod migrations;
 mod precompiles;
 pub use precompiles::{used_addresses, GluwaPrecompiles};
-
-mod migrations;
 
 /// Type of block number.
 pub type BlockNumber = u32;
@@ -231,6 +230,8 @@ impl frame_system::Config for Runtime {
         migrations::v1_init_supported_chains::Migration<Runtime>,
         migrations::v1_init_attestation::Migration<Runtime>,
         migrations::v1_init_operators::Migration<Runtime>,
+        crate::migrations::EnsureAttestCoinAssetRoles<Runtime>,
+        crate::migrations::MigrateLegacyNativeBonds<Runtime>,
     );
     type PreInherents = ();
     type PostInherents = ();
@@ -345,6 +346,60 @@ impl pallet_balances::Config for Runtime {
     type RuntimeFreezeReason = RuntimeFreezeReason;
     type FreezeIdentifier = RuntimeFreezeReason;
     type MaxFreezes = frame_support::traits::VariantCountOf<RuntimeFreezeReason>;
+}
+
+/// Attest Coin on `pallet-assets` (18 decimals). Must match genesis + attest-coin precompile
+/// mint path. Single source of truth: the `AttestCoinAssetId` parameter type (used by both
+/// `pallet_attest_coin_rewards::Config` and `pallet_attestation::Config::BondAssetId`) reads
+/// this constant, so all three consumers stay in lockstep (audit Low #4).
+pub const ATTEST_COIN_ASSET_ID: u32 = 1;
+
+/// EVM address of the attest-coin precompile (`hash(4053)`; see `runtime/src/precompiles.rs`).
+pub fn attest_coin_precompile_h160() -> H160 {
+    H160::from_low_u64_be(4053)
+}
+
+/// Substrate `AccountId` of the attest-coin precompile (issuer for [`ATTEST_COIN_ASSET_ID`]).
+pub fn attest_coin_precompile_account() -> AccountId {
+    AddressMapping::into_account_id(attest_coin_precompile_h160())
+}
+
+parameter_types! {
+    pub const AttestationBondPoolPalletId: PalletId = PalletId(*b"att/bond");
+}
+
+/// Shared account holding attest-coin bonds for [`pallet_attestation`].
+///
+/// Must hold **native** balance at genesis (or be funded before first bond): non-sufficient assets
+/// require [`frame_system::Pallet::can_accrue_consumers`] on the receiver, which needs `providers > 0`.
+pub struct AttestationBondPoolAccount;
+impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
+    fn get() -> AccountId {
+        AttestationBondPoolPalletId::get().into_account_truncating()
+    }
+}
+
+pub type AssetsForceOrigin = frame_system::EnsureRoot<AccountId>;
+
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AssetId = u32;
+    type AssetIdParameter = u32;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+    type ForceOrigin = AssetsForceOrigin;
+    type AssetDeposit = ConstU128<0>;
+    type MetadataDepositBase = ConstU128<0>;
+    type MetadataDepositPerByte = ConstU128<0>;
+    type ApprovalDeposit = ConstU128<0>;
+    type StringLimit = ConstU32<50>;
+    type AssetAccountDeposit = ConstU128<0>;
+    type RemoveItemsLimit = ConstU32<1000>;
+    type Freezer = ();
+    type Extra = ();
+    type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
+    type CallbackHandle = ();
 }
 
 parameter_types! {
@@ -887,7 +942,8 @@ parameter_types! {
     pub const DefaultMaxCatchup: u32 = 500;
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
-    pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
+    /// Default when no per-chain value is stored. Dev chains use 0 so local/zombienet flows need no attest-coin bond; production networks should set per-chain min via governance or sudo.
+    pub const DefaultMinBondRequirement: u128 = 0;
     pub const MaxAttestationsPerBlock: u32 = 10;
     // Attestation retention duration should result in attestations being retained
     // for a period >= proof submission latency.
@@ -907,6 +963,9 @@ type EnsureOperators = frame_system::EnsureSignedBy<Operators, AccountId>;
 type EnsureRootOrOperators =
     frame_support::traits::EitherOfDiverse<frame_system::EnsureRoot<AccountId>, EnsureOperators>;
 
+/// Dispatches attest-coin accrual when a committed attestation includes eligible signers.
+pub struct AttestCoinCommittedAttestationHook;
+
 impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
@@ -919,7 +978,13 @@ impl pallet_attestation::Config for Runtime {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
-    type Currency = Balances;
+    type NativeCurrency = Balances;
+    type BondFungibles = Assets;
+    /// Must match [`ATTEST_COIN_ASSET_ID`].
+    // Same asset as the attest-coin precompile mints/burns — wired to the single
+    // `AttestCoinAssetId` parameter so the two can never drift (audit Low #4).
+    type BondAssetId = AttestCoinAssetId;
+    type BondPoolAccount = AttestationBondPoolAccount;
     type CurrencyBalance = Balance;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
     type MaxUnlockingChunks = ConstU32<5>;
@@ -931,6 +996,23 @@ impl pallet_attestation::Config for Runtime {
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type CommittedAttestationHook = AttestCoinCommittedAttestationHook;
+}
+
+parameter_types! {
+    /// Reward units (1e18 scale) per **eligible** signer on each successful `commit_attestation`.
+    pub const AttestCoinRewardPerEligibleSigner: Balance = 1_000_000_000_000_000_000u128;
+    /// `pallet_assets` asset ID used as on-chain attest-coin. Must match the chain-spec / runtime
+    /// migration that creates the asset with the attest-coin precompile account as admin.
+    pub const AttestCoinAssetId: u32 = ATTEST_COIN_ASSET_ID;
+}
+
+impl pallet_attest_coin_rewards::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type RewardPoints = Balance;
+    type RewardPerEligibleSigner = AttestCoinRewardPerEligibleSigner;
+    type AttestCoinAssetId = AttestCoinAssetId;
+    type WeightInfo = pallet_attest_coin_rewards::weights::WeightInfo<Runtime>;
 }
 
 parameter_types! {
@@ -1018,8 +1100,22 @@ construct_runtime!(
 
         Randomness: pallet_randomness,
         Operators: pallet_membership::<Instance1>,
+
+        Assets: pallet_assets,
+        AttestCoinRewards: pallet_attest_coin_rewards,
     }
 );
+
+impl pallet_attestation::CommittedAttestationObserver<AccountId>
+    for AttestCoinCommittedAttestationHook
+{
+    fn on_committed_eligible(chain_key: ChainKey, eligible_signers: &[AccountId]) {
+        pallet_attest_coin_rewards::Pallet::<Runtime>::reward_commit_signers(
+            chain_key,
+            eligible_signers,
+        );
+    }
+}
 
 #[derive(Clone)]
 pub struct TransactionConverter;
@@ -1164,6 +1260,7 @@ mod benches {
         [pallet_evm, EVM]
         [pallet_attestation, Attestation]
         [pallet_randomness, Randomness]
+        [pallet_attest_coin_rewards, AttestCoinRewards]
         [pallet_membership, Operators]
     );
 }

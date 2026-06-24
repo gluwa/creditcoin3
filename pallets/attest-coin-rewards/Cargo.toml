@@ -1,0 +1,74 @@
+[package]
+authors = { workspace = true }
+edition = "2021"
+license = { workspace = true }
+name = "pallet-attest-coin-rewards"
+publish = false
+version = "0.1.0"
+
+[package.metadata.cargo-machete]
+ignored = ["scale-info"]
+
+[lints.clippy]
+manual_inspect = "allow"
+
+[dependencies]
+frame-support = { workspace = true }
+frame-system = { workspace = true }
+log = { workspace = true, default-features = false }
+parity-scale-codec = { workspace = true, default-features = false, features = [
+    "derive",
+    "max-encoded-len",
+] }
+scale-info = { workspace = true }
+sp-core = { workspace = true }
+sp-runtime = { workspace = true }
+sp-std = { workspace = true }
+
+attestor-primitives = { workspace = true, default-features = false }
+pallet-attestation = { workspace = true, default-features = false }
+
+frame-benchmarking = { workspace = true, optional = true }
+
+[dev-dependencies]
+attestor-primitives = { workspace = true }
+env_logger = { workspace = true }
+frame-election-provider-support = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = [
+    "std",
+] }
+pallet-babe = { workspace = true, features = ["std"] }
+pallet-balances = { workspace = true }
+pallet-session = { workspace = true }
+pallet-staking = { workspace = true, features = ["std"] }
+pallet-staking-reward-curve = { workspace = true, default-features = false }
+pallet-supported-chains = { workspace = true, features = ["std"] }
+pallet-timestamp = { workspace = true }
+scale-info = { workspace = true, features = ["derive"] }
+sp-io = { workspace = true }
+sp-staking = { workspace = true }
+supported-chains-primitives = { workspace = true }
+
+[features]
+default = ["std"]
+std = [
+    "log/std",
+    "parity-scale-codec/std",
+    "scale-info/std",
+    "frame-support/std",
+    "frame-system/std",
+    "sp-runtime/std",
+    "sp-std/std",
+    "sp-core/std",
+    "pallet-attestation/std",
+    "attestor-primitives/std",
+    "frame-benchmarking?/std",
+]
+
+runtime-benchmarks = [
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "pallet-attestation/runtime-benchmarks",
+]

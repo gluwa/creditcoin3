@@ -5,6 +5,7 @@ members = [
     "runtime",
     "runtime/generate-bags",
     "pallets/attestation",
+    "pallets/attest-coin-rewards",
     "pallets/randomness",
     "pallets/supported-chains",
     "primitives/attestor",
@@ -17,6 +18,7 @@ members = [
     "precompiles/substrate-transfer",
     "precompiles/block-prover",
     "precompiles/attestor-stash",
+    "precompiles/attest-coin",
     "common/cc-client",
     "common/continuity",
     "common/eth",
@@ -149,6 +151,7 @@ frame-system-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk"
 frame-system-rpc-runtime-api = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 frame-try-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 generate-bags = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409" }
+pallet-assets = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 pallet-authorship = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 pallet-babe = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
 pallet-bags-list = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2409", default-features = false }
@@ -265,7 +268,9 @@ precompile-utils = { git = "https://github.com/gluwa/frontier_2", branch = "stab
 
 # Gluwa
 creditcoin3-runtime = { path = "runtime", default-features = false }
+pallet-attest-coin-rewards = { path = "pallets/attest-coin-rewards", default-features = false }
 pallet-attestation = { path = "pallets/attestation", default-features = false }
+pallet-evm-precompile-attest-coin = { path = "precompiles/attest-coin", default-features = false }
 pallet-randomness = { path = "pallets/randomness", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 

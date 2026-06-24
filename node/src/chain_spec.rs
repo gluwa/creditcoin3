@@ -11,9 +11,9 @@ use attestor_primitives::{AttestationChainConfiguration, ChainEncodingVersion, C
 use sc_chain_spec::{ChainSpecExtension, ChainType, Properties};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
-#[allow(unused_imports)]
-use sp_core::ecdsa;
 use sp_core::{crypto::Ss58Codec, sr25519, storage::Storage, Pair, Public, H160, U256};
+#[allow(unused_imports)]
+use sp_core::{ecdsa, Get};
 use sp_runtime::{
     traits::{IdentifyAccount, Verify},
     Perbill,
@@ -294,7 +294,8 @@ fn devnet_genesis(
     attestation_chain_configurations: Vec<AttestationChainConfiguration>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
-        BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
+        attest_coin_precompile_account, AssetsConfig, AttestationBondPoolAccount, BalancesConfig,
+        EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig, ATTEST_COIN_ASSET_ID,
     };
 
     // STASH must be less than ENDOWMENT to avoid having
@@ -325,10 +326,27 @@ fn devnet_genesis(
                 .iter()
                 .cloned()
                 .chain(initial_authorities.iter().map(|x| x.0.clone()))
+                .chain(std::iter::once(AttestationBondPoolAccount::get()))
                 .collect::<HashSet<_>>()
                 .into_iter()
                 .map(|k| (k, ENDOWMENT))
                 .collect(),
+        },
+        assets: AssetsConfig {
+            assets: vec![(
+                ATTEST_COIN_ASSET_ID,
+                attest_coin_precompile_account(),
+                false,
+                1u128,
+            )],
+            metadata: vec![(
+                ATTEST_COIN_ASSET_ID,
+                b"Attest Coin".to_vec(),
+                b"AC".to_vec(),
+                18,
+            )],
+            accounts: vec![],
+            next_asset_id: Some(2),
         },
         transaction_payment: Default::default(),
 
@@ -478,7 +496,8 @@ fn testnet_genesis(
     attestation_chain_configurations: Vec<AttestationChainConfiguration>,
 ) -> RuntimeGenesisConfig {
     use creditcoin3_runtime::{
-        BalancesConfig, EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig,
+        attest_coin_precompile_account, AssetsConfig, AttestationBondPoolAccount, BalancesConfig,
+        EVMChainIdConfig, EVMConfig, SudoConfig, SystemConfig, ATTEST_COIN_ASSET_ID,
     };
 
     // STASH must be less than ENDOWMENT to avoid having
@@ -509,10 +528,27 @@ fn testnet_genesis(
                 .iter()
                 .cloned()
                 .chain(initial_authorities.iter().map(|x| x.0.clone()))
+                .chain(std::iter::once(AttestationBondPoolAccount::get()))
                 .collect::<HashSet<_>>()
                 .into_iter()
                 .map(|k| (k, ENDOWMENT))
                 .collect(),
+        },
+        assets: AssetsConfig {
+            assets: vec![(
+                ATTEST_COIN_ASSET_ID,
+                attest_coin_precompile_account(),
+                false,
+                1u128,
+            )],
+            metadata: vec![(
+                ATTEST_COIN_ASSET_ID,
+                b"Attest Coin".to_vec(),
+                b"AC".to_vec(),
+                18,
+            )],
+            accounts: vec![],
+            next_asset_id: Some(2),
         },
         transaction_payment: Default::default(),
 

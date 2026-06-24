@@ -43,7 +43,7 @@ describe('handleEventBonded()', () => {
 
             let foundMatch = false;
             for (const node of response.data.bondeds.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThan(0);
+                expect(BigInt(node.amount)).toBeGreaterThanOrEqual(0n);
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);

@@ -1,0 +1,311 @@
+//! Attest-coin reward points: accrue per **stash** when attestors appear as **eligible signers**
+//! on a committed attestation; optional **sudo** epoch split for tests; claim on EVM via precompile.
+
+#![cfg_attr(not(feature = "std"), no_std)]
+
+pub use pallet::*;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod benchmarking;
+pub mod weights;
+
+#[cfg(test)]
+mod mock;
+#[cfg(test)]
+mod tests;
+
+#[frame_support::pallet]
+pub mod pallet {
+    use attestor_primitives::ChainKey;
+    use frame_support::pallet_prelude::*;
+    use frame_system::pallet_prelude::*;
+    use parity_scale_codec::Encode;
+    use sp_runtime::traits::Zero;
+    use sp_std::prelude::*;
+
+    #[pallet::pallet]
+    pub struct Pallet<T>(_);
+
+    #[pallet::config]
+    pub trait Config: frame_system::Config + pallet_attestation::Config {
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// Weights for this pallet's dispatchables.
+        type WeightInfo: WeightInfo;
+        /// Reward points (same 1e18 precision as the ERC-20). Named separately from `Balances::Balance`.
+        type RewardPoints: Parameter
+            + Member
+            + MaybeSerializeDeserialize
+            + Copy
+            + sp_std::fmt::Debug
+            + Default
+            + From<u128>
+            + Into<u128>
+            + core::ops::AddAssign
+            + core::ops::SubAssign
+            + PartialOrd
+            + Zero
+            + MaxEncodedLen;
+
+        /// Points credited to each **stash** backing an eligible signer on a successful
+        /// [`pallet_attestation::Pallet::commit_attestation`].
+        #[pallet::constant]
+        type RewardPerEligibleSigner: Get<Self::RewardPoints>;
+
+        /// `pallet_assets` asset ID used as the on-chain attest-coin. The attest-coin
+        /// precompile mints/burns this ID; the runtime must create the asset at genesis (or
+        /// in a migration) with the precompile account as admin/issuer. Surfaced through the
+        /// pallet config rather than as a precompile-side magic constant so a runtime upgrade
+        /// can never silently re-target a different asset.
+        #[pallet::constant]
+        type AttestCoinAssetId: Get<u32>;
+    }
+
+    pub trait WeightInfo {
+        fn set_attest_coin_token() -> Weight;
+    }
+
+    #[pallet::storage]
+    pub type Accrued<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::RewardPoints, ValueQuery>;
+
+    /// Monotonic claim nonce per stash (for sr25519-signed EVM claims).
+    #[pallet::storage]
+    pub type ClaimNonce<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
+    /// ERC-20 contract address (treasury tokens sit here; claims use `transfer`, not `mint`).
+    #[pallet::storage]
+    pub type AttestCoinErc20<T: Config> = StorageValue<_, sp_core::H160, OptionQuery>;
+
+    #[pallet::event]
+    #[pallet::generate_deposit(pub(super) fn deposit_event)]
+    pub enum Event<T: Config> {
+        /// Reward points credited to stashes after a committed attestation (one unit per eligible signer).
+        CommitSignersRewarded {
+            chain_key: ChainKey,
+            signers: u32,
+            per_signer: T::RewardPoints,
+        },
+        /// ERC-20 token address configured (governance).
+        AttestCoinTokenSet { token: sp_core::H160 },
+        /// At least one eligible signer in the committed attestation had no
+        /// `pallet_attestation::Attestors` entry for `chain_key`, so they were skipped during
+        /// reward accrual. Normal during a chill/kick at the same block; persistent occurrences
+        /// indicate an upstream desync between the attestation eligible-set computation and the
+        /// attestor registry.
+        RewardSkippedNoStash { chain_key: ChainKey, skipped: u32 },
+    }
+
+    #[pallet::error]
+    pub enum Error<T> {
+        /// No ERC-20 configured yet.
+        TokenNotConfigured,
+        /// Reserved; claims no longer require an active attestation ledger entry.
+        NotStash,
+        /// Claim exceeds accrued points.
+        InsufficientAccrued,
+        /// Claim nonce does not match on-chain counter.
+        BadClaimNonce,
+    }
+
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        /// Set the attest-coin ERC-20 contract. **Root only** (governance / sudo).
+        #[pallet::call_index(0)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attest_coin_token())]
+        pub fn set_attest_coin_token(origin: OriginFor<T>, token: sp_core::H160) -> DispatchResult {
+            ensure_root(origin)?;
+            AttestCoinErc20::<T>::put(token);
+            Self::deposit_event(Event::AttestCoinTokenSet { token });
+            Ok(())
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Add to accrued using `u128` saturation so storage never wraps or panics on overflow.
+        fn saturating_add_accrued(acc: &mut T::RewardPoints, amount: T::RewardPoints) {
+            let sum = (*acc).into().saturating_add(amount.into());
+            *acc = T::RewardPoints::from(sum);
+        }
+
+        /// Credit [`Config::RewardPerEligibleSigner`] to each **stash** for the given **eligible**
+        /// attestor operator accounts (from [`pallet_attestation`]). Called from the runtime hook
+        /// after [`pallet_attestation::Pallet::commit_attestation`].
+        ///
+        /// [`Event::CommitSignersRewarded`] is emitted only when [`Config::RewardPerEligibleSigner`]
+        /// is non-zero, at least one stash is credited, **and** [`AttestCoinErc20`] is set (reward
+        /// program considered active for claims). Accrual still runs when the token is unset so
+        /// points can accumulate before governance configures the ERC-20.
+        pub fn reward_commit_signers(chain_key: ChainKey, eligible_signers: &[T::AccountId]) {
+            let per = T::RewardPerEligibleSigner::get();
+            if per.is_zero() || eligible_signers.is_empty() {
+                return;
+            }
+
+            let mut credited = 0u32;
+            let mut skipped = 0u32;
+            for attestor_id in eligible_signers {
+                if let Some(att) =
+                    pallet_attestation::Pallet::<T>::attestors(chain_key, attestor_id)
+                {
+                    let stash = att.stash;
+                    Accrued::<T>::mutate(&stash, |a| Self::saturating_add_accrued(a, per));
+                    credited = credited.saturating_add(1);
+                } else {
+                    skipped = skipped.saturating_add(1);
+                }
+            }
+
+            if credited > 0 && AttestCoinErc20::<T>::get().is_some() {
+                Self::deposit_event(Event::CommitSignersRewarded {
+                    chain_key,
+                    signers: credited,
+                    per_signer: per,
+                });
+            }
+            if skipped > 0 {
+                // Always emit, even if the token isn't configured yet — this is a *desync*
+                // signal, not a reward signal. Operators should investigate the upstream
+                // eligible-set vs attestor registry divergence regardless of claim activation.
+                Self::deposit_event(Event::RewardSkippedNoStash { chain_key, skipped });
+            }
+        }
+
+        /// Deduct accrued points after a successful EVM transfer (called from precompile).
+        ///
+        /// Does not require an active [`pallet_attestation::Ledger`] entry so rewards remain
+        /// claimable after full unbond / [`kill_stash`].
+        pub fn take_accrued_for_claim(
+            stash: &T::AccountId,
+            amount: T::RewardPoints,
+        ) -> Result<(), Error<T>> {
+            Accrued::<T>::try_mutate(stash, |acc| {
+                if *acc < amount {
+                    return Err(Error::<T>::InsufficientAccrued);
+                }
+                *acc -= amount;
+                Ok(())
+            })
+        }
+
+        pub fn accrued_of(stash: &T::AccountId) -> T::RewardPoints {
+            Accrued::<T>::get(stash)
+        }
+
+        pub fn erc20_token() -> Option<sp_core::H160> {
+            AttestCoinErc20::<T>::get()
+        }
+
+        /// Add accrued points to a stash. Production reward accrual uses
+        /// [`reward_commit_signers`] indirectly; this is exposed for the precompile's
+        /// claim-rollback path (called via [`undo_claim_commit`]) and for test fixtures that
+        /// need to seed `Accrued` directly. New production code paths should prefer the
+        /// higher-level accrual entrypoints.
+        ///
+        /// [`reward_commit_signers`]: Self::reward_commit_signers
+        pub fn restore_accrued(stash: &T::AccountId, amount: T::RewardPoints) {
+            Accrued::<T>::mutate(stash, |a| Self::saturating_add_accrued(a, amount));
+        }
+
+        /// Bytes that must be signed (sr25519) for [`Self::commit_claim`].
+        ///
+        /// Layout: `b"AttestCoin:claim:v2:" || genesis_hash(32) || stash_id(32) || nonce(le u64)
+        /// || chain_key(le u64) || amount(le u128) || evm_recipient(20)`.
+        ///
+        /// v2 binds the network's genesis hash into the message so a claim signature is only
+        /// valid on the chain it was produced for — without it, a signature replays on any
+        /// network where the stash has matching nonce and accrued (cross-network replay,
+        /// audit Low #1). Only the bound recipient could perform such a replay, so the v1
+        /// exposure was griefing-adjacent rather than theft, but domain separation is cheap.
+        pub fn claim_signing_message(
+            stash: &T::AccountId,
+            nonce: u64,
+            chain_key: u64,
+            amount: u128,
+            evm_recipient: [u8; 20],
+        ) -> Vec<u8> {
+            const PREFIX: &[u8] = b"AttestCoin:claim:v2:";
+            let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
+            // prefix + genesis(32) + stash_id(32) + nonce(8) + chain_key(8) + amount(16) + recipient(20)
+            let mut m = Vec::with_capacity(PREFIX.len() + 32 + 32 + 8 + 8 + 16 + 20);
+            m.extend_from_slice(PREFIX);
+            m.extend_from_slice(genesis_hash.as_ref());
+            let enc = stash.encode();
+            debug_assert!(
+                enc.len() == 32,
+                "stash AccountId encoding must be 32 bytes (AccountId32)"
+            );
+            let mut id = [0u8; 32];
+            if enc.len() >= 32 {
+                id.copy_from_slice(&enc[..32]);
+            } else if !enc.is_empty() {
+                id[32 - enc.len()..].copy_from_slice(&enc);
+            }
+            m.extend_from_slice(&id);
+            m.extend_from_slice(&nonce.to_le_bytes());
+            m.extend_from_slice(&chain_key.to_le_bytes());
+            m.extend_from_slice(&amount.to_le_bytes());
+            m.extend_from_slice(&evm_recipient);
+            m
+        }
+
+        pub fn claim_nonce_of(stash: &T::AccountId) -> u64 {
+            ClaimNonce::<T>::get(stash)
+        }
+
+        /// Debit accrued and bump claim nonce after signature verification in the precompile.
+        ///
+        /// Invariant: callers must execute inside a single Substrate dispatch context. Both
+        /// the outer `ClaimNonce` `try_mutate` and the inner `take_accrued_for_claim`'s
+        /// `try_mutate` on `Accrued` get rolled back together when the enclosing dispatch
+        /// errors — that's the only reason it's safe to mutate two storage maps here without
+        /// per-call transactional storage wrapping.
+        pub fn commit_claim(
+            stash: &T::AccountId,
+            expected_nonce: u64,
+            amount: T::RewardPoints,
+        ) -> Result<(), Error<T>> {
+            ClaimNonce::<T>::try_mutate(stash, |nonce| {
+                ensure!(*nonce == expected_nonce, Error::<T>::BadClaimNonce);
+                let next_nonce = expected_nonce
+                    .checked_add(1)
+                    .ok_or(Error::<T>::BadClaimNonce)?;
+                Self::take_accrued_for_claim(stash, amount)?;
+                *nonce = next_nonce;
+                Ok(())
+            })
+        }
+
+        /// Undo [`commit_claim`] if the post-commit EVM `transfer` fails inside the precompile.
+        /// Restores the pre-commit nonce and re-credits the accrued points in one place; the
+        /// re-credit uses the same `saturating_add` helper as accrual so it can never overflow.
+        ///
+        /// Guarded: only rolls the nonce back if the on-chain value is exactly
+        /// `nonce_before_claim + 1` — i.e. this undo corresponds to the *immediately preceding*
+        /// commit. A future misuse (calling undo with a stale pre-claim nonce after further
+        /// commits) would otherwise regress the counter and re-enable an already-spent claim
+        /// signature.
+        pub fn undo_claim_commit(
+            stash: &T::AccountId,
+            nonce_before_claim: u64,
+            amount: T::RewardPoints,
+        ) {
+            let current = ClaimNonce::<T>::get(stash);
+            let Some(expected_current) = nonce_before_claim.checked_add(1) else {
+                log::error!(
+                    target: "runtime::attest-coin-rewards",
+                    "undo_claim_commit: nonce overflow for nonce_before_claim {nonce_before_claim}, refusing rollback"
+                );
+                return;
+            };
+            if current != expected_current {
+                log::error!(
+                    target: "runtime::attest-coin-rewards",
+                    "undo_claim_commit: nonce mismatch (current {current}, expected {expected_current}), refusing rollback"
+                );
+                return;
+            }
+            ClaimNonce::<T>::insert(stash, nonce_before_claim);
+            Accrued::<T>::mutate(stash, |a| Self::saturating_add_accrued(a, amount));
+        }
+    }
+}

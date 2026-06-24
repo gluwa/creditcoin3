@@ -66,6 +66,17 @@ describe('Precompile: block-prover', (): void => {
     // Frontier calldata threshold (bytes) - GasLimitPovSizeRatio configured in the runtime (2,893 bytes)
     const FRONTIER_CALLDATA_THRESHOLD = 2893;
 
+    /** Poll until the Anvil source block for `txnHash` is attested (continuity proofs need bounds). */
+    async function waitForAnvil1SourceAttestation(anvil1Provider: WebSocketProvider, txnHash: string) {
+        const sourceTxn = await anvil1Provider.getTransaction(txnHash);
+        expect(sourceTxn).toBeDefined();
+        expect(sourceTxn!.blockNumber).toBeDefined();
+
+        const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
+        await chainInfoProvider.waitUntilHeightAttested(chain_Anvil1_Key, sourceTxn!.blockNumber!, 5_000, 600_000);
+        return { sourceTxn: sourceTxn!, chainInfoProvider };
+    }
+
     afterAll(async () => {
         await api.disconnect();
     });
@@ -88,19 +99,7 @@ describe('Precompile: block-prover', (): void => {
                 const transactionHash = process.env.ANVIL1_TXN_HASH;
                 expect(transactionHash).toBeTruthy();
 
-                // make sure we have attestations for this source block
-                const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
-                expect(sourceTxn).toBeDefined();
-                expect(sourceTxn!.blockNumber).toBeDefined();
-
-                const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
-                await chainInfoProvider.waitUntilHeightAttested(
-                    chain_Anvil1_Key,
-                    sourceTxn!.blockNumber!,
-                    5_000, // 5 sec poll interval
-                    300_000, // 5 min wait Timeout
-                );
-                // we're now sure that there are enough attestations on the execution chain
+                const { chainInfoProvider } = await waitForAnvil1SourceAttestation(anvil1Provider, transactionHash!);
 
                 const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
                 const rawProofBuilder = new proof.raw.RawProofBuilder(
@@ -124,7 +123,7 @@ describe('Precompile: block-prover', (): void => {
                 );
                 expect(proveResultRaw).toBe(true);
             },
-            360_000,
+            720_000,
         );
     });
 
@@ -146,11 +145,7 @@ describe('Precompile: block-prover', (): void => {
                 const transactionHash = process.env.ANVIL1_TXN_HASH;
                 expect(transactionHash).toBeTruthy();
 
-                const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
-                expect(sourceTxn).toBeDefined();
-                expect(sourceTxn!.blockNumber).toBeDefined();
-
-                const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
+                const { chainInfoProvider } = await waitForAnvil1SourceAttestation(anvil1Provider, transactionHash!);
 
                 const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
                 const rawProofBuilder = new proof.raw.RawProofBuilder(
@@ -240,7 +235,7 @@ describe('Precompile: block-prover', (): void => {
 
                 expect(verifiedEvents.length).toBeGreaterThan(0);
             },
-            360_000,
+            720_000,
         );
 
         testIf(
@@ -252,11 +247,7 @@ describe('Precompile: block-prover', (): void => {
                 const transactionHash = process.env.ANVIL1_TXN_HASH;
                 expect(transactionHash).toBeTruthy();
 
-                const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
-                expect(sourceTxn).toBeDefined();
-                expect(sourceTxn!.blockNumber).toBeDefined();
-
-                const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
+                const { chainInfoProvider } = await waitForAnvil1SourceAttestation(anvil1Provider, transactionHash!);
 
                 const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
                 const rawProofBuilder = new proof.raw.RawProofBuilder(
@@ -319,7 +310,7 @@ describe('Precompile: block-prover', (): void => {
                 expect(estimatedGas).toBeDefined();
                 expect(estimatedGas).toBeGreaterThan(0n);
             },
-            360_000,
+            720_000,
         );
 
         testIf(
@@ -331,11 +322,7 @@ describe('Precompile: block-prover', (): void => {
                 const transactionHash = process.env.ANVIL1_TXN_HASH;
                 expect(transactionHash).toBeTruthy();
 
-                const sourceTxn = await anvil1Provider.getTransaction(transactionHash!);
-                expect(sourceTxn).toBeDefined();
-                expect(sourceTxn!.blockNumber).toBeDefined();
-
-                const chainInfoProvider = new chainInfo.PrecompileChainInfoProvider(provider);
+                const { chainInfoProvider } = await waitForAnvil1SourceAttestation(anvil1Provider, transactionHash!);
 
                 const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
                 const rawProofBuilder = new proof.raw.RawProofBuilder(
@@ -389,7 +376,7 @@ describe('Precompile: block-prover', (): void => {
                 expect(estimatedGas).toBeDefined();
                 expect(estimatedGas).toBeGreaterThan(0n);
             },
-            360_000,
+            720_000,
         );
     });
 
