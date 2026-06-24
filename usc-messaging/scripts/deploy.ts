@@ -205,6 +205,42 @@ function getDestinationChainId(): string {
   return output.trim();
 }
 
+function getDestinationDeployerAddress(): string {
+  const privateKey = requireEnv("DESTINATION_CHAIN_PRIVATE_KEY");
+  const output = runCommand(
+    "cast",
+    ["wallet", "address", "--private-key", privateKey],
+    CONTRACTS_DIR,
+  );
+  return output.trim();
+}
+
+// Initial attestor EVM set the EOAValidator is seeded with at deploy time. The authoritative set is
+// only known once the attestors launch (step 3), so we seed best-effort here and `launch-attestors.sh`
+// syncs the live discovered set via `updateAttestorSet` afterwards. Prefer a `.attestor-set` written
+// by a previous launch; otherwise fall back to the config.yaml defaults so the constructor has a
+// valid (non-empty) set.
+const ATTESTOR_SET_FILE = path.join(__dirname, ".attestor-set");
+const DEFAULT_ATTESTORS = [
+  "0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC",
+  "0x0aC32750Ed79f301248afD9B398cc5723911c392",
+  "0x4910156288781F080d81c607E3a830a7019d9Bc6",
+];
+
+function readInitialAttestors(): string[] {
+  if (existsSync(ATTESTOR_SET_FILE)) {
+    const set = readFileSync(ATTESTOR_SET_FILE, "utf8")
+      .trim()
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    if (set.length > 0) {
+      return set;
+    }
+  }
+  return DEFAULT_ATTESTORS;
+}
+
 async function main(): Promise<void> {
   // Creditcoin L1 EVM chain id (eth_chainId). On `--dev` this is SS58Prefix = 42.
   const sourceChainId = process.env.SOURCE_CHAIN_ID ?? "42";
@@ -260,9 +296,20 @@ async function main(): Promise<void> {
   const dapp = deployToSource("src/SimpleDApp.sol:SimpleDApp", [outbox]);
 
   // Destination chain
-  const validator = deployToDestination(
-    "src/DummyVoteValidator.sol:DummyVoteValidator",
-  );
+  // Production vote validator: EOAValidator verifies attestor ECDSA signatures + 2/3+1 threshold on
+  // every deliverMessage (replaces the always-accept DummyVoteValidator). Seeded with a best-effort
+  // attestor set; launch-attestors.sh syncs the live discovered set via updateAttestorSet (the
+  // destination deployer is the validator admin). threshold = 2/3 + 1, minAttestorCount = 1.
+  const validatorAdmin = getDestinationDeployerAddress();
+  const initialAttestors = readInitialAttestors();
+  const validator = deployToDestination("src/EOAValidator.sol:EOAValidator", [
+    validatorAdmin,
+    `[${initialAttestors.join(",")}]`,
+    "1", // minAttestorCount
+    "2", // thresholdNumerator
+    "3", // thresholdDenominator
+    "1", // thresholdAddition
+  ]);
   const destination = deployToDestination(
     "src/TestDestination.sol:TestDestination",
   );
@@ -283,7 +330,7 @@ async function main(): Promise<void> {
   updateEnvVar("DAPP_CONTRACT_ADDR", dapp);
   updateEnvVar("DESTINATION_CHAIN_ID", destinationChainId);
 
-  console.log(`DummyVoteValidator: ${validator}`);
+  console.log(`EOAValidator: ${validator} (admin ${validatorAdmin}, ${initialAttestors.length} seed attestors)`);
   console.log(`SimpleInbox: ${inbox}`);
   console.log(`OutboxFactory: ${outboxFactory}`);
   console.log(`SimpleOutbox (via factory): ${outbox}`);

@@ -45,8 +45,11 @@ We want to deploy several contracts in this step:
 4. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and
   processed. **It is not deployed directly** — the outbox factory creates it (see below).
 5. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
-6. The `vote validator contract`. This contract lives on the destination chain and validates attestor votes on messages
-  forwarded from the inbox.
+6. The `vote validator contract` (**`EOAValidator`**). This contract lives on the destination chain and validates
+  attestor votes on messages forwarded from the inbox: it `ecrecover`s each ECDSA signature, requires each signer to
+  be a registered attestor, and enforces the 2N/3+1 threshold. It replaces the old always-accept `DummyVoteValidator`.
+  It is seeded with a best-effort attestor set at deploy and then synced to the live attestors by
+  `launch-attestors.sh` in step 3 (the destination deployer is the validator admin).
 7. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
 
 The outbox follows a **"create factory first → use factory to create outbox"** pattern: the deploy
@@ -54,9 +57,11 @@ script deploys the `OutboxFactory`, then calls `createOutbox(chainKey, validator
 the chain's outbox, and reads the resulting address back via `getOutbox(chainKey)`. The dApp is then
 wired to that factory-created outbox.
 
-> Note: the `validator` passed into `createOutbox` is currently a placeholder, and the outbox's
-> `acknowledgeMessage` is still permissionless. Proper validator-gated acknowledgment access control
-> is a TODO (see the comments in `SimpleOutbox.sol`).
+> Note: this is the **source-chain `validator` passed into `createOutbox`** (for the outbox's
+> `acknowledgeMessage`), which is still a `DummyVoteValidator` placeholder — `acknowledgeMessage`
+> remains permissionless. Proper validator-gated acknowledgment access control is a TODO (see the
+> comments in `SimpleOutbox.sol`). This is distinct from the **destination-chain vote validator**
+> (contract 6 above), which is now the real `EOAValidator`.
 
 We have simplified the deployment of these contracts with a single script:
 ```bash
@@ -86,9 +91,10 @@ later use (including `OUTBOX_FACTORY_ADDR` for the factory and `OUTBOX_ADDR` for
 Now that the factory and Outbox are registered on-chain (step 2), start the attestors. Use the
 helper script below — it launches the attestor zombienet (CONTRIBUTING step 3), discovers each
 attestor's derived message-vote EVM address from its logs, writes that set into
-`attestor/config.yaml` (`write_ability.attestors`), and prints/saves the matching `--attestor-set`
-value for the relayer. It then stays in the foreground streaming the zombienet logs, like running
-the zombienet directly (Ctrl-C to stop):
+`attestor/config.yaml` (`write_ability.attestors`), prints/saves the matching `--attestor-set`
+value for the relayer, and **syncs the destination-chain `EOAValidator` to that live set** (via
+`updateAttestorSet`, so `deliverMessage` accepts exactly these attestors). It then stays in the
+foreground streaming the zombienet logs, like running the zombienet directly (Ctrl-C to stop):
 
 ```bash
 bash usc-messaging/scripts/launch-attestors.sh        # add a number to run N != 3 attestors

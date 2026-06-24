@@ -132,6 +132,31 @@ echo "✍️  Updated $CONFIG  (write_ability.attestors)"
 
 printf '%s\n' "$SET" > "$ATTESTOR_SET_FILE"
 
+# Sync the on-chain EOAValidator's attestor set with the addresses we just discovered, so the
+# destination Inbox's validateVotes accepts exactly these attestors. deploy.ts seeds the validator
+# best-effort (it runs before the attestors); this is the authoritative update. The destination
+# deployer (DESTINATION_CHAIN_PRIVATE_KEY) is the validator admin.
+ENV_FILE="$SCRIPT_DIR/../.env"
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  set -a; source "$ENV_FILE"; set +a
+fi
+if [[ -n "${VOTE_VALIDATOR_ADDR:-}" ]]; then
+  if command -v cast >/dev/null 2>&1; then
+    echo "🔗 Syncing EOAValidator attestor set on the destination chain ($VOTE_VALIDATOR_ADDR)…"
+    if cast send "$VOTE_VALIDATOR_ADDR" 'updateAttestorSet(address[])' "[$SET]" \
+        --rpc-url "${DESTINATION_CHAIN_RPC_URL:-http://127.0.0.1:8545}" \
+        --private-key "${DESTINATION_CHAIN_PRIVATE_KEY:-}" \
+        >/dev/null 2>&1; then
+      echo "✅ EOAValidator attestor set updated to the live attestors"
+    else
+      echo "⚠️  Could not update the EOAValidator set (is VOTE_VALIDATOR_ADDR an EOAValidator from deploy.ts, with this key as admin?). deliverMessage will revert until the set matches. Continuing." >&2
+    fi
+  else
+    echo "⚠️  cast not found on PATH; skipping EOAValidator set sync — run updateAttestorSet(address[]) manually." >&2
+  fi
+fi
+
 cat <<EOF
 
 ✅ Attestor set ready (also saved to $ATTESTOR_SET_FILE):
