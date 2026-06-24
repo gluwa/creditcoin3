@@ -285,4 +285,4 @@ See `usc-write-ability-research/documents/requirements/03-quotation-requirements
 The relayer is the `message-relayer` crate (workspace root), not part of this package. It watches the
 Creditcoin L1 Outbox for `MessagePublished`, snoops attestor votes on the
 `{chain_key}/message-votes/v1` gossip topic, aggregates 2N/3+1, and calls `Inbox.deliverMessage`.
-See `message-relayer/README`/`PLAN.md` and `message-relayer/config.example.yaml` for configuration.
+See `message-relayer/config.example.yaml` for configuration.
