@@ -5,6 +5,7 @@ use utils::block_item_traits::BlockItem;
 
 mod attestation;
 mod batch_verification;
+mod encoding;
 mod merkle;
 mod native_transfer;
 mod prompt;
@@ -559,7 +560,10 @@ async fn handle_interactive_query(
         block_height: None,
         txn_hash: None,
     };
-    let prompt_output = prompt::prompt(prompt_args)?;
+    let mut prompt_output = prompt::prompt(prompt_args)?;
+
+    // Override the placeholder encoding with the chain's configured value from CC3.
+    prompt_output.encoding = encoding::resolve_chain_encoding(&cc3_rpc_url, chain_key).await;
 
     // Submit the query
     let params = NativeQueryParams {
