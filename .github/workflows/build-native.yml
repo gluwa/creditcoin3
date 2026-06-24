@@ -98,6 +98,7 @@ jobs:
             target/release/attestor_zombienet
             target/release/checkpoint-builder
             target/release/creditcoin3-node
+            target/release/message-relayer
             target/release/proof-gen-api-server
             target/release/query-cli
 
