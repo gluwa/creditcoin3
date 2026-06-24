@@ -32,6 +32,7 @@ use tracing::{error, info, warn};
 
 pub mod abi;
 pub mod ack;
+pub mod checkpoint;
 pub mod config;
 pub mod delivery;
 pub mod events;
@@ -96,6 +97,26 @@ impl Server {
         let cancel = CancellationToken::new();
         let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
+        // Persistent block cursors (resume after restart instead of from the chain head). Disabled
+        // when `checkpoint_path` is None.
+        let checkpoint: Option<Arc<checkpoint::CheckpointStore>> =
+            match &self.config.checkpoint_path {
+                Some(path) => {
+                    let store = checkpoint::CheckpointStore::load(path).with_context(|| {
+                        format!("failed to load checkpoint store at {}", path.display())
+                    })?;
+                    info!(path = %path.display(), "🗂️  block-cursor persistence enabled");
+                    Some(Arc::new(store))
+                }
+                None => {
+                    warn!(
+                        "checkpoint persistence disabled — watchers start from the chain head and \
+                       will skip events emitted while the relayer is down"
+                    );
+                    None
+                }
+            };
+
         // Resolve attestor sets up-front so the pool only sees concrete addresses.
         let mut route_attestors: Vec<RouteAttestors> = Vec::with_capacity(self.config.routes.len());
         for route in &self.config.routes {
@@ -150,8 +171,9 @@ impl Server {
             let m = metrics.clone();
             let c = cancel.clone();
             let res = resolver.clone();
+            let cp = checkpoint.clone();
             tasks.spawn(async move {
-                if let Err(err) = events::watch_outbox(r.clone(), url, tx, m, res, c).await {
+                if let Err(err) = events::watch_outbox(r.clone(), url, tx, m, res, cp, c).await {
                     error!(chain_key = r.chain_key, %err, "outbox watcher exited with error");
                 }
             });
@@ -170,8 +192,9 @@ impl Server {
             let r = route.clone();
             let url = self.config.creditcoin_eth_rpc_url.clone();
             let c = cancel.clone();
+            let cp = checkpoint.clone();
             tasks.spawn(async move {
-                if let Err(err) = ack::run(r.clone(), url, c).await {
+                if let Err(err) = ack::run(r.clone(), url, cp, c).await {
                     error!(chain_key = r.chain_key, %err, "ack submitter exited with error");
                 }
             });

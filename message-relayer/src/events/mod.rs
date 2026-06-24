@@ -18,6 +18,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::abi::IOutbox;
+use crate::checkpoint::CheckpointStore;
 use crate::config::ChainRoute;
 use crate::hash::message_hash;
 use crate::prom::Metrics;
@@ -47,15 +48,18 @@ pub struct IndexedMessage {
 
 /// Spawn one outbox watcher per route. Returns immediately; the watcher loops until `cancel`
 /// fires or an unrecoverable error occurs.
+#[allow(clippy::too_many_arguments)]
 pub async fn watch_outbox(
     route: ChainRoute,
     creditcoin_eth_rpc_url: String,
     indexed_tx: mpsc::Sender<IndexedMessage>,
     metrics: Metrics,
     resolver: Arc<dyn OutboxResolver>,
+    checkpoint: Option<Arc<CheckpointStore>>,
     cancel: CancellationToken,
 ) -> Result<()> {
     let chain_key = route.chain_key;
+    let checkpoint_key = format!("outbox:{chain_key}");
     let provider = ProviderBuilder::new()
         .on_builtin(&creditcoin_eth_rpc_url)
         .await
@@ -87,10 +91,22 @@ pub async fn watch_outbox(
         "📡 Outbox watcher initialized"
     );
 
-    let mut last_seen = provider
-        .get_block_number()
-        .await
-        .with_context(|| format!("chain_key {chain_key}: failed to read chain head"))?;
+    // Resume from the persisted cursor (so events emitted while we were down are not skipped),
+    // falling back to the current head on first run / when persistence is disabled.
+    let mut last_seen = match checkpoint.as_ref().and_then(|c| c.get(&checkpoint_key)) {
+        Some(block) => {
+            info!(
+                chain_key,
+                resume_from = block + 1,
+                "↩️ resuming Outbox scan from checkpoint"
+            );
+            block
+        }
+        None => provider
+            .get_block_number()
+            .await
+            .with_context(|| format!("chain_key {chain_key}: failed to read chain head"))?,
+    };
 
     let mut tick = tokio::time::interval(Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -102,7 +118,7 @@ pub async fn watch_outbox(
                 return Ok(());
             }
             _ = tick.tick() => {
-                if let Err(err) = poll_once(
+                match poll_once(
                     chain_key,
                     outbox,
                     destination_chain_key,
@@ -113,7 +129,14 @@ pub async fn watch_outbox(
                     &indexed_tx,
                     metrics.as_ref(),
                 ).await {
-                    warn!(chain_key, %err, "outbox poll iteration failed; will retry");
+                    Ok(()) => {
+                        if let Some(cp) = &checkpoint {
+                            if let Err(err) = cp.set(&checkpoint_key, last_seen) {
+                                warn!(chain_key, %err, "failed to persist Outbox checkpoint");
+                            }
+                        }
+                    }
+                    Err(err) => warn!(chain_key, %err, "outbox poll iteration failed; will retry"),
                 }
             }
         }
