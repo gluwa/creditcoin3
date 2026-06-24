@@ -303,7 +303,7 @@ impl Attestor {
         // publish our outgoing votes; a dummy (immediately-closed) receiver stands in when disabled
         // and is never polled (the p2p arm is guarded on `message_votes.is_some()`).
         let (message_votes, mv_publish_rx) =
-            match tasks::write_ability::build_state(&self.config.write_ability) {
+            match tasks::write_ability::build_state(&self.config.write_ability).await {
                 Some((state, rx)) => (Some(state), rx),
                 None => (
                     None,

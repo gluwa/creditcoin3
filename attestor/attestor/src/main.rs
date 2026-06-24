@@ -383,7 +383,7 @@ impl Config {
 
         let expose_url = matches.get_flag("expose-urls-in-logs");
 
-        let eth_url = match matches.get_one::<url::Url>("eth-url") {
+        let eth_url_raw = match matches.get_one::<url::Url>("eth-url") {
             Some(url) => url.clone(),
             None => config_file
                 .eth
@@ -391,9 +391,9 @@ impl Config {
                 .expect("Eth url is set either in config or by clap"),
         };
         let eth_url = if expose_url {
-            attestor::secret::RpcSecret::new_exposed(eth_url)
+            attestor::secret::RpcSecret::new_exposed(eth_url_raw.clone())
         } else {
-            attestor::secret::RpcSecret::new_opaque(eth_url)
+            attestor::secret::RpcSecret::new_opaque(eth_url_raw.clone())
         };
 
         let cc3_url_raw = match matches.get_one::<url::Url>("cc3-url") {
@@ -421,8 +421,13 @@ impl Config {
 
         let no_mdns = matches.get_flag("no-mdns") || config_file.p2p.no_mdns;
 
-        let write_ability =
-            Self::build_write_ability(&matches, config_file.write_ability, chain_key, &cc3_url_raw);
+        let write_ability = Self::build_write_ability(
+            &matches,
+            config_file.write_ability,
+            chain_key,
+            &cc3_url_raw,
+            &eth_url_raw,
+        );
 
         Ok(Config {
             name,
@@ -452,6 +457,7 @@ impl Config {
         file: ConfigFileWriteAbility,
         chain_key: attestor_primitives::ChainKey,
         cc3_url: &url::Url,
+        eth_url: &url::Url,
     ) -> attestor::tasks::write_ability::Config {
         use attestor::tasks::write_ability::{config, AttestorSet, Config as WaConfig};
 
@@ -465,6 +471,10 @@ impl Config {
         WaConfig {
             enabled,
             cc3_eth_rpc_url: Some(cc3_url.clone()),
+            // The destination chain (where the Inbox + EOAValidator live) is the same chain this
+            // attestor set attests block heights for — its `eth` URL. Used to read the on-chain
+            // attestor set when `attestor_set` is an OnChainValidator.
+            destination_eth_rpc_url: Some(eth_url.clone()),
             write_ability_chain_key: chain_key,
             block_confirmation_depth: file
                 .block_confirmation_depth
