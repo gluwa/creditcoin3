@@ -36,10 +36,9 @@ contract Outbox {
 
     // Account authorized to acknowledge messages on this outbox (the ack authority). Supplied by
     // the factory at creation. `acknowledgeMessage` is gated on this address.
-    // NOTE: this is access-control only — `validator` is trusted to acknowledge truthfully. A
-    // trust-minimized flow (attestors vote on the destination MessageDelivered event and this
-    // becomes an EOAValidator that verifies those votes) is the planned follow-up; see the TODO on
-    // `acknowledgeMessage`.
+    // In production this is the `AcknowledgmentValidator` contract, which only acknowledges after
+    // verifying a native USC delivery proof that the destination `MessageDelivered` event was
+    // finalized (research §05/§10) — so acks are trust-minimized, not merely access-controlled.
     address public validator;
 
     // Owner shared with the factory — the factory passes its own owner in so the same account
@@ -72,11 +71,10 @@ contract Outbox {
         emit MessagePublished(messageId, usContract, requiresAck, payload);
     }
 
-    // Gated on the configured `validator` (the authorized ack authority) — closes the previously
-    // permissionless hole where any caller could acknowledge any message.
-    // TODO(write-ability): for a trust-minimized ack, replace this simple access check with
-    // verification of attestor delivery votes (attestors vote on the destination MessageDelivered
-    // event; `validator` becomes an EOAValidator verifying those votes), mirroring the forward path.
+    // Gated on the configured `validator`. In production that is the `AcknowledgmentValidator`,
+    // which calls this only after verifying a native USC delivery proof of the destination
+    // `MessageDelivered` event — so acknowledgments are trust-minimized (the access check here is
+    // the on-chain half; the proof verification lives in the validator).
     function acknowledgeMessage(bytes32 messageId) public {
         if (msg.sender != validator) {
             revert NotValidator();
