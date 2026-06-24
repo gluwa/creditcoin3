@@ -99,4 +99,48 @@ sol! {
         /// transactions that are guaranteed to revert.
         function threshold() external view returns (uint256);
     }
+
+    #[sol(rpc)]
+    #[derive(Debug)]
+    contract IAcknowledgmentValidator {
+        /// Trust-minimized acknowledgment entrypoint on the *source* (Creditcoin) chain. The relayer
+        /// proves — via the chain's native USC proving (block-prover precompile: merkle inclusion +
+        /// continuity) — that a `MessageDelivered` event was emitted in a finalized block on the
+        /// destination chain. This contract verifies the proof, decodes the delivered messageId(s),
+        /// and calls `Outbox.acknowledgeMessage`. Permissionless: the proof is self-validating.
+        ///
+        /// `height` is the destination block height; `encodedTransaction` is the prover `txBytes`
+        /// (encoded tx + receipt); the two proof structs mirror the block-prover precompile inputs.
+        function submitAcknowledgment(
+            uint64 height,
+            bytes calldata encodedTransaction,
+            MerkleProof calldata merkleProof,
+            ContinuityProof calldata continuityProof
+        ) external;
+
+        event Acknowledged(bytes32 indexed messageId);
+    }
+
+    /// One sibling along the merkle inclusion path. `isLeft` says whether the sibling is the
+    /// left-hand input when hashing up to the parent.
+    #[derive(Debug)]
+    struct MerkleProofEntry {
+        bytes32 hash;
+        bool isLeft;
+    }
+
+    /// Merkle inclusion proof of the transaction within its block's transaction trie.
+    #[derive(Debug)]
+    struct MerkleProof {
+        bytes32 root;
+        MerkleProofEntry[] siblings;
+    }
+
+    /// Continuity proof that the attestation chain finalized the destination block: the chain of
+    /// block-root digests from a known lower endpoint up to the proven height.
+    #[derive(Debug)]
+    struct ContinuityProof {
+        bytes32 lowerEndpointDigest;
+        bytes32[] roots;
+    }
 }
