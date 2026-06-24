@@ -1,7 +1,6 @@
 //! USC write-ability message relayer.
 //!
-//! See `relayer-poc.pdf` (repo root) and `PLAN.md` (this crate) for the full design. This
-//! crate is the Phase-1 PoC — it observes attestor votes on a libp2p mesh, aggregates them up
+//! This crate is the Phase-1 PoC — it observes attestor votes on a libp2p mesh, aggregates them up
 //! to the configured threshold, and submits `Inbox.deliverMessage(...)` on the destination
 //! chains for one or more `(creditcoin_chain_key → destination_chain)` routes.
 //!
