@@ -63,9 +63,9 @@ eth = { workspace = true }
 hex = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true }
-usc-abi-encoding = { workspace = true }
 stream = { workspace = true, features = ["cc3"] }
 sysinfo = { workspace = true }
+usc-abi-encoding = { workspace = true }
 
 [features]
 default = []
