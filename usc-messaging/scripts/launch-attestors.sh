@@ -14,16 +14,29 @@
 #
 # Usage:
 #   bash usc-messaging/scripts/launch-attestors.sh [N]
-# where N is the number of attestors (default 3). Override URLs/funder via env:
-#   ETH_URL, CC3_URL, FUNDING_ADDRESS
+# where N is the number of attestors (default 3). The chain_key and the source chain the attestors
+# attest are read from .env: DESTINATION_CHAIN_KEY (e.g. 2 = local anvil, 3 = Sepolia) and
+# DESTINATION_CHAIN_WS_URL (the destination chain's wss:// RPC). So the same command works for the
+# local and Sepolia demos — just edit .env. CHAIN_KEY / ETH_URL / CC3_URL / FUNDING_ADDRESS still
+# accept an inline override for one-off runs.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ENV_FILE="$SCRIPT_DIR/../.env"
+
+# Load .env so CHAIN_KEY / ETH_URL / the EOAValidator-sync vars can be derived from it.
+if [[ -f "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  set -a; source "$ENV_FILE"; set +a
+fi
 
 N="${1:-3}"
-ETH_URL="${ETH_URL:-ws://localhost:8545}"
+# Attestor chain_key and the source chain it attests come from .env (DESTINATION_CHAIN_KEY /
+# DESTINATION_CHAIN_WS_URL); both still accept an inline override for one-off runs.
+CHAIN_KEY="${CHAIN_KEY:-${DESTINATION_CHAIN_KEY:-2}}"          # 2 = local anvil (Anvil1); 3 = Sepolia
+ETH_URL="${ETH_URL:-${DESTINATION_CHAIN_WS_URL:-ws://localhost:8545}}"  # must match CHAIN_KEY's chain
 CC3_URL="${CC3_URL:-ws://localhost:9944}"
 FUNDING_ADDRESS="${FUNDING_ADDRESS:-//Alice}"
 
@@ -59,10 +72,11 @@ if pgrep -f "$ATTESTOR_BIN" >/dev/null 2>&1; then
   sleep 2
 fi
 
-echo "🧟 Launching $N attestor(s) (no --well-known-keys)…"
+echo "🧟 Launching $N attestor(s) for chain_key $CHAIN_KEY (no --well-known-keys)…"
 "$ZOMBIENET" \
   -n "$N" \
   --bin="$ATTESTOR_BIN" \
+  --chain-key="$CHAIN_KEY" \
   --eth-url="$ETH_URL" \
   --cc3-url="$CC3_URL" \
   --funding-address="$FUNDING_ADDRESS" \
@@ -135,12 +149,7 @@ printf '%s\n' "$SET" > "$ATTESTOR_SET_FILE"
 # Sync the on-chain EOAValidator's attestor set with the addresses we just discovered, so the
 # destination Inbox's validateVotes accepts exactly these attestors. deploy.ts seeds the validator
 # best-effort (it runs before the attestors); this is the authoritative update. The destination
-# deployer (DESTINATION_CHAIN_PRIVATE_KEY) is the validator admin.
-ENV_FILE="$SCRIPT_DIR/../.env"
-if [[ -f "$ENV_FILE" ]]; then
-  # shellcheck disable=SC1090
-  set -a; source "$ENV_FILE"; set +a
-fi
+# deployer (DESTINATION_CHAIN_PRIVATE_KEY) is the validator admin. (.env was sourced at startup.)
 if [[ -n "${VOTE_VALIDATOR_ADDR:-}" ]]; then
   if command -v cast >/dev/null 2>&1; then
     echo "🔗 Syncing EOAValidator attestor set on the destination chain ($VOTE_VALIDATOR_ADDR)…"
@@ -169,11 +178,11 @@ In a SEPARATE terminal, launch the relayer with that flag, e.g.:
   cargo run -p message-relayer -- --single-route \\
     --cc3-rpc-url $CC3_URL \\
     --creditcoin-eth-rpc-url http://localhost:9944 \\
-    --chain-key 2 --cc3-chain-id 42 \\
+    --chain-key $CHAIN_KEY --cc3-chain-id 42 \\
     --outbox-address "\$OUTBOX_ADDR" \\
-    --destination-rpc-url http://localhost:8545 \\
+    --destination-rpc-url "\$DESTINATION_CHAIN_RPC_URL" \\
     --inbox-address "\$INBOX_ADDR" \\
-    --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \\
+    --signer-key "\$DESTINATION_CHAIN_PRIVATE_KEY" \\
     --attestor-set $SET
 
 Note: config.yaml was updated after the attestors started, so it takes effect on the next restart;

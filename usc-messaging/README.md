@@ -86,8 +86,11 @@ attestor/relayer skipped this. Notes:
   (the local anvil, `Anvil1`) with a zero-address factory placeholder, which this step overwrites with
   the real factory; otherwise the extrinsic reverts with `ChainNotSupported`.
 
-This script also saves the addresses of all deployed contracts in `.env` for
-later use (including `OUTBOX_FACTORY_ADDR` for the factory and `OUTBOX_ADDR` for the outbox it created).
+This script also saves the addresses of all deployed contracts in `.env` for later use, including
+`OUTBOX_FACTORY_ADDR` (factory), `OUTBOX_ADDR` (the outbox it created), `ACK_VALIDATOR_ADDR` (the
+`AcknowledgmentValidator`, i.e. the outbox's `onlyValidator`), and `VOTE_VALIDATOR_ADDR` (the
+`EOAValidator` on the destination chain, which `launch-attestors.sh` later syncs to the live
+attestors).
 
 ### 3. Start the attestors, then the Relayer, Quoter, and dApp acknowledgement worker
 
@@ -149,6 +152,17 @@ cd usc-messaging
 npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
 ```
 
+> **Two distinct "acknowledgements" — don't confuse them:**
+> - **dApp-level delivery bookkeeping (this worker).** It watches the destination `TestDestination`
+>   for `MessageReceived` and calls `SimpleDApp.markDelivered` back on Creditcoin, so the dApp knows
+>   its message arrived. This is what the default demo exercises (messages are published with
+>   `requiresAck = false`).
+> - **Protocol-level Outbox acknowledgement (`AcknowledgmentValidator`).** Only for messages
+>   published with `requiresAck = true`: a native USC delivery proof is submitted to the
+>   `AcknowledgmentValidator`, which verifies it and calls `Outbox.acknowledgeMessage`. The off-chain
+>   proof submitter for this is not implemented yet, so the `requiresAck = true` path is not wired
+>   end-to-end in this demo. The `dApp-ack-worker` above does **not** drive it.
+
 ### 4. Submit message request to dApp contract
 To submit our message, run the following:
 ```bash
@@ -181,8 +195,10 @@ detect a `MessagePublished` event and print something like:
 3. The inbox contract forwards the message to its designated destination contract. The destination
 contract emits a `MessageReceived` event.
 
-4. Then the `dApp-ack-worker` picks up on the `MessageReceived` event emitted by the destination contract.
-It it forwards the acknowledgement and logs the process:
+4. Then the `dApp-ack-worker` picks up on the `MessageReceived` event emitted by the destination
+contract and calls `SimpleDApp.markDelivered` on Creditcoin (the dApp-level delivery bookkeeping
+described in step 3 — not the protocol-level `Outbox.acknowledgeMessage`, which is the separate
+`requiresAck = true` path). It logs the process:
 ```
 MessageReceived
   messageId: 0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753
@@ -204,6 +220,96 @@ emitted from our simpleDApp contract on Creditcoin.
 These logs demonstrate that our message delivery and acknowldegement by the dApp contract
 were successful!
 
+## Demonstration Using Sepolia As Destination Chain
+
+In the dev genesis, Sepolia is **`chain_key = 3`** (chain id `11155111`), whereas the local anvil is
+`chain_key = 2`; everything that referenced chain_key `2` above moves to `3`.
+
+### Prerequisites
+
+- A **Sepolia RPC endpoint** — an HTTP URL for deploys/delivery and a WebSocket (`wss://`) URL for
+  the attestors (e.g. from Alchemy/Infura, or your own node).
+- A **Sepolia account funded with testnet ETH** (from a faucet) — it pays gas to deploy the Inbox /
+  EOAValidator / TestDestination and to submit `deliverMessage`.
+
+### `.env` changes
+
+Change destination chain variables
+
+```bash
+DESTINATION_CHAIN_RPC_URL="https://<your-sepolia-http-rpc>"
+DESTINATION_CHAIN_WS_URL="wss://<your-sepolia-ws-rpc>"
+DESTINATION_CHAIN_PRIVATE_KEY="0x<your-funded-sepolia-key>"
+# Sepolia is chain_key 3 in the dev genesis (the local anvil was 2):
+DESTINATION_CHAIN_KEY="3"
+```
+
+### Run the demo
+
+Steps:
+1. Build and run Creditcoin node
+```sh
+cargo build --features=fast-runtime --release
+./target/release/creditcoin3-node --dev --tmp
+```
+
+2. Deploy contracts
+```sh
+cd usc-messaging
+npx tsx scripts/deploy.ts
+```
+**WAIT FOR SCRIPT TO FINISH BEFORE PROCEEDING**
+
+3. Run attestor zombienet
+```sh
+bash usc-messaging/scripts/launch-attestors.sh
+```
+**WAIT FOR THIS LOG BEFORE PROCEEDING** 
+```sh
+✅ Attestor set ready
+```
+
+4. Run relayer
+
+Same command as the local demo, but target `chain_key 3` and the Sepolia
+destination RPC (the Creditcoin/`--cc3-*` flags are unchanged):
+
+   ```bash
+   cd usc-messaging
+   source .env
+   ATTESTOR_SET=$(cat scripts/.attestor-set)
+
+   cargo run -p message-relayer -- --single-route \
+     --cc3-rpc-url ws://localhost:9944 \
+     --creditcoin-eth-rpc-url http://localhost:9944 \
+     --chain-key 3 \
+     --cc3-chain-id 42 \
+     --outbox-address "$OUTBOX_ADDR" \
+     --destination-rpc-url "$DESTINATION_CHAIN_RPC_URL" \
+     --inbox-address "$INBOX_ADDR" \
+     --signer-key "$DESTINATION_CHAIN_PRIVATE_KEY" \
+     --attestor-set "$ATTESTOR_SET"
+   ```
+
+The quoter, dApp-ack worker, and message submission are unchanged. 
+
+5. Start the Quoter:
+```bash
+cd usc-messaging
+npm run dev:quoter
+```
+
+6. Start the dApp's acknowledgement worker:
+```bash
+cd usc-messaging
+npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
+```
+
+7. Submit message request:
+```bash
+cd usc-messaging
+npx tsx scripts/publish-message/publish-message.ts
+```
 
 ## Quoter
 
@@ -276,7 +382,7 @@ Response (JSON):
 - **Phase 3**: Exchange rate API (Chainlink, etc.)
 - **Phase 4**: Core fee, production key management
 
-See `usc-write-ability-research/documents/requirements/03-quotation-requirements.md`.
+See the quoter sources under `src/quoter/` for the current implementation.
 
 ---
 

@@ -244,11 +244,11 @@ function readInitialAttestors(): string[] {
 async function main(): Promise<void> {
   // Creditcoin L1 EVM chain id (eth_chainId). On `--dev` this is SS58Prefix = 42.
   const sourceChainId = process.env.SOURCE_CHAIN_ID ?? "42";
-  // chain_key of the destination chain. In the dev genesis, chain_key 2 = the local anvil
-  // ("Anvil1", chain id 31337) — the same chain_key the attestor zombienet attests.
-  const localChainKey =
-    process.env.LOCAL_CHAIN_KEY ??
-    "0x0000000000000000000000000000000000000000000000000000000000000002";
+  // chain_key of the destination chain, given as a plain number in the env. In the dev genesis,
+  // chain_key 2 = the local anvil ("Anvil1", chain id 31337) — the same chain_key the attestor
+  // zombienet attests; 3 = Sepolia. `chainKeyBytes32` is the left-padded bytes32 form contracts use.
+  const chainKeyU64 = BigInt(process.env.DESTINATION_CHAIN_KEY ?? "2");
+  const chainKeyBytes32 = `0x${chainKeyU64.toString(16).padStart(64, "0")}`;
 
   const creditcoinRpcUrl = requireEnv("CREDITCOIN_RPC_URL");
   const destinationRpcUrl = requireEnv("DESTINATION_CHAIN_RPC_URL");
@@ -271,9 +271,8 @@ async function main(): Promise<void> {
   const outboxFactory = deployToSource(
     "src/SimpleOutboxFactory.sol:OutboxFactory",
   );
-  // The pallet's chain_key is the u64 in the low bytes of the bytes32 LOCAL_CHAIN_KEY; it's also the
-  // destination chain key the AcknowledgmentValidator proves MessageDelivered events on.
-  const chainKeyU64 = BigInt(localChainKey);
+  // chainKeyU64 (above) is also the destination chain key the AcknowledgmentValidator proves
+  // MessageDelivered events on.
 
   // Trust-minimized acknowledgment validator (research §05/§10): verifies a native USC delivery
   // proof (block-prover precompile: merkle inclusion + continuity) that MessageDelivered was emitted
@@ -285,11 +284,11 @@ async function main(): Promise<void> {
     [chainKeyU64.toString(), payee], // (destinationChainKey, owner)
   );
   castSendSource(outboxFactory, "createOutbox(bytes32,address)", [
-    localChainKey,
+    chainKeyBytes32,
     ackValidator, // the Outbox's onlyValidator ack authority
   ]);
   const outbox = castCallSource(outboxFactory, "getOutbox(bytes32)(address)", [
-    localChainKey,
+    chainKeyBytes32,
   ]);
   castSendSource(ackValidator, "setOutbox(address)", [outbox]);
 
@@ -322,7 +321,7 @@ async function main(): Promise<void> {
   );
   const inbox = deployToDestination(
     "src/SimpleInbox.sol:SimpleInbox",
-    [validator, sourceChainId, localChainKey],
+    [validator, sourceChainId, chainKeyBytes32],
   );
   const destinationChainId = getDestinationChainId();
   console.log(`Destination chainId: ${destinationChainId}`);
