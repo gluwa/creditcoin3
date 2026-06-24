@@ -831,6 +831,12 @@ pub mod pallet {
         CheckpointSuffixWipeTooLarge,
         /// More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
         TooManyAttestationsForForwardPatchClear,
+        // Continuity proof `roots` exceeds `max_catchup * attestation_interval`.
+        // Defends `validate_attestation_continuity` against an attacker feeding an unbounded
+        // `Vec<H256>` and forcing an O(n) keccak chain inside dispatch.
+        // NOTE: appended at the end of the enum on purpose — inserting mid-list would shift the
+        // SCALE index of every following variant relative to the last released runtime.
+        OversizedContinuityProof,
     }
 
     #[pallet::hooks]

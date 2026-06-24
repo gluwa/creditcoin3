@@ -944,7 +944,7 @@ dependencies = [
 
 [[package]]
 name = "archiver"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -1537,36 +1537,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "attestation_pool"
-version = "3.126.0"
-dependencies = [
- "assert_matches",
- "attestor-primitives",
- "bls-signatures",
- "builder",
- "cc-client",
- "common",
- "futures 0.3.31",
- "parking_lot 0.12.3",
- "pretty_assertions",
- "rstest 0.26.1",
- "sp-core",
- "stream",
- "tokio",
- "tokio-test",
- "tracing",
-]
-
-[[package]]
 name = "attestor"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
- "alloy",
  "anyhow",
- "arc-swap",
- "assert_matches",
- "attestation_pool",
  "attestor-primitives",
+ "attestor_pool",
  "axum",
  "bip39",
  "bls-signatures",
@@ -1580,30 +1556,28 @@ dependencies = [
  "libp2p 0.56.0",
  "metrics",
  "parity-scale-codec",
+ "parking_lot 0.12.3",
  "rand 0.9.0",
- "rstest 0.26.1",
  "serde",
  "serde_yaml",
  "sp-core",
- "sp-io",
  "stream",
  "subxt",
  "supported-chains-primitives",
  "tokio",
- "tokio-test",
  "tokio-tungstenite 0.26.2",
+ "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
- "user",
  "zeroize",
 ]
 
 [[package]]
 name = "attestor-primitives"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "bls-signatures",
  "parity-scale-codec",
@@ -1621,11 +1595,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "attestor_pool"
+version = "3.127.0"
+dependencies = [
+ "attestor-primitives",
+ "bls-signatures",
+ "builder",
+ "cc-client",
+ "common",
+ "parity-scale-codec",
+ "parking_lot 0.12.3",
+ "sp-core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "attestor_zombienet"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "attestor-primitives",
  "bip39",
  "cc-client",
@@ -2112,7 +2101,7 @@ dependencies = [
 
 [[package]]
 name = "builder"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -2244,11 +2233,12 @@ dependencies = [
 
 [[package]]
 name = "cc-client"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "anyhow",
  "arc-swap",
  "attestor-primitives",
+ "serde",
  "sp-core",
  "subxt",
  "subxt-signer",
@@ -2258,7 +2248,7 @@ dependencies = [
  "tokio-retry",
  "tracing",
  "usc-abi-encoding",
- "vrf",
+ "user",
 ]
 
 [[package]]
@@ -2339,7 +2329,7 @@ dependencies = [
 
 [[package]]
 name = "checkpoint-builder"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -2513,7 +2503,7 @@ dependencies = [
 
 [[package]]
 name = "common"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "attestor-primitives",
  "rstest 0.26.1",
@@ -2833,14 +2823,14 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-cli-opt"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "clap",
 ]
 
 [[package]]
 name = "creditcoin3-node"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "async-trait",
  "attestor-primitives",
@@ -2924,7 +2914,7 @@ dependencies = [
 
 [[package]]
 name = "creditcoin3-runtime"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "attestor-primitives",
  "ethereum 0.18.2",
@@ -3491,12 +3481,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "diff"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
-
-[[package]]
 name = "difflib"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3878,7 +3862,7 @@ dependencies = [
 
 [[package]]
 name = "eth"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -5193,7 +5177,7 @@ dependencies = [
 
 [[package]]
 name = "generate-bags"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "clap",
  "creditcoin3-runtime",
@@ -6231,7 +6215,7 @@ dependencies = [
 
 [[package]]
 name = "indexer-client"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "anyhow",
  "attestor-primitives",
@@ -8006,7 +7990,7 @@ dependencies = [
 
 [[package]]
 name = "merkle"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "parity-scale-codec",
  "precompile-utils",
@@ -8045,9 +8029,8 @@ dependencies = [
 
 [[package]]
 name = "metrics"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
- "attestation_pool",
  "attestor-primitives",
  "builder",
  "cc-client",
@@ -8972,9 +8955,9 @@ checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
 
 [[package]]
 name = "openssl"
-version = "0.10.80"
+version = "0.10.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a45fa2aa886c42762255da344f0a0d313e254066c46aad76f300c3d3da62d967"
+checksum = "bf0b434746ee2832f4f0baf10137e1cabb18cbe6912c69e2e33263c45250f542"
 dependencies = [
  "bitflags 2.11.0",
  "cfg-if",
@@ -9012,9 +8995,9 @@ dependencies = [
 
 [[package]]
 name = "openssl-sys"
-version = "0.9.116"
+version = "0.9.115"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f28a22dc7140cda5f096e5e7724a6962ca81a7f8bfd2979f9b18c11af56318c4"
+checksum = "158fe5b292746440aa6e7a7e690e55aeb72d41505e2804c23c6973ad0e9c9781"
 dependencies = [
  "cc",
  "libc",
@@ -9046,7 +9029,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-attestation"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "attestor-primitives",
  "bls-signatures",
@@ -9608,7 +9591,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-randomness"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "frame-benchmarking",
  "frame-election-provider-support",
@@ -9705,7 +9688,7 @@ dependencies = [
 
 [[package]]
 name = "pallet-supported-chains"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "attestor-primitives",
  "frame-benchmarking",
@@ -10368,16 +10351,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pretty_assertions"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
-dependencies = [
- "diff",
- "yansi",
-]
-
-[[package]]
 name = "prettyplease"
 version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -10595,7 +10568,7 @@ dependencies = [
 
 [[package]]
 name = "proof-gen-api-server"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
@@ -11123,7 +11096,7 @@ dependencies = [
 
 [[package]]
 name = "randomness-primitives"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "impl-trait-for-tuples",
  "sp-api",
@@ -14934,7 +14907,7 @@ dependencies = [
 
 [[package]]
 name = "stream"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "stream_attestation",
  "stream_cc3",
@@ -14944,7 +14917,7 @@ dependencies = [
 
 [[package]]
 name = "stream_attestation"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "attestor-primitives",
  "bip39",
@@ -14969,9 +14942,9 @@ dependencies = [
 
 [[package]]
 name = "stream_cc3"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
- "arc-swap",
+ "anyhow",
  "async-stream",
  "attestor-primitives",
  "builder",
@@ -14984,7 +14957,7 @@ dependencies = [
 
 [[package]]
 name = "stream_eth"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "async-stream",
  "attestor-primitives",
@@ -15005,7 +14978,7 @@ dependencies = [
 
 [[package]]
 name = "stream_util"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "attestor-primitives",
  "futures 0.3.31",
@@ -15369,7 +15342,7 @@ dependencies = [
 
 [[package]]
 name = "supported-chains-primitives"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "attestor-primitives",
  "impl-trait-for-tuples",
@@ -16399,7 +16372,7 @@ dependencies = [
 
 [[package]]
 name = "user"
-version = "3.126.0"
+version = "3.127.0"
 
 [[package]]
 name = "utf-8"
@@ -16427,7 +16400,7 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "utils"
-version = "3.126.0"
+version = "3.127.0"
 dependencies = [
  "anyhow",
  "fs2",
@@ -16519,23 +16492,6 @@ name = "void"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
-
-[[package]]
-name = "vrf"
-version = "3.126.0"
-dependencies = [
- "anyhow",
- "attestor-primitives",
- "env_logger 0.11.8",
- "log",
- "parity-scale-codec",
- "randomness-primitives",
- "schnorrkel",
- "serde",
- "sp-consensus-babe",
- "sp-core",
- "thiserror 1.0.69",
-]
 
 [[package]]
 name = "w3f-bls"
@@ -17942,12 +17898,6 @@ dependencies = [
  "static_assertions",
  "web-time",
 ]
-
-[[package]]
-name = "yansi"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yap"

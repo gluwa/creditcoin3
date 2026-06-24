@@ -22,7 +22,7 @@ use sp_runtime::{
 };
 use sp_std::collections::btree_set::BTreeSet;
 
-use crate::pallet::{ActiveAttestors, Call, Config, Pallet};
+use crate::pallet::{ActiveAttestors, Call, Config, MaxCatchup, Pallet};
 
 /// `SignedExtension` that pre-validates `commit_attestation` calls in the transaction pool,
 /// rejecting:
@@ -95,6 +95,20 @@ where
         if let Some(Call::commit_attestation { attestation }) = call.is_sub_type() {
             let chain_key = attestation.chain_key();
 
+            // Reject oversized continuity proofs at txpool admission so a malicious or buggy
+            // active attestor cannot force the runtime to run an unbounded keccak chain (over
+            // attacker-chosen `roots: Vec<H256>`) inside dispatch. Any legitimate proof spans
+            // at most `max_catchup * attestation_interval` blocks; anything beyond that is
+            // structurally non-finalizable.
+            let max_catchup = MaxCatchup::<T>::get(chain_key) as u64;
+            let attestation_interval = Pallet::<T>::chain_attestation_interval(chain_key);
+            let max_roots = max_catchup.saturating_mul(attestation_interval) as usize;
+            if attestation.continuity_proof.len() > max_roots {
+                return Err(TransactionValidityError::Invalid(
+                    InvalidTransaction::Custom(OVERSIZED_PROOF_CODE),
+                ));
+            }
+
             let active_attestors = ActiveAttestors::<T>::get(chain_key)
                 .into_iter()
                 .collect::<BTreeSet<_>>();
@@ -106,3 +120,9 @@ where
         Ok(ValidTransaction::default())
     }
 }
+
+/// `InvalidTransaction::Custom` code returned when `commit_attestation` carries a continuity
+/// proof exceeding `max_catchup * attestation_interval` roots. Distinct from `Stale`/`BadProof`
+/// so downstream tooling can disambiguate resource-exhaustion attempts from race-loser
+/// duplicates.
+pub const OVERSIZED_PROOF_CODE: u8 = 1;

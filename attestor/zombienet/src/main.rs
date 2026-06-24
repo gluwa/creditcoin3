@@ -1,5 +1,3 @@
-use arc_swap::access::Access as _;
-
 // These seeds where obtained by running `creditcoin3-node key inspect <ACCOUNT_URI>` for each of the first 6 Substrate development accounts
 // (//Alice, //Bob, //Charlie, //Dave, //Eve, //Ferdie).
 const WELL_KNOWN_SEEDS: [&str; 6] = [
@@ -321,9 +319,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("👷 Registering attestors");
 
-    let api = cc3.api().load();
-    let blocks = api.blocks().subscribe_finalized().await.unwrap();
-    let storage = api.storage().at_latest().await.unwrap();
+    let blocks = cc3.api().blocks().subscribe_finalized().await.unwrap();
 
     let mut futures_register = tokio::task::JoinSet::new();
     for (name, _secret, account_id) in attestor_info.iter() {
@@ -332,7 +328,6 @@ async fn main() -> anyhow::Result<()> {
 
         let name = name.clone();
         let account_id = account_id.clone();
-        let storage = storage.clone();
 
         let mut attempt = 0;
 
@@ -340,7 +335,15 @@ async fn main() -> anyhow::Result<()> {
             let query = cc_client::cc3::storage()
                 .attestation()
                 .attestors(args.chain_key, &account_id);
-            let attestor = storage.fetch(&query).await.unwrap();
+            let attestor = cc3
+                .api()
+                .storage()
+                .at_latest()
+                .await
+                .unwrap()
+                .fetch(&query)
+                .await
+                .unwrap();
 
             if attestor.is_none() {
                 let mut nonce_local = nonce.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
@@ -466,8 +469,7 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("❄️ Chilling attestors");
 
-    let api = cc3.api().load();
-    let blocks = api.blocks().subscribe_finalized().await.unwrap();
+    let blocks = cc3.api().blocks().subscribe_finalized().await.unwrap();
 
     let mut futures_chill = tokio::task::JoinSet::new();
     for (name, _secret, account_id) in attestor_info.iter() {

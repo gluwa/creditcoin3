@@ -28,12 +28,19 @@ subxt-signer = { workspace = true }
 # Creditcoin deps
 attestor-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
-vrf = { workspace = true }
+user = { workspace = true }
 
 # workspace deps
+serde = { workspace = true }
 sp-core = { workspace = true, default-features = false }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["signal"] }
+tokio = { workspace = true, features = [
+    "rt",
+    "macros",
+    "signal",
+    "sync",
+    "time",
+] }
 tokio-retry = { workspace = true }
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }
@@ -41,7 +48,6 @@ usc-abi-encoding = { workspace = true, optional = true }
 [features]
 default = ["std"]
 std = [
-    "vrf/std",
     "sp-core/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",

@@ -23,7 +23,6 @@ members = [
     "common/indexer-client",
     "common/merkle",
     "common/utils",
-    "common/vrf",
     "common/builder",
     "common/streams/eth",
     "common/streams/cc3",
@@ -47,7 +46,7 @@ edition = "2021"
 license = "Unlicense"
 publish = false
 repository = "https://github.com/gluwa/creditcoin3-next/"
-version = "3.126.0"
+version = "3.127.0"
 
 [workspace.dependencies]
 arc-swap = "1.9.1"
@@ -312,9 +311,9 @@ evm-tracing-events = { git = "https://github.com/gluwa/moonbeam", branch = "gluw
 moonbeam-rpc-primitives-debug = { git = "https://github.com/gluwa/moonbeam", branch = "gluwa_stable_2409", package = "moonbeam-rpc-primitives-debug", default-features = false }
 
 # Attestation
-attestation_pool = { path = "attestor/pool" }
 attestor = { path = "attestor/attestor" }
 attestor-primitives = { path = "primitives/attestor", default-features = false }
+attestor_pool = { path = "attestor/pool" }
 supported-chains-primitives = { path = "primitives/supported-chains", default-features = false }
 
 # Using an old version of rand as it is already in the dependency graph
@@ -342,7 +341,6 @@ stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
-vrf = { path = "common/vrf", default-features = false }
 
 [profile.release]
 # Substrate runtime requires unwinding.

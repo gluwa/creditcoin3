@@ -130,6 +130,7 @@ declare module '@polkadot/api-base/types/errors' {
             NotPreAuthorizedToRegister: AugmentedError<ApiType>;
             NotStash: AugmentedError<ApiType>;
             NotYourAttestor: AugmentedError<ApiType>;
+            OversizedContinuityProof: AugmentedError<ApiType>;
             /**
              * Too many retired attestor key entries are queued for this stash
              **/
