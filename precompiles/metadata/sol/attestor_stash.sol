@@ -20,6 +20,7 @@ struct AttestorInfo {
 /// return right now.
 struct LedgerInfo {
     bool exists;
+    bytes32 stash;
     uint128 totalStaked;
     uint128 active;
     uint32 unlockingChunks;
