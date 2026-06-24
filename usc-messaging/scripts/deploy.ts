@@ -271,22 +271,30 @@ async function main(): Promise<void> {
   const outboxFactory = deployToSource(
     "src/SimpleOutboxFactory.sol:OutboxFactory",
   );
-  // Ack authority for the outbox: the account authorized to call `acknowledgeMessage` (now gated
-  // on this address). For the PoC this is the operator/deployer EOA. The trust-minimized
-  // alternative (attestor-voted delivery proofs verified by an EOAValidator) is a documented
-  // follow-up — see the TODO on Outbox.acknowledgeMessage.
-  const outboxValidator = payee; // source deployer EOA (cast wallet address of CREDITCOIN_CHAIN_PRIVATE_KEY)
+  // The pallet's chain_key is the u64 in the low bytes of the bytes32 LOCAL_CHAIN_KEY; it's also the
+  // destination chain key the AcknowledgmentValidator proves MessageDelivered events on.
+  const chainKeyU64 = BigInt(localChainKey);
+
+  // Trust-minimized acknowledgment validator (research §05/§10): verifies a native USC delivery
+  // proof (block-prover precompile: merkle inclusion + continuity) that MessageDelivered was emitted
+  // in a finalized block on the destination chain, decodes the messageIds, and acknowledges them on
+  // the Outbox. It is the Outbox's `validator` (acknowledgeMessage is onlyValidator). Created first
+  // (without the Outbox), then `setOutbox` once the factory has created the Outbox.
+  const ackValidator = deployToSource(
+    "src/AcknowledgmentValidator.sol:AcknowledgmentValidator",
+    [chainKeyU64.toString(), payee], // (destinationChainKey, owner)
+  );
   castSendSource(outboxFactory, "createOutbox(bytes32,address)", [
     localChainKey,
-    outboxValidator,
+    ackValidator, // the Outbox's onlyValidator ack authority
   ]);
   const outbox = castCallSource(outboxFactory, "getOutbox(bytes32)(address)", [
     localChainKey,
   ]);
+  castSendSource(ackValidator, "setOutbox(address)", [outbox]);
 
   // Register the factory on-chain so the attestor/relayer can resolve the outbox via the chain-info
-  // precompile. The pallet's chain_key is the u64 in the low bytes of the bytes32 LOCAL_CHAIN_KEY.
-  const chainKeyU64 = BigInt(localChainKey);
+  // precompile.
   console.log(
     `Registering OutboxFactory ${outboxFactory} for chain_key ${chainKeyU64} with pallet-supported-chains...`,
   );
@@ -325,6 +333,7 @@ async function main(): Promise<void> {
   updateEnvVar("DESTINATION_CONTRACT_ADDR", destination);
   updateEnvVar("OUTBOX_FACTORY_ADDR", outboxFactory);
   updateEnvVar("OUTBOX_ADDR", outbox);
+  updateEnvVar("ACK_VALIDATOR_ADDR", ackValidator);
   updateEnvVar("RELAYER_CONTRACT_ADDR", relayer);
   updateEnvVar("DAPP_CONTRACT_ADDR", dapp);
   updateEnvVar("DESTINATION_CHAIN_ID", destinationChainId);
@@ -333,6 +342,7 @@ async function main(): Promise<void> {
   console.log(`SimpleInbox: ${inbox}`);
   console.log(`OutboxFactory: ${outboxFactory}`);
   console.log(`SimpleOutbox (via factory): ${outbox}`);
+  console.log(`AcknowledgmentValidator (outbox validator): ${ackValidator}`);
   console.log(`SimpleDApp: ${dapp}`);
   console.log(`TestDestination: ${destination}`);
   console.log(`RelayerContract: ${relayer}`);
