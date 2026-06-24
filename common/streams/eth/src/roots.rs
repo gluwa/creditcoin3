@@ -12,6 +12,12 @@ pub struct Config {
 
     /// Maximum number of parallel block root merkleization (CPU-bound).
     pub max_parallelism: std::num::NonZeroUsize,
+
+    /// Source-chain block encoding. Derived from CC3 supported-chain metadata by
+    /// callers that know the chain; defaults to V1 (the only encoding today) so
+    /// existing builders keep working.
+    #[default(usc_abi_encoding::common::EncodingVersion::V1)]
+    pub encoding: usc_abi_encoding::common::EncodingVersion,
 }
 
 /// Ordered Eth root stream, backed by [`eth::Client`] under the hood.
@@ -297,13 +303,14 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
 
                     let eth = config.client.clone();
                     let lag = config.finalization_lag;
+                    let encoding = config.encoding;
 
                     // Actual block fetching. No more than `max_concurrency` blocks may be
                     // fetched at once.
                     blocks.spawn(async move {
                         eth.get_block(
                             n - lag,
-                            usc_abi_encoding::common::EncodingVersion::V1
+                            encoding
                         )
                         .await
                         .map_interrupt(Error::Client)

@@ -31,6 +31,7 @@ use indexer_client::{AttestationWithProof, IndexerClient};
 use sp_core::H256;
 use std::sync::Arc;
 use tracing::info;
+use usc_abi_encoding::common::EncodingVersion;
 
 /// Builder for generating continuity proofs.
 ///
@@ -181,10 +182,12 @@ impl ContinuityBuilder {
             .await
             .context("Failed to create ETH client")?;
 
+        let encoding = resolve_chain_encoding(&cc_client, config.chain_key).await;
+
         Ok(Self::new_with_providers(
             config,
             Arc::new(cc_client),
-            Arc::new(ReconnectingEthRpcProvider::new(eth_client)),
+            Arc::new(ReconnectingEthRpcProvider::new(eth_client, encoding)),
         ))
     }
 
@@ -242,10 +245,12 @@ impl ContinuityBuilder {
             .await
             .context("Failed to create caching ETH client")?;
 
+        let encoding = resolve_chain_encoding(&cc_client, config.chain_key).await;
+
         Ok(Self::new_with_providers(
             config,
             Arc::new(cc_client),
-            Arc::new(ReconnectingEthRpcProvider::new(eth_client)),
+            Arc::new(ReconnectingEthRpcProvider::new(eth_client, encoding)),
         ))
     }
 
@@ -696,6 +701,34 @@ impl ContinuityBuilder {
             .await?;
 
         Ok(attestation.map(|a| a.attestation.header_number))
+    }
+}
+
+/// Resolve the source-chain block encoding from CC3 supported-chain metadata.
+///
+/// Off-chain block fetching used to hardcode [`EncodingVersion::V1`]. We instead
+/// read the chain's configured `chain_encoding` so a per-chain or future encoding
+/// change is honoured. If the chain is not found or the lookup fails we fall back
+/// to V1 (the only encoding in existence today) and log, rather than failing
+/// startup.
+async fn resolve_chain_encoding(cc_client: &CcClient, chain_key: u64) -> EncodingVersion {
+    match cc_client.get_supported_chain(chain_key).await {
+        Ok(Some(chain)) => EncodingVersion::from(chain.chain_encoding),
+        Ok(None) => {
+            tracing::warn!(
+                chain_key,
+                "supported chain not found while resolving block encoding; defaulting to V1"
+            );
+            EncodingVersion::V1
+        }
+        Err(e) => {
+            tracing::warn!(
+                chain_key,
+                error = %e,
+                "failed to fetch supported chain encoding; defaulting to V1"
+            );
+            EncodingVersion::V1
+        }
     }
 }
 
