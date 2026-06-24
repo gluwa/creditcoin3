@@ -381,7 +381,14 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
         txn_hash: params.txn_hash,
     };
 
-    let prompt_output = prompt_user(prompt_args).expect("Failed to prompt user");
+    let mut prompt_output = prompt_user(prompt_args).expect("Failed to prompt user");
+
+    // Resolve the source-chain block encoding from CC3 metadata, replacing the
+    // prompt's V1 placeholder. This is the single point that fetches and decodes
+    // the block (`get_block` below), so both the CLI and interactive entry points
+    // get the correct encoding here.
+    prompt_output.encoding =
+        encoding::resolve_chain_encoding(&params.cc3_rpc_url, params.chain_key).await;
 
     // Step 2: Fetch block data from source chain
     println!("\n=== Fetching Block Data ===");
@@ -560,12 +567,10 @@ async fn handle_interactive_query(
         block_height: None,
         txn_hash: None,
     };
-    let mut prompt_output = prompt::prompt(prompt_args)?;
+    let prompt_output = prompt::prompt(prompt_args)?;
 
-    // Override the placeholder encoding with the chain's configured value from CC3.
-    prompt_output.encoding = encoding::resolve_chain_encoding(&cc3_rpc_url, chain_key).await;
-
-    // Submit the query
+    // Submit the query (encoding is resolved from CC3 inside submit_native_query,
+    // which is the single point that actually fetches/decodes the block).
     let params = NativeQueryParams {
         cc3_rpc_url,
         cc3_evm_private_key,
