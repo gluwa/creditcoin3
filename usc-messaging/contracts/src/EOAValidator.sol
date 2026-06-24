@@ -28,6 +28,11 @@ contract EOAValidator is IVoteValidator {
     /// Iterable attestor set (kept in sync with `isAttestor`). Exposed via `attestors()`.
     address[] private _attestors;
 
+    /// Monotonic nonce bound into every `submitAttestorSetUpdate` signed payload. Incremented on
+    /// each successful update so a previously-signed (and applied) set change cannot be replayed to
+    /// roll the attestor set back. Signers must sign against the *current* value.
+    uint256 public attestorSetUpdateNonce;
+
     event AttestorSetUpdated(address[] newAttestors);
     event ThresholdUpdated(uint256 numerator, uint256 denominator, uint256 addition);
     event MinAttestorCountUpdated(uint256 newMin);
@@ -167,13 +172,17 @@ contract EOAValidator is IVoteValidator {
 
     /// @notice Replace the attestor set with one signed by a threshold of the *current* attestors
     /// (more decentralized than `updateAttestorSet`; anyone may submit, signatures must clear the
-    /// current threshold). Sign `keccak256(abi.encode(newAttestors, block.chainid))` directly.
+    /// current threshold). Sign `keccak256(abi.encode(newAttestors, block.chainid, nonce))` directly,
+    /// where `nonce` is the current `attestorSetUpdateNonce`. The nonce is chain-id bound (no
+    /// cross-chain replay) and monotonic (no rollback replay: once applied, the signed payload is
+    /// spent).
     function submitAttestorSetUpdate(address[] calldata newAttestors, bytes calldata signatures)
         external
     {
         if (newAttestors.length < minAttestorCount) revert InvalidArgument("below minimum");
 
-        bytes32 updateHash = keccak256(abi.encode(newAttestors, block.chainid));
+        bytes32 updateHash =
+            keccak256(abi.encode(newAttestors, block.chainid, attestorSetUpdateNonce));
         bytes[] memory sigs = abi.decode(signatures, (bytes[]));
 
         address[] memory seen = new address[](sigs.length);
@@ -201,6 +210,11 @@ contract EOAValidator is IVoteValidator {
         uint256 required = calculateRequiredVotes(_attestors.length);
         if (unique < required) revert ThresholdNotMet(unique, required);
 
+        // Spend the nonce before applying so a replay of this exact payload reverts on InvalidAttestor
+        // (recovers against a stale hash) on any later call.
+        unchecked {
+            attestorSetUpdateNonce++;
+        }
         _replaceAttestorSet(newAttestors);
         emit AttestorSetUpdated(newAttestors);
     }

@@ -13,6 +13,12 @@
 bind_host: "0.0.0.0"
 bind_port: 3200
 
+# Persistent per-watcher block cursors. Supplied via the `--checkpoint-path` CLI flag /
+# RELAYER_CHECKPOINT_PATH (default `relayer-checkpoints.json`), NOT this YAML, so it can vary per
+# deployment. On restart the Outbox + ack watchers resume from the last processed block instead of
+# the chain head, so on-chain events emitted while the relayer was down are not skipped. Set the
+# flag to an empty string to disable.
+
 p2p:
   port: 9100
   # Public DNS / address advertised to peers (omit for OS-assigned ipv4).
@@ -64,6 +70,9 @@ routes:
     #   validator_address: "0x0000000000000000000000000000000000000003"
     #   # Creditcoin-side signer for the ack tx (needs gas only; submission is permissionless).
     #   signer_key: "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+    #   # Blocks to lag behind the destination tip when scanning for MessageDelivered (reorg guard;
+    #   # 0 for instant-finality destinations).
+    #   confirmation_depth: 0
 
   # Second route example: same Creditcoin chain_key cannot repeat, but the
   # binary handles many destination chains in parallel.
