@@ -264,7 +264,7 @@ npx tsx scripts/deploy.ts
 ```sh
 bash usc-messaging/scripts/launch-attestors.sh
 ```
-**WAIT FOR THIS LOG BEFORE PROCEEDING** 
+**WAIT FOR THIS LOG BEFORE PROCEEDING**
 ```sh
 ✅ Attestor set ready
 ```
@@ -291,7 +291,7 @@ destination RPC (the Creditcoin/`--cc3-*` flags are unchanged):
      --attestor-set "$ATTESTOR_SET"
    ```
 
-The quoter, dApp-ack worker, and message submission are unchanged. 
+The quoter, dApp-ack worker, and message submission are unchanged.
 
 5. Start the Quoter:
 ```bash
