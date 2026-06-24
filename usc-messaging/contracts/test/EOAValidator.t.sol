@@ -105,4 +105,59 @@ contract EOAValidatorTest {
         vm.expectRevert();
         validator.validateVotes(MSG_HASH, _votes(sigs));
     }
+
+    // --- attestor-set update (nonce / replay protection) ---------------------------------------- //
+
+    /// Build the `submitAttestorSetUpdate` votes blob for `newAttestors` signed by the current
+    /// attestors at `nonce` (chainid is the test VM default, 31337).
+    function _setUpdateVotes(address[] memory newAttestors, uint256 nonce)
+        internal
+        returns (bytes memory)
+    {
+        bytes32 h = keccak256(abi.encode(newAttestors, block.chainid, nonce));
+        bytes[] memory sigs = new bytes[](3);
+        sigs[0] = _sig(K1, h);
+        sigs[1] = _sig(K2, h);
+        sigs[2] = _sig(K3, h);
+        return abi.encode(sigs);
+    }
+
+    function test_submit_attestor_set_update_advances_nonce() public {
+        address[] memory next = new address[](3);
+        next[0] = vm.addr(K1);
+        next[1] = vm.addr(K2);
+        next[2] = vm.addr(K_OUTSIDER); // rotate K3 -> outsider
+        require(validator.attestorSetUpdateNonce() == 0, "nonce starts at 0");
+
+        validator.submitAttestorSetUpdate(next, _setUpdateVotes(next, 0));
+
+        require(validator.attestorSetUpdateNonce() == 1, "nonce advanced");
+        require(validator.isAttestor(vm.addr(K_OUTSIDER)), "new attestor active");
+        require(!validator.isAttestor(vm.addr(K3)), "old attestor removed");
+    }
+
+    function test_replay_of_applied_update_reverts() public {
+        address[] memory next = new address[](3);
+        next[0] = vm.addr(K1);
+        next[1] = vm.addr(K2);
+        next[2] = vm.addr(K_OUTSIDER);
+        bytes memory votes = _setUpdateVotes(next, 0);
+
+        validator.submitAttestorSetUpdate(next, votes); // applies, nonce -> 1
+
+        // Replaying the exact same (nonce-0) payload now recovers against a stale hash whose
+        // signers are no longer all attestors / below threshold -> reverts.
+        vm.expectRevert();
+        validator.submitAttestorSetUpdate(next, votes);
+    }
+
+    function test_set_update_wrong_nonce_reverts() public {
+        address[] memory next = new address[](3);
+        next[0] = vm.addr(K1);
+        next[1] = vm.addr(K2);
+        next[2] = vm.addr(K3);
+        // Signed against nonce 1 while the contract expects nonce 0.
+        vm.expectRevert();
+        validator.submitAttestorSetUpdate(next, _setUpdateVotes(next, 1));
+    }
 }
