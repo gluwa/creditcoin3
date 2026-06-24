@@ -91,7 +91,10 @@ async fn resolve_outbox_address<P: Provider>(
         .await
         .context("chain-info precompile outbox_factory_address() reverted")?;
     if !factory.exists || factory.factory_addr.is_zero() {
-        tracing::warn!(chain_key, "no Outbox factory registered on-chain for chain_key");
+        tracing::warn!(
+            chain_key,
+            "no Outbox factory registered on-chain for chain_key"
+        );
         return Ok(None);
     }
     let factory = factory.factory_addr;
