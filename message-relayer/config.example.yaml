@@ -55,6 +55,15 @@ routes:
         - "0x000000000000000000000000000000000000000c"
     # Override the 2N/3+1 quorum (only set this in development).
     # threshold_override: 2
+    # Opt-in trust-minimized acknowledgment (research §05/§10). When present, the relayer watches
+    # this route's destination Inbox for `MessageDelivered`, fetches a native USC delivery proof
+    # from the proof-gen API, and submits it to the source-chain `AcknowledgmentValidator` (which
+    # verifies the proof and calls `Outbox.acknowledgeMessage`). Omit the whole block to disable.
+    # ack:
+    #   proof_gen_url: "http://127.0.0.1:8080"
+    #   validator_address: "0x0000000000000000000000000000000000000003"
+    #   # Creditcoin-side signer for the ack tx (needs gas only; submission is permissionless).
+    #   signer_key: "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
 
   # Second route example: same Creditcoin chain_key cannot repeat, but the
   # binary handles many destination chains in parallel.

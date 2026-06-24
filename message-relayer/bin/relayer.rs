@@ -12,7 +12,8 @@ use alloy::primitives::Address;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use message_relayer::config::{
-    AttestorSet, ChainRoute, Config, P2pConfig, DEFAULT_BLOCK_CONFIRMATION_DEPTH, DEFAULT_P2P_PORT,
+    AckConfig, AttestorSet, ChainRoute, Config, P2pConfig, DEFAULT_BLOCK_CONFIRMATION_DEPTH,
+    DEFAULT_P2P_PORT,
 };
 use message_relayer::Server;
 use tracing::{debug, info};
@@ -96,6 +97,20 @@ struct Cli {
     /// Override the `2N/3 + 1` quorum threshold (development).
     #[arg(long, env = "RELAYER_THRESHOLD_OVERRIDE", required = false)]
     threshold_override: Option<u32>,
+
+    // ---------- acknowledgment submitter (opt-in; all three required to enable) ---------------
+    /// Proof-gen API base URL (e.g. `http://127.0.0.1:8080`). Enables the ack submitter when set
+    /// together with `--ack-validator-address` and `--ack-signer-key`.
+    #[arg(long, env = "RELAYER_ACK_PROOF_GEN_URL", required = false)]
+    ack_proof_gen_url: Option<String>,
+
+    /// `AcknowledgmentValidator` contract address on the Creditcoin (source) chain.
+    #[arg(long, env = "RELAYER_ACK_VALIDATOR_ADDRESS", required = false)]
+    ack_validator_address: Option<String>,
+
+    /// Hex private key for the Creditcoin-side ack submitter wallet (needs gas, not authority).
+    #[arg(long, env = "RELAYER_ACK_SIGNER_KEY", required = false)]
+    ack_signer_key: Option<String>,
 }
 
 #[tokio::main]
@@ -180,6 +195,28 @@ fn single_route_config(cli: Cli) -> Result<Config> {
         bail!("--attestor-set must contain at least one EVM address");
     }
 
+    // Ack submitter is opt-in: enabled only when all three flags are present.
+    let ack = match (
+        cli.ack_proof_gen_url,
+        cli.ack_validator_address,
+        cli.ack_signer_key,
+    ) {
+        (Some(proof_gen_url), Some(validator_raw), Some(signer_key)) => {
+            let validator_address = Address::from_str(validator_raw.trim())
+                .with_context(|| format!("invalid --ack-validator-address: {validator_raw}"))?;
+            Some(AckConfig {
+                proof_gen_url,
+                validator_address,
+                signer_key,
+            })
+        }
+        (None, None, None) => None,
+        _ => bail!(
+            "--ack-proof-gen-url, --ack-validator-address and --ack-signer-key must all be set \
+             together to enable the acknowledgment submitter"
+        ),
+    };
+
     let route = ChainRoute {
         chain_key,
         creditcoin_chain_id: cc3_chain_id,
@@ -190,6 +227,7 @@ fn single_route_config(cli: Cli) -> Result<Config> {
         block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
         attestor_set: AttestorSet::Static(attestor_addresses),
         threshold_override: cli.threshold_override,
+        ack,
     };
 
     Ok(Config::single_route(
