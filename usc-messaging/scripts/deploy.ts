@@ -271,12 +271,11 @@ async function main(): Promise<void> {
   const outboxFactory = deployToSource(
     "src/SimpleOutboxFactory.sol:OutboxFactory",
   );
-  // TODO(write-ability): placeholder source-chain validator handed to the outbox. Once
-  // acknowledgeMessage access control (delivery-proof verification) is implemented, replace this
-  // with the real ack validator deployed on the source chain.
-  const outboxValidator = deployToSource(
-    "src/DummyVoteValidator.sol:DummyVoteValidator",
-  );
+  // Ack authority for the outbox: the account authorized to call `acknowledgeMessage` (now gated
+  // on this address). For the PoC this is the operator/deployer EOA. The trust-minimized
+  // alternative (attestor-voted delivery proofs verified by an EOAValidator) is a documented
+  // follow-up — see the TODO on Outbox.acknowledgeMessage.
+  const outboxValidator = payee; // source deployer EOA (cast wallet address of CREDITCOIN_CHAIN_PRIVATE_KEY)
   castSendSource(outboxFactory, "createOutbox(bytes32,address)", [
     localChainKey,
     outboxValidator,
