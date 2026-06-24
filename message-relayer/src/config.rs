@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use alloy::primitives::Address;
@@ -48,6 +48,10 @@ pub struct Config {
     pub vote_cache: VoteCacheConfig,
     pub delivery: DeliveryConfig,
     pub routes: Vec<ChainRoute>,
+    /// Where to persist per-watcher block cursors so the relayer resumes from the last processed
+    /// block after a restart (never silently skips on-chain events emitted while it was down).
+    /// `None` disables persistence (watchers start from the chain head).
+    pub checkpoint_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -79,6 +83,10 @@ pub struct AckConfig {
     /// EVM key used to sign `submitAcknowledgment` txs on the Creditcoin chain. Submission is
     /// permissionless (the proof is self-validating), so this only needs gas, not authority.
     pub signer_key: String,
+    /// Blocks to lag behind the destination chain tip when scanning for `MessageDelivered`, so the
+    /// ack watcher does not act on the unsafe head (a destination reorg could otherwise enqueue an
+    /// ack for a delivery that later disappears). 0 for instant-finality destinations.
+    pub confirmation_depth: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +134,7 @@ impl Config {
         path: impl AsRef<Path>,
         cc3_rpc_url: String,
         creditcoin_eth_rpc_url: String,
+        checkpoint_path: Option<PathBuf>,
     ) -> Result<Self> {
         let text = fs::read_to_string(path.as_ref()).with_context(|| {
             format!(
@@ -134,7 +143,7 @@ impl Config {
             )
         })?;
         let file: ConfigFile = serde_yaml::from_str(&text).context("Invalid YAML config")?;
-        file.into_config(cc3_rpc_url, creditcoin_eth_rpc_url)
+        file.into_config(cc3_rpc_url, creditcoin_eth_rpc_url, checkpoint_path)
     }
 
     /// Build a single-route [`Config`] from CLI flags (`--single-route`). Used for development.
@@ -146,6 +155,7 @@ impl Config {
         creditcoin_eth_rpc_url: String,
         route: ChainRoute,
         p2p: P2pConfig,
+        checkpoint_path: Option<PathBuf>,
     ) -> Self {
         Self {
             bind_host,
@@ -156,6 +166,7 @@ impl Config {
             vote_cache: VoteCacheConfig::default(),
             delivery: DeliveryConfig::default(),
             routes: vec![route],
+            checkpoint_path,
         }
     }
 
@@ -289,6 +300,8 @@ pub struct AckConfigFile {
     pub proof_gen_url: String,
     pub validator_address: String,
     pub signer_key: String,
+    #[serde(default)]
+    pub confirmation_depth: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -319,7 +332,12 @@ fn default_gas_multiplier() -> f64 {
 }
 
 impl ConfigFile {
-    fn into_config(self, cc3_rpc_url: String, creditcoin_eth_rpc_url: String) -> Result<Config> {
+    fn into_config(
+        self,
+        cc3_rpc_url: String,
+        creditcoin_eth_rpc_url: String,
+        checkpoint_path: Option<PathBuf>,
+    ) -> Result<Config> {
         if self.routes.is_empty() {
             bail!("config must include at least one entry in `routes`");
         }
@@ -354,6 +372,7 @@ impl ConfigFile {
                 gas_multiplier: self.delivery.gas_multiplier,
             },
             routes,
+            checkpoint_path,
         })
     }
 }
@@ -417,6 +436,7 @@ impl ChainRouteFile {
                     proof_gen_url: a.proof_gen_url,
                     validator_address,
                     signer_key: a.signer_key,
+                    confirmation_depth: a.confirmation_depth,
                 })
             })
             .transpose()?;
@@ -481,7 +501,7 @@ routes:
     fn yaml_round_trip_validates() {
         let file: ConfigFile = serde_yaml::from_str(sample_yaml()).unwrap();
         let cfg = file
-            .into_config("ws://cc3:9944".into(), "http://cc3-eth:9933".into())
+            .into_config("ws://cc3:9944".into(), "http://cc3-eth:9933".into(), None)
             .unwrap();
         assert_eq!(cfg.routes.len(), 1);
         assert_eq!(cfg.routes[0].chain_key, 2);
@@ -512,7 +532,7 @@ routes:
 "#;
         let file: ConfigFile = serde_yaml::from_str(yaml).unwrap();
         let err = file
-            .into_config("ws://cc3".into(), "http://cc3-eth".into())
+            .into_config("ws://cc3".into(), "http://cc3-eth".into(), None)
             .unwrap_err();
         assert!(err.to_string().contains("duplicate chain_key"));
     }
@@ -522,7 +542,7 @@ routes:
         let yaml = "bind_host: 0.0.0.0\nbind_port: 3200\nroutes: []\n";
         let file: ConfigFile = serde_yaml::from_str(yaml).unwrap();
         let err = file
-            .into_config("ws://cc3".into(), "http://cc3-eth".into())
+            .into_config("ws://cc3".into(), "http://cc3-eth".into(), None)
             .unwrap_err();
         assert!(err.to_string().contains("at least one entry"));
     }
@@ -543,7 +563,7 @@ routes:
 "#;
         let file: ConfigFile = serde_yaml::from_str(yaml).unwrap();
         let err = file
-            .into_config("ws://cc3".into(), "http://cc3-eth".into())
+            .into_config("ws://cc3".into(), "http://cc3-eth".into(), None)
             .unwrap_err();
         assert!(err.to_string().contains("must be non-empty"));
     }
@@ -564,7 +584,7 @@ routes:
 "#;
         let file: ConfigFile = serde_yaml::from_str(yaml).unwrap();
         let err = file
-            .into_config("ws://cc3".into(), "http://cc3-eth".into())
+            .into_config("ws://cc3".into(), "http://cc3-eth".into(), None)
             .unwrap_err();
         assert!(err.to_string().contains("invalid inbox_address"));
     }

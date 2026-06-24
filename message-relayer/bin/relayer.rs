@@ -111,6 +111,32 @@ struct Cli {
     /// Hex private key for the Creditcoin-side ack submitter wallet (needs gas, not authority).
     #[arg(long, env = "RELAYER_ACK_SIGNER_KEY", required = false)]
     ack_signer_key: Option<String>,
+
+    /// Blocks to lag behind the destination tip when scanning for `MessageDelivered` (ack watcher
+    /// reorg guard). 0 for instant-finality destinations.
+    #[arg(long, default_value_t = 0, env = "RELAYER_ACK_CONFIRMATION_DEPTH")]
+    ack_confirmation_depth: u64,
+
+    // ---------- durability --------------------------------------------------------------------
+    /// File for persistent per-watcher block cursors so the relayer resumes from the last processed
+    /// block after a restart (never skips on-chain events emitted while it was down). Set to an
+    /// empty string to disable persistence (watchers start from the chain head).
+    #[arg(
+        long,
+        default_value = "relayer-checkpoints.json",
+        env = "RELAYER_CHECKPOINT_PATH"
+    )]
+    checkpoint_path: String,
+}
+
+/// Map the `--checkpoint-path` flag to an `Option<PathBuf>` (empty string disables persistence).
+fn checkpoint_path_opt(raw: &str) -> Option<std::path::PathBuf> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(std::path::PathBuf::from(trimmed))
+    }
 }
 
 #[tokio::main]
@@ -147,8 +173,14 @@ fn build_config(cli: Cli) -> Result<Config> {
     }
 
     if let Some(path) = cli.config.clone() {
-        return Config::from_yaml_file(&path, cli.cc3_rpc_url, cli.creditcoin_eth_rpc_url)
-            .with_context(|| format!("failed to load relayer config from {}", path.display()));
+        let checkpoint = checkpoint_path_opt(&cli.checkpoint_path);
+        return Config::from_yaml_file(
+            &path,
+            cli.cc3_rpc_url,
+            cli.creditcoin_eth_rpc_url,
+            checkpoint,
+        )
+        .with_context(|| format!("failed to load relayer config from {}", path.display()));
     }
 
     if cli.single_route {
@@ -208,6 +240,7 @@ fn single_route_config(cli: Cli) -> Result<Config> {
                 proof_gen_url,
                 validator_address,
                 signer_key,
+                confirmation_depth: cli.ack_confirmation_depth,
             })
         }
         (None, None, None) => None,
@@ -230,6 +263,7 @@ fn single_route_config(cli: Cli) -> Result<Config> {
         ack,
     };
 
+    let checkpoint = checkpoint_path_opt(&cli.checkpoint_path);
     Ok(Config::single_route(
         cli.bind_host,
         cli.bind_port,
@@ -243,5 +277,6 @@ fn single_route_config(cli: Cli) -> Result<Config> {
             no_mdns: cli.no_mdns,
             identity: None,
         },
+        checkpoint,
     ))
 }
