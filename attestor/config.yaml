@@ -93,8 +93,11 @@ write_ability:
     - "0x0aC32750Ed79f301248afD9B398cc5723911c392"  # zombie 1 (//Bob)
     - "0x4910156288781F080d81c607E3a830a7019d9Bc6"  # zombie 2 (//Charlie)
 
-  # Optional: on-chain IVoteValidator address; if set, takes precedence over
-  # `attestors` (not yet wired in the attestor).
+  # Optional: on-chain EOAValidator address. If set, takes precedence over the
+  # static `attestors` list above: the attestor reads the authorized set from
+  # `EOAValidator.attestors()` on the destination chain (the chain this attestor
+  # set attests, i.e. the `eth` url) — the same on-chain source of truth the Inbox
+  # uses. Keeps the set in lockstep with the validator without hand-maintaining it.
   #
   # validator_address: "0x..."
 
