@@ -104,6 +104,22 @@ impl StreamRoots {
                                     }
                                 });
                             },
+                            Some(Err(err)) if err.is_shutdown() => {
+                                // User-initiated shutdown (Ctrl+C / service stop) propagated up
+                                // from the inner block stream. This is NOT a connection failure:
+                                // drain in-flight root computations and terminate the outer
+                                // stream cleanly instead of reconnecting.
+                                tracing::info!("Eth root stream shutting down on user interrupt");
+                                roots.abort_all();
+                                while !roots.is_empty() {
+                                    if let Some(Err(err)) = roots.join_next().await {
+                                        if err.is_panic() {
+                                            std::panic::resume_unwind(err.into_panic());
+                                        }
+                                    }
+                                }
+                                return;
+                            },
                             Some(Err(err)) => {
                                 // Failed to retrieve source chain block, try and regenerate the
                                 // stream (this can only be an RPC error)
@@ -291,7 +307,14 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
                             {
                                 Ok(Ok(block)) => yield Ok(block),
                                 Ok(Err(Interrupt::Cont(err))) => yield Err(err),
-                                Ok(Err(Interrupt::Stop)) => break,
+                                // User-initiated shutdown: surface a typed `Shutdown` error and
+                                // terminate the stream. The outer `StreamRoots` layer recognizes
+                                // this and exits cleanly instead of treating the stream end as a
+                                // connection failure and reconnecting.
+                                Ok(Err(Interrupt::Stop)) => {
+                                    yield Err(Error::Shutdown);
+                                    return;
+                                }
                                 Err(err) => {
                                     if err.is_panic() {
                                         std::panic::resume_unwind(err.into_panic());
@@ -322,7 +345,12 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
                     {
                         Ok(Ok(block)) => yield Ok(block),
                         Ok(Err(Interrupt::Cont(err))) => yield Err(err),
-                        Ok(Err(Interrupt::Stop)) => break,
+                        // User-initiated shutdown: surface a typed `Shutdown` error and terminate
+                        // the stream so the outer layer exits cleanly rather than reconnecting.
+                        Ok(Err(Interrupt::Stop)) => {
+                            yield Err(Error::Shutdown);
+                            return;
+                        }
                         Err(err) => {
                             if err.is_panic() {
                                 std::panic::resume_unwind(err.into_panic());

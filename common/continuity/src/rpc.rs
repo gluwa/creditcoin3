@@ -389,7 +389,10 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
             let ordered = client
                 .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                // Propagate a user-initiated `Interrupt::Stop` as a typed `Shutdown` error
+                // (carried inside this `anyhow::Error`) instead of panicking, so Ctrl+C /
+                // service shutdown exits gracefully.
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block transactions")?;
 
             Ok(ordered.items().iter().map(|item| item.to_bytes()).collect())
@@ -403,7 +406,7 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
             let ordered = client
                 .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block")?;
 
             Ok(ordered.items().get(tx_index as usize).map(|item| {
@@ -426,7 +429,7 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
             let ordered = client
                 .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block")?;
 
             let bytes = ordered.items().iter().map(|item| item.to_bytes()).collect();
@@ -445,7 +448,7 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
             let ordered = client
                 .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block")?;
 
             Ok(ordered
