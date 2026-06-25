@@ -15,15 +15,6 @@ async-trait = { workspace = true }
 futures = "0.3.30"
 futures-util = { workspace = true }
 hex = { workspace = true }
-redis = { workspace = true, features = [
-    "cluster",
-    "cluster-async",
-    "connection-manager",
-    "tokio-comp",
-], optional = true }
-serde = { workspace = true, features = ["derive"], optional = true }
-serde_json = { workspace = true, optional = true }
-snap = { workspace = true, optional = true }
 sp-core = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
@@ -34,10 +25,7 @@ usc-abi-encoding = { workspace = true }
 # Local dependencies
 attestor-primitives = { workspace = true }
 merkle = { workspace = true }
-prometheus-client = { workspace = true, optional = true }
 user = { workspace = true }
 utils = { workspace = true }
 
-[features]
-block_cache = ["redis", "serde", "serde_json", "snap", "prometheus-client"]
-default = []
+
