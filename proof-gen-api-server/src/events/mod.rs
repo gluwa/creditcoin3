@@ -160,6 +160,27 @@ async fn process_cc_event(
 
             Ok(())
         }
+        CcEvent::AttestationIntervalChanged(event_chain_key, new_interval) => {
+            if !service.serves_chain(*event_chain_key) {
+                return Ok(());
+            }
+            let interval_u64 = *new_interval;
+            info!(
+                "🔗 ⚙️  Attestation interval changed for chain {event_chain_key}: {} blocks",
+                interval_u64
+            );
+
+            // Only affects merkle-cache retention sizing; the continuity bracket math reads
+            // the live interval over RPC.
+            service.update_attestation_interval(*event_chain_key, interval_u64);
+
+            info!(
+                "🔗 ✅ Updated attestation interval for chain {event_chain_key} to {}",
+                interval_u64
+            );
+
+            Ok(())
+        }
         CcEvent::CheckpointIntervalChanged(event_chain_key, new_interval) => {
             if !service.serves_chain(*event_chain_key) {
                 return Ok(());
