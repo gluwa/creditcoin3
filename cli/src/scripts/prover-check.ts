@@ -173,6 +173,20 @@ async function main(
     const verifyAndEmitSingleFragment =
         'verifyAndEmit(uint64,uint64,bytes,(bytes32,(bytes32,bool)[]),(bytes32,bytes32[]))';
 
+    // Read the EVM block gas limit from chain instead of hard-coding it, so this check tracks the
+    // runtime's configured `BlockGasLimit` (which changes across releases). Frontier reports that
+    // configured limit as the block `gasLimit` over the standard eth RPC, so any finalized block
+    // carries the current value. Fetched once since it is constant for a given runtime.
+    const latestBlock = await creditcoinWs.getBlock('finalized');
+    if (latestBlock === null || latestBlock.gasLimit <= 0n) {
+        throw new Error('could not read EVM block gas limit from chain');
+    }
+    const blockGasLimit = latestBlock.gasLimit;
+    const totalGasThreshold = (blockGasLimit * 7n) / 10n;
+    console.log(
+        `**** INFO: on-chain EVM block gas limit = ${blockGasLimit}, 70% threshold = ${totalGasThreshold}`,
+    );
+
     const sleepTime = parseInt(process.env.SLEEP_TIME || '500', 10);
     for (const blockNumber of blocksToInspect) {
         console.log(`... get proof for source chain block ${blockNumber}`);
@@ -231,14 +245,11 @@ async function main(
             console.log(`    ... decoded as type ${decoded.type}, gasForDecoding=${gasForDecoding}`);
         }
 
-        // Add a 10% safety margin to the raw estimates and reject if the
-        // combined cost crosses 70% of the 75M block gas limit. Using bigint
-        // math (11/10 and 7/10) keeps the value precise and consistent with
-        // the rest of the script. The 70% threshold is an explicit decision;
-        // see commit log + linked Slack thread for context.
+        // Add a 10% safety margin to the raw estimates and reject if the combined cost crosses 70%
+        // of the on-chain block gas limit (read above). Using bigint math (11/10 and 7/10) keeps
+        // the value precise and consistent with the rest of the script. The 70% threshold is an
+        // explicit decision; see commit log + linked Slack thread for context.
         const totalGas = ((gasForVerification + gasForDecoding) * 11n) / 10n;
-        const blockGasLimit = 75_000_000n;
-        const totalGasThreshold = (blockGasLimit * 7n) / 10n;
         console.log(`    ... totalGas (with 10% margin)=${totalGas} (threshold=${totalGasThreshold})`);
         if (totalGas >= totalGasThreshold) {
             throw new Error(
