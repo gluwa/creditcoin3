@@ -36,6 +36,7 @@ All flags can also be set via environment variables (see below).
 | `--end-height` | `END_HEIGHT` | *(none)* | Stop after this block (inclusive). Omit to follow the tip |
 | `--max-fetch-tasks` | `MAX_FETCH_TASKS` | `8` | Max concurrent block fetch tasks (IO-bound) |
 | `--max-api-range` | `MAX_API_RANGE` | `1000` | Max block range per `/roots` API request |
+| `--max-api-concurrency` | `MAX_API_CONCURRENCY` | `16` | Max in-flight `/roots` requests; excess rejected with HTTP 429 |
 | `--stream-timeout-secs` | `STREAM_TIMEOUT_SECS` | `120` | Seconds before treating a stream as stalled |
 | `--sled-db-path` | `SLED_DB_PATH` | `./data/roots.sled` | Path to the sled database directory |
 | `--api-bind` | `API_BIND` | `0.0.0.0:8080` | HTTP API bind address |
@@ -71,6 +72,10 @@ Returns the latest archived block number.
 ### `GET /roots?from=100&to=200`
 
 Returns merkle roots for an inclusive block range (max `MAX_API_RANGE` blocks per request, default 1,000).
+
+The endpoint is also concurrency-limited: at most `MAX_API_CONCURRENCY` (default 16) requests are served
+at once. Requests beyond that limit are rejected immediately with `429 Too Many Requests` rather than
+queued, protecting the archiver from range-scan fan-out overload.
 
 ```json
 [

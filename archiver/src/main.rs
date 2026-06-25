@@ -150,7 +150,10 @@ async fn main() -> Result<()> {
 
                 while let Some(info) = gap_stream.next().await {
                     let done = info.height >= *gap_end;
-                    batch_buf.push((info.height, info.root));
+                    // Store the source block hash alongside the root so canonical
+                    // replacements (same root, different block) are reconciled across
+                    // restart/backfill, not just within a single run.
+                    batch_buf.push((info.height, info.root, info.hash));
                     filled += 1;
 
                     if batch_buf.len() >= flush_size || done {
@@ -234,6 +237,8 @@ async fn main() -> Result<()> {
     let api_state = Arc::new(api::AppState {
         store: store.clone(),
         max_api_range: cfg.max_api_range,
+        // Bound concurrent /roots requests; excess requests get HTTP 429.
+        roots_semaphore: Arc::new(tokio::sync::Semaphore::new(cfg.max_api_concurrency.get())),
     });
 
     let api_router = api::router(api_state);
@@ -331,9 +336,11 @@ async fn main() -> Result<()> {
 
         let height = info.height;
         let root = info.root;
+        let block_hash = info.hash;
         last_height = Some(height);
 
-        batch_buf.push((height, root));
+        // Persist the source block hash with the root for reorg reconciliation.
+        batch_buf.push((height, root, block_hash));
         count += 1;
 
         let end_reached = cfg.end_height.is_some_and(|end| height >= end);
