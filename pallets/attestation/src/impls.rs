@@ -20,7 +20,7 @@ use attestor_primitives::{
 };
 use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
-use randomness_primitives::{OnRandomnessUpdate, Randomness};
+use randomness_primitives::{OnRandomnessUpdate, OnRandomnessUpdateWeight, Randomness};
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
@@ -1618,5 +1618,18 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
         // We also apply attestation interval updates, if any, at epoch boundaries.
         // Change attestation intervals and emit events
         Self::apply_interval_updates();
+    }
+}
+
+impl<T: Config> OnRandomnessUpdateWeight for Pallet<T> {
+    fn on_new_epoch_randomness_weight() -> Weight {
+        // `on_new_epoch_randomness` runs the same work as `force_election`
+        // (`do_start_election`) followed by `force_apply_updates`
+        // (`apply_interval_updates`). Charge for both so `pallet-randomness`'s
+        // epoch-change `on_initialize` accounts for the listener cost instead of
+        // under-weighting it (the randomness benchmark deliberately excludes the
+        // listener, so this is the only place that cost is charged).
+        <T as Config>::WeightInfo::force_election()
+            .saturating_add(<T as Config>::WeightInfo::force_apply_updates())
     }
 }
