@@ -25,6 +25,10 @@ contract AcknowledgmentValidator {
     /// `keccak256("MessageDelivered(bytes32)")` — topic0 of the destination Inbox's event.
     bytes32 public constant MESSAGE_DELIVERED_SIG = keccak256("MessageDelivered(bytes32)");
 
+    /// Upper bound on the `encodedTransaction` calldata accepted by `submitAcknowledgment`, to bound
+    /// the cost/work of proof verification and decoding. Submissions above this are rejected.
+    uint256 public constant MAX_ENCODED_TRANSACTION_BYTES = 500_000;
+
     /// Destination chain key whose `MessageDelivered` events this validator proves (the chain the
     /// attestation network attests, and where the Inbox lives).
     uint64 public immutable destinationChainKey;
@@ -40,6 +44,7 @@ contract AcknowledgmentValidator {
     error OutboxAlreadySet();
     error OutboxNotSet();
     error ProofVerificationFailed();
+    error EncodedTransactionTooLarge(uint256 size, uint256 maxSize);
     error UnsupportedTxType(uint8 txType);
     error NoMessageDeliveredLogs();
     error MalformedMessageDeliveredLog();
@@ -77,6 +82,11 @@ contract AcknowledgmentValidator {
         INativeQueryVerifier.ContinuityProof calldata continuityProof
     ) external {
         if (address(outbox) == address(0)) revert OutboxNotSet();
+
+        // Reject oversized submissions up front (cheap check before proof verification/decoding).
+        if (encodedTransaction.length > MAX_ENCODED_TRANSACTION_BYTES) {
+            revert EncodedTransactionTooLarge(encodedTransaction.length, MAX_ENCODED_TRANSACTION_BYTES);
+        }
 
         // 1. Verify the transaction was included in a finalized block of the destination chain.
         bool ok = NativeQueryVerifierLib.getVerifier()
