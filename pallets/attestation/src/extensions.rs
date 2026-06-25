@@ -95,9 +95,22 @@ where
         if let Some(Call::commit_attestation { attestation }) = call.is_sub_type() {
             let chain_key = attestation.chain_key();
 
+            // Reject over-long attestor lists at admission time (mirrors the on-chain
+            // `validate_attestation` `TooManyAttestors` check) so a malformed/oversized payload
+            // never pays the inclusion fee. This check is signer-independent: an over-long list
+            // is invalid regardless of who submitted it.
+            if !Pallet::<T>::attestors_within_bound(chain_key, attestation) {
+                return Err(TransactionValidityError::Invalid(
+                    InvalidTransaction::ExhaustsResources,
+                ));
+            }
+
             let active_attestors = ActiveAttestors::<T>::get(chain_key)
                 .into_iter()
                 .collect::<BTreeSet<_>>();
+            // `check_duplicate` now also enforces the strictly-monotonic per-chain height
+            // (via `LastDigest`), so a race loser resubmitting an already-attested height — or
+            // a quorum trying a competing digest for that height — is rejected here before fees.
             if active_attestors.contains(who) && Pallet::<T>::check_duplicate(attestation) {
                 return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
             }

@@ -8978,3 +8978,99 @@ mod on_register_chain_rejects_zero {
         })
     }
 }
+
+/// Tests for the monotonic-height guard (`check_duplicate`) and the attestor-count bound
+/// (`attestors_within_bound`) added by the audit hardening pass. These exercise the pure
+/// validation helpers directly (no BLS aggregation needed) since both the on-chain
+/// `validate_attestation` path and the txpool prevalidation extension route through them.
+mod audit_attestation_bounds {
+    use super::*;
+    use attestor_primitives::AttestationData as AttestationPrimitive;
+
+    /// Minimal `SignedAttestation` with `attestors.len() == n` and the given height. The
+    /// signature / continuity proof are irrelevant to `check_duplicate` and
+    /// `attestors_within_bound`, which never inspect them.
+    fn attestation_with(
+        chain_key: ChainKey,
+        header_number: u64,
+        n_attestors: usize,
+    ) -> SignedAttestation<H256, mock::AccountId> {
+        let attestation = AttestationPrimitive {
+            chain_key,
+            header_number,
+            header_hash: H256::zero(),
+            root: H256::zero(),
+            prev_digest: None,
+        };
+        SignedAttestation {
+            attestation,
+            signature: [0u8; core::mem::size_of::<BlsSignature>()],
+            attestors: (0..n_attestors as u64)
+                .map(|i| i as mock::AccountId)
+                .collect(),
+            continuity_proof: Default::default(),
+        }
+    }
+
+    #[test]
+    fn attestors_within_bound_respects_per_chain_max() {
+        ExtBuilder.build_and_execute(|| {
+            MaxAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, 3);
+
+            // At or below the ceiling => within bound.
+            assert!(Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 3)
+            ));
+            assert!(Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 1)
+            ));
+
+            // Above the ceiling => rejected.
+            assert!(!Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 4)
+            ));
+        })
+    }
+
+    #[test]
+    fn check_duplicate_rejects_non_monotonic_height() {
+        ExtBuilder.build_and_execute(|| {
+            // Last accepted attestation height for the chain is 100.
+            LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, (100u64, H256::zero()));
+
+            // Equal height => non-monotonic, rejected.
+            assert!(Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                100,
+                1
+            )));
+            // Lower height => rejected.
+            assert!(Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                99,
+                1
+            )));
+            // Strictly higher => accepted (not a duplicate).
+            assert!(!Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                101,
+                1
+            )));
+        })
+    }
+
+    #[test]
+    fn check_duplicate_first_attestation_allowed_when_no_last_digest() {
+        ExtBuilder.build_and_execute(|| {
+            // No LastDigest / LastCheckpoint set => any height is fresh.
+            assert!(!Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                1,
+                1
+            )));
+        })
+    }
+}
