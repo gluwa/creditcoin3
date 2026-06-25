@@ -27,5 +27,3 @@ attestor-primitives = { workspace = true }
 merkle = { workspace = true }
 user = { workspace = true }
 utils = { workspace = true }
-
-
