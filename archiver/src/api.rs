@@ -85,16 +85,10 @@ async fn roots(
     State(state): State<Arc<AppState>>,
     Query(params): Query<RangeParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Concurrency guard: acquire a permit for the duration of this request. When the
-    // semaphore is exhausted, reject immediately with 429 instead of blocking — the
-    // permit is released when `_permit` drops at the end of the handler.
-    let _permit = state.roots_semaphore.try_acquire().map_err(|_| {
-        (
-            StatusCode::TOO_MANY_REQUESTS,
-            "too many concurrent /roots requests, retry later".to_string(),
-        )
-    })?;
-
+    // Validate cheap query params *before* taking a concurrency permit. Invalid requests
+    // fail fast without consuming a slot, so they cannot be used to exhaust
+    // `MAX_API_CONCURRENCY` and 429 out legitimate range scans (the permit only needs to
+    // guard the expensive sled scan below).
     if params.to < params.from {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -108,6 +102,16 @@ async fn roots(
             format!("range too large (max {max_range} blocks)"),
         ));
     }
+
+    // Concurrency guard: acquire a permit for the duration of the expensive store scan.
+    // When the semaphore is exhausted, reject immediately with 429 instead of blocking —
+    // the permit is released when `_permit` drops at the end of the handler.
+    let _permit = state.roots_semaphore.try_acquire().map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many concurrent /roots requests, retry later".to_string(),
+        )
+    })?;
 
     let range = state
         .store
