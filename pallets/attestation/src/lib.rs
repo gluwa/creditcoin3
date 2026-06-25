@@ -763,6 +763,11 @@ pub mod pallet {
         /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
         /// would either overflow those bounds or undercharge weight.
         InvalidMaxAttestors,
+        /// A `commit_attestation` payload carried more attestor accounts than the per-chain
+        /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
+        /// is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
+        /// and a storage-bloat vector. Rejected before any expensive BLS work.
+        TooManyAttestors,
         // Tried to import checkpoints for chain key that already has attestations.
         AttestationFoundWhileImporting,
         // Invalid attestation chain block number.
@@ -1542,7 +1547,16 @@ pub mod pallet {
         fn weigh_data(&self, attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Weight {
             let chain_key = attestation.0.chain_key();
             let s = attestation.0.continuity_proof.len() as u32;
-            let m = T::MaxAttestationNodes::get();
+            // Charge the variable attestor-list cost from the *actual* payload length rather than
+            // the fixed runtime `MaxAttestationNodes`. The on-chain `validate_attestation` /
+            // txpool prevalidation reject any payload whose `attestors.len()` exceeds the
+            // per-chain `MaxAttestors`, so the count is bounded; we cap here as defense in depth
+            // so a payload that somehow slips past still cannot undercharge below the benchmarked
+            // ceiling. Using the real length avoids over-charging the common case where a chain's
+            // `MaxAttestors` (or the actual quorum) is far below `MaxAttestationNodes`.
+            let max_attestors =
+                MaxAttestors::<T>::get(chain_key).min(T::MaxAttestationNodes::get());
+            let m = (attestation.0.attestors.len() as u32).min(max_attestors);
 
             // Base weight from benchmarks (measured with checkpoint_width = 10 * 10 = 100)
             let mut weight = <T as Config>::WeightInfo::commit_attestation(s, m);
