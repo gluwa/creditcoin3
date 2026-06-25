@@ -184,8 +184,23 @@ pub fn native_version() -> sp_version::NativeVersion {
 }
 
 const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
-/// We allow for 2000ms of compute with a 6 second average block time.
-pub const WEIGHT_MILLISECS_PER_BLOCK: u64 = 2000;
+/// Per-block compute budget: the wall-clock milliseconds of execution the
+/// runtime allows per block. This is distinct from the slot time
+/// `MILLISECS_PER_BLOCK` and must stay a fraction of it, leaving headroom for
+/// block import (every node re-executes the block), gossip and propagation.
+///
+/// It is gated per profile so the duty cycle (compute budget / block time)
+/// stays ~33%, matching Polkadot's 2s/6s relay-chain convention:
+///   - prod   (15s block): 5000ms -> 33%
+///   - devnet ( 5s block): 1666ms -> 33%
+///   - fast   ( 5s block): 1666ms -> 33%
+///
+/// History: this was previously a flat 2000ms (the stock node-template default,
+/// whose comment referenced a 6s block). On Creditcoin's 15s prod block that
+/// was only ~13% — conservative. But it MUST remain macro-gated: a flat 5000ms
+/// would be 100% of a 5s `fast-runtime`/`devnet` slot, starving block import
+/// and stalling the chain. See also `BLOCK_GAS_LIMIT` below.
+pub const WEIGHT_MILLISECS_PER_BLOCK: u64 = prod_devnet_fast!(5_000, 1_666, 1_666);
 pub const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
     WEIGHT_MILLISECS_PER_BLOCK * WEIGHT_REF_TIME_PER_MILLIS,
     u64::MAX,
@@ -411,7 +426,20 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
     }
 }
 
-const BLOCK_GAS_LIMIT: u64 = 75_000_000;
+/// EVM gas available per block. Raised from 75_000_000 (2.4x) so that large
+/// cross-chain operations — e.g. verifying + decoding a Sepolia transaction — fit
+/// within a single block, which they previously could not.
+///
+/// Kept UNIFORM across all profiles (not macro-gated) so that `fast-runtime`
+/// and `devnet` can reproduce the same oversized transactions as prod in tests.
+///
+/// `WeightPerGas` is derived from this together with `WEIGHT_MILLISECS_PER_BLOCK`
+/// (see below). Because the compute budget is profile-gated while this limit is
+/// not, the derived gas->weight price intentionally differs per profile:
+/// ~20_833 ref_time/gas in prod vs ~6_941 under fast/devnet. That divergence is
+/// expected and acceptable — `fast-runtime` validates behavior, not prod weight
+/// calibration.
+const BLOCK_GAS_LIMIT: u64 = 180_000_000;
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// The maximum storage growth per block in bytes.
 const MAX_STORAGE_GROWTH: u64 = 400 * 1024;
