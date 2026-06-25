@@ -44,7 +44,7 @@ contract EOAValidatorTest {
 
     // --- views match the Rust IVoteValidator binding -------------------------------------------- //
 
-    function test_views() public {
+    function test_views() public view {
         require(validator.attestors().length == 3, "attestors() length");
         // (3 * 2 / 3) + 1 = 3, and 3 > min(1) -> threshold 3.
         require(validator.threshold() == 3, "threshold");
