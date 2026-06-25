@@ -3155,6 +3155,7 @@ export default {
             'InvalidMaxCatchup',
             'InvalidTargetSampleSize',
             'InvalidMaxAttestors',
+            'TooManyAttestors',
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',
             'InvalidAttestorFound',
