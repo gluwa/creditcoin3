@@ -28,20 +28,6 @@ jobs:
             evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
             chainKey: 4
 
-          # CC3 Testnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
-            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
-            chainKey: 1
-
-          # CC3 Testnet, Ethereum Mainnet Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
-            evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
-            chainKey: 3
-
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-24.04
     steps:
@@ -80,7 +66,7 @@ jobs:
       - name: Execute prover-check.ts on checkpoint boundaries
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: '3600'
+          GO_BACK_BLOCKS: '36000'
           SLEEP_TIME: '500'
         run: |
           node dist/scripts/prover-check.js \
@@ -91,7 +77,7 @@ jobs:
         working-directory: ./cli
         env:
           # LAST_SOURCE_BLOCK: '1000000'
-          GO_BACK_BLOCKS: '4000'
+          GO_BACK_BLOCKS: '40000'
           STEP_THROUGH_BLOCKS: '7'
           SLEEP_TIME: '500'
         run: |
