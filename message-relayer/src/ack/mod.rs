@@ -41,6 +41,13 @@ use crate::config::{AckConfig, ChainRoute};
 /// Poll cadence for the destination `MessageDelivered` watcher and the pending-proof retry queue.
 pub const ACK_POLL_INTERVAL_SECS: u64 = 6;
 
+/// Maximum `encodedTransaction` size accepted on-chain by
+/// `AcknowledgmentValidator.submitAcknowledgment`. Mirrors `MAX_ENCODED_TRANSACTION_BYTES` in
+/// `usc-messaging/contracts/src/AcknowledgmentValidator.sol`; keep the two in sync. Proofs larger
+/// than this are rejected on submission (`EncodedTransactionTooLarge`), so we skip them locally
+/// instead of paying gas on a guaranteed revert.
+pub const MAX_ENCODED_TRANSACTION_BYTES: usize = 500_000;
+
 /// Spawn the acknowledgment submitter for one route. Returns immediately when the route has no
 /// `ack` config; otherwise loops until `cancel` fires or an unrecoverable error occurs.
 pub async fn run(
@@ -263,6 +270,18 @@ async fn acknowledge_tx<P: Provider>(
     };
 
     let encoded_tx = proof.encoded_transaction()?;
+
+    // Mirror the on-chain cap: an oversized encodedTransaction is rejected by submitAcknowledgment
+    // (EncodedTransactionTooLarge), so skip it before spending gas on a guaranteed revert. This is a
+    // permanent condition for this proof, hence Terminal (no retry).
+    if encoded_tx.len() > MAX_ENCODED_TRANSACTION_BYTES {
+        return Ok(AckOutcome::Terminal(format!(
+            "encodedTransaction {} bytes exceeds on-chain max {} bytes",
+            encoded_tx.len(),
+            MAX_ENCODED_TRANSACTION_BYTES
+        )));
+    }
+
     let (merkle_proof, continuity_proof) = proof.to_proofs()?;
     let height = proof.header_number;
 
@@ -276,7 +295,25 @@ async fn acknowledge_tx<P: Provider>(
 
     match pending_tx {
         Ok(builder) => match builder.get_receipt().await {
-            Ok(receipt) if receipt.status() => Ok(AckOutcome::Acknowledged),
+            Ok(receipt) if receipt.status() => {
+                // Report the on-chain gas cost of the submitAcknowledgment call.
+                // gas_used is cast to u128 so the arithmetic is valid regardless of
+                // the receipt's integer width; the wide-integer fields are recorded
+                // via Display (`%`) because `tracing` has no native u128 Value impl.
+                let gas_used = u128::from(receipt.gas_used);
+                let effective_gas_price = receipt.effective_gas_price;
+                let gas_cost_wei = gas_used.saturating_mul(effective_gas_price);
+                info!(
+                    chain_key,
+                    %tx_hash,
+                    ack_tx_hash = %receipt.transaction_hash,
+                    gas_used = %gas_used,
+                    effective_gas_price_wei = %effective_gas_price,
+                    gas_cost_wei = %gas_cost_wei,
+                    "submitAcknowledgment confirmed",
+                );
+                Ok(AckOutcome::Acknowledged)
+            }
             Ok(_) => Ok(AckOutcome::Terminal("tx mined but reverted".into())),
             Err(err) => Err(anyhow!("receipt fetch failed: {err}")),
         },
