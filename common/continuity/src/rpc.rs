@@ -68,6 +68,18 @@ impl ReconnectingEthRpcProvider {
             match call(client).await {
                 Ok(value) => return Ok(value),
                 Err(err) => {
+                    // A user-initiated shutdown (Ctrl+C / service stop) surfaces here as an
+                    // `anyhow::Error` carrying `user::Shutdown` (via `propagate_shutdown` in the
+                    // block-fetch closures). It is not a transport failure, so do not reconnect
+                    // or burn the remaining retry budget — return immediately so the service
+                    // exits promptly.
+                    if err.chain().any(|cause| cause.is::<user::Shutdown>()) {
+                        warn!(
+                            op,
+                            attempt, "ETH RPC call interrupted by shutdown; not retrying"
+                        );
+                        return Err(err);
+                    }
                     if eth::anyhow_chain_is_inconsistent_block_payload(&err) {
                         warn!(
                             op,
