@@ -191,69 +191,6 @@ impl ContinuityBuilder {
         ))
     }
 
-    /// Create a new builder with Redis-based block caching enabled.
-    ///
-    /// Block caching can significantly improve performance by caching source chain
-    /// blocks in Redis, reducing RPC calls by ~70% for repeated queries.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Continuity configuration
-    /// * `cache_config` - Redis cache configuration
-    ///
-    /// # Requires
-    ///
-    /// - `block_cache` feature must be enabled
-    /// - Redis server must be running and accessible
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Requires prometheus-client (from eth/block_cache) and block_cache feature
-    /// use continuity::{ContinuityBuilder, ContinuityConfig};
-    /// use eth::block_cache::BlockCacheConfig;
-    /// use eth::metrics::BlockCacheMetrics;
-    /// use prometheus_client::registry::Registry;
-    ///
-    /// let config = ContinuityConfig::builder()
-    ///     .cc3_rpc_url("wss://rpc.creditcoin.network")
-    ///     .eth_rpc_url("https://eth-rpc.example.com")
-    ///     .chain_key(1)
-    ///     .checkpoint_interval(10)
-    ///     .build();
-    ///
-    /// let mut registry = Registry::default();
-    /// let block_cache_metrics = BlockCacheMetrics::new(&mut registry);
-    /// let cache_config = BlockCacheConfig {
-    ///     redis_url: "redis://localhost:6379".to_string(),
-    ///     redis_cluster_mode: false,
-    ///     metrics: block_cache_metrics,
-    /// };
-    ///
-    /// let builder = ContinuityBuilder::new_with_block_caching(config, cache_config).await?;
-    /// ```
-    #[cfg(feature = "block_cache")]
-    pub async fn new_with_block_caching(
-        config: ContinuityConfig,
-        cache_config: eth::block_cache::BlockCacheConfig,
-    ) -> Result<Self> {
-        let cc_client = CcClient::new_read_only(&config.cc3_rpc_url)
-            .await
-            .context("Failed to create CC client")?;
-
-        let eth_client = EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config)
-            .await
-            .context("Failed to create caching ETH client")?;
-
-        let encoding = resolve_chain_encoding(&cc_client, config.chain_key).await;
-
-        Ok(Self::new_with_providers(
-            config,
-            Arc::new(cc_client),
-            Arc::new(ReconnectingEthRpcProvider::new(eth_client, encoding)),
-        ))
-    }
-
     /// Create a builder using injected providers.
     ///
     /// This constructor is useful for:
