@@ -90,20 +90,6 @@ let builder = ContinuityBuilder::new_with_indexer(
 );
 ```
 
-### With Block Caching (for high-performance)
-
-```rust
-use continuity::ContinuityBuilder;
-use eth::block_cache::BlockCacheConfig;
-
-let cache_config = BlockCacheConfig {
-    redis_url: "redis://localhost:6379".to_string(),
-    metrics_registry: None,
-};
-
-let builder = ContinuityBuilder::new_with_block_caching(config, cache_config).await?;
-```
-
 ### Batch Queries
 
 For multiple queries, build a single continuity proof that covers all blocks:
@@ -194,10 +180,6 @@ Run tests:
 cargo test -p continuity
 ```
 
-## Features
-
-- `block_cache` - Enable Redis-based block caching for ETH client (requires Redis)
-
 ## Dependencies
 
 This crate depends on:
@@ -217,9 +199,6 @@ This crate depends on:
 - Fetches all attestations from CC3 chain
 - Builds blocks from source chain RPC
 - Typical response time: ~2-10 seconds depending on chain state
-
-### Block Caching
-Enable `block_cache` feature and configure Redis to cache source chain blocks, reducing proof generation time by ~70% for repeated queries.
 
 ## Examples
 
