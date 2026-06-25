@@ -15,6 +15,7 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use tokio::sync::Semaphore;
 use tower_http::trace::TraceLayer;
 
 use crate::store::RootStore;
@@ -23,6 +24,11 @@ use crate::store::RootStore;
 pub struct AppState {
     pub store: RootStore,
     pub max_api_range: u64,
+    /// Caps the number of in-flight `/roots` requests. The endpoint scans a block
+    /// range out of sled, so unbounded concurrency lets a few large fan-out clients
+    /// exhaust IO/CPU/memory. We `try_acquire` a permit per request and reject with
+    /// HTTP 429 when none are free, rather than queueing unboundedly.
+    pub roots_semaphore: Arc<Semaphore>,
 }
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -79,6 +85,16 @@ async fn roots(
     State(state): State<Arc<AppState>>,
     Query(params): Query<RangeParams>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    // Concurrency guard: acquire a permit for the duration of this request. When the
+    // semaphore is exhausted, reject immediately with 429 instead of blocking — the
+    // permit is released when `_permit` drops at the end of the handler.
+    let _permit = state.roots_semaphore.try_acquire().map_err(|_| {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            "too many concurrent /roots requests, retry later".to_string(),
+        )
+    })?;
+
     if params.to < params.from {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -114,9 +130,9 @@ async fn roots(
 
     let entries: Vec<RootEntry> = range
         .into_iter()
-        .map(|(height, root)| RootEntry {
+        .map(|(height, stored)| RootEntry {
             block_number: height,
-            merkle_root: format!("{root:?}"),
+            merkle_root: format!("{:?}", stored.root),
         })
         .collect();
 
