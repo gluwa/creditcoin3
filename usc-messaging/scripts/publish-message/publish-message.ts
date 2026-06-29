@@ -1,12 +1,6 @@
 import "dotenv/config";
 import { ethers } from "ethers";
-import { spawn } from "node:child_process";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { EVENT_MESSAGE_DISPATCHED, EVENT_MESSAGE_DELIVERED, listenDAppContract } from "./listeners";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // --- Parse CLI args ---
 function getArg(name: string): string | undefined {
@@ -41,41 +35,12 @@ const abi = [
   "event MessageDispatched(bytes32 indexed messageId)",
 ];
 
-function runRequestAndRelayQuote(messageId: string): void {
-  const scriptPath = path.resolve(__dirname, "../request-and-relay-quote.ts");
-
-  console.log(`🚀 Starting request-and-relay-quote for messageId=${messageId}`);
-
-  const child = spawn(
-    "npx",
-    ["tsx", scriptPath, "--message-id", messageId],
-    {
-      stdio: "inherit",
-      shell: true,
-      env: process.env,
-    },
-  );
-
-  child.on("exit", (code) => {
-    if (code === 0) {
-      console.log("✅ request-and-relay-quote completed successfully");
-    } else {
-      console.error(`❌ request-and-relay-quote exited with code ${code}`);
-    }
-  });
-
-  child.on("error", (err) => {
-    console.error("❌ Failed to start request-and-relay-quote:", err);
-  });
-}
-
 async function main() {
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const wallet = new ethers.Wallet(PRIVATE_KEY!, provider);
   const contract = new ethers.Contract(DAPP_ADDR!, abi, wallet);
 
   const startBlock = await provider.getBlockNumber();
-  let relayStarted = false;
 
   let messageIdStore: string;
   const stopDispatched = listenDAppContract(
@@ -87,11 +52,6 @@ async function main() {
     async ({ messageId }) => {
       console.log("📬 MessageDispatched event received!");
       console.log("🆔 messageId:", messageId);
-
-      if (!relayStarted) {
-        relayStarted = true;
-        runRequestAndRelayQuote(messageId);
-      }
 
       messageIdStore = messageId;
     },

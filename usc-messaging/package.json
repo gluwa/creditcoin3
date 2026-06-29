@@ -1,15 +1,11 @@
 {
   "name": "@creditcoin3/usc-messaging",
   "version": "0.1.0",
-  "description": "USC Write-Ability Layer: quoter, dApp ack worker, contracts (attestor + relayer are implemented in Rust — see the attestor crate and message-relayer)",
+  "description": "USC Write-Ability Layer: dApp ack worker, contracts (attestor + relayer are implemented in Rust — see the attestor crate and message-relayer)",
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "quoter": "node dist/quoter/server.js",
-    "dev:quoter": "tsx src/quoter/server.ts",
     "deploy": "cd contracts && ./script/deploy.sh",
-    "seed-message": "tsx scripts/seed-message.ts",
-    "request-quote": "tsx scripts/request-and-relay-quote.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
