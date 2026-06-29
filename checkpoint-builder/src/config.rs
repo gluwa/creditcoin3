@@ -210,8 +210,7 @@ pub fn validate_checkpoint_ranges(ranges: &[CheckpointRangeType]) -> Result<()> 
     for (i, range_type) in ranges.iter().enumerate() {
         if i > 0 && matches!(range_type, CheckpointRangeType::Genesis(_)) {
             anyhow::bail!(
-                "Only the first range can be a genesis checkpoint, but range {} is a genesis checkpoint",
-                i
+                "Only the first range can be a genesis checkpoint, but range {i} is a genesis checkpoint"
             );
         }
 
@@ -226,7 +225,7 @@ pub fn validate_checkpoint_ranges(ranges: &[CheckpointRangeType]) -> Result<()> 
             }
 
             if range.checkpoint_interval == 0 {
-                anyhow::bail!("Range {}: checkpoint_interval must be greater than 0", i);
+                anyhow::bail!("Range {i}: checkpoint_interval must be greater than 0");
             }
 
             let block_count = range.block_count();
