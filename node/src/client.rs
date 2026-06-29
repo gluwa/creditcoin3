@@ -11,12 +11,14 @@ pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
     creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
     frame_benchmarking::benchmarking::HostFunctions,
+    cumulus_primitives_proof_size_hostfunction::storage_proof_size::HostFunctions,
 );
 /// Otherwise we only use the default Substrate host functions.
 #[cfg(not(feature = "runtime-benchmarks"))]
 pub type HostFunctions = (
     sp_io::SubstrateHostFunctions,
     creditcoin3_primitives_ext::creditcoin_3_ext::HostFunctions,
+    cumulus_primitives_proof_size_hostfunction::storage_proof_size::HostFunctions,
 );
 
 /// Full backend.

@@ -49,7 +49,7 @@ pub mod pallet {
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
-    use parity_scale_codec::FullCodec;
+    use parity_scale_codec::{DecodeWithMemTracking, FullCodec};
     use sp_staking::StakingInterface;
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
@@ -66,7 +66,17 @@ pub mod pallet {
 
     /// The election policy used when electing new attestors after each epoch.
     #[derive(
-        PartialEq, Eq, Copy, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+        PartialEq,
+        Eq,
+        Copy,
+        Clone,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        RuntimeDebug,
+        TypeInfo,
+        MaxEncodedLen,
+        Default,
     )]
     pub enum AttestorElectionPolicy {
         /// Any attestor can be selected.
@@ -83,6 +93,7 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
+        #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         // TODO: when updating polkadot-sdk we should use `InspectLockableCurrency`
