@@ -237,8 +237,6 @@ async fn main() -> Result<()> {
     let api_state = Arc::new(api::AppState {
         store: store.clone(),
         max_api_range: cfg.max_api_range,
-        // Bound concurrent /roots requests; excess requests get HTTP 429.
-        roots_semaphore: Arc::new(tokio::sync::Semaphore::new(cfg.max_api_concurrency.get())),
     });
 
     let api_router = api::router(api_state);
