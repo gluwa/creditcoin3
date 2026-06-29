@@ -128,6 +128,7 @@ pub async fn watch_outbox(
                     &mut last_seen,
                     &indexed_tx,
                     metrics.as_ref(),
+                    &cancel,
                 ).await {
                     Ok(()) => {
                         if let Some(cp) = &checkpoint {
@@ -154,6 +155,7 @@ async fn poll_once<P: Provider>(
     last_seen: &mut u64,
     indexed_tx: &mpsc::Sender<IndexedMessage>,
     metrics: &dyn crate::prom::MetricsTrait,
+    cancel: &CancellationToken,
 ) -> Result<()> {
     let tip = provider.get_block_number().await?;
     let to_block = tip.saturating_sub(confirmation_depth);
@@ -200,9 +202,20 @@ async fn poll_once<P: Provider>(
                     "📨 Indexed MessagePublished"
                 );
                 metrics.inc_messages_indexed(chain_key);
-                if indexed_tx.send(indexed).await.is_err() {
-                    error!(chain_key, "vote pool channel closed — exiting watcher");
-                    anyhow::bail!("vote pool channel closed");
+                // Bounded channel. Indexed messages are NOT re-gossiped (they come from chain
+                // logs and the cursor advances past them), so they must not be dropped: block if
+                // the pool is briefly saturated, but bail promptly on shutdown.
+                tokio::select! {
+                    res = indexed_tx.send(indexed) => {
+                        if res.is_err() {
+                            error!(chain_key, "vote pool channel closed — exiting watcher");
+                            anyhow::bail!("vote pool channel closed");
+                        }
+                    }
+                    () = cancel.cancelled() => {
+                        debug!(chain_key, "cancel during indexed dispatch; stopping poll");
+                        return Ok(());
+                    }
                 }
             }
             Err(err) => {
