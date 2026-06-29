@@ -4059,6 +4059,7 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidMaxCatchup: boolean;
         readonly isInvalidTargetSampleSize: boolean;
         readonly isInvalidMaxAttestors: boolean;
+        readonly isTooManyAttestors: boolean;
         readonly isAttestationFoundWhileImporting: boolean;
         readonly isInvalidAttestationBlockNumber: boolean;
         readonly isInvalidAttestorFound: boolean;
@@ -4125,6 +4126,7 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidMaxCatchup'
             | 'InvalidTargetSampleSize'
             | 'InvalidMaxAttestors'
+            | 'TooManyAttestors'
             | 'AttestationFoundWhileImporting'
             | 'InvalidAttestationBlockNumber'
             | 'InvalidAttestorFound'
@@ -4224,6 +4226,9 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (462) */
     type PalletAttestationExtensionsPrevalidateAttestationCommit = Null;
 
-    /** @name Creditcoin3RuntimeRuntime (464) */
+    /** @name FrameSystemExtensionsWeightReclaim (463) */
+    type FrameSystemExtensionsWeightReclaim = Null;
+
+    /** @name Creditcoin3RuntimeRuntime (465) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module
