@@ -5,7 +5,7 @@ use pallet_evm::{
     AddressMapping, EnsureAddressNever, EnsureAddressRoot, FrameSystemAccountProvider,
     IdentityAddressMapping,
 };
-use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use sp_core::{H160, H256, U256};
 use sp_runtime::{
@@ -29,6 +29,7 @@ pub type Block = frame_system::mocking::MockBlockU32<Runtime>;
     Clone,
     Encode,
     Decode,
+    DecodeWithMemTracking,
     Debug,
     MaxEncodedLen,
     derive_more::Display,
@@ -110,6 +111,7 @@ impl frame_system::Config for Runtime {
     type SS58Prefix = SS58Prefix;
     type OnSetCode = ();
     type MaxConsumers = frame_support::traits::ConstU32<16>;
+    type ExtensionsWeightInfo = ();
 }
 
 parameter_types! {
@@ -141,6 +143,7 @@ impl pallet_balances::Config for Runtime {
     type FreezeIdentifier = ();
     type MaxFreezes = ();
     type RuntimeFreezeReason = RuntimeFreezeReason;
+    type DoneSlashHandler = ();
 }
 
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
@@ -177,7 +180,6 @@ impl pallet_evm::Config for Runtime {
     type WithdrawOrigin = EnsureAddressNever<AccountId>;
     type AddressMapping = IdentityAddressMapping;
     type Currency = Balances;
-    type RuntimeEvent = RuntimeEvent;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
     type PrecompilesType = Precompiles<Self>;
     type PrecompilesValue = PrecompilesValue;
@@ -192,6 +194,8 @@ impl pallet_evm::Config for Runtime {
     type WeightInfo = pallet_evm::weights::SubstrateWeight<Runtime>;
     type AccountProvider = FrameSystemAccountProvider<Runtime>;
     type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
+    type CreateOriginFilter = ();
+    type CreateInnerOriginFilter = ();
 }
 
 // Configure a mock runtime to test the precompile.
