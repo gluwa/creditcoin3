@@ -17,6 +17,9 @@ use prometheus_client::metrics::histogram::{exponential_buckets, Histogram};
 use prometheus_client::metrics::info::Info;
 use prometheus_client::registry::Registry;
 
+use anyhow::Result;
+use tokio_util::sync::CancellationToken;
+
 /// Trait for the metrics surface the runtime depends on. Allows swapping in a no-op for tests.
 pub trait MetricsTrait: Send + Sync + Debug {
     fn inc_messages_indexed(&self, chain_key: u64);
@@ -211,30 +214,39 @@ impl RelayerMetrics {
             .unwrap()
     }
 
-    /// Spawn a background task that periodically updates hardware gauges. Mirrors the helper
-    /// in `proof-gen-api-server` — the relayer's runtime calls this once at startup.
-    pub fn spawn_hardware_updater(metrics: Arc<Self>) {
-        tokio::spawn(async move {
-            let specifics = sysinfo::RefreshKind::nothing()
-                .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
-                .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram())
-                .with_processes(
-                    sysinfo::ProcessRefreshKind::nothing()
-                        .with_cpu()
-                        .with_memory(),
-                );
-            let mut sys = sysinfo::System::new_with_specifics(specifics);
+    /// Periodically refresh the hardware gauges until `cancel` fires. Runs as a **managed** worker
+    /// (spawned into the `Server::run` `JoinSet`), so it shuts down and drains with the rest of the
+    /// relayer instead of being a detached task the runtime aborts. Mirrors the helper in
+    /// `proof-gen-api-server`.
+    pub async fn run_hardware_updater(metrics: Arc<Self>, cancel: CancellationToken) -> Result<()> {
+        let specifics = sysinfo::RefreshKind::nothing()
+            .with_cpu(sysinfo::CpuRefreshKind::nothing().with_cpu_usage())
+            .with_memory(sysinfo::MemoryRefreshKind::nothing().with_ram())
+            .with_processes(
+                sysinfo::ProcessRefreshKind::nothing()
+                    .with_cpu()
+                    .with_memory(),
+            );
+        let mut sys = sysinfo::System::new_with_specifics(specifics);
 
-            tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL).await;
-            sys.refresh_specifics(specifics);
+        // CPU usage needs a warm-up gap between two refreshes before the first reading is valid.
+        tokio::select! {
+            () = cancel.cancelled() => return Ok(()),
+            () = tokio::time::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL) => {}
+        }
+        sys.refresh_specifics(specifics);
 
-            let interval = std::time::Duration::from_secs(5);
-            loop {
-                metrics.update_gauges_from_system(&sys);
-                tokio::time::sleep(interval).await;
-                sys.refresh_specifics(specifics);
+        let mut tick = tokio::time::interval(Duration::from_secs(5));
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tokio::select! {
+                () = cancel.cancelled() => return Ok(()),
+                _ = tick.tick() => {
+                    metrics.update_gauges_from_system(&sys);
+                    sys.refresh_specifics(specifics);
+                }
             }
-        });
+        }
     }
 
     fn update_gauges_from_system(&self, sys: &sysinfo::System) {
@@ -325,6 +337,9 @@ pub enum VoteOutcome {
     Accept,
     Reject,
     Ignore,
+    /// Dropped at the libp2p→pool hand-off because the pool was saturated (backpressure). The
+    /// vote is not lost to the network — it is re-gossiped — so this is a safe shed under load.
+    Dropped,
 }
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
