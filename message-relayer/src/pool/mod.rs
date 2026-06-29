@@ -89,8 +89,19 @@ pub async fn run(
                 };
                 if let Some(job) = state.note_vote(vote, metrics.as_ref()) {
                     if let Some(tx) = delivery_txs.get(&job.chain_key) {
-                        if tx.send(job).await.is_err() {
-                            warn!("delivery channel closed; dropping job");
+                        // Bounded channel. Delivery jobs must not be dropped, so block here if the
+                        // worker is briefly saturated — but stay responsive to shutdown rather than
+                        // wedging the whole pool (and every other route) on one slow destination.
+                        tokio::select! {
+                            res = tx.send(job) => {
+                                if res.is_err() {
+                                    warn!("delivery channel closed; dropping job");
+                                }
+                            }
+                            () = cancel.cancelled() => {
+                                info!("🛑 vote pool exiting on cancel (mid-dispatch)");
+                                return Ok(());
+                            }
                         }
                     } else {
                         warn!(chain_key = job.chain_key, "no delivery worker registered for chain_key");
