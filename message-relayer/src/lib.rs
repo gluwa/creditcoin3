@@ -19,6 +19,7 @@
 //! cancel and drain the [`tokio::task::JoinSet`].
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
@@ -134,49 +135,52 @@ impl Server {
         for route in &self.config.routes {
             let (dtx, drx) = mpsc::channel::<DeliveryJob>(DELIVERY_CHANNEL_CAP);
             delivery_txs.insert(route.chain_key, dtx);
-            let r = route.clone();
-            let dc = self.config.delivery.clone();
-            let m = metrics.clone();
-            let c = cancel.clone();
-            tasks.spawn(async move {
-                if let Err(err) = delivery::run(r.clone(), dc, drx, m, c).await {
-                    error!(chain_key = r.chain_key, %err, "delivery worker exited with error");
-                }
-            });
+            spawn_worker(
+                &mut tasks,
+                format!("delivery worker (chain_key {})", route.chain_key),
+                delivery::run(
+                    route.clone(),
+                    self.config.delivery.clone(),
+                    drx,
+                    metrics.clone(),
+                    cancel.clone(),
+                ),
+            );
         }
 
         // Pool.
-        {
-            let m = metrics.clone();
-            let c = cancel.clone();
-            let cache = self.config.vote_cache.clone();
-            let handles = pool::PoolHandles {
-                indexed_rx,
-                vote_rx,
-                delivery_txs,
-            };
-            tasks.spawn(async move {
-                if let Err(err) = pool::run(route_attestors, cache, handles, m, c).await {
-                    error!(%err, "vote pool exited with error");
-                }
-            });
-        }
+        spawn_worker(
+            &mut tasks,
+            "vote pool",
+            pool::run(
+                route_attestors,
+                self.config.vote_cache.clone(),
+                pool::PoolHandles {
+                    indexed_rx,
+                    vote_rx,
+                    delivery_txs,
+                },
+                metrics.clone(),
+                cancel.clone(),
+            ),
+        );
 
         // Outbox watchers (per route).
         let resolver: Arc<dyn OutboxResolver> = Arc::new(ConfigOverrideResolver);
         for route in &self.config.routes {
-            let r = route.clone();
-            let url = self.config.creditcoin_eth_rpc_url.clone();
-            let tx = indexed_tx.clone();
-            let m = metrics.clone();
-            let c = cancel.clone();
-            let res = resolver.clone();
-            let cp = checkpoint.clone();
-            tasks.spawn(async move {
-                if let Err(err) = events::watch_outbox(r.clone(), url, tx, m, res, cp, c).await {
-                    error!(chain_key = r.chain_key, %err, "outbox watcher exited with error");
-                }
-            });
+            spawn_worker(
+                &mut tasks,
+                format!("outbox watcher (chain_key {})", route.chain_key),
+                events::watch_outbox(
+                    route.clone(),
+                    self.config.creditcoin_eth_rpc_url.clone(),
+                    indexed_tx.clone(),
+                    metrics.clone(),
+                    resolver.clone(),
+                    checkpoint.clone(),
+                    cancel.clone(),
+                ),
+            );
         }
         // Drop the parent indexed_tx so the pool can detect the channel closing once every
         // watcher has exited (avoids a stray clone keeping the pool alive forever).
@@ -184,37 +188,39 @@ impl Server {
 
         // Acknowledgment submitters (per route, opt-in). Each watches the destination Inbox for
         // `MessageDelivered`, fetches a native USC delivery proof, and submits it to the
-        // source-chain `AcknowledgmentValidator`. Routes without `ack` config return immediately.
-        for route in &self.config.routes {
-            if route.ack.is_none() {
-                continue;
-            }
-            let r = route.clone();
-            let url = self.config.creditcoin_eth_rpc_url.clone();
-            let c = cancel.clone();
-            let cp = checkpoint.clone();
-            tasks.spawn(async move {
-                if let Err(err) = ack::run(r.clone(), url, cp, c).await {
-                    error!(chain_key = r.chain_key, %err, "ack submitter exited with error");
-                }
-            });
+        // source-chain `AcknowledgmentValidator`. Routes without `ack` config are skipped.
+        for route in self.config.routes.iter().filter(|r| r.ack.is_some()) {
+            spawn_worker(
+                &mut tasks,
+                format!("ack submitter (chain_key {})", route.chain_key),
+                ack::run(
+                    route.clone(),
+                    self.config.creditcoin_eth_rpc_url.clone(),
+                    checkpoint.clone(),
+                    cancel.clone(),
+                ),
+            );
         }
 
         // libp2p worker (one shared swarm).
-        {
-            let cfg = self.config.p2p.clone();
-            let chain_keys: Vec<u64> = self.config.routes.iter().map(|r| r.chain_key).collect();
-            let m = metrics.clone();
-            let c = cancel.clone();
-            tasks.spawn(async move {
-                if let Err(err) = p2p::run(cfg, chain_keys, vote_tx, m, c).await {
-                    error!(%err, "libp2p worker exited with error");
-                }
-            });
-        }
+        spawn_worker(
+            &mut tasks,
+            "libp2p worker",
+            p2p::run(
+                self.config.p2p.clone(),
+                self.config.routes.iter().map(|r| r.chain_key).collect(),
+                vote_tx,
+                metrics.clone(),
+                cancel.clone(),
+            ),
+        );
 
-        // Hardware metrics gauges.
-        RelayerMetrics::spawn_hardware_updater(self.prom_metrics.clone());
+        // Hardware metrics gauges (managed worker — drains with the rest on shutdown).
+        spawn_worker(
+            &mut tasks,
+            "hardware metrics updater",
+            RelayerMetrics::run_hardware_updater(self.prom_metrics.clone(), cancel.clone()),
+        );
 
         // /metrics + /health.
         let bind_host = &self.config.bind_host;
@@ -231,14 +237,12 @@ impl Server {
             .with_context(|| format!("failed to bind HTTP listener at {bind_addr}"))?;
         info!("🌐 Metrics + health endpoint listening on {bind_addr}");
         let axum_cancel = cancel.clone();
-        tasks.spawn(async move {
+        spawn_worker(&mut tasks, "HTTP server", async move {
             let shutdown = async move { axum_cancel.cancelled().await };
-            if let Err(err) = axum::serve(listener, app)
+            axum::serve(listener, app)
                 .with_graceful_shutdown(shutdown)
-                .await
-            {
-                error!(%err, "HTTP server exited with error");
-            }
+                .await?;
+            Ok(())
         });
 
         info!("✅ All workers online");
@@ -263,6 +267,26 @@ impl Server {
     pub fn config(&self) -> &Config {
         &self.config
     }
+}
+
+/// Spawn a fallible worker future onto `tasks`, tagging it with `label` for diagnostics.
+///
+/// Every worker treats a clean `Ok(())` as an orderly shutdown (it observed the shared cancel
+/// token); an `Err` means it died unexpectedly — a dropped RPC, a closed channel — and is logged
+/// here so the failure is attributable to a specific worker. The spawned task is `()`-typed so the
+/// outer [`JoinSet`] drives every worker uniformly; the `select!` on `join_next` in
+/// [`Server::run`] then tears the rest down regardless of which one exited.
+fn spawn_worker(
+    tasks: &mut JoinSet<()>,
+    label: impl Into<String>,
+    fut: impl Future<Output = Result<()>> + Send + 'static,
+) {
+    let label = label.into();
+    tasks.spawn(async move {
+        if let Err(err) = fut.await {
+            error!(worker = %label, %err, "worker exited with error");
+        }
+    });
 }
 
 /// Convert an [`AttestorSet`] into the concrete [`RouteAttestors`] the pool expects. Static sets
