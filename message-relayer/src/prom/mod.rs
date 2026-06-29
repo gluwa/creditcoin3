@@ -30,6 +30,11 @@ pub trait MetricsTrait: Send + Sync + Debug {
     fn observe_time_to_deliver(&self, duration: Duration);
     fn set_p2p_peer_count(&self, chain_key: u64, count: i64);
     fn set_pool_messages_pending(&self, count: i64);
+    /// Current size of the active attestor allowlist the pool is enforcing for `chain_key`.
+    fn set_attestor_set_size(&self, chain_key: u64, size: i64);
+    /// A hot-reload of the on-chain attestor set was applied for `chain_key` (set and/or threshold
+    /// changed). Watch this for unexpected churn.
+    fn inc_attestor_set_reload(&self, chain_key: u64);
 }
 
 /// Shared trait object — used to plumb metrics through services without leaking the concrete type.
@@ -54,6 +59,8 @@ impl MetricsTrait for NoopMetrics {
     fn observe_time_to_deliver(&self, _duration: Duration) {}
     fn set_p2p_peer_count(&self, _chain_key: u64, _count: i64) {}
     fn set_pool_messages_pending(&self, _count: i64) {}
+    fn set_attestor_set_size(&self, _chain_key: u64, _size: i64) {}
+    fn inc_attestor_set_reload(&self, _chain_key: u64) {}
 }
 
 /// Concrete metrics container.
@@ -68,6 +75,8 @@ pub struct RelayerMetrics {
     time_to_deliver_seconds: Histogram,
     p2p_peer_count: Family<LabelChain, Gauge<i64, AtomicI64>>,
     pool_messages_pending: Gauge<i64, AtomicI64>,
+    attestor_set_size: Family<LabelChain, Gauge<i64, AtomicI64>>,
+    attestor_set_reloads: Family<LabelChain, Counter<u64, AtomicU64>>,
     cpu_usage_percent: Gauge<f64, AtomicU64>,
     memory_usage_bytes: Gauge<f64, AtomicU64>,
     thread_count: Gauge<i64, AtomicI64>,
@@ -135,6 +144,20 @@ impl RelayerMetrics {
             pool_messages_pending.clone(),
         );
 
+        let attestor_set_size = Family::default();
+        registry.register(
+            "relayer_attestor_set_size",
+            "Size of the active attestor allowlist enforced by the pool per chain_key",
+            attestor_set_size.clone(),
+        );
+
+        let attestor_set_reloads = Family::default();
+        registry.register(
+            "relayer_attestor_set_reloads",
+            "Count of on-chain attestor-set hot-reloads applied per chain_key",
+            attestor_set_reloads.clone(),
+        );
+
         let cpu_usage_percent = Gauge::default();
         registry.register(
             "relayer_cpu_usage_percent",
@@ -190,6 +213,8 @@ impl RelayerMetrics {
             time_to_deliver_seconds,
             p2p_peer_count,
             pool_messages_pending,
+            attestor_set_size,
+            attestor_set_reloads,
             cpu_usage_percent,
             memory_usage_bytes,
             thread_count,
@@ -309,6 +334,18 @@ impl MetricsTrait for RelayerMetrics {
 
     fn set_pool_messages_pending(&self, count: i64) {
         self.pool_messages_pending.set(count);
+    }
+
+    fn set_attestor_set_size(&self, chain_key: u64, size: i64) {
+        self.attestor_set_size
+            .get_or_create(&LabelChain { chain_key })
+            .set(size);
+    }
+
+    fn inc_attestor_set_reload(&self, chain_key: u64) {
+        self.attestor_set_reloads
+            .get_or_create(&LabelChain { chain_key })
+            .inc();
     }
 }
 

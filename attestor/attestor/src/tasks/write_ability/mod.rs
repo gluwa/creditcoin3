@@ -21,6 +21,7 @@
 //! [`VoteAggregator`]: aggregator::VoteAggregator
 
 pub mod aggregator;
+pub mod attestor_set;
 pub mod config;
 pub mod ingest;
 pub mod listener;
@@ -34,7 +35,7 @@ use std::time::Instant;
 use alloy::primitives::Address;
 use alloy::providers::ProviderBuilder;
 use anyhow::anyhow;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
@@ -55,8 +56,11 @@ const OUTBOX_RESOLVE_RETRY_SECS: u64 = 12;
 pub struct MessageVoteState {
     /// In-memory vote aggregator (chain-first allowlist, dedup, threshold, anti-abuse caps).
     pub aggregator: Mutex<aggregator::VoteAggregator>,
-    /// Authorized signer EVM addresses; gossip votes from outside this set are rejected.
-    pub active_set: HashSet<Address>,
+    /// Authorized signer EVM addresses; gossip votes from outside this set are rejected. Behind a
+    /// lock so the [`attestor_set`] watcher can hot-swap it (with the aggregator threshold) when the
+    /// on-chain `EOAValidator` set changes — no restart needed. Reads (one per incoming vote)
+    /// dominate writes (rare set changes), hence `RwLock`.
+    pub active_set: RwLock<HashSet<Address>>,
     /// Outgoing votes we produced, handed to the p2p task to publish on the message-vote topic.
     pub publish_tx: mpsc::Sender<MessageVote>,
 }
@@ -78,11 +82,11 @@ pub async fn build_state(
     let (publish_tx, publish_rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
     let state = Arc::new(MessageVoteState {
         aggregator: Mutex::new(aggregator),
-        active_set,
+        active_set: RwLock::new(active_set),
         publish_tx,
     });
     tracing::info!(
-        attestors = state.active_set.len(),
+        attestors = state.active_set.read().len(),
         threshold,
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
@@ -154,6 +158,28 @@ pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) ->
         // Park until shutdown; returning Ok early would trip the supervisor's "exited early" guard.
         shared.token.cancelled().await;
         return Ok(());
+    };
+
+    // On-chain attestor-set hot-reload watcher (only when the set is sourced from the validator).
+    // Runs independently of Outbox resolution — the set is unrelated to the Outbox — so it keeps the
+    // active set in sync even while write-ability is idle waiting for the Outbox.
+    let set_watcher = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
+        (AttestorSet::OnChainValidator(validator), Some(url)) => {
+            Some(tokio::spawn(attestor_set::watch(
+                state.clone(),
+                *validator,
+                url.to_string(),
+                shared.token.clone(),
+            )))
+        }
+        (AttestorSet::OnChainValidator(validator), None) => {
+            tracing::warn!(
+                %validator,
+                "OnChainValidator set but no destination_eth_rpc_url — attestor set will not hot-reload"
+            );
+            None
+        }
+        _ => None,
     };
 
     let rpc = cfg.cc3_eth_rpc_url.as_ref().ok_or_else(|| {
@@ -233,6 +259,9 @@ pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) ->
     }
 
     listener.abort();
+    if let Some(w) = set_watcher {
+        w.abort();
+    }
     Ok(())
 }
 
