@@ -59,6 +59,12 @@ impl VoteAggregator {
         }
     }
 
+    /// Update the quorum threshold after an on-chain attestor-set change. Applies to all subsequent
+    /// `add_vote` calls; already-`completed` entries are unaffected (they fired at the old quorum).
+    pub fn set_threshold(&mut self, threshold: usize) {
+        self.threshold = threshold.max(1);
+    }
+
     /// Number of distinct hashes currently tracked.
     #[must_use]
     pub fn tracked(&self) -> usize {
