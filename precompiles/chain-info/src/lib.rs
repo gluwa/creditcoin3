@@ -53,17 +53,27 @@ const MAX_BUCKET_SEARCH_ATTEMPTS: u32 = 4096;
 /// far above any realistic per-chain attestation count, so normal-sized stores are unaffected.
 const MAX_ATTESTATION_SCAN_ITEMS: u64 = 100_000;
 
-/// Compute how many checkpoint buckets to walk when searching from the bucket containing
-/// `target_height` toward the bucket containing the known last checkpoint height.
+/// Compute how many checkpoint buckets to walk to cover a search span of `span_blocks` blocks.
 ///
-/// Bounding the walk by the *real* checkpoint range (rather than a fixed constant) is what fixes
-/// the sparse-checkpoint false negative: a valid checkpoint far from the target is still reached.
-/// The result is `ceil(distance / CHECKPOINT_BUCKET_SIZE) + 1` (the `+1` covers the partial bucket
-/// at each end), clamped to `MAX_BUCKET_SEARCH_ATTEMPTS` so the loop is always bounded.
-fn bucket_search_attempts(target_height: u64, last_checkpoint_height: u64) -> u32 {
-    let distance = target_height.abs_diff(last_checkpoint_height);
-    // ceil(distance / CHECKPOINT_BUCKET_SIZE) + 1
-    let buckets = distance.div_ceil(CHECKPOINT_BUCKET_SIZE).saturating_add(1);
+/// Bounding the walk by the *real* search span (rather than a fixed constant) is what fixes the
+/// sparse-checkpoint false negative: a valid checkpoint far from the target is still reached.
+/// The result is `ceil(span_blocks / CHECKPOINT_BUCKET_SIZE) + 1` (the `+1` covers the partial
+/// bucket at each end), clamped to `MAX_BUCKET_SEARCH_ATTEMPTS` so the loop is always bounded.
+///
+/// The caller is responsible for passing the span that matches the walk *direction*:
+/// - a downward walk (toward genesis) spans from `target_height` down to block 0, i.e.
+///   `span_blocks = target_height`;
+/// - an upward walk (toward the chain tip) spans from `target_height` up to the last checkpoint,
+///   i.e. `span_blocks = last_checkpoint_height - target_height`.
+///
+/// Using `abs_diff(target_height, last_checkpoint_height)` for a *downward* walk is wrong: when the
+/// last checkpoint sits just above the target the distance is tiny, yet the nearest checkpoint
+/// below the target can be many buckets away, so the walk would stop early and false-negative.
+fn bucket_search_attempts(span_blocks: u64) -> u32 {
+    // ceil(span_blocks / CHECKPOINT_BUCKET_SIZE) + 1
+    let buckets = span_blocks
+        .div_ceil(CHECKPOINT_BUCKET_SIZE)
+        .saturating_add(1);
     let buckets: u32 = buckets.try_into().unwrap_or(u32::MAX);
     buckets.min(MAX_BUCKET_SEARCH_ATTEMPTS)
 }
@@ -276,9 +286,7 @@ where
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
         // We first check if the latest checkpoint height is higher or equal to the target height.
-        if let Some(last_checkpoint_height) =
-            maybe_last_checkpoint_height.filter(|height| *height >= target_height)
-        {
+        if maybe_last_checkpoint_height.is_some_and(|height| height >= target_height) {
             // If it is search through the checkpoints to find the highest attested height below the target.
             // We search through the bucket of the block corresponding to target_height - 1 for any checkpoints.
             let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(
@@ -287,9 +295,10 @@ where
 
             let mut maybe_highest = None;
 
-            // Bound the walk by the real distance to the last checkpoint so a far-away checkpoint
-            // is still found (no false negative); the loop stays bounded via the dynamic cap.
-            let attempts = bucket_search_attempts(target_height, last_checkpoint_height);
+            // This walks *downward* from `target_height - 1` toward block 0, so the span is
+            // `target_height` (a checkpoint below the target can sit anywhere down to genesis,
+            // independent of where the last checkpoint is). The loop stays bounded via the cap.
+            let attempts = bucket_search_attempts(target_height);
             for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
@@ -427,9 +436,11 @@ where
 
             let mut maybe_lowest = None;
 
-            // Bound the walk by the real distance to the last checkpoint so a far-away checkpoint
-            // is still found (no false negative); the loop stays bounded via the dynamic cap.
-            let attempts = bucket_search_attempts(target_height, last_checkpoint_height);
+            // This walks *upward* from `target_height` toward the chain tip; the highest reachable
+            // checkpoint is the last checkpoint, so the span is `last_checkpoint_height -
+            // target_height`. This branch only runs when `last_checkpoint_height > target_height`.
+            let attempts =
+                bucket_search_attempts(last_checkpoint_height.saturating_sub(target_height));
             for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
@@ -552,9 +563,10 @@ where
 
                 let mut found_prev_checkpoint = false;
 
-                // Bound the walk by the real distance to the last checkpoint so a far-away
-                // checkpoint is still found (no false negative); the loop stays bounded.
-                let attempts = bucket_search_attempts(target_height, last_checkpoint_height);
+                // This walks *downward* from `target_height - 1` toward block 0 (same direction as
+                // `find_highest_attested_before`), so the span is `target_height`, not the
+                // distance to the last checkpoint. The loop stays bounded via the cap.
+                let attempts = bucket_search_attempts(target_height);
                 for _ in 0..attempts {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
