@@ -66,7 +66,7 @@ pub fn validate_and_count(
         tracing::warn!("🔏 message-vote signer mismatch — rejecting");
         return Acceptance::Reject;
     }
-    if !state.active_set.contains(&recovered) {
+    if !state.active_set.read().contains(&recovered) {
         tracing::warn!(signer = %recovered, "👤 message vote from non-attestor — rejecting");
         return Acceptance::Reject;
     }
@@ -107,7 +107,7 @@ mod tests {
     use std::collections::HashSet;
     use std::time::{Duration, Instant};
 
-    use parking_lot::Mutex;
+    use parking_lot::{Mutex, RwLock};
 
     use super::*;
     use crate::tasks::write_ability::aggregator::VoteAggregator;
@@ -125,7 +125,7 @@ mod tests {
                 1000,
                 Duration::from_secs(60),
             )),
-            active_set,
+            active_set: RwLock::new(active_set),
             publish_tx: tx,
         }
     }

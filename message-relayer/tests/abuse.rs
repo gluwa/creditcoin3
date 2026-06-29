@@ -41,6 +41,7 @@ async fn pool_drops_unknown_messages_and_emits_no_jobs() {
     };
     let cancel = CancellationToken::new();
     let cancel_for_pool = cancel.clone();
+    let (_set_tx, set_rx) = mpsc::channel::<RouteAttestors>(4);
 
     let handle = tokio::spawn(run_pool(
         vec![route],
@@ -49,6 +50,7 @@ async fn pool_drops_unknown_messages_and_emits_no_jobs() {
             indexed_rx,
             vote_rx,
             delivery_txs,
+            set_update_rx: set_rx,
         },
         NoopMetrics::new(),
         cancel_for_pool,
@@ -99,6 +101,7 @@ async fn pool_drops_votes_from_unknown_signers() {
 
     let cancel = CancellationToken::new();
     let cancel_for_pool = cancel.clone();
+    let (_set_tx, set_rx) = mpsc::channel::<RouteAttestors>(4);
     let handle = tokio::spawn(run_pool(
         vec![route],
         VoteCacheConfig {
@@ -109,6 +112,7 @@ async fn pool_drops_votes_from_unknown_signers() {
             indexed_rx,
             vote_rx,
             delivery_txs,
+            set_update_rx: set_rx,
         },
         NoopMetrics::new(),
         cancel_for_pool,

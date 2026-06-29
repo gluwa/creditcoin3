@@ -23,8 +23,7 @@ use std::future::Future;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
-use alloy::primitives::Address;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use tokio::signal;
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
@@ -33,6 +32,7 @@ use tracing::{error, info, warn};
 
 pub mod abi;
 pub mod ack;
+pub mod attestor_set;
 pub mod checkpoint;
 pub mod config;
 pub mod delivery;
@@ -56,6 +56,8 @@ pub use prom::{Metrics, MetricsTrait, NoopMetrics, RelayerMetrics};
 const INDEXED_CHANNEL_CAP: usize = 1_024;
 const VOTE_CHANNEL_CAP: usize = 8_192;
 const DELIVERY_CHANNEL_CAP: usize = 64;
+/// Attestor-set updates are rare (one per on-chain set change); a small buffer is ample.
+const SET_UPDATE_CHANNEL_CAP: usize = 16;
 
 /// Top-level relayer process.
 pub struct Server {
@@ -127,6 +129,7 @@ impl Server {
         // Channels.
         let (indexed_tx, indexed_rx) = mpsc::channel::<IndexedMessage>(INDEXED_CHANNEL_CAP);
         let (vote_tx, vote_rx) = mpsc::channel::<MessageVote>(VOTE_CHANNEL_CAP);
+        let (set_tx, set_rx) = mpsc::channel::<RouteAttestors>(SET_UPDATE_CHANNEL_CAP);
         let mut delivery_txs: HashMap<u64, mpsc::Sender<DeliveryJob>> = HashMap::new();
 
         let mut tasks = JoinSet::new();
@@ -159,6 +162,7 @@ impl Server {
                     indexed_rx,
                     vote_rx,
                     delivery_txs,
+                    set_update_rx: set_rx,
                 },
                 metrics.clone(),
                 cancel.clone(),
@@ -201,6 +205,26 @@ impl Server {
                 ),
             );
         }
+
+        // On-chain attestor-set watchers (per route, only for `OnChain` sets). Each polls the
+        // destination validator's attestors()/threshold() and hot-reloads the pool on change. Static
+        // routes get no watcher (the set never changes), so we don't spawn a task that would exit
+        // immediately and trip the supervisor's "a worker exited" teardown.
+        for route in self
+            .config
+            .routes
+            .iter()
+            .filter(|r| matches!(r.attestor_set, AttestorSet::OnChain { .. }))
+        {
+            spawn_worker(
+                &mut tasks,
+                format!("attestor-set watcher (chain_key {})", route.chain_key),
+                attestor_set::run(route.clone(), set_tx.clone(), cancel.clone()),
+            );
+        }
+        // Drop the parent set_tx so the pool's set-update branch closes once every watcher exits
+        // (and stays inert when there are no on-chain routes at all).
+        drop(set_tx);
 
         // libp2p worker (one shared swarm).
         spawn_worker(
@@ -292,27 +316,29 @@ fn spawn_worker(
 /// Convert an [`AttestorSet`] into the concrete [`RouteAttestors`] the pool expects. Static sets
 /// translate directly; on-chain sets are not implemented in PoC and yield an explanatory error.
 fn resolve_attestors(route: &ChainRoute) -> Result<RouteAttestors> {
-    let attestors: Vec<Address> = match &route.attestor_set {
-        AttestorSet::Static(addrs) => addrs.clone(),
-        AttestorSet::OnChain { source } => {
-            bail!(
-                "chain_key {}: on-chain attestor resolution ({:?}) is not implemented in PoC \
-                 — configure `attestor_set: kind: static` for now",
-                route.chain_key,
-                source
-            );
+    match &route.attestor_set {
+        AttestorSet::Static(addrs) => {
+            let attestors = addrs.clone();
+            let n = attestors.len();
+            let threshold = route
+                .threshold_override
+                .map(|t| t as usize)
+                .unwrap_or_else(|| calculate_threshold(n));
+            Ok(RouteAttestors {
+                chain_key: route.chain_key,
+                attestors,
+                threshold,
+            })
         }
-    };
-    let n = attestors.len();
-    let threshold = route
-        .threshold_override
-        .map(|t| t as usize)
-        .unwrap_or_else(|| calculate_threshold(n));
-    Ok(RouteAttestors {
-        chain_key: route.chain_key,
-        attestors,
-        threshold,
-    })
+        // On-chain sets are resolved live by the per-route attestor-set watcher (see
+        // [`attestor_set::run`]). Start empty with an unreachable threshold so the pool accepts
+        // nothing until the first on-chain read arrives — votes meanwhile are simply re-gossiped.
+        AttestorSet::OnChain { .. } => Ok(RouteAttestors {
+            chain_key: route.chain_key,
+            attestors: Vec::new(),
+            threshold: usize::MAX,
+        }),
+    }
 }
 
 /// Mask `?query` parameters so URL keys do not appear in logs.
