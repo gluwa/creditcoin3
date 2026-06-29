@@ -831,6 +831,109 @@ fn find_lowest_attested_after_probes_within_bucket_past_orphan() {
         });
 }
 
+// Regression for the sparse-checkpoint false negative (#18): the bucket walk used to give up
+// after a fixed 5 buckets, so a valid checkpoint more than 5 buckets away from the target was
+// never found and the call wrongly reported "not attested". The walk is now bounded by the real
+// distance to the last checkpoint, so a distant-but-valid checkpoint is found.
+#[test]
+fn find_highest_attested_before_finds_checkpoint_more_than_five_buckets_away() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 10_000; // pivot 10_000
+                                     // Valid checkpoint ~8 buckets below the target pivot \u2014 beyond the old fixed 5-bucket limit.
+    let valid_height: u64 = 2_000; // pivot 2_000 => 8 buckets down from 10_000
+    let valid_digest = H256::from_slice(&[55_u8; 32]);
+    let last_checkpoint_height: u64 = 20_000; // >= target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_height,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let valid_pivot = AttestationPallet::<Runtime>::compute_block_index_for(valid_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, valid_pivot, valid_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_height, valid_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+// Symmetric regression for #18 on the upward walk.
+#[test]
+fn find_lowest_attested_after_finds_checkpoint_more_than_five_buckets_away() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 2_000; // pivot 2_000
+                                    // Valid checkpoint ~8 buckets above the target pivot \u2014 beyond the old fixed 5-bucket limit.
+    let valid_height: u64 = 10_000; // pivot 10_000 => 8 buckets up from 2_000
+    let valid_digest = H256::from_slice(&[66_u8; 32]);
+    let last_checkpoint_height: u64 = 20_000; // > target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_height,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let valid_pivot = AttestationPallet::<Runtime>::compute_block_index_for(valid_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, valid_pivot, valid_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_height, valid_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_lowest_attested_after {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
 #[test]
 fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height() {
     let alice: H160 = Alice.into();
