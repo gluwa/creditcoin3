@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-interface IVoteValidator {
-    function validateVotes(bytes32 messageHash, bytes calldata votes) external view;
-}
+import {IVoteValidator} from "./IVoteValidator.sol";
 
 /// @notice Simple inbox for PoC. Accepts messages and delivers to destination contract.
 contract SimpleInbox {
