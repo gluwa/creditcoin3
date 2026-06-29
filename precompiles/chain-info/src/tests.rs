@@ -1035,6 +1035,60 @@ fn is_height_attested_finds_far_checkpoint_when_last_checkpoint_just_above_targe
         });
 }
 
+// Bugbot regression (PR #1108, 2nd pass): the bucket walk must not be clamped to a fixed ceiling.
+// The earlier fix capped attempts at MAX_BUCKET_SEARCH_ATTEMPTS=4096, so for a target above
+// ~4_096_000 blocks the downward walk stopped thousands of buckets short of genesis and
+// false-negatived. Here target is ~4.098M with a valid checkpoint 4097 buckets below (beyond the
+// old ceiling): it must still be found now that the walk is bounded by gas, not a fixed cap.
+#[test]
+fn find_highest_attested_before_finds_checkpoint_beyond_old_fixed_ceiling() {
+    let alice: H160 = Alice.into();
+
+    // 4097 buckets below the target pivot => beyond the old 4096-attempt clamp.
+    let target_height: u64 = 4_098_000; // pivot 4_098_000
+    let valid_height: u64 = 1_000; // pivot 1_000
+    let valid_digest = H256::from_slice(&[99_u8; 32]);
+    let last_checkpoint_height: u64 = 4_098_500; // >= target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_height,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let valid_pivot = AttestationPallet::<Runtime>::compute_block_index_for(valid_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, valid_pivot, valid_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_height, valid_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
 #[test]
 fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height() {
     let alice: H160 = Alice.into();
