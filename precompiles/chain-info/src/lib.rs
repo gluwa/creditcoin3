@@ -32,19 +32,6 @@ mod tests;
 /// Precompile exposing source chain info to the evm.
 pub struct ChainInfoPrecompile<Runtime>(PhantomData<Runtime>);
 
-/// Hard upper bound on how many checkpoint buckets a single search will walk.
-///
-/// The dynamic bound (see `bucket_search_attempts`) is derived from the real distance between
-/// `target_height` and the known `LastCheckpoint` height, so a legitimate checkpoint can always
-/// be reached regardless of how far it sits from the target — the previous fixed `5` would give
-/// up early and report a false "not attested" even when a valid checkpoint existed further away.
-///
-/// This constant only caps pathological inputs so the loop stays bounded. It is intentionally
-/// large (4096 buckets => 4_096_000 blocks of range at `CHECKPOINT_BUCKET_SIZE`) so it is never
-/// hit in practice, and a deep walk self-limits anyway: every bucket charges `GAS_STORAGE_LOOKUP`,
-/// so a malicious far-away target runs out of gas long before reaching this ceiling.
-const MAX_BUCKET_SEARCH_ATTEMPTS: u32 = 4096;
-
 /// Defensive hard cap on how many items a single `Attestations::iter_prefix` scan will pull.
 ///
 /// The scans below are already priced correctly (each item charges `GAS_STORAGE_LOOKUP`), so an
@@ -56,9 +43,9 @@ const MAX_ATTESTATION_SCAN_ITEMS: u64 = 100_000;
 /// Compute how many checkpoint buckets to walk to cover a search span of `span_blocks` blocks.
 ///
 /// Bounding the walk by the *real* search span (rather than a fixed constant) is what fixes the
-/// sparse-checkpoint false negative: a valid checkpoint far from the target is still reached.
-/// The result is `ceil(span_blocks / CHECKPOINT_BUCKET_SIZE) + 1` (the `+1` covers the partial
-/// bucket at each end), clamped to `MAX_BUCKET_SEARCH_ATTEMPTS` so the loop is always bounded.
+/// sparse-checkpoint false negative: a valid checkpoint far from the target is always reachable,
+/// no matter how far it sits from the target. The result is `ceil(span_blocks /
+/// CHECKPOINT_BUCKET_SIZE) + 1` (the `+1` covers the partial bucket at each end).
 ///
 /// The caller is responsible for passing the span that matches the walk *direction*:
 /// - a downward walk (toward genesis) spans from `target_height` down to block 0, i.e.
@@ -69,13 +56,19 @@ const MAX_ATTESTATION_SCAN_ITEMS: u64 = 100_000;
 /// Using `abs_diff(target_height, last_checkpoint_height)` for a *downward* walk is wrong: when the
 /// last checkpoint sits just above the target the distance is tiny, yet the nearest checkpoint
 /// below the target can be many buckets away, so the walk would stop early and false-negative.
+///
+/// There is deliberately **no** fixed upper clamp: an arbitrary ceiling (the previous `4096`)
+/// re-introduces the exact false-negative this fixes for high block heights (a target above
+/// `4096 * CHECKPOINT_BUCKET_SIZE` would stop short of genesis). The loop is instead bounded by
+/// gas — every bucket iteration charges `GAS_STORAGE_LOOKUP`, so a pathologically deep walk
+/// exhausts gas and *reverts* (an honest failure) rather than silently returning "not attested".
+/// The `u32::MAX` saturation only guards the loop counter's type; gas is the real bound.
 fn bucket_search_attempts(span_blocks: u64) -> u32 {
     // ceil(span_blocks / CHECKPOINT_BUCKET_SIZE) + 1
     let buckets = span_blocks
         .div_ceil(CHECKPOINT_BUCKET_SIZE)
         .saturating_add(1);
-    let buckets: u32 = buckets.try_into().unwrap_or(u32::MAX);
-    buckets.min(MAX_BUCKET_SEARCH_ATTEMPTS)
+    buckets.try_into().unwrap_or(u32::MAX)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
@@ -297,7 +290,8 @@ where
 
             // This walks *downward* from `target_height - 1` toward block 0, so the span is
             // `target_height` (a checkpoint below the target can sit anywhere down to genesis,
-            // independent of where the last checkpoint is). The loop stays bounded via the cap.
+            // independent of where the last checkpoint is). The loop is bounded by gas
+            // (each bucket charges `GAS_STORAGE_LOOKUP`), not an artificial attempt ceiling.
             let attempts = bucket_search_attempts(target_height);
             for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
@@ -439,6 +433,7 @@ where
             // This walks *upward* from `target_height` toward the chain tip; the highest reachable
             // checkpoint is the last checkpoint, so the span is `last_checkpoint_height -
             // target_height`. This branch only runs when `last_checkpoint_height > target_height`.
+            // Bounded by gas per bucket, not an artificial attempt ceiling.
             let attempts =
                 bucket_search_attempts(last_checkpoint_height.saturating_sub(target_height));
             for _ in 0..attempts {
@@ -565,7 +560,7 @@ where
 
                 // This walks *downward* from `target_height - 1` toward block 0 (same direction as
                 // `find_highest_attested_before`), so the span is `target_height`, not the
-                // distance to the last checkpoint. The loop stays bounded via the cap.
+                // distance to the last checkpoint. Bounded by gas per bucket, not a fixed ceiling.
                 let attempts = bucket_search_attempts(target_height);
                 for _ in 0..attempts {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
