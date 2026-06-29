@@ -8386,8 +8386,10 @@ mod migrate_attestors_count_v1_to_v2 {
 mod prevalidate_attestation_commit_extension {
     use super::*;
     use crate::extensions::PrevalidateAttestationCommit;
-    use sp_runtime::traits::SignedExtension;
-    use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidityError};
+    use sp_runtime::traits::{TransactionExtension, TxBaseImplication};
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionSource, TransactionValidityError,
+    };
 
     #[test]
     fn prevalidate_attestation_passes_for_unique() {
@@ -8435,10 +8437,13 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor.attestor_id,
+                RuntimeOrigin::signed(attestor.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert!(res.is_ok());
@@ -8524,15 +8529,18 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor_2.attestor_id,
+                RuntimeOrigin::signed(attestor_2.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert_eq!(
-                res,
-                Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+                res.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Stale)
             );
         })
     }
@@ -8567,10 +8575,13 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &account.attestor_id,
+                RuntimeOrigin::signed(account.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert!(
