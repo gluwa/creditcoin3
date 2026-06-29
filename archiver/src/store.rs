@@ -166,7 +166,10 @@ impl RootStore {
 
         let mut batch = sled::Batch::default();
         for (height, root, block_hash) in roots {
-            batch.insert(&height.to_be_bytes(), encode_value(*root, *block_hash).as_slice());
+            batch.insert(
+                &height.to_be_bytes(),
+                encode_value(*root, *block_hash).as_slice(),
+            );
         }
         self.db
             .apply_batch(batch)

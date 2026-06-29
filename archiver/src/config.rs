@@ -50,12 +50,6 @@ pub struct Config {
     #[arg(long, env = "MAX_API_RANGE", default_value = "1000")]
     pub max_api_range: u64,
 
-    /// Maximum number of in-flight `/roots` API requests served concurrently.
-    /// Requests beyond this limit are rejected immediately with HTTP 429 rather
-    /// than queued, protecting the archiver from range-scan fan-out overload.
-    #[arg(long, env = "MAX_API_CONCURRENCY", default_value = "16")]
-    pub max_api_concurrency: NonZeroUsize,
-
     /// Timeout in seconds for the stream before treating it as stalled.
     #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "120")]
     pub stream_timeout_secs: u64,
