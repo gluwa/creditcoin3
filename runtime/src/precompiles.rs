@@ -37,7 +37,7 @@ type GluwaPrecompilesInner<R> = (
     PrecompileAt<AddressU64<6>, Bn128Add, EthereumPrecompilesChecks>,
     PrecompileAt<AddressU64<7>, Bn128Mul, EthereumPrecompilesChecks>,
     PrecompileAt<AddressU64<8>, Bn128Pairing, EthereumPrecompilesChecks>,
-    PrecompileAt<AddressU64<1024>, Sha3FIPS256, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<1024>, Sha3FIPS256<R, ()>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<1025>, ECRecoverPublicKey, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4049>, SubstrateTransferPrecompile<R, ()>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4050>, BlockProverPrecompile<R>, NonEthereumPrecompileChecks>,
