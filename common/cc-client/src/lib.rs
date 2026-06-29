@@ -4,7 +4,8 @@ use arc_swap::ArcSwap;
 use sp_core::U256;
 use subxt::{
     backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, error::RpcError,
-    ext::jsonrpsee::core::client::Error as JsonRpseeError, OnlineClient, SubstrateConfig,
+    ext::jsonrpsee::core::client::Error as JsonRpseeError,
+    ext::subxt_rpcs::Error as SubxtRpcsError, OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
@@ -99,10 +100,19 @@ impl From<subxt::Error> for Error {
 ///     emits when the WS background task goes away (see [`is_transient_custom_message`]).
 fn is_transient_subxt(err: &subxt::Error) -> bool {
     match err {
-        subxt::Error::Rpc(
-            RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
-        ) => true,
-        subxt::Error::Rpc(RpcError::ClientError(boxed)) => {
+        subxt::Error::Rpc(RpcError::SubscriptionDropped) => true,
+        subxt::Error::Rpc(RpcError::ClientError(rpc_err)) => is_transient_rpcs(rpc_err),
+        _ => false,
+    }
+}
+
+/// Classifier for the inner [`SubxtRpcsError`]. subxt 0.44 moved the RPC-client error variants
+/// (`DisconnectedWillReconnect`, the boxed jsonrpsee client error) out of `RpcError` and into
+/// `subxt_rpcs::Error`, reached via `RpcError::ClientError`.
+fn is_transient_rpcs(err: &SubxtRpcsError) -> bool {
+    match err {
+        SubxtRpcsError::DisconnectedWillReconnect(_) => true,
+        SubxtRpcsError::Client(boxed) => {
             let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() else {
                 return false;
             };
@@ -418,12 +428,10 @@ impl Client {
                     (*epoch == two_epoch_ago).then_some(*randomness)
                 })
             })
-            .ok_or(Error::ConnectionError(Reconnect(subxt::Error::Rpc(
-                // Babe randomness is no persisted by substrate in storage an might be missing for
-                // the first two epochs after node crash.
-                RpcError::RequestRejected(format!(
-                    "Failed to get Babe VRF at epoch {two_epoch_ago}"
-                )),
+            .ok_or(Error::ConnectionError(Reconnect(subxt::Error::Other(
+                // Babe randomness is not persisted by substrate in storage and might be missing
+                // for the first two epochs after node crash.
+                format!("Failed to get Babe VRF at epoch {two_epoch_ago}"),
             ))))?;
 
         Ok((randomness, two_epoch_ago))
@@ -1066,7 +1074,7 @@ impl Client {
     }
 
     pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
-        let storage_query = cc3::storage().system().account(account);
+        let storage_query = cc3::storage().system().account(account.clone());
         let account_info = self
             .inner
             .load()
@@ -1174,7 +1182,9 @@ impl Client {
 
 impl ClientInner {
     async fn new(url: &str) -> Result<Self, Error> {
-        let rpc = RpcClient::from_insecure_url(url).await?;
+        let rpc = RpcClient::from_insecure_url(url)
+            .await
+            .map_err(|e| subxt::Error::from(RpcError::from(e)))?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc).await?;
 
         Ok(Self { api })
@@ -1226,7 +1236,10 @@ mod util {
     }
 
     pub fn is_fee_error(e: &subxt::Error) -> bool {
-        if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e {
+        if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(
+            subxt::ext::subxt_rpcs::Error::Client(err),
+        )) = e
+        {
             if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
                 err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
             {
@@ -1372,9 +1385,9 @@ mod transient_classifier_tests {
         // watchdog, surfacing as `Rpc(ClientError(RequestTimeout))`. Must reconnect, not crash —
         // otherwise `StreamCC3` yields it out and the production worker dies (no internal retry
         // for non-`ConnectionError`).
-        let err = subxt::Error::Rpc(RpcError::ClientError(Box::new(
-            JsonRpseeError::RequestTimeout,
-        )));
+        let err = subxt::Error::Rpc(RpcError::ClientError(
+            subxt::ext::subxt_rpcs::Error::Client(Box::new(JsonRpseeError::RequestTimeout)),
+        ));
         assert!(
             is_transient_subxt(&err),
             "RequestTimeout must classify as transient"

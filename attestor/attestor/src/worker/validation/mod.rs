@@ -1064,7 +1064,9 @@ impl WorkerAttestationValidation {
                     // does not included them into the mempool to avoid competing attestors paying
                     // an inclusion fee.
                     if let cc_client::Error::SubxtError(subxt::Error::Rpc(
-                        subxt::error::RpcError::ClientError(boxed),
+                        subxt::error::RpcError::ClientError(subxt::ext::subxt_rpcs::Error::Client(
+                            boxed,
+                        )),
                     )) = &err
                     {
                         if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(obj)) =
