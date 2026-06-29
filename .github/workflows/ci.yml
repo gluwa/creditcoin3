@@ -63,6 +63,7 @@ jobs:
               - "primitives/**"
               - "runtime/**"
               - "cli/yarn.lock"
+              - "cli/src/scripts/queryPalletVersions.ts"
               - "cli/src/test/attestation-tests/**"
               - ".github/workflows/ci.yml"
             cc3_indexer:
