@@ -18,10 +18,10 @@
 //! call. A transaction whose block is not yet attested returns HTTP 422 (`BlockNotReady`) from the
 //! proof-gen API and is retried on the next tick.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Bytes, B256};
@@ -30,6 +30,7 @@ use alloy::rpc::types::Filter;
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol_types::SolEvent;
 use anyhow::{anyhow, Context, Result};
+use futures::StreamExt;
 use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
@@ -47,6 +48,25 @@ pub const ACK_POLL_INTERVAL_SECS: u64 = 6;
 /// than this are rejected on submission (`EncodedTransactionTooLarge`), so we skip them locally
 /// instead of paying gas on a guaranteed revert.
 pub const MAX_ENCODED_TRANSACTION_BYTES: usize = 500_000;
+
+/// Hard cap on the unacknowledged-tx queue. Without it a prolonged proof-gen outage (or a delivery
+/// whose block never attests) would grow `pending` without bound. On overflow the oldest entry is
+/// given up (logged) so newer deliveries keep flowing.
+const MAX_PENDING_ACKS: usize = 10_000;
+
+/// Hard cap on the set of recently-finished tx hashes kept for in-session dedup. The destination
+/// cursor is monotonic, so evicting the oldest entries cannot cause a re-scan to re-process them —
+/// this just stops a long-running relayer from leaking one entry per delivery forever.
+const MAX_DONE_TRACKED: usize = 10_000;
+
+/// Most pending txs attempted per tick. Bounds how long one tick can run (and how many proof-gen
+/// requests it can fan out) regardless of how large `pending` has grown; the rest are retried on
+/// subsequent ticks in oldest-first order.
+const MAX_ACKS_PER_TICK: usize = 256;
+
+/// Maximum concurrent proof-fetch + submit attempts within a tick. Bounds load on the proof-gen
+/// API and the source RPC while still pipelining instead of going strictly serial.
+const MAX_ACK_CONCURRENCY: usize = 8;
 
 /// Spawn the acknowledgment submitter for one route. Returns immediately when the route has no
 /// `ack` config; otherwise loops until `cancel` fires or an unrecoverable error occurs.
@@ -120,9 +140,9 @@ pub async fn run(
     };
 
     // Destination tx hashes seen but not yet acknowledged (proof not ready / transient failure).
-    let mut pending: HashSet<B256> = HashSet::new();
-    // Tx hashes already acknowledged (or terminally skipped) — never re-submitted.
-    let mut done: HashSet<B256> = HashSet::new();
+    let mut pending = PendingAcks::new(MAX_PENDING_ACKS);
+    // Tx hashes already acknowledged (or terminally skipped) — never re-submitted (bounded).
+    let mut done = BoundedSeen::new(MAX_DONE_TRACKED);
 
     let mut tick = tokio::time::interval(Duration::from_secs(ACK_POLL_INTERVAL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -176,8 +196,8 @@ async fn discover_delivered<P: Provider>(
     confirmation_depth: u64,
     provider: &P,
     last_seen: &mut u64,
-    pending: &mut HashSet<B256>,
-    done: &HashSet<B256>,
+    pending: &mut PendingAcks,
+    done: &BoundedSeen,
 ) -> Result<()> {
     let tip = provider.get_block_number().await?;
     let to_block = tip.saturating_sub(confirmation_depth);
@@ -204,8 +224,15 @@ async fn discover_delivered<P: Provider>(
             );
             continue;
         };
-        if done.contains(&tx_hash) || !pending.insert(tx_hash) {
+        if done.contains(&tx_hash) || pending.contains(&tx_hash) {
             continue;
+        }
+        if let Some(evicted) = pending.insert(tx_hash, Instant::now()) {
+            warn!(
+                chain_key,
+                %evicted,
+                "ack pending queue at capacity; giving up on oldest un-acknowledged delivery"
+            );
         }
         debug!(chain_key, %tx_hash, "🧾 observed MessageDelivered; queued for acknowledgment");
     }
@@ -221,12 +248,32 @@ async fn process_pending<P: Provider>(
     ack: &AckConfig,
     client: &ProofGenClient,
     source_provider: &P,
-    pending: &mut HashSet<B256>,
-    done: &mut HashSet<B256>,
+    pending: &mut PendingAcks,
+    done: &mut BoundedSeen,
 ) {
-    let todo: Vec<B256> = pending.iter().copied().collect();
-    for tx_hash in todo {
-        match acknowledge_tx(chain_key, ack, client, source_provider, tx_hash).await {
+    // Retry oldest-first, a bounded batch per tick, so a large backlog cannot make one tick run
+    // unboundedly long (or starve `discover_delivered` / shutdown).
+    let batch = pending.oldest(MAX_ACKS_PER_TICK);
+    if batch.is_empty() {
+        return;
+    }
+
+    // Fetch proofs + submit with bounded concurrency rather than strictly serially: each attempt
+    // is independent and dominated by network latency. Mutations to `pending`/`done` are applied
+    // afterwards, on this task, so no shared-state synchronization is needed.
+    let results: Vec<(B256, Result<AckOutcome>)> = futures::stream::iter(batch)
+        .map(|tx_hash| async move {
+            (
+                tx_hash,
+                acknowledge_tx(chain_key, ack, client, source_provider, tx_hash).await,
+            )
+        })
+        .buffer_unordered(MAX_ACK_CONCURRENCY)
+        .collect()
+        .await;
+
+    for (tx_hash, outcome) in results {
+        match outcome {
             Ok(AckOutcome::Acknowledged) => {
                 info!(chain_key, %tx_hash, "✅ delivery acknowledged on source Outbox");
                 pending.remove(&tx_hash);
@@ -242,6 +289,91 @@ async fn process_pending<P: Provider>(
             }
             Err(err) => {
                 warn!(chain_key, %tx_hash, %err, "ack attempt failed transiently; will retry");
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bounded tracking structures
+// ---------------------------------------------------------------------------
+
+/// Destination tx hashes awaiting acknowledgment, bounded by [`MAX_PENDING_ACKS`]. Retried
+/// oldest-first; on overflow the oldest entry is evicted (an unacknowledged delivery we give up
+/// on) so the queue cannot grow without limit during a proof-gen outage.
+struct PendingAcks {
+    seen: HashMap<B256, Instant>,
+    cap: usize,
+}
+
+impl PendingAcks {
+    fn new(cap: usize) -> Self {
+        Self {
+            seen: HashMap::new(),
+            cap,
+        }
+    }
+
+    fn contains(&self, tx: &B256) -> bool {
+        self.seen.contains_key(tx)
+    }
+
+    fn remove(&mut self, tx: &B256) {
+        self.seen.remove(tx);
+    }
+
+    /// Track a newly-observed tx (no-op if already tracked). Returns the tx hash evicted to honour
+    /// the cap, if any — the caller logs it as an unacknowledged delivery being abandoned.
+    fn insert(&mut self, tx: B256, now: Instant) -> Option<B256> {
+        if self.seen.contains_key(&tx) {
+            return None;
+        }
+        self.seen.insert(tx, now);
+        if self.seen.len() > self.cap {
+            if let Some((&oldest, _)) = self.seen.iter().min_by_key(|(_, &t)| t) {
+                self.seen.remove(&oldest);
+                return Some(oldest);
+            }
+        }
+        None
+    }
+
+    /// The oldest `n` tracked tx hashes, oldest-first.
+    fn oldest(&self, n: usize) -> Vec<B256> {
+        let mut entries: Vec<(B256, Instant)> = self.seen.iter().map(|(&h, &t)| (h, t)).collect();
+        entries.sort_by_key(|&(_, t)| t);
+        entries.into_iter().take(n).map(|(h, _)| h).collect()
+    }
+}
+
+/// A FIFO set of fixed capacity: insertion past `cap` evicts the oldest entry. Used to remember
+/// recently-finished tx hashes for in-session dedup without leaking memory over long uptimes.
+struct BoundedSeen {
+    set: HashSet<B256>,
+    order: VecDeque<B256>,
+    cap: usize,
+}
+
+impl BoundedSeen {
+    fn new(cap: usize) -> Self {
+        Self {
+            set: HashSet::new(),
+            order: VecDeque::new(),
+            cap,
+        }
+    }
+
+    fn contains(&self, tx: &B256) -> bool {
+        self.set.contains(tx)
+    }
+
+    fn insert(&mut self, tx: B256) {
+        if self.set.insert(tx) {
+            self.order.push_back(tx);
+            if self.set.len() > self.cap {
+                if let Some(old) = self.order.pop_front() {
+                    self.set.remove(&old);
+                }
             }
         }
     }
@@ -534,5 +666,59 @@ mod tests {
         assert!(!is_terminal_revert(
             &"error sending request: connection refused"
         ));
+    }
+
+    fn tx(n: u8) -> B256 {
+        B256::from([n; 32])
+    }
+
+    #[test]
+    fn pending_dedupes_and_reports_no_eviction_under_cap() {
+        let mut p = PendingAcks::new(4);
+        let now = Instant::now();
+        assert!(p.insert(tx(1), now).is_none());
+        assert!(p.contains(&tx(1)));
+        // Re-inserting the same tx is a no-op (no eviction, still tracked once).
+        assert!(p.insert(tx(1), now).is_none());
+        assert_eq!(p.oldest(10), vec![tx(1)]);
+    }
+
+    #[test]
+    fn pending_evicts_oldest_on_overflow() {
+        let mut p = PendingAcks::new(2);
+        let t0 = Instant::now();
+        // Distinct, increasing timestamps so "oldest" is unambiguous.
+        assert!(p.insert(tx(1), t0).is_none());
+        assert!(p.insert(tx(2), t0 + Duration::from_millis(1)).is_none());
+        // Third insert exceeds cap → evicts tx(1), the oldest.
+        let evicted = p.insert(tx(3), t0 + Duration::from_millis(2));
+        assert_eq!(evicted, Some(tx(1)));
+        assert!(!p.contains(&tx(1)));
+        assert!(p.contains(&tx(2)));
+        assert!(p.contains(&tx(3)));
+    }
+
+    #[test]
+    fn pending_oldest_is_fifo_and_bounded_by_n() {
+        let mut p = PendingAcks::new(100);
+        let t0 = Instant::now();
+        for i in 0..5u8 {
+            p.insert(tx(i), t0 + Duration::from_millis(u64::from(i)));
+        }
+        assert_eq!(p.oldest(3), vec![tx(0), tx(1), tx(2)]);
+        p.remove(&tx(0));
+        assert_eq!(p.oldest(3), vec![tx(1), tx(2), tx(3)]);
+    }
+
+    #[test]
+    fn bounded_seen_is_fifo_capped() {
+        let mut s = BoundedSeen::new(2);
+        s.insert(tx(1));
+        s.insert(tx(1)); // idempotent
+        s.insert(tx(2));
+        s.insert(tx(3)); // evicts tx(1)
+        assert!(!s.contains(&tx(1)));
+        assert!(s.contains(&tx(2)));
+        assert!(s.contains(&tx(3)));
     }
 }
