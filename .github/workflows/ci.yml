@@ -287,6 +287,7 @@ jobs:
               --rpc-ws ws://localhost:8141 \
               --start-height 0 \
               --flush-every 5 \
+              --chain-key 2 \
               --api-bind 0.0.0.0:8080 >/var/tmp/integration-test-attestor-network/archiver.log 2>&1 &
 
       - name: Start creditcoin3-node - Bob
@@ -1281,8 +1282,7 @@ jobs:
             verify \
             --eth-rpc-url ws://127.0.0.1:8141 \
             --block-height ${{ steps.native-transfer-anvil-1.outputs.block_number }} \
-            --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }} \
-            --data-choice 4
+            --txn-hash ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
 
       # WARNING: upload logs before killing running processes b/c the created temporary directories
       # may be removed once the program exits. Read about the implementation details at:
@@ -1711,6 +1711,7 @@ jobs:
               --rpc-ws ws://localhost:8141 \
               --start-height 0 \
               --flush-every 5 \
+              --chain-key 2 \
               --api-bind 0.0.0.0:8080 >/var/tmp/archiver-testing/archiver.log 2>&1 &
 
       - name: Start Attestation Zombienet for Alice - Anvil 1

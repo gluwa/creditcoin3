@@ -47,10 +47,29 @@ impl RootSource for SledSource {
     }
 
     fn get_range(&self, start_height: u64, end_height: u64) -> Result<Vec<RootInfo>> {
-        let mut results = Vec::new();
-        for root in self.iter_range(start_height, end_height) {
-            results.push(root?);
+        let results: Vec<RootInfo> = self
+            .iter_range(start_height, end_height)
+            .collect::<Result<Vec<_>>>()?;
+
+        let expected_count = (end_height - start_height + 1) as usize;
+        if results.len() != expected_count {
+            anyhow::bail!(
+                "Sled database has {} entries for range [{start_height}, {end_height}], \
+                 expected {expected_count}",
+                results.len()
+            );
         }
+        for (i, entry) in results.iter().enumerate() {
+            let expected_height = start_height + i as u64;
+            if entry.height != expected_height {
+                anyhow::bail!(
+                    "Non-contiguous heights in sled database: expected height {expected_height} \
+                     at index {i}, got {} (range [{start_height}, {end_height}])",
+                    entry.height
+                );
+            }
+        }
+
         Ok(results)
     }
 
@@ -163,5 +182,53 @@ mod tests {
         assert_eq!(roots.len(), 4); // [2, 3, 4, 5]
         assert_eq!(roots[0].height, 2);
         assert_eq!(roots[3].height, 5);
+    }
+
+    #[test]
+    fn test_get_range_gap_returns_error() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_db");
+
+        {
+            let db = sled::open(&db_path).unwrap();
+            // Insert heights 0, 1, 2, 4, 5 — block 3 is missing
+            for height in [0u64, 1, 2, 4, 5] {
+                let key = height.to_be_bytes();
+                let mut digest = [0u8; 32];
+                digest[0..8].copy_from_slice(&height.to_be_bytes());
+                db.insert(key, &digest[..]).unwrap();
+            }
+            db.flush().unwrap();
+        }
+
+        let source = SledSource::open(&db_path).unwrap();
+        assert!(
+            source.get_range(0, 5).is_err(),
+            "expected error for range with gap"
+        );
+    }
+
+    #[test]
+    fn test_get_range_missing_end_returns_error() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_db");
+
+        {
+            let db = sled::open(&db_path).unwrap();
+            for height in 0u64..5 {
+                let key = height.to_be_bytes();
+                let mut digest = [0u8; 32];
+                digest[0..8].copy_from_slice(&height.to_be_bytes());
+                db.insert(key, &digest[..]).unwrap();
+            }
+            db.flush().unwrap();
+        }
+
+        let source = SledSource::open(&db_path).unwrap();
+        // Request [0, 9] but only [0, 4] exist
+        assert!(
+            source.get_range(0, 9).is_err(),
+            "expected error when range exceeds available data"
+        );
     }
 }

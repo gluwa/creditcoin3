@@ -227,6 +227,7 @@ impl frame_system::Config for Runtime {
     type SingleBlockMigrations = (
         pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
         pallet_attestation::MigrateAttestorsCountV1ToV2<Runtime>,
+        pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
         migrations::v1_init_supported_chains::Migration<Runtime>,
         migrations::v1_init_attestation::Migration<Runtime>,
         migrations::v1_init_operators::Migration<Runtime>,
@@ -945,10 +946,17 @@ impl pallet_supported_chains::Config for Runtime {
     type OperatorsOrigin = EnsureRootOrOperators;
 }
 
+parameter_types! {
+    /// Maximum number of epoch-indexed randomness entries retained on chain. Once full,
+    /// inserting a new epoch evicts the oldest entry. Adjust to taste.
+    pub const MaxRandomnessEntries: u32 = 5;
+}
+
 impl pallet_randomness::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_randomness::weights::WeightInfo<Runtime>;
     type EventListeners = Attestation;
+    type MaxRandomnessEntries = MaxRandomnessEntries;
 }
 
 parameter_types! {

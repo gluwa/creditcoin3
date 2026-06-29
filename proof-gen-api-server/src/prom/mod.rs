@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicI64, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use eth::metrics::BlockCacheMetrics;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
@@ -45,6 +44,8 @@ pub trait MetricsTrait: Send + Sync + Debug {
 
     // Business metrics
     fn observe_block_range(&self, block: u64);
+    fn set_last_attested_height(&self, chain_key: u64, height: Option<u64>);
+    fn set_last_checkpoint_height(&self, chain_key: u64, height: Option<u64>);
 }
 
 /// Metrics type alias for use throughout the codebase.
@@ -78,6 +79,8 @@ impl MetricsTrait for NoopMetrics {
 
     // Business metrics
     fn observe_block_range(&self, _block: u64) {}
+    fn set_last_attested_height(&self, _chain_key: u64, _height: Option<u64>) {}
+    fn set_last_checkpoint_height(&self, _chain_key: u64, _height: Option<u64>) {}
 }
 
 /// Comprehensive metrics for the proof-gen-api-server.
@@ -101,6 +104,8 @@ pub struct ProofGenMetrics {
 
     // Business metrics
     block_range: Histogram,
+    last_attested_height: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    last_checkpoint_height: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
     /// Server start time as Unix timestamp (seconds since epoch).
     /// Use PromQL `time() - proof_gen_start_time_seconds` to calculate uptime.
     /// This field is registered with Prometheus registry and accessed during encoding,
@@ -112,9 +117,6 @@ pub struct ProofGenMetrics {
     cpu_usage_percent: Gauge<f64, AtomicU64>,
     memory_usage_bytes: Gauge<f64, AtomicU64>,
     thread_count: Gauge<i64, AtomicI64>,
-
-    // Block cache metrics (for Redis block cache)
-    block_cache_metrics: BlockCacheMetrics,
 }
 
 impl ProofGenMetrics {
@@ -178,6 +180,20 @@ impl ProofGenMetrics {
             block_range.clone(),
         );
 
+        let last_attested_height = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_last_attested_height",
+            "Latest attested source-chain height cached by the proof-gen server",
+            last_attested_height.clone(),
+        );
+
+        let last_checkpoint_height = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_last_checkpoint_height",
+            "Latest checkpoint source-chain height cached by the proof-gen server",
+            last_checkpoint_height.clone(),
+        );
+
         let start_time_seconds = Gauge::default();
         // Set start time once at initialization (Unix timestamp)
         let now = SystemTime::now()
@@ -226,9 +242,6 @@ impl ProofGenMetrics {
             }),
         );
 
-        // Block cache metrics (for Redis block cache, registered in the same registry)
-        let block_cache_metrics = BlockCacheMetrics::new(&mut registry);
-
         Self {
             registry,
             requests,
@@ -239,17 +252,13 @@ impl ProofGenMetrics {
             merkle_generation_duration,
             last_proof_generation_timestamp,
             block_range,
+            last_attested_height,
+            last_checkpoint_height,
             start_time_seconds,
             cpu_usage_percent,
             memory_usage_bytes,
             thread_count,
-            block_cache_metrics,
         }
-    }
-
-    /// Get block cache metrics for use with the eth client's Redis cache.
-    pub fn block_cache_metrics(&self) -> BlockCacheMetrics {
-        self.block_cache_metrics.clone()
     }
 
     /// Encode all metrics to OpenMetrics text format.
@@ -389,6 +398,26 @@ impl MetricsTrait for ProofGenMetrics {
     fn observe_block_range(&self, block: u64) {
         self.block_range.observe(block as f64);
     }
+
+    fn set_last_attested_height(&self, chain_key: u64, height: Option<u64>) {
+        let labels = labels::LabelChain { chain_key };
+        if let Some(height) = height {
+            self.last_attested_height.get_or_create(&labels).set(height);
+        } else {
+            let _ = self.last_attested_height.remove(&labels);
+        }
+    }
+
+    fn set_last_checkpoint_height(&self, chain_key: u64, height: Option<u64>) {
+        let labels = labels::LabelChain { chain_key };
+        if let Some(height) = height {
+            self.last_checkpoint_height
+                .get_or_create(&labels)
+                .set(height);
+        } else {
+            let _ = self.last_checkpoint_height.remove(&labels);
+        }
+    }
 }
 
 /// Info metric items following the attestor pattern.
@@ -421,6 +450,11 @@ mod labels {
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
     pub struct LabelEndpoint {
         pub endpoint: Endpoint,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+    pub struct LabelChain {
+        pub chain_key: u64,
     }
 
     // Transfer direction labels (for request/response size)
@@ -463,6 +497,7 @@ mod labels {
         InvalidParameter,
         TxHashNotFound,
         TxIndexOutOfBounds,
+        EmptyBlockTxProof,
         AttestationsMissing,
         QueryOutOfRange,
         TxHashLookupUnavailable,

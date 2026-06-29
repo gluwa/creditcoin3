@@ -10,11 +10,11 @@ const config: HardhatUserConfig = {
     solidity: '0.8.24',
     networks: {
         creditcoinDevnet: {
-            url: 'https://rpc.usc-devnet.creditcoin.network',
+            url: 'https://rpc.cc3-devnet.creditcoin.network',
             accounts: [CC3TEST_PRIVATE_KEY],
         },
         creditcoinTestnet: {
-            url: 'https://rpc.usc-testnet2.creditcoin.network',
+            url: 'https://rpc.cc3-testnet.creditcoin.network',
             accounts: [CC3TEST_PRIVATE_KEY],
         },
         creditcoinMainnet: {

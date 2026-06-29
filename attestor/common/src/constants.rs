@@ -7,13 +7,17 @@ pub const CAPACITY_CHANNEL: usize = 100;
 
 /// Finality timeout before an attestation vote is assumed to have failed.
 ///
-/// Since attestation submission leader election takes place on a round-vrf basis, it is
-/// possible for no leader to be elected. Since no consensus is made on the specific set of leaders
-/// being elected, and this election is probabilistic, attestors have no way of knowing when an
-/// election fails. As a failsafe, attestors will wait for finality to conclude for a max duration
-/// of [`ATTESTATION_TIMEOUT`], after which they will assume that no leader has been elected and
-/// retry their elegibility check with different parameters.
-pub const ATTESTATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Every attestor submits its proof on quorum (the `PrevalidateAttestationCommit` runtime
+/// extension dedups the race at txpool admission), so there is no leader election to wait on.
+/// A submitted height can still fail to finalize — a stuck or slow chain, a dropped tx — and
+/// attestors have no positive signal for that. As a failsafe they wait for finality for a max
+/// duration of [`ATTESTATION_TIMEOUT`], after which they assume the height stalled and retry.
+///
+/// Sized for usc-devnet observed worst-case: cc3 BlockAttested arrival is typically 30–100 s
+/// after quorum is reached. 30 s was too tight — it produced spurious "🏃 finalization timed
+/// out" WARN logs on every slow-finalizing height even though the chain caught up on its own.
+/// 120 s covers the long-tail without giving up on a genuinely stuck height.
+pub const ATTESTATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// General delay used to retry network connections.
 pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
@@ -46,5 +50,5 @@ pub const MAX_CONCURRENT_RPC_CALLS: std::num::NonZeroUsize = std::num::NonZero::
 pub const WORKER_COUNT: usize = 4;
 
 /// Minimum balance required for an attestor to operate.
-/// This is equivalent to 100 CTC.
-pub const MIN_BALANCE: u128 = 100_000_000_000_000_000_000;
+/// This is equivalent to 1 CTC.
+pub const MIN_BALANCE: u128 = 1_000_000_000_000_000_000;

@@ -35,7 +35,6 @@ cargo run --bin query-cli -- \
   --eth-rpc-url http://localhost:8545 \
   --block-height 12345 \
   --txn-hash 0xabc... \
-  --data-choice 3 \
   --send-tx
 ```
 
@@ -119,7 +118,6 @@ Options:
 - `--eth-rpc-url`: Source chain RPC URL
 - `--block-height`: Block number to query
 - `--txn-hash`: Transaction hash to verify
-- `--data-choice`: Data selection (0=All, 1=Range, 2=ERC20, 3=Native)
 - `--send-tx`: Send as transaction (costs gas) instead of call
 
 #### `transfer`

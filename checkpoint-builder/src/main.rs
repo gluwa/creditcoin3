@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
@@ -115,6 +115,72 @@ async fn main() -> Result<()> {
         info!("Source validation successful: all checkpoint ranges are present");
     } else {
         warn!("Source validation is disabled. If the source is missing any blocks in the specified ranges, checkpoint generation may fail or produce incomplete results.");
+    }
+
+    // On-chain starting digest verification.
+    // When --cc3-rpc-url is provided we verify that the on-chain last checkpoint for
+    // --chain-key matches --starting-digest before generating anything, preventing a
+    // wrong anchor from silently poisoning all subsequent checkpoints.
+    if let (Some(starting_digest), Some(chain_key), Some(rpc_url)) = (
+        config.starting_digest,
+        config.chain_key,
+        config.cc3_rpc_url.as_deref(),
+    ) {
+        info!(
+            "Verifying starting digest against on-chain state \
+             (chain_key={chain_key}, url={rpc_url})..."
+        );
+        let cc3 = cc_client::Client::new_read_only(rpc_url)
+            .await
+            .context("Failed to connect to CC3 node for starting digest verification")?;
+
+        match cc3.get_last_checkpoint(chain_key).await {
+            Ok(Some(on_chain)) => {
+                if on_chain.digest != starting_digest {
+                    bail!(
+                        "starting_digest mismatch: on-chain last checkpoint for \
+                         chain_key={chain_key} has digest {} at block {}, \
+                         but --starting-digest is {}",
+                        on_chain.digest,
+                        on_chain.block_number,
+                        starting_digest
+                    );
+                }
+                let expected_anchor = config.starting_block() - 1;
+                if on_chain.block_number != expected_anchor {
+                    bail!(
+                        "starting_digest block number mismatch: on-chain last checkpoint \
+                         is at block {}, but the first range starts at {} \
+                         (anchor must be block {})",
+                        on_chain.block_number,
+                        config.starting_block(),
+                        expected_anchor
+                    );
+                }
+                info!(
+                    "On-chain verification passed: last checkpoint matches starting \
+                     digest at block {}",
+                    on_chain.block_number
+                );
+            }
+            Ok(None) => {
+                warn!(
+                    "No on-chain checkpoint found for chain_key={chain_key}; \
+                     proceeding unverified (chain may be bootstrapping)."
+                );
+            }
+            Err(e) => {
+                bail!(
+                    "Failed to fetch on-chain last checkpoint for \
+                     chain_key={chain_key}: {e}"
+                );
+            }
+        }
+    } else if config.starting_digest.is_some() && config.cc3_rpc_url.is_none() {
+        warn!(
+            "On-chain digest verification skipped: provide --cc3-rpc-url to verify \
+             starting_digest against the on-chain last checkpoint."
+        );
     }
 
     // Channel buffer is sized at 10x the commit interval to allow the producer to stay slightly ahead
@@ -284,9 +350,21 @@ async fn process_range(
 
     let blocks_iter = source.iter_range(iteration_start, range.height_end);
     let mut current_chunk: Vec<source::RootInfo> = Vec::with_capacity(range.checkpoint_interval);
+    let mut expected_height = iteration_start;
 
     for block_result in blocks_iter {
         let block = block_result?;
+
+        if block.height != expected_height {
+            bail!(
+                "Height discontinuity in source data: expected block {expected_height}, \
+                 got {} in range [{}, {}]",
+                block.height,
+                range.height_start,
+                range.height_end
+            );
+        }
+        expected_height += 1;
 
         current_chunk.push(block);
 
@@ -321,33 +399,22 @@ async fn process_range(
         }
     }
 
-    // Handle any remaining blocks in the last partial chunk
-    // This shouldn't happen if ranges are properly validated, but handle it gracefully
+    // A non-empty chunk here means the range block count is not exactly divisible by the
+    // checkpoint interval — this is a hard configuration or source data error.
+    // validate_database (now enabled by default) catches this before we get here, but we
+    // guard again at processing time so the pipeline never silently produces a
+    // non-interval-aligned checkpoint that would corrupt the chain.
     if !current_chunk.is_empty() {
-        warn!(
-            "Processing unexpected partial chunk of {} blocks at end of range",
-            current_chunk.len()
+        bail!(
+            "Incomplete final chunk: {} of {} blocks remain at end of range [{}, {}]. \
+             The block count must be exactly divisible by checkpoint_interval ({}). \
+             Ensure the range is correctly configured and the source has no missing blocks.",
+            current_chunk.len(),
+            range.checkpoint_interval,
+            range.height_start,
+            range.height_end,
+            range.checkpoint_interval
         );
-
-        latest_checkpoint = current_chunk
-            .drain(..)
-            .fold(latest_checkpoint, |prev, block| {
-                attestor_primitives::AttestationCheckpoint {
-                    block_number: block.height,
-                    digest: attestor_primitives::compute_digest_for(
-                        block.height,
-                        &block.digest,
-                        Some(&prev.digest),
-                    ),
-                }
-            });
-
-        debug!(
-            "Sending partial checkpoint for block {} with digest {} to output file",
-            latest_checkpoint.block_number, latest_checkpoint.digest
-        );
-
-        tx.send(latest_checkpoint.clone()).await?;
     }
 
     Ok(latest_checkpoint)

@@ -1,4 +1,4 @@
-import * as proof from '@gluwa/usc-sdk/dist/proof-generator';
+import * as proof from '@gluwa/usc-sdk/dist/proof-provider';
 import { chainInfo } from '@gluwa/usc-sdk/dist/';
 import { EncodingVersion } from '@gluwa/usc-sdk/dist/encoding';
 import { WebSocketProvider, ethers } from 'ethers';
@@ -47,13 +47,13 @@ describe('handleTransactionVerified()', () => {
         // we're now sure that there are enough attestations on the execution chain
 
         const blockProvider = new proof.raw.blockProvider.SimpleBlockProvider(anvil1Provider);
-        const rawProofGenerator = new proof.raw.RawProofGenerator(
+        const rawProofBuilder = new proof.raw.RawProofBuilder(
             chain_Anvil1_Key,
             blockProvider,
             chainInfoProvider,
             EncodingVersion.V1,
         );
-        const rawProofResult = await rawProofGenerator.generateProof(transactionHash!);
+        const rawProofResult = await rawProofBuilder.getProof(transactionHash!);
         expect(rawProofResult.success).toBe(true);
         proofData = rawProofResult.data!;
     }, 120_000);

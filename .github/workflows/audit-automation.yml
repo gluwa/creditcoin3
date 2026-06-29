@@ -20,6 +20,8 @@ jobs:
             slack_channel_id: C0AR9BM30UU
           - config: testnet
             slack_channel_id: C09BX3KSL3C
+          - config: mainnet
+            slack_channel_id: C09BX3KSL3C
 
     steps:
       - uses: actions/checkout@v6
@@ -50,6 +52,6 @@ jobs:
           USC_SLACK_ALERT_GROUP: ${{ secrets.USC_SLACK_ALERT_GROUP }}
           SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
           BSC_RPC_URL: ${{ secrets.BSC_RPC_URL }}
-          MAINNET_RPC_URL: ${{ secrets.MAINNET_RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.USC_SANITY_ETHEREUM_RPC_URL }}
         run: |
           deno task start -- --config config-${{ matrix.config }}.json

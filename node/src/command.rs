@@ -15,6 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use futures::TryFutureExt;
 // Substrate
 use sc_cli::{ChainSpec, SubstrateCli};
@@ -173,10 +175,29 @@ pub fn run() -> sc_cli::Result<()> {
             runner.async_run(|mut config| {
                 let (client, backend, _, task_manager, _) =
                     service::new_chain_ops(&mut config, &cli.eth)?;
-                let aux_revert = Box::new(move |client, _, blocks| {
-                    sc_consensus_grandpa::revert(client, blocks)?;
-                    Ok(())
-                });
+                // Revert both BABE and GRANDPA aux data. Reverting GRANDPA on its own
+                // leaves stale BABE epoch-change / block-weight aux data behind, which can
+                // leave the recovery command in an inconsistent consensus state on next
+                // import. BABE is reverted first because its aux entries are produced
+                // earlier in the import pipeline and GRANDPA's revert is the cheaper
+                // catch-all if the first call fails for an unrelated reason.
+                //
+                // The closure arg types match `AuxRevertHandler<C, BA, B>` in
+                // sc_cli::commands::revert_cmd, where C/BA/B are inferred from the
+                // `cmd.run(client, backend, ...)` call below. Spell them out so
+                // `sc_consensus_babe::revert` (generic over C and BA) can resolve its
+                // type parameters — inference fails on stable rustc otherwise.
+                let aux_revert = Box::new(
+                    move |client: Arc<crate::client::Client>,
+                          backend: Arc<crate::client::FullBackend>,
+                          blocks: sp_runtime::traits::NumberFor<
+                        creditcoin3_runtime::opaque::Block,
+                    >| {
+                        sc_consensus_babe::revert(client.clone(), backend, blocks)?;
+                        sc_consensus_grandpa::revert(client, blocks)?;
+                        Ok(())
+                    },
+                );
                 Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
             })
         }

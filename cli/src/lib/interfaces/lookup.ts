@@ -3165,6 +3165,7 @@ export default {
             'RetiredAttestorPendingFull',
             'AttestorAlreadyAuthorized',
             'NotPreAuthorizedToRegister',
+            'ControllerRetiredByAnotherStash',
             'AttestorNotAuthorized',
             'NoFinalizedAttestation',
             'AttestationsAlreadyExist',
@@ -3203,61 +3204,61 @@ export default {
         _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
     },
     /**
-     * Lookup424: pallet_randomness::pallet::Error<T>
+     * Lookup428: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup426: pallet_membership::pallet::Error<T, I>
+     * Lookup430: pallet_membership::pallet::Error<T, I>
      **/
     PalletMembershipError: {
         _enum: ['AlreadyMember', 'NotMember', 'TooManyMembers'],
     },
     /**
-     * Lookup429: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup433: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup430: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup434: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup431: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup435: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup432: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup436: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup435: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup439: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup436: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup440: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup437: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup441: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup438: frame_metadata_hash_extension::CheckMetadataHash<T>
+     * Lookup442: frame_metadata_hash_extension::CheckMetadataHash<T>
      **/
     FrameMetadataHashExtensionCheckMetadataHash: {
         mode: 'FrameMetadataHashExtensionMode',
     },
     /**
-     * Lookup439: frame_metadata_hash_extension::Mode
+     * Lookup443: frame_metadata_hash_extension::Mode
      **/
     FrameMetadataHashExtensionMode: {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup440: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
+     * Lookup444: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
      **/
     PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
     /**
-     * Lookup442: creditcoin3_runtime::Runtime
+     * Lookup446: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };

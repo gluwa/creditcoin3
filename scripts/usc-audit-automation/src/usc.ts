@@ -76,6 +76,24 @@ export async function connect(wsUrl: string): Promise<void> {
   );
 }
 
+export async function getNativeBalance(address: string): Promise<bigint> {
+  return await withTimeout(getNativeBalanceImpl(address), USC_TIMEOUT_MS);
+}
+
+async function getNativeBalanceImpl(address: string): Promise<bigint> {
+  const a = getApi();
+  const accountInfo = await a.query.system.account(address) as unknown as {
+    data?: {
+      free?: { toString: () => string };
+    };
+  };
+  const free = accountInfo.data?.free?.toString();
+  if (!free || !/^\d+$/.test(free)) {
+    throw new Error(`unexpected native balance response for ${address}`);
+  }
+  return BigInt(free);
+}
+
 export function disconnect(): void {
   if (api) {
     api.disconnect();

@@ -17,10 +17,17 @@ use crate::BlockProverPrecompile;
 pub enum ContinuityVerificationError {
     /// Continuity chain doesn't have enough blocks
     InsufficientBlocks,
+    /// Continuity chain exceeds the maximum allowed number of roots
+    TooManyRoots,
     /// Continuity chain does not reach query height
     ChainDoesNotReachQueryHeight,
     /// Continuity chain does not end at a valid attestation or checkpoint
     NoMatchingAttestationOrCheckpoint,
+    /// `start_block_number + (roots.len() - 1)` would overflow `u64`. Caller-supplied
+    /// `start_block_number` plus a maximally-sized proof must stay within `u64` range;
+    /// rejecting overflow here keeps the precompile from depending on overflow-checking
+    /// build flags to surface bogus inputs.
+    RangeOverflow,
 }
 
 impl ContinuityVerificationError {
@@ -28,10 +35,12 @@ impl ContinuityVerificationError {
     pub fn message(&self) -> &'static str {
         match self {
             Self::InsufficientBlocks => "Continuity chain cannot be empty",
+            Self::TooManyRoots => "Continuity chain exceeds maximum allowed roots",
             Self::ChainDoesNotReachQueryHeight => "Continuity chain does not reach query height",
             Self::NoMatchingAttestationOrCheckpoint => {
                 "Continuity proof does not match attestation or checkpoint"
             }
+            Self::RangeOverflow => "Continuity chain range overflows u64",
         }
     }
 }
@@ -45,7 +54,10 @@ fn continuity_revert(err: ContinuityVerificationError) -> PrecompileFailure {
 
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
-    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation::Config,
+    Runtime: pallet_evm::Config
+        + frame_system::Config
+        + pallet_attestation::Config
+        + pallet_supported_chains::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
@@ -96,8 +108,29 @@ where
             ));
         }
 
-        // Validate the continuity chain reaches the query height (fail early before digest computation)
-        let final_block_number = start_block_number + (continuity_proof.roots.len() - 1) as u64;
+        // Reject absurdly large proofs early, before any hashing work. Legitimate
+        // proofs are far smaller than this cap; the per-root work is also gas-metered,
+        // so this is a fail-fast guard against pathological calldata.
+        if continuity_proof.roots.len() > crate::verify::MAX_CONTINUITY_ROOTS {
+            return Err(continuity_revert(ContinuityVerificationError::TooManyRoots));
+        }
+
+        // Validate the continuity chain reaches the query height (fail early before digest computation).
+        //
+        // `start_block_number` is caller-supplied via EVM calldata and `roots.len()` is bounded by
+        // `MAX_CONTINUITY_ROOTS` above, but the sum is still attacker-controlled and could in
+        // principle wrap `u64`. Release builds previously relied on wrapping behavior and the
+        // height check below to reject pathological inputs; overflow-checking builds would panic.
+        // Use checked arithmetic so both build profiles return a clean revert instead.
+        let roots_len_minus_one = (continuity_proof.roots.len() as u64).saturating_sub(1);
+        let final_block_number = match start_block_number.checked_add(roots_len_minus_one) {
+            Some(n) => n,
+            None => {
+                return Err(continuity_revert(
+                    ContinuityVerificationError::RangeOverflow,
+                ))
+            }
+        };
 
         if final_block_number < height {
             debug!(
@@ -138,13 +171,7 @@ where
         // since they're always used together
         let they_match = attestation_matches || checkpoint_matches;
 
-        // Special case: If the continuity chain ends at query height and query height
-        // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
-        if final_block_number == height && they_match {
-            debug!(
-                "✅ Continuity chain ends at query height {height} which is a checkpoint/attestation"
-            );
-        } else if !they_match {
+        if !they_match {
             // Chain must end at a checkpoint/attestation
             debug!(
                 "❌ Continuity chain ends at block {final_block_number} with digest {final_digest:?}, but no matching attestation or checkpoint found at that height"
@@ -152,6 +179,14 @@ where
             return Err(continuity_revert(
                 ContinuityVerificationError::NoMatchingAttestationOrCheckpoint,
             ));
+        }
+
+        // Special case: If the continuity chain ends at query height and query height
+        // is a checkpoint/attestation, that's valid (allows queries at checkpoint/attestation heights)
+        if final_block_number == height {
+            debug!(
+                "✅ Continuity chain ends at query height {height} which is a checkpoint/attestation"
+            );
         }
 
         Ok(())

@@ -172,6 +172,7 @@ async fn process_cc_event(
 
             let mut intervals = checkpoint_intervals.write().await;
             intervals.insert(*event_chain_key, interval_u64);
+            service.update_checkpoint_interval(*event_chain_key, interval_u64);
 
             info!(
                 "🔗 ✅ Updated checkpoint interval for chain {event_chain_key} to {}",

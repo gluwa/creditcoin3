@@ -287,6 +287,7 @@ impl Client {
             fallback_providers,
             chain_id,
             cache: Some(cache),
+            mem_cache: None,
         })
     }
 

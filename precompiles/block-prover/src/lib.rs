@@ -15,6 +15,7 @@ use frame_support::{
     sp_runtime::traits::Dispatchable,
 };
 use pallet_evm::AddressMapping;
+use pallet_supported_chains::SupportedChains;
 use precompile_utils::{keccak256, prelude::*};
 use sp_core::H256;
 
@@ -87,7 +88,10 @@ type MaxBatchSize = sp_core::ConstU32<10>;
 #[precompile_utils::precompile]
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
-    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation::Config,
+    Runtime: pallet_evm::Config
+        + frame_system::Config
+        + pallet_attestation::Config
+        + pallet_supported_chains::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
@@ -351,16 +355,6 @@ where
         ))
     }
 
-    /// Get the last checkpoint for a chain
-    ///
-    /// Returns the most recent checkpoint for the specified chain.
-    /// Checkpoints are intermediate consensus points between full attestations.
-    /// Currently unused but kept for potential future optimizations.
-    #[allow(dead_code)]
-    fn last_checkpoint(chain_key: u64) -> Option<attestor_primitives::AttestationCheckpoint> {
-        pallet_attestation::Pallet::<Runtime>::last_checkpoint(chain_key)
-    }
-
     /// Check if a digest corresponds to a checkpoint that is currently safe to use
     /// as a continuity-proof trust anchor.
     ///
@@ -374,9 +368,9 @@ where
     /// which is cleaned synchronously) remain readable so verification of
     /// pre-revert proofs is not interrupted for the whole pruning window.
     ///
-    /// Gas: charges `GAS_STORAGE_LOOKUP` twice, once for the `CheckpointPruningStates`
-    /// guard read and once for the `Checkpoints` read itself. Both reads happen
-    /// unconditionally so the pessimistic cost matches the worst case.
+    /// Gas: charges `GAS_STORAGE_LOOKUP` thrice. Once to check that the chain is
+    /// supported, once for the `CheckpointPruningStates` guard read, and once for
+    /// the `Checkpoints` read itself.
     ///
     /// Returns `Ok(Some(..))` / `Ok(None)` on success; gas recording failures surface as `EvmResult` errors.
     fn get_checkpoint(
@@ -384,6 +378,12 @@ where
         chain_key: u64,
         block_number: u64,
     ) -> EvmResult<Option<H256>> {
+        // Charge for the supported chains lookup
+        handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(1))?;
+        if SupportedChains::<Runtime>::get(chain_key).is_none() {
+            return Ok(None);
+        }
+
         // Charge for the pruning-state guard read plus the checkpoint storage lookup.
         handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
         Ok(pallet_attestation::Pallet::<Runtime>::checkpoint_if_stable(

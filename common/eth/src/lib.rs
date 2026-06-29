@@ -28,6 +28,7 @@ use alloy::{
 use anyhow::{Context, Result};
 use hex::FromHexError;
 use sp_core::H256;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{error, info, trace};
@@ -44,6 +45,7 @@ pub mod metrics;
 
 pub mod continuity;
 pub mod evm;
+pub mod mem_block_cache;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -404,6 +406,10 @@ pub struct Client {
     chain_id: u64,
     #[cfg(feature = "block_cache")]
     cache: Option<block_cache::Cache>,
+    /// Optional in-process cache of finalized blocks (opt-in via [`Client::with_block_cache`]).
+    /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
+    /// blocks are immutable.
+    mem_cache: Option<std::sync::Arc<mem_block_cache::MemBlockCache>>,
 }
 
 impl Client {
@@ -453,7 +459,19 @@ impl Client {
             chain_id,
             #[cfg(feature = "block_cache")]
             cache: None,
+            mem_cache: None,
         })
+    }
+
+    /// Enable an in-process [`MemBlockCache`](mem_block_cache::MemBlockCache) holding up to
+    /// `capacity` finalized blocks. Opt-in; the cache only serves blocks fetched through
+    /// [`Client::get_block`]. Safe only for callers that fetch finalized/immutable blocks.
+    #[must_use]
+    pub fn with_block_cache(mut self, capacity: NonZeroUsize) -> Self {
+        self.mem_cache = Some(std::sync::Arc::new(mem_block_cache::MemBlockCache::new(
+            capacity,
+        )));
+        self
     }
 
     /// Build a [`Client`] with ordered fallback RPC URLs.
@@ -484,6 +502,7 @@ impl Client {
             chain_id,
             #[cfg(feature = "block_cache")]
             cache: None,
+            mem_cache: None,
         })
     }
 
@@ -801,7 +820,19 @@ impl Client {
         number: u64,
         encoding: EncodingVersion,
     ) -> Result<OrderedBlock, Interrupt<Error>> {
-        Self::try_fetch_block(self, number, encoding).await
+        // Serve finalized blocks from the in-process cache when enabled — skips the RPC round
+        // trips entirely for blocks already fetched by an overlapping continuity range or a
+        // prior request.
+        if let Some(cache) = &self.mem_cache {
+            if let Some(block) = cache.get(number) {
+                return Ok(block);
+            }
+        }
+        let block = Self::try_fetch_block(self, number, encoding).await?;
+        if let Some(cache) = &self.mem_cache {
+            cache.insert(number, block.clone());
+        }
+        Ok(block)
     }
 
     pub async fn subscribe(
