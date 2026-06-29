@@ -50,6 +50,7 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use parity_scale_codec::FullCodec;
+    use randomness_primitives::provider::RandomnessPalletProvider;
     use sp_staking::StakingInterface;
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
@@ -1324,8 +1325,6 @@ pub mod pallet {
         #[pallet::call_index(25)]
         #[pallet::weight(<T as Config>::WeightInfo::force_election())]
         pub fn force_election(origin: OriginFor<T>, epoch: u64) -> DispatchResult {
-            use randomness_primitives::provider::RandomnessPalletProvider;
-
             T::OperatorsOrigin::ensure_origin(origin)?;
 
             let randomness = T::RandomnessProvider::randomness_by_epoch_id(epoch);

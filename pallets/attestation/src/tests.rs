@@ -7591,33 +7591,54 @@ fn force_election_should_emit_forced_election_event() {
     })
 }
 
-// Regression for #26: `force_election` used to pass a hardcoded `[0; 32]` seed. It must now
-// thread the real on-chain randomness for the requested epoch via `Config::RandomnessProvider`.
+// Regression for #26: `force_election` used to pass a hardcoded `[0; 32]` seed. The fix threads
+// the real on-chain randomness for the requested epoch via `Config::RandomnessProvider`. Rather
+// than compare against a hardcoded seed, iterate over several epochs and assert the provider
+// returns a *distinct* value per epoch (i.e. the source is real per-epoch randomness, not a
+// constant). Checking the seed source is independent of calling `force_election`.
 #[test]
-fn force_election_threads_real_epoch_randomness() {
+fn randomness_provider_returns_distinct_value_per_epoch() {
     use randomness_primitives::provider::RandomnessPalletProvider;
 
     ExtBuilder.build_and_execute(|| {
-        let epoch = 7u64;
-        let seed = [0xABu8; 32];
+        let epochs = [3u64, 4, 5, 6, 7];
 
-        // Seed the randomness pallet for this epoch with a non-zero value.
+        // Seed each epoch with a different, non-zero randomness value.
         pallet_randomness::RandomnessByEpochIndex::<Test>::mutate(|map| {
-            map.try_insert(epoch, seed).expect("room for one entry");
+            for (i, epoch) in epochs.iter().enumerate() {
+                let seed = [(i as u8).wrapping_add(1); 32];
+                map.try_insert(*epoch, seed).expect("room for entry");
+            }
         });
 
-        // The provider the pallet uses for `force_election` exposes the seeded randomness,
-        // proving the wired source is real (not the old hardcoded zero seed).
-        assert_eq!(
-            <Test as Config>::RandomnessProvider::randomness_by_epoch_id(epoch),
-            seed
-        );
-        assert_ne!(
-            <Test as Config>::RandomnessProvider::randomness_by_epoch_id(epoch),
-            [0u8; 32]
-        );
+        // The provider the pallet uses for `force_election` must return a different value for
+        // each epoch (no constant / no all-zero seed).
+        let mut seen = sp_std::collections::btree_set::BTreeSet::new();
+        for epoch in epochs {
+            let value = <Test as Config>::RandomnessProvider::randomness_by_epoch_id(epoch);
+            assert_ne!(
+                value, [0u8; 32],
+                "epoch {epoch} randomness must not be zero"
+            );
+            assert!(
+                seen.insert(value),
+                "epoch {epoch} randomness collided with an earlier epoch"
+            );
+        }
+    })
+}
 
-        // And the extrinsic, which now consumes that seed, still succeeds.
+// Companion check: `force_election` still succeeds while consuming the real per-epoch randomness.
+#[test]
+fn force_election_consumes_real_epoch_randomness() {
+    ExtBuilder.build_and_execute(|| {
+        let epoch = 7u64;
+
+        pallet_randomness::RandomnessByEpochIndex::<Test>::mutate(|map| {
+            map.try_insert(epoch, [0xABu8; 32])
+                .expect("room for one entry");
+        });
+
         assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
         System::assert_last_event(Event::ForcedElection { epoch }.into());
     })
