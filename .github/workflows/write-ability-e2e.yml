@@ -1,6 +1,9 @@
 ---
 # USC write-ability end-to-end: dApp -> Outbox -> attestors (gossip votes) -> relayer
-# (2N/3+1 quorum) -> EOAValidator.validateVotes -> Inbox.deliverMessage -> destination dApp.
+# (2N/3+1 quorum) -> EOAValidator.validateVotes -> Inbox.deliverMessage -> destination dApp,
+# then the proof-based acknowledgment round-trip: proof-gen serves a native USC delivery proof
+# (block-prover precompile: merkle inclusion + continuity) for the attested destination block ->
+# relayer submits it to AcknowledgmentValidator -> Outbox.acknowledgeMessage (acknowledged=true).
 #
 # Modeled on ci.yml's `integration-test-attestator-network`: it reuses the same self-hosted
 # build pipeline (deploy-runner -> build-native.yml) to produce the release binaries, then runs
@@ -96,7 +99,7 @@ jobs:
       - name: Make binaries executable
         run: |
           mkdir -p "$LOGS"
-          chmod a+x ./target/release/creditcoin3-node ./target/release/attestor* ./target/release/message-relayer
+          chmod a+x ./target/release/creditcoin3-node ./target/release/attestor* ./target/release/message-relayer ./target/release/proof-gen-api-server
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -150,6 +153,23 @@ jobs:
           done
           echo "❌ timed out waiting for attestors"; tail -60 "$LOGS/zombienet.log"; exit 1
 
+      - name: Start proof-gen API server (native USC delivery proofs for the ack path)
+        run: |
+          # Legacy single-chain mode (default CHAIN_KEY=2) — consumes BlockAttested for the
+          # destination (anvil, chain_key 2) that the attestors above produce, so it can build the
+          # continuity proofs the AcknowledgmentValidator verifies on the source chain.
+          CHAIN_KEY=2 ./target/release/proof-gen-api-server \
+            --cc3-key //Alice \
+            --cc3-rpc-url ws://localhost:9944 \
+            --eth-rpc-url http://localhost:8545 \
+            --bind-host 127.0.0.1 \
+            --bind-port 3100 >"$LOGS/proof-gen.log" 2>&1 &
+          for i in $(seq 1 30); do
+            grep -q 'Server listening on' "$LOGS/proof-gen.log" && { echo "✅ proof-gen online"; exit 0; }
+            sleep 2
+          done
+          echo "❌ proof-gen did not come online"; tail -40 "$LOGS/proof-gen.log"; exit 1
+
       - name: Start relayer
         working-directory: ./usc-messaging
         env:
@@ -166,7 +186,10 @@ jobs:
             --destination-rpc-url http://localhost:8545 \
             --inbox-address "$INBOX_ADDR" \
             --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
-            --attestor-set "$ATTESTOR_SET" >"$LOGS/relayer.log" 2>&1 &
+            --attestor-set "$ATTESTOR_SET" \
+            --ack-proof-gen-url http://127.0.0.1:3100 \
+            --ack-validator-address "$ACK_VALIDATOR_ADDR" \
+            --ack-signer-key "$CREDITCOIN_CHAIN_PRIVATE_KEY" >"$LOGS/relayer.log" 2>&1 &
           for i in $(seq 1 20); do
             grep -q 'libp2p subscriber online' "$LOGS/relayer.log" && { echo "✅ relayer online"; exit 0; }
             sleep 2
@@ -176,7 +199,7 @@ jobs:
       - name: Publish a cross-chain message
         working-directory: ./usc-messaging
         run: |
-          timeout 180 npx tsx scripts/publish-message/publish-message.ts >"$LOGS/publish.log" 2>&1 || true
+          timeout 180 npx tsx scripts/publish-message/publish-message.ts --requiresAck true >"$LOGS/publish.log" 2>&1 || true
           tail -20 "$LOGS/publish.log" || true
 
       - name: Assert message was delivered on the destination chain
@@ -197,6 +220,36 @@ jobs:
           echo "--- relayer log ---"; tail -60 "$LOGS/relayer.log" || true
           exit 1
 
+      - name: Assert message was acknowledged on the source Outbox (proof-based ack round-trip)
+        working-directory: ./usc-messaging
+        run: |
+          export PATH="$HOME/.foundry/bin:$PATH"
+          set -a; source .env; set +a
+          # messageId is logged by publish-message.ts on MessageDispatched.
+          MSG_ID="$(grep -m1 'messageId:' "$LOGS/publish.log" | grep -oE '0x[0-9a-fA-F]{64}' | head -1)"
+          if [ -z "$MSG_ID" ]; then
+            echo "❌ could not extract messageId from publish log"; tail -40 "$LOGS/publish.log" || true
+            exit 1
+          fi
+          echo "Asserting acknowledgment for messageId=$MSG_ID"
+          # Ack lands ~90s after delivery (waits for the destination block to be attested on CC3,
+          # then proof-gen serves the proof and the relayer submits it). Outbox.messages returns
+          # (address emitter, bool acknowledged, bytes32 payloadHash) — line 2 is `acknowledged`.
+          for i in $(seq 1 60); do
+            ACK="$(cast call "$OUTBOX_ADDR" 'messages(bytes32)(address,bool,bytes32)' "$MSG_ID" \
+              --rpc-url http://127.0.0.1:9944 2>/dev/null | sed -n '2p')"
+            if [ "$ACK" = "true" ]; then
+              echo "✅ message acknowledged — Outbox.messages($MSG_ID).acknowledged=true"
+              grep -E 'acknowledg|submitAcknowledgment|✅' "$LOGS/relayer.log" | tail -10 || true
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "❌ message was NOT acknowledged within timeout"
+          echo "--- relayer log ---"; tail -80 "$LOGS/relayer.log" || true
+          echo "--- proof-gen log ---"; tail -60 "$LOGS/proof-gen.log" || true
+          exit 1
+
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v7
@@ -211,6 +264,6 @@ jobs:
         if: always()
         continue-on-error: true
         run: |
-          killall -TERM message-relayer attestor_zombienet attestor creditcoin3-node anvil || true
+          killall -TERM message-relayer proof-gen-api-server attestor_zombienet attestor creditcoin3-node anvil || true
           sleep 5
-          killall -KILL message-relayer attestor_zombienet attestor creditcoin3-node anvil || true
+          killall -KILL message-relayer proof-gen-api-server attestor_zombienet attestor creditcoin3-node anvil || true
