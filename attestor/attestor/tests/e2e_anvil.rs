@@ -128,7 +128,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     let active_set: HashSet<_> = std::iter::once(msigner.address()).collect();
     let state = MessageVoteState {
         aggregator: Mutex::new(VoteAggregator::new(1, 1000, Duration::from_secs(60))),
-        active_set,
+        active_set: parking_lot::RwLock::new(active_set),
         publish_tx: tokio::sync::mpsc::channel(8).0,
     };
     // Chain-seen (the listener just indexed it).

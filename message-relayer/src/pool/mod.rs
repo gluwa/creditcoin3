@@ -49,6 +49,10 @@ pub struct PoolHandles {
     pub indexed_rx: mpsc::Receiver<IndexedMessage>,
     pub vote_rx: mpsc::Receiver<MessageVote>,
     pub delivery_txs: HashMap<u64, mpsc::Sender<DeliveryJob>>,
+    /// Hot-reloaded attestor sets from the per-route on-chain watchers. Each update replaces a
+    /// route's allowlist + threshold and re-evaluates its pending messages. Routes with a static
+    /// set never send here.
+    pub set_update_rx: mpsc::Receiver<RouteAttestors>,
 }
 
 /// Run the pool task. Returns when `cancel` fires or both inputs close.
@@ -64,7 +68,16 @@ pub async fn run(
         mut indexed_rx,
         mut vote_rx,
         delivery_txs,
+        mut set_update_rx,
     } = handles;
+
+    // Publish the starting allowlist sizes (static routes report their configured size; on-chain
+    // routes start empty until their watcher resolves the set).
+    state.report_set_sizes(metrics.as_ref());
+
+    // Once every set-update sender is dropped (e.g. no on-chain routes, or all watchers exited),
+    // `recv()` yields `None` forever; flip this off so the branch stops being polled.
+    let mut set_updates_open = true;
 
     let mut prune_tick = tokio::time::interval(Duration::from_secs(30));
     prune_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -74,6 +87,27 @@ pub async fn run(
             () = cancel.cancelled() => {
                 info!("🛑 vote pool exiting on cancel");
                 return Ok(());
+            }
+            maybe = set_update_rx.recv(), if set_updates_open => {
+                let Some(update) = maybe else {
+                    set_updates_open = false;
+                    continue;
+                };
+                for job in state.apply_attestor_set(update, metrics.as_ref()) {
+                    if let Some(tx) = delivery_txs.get(&job.chain_key) {
+                        tokio::select! {
+                            res = tx.send(job) => {
+                                if res.is_err() {
+                                    warn!("delivery channel closed; dropping job");
+                                }
+                            }
+                            () = cancel.cancelled() => {
+                                info!("🛑 vote pool exiting on cancel (mid set-reload dispatch)");
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
             }
             maybe = indexed_rx.recv() => {
                 let Some(indexed) = maybe else {
@@ -287,6 +321,90 @@ impl State {
     fn total_pending(&self) -> usize {
         self.by_route.values().map(|r| r.by_message.len()).sum()
     }
+
+    /// Publish the current allowlist size of every route (called at startup and after a reload).
+    fn report_set_sizes(&self, metrics: &dyn crate::prom::MetricsTrait) {
+        for (chain_key, route) in &self.by_route {
+            metrics.set_attestor_set_size(*chain_key, route.attestors.len() as i64);
+        }
+    }
+
+    /// Apply a hot-reloaded attestor set + threshold for one route. Re-evaluates that route's
+    /// not-yet-delivered messages against the **new** set/threshold: signatures from signers no
+    /// longer in the set stop counting, and a lowered threshold (or a now-sufficient set) can push
+    /// an already-collected message over quorum — those are returned as [`DeliveryJob`]s to dispatch.
+    fn apply_attestor_set(
+        &mut self,
+        update: RouteAttestors,
+        metrics: &dyn crate::prom::MetricsTrait,
+    ) -> Vec<DeliveryJob> {
+        let chain_key = update.chain_key;
+        let Some(route) = self.by_route.get_mut(&chain_key) else {
+            warn!(
+                chain_key,
+                "attestor-set update for unconfigured chain_key — ignoring"
+            );
+            return Vec::new();
+        };
+
+        let changed = route.attestors != update.attestors || route.threshold != update.threshold;
+        route.attestors = update.attestors;
+        route.threshold = update.threshold;
+        metrics.set_attestor_set_size(chain_key, route.attestors.len() as i64);
+
+        if !changed {
+            return Vec::new();
+        }
+        metrics.inc_attestor_set_reload(chain_key);
+        info!(
+            chain_key,
+            attestors = route.attestors.len(),
+            threshold = route.threshold,
+            "🔄 attestor set hot-reloaded"
+        );
+
+        // Clone the (small) allowlist so we can iterate `by_message` mutably alongside it.
+        let attestors = route.attestors.clone();
+        let threshold = route.threshold;
+        let mut jobs = Vec::new();
+        for (hash, slot) in route.by_message.iter_mut() {
+            if slot.delivered {
+                continue;
+            }
+            let valid: Vec<[u8; 65]> = slot
+                .signers
+                .iter()
+                .filter(|(addr, _)| attestors.contains(addr))
+                .map(|(_, sig)| *sig)
+                .collect();
+            if valid.len() < threshold {
+                continue;
+            }
+            slot.delivered = true;
+            let signer_count = valid.len();
+            let votes_calldata = encode_votes(&valid);
+            let elapsed = slot.inserted_at.elapsed();
+            metrics.observe_votes_per_message(signer_count as u64);
+            metrics.observe_time_to_threshold(elapsed);
+            info!(
+                chain_key,
+                %hash,
+                signer_count,
+                "✅ threshold reached after set reload — dispatching delivery"
+            );
+            jobs.push(DeliveryJob {
+                chain_key,
+                message_id: slot.indexed.message_id,
+                emitter: slot.indexed.emitter,
+                message_hash: *hash,
+                payload: slot.indexed.payload.clone(),
+                votes_calldata,
+                signer_count,
+                indexed_at: slot.inserted_at,
+            });
+        }
+        jobs
+    }
 }
 
 impl RouteState {
@@ -419,5 +537,114 @@ mod tests {
         state.note_indexed(indexed_for(2, hash), metrics.as_ref());
         state.note_indexed(indexed_for(2, hash), metrics.as_ref());
         assert_eq!(state.total_pending(), 1);
+    }
+
+    /// Seed a slot with `signers` already accepted (bypassing ecrecover) so we can exercise
+    /// `apply_attestor_set`'s re-evaluation directly.
+    fn seed_slot(state: &mut State, chain_key: u64, hash: B256, signers: &[Address]) {
+        let metrics = NoopMetrics::new();
+        state.note_indexed(indexed_for(chain_key, hash), metrics.as_ref());
+        let slot = state
+            .by_route
+            .get_mut(&chain_key)
+            .unwrap()
+            .by_message
+            .get_mut(&hash)
+            .unwrap();
+        for (i, a) in signers.iter().enumerate() {
+            slot.signers.insert(*a, [i as u8 + 1; 65]);
+        }
+    }
+
+    #[test]
+    fn set_reload_lower_threshold_dispatches_pending() {
+        let (a, b, c) = (
+            Address::from([0xa; 20]),
+            Address::from([0xb; 20]),
+            Address::from([0xc; 20]),
+        );
+        let mut state = State::new(
+            vec![RouteAttestors {
+                chain_key: 2,
+                attestors: vec![a, b, c],
+                threshold: 3,
+            }],
+            VoteCacheConfig::default(),
+        );
+        let hash = B256::from([1u8; 32]);
+        seed_slot(&mut state, 2, hash, &[a, b]); // 2 signers, below threshold 3 → not delivered
+
+        // Threshold drops to 2: the already-collected slot now clears quorum and must dispatch.
+        let jobs = state.apply_attestor_set(
+            RouteAttestors {
+                chain_key: 2,
+                attestors: vec![a, b, c],
+                threshold: 2,
+            },
+            NoopMetrics::new().as_ref(),
+        );
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].signer_count, 2);
+    }
+
+    #[test]
+    fn set_reload_removing_signer_revokes_its_vote() {
+        let (a, b, c) = (
+            Address::from([0xa; 20]),
+            Address::from([0xb; 20]),
+            Address::from([0xc; 20]),
+        );
+        let mut state = State::new(
+            vec![RouteAttestors {
+                chain_key: 2,
+                attestors: vec![a, b, c],
+                threshold: 3,
+            }],
+            VoteCacheConfig::default(),
+        );
+        let hash = B256::from([1u8; 32]);
+        seed_slot(&mut state, 2, hash, &[a, b]);
+
+        // Remove `b` and require 2: only `a` still counts (1 < 2), so nothing dispatches and the
+        // slot stays open.
+        let jobs = state.apply_attestor_set(
+            RouteAttestors {
+                chain_key: 2,
+                attestors: vec![a, c],
+                threshold: 2,
+            },
+            NoopMetrics::new().as_ref(),
+        );
+        assert!(jobs.is_empty());
+        let slot = state
+            .by_route
+            .get(&2)
+            .unwrap()
+            .by_message
+            .get(&hash)
+            .unwrap();
+        assert!(!slot.delivered);
+    }
+
+    #[test]
+    fn set_reload_no_change_is_noop() {
+        let a = Address::from([0xa; 20]);
+        let mut state = State::new(
+            vec![RouteAttestors {
+                chain_key: 2,
+                attestors: vec![a],
+                threshold: 1,
+            }],
+            VoteCacheConfig::default(),
+        );
+        let jobs = state.apply_attestor_set(
+            RouteAttestors {
+                chain_key: 2,
+                attestors: vec![a],
+                threshold: 1,
+            },
+            NoopMetrics::new().as_ref(),
+        );
+        assert!(jobs.is_empty());
     }
 }
