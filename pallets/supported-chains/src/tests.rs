@@ -635,6 +635,26 @@ fn set_outbox_factory_addr_should_error_when_chain_is_not_supported() {
 }
 
 #[test]
+fn set_outbox_factory_addr_should_error_when_zero_address() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(
+                RuntimeOrigin::root(),
+                chain_key,
+                H160::zero(),
+            ),
+            Error::<Test>::ZeroOutboxFactoryAddress
+        );
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
 fn set_write_ability_config_works() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
@@ -714,14 +734,14 @@ fn set_write_ability_config_should_error_when_not_signed_by_operator() {
         assert_ok!(SupportedChain::set_write_ability_config(
             RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             chain_key,
-            [0u8; 32],
+            [0x22u8; 32],
             true,
         ));
 
         assert_eq!(
             WriteAbilityConfigs::<Test>::get(chain_key),
             Some(WriteAbilityConfig {
-                write_ability_chain_key: [0u8; 32],
+                write_ability_chain_key: [0x22u8; 32],
                 message_attestation_enabled: true,
             })
         );
@@ -743,6 +763,27 @@ fn set_write_ability_config_should_error_when_chain_is_not_supported() {
                 true,
             ),
             Error::<Test>::ChainNotSupported
+        );
+
+        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
+fn set_write_ability_config_should_error_when_chain_key_is_zero() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_write_ability_config(
+                RuntimeOrigin::root(),
+                chain_key,
+                [0u8; 32],
+                true,
+            ),
+            Error::<Test>::ZeroWriteAbilityChainKey
         );
 
         assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
