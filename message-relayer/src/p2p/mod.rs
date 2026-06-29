@@ -179,8 +179,19 @@ async fn handle_swarm_event(
             };
             match MessageVote::decode_bytes(&message.data) {
                 Ok(vote) if vote.chain_key == chain_key => {
-                    if vote_tx.send(vote).await.is_err() {
-                        warn!("vote pool channel closed; libp2p worker draining");
+                    // Non-blocking hand-off: never block the swarm poll loop on a saturated pool —
+                    // that would stall gossipsub heartbeats and validation results for every peer.
+                    // Votes are idempotent and re-gossiped, so shedding one under backpressure is
+                    // safe; we still Accept (the message is valid) so the mesh keeps propagating it.
+                    match vote_tx.try_send(vote) {
+                        Ok(()) => {}
+                        Err(mpsc::error::TrySendError::Full(_)) => {
+                            metrics.inc_vote(chain_key, crate::prom::VoteOutcome::Dropped);
+                            warn!(chain_key, "vote pool saturated; dropping gossiped vote");
+                        }
+                        Err(mpsc::error::TrySendError::Closed(_)) => {
+                            warn!("vote pool channel closed; libp2p worker draining");
+                        }
                     }
                     swarm
                         .behaviour_mut()
