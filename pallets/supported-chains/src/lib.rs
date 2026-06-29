@@ -232,6 +232,15 @@ pub mod pallet {
 
         /// Maturity strategy doesn't match one in the expected set
         InvalidMaturityStrategy,
+
+        /// The Outbox Factory address is the zero address. A zero factory cannot be resolved by the
+        /// attestor/relayer (it reads as "not registered"), so setting it via the operator path is
+        /// rejected to fail loudly instead of silently disabling write-ability for the chain.
+        ZeroOutboxFactoryAddress,
+
+        /// The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
+        /// zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
+        ZeroWriteAbilityChainKey,
     }
 
     #[pallet::call]
@@ -367,6 +376,7 @@ pub mod pallet {
                 SupportedChains::<T>::contains_key(chain_key),
                 Error::<T>::ChainNotSupported
             );
+            ensure!(address != H160::zero(), Error::<T>::ZeroOutboxFactoryAddress);
 
             OutboxFactories::<T>::insert(chain_key, address);
 
@@ -393,6 +403,10 @@ pub mod pallet {
             ensure!(
                 SupportedChains::<T>::contains_key(chain_key),
                 Error::<T>::ChainNotSupported
+            );
+            ensure!(
+                write_ability_chain_key != [0u8; 32],
+                Error::<T>::ZeroWriteAbilityChainKey
             );
 
             WriteAbilityConfigs::<T>::insert(
