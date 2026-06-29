@@ -329,6 +329,7 @@ fn devnet_genesis(
                 .into_iter()
                 .map(|k| (k, ENDOWMENT))
                 .collect(),
+            dev_accounts: None,
         },
         transaction_payment: Default::default(),
 
@@ -513,6 +514,7 @@ fn testnet_genesis(
                 .into_iter()
                 .map(|k| (k, ENDOWMENT))
                 .collect(),
+            dev_accounts: None,
         },
         transaction_payment: Default::default(),
 

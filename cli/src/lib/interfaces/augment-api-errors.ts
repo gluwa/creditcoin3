@@ -146,13 +146,6 @@ declare module '@polkadot/api-base/types/errors' {
              * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
-            /**
-             * A `commit_attestation` payload carried more attestor accounts than the per-chain
-             * `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
-             * is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
-             * and a storage-bloat vector. Rejected before any expensive BLS work.
-             **/
-            TooManyAttestors: AugmentedError<ApiType>;
             TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
             /**
              * Generic error
@@ -254,6 +247,10 @@ declare module '@polkadot/api-base/types/errors' {
              * Not enough balance to perform action
              **/
             BalanceLow: AugmentedError<ApiType>;
+            /**
+             * Address not allowed to deploy contracts either via CREATE or CALL(CREATE).
+             **/
+            CreateOriginNotAllowed: AugmentedError<ApiType>;
             /**
              * Calculating total fee overflowed
              **/
@@ -391,6 +388,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             AlreadyClaimed: AugmentedError<ApiType>;
             /**
+             * The username cannot be unbound because it is already unbinding.
+             **/
+            AlreadyUnbinding: AugmentedError<ApiType>;
+            /**
              * Empty index.
              **/
             EmptyIndex: AugmentedError<ApiType>;
@@ -398,6 +399,11 @@ declare module '@polkadot/api-base/types/errors' {
              * Fee is changed.
              **/
             FeeChanged: AugmentedError<ApiType>;
+            /**
+             * The action cannot be performed because of insufficient privileges (e.g. authority
+             * trying to unbind a username provided by the system).
+             **/
+            InsufficientPrivileges: AugmentedError<ApiType>;
             /**
              * The index is invalid.
              **/
@@ -463,6 +469,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             NotSub: AugmentedError<ApiType>;
             /**
+             * The username cannot be removed because it is not unbinding.
+             **/
+            NotUnbinding: AugmentedError<ApiType>;
+            /**
              * The sender does not have permission to issue a username.
              **/
             NotUsernameAuthority: AugmentedError<ApiType>;
@@ -478,6 +488,10 @@ declare module '@polkadot/api-base/types/errors' {
              * Sticky judgement.
              **/
             StickyJudgement: AugmentedError<ApiType>;
+            /**
+             * The username cannot be removed because it's still in the grace period.
+             **/
+            TooEarly: AugmentedError<ApiType>;
             /**
              * Maximum amount of registrars reached. Cannot add any more.
              **/
@@ -655,6 +669,11 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             PoolNotFound: AugmentedError<ApiType>;
             /**
+             * Account is restricted from participation in pools. This may happen if the account is
+             * staking in another way already.
+             **/
+            Restricted: AugmentedError<ApiType>;
+            /**
              * A reward pool does not exist. In all cases this is a system logic error.
              **/
             RewardPoolNotFound: AugmentedError<ApiType>;
@@ -769,6 +788,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             AlreadyClaimed: AugmentedError<ApiType>;
             /**
+             * The stake of this account is already migrated to `Fungible` holds.
+             **/
+            AlreadyMigrated: AugmentedError<ApiType>;
+            /**
              * Controller is already paired.
              **/
             AlreadyPaired: AugmentedError<ApiType>;
@@ -788,6 +811,10 @@ declare module '@polkadot/api-base/types/errors' {
              * The user has enough bond and thus cannot be chilled forcefully by an external person.
              **/
             CannotChillOther: AugmentedError<ApiType>;
+            /**
+             * Stash could not be reaped as other pallet might depend on it.
+             **/
+            CannotReapStash: AugmentedError<ApiType>;
             /**
              * Cannot reset a ledger.
              **/
@@ -866,6 +893,11 @@ declare module '@polkadot/api-base/types/errors' {
              * Can not rebond without unlocking chunks.
              **/
             NoUnlockChunk: AugmentedError<ApiType>;
+            /**
+             * Account is restricted from participation in staking. This may happen if the account is
+             * staking in another way already, such as via pool.
+             **/
+            Restricted: AugmentedError<ApiType>;
             /**
              * Provided reward destination is not allowed.
              **/
@@ -986,6 +1018,10 @@ declare module '@polkadot/api-base/types/errors' {
              * A error in the list interface implementation.
              **/
             List: AugmentedError<ApiType>;
+            /**
+             * Could not update a node, because the pallet is locked.
+             **/
+            Locked: AugmentedError<ApiType>;
             /**
              * Generic error
              **/
