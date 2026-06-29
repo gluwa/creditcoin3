@@ -5,8 +5,8 @@ USC Write-Ability
 > **Note — attestor & relayer are now in Rust.** The TypeScript mock **attestor** and **relayer**
 > workers that used to live here (`src/attestor/`, `src/relayer/`) have been removed: the attestor
 > is now the attestor's `tasks/write_ability` module (`attestor/attestor/`), and the relayer is the
-> `message-relayer` crate. What remains in this package is the still-TS-only **quoter**, the
-> **dApp ack worker**, the Solidity **contracts**, and the demo/deploy scripts. The end-to-end demo
+> `message-relayer` crate. What remains in this package is the still-TS-only **dApp ack worker**,
+> the Solidity **contracts**, and the demo/deploy scripts. The end-to-end demo
 > steps below that invoked `npm run dev:attestor` / `dev:relayer` therefore now point at the Rust
 > components instead.
 
@@ -39,18 +39,17 @@ TODO: Offer option to use Sepolia and Creditcoin3 Testnet as the chains for this
 
 We want to deploy several contracts in this step:
 1. The sample `dApp contract`. This contract lives on Creditcoin and will request to send writability messages
-2. The `relayer contract`. This contract lives on Creditcoin and processes quotes + payments for messages.
-3. The `outbox factory contract`. This contract lives on Creditcoin. It is USC-operated and creates one
+2. The `outbox factory contract`. This contract lives on Creditcoin. It is USC-operated and creates one
   `outbox contract` per destination chain, passing its own owner to each outbox so the same account controls both.
-4. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and
+3. The `outbox contract`. This contract lives on Creditcoin and is where message requests are submitted and
   processed. **It is not deployed directly** — the outbox factory creates it (see below).
-5. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
-6. The `vote validator contract` (**`EOAValidator`**). This contract lives on the destination chain and validates
+4. The `inbox contract`. This contract lives on the destination chain. It processes incoming messages from Creditcoin.
+5. The `vote validator contract` (**`EOAValidator`**). This contract lives on the destination chain and validates
   attestor votes on messages forwarded from the inbox: it `ecrecover`s each ECDSA signature, requires each signer to
   be a registered attestor, and enforces the 2N/3+1 threshold. It replaces the old always-accept `DummyVoteValidator`.
   It is seeded with a best-effort attestor set at deploy and then synced to the live attestors by
   `launch-attestors.sh` in step 3 (the destination deployer is the validator admin).
-7. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
+6. The `destination contract`. This contract lives on the destination chain. It acts as the endpoint where a dApp was attempting to send its messages.
 
 The outbox follows a **"create factory first → use factory to create outbox"** pattern: the deploy
 script deploys the `OutboxFactory`, then calls `createOutbox(chainKey, validator)` on it to create
@@ -92,7 +91,7 @@ This script also saves the addresses of all deployed contracts in `.env` for lat
 `EOAValidator` on the destination chain, which `launch-attestors.sh` later syncs to the live
 attestors).
 
-### 3. Start the attestors, then the Relayer, Quoter, and dApp acknowledgement worker
+### 3. Start the attestors, then the Relayer and dApp acknowledgement worker
 
 Now that the factory and Outbox are registered on-chain (step 2), start the attestors. Use the
 helper script below — it launches the attestor zombienet (CONTRIBUTING step 3), discovers each
@@ -140,13 +139,7 @@ Notes on the relayer flags:
   signers outside it.
 - `--signer-key` is anvil's default account 0 — it pays for `deliverMessage` on the destination.
 
-Then start the Quoter (still TS):
-```bash
-cd usc-messaging
-npm run dev:quoter
-```
-
-Finally, start the dApp's acknowledgement worker (still TS):
+Then start the dApp's acknowledgement worker (still TS):
 ```bash
 cd usc-messaging
 npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
@@ -172,24 +165,20 @@ npx tsx scripts/publish-message/publish-message.ts
 
 ### 5. Watch for automated message signing, sending, and acknowledgement
 
-1. The first component to pick up your message will be the attestor. It will
-detect a `MessagePublished` event and print something like:
+1. The attestors pick up your message first: each detects the `MessagePublished` event on the
+Outbox, signs the `messageHash`, and gossips a vote on the `{chain_key}/message-votes/v1` topic.
+On Creditcoin the Outbox logs the published message:
 
 ```
 [Outbox] MessagePublished messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376 emitter=0x1cf3a2eeead7c152bb79fbbe767669ebfd6fb0b7000000000000000000000000
-[Relayer] POST http://127.0.0.1:3301/deliver messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376
-[Relayer] messageId=0x933df8cd4be30caa6aad59374988f9f4a917f69d4cf56b19f706549d67b5f376 successfully notified to relayer
 ```
 
-2. Next the attestor notifies the relayer, which logs its message delivery process:
+2. The Rust `message-relayer` snoops those votes; once it aggregates a 2N/3+1 quorum for a
+`messageHash` it submits `Inbox.deliverMessage` on the destination chain, and the Inbox emits
+`MessageDelivered`:
 
 ```
-[Attestor] Received messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 from attestor
-[Worker] Queued messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 (queue size: 1)
-[Worker] Processing 1 pending message(s)
 [Inbox] MessageDelivered messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753
-[Inbox] messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 did not request ACK, skipping acknowledgment
-[Worker] Delivered messageId=0xd9f28e1ceb013ba9e121f1f10f9f6b9b86e3f4825ab069813ee0c039aaa2f753 tx=0x5297dfe7832db6e83446b3c331f39121649f3ba13873a134bc47a804608716b0
 ```
 
 3. The inbox contract forwards the message to its designated destination contract. The destination
@@ -291,100 +280,19 @@ destination RPC (the Creditcoin/`--cc3-*` flags are unchanged):
      --attestor-set "$ATTESTOR_SET"
    ```
 
-The quoter, dApp-ack worker, and message submission are unchanged.
+The dApp-ack worker and message submission are unchanged.
 
-5. Start the Quoter:
-```bash
-cd usc-messaging
-npm run dev:quoter
-```
-
-6. Start the dApp's acknowledgement worker:
+5. Start the dApp's acknowledgement worker:
 ```bash
 cd usc-messaging
 npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
 ```
 
-7. Submit message request:
+6. Submit message request:
 ```bash
 cd usc-messaging
 npx tsx scripts/publish-message/publish-message.ts
 ```
-
-## Quoter
-
-Off-chain service that provides signed fee quotes for cross-chain messaging. The relayer contract accepts these quotes.
-
-### Quick Start
-
-```bash
-npm install
-npm run dev:quoter
-```
-
-With options at startup:
-
-```bash
-npm start -- --payee-address 0x1234567890123456789012345678901234567890
-npm start -- --rpc-url https://eth.llamarpc.com
-npm start -- --rpc-url http://localhost:8545 --payee-address 0x...
-```
-
-When `--rpc-url` is set, the quoter fetches gas price from that RPC and derives `chainId` via `eth_chainId`. You can omit `destinationChainId` in quote requests.
-
-Server runs on `http://localhost:3300` (or `QUOTER_PORT`).
-
-Uses **morgan** (request logging), **helmet** (security headers), and **cors**.
-
-### API
-
-**GET /quote**
-
-| Query param          | Required | Description                          |
-|----------------------|----------|--------------------------------------|
-| `destinationChainId` | Yes      | EVM chain ID (e.g. 31337 for Anvil) |
-| `requiresAck`        | Yes      | `true` or `false`                    |
-| `gasLimit`           | No       | Custom gas limit for delivery        |
-
-Example:
-
-```
-GET /quote?destinationChainId=31337&requiresAck=false
-```
-
-Response (JSON):
-
-```json
-{
-  "relayPrice": "1234567890",
-  "acknowledgmentPrice": "0",
-  "payeeAddress": "0x...",
-  "paymentToken": "0x0000000000000000000000000000000000000000",
-  "expiry": 1737123456,
-  "signature": "0x..."
-}
-```
-
-### Configuration
-
-| Env var                    | Default                         | Description                    |
-|----------------------------|---------------------------------|--------------------------------|
-| `QUOTER_PORT`              | 3300                            | HTTP server port               |
-| `QUOTER_PAYMENT_TOKEN`    | 0x0                             | address(0) = native currency   |
-| `QUOTER_EXPIRY_SECONDS`   | 3600                            | Quote validity                 |
-
-**CLI args** (override env): `--payee-address 0x...`, `--payment-token 0x...`, `--rpc-url https://...` (or `-p`, `-t`, `-r`)
-
-### Development
-
-- **Phase 1**: Fixed/dummy exchange rates (config-based)
-- **Phase 2**: Real gas price from destination chain RPC
-- **Phase 3**: Exchange rate API (Chainlink, etc.)
-- **Phase 4**: Core fee, production key management
-
-See the quoter sources under `src/quoter/` for the current implementation.
-
----
 
 ## Relayer (Rust)
 
