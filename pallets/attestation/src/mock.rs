@@ -282,6 +282,7 @@ impl attestation_poc::Config for Test {
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type RandomnessProvider = RandomnessPallet;
 }
 
 parameter_types! {

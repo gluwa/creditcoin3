@@ -7591,6 +7591,38 @@ fn force_election_should_emit_forced_election_event() {
     })
 }
 
+// Regression for #26: `force_election` used to pass a hardcoded `[0; 32]` seed. It must now
+// thread the real on-chain randomness for the requested epoch via `Config::RandomnessProvider`.
+#[test]
+fn force_election_threads_real_epoch_randomness() {
+    use randomness_primitives::provider::RandomnessPalletProvider;
+
+    ExtBuilder.build_and_execute(|| {
+        let epoch = 7u64;
+        let seed = [0xABu8; 32];
+
+        // Seed the randomness pallet for this epoch with a non-zero value.
+        pallet_randomness::RandomnessByEpochIndex::<Test>::mutate(|map| {
+            map.try_insert(epoch, seed).expect("room for one entry");
+        });
+
+        // The provider the pallet uses for `force_election` exposes the seeded randomness,
+        // proving the wired source is real (not the old hardcoded zero seed).
+        assert_eq!(
+            <Test as Config>::RandomnessProvider::randomness_by_epoch_id(epoch),
+            seed
+        );
+        assert_ne!(
+            <Test as Config>::RandomnessProvider::randomness_by_epoch_id(epoch),
+            [0u8; 32]
+        );
+
+        // And the extrinsic, which now consumes that seed, still succeeds.
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+        System::assert_last_event(Event::ForcedElection { epoch }.into());
+    })
+}
+
 #[test]
 fn force_election_should_succeed_when_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {

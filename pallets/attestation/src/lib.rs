@@ -155,6 +155,13 @@ pub mod pallet {
 
         type SupportedChains: SupportedChainsProvider;
 
+        /// Source of on-chain epoch randomness, used to seed forced elections.
+        ///
+        /// Scheduled elections already receive real randomness via
+        /// [`OnRandomnessUpdate::on_new_epoch_randomness`]; this provider lets `force_election`
+        /// pull the same per-epoch randomness instead of a hardcoded zero seed.
+        type RandomnessProvider: randomness_primitives::provider::RandomnessPalletProvider;
+
         #[pallet::constant]
         type MaxAttestationsPerBlock: Get<u32>;
         #[pallet::constant]
@@ -1308,14 +1315,22 @@ pub mod pallet {
 
         /// Force trigger an attestor election.
         ///
-        /// A randomness of [0; 32] is used since randomness is not currently
-        /// used in the election logic.
+        /// Seeds the election with the real on-chain randomness for `epoch` (via
+        /// [`Config::RandomnessProvider`]), matching the scheduled election path
+        /// ([`OnRandomnessUpdate::on_new_epoch_randomness`]) instead of passing a hardcoded
+        /// zero seed. The current selection logic does not subsample by randomness, but threading
+        /// the real seed keeps forced and scheduled elections consistent and avoids advertising a
+        /// misleading all-zero randomness value.
         #[pallet::call_index(25)]
         #[pallet::weight(<T as Config>::WeightInfo::force_election())]
         pub fn force_election(origin: OriginFor<T>, epoch: u64) -> DispatchResult {
+            use randomness_primitives::provider::RandomnessPalletProvider;
+
             T::OperatorsOrigin::ensure_origin(origin)?;
 
-            Self::do_start_election(epoch, [0; 32])?;
+            let randomness = T::RandomnessProvider::randomness_by_epoch_id(epoch);
+
+            Self::do_start_election(epoch, randomness)?;
 
             Self::deposit_event(Event::<T>::ForcedElection { epoch });
 
