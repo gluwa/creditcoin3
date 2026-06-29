@@ -146,6 +146,13 @@ declare module '@polkadot/api-base/types/errors' {
              * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
+            /**
+             * A `commit_attestation` payload carried more attestor accounts than the per-chain
+             * `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
+             * is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
+             * and a storage-bloat vector. Rejected before any expensive BLS work.
+             **/
+            TooManyAttestors: AugmentedError<ApiType>;
             TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
             /**
              * Generic error

@@ -3450,6 +3450,7 @@ export default {
             'InvalidMaxCatchup',
             'InvalidTargetSampleSize',
             'InvalidMaxAttestors',
+            'TooManyAttestors',
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',
             'InvalidAttestorFound',
@@ -3554,7 +3555,11 @@ export default {
      **/
     PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
     /**
-     * Lookup464: creditcoin3_runtime::Runtime
+     * Lookup463: frame_system::extensions::weight_reclaim::WeightReclaim<T>
+     **/
+    FrameSystemExtensionsWeightReclaim: 'Null',
+    /**
+     * Lookup465: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
