@@ -32,7 +32,41 @@ mod tests;
 /// Precompile exposing source chain info to the evm.
 pub struct ChainInfoPrecompile<Runtime>(PhantomData<Runtime>);
 
-const BUCKET_SEARCH_ATTEMPTS: u32 = 5; // Number of attempts to search through checkpoint buckets
+/// Hard upper bound on how many checkpoint buckets a single search will walk.
+///
+/// The dynamic bound (see `bucket_search_attempts`) is derived from the real distance between
+/// `target_height` and the known `LastCheckpoint` height, so a legitimate checkpoint can always
+/// be reached regardless of how far it sits from the target — the previous fixed `5` would give
+/// up early and report a false "not attested" even when a valid checkpoint existed further away.
+///
+/// This constant only caps pathological inputs so the loop stays bounded. It is intentionally
+/// large (4096 buckets => 4_096_000 blocks of range at `CHECKPOINT_BUCKET_SIZE`) so it is never
+/// hit in practice, and a deep walk self-limits anyway: every bucket charges `GAS_STORAGE_LOOKUP`,
+/// so a malicious far-away target runs out of gas long before reaching this ceiling.
+const MAX_BUCKET_SEARCH_ATTEMPTS: u32 = 4096;
+
+/// Defensive hard cap on how many items a single `Attestations::iter_prefix` scan will pull.
+///
+/// The scans below are already priced correctly (each item charges `GAS_STORAGE_LOOKUP`), so an
+/// oversized store self-limits by exhausting gas. This cap is a belt-and-suspenders guard so the
+/// iterator can never run unbounded even if gas accounting is ever changed or bypassed; it is set
+/// far above any realistic per-chain attestation count, so normal-sized stores are unaffected.
+const MAX_ATTESTATION_SCAN_ITEMS: u64 = 100_000;
+
+/// Compute how many checkpoint buckets to walk when searching from the bucket containing
+/// `target_height` toward the bucket containing the known last checkpoint height.
+///
+/// Bounding the walk by the *real* checkpoint range (rather than a fixed constant) is what fixes
+/// the sparse-checkpoint false negative: a valid checkpoint far from the target is still reached.
+/// The result is `ceil(distance / CHECKPOINT_BUCKET_SIZE) + 1` (the `+1` covers the partial bucket
+/// at each end), clamped to `MAX_BUCKET_SEARCH_ATTEMPTS` so the loop is always bounded.
+fn bucket_search_attempts(target_height: u64, last_checkpoint_height: u64) -> u32 {
+    let distance = target_height.abs_diff(last_checkpoint_height);
+    // ceil(distance / CHECKPOINT_BUCKET_SIZE) + 1
+    let buckets = distance.div_ceil(CHECKPOINT_BUCKET_SIZE).saturating_add(1);
+    let buckets: u32 = buckets.try_into().unwrap_or(u32::MAX);
+    buckets.min(MAX_BUCKET_SEARCH_ATTEMPTS)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct ChainInfo {
@@ -242,7 +276,9 @@ where
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
         // We first check if the latest checkpoint height is higher or equal to the target height.
-        if matches!(maybe_last_checkpoint_height, Some(height) if height >= target_height) {
+        if let Some(last_checkpoint_height) =
+            maybe_last_checkpoint_height.filter(|height| *height >= target_height)
+        {
             // If it is search through the checkpoints to find the highest attested height below the target.
             // We search through the bucket of the block corresponding to target_height - 1 for any checkpoints.
             let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(
@@ -251,8 +287,10 @@ where
 
             let mut maybe_highest = None;
 
-            // We limit the number of bucket searches to avoid excessive computation.
-            for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+            // Bound the walk by the real distance to the last checkpoint so a far-away checkpoint
+            // is still found (no false negative); the loop stays bounded via the dynamic cap.
+            let attempts = bucket_search_attempts(target_height, last_checkpoint_height);
+            for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
                 let mut items_processed = 0_u64;
@@ -313,6 +351,9 @@ where
 
             // If the target height is lower than the last checkpoint height, we first search through the attestations directly.
             let highest = if let Some(highest) = Attestations::<Runtime>::iter_prefix(chain_key)
+                // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                 .inspect(|_| {
                     items_processed += 1;
                 })
@@ -375,7 +416,9 @@ where
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
         // We first check if the latest checkpoint height is higher to the target height.
-        if matches!(maybe_last_checkpoint_height, Some(height) if height > target_height) {
+        if let Some(last_checkpoint_height) =
+            maybe_last_checkpoint_height.filter(|height| *height > target_height)
+        {
             // If it is search through the checkpoints to find the lowest attested height above the target.
 
             // We search through the bucket of the block corresponding to target_height for any checkpoints.
@@ -384,8 +427,10 @@ where
 
             let mut maybe_lowest = None;
 
-            // We limit the number of bucket searches to avoid excessive computation.
-            for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+            // Bound the walk by the real distance to the last checkpoint so a far-away checkpoint
+            // is still found (no false negative); the loop stays bounded via the dynamic cap.
+            let attempts = bucket_search_attempts(target_height, last_checkpoint_height);
+            for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
                 let mut items_processed = 0_u64;
@@ -441,6 +486,9 @@ where
 
             // Otherwise if the latest checkpoint is below or at the target height, we search through the attestations directly.
             let lowest = Attestations::<Runtime>::iter_prefix(chain_key)
+                // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                 .inspect(|_| {
                     items_processed += 1;
                 })
@@ -482,6 +530,9 @@ where
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
@@ -501,8 +552,10 @@ where
 
                 let mut found_prev_checkpoint = false;
 
-                // We limit the number of bucket searches to avoid excessive computation.
-                for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+                // Bound the walk by the real distance to the last checkpoint so a far-away
+                // checkpoint is still found (no false negative); the loop stays bounded.
+                let attempts = bucket_search_attempts(target_height, last_checkpoint_height);
+                for _ in 0..attempts {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
                     let mut items_processed = 0_u64;
@@ -538,6 +591,9 @@ where
                 let mut items_processed = 0_u64;
 
                 let found_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
@@ -555,6 +611,9 @@ where
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
@@ -567,6 +626,9 @@ where
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_prev_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
