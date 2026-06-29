@@ -259,12 +259,6 @@ async function main(): Promise<void> {
     `Deploying to source: ${creditcoinRpcUrl}, destination: ${destinationRpcUrl}...`,
   );
 
-  // Source chain
-  const relayer = deployToSource(
-    "src/SimpleRelayer.sol:SimpleRelayer",
-    [payee],
-  );
-
   // Outbox is created via the factory, not deployed directly: deploy the USC-operated factory
   // first, then have it create the outbox for our chain key (the factory passes its own owner to
   // the outbox). This mirrors the "create factory first -> use factory to create outbox" pattern.
@@ -333,7 +327,6 @@ async function main(): Promise<void> {
   updateEnvVar("OUTBOX_FACTORY_ADDR", outboxFactory);
   updateEnvVar("OUTBOX_ADDR", outbox);
   updateEnvVar("ACK_VALIDATOR_ADDR", ackValidator);
-  updateEnvVar("RELAYER_CONTRACT_ADDR", relayer);
   updateEnvVar("DAPP_CONTRACT_ADDR", dapp);
   updateEnvVar("DESTINATION_CHAIN_ID", destinationChainId);
 
@@ -344,7 +337,6 @@ async function main(): Promise<void> {
   console.log(`AcknowledgmentValidator (outbox validator): ${ackValidator}`);
   console.log(`SimpleDApp: ${dapp}`);
   console.log(`TestDestination: ${destination}`);
-  console.log(`RelayerContract: ${relayer}`);
   console.log(`Updated ${ENV_FILE}`);
 }
 
