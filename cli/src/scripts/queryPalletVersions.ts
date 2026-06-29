@@ -34,6 +34,8 @@ async function doCollectPalletVersions(wsUrl: string, blockHash: string): Promis
         for (const version in metaData.metadata) {
             // eslint-disable-next-line guard-for-in
             for (const palletKey in metaData.metadata[version].pallets) {
+                console.log(`*** DEBUG: palletKey=${palletKey}`);
+                console.log('*** DEBUG: pallet=', metaData.metadata[version].pallets[palletKey]);
                 const pallet = metaData.metadata[version].pallets[palletKey];
                 const palletName = camelCase(pallet.name);
 
