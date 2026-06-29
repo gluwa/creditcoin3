@@ -5,7 +5,7 @@ use frame_support::{
 };
 use log::debug;
 use sp_runtime::{
-    traits::{CheckedAdd, Zero},
+    traits::{CheckedAdd, Saturating, Zero},
     ArithmeticError,
 };
 use sp_staking::StakingInterface;
@@ -314,6 +314,20 @@ impl<T: Config> Pallet<T> {
                 value += ledger.active;
                 ledger.active = Zero::zero();
             }
+
+            // Aggregate solvency guard. The ledger is per-stash but a stash can back
+            // multiple attestors (across chains), so unlocking `bond.min(active)` for the
+            // attestor being removed here must not leave the *remaining* still-registered
+            // attestors collectively undercollateralized — a situation that arises once an
+            // operator raises a chain's `MinBondRequirement` after registration. The
+            // attestor being removed is still present in [`Attestors`] at this point, so it
+            // is excluded from the requirement. Checked before any storage write so a
+            // failure cleanly aborts the unbond.
+            let required = Self::required_bond_for_stash(&stash, Some((chain_key, &attestor_id)));
+            ensure!(
+                ledger.active >= required,
+                Error::<T>::InsufficientRemainingBond
+            );
 
             // Note: in case there is no current era it is fine to bond one era more.
             if let Some(chunk) = ledger
@@ -840,6 +854,37 @@ impl<T: Config> Pallet<T> {
 
     pub fn attestor_is_registered(chain_key: ChainKey, address: &T::AccountId) -> bool {
         Attestors::<T>::contains_key(chain_key, address)
+    }
+
+    /// Aggregate collateral a stash must keep bonded to back all of its still-registered
+    /// attestors, summed across every supported chain using each chain's *current*
+    /// [`MinBondRequirement`]. A single stash can back multiple attestors (the second and
+    /// later registrations top up the shared ledger via `bond_extra`) and those attestors
+    /// may span different chains with different requirements, so the requirement is a sum
+    /// rather than `count * single_min_bond`.
+    ///
+    /// `exclude` lets a collateral-reducing path discount an attestor that is being removed
+    /// in the same call but whose [`Attestors`] entry has not been deleted yet.
+    pub(crate) fn required_bond_for_stash(
+        stash: &T::AccountId,
+        exclude: Option<(ChainKey, &T::AccountId)>,
+    ) -> BalanceOf<T> {
+        let mut required: BalanceOf<T> = Zero::zero();
+        for chain_key in T::SupportedChains::supported_chains() {
+            let min_bond = Self::min_bond_requirement(chain_key);
+            for (attestor_id, attestor) in Attestors::<T>::iter_prefix(chain_key) {
+                if attestor.stash != *stash {
+                    continue;
+                }
+                if let Some((ex_chain, ex_id)) = exclude {
+                    if ex_chain == chain_key && *ex_id == attestor_id {
+                        continue;
+                    }
+                }
+                required = required.saturating_add(min_bond);
+            }
+        }
+        required
     }
 
     pub fn last_digest(chain_key: ChainKey) -> Option<Digest> {

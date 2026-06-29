@@ -842,6 +842,11 @@ pub mod pallet {
         AttestorAlreadyIdle,
         /// A voluntary chill is already scheduled for this attestor.
         AttestorChillAlreadyScheduled,
+        /// Reducing this stash's active bond would leave its remaining still-registered
+        /// attestors collectively undercollateralized relative to the current per-chain
+        /// `MinBondRequirement`. Can occur after an operator raises `MinBondRequirement`
+        /// for a chain that the stash still backs with one or more attestors.
+        InsufficientRemainingBond,
     }
 
     #[pallet::hooks]

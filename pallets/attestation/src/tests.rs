@@ -601,6 +601,80 @@ fn registering_dergegistering_multiple_attestor_increases_decreases_locked_balan
     })
 }
 
+// Finding #17 regression: the bonding ledger is per-stash but a stash can back multiple
+// attestors. After an operator RAISES `MinBondRequirement`, removing one attestor must not
+// unlock so much collateral that the remaining still-registered attestor(s) drop below the
+// new aggregate requirement.
+#[test]
+fn unregistering_attestor_cannot_undercollateralize_remaining_after_min_bond_increase() {
+    ExtBuilder.build_and_execute(|| {
+        // STASH_3 backs two attestors at the default min bond.
+        let att1 = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att1.attestor_id,
+        ));
+        let att2 = Attestor::new(STASH_3, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            att2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att2.attestor_id,
+        ));
+
+        let min_bond = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+        // Two attestors => ledger.active == 2 * min_bond.
+        let ledger = Attestation::ledger(STASH_3).expect("stash is bonded");
+        assert_eq!(ledger.active, min_bond * 2);
+
+        // Operator raises the per-chain min bond to 1.5x. Now a single remaining attestor
+        // requires `new_min_bond` (= 1.5 * min_bond) collateral, but unregistering one
+        // attestor would try to unlock `new_min_bond`, leaving active = 2*min_bond -
+        // 1.5*min_bond = 0.5*min_bond, which is below the requirement for the survivor.
+        let new_min_bond = min_bond + min_bond / 2;
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            new_min_bond,
+        ));
+
+        // The reducing operation must be rejected: the aggregate solvency guard fires.
+        assert_noop!(
+            Attestation::unregister_attestor(att2.stash.clone(), SUPPORTED_CHAIN_KEY, ATTESTOR_2),
+            Error::<Test>::InsufficientRemainingBond
+        );
+
+        // Collateral is fully retained and both attestors remain registered.
+        let ledger = Attestation::ledger(STASH_3).expect("stash is still bonded");
+        assert_eq!(ledger.active, min_bond * 2);
+        assert!(ledger.unlocking.is_empty());
+        assert!(Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_1
+        ));
+        assert!(Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_2
+        ));
+
+        // Sanity: once the operator's requirement is back within what the stash can cover
+        // for the survivor, the same unregister succeeds (guard does not over-restrict).
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            min_bond,
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            att2.stash,
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_2
+        ));
+        // Survivor (ATTESTOR_1) stays fully collateralized at the current requirement.
+        let ledger = Attestation::ledger(STASH_3).expect("stash is still bonded");
+        assert!(ledger.active >= MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY));
+    })
+}
+
 #[test]
 fn attestor_should_be_able_to_toggle_status() {
     ExtBuilder.build_and_execute(|| {
