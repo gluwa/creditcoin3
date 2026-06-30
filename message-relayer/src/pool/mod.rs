@@ -22,7 +22,7 @@ use write_ability::envelope::ReobservationRequest;
 
 use crate::config::VoteCacheConfig;
 use crate::delivery::encode::encode_votes;
-use crate::delivery::DeliveryJob;
+use crate::delivery::{DeliveryJob, DeliveryResult, DeliveryResultKind};
 use crate::events::IndexedMessage;
 use crate::p2p::MessageVote;
 use crate::prom::{Metrics, VoteOutcome};
@@ -39,6 +39,9 @@ pub fn calculate_threshold(n: usize) -> usize {
 const REOBS_STALL_AFTER: Duration = Duration::from_secs(60);
 /// Minimum gap between successive reobservation requests for the same stalled message.
 const REOBS_REPEAT_EVERY: Duration = Duration::from_secs(60);
+const DELIVERY_RETRY_BASE: Duration = Duration::from_secs(30);
+const DELIVERY_RETRY_MAX: Duration = Duration::from_secs(5 * 60);
+const DELIVERY_MAX_DISPATCH_ATTEMPTS: u32 = 5;
 
 /// Snapshot of the votes accumulated for one message, answered by the pool over [`PoolQuery`] and
 /// served read-only at `GET /votes/{message_hash}`. Lets a relayer act as a queryable "spy node":
@@ -78,6 +81,7 @@ pub struct PoolHandles {
     pub indexed_rx: mpsc::Receiver<IndexedMessage>,
     pub vote_rx: mpsc::Receiver<MessageVote>,
     pub delivery_txs: HashMap<u64, mpsc::Sender<DeliveryJob>>,
+    pub delivery_result_rx: mpsc::Receiver<DeliveryResult>,
     /// Hot-reloaded attestor sets from the per-route on-chain watchers. Each update replaces a
     /// route's allowlist + threshold and re-evaluates its pending messages. Routes with a static
     /// set never send here.
@@ -102,6 +106,7 @@ pub async fn run(
         mut indexed_rx,
         mut vote_rx,
         delivery_txs,
+        mut delivery_result_rx,
         mut set_update_rx,
         reobs_tx,
         mut query_rx,
@@ -132,18 +137,8 @@ pub async fn run(
                     continue;
                 };
                 for job in state.apply_attestor_set(update, metrics.as_ref()) {
-                    if let Some(tx) = delivery_txs.get(&job.chain_key) {
-                        tokio::select! {
-                            res = tx.send(job) => {
-                                if res.is_err() {
-                                    warn!("delivery channel closed; dropping job");
-                                }
-                            }
-                            () = cancel.cancelled() => {
-                                info!("🛑 vote pool exiting on cancel (mid set-reload dispatch)");
-                                return Ok(());
-                            }
-                        }
+                    if dispatch_delivery_job(&delivery_txs, job, &cancel, "set-reload dispatch").await {
+                        return Ok(());
                     }
                 }
             }
@@ -160,23 +155,19 @@ pub async fn run(
                     return Ok(());
                 };
                 if let Some(job) = state.note_vote(vote, metrics.as_ref()) {
-                    if let Some(tx) = delivery_txs.get(&job.chain_key) {
-                        // Bounded channel. Delivery jobs must not be dropped, so block here if the
-                        // worker is briefly saturated — but stay responsive to shutdown rather than
-                        // wedging the whole pool (and every other route) on one slow destination.
-                        tokio::select! {
-                            res = tx.send(job) => {
-                                if res.is_err() {
-                                    warn!("delivery channel closed; dropping job");
-                                }
-                            }
-                            () = cancel.cancelled() => {
-                                info!("🛑 vote pool exiting on cancel (mid-dispatch)");
-                                return Ok(());
-                            }
-                        }
-                    } else {
-                        warn!(chain_key = job.chain_key, "no delivery worker registered for chain_key");
+                    if dispatch_delivery_job(&delivery_txs, job, &cancel, "vote dispatch").await {
+                        return Ok(());
+                    }
+                }
+            }
+            maybe = delivery_result_rx.recv() => {
+                let Some(result) = maybe else {
+                    warn!("delivery result channel closed");
+                    continue;
+                };
+                if let Some(job) = state.note_delivery_result(result, metrics.as_ref()) {
+                    if dispatch_delivery_job(&delivery_txs, job, &cancel, "delivery retry dispatch").await {
+                        return Ok(());
                     }
                 }
             }
@@ -197,7 +188,38 @@ pub async fn run(
                         debug!(%err, "reobservation request channel full/closed");
                     }
                 }
+                for job in state.collect_ready_deliveries(metrics.as_ref()) {
+                    if dispatch_delivery_job(&delivery_txs, job, &cancel, "ready retry dispatch").await {
+                        return Ok(());
+                    }
+                }
             }
+        }
+    }
+}
+
+async fn dispatch_delivery_job(
+    delivery_txs: &HashMap<u64, mpsc::Sender<DeliveryJob>>,
+    job: DeliveryJob,
+    cancel: &CancellationToken,
+    context: &'static str,
+) -> bool {
+    let chain_key = job.chain_key;
+    let Some(tx) = delivery_txs.get(&chain_key) else {
+        warn!(chain_key, "no delivery worker registered for chain_key");
+        return false;
+    };
+
+    tokio::select! {
+        res = tx.send(job) => {
+            if res.is_err() {
+                warn!(chain_key, context, "delivery channel closed; dropping job");
+            }
+            false
+        }
+        () = cancel.cancelled() => {
+            info!(context, "🛑 vote pool exiting on cancel");
+            true
         }
     }
 }
@@ -224,6 +246,10 @@ struct MessageSlot {
     indexed: IndexedMessage,
     signers: BTreeMap<Address, [u8; 65]>,
     delivered: bool,
+    terminal: bool,
+    in_flight: bool,
+    delivery_attempts: u32,
+    next_delivery_attempt_at: Option<Instant>,
     inserted_at: Instant,
     /// When we last gossiped a reobservation request for this message (`None` = never). Rate-limits
     /// re-requests so a persistently stalled message doesn't spam the mesh.
@@ -274,6 +300,10 @@ impl State {
                 indexed,
                 signers: BTreeMap::new(),
                 delivered: false,
+                terminal: false,
+                in_flight: false,
+                delivery_attempts: 0,
+                next_delivery_attempt_at: None,
                 inserted_at: Instant::now(),
                 last_reobs_request: None,
             },
@@ -297,7 +327,7 @@ impl State {
             metrics.inc_vote(chain_key, VoteOutcome::Ignore);
             return None;
         };
-        if slot.delivered {
+        if slot.delivered || slot.terminal {
             metrics.inc_vote(chain_key, VoteOutcome::Ignore);
             return None;
         }
@@ -332,16 +362,11 @@ impl State {
         slot.signers.insert(recovered, vote.signature);
         metrics.inc_vote(chain_key, VoteOutcome::Accept);
 
-        if slot.signers.len() < route.threshold {
+        if slot.signers.len() < route.threshold || slot.in_flight {
             return None;
         }
 
-        // Threshold reached — build a single DeliveryJob and mark delivered to ensure
-        // idempotency. Subsequent votes for the same message will be ignored above.
-        let signatures: Vec<[u8; 65]> = slot.signers.values().copied().collect();
-        let signer_count = signatures.len();
-        let votes_calldata = encode_votes(&signatures);
-        slot.delivered = true;
+        let signer_count = slot.signers.len();
         let elapsed = slot.inserted_at.elapsed();
         metrics.observe_votes_per_message(signer_count as u64);
         metrics.observe_time_to_threshold(elapsed);
@@ -354,16 +379,7 @@ impl State {
             "✅ threshold reached — dispatching delivery"
         );
 
-        Some(DeliveryJob {
-            chain_key,
-            message_id: slot.indexed.message_id,
-            emitter: slot.indexed.emitter,
-            message_hash: hash,
-            payload: slot.indexed.payload.clone(),
-            votes_calldata,
-            signer_count,
-            indexed_at: slot.inserted_at,
-        })
+        Self::dispatch_if_ready(chain_key, hash, route, metrics, true, Instant::now())
     }
 
     fn prune_expired(&mut self) {
@@ -372,6 +388,70 @@ impl State {
         for route in self.by_route.values_mut() {
             route.prune_expired(now, ttl);
         }
+    }
+
+    fn note_delivery_result(
+        &mut self,
+        result: DeliveryResult,
+        metrics: &dyn crate::prom::MetricsTrait,
+    ) -> Option<DeliveryJob> {
+        let route = self.by_route.get_mut(&result.chain_key)?;
+        let slot = route.by_message.get_mut(&result.message_hash)?;
+        slot.in_flight = false;
+        match result.outcome {
+            DeliveryResultKind::Delivered => {
+                slot.delivered = true;
+                metrics.set_pool_messages_pending(self.total_pending() as i64);
+                return None;
+            }
+            DeliveryResultKind::Terminal => {
+                slot.terminal = true;
+                metrics.set_pool_messages_pending(self.total_pending() as i64);
+                return None;
+            }
+            DeliveryResultKind::Retryable => {
+                if slot.delivery_attempts >= DELIVERY_MAX_DISPATCH_ATTEMPTS {
+                    warn!(
+                        chain_key = result.chain_key,
+                        message_hash = %result.message_hash,
+                        attempts = slot.delivery_attempts,
+                        "delivery retry budget exhausted; marking message terminal"
+                    );
+                    slot.terminal = true;
+                    metrics.set_pool_messages_pending(self.total_pending() as i64);
+                    return None;
+                }
+                let delay = delivery_retry_delay(slot.delivery_attempts);
+                slot.next_delivery_attempt_at = Some(Instant::now() + delay);
+                debug!(
+                    chain_key = result.chain_key,
+                    message_hash = %result.message_hash,
+                    attempts = slot.delivery_attempts,
+                    retry_after_ms = delay.as_millis() as u64,
+                    "delivery failed transiently; scheduled bounded retry"
+                );
+            }
+        }
+        None
+    }
+
+    fn collect_ready_deliveries(
+        &mut self,
+        metrics: &dyn crate::prom::MetricsTrait,
+    ) -> Vec<DeliveryJob> {
+        let now = Instant::now();
+        let mut jobs = Vec::new();
+        for (chain_key, route) in &mut self.by_route {
+            let hashes: Vec<B256> = route.by_message.keys().copied().collect();
+            for hash in hashes {
+                if let Some(job) =
+                    Self::dispatch_if_ready(*chain_key, hash, route, metrics, false, now)
+                {
+                    jobs.push(job);
+                }
+            }
+        }
+        jobs
     }
 
     fn total_pending(&self) -> usize {
@@ -422,42 +502,32 @@ impl State {
         // Clone the (small) allowlist so we can iterate `by_message` mutably alongside it.
         let attestors = route.attestors.clone();
         let threshold = route.threshold;
-        let mut jobs = Vec::new();
+        let mut ready = Vec::new();
         for (hash, slot) in route.by_message.iter_mut() {
-            if slot.delivered {
+            if slot.delivered || slot.terminal || slot.in_flight {
                 continue;
             }
-            let valid: Vec<[u8; 65]> = slot
-                .signers
-                .iter()
-                .filter(|(addr, _)| attestors.contains(addr))
-                .map(|(_, sig)| *sig)
-                .collect();
-            if valid.len() < threshold {
+            slot.signers.retain(|addr, _| attestors.contains(addr));
+            if slot.signers.len() < threshold {
                 continue;
             }
-            slot.delivered = true;
-            let signer_count = valid.len();
-            let votes_calldata = encode_votes(&valid);
-            let elapsed = slot.inserted_at.elapsed();
-            metrics.observe_votes_per_message(signer_count as u64);
-            metrics.observe_time_to_threshold(elapsed);
+            let signer_count = slot.signers.len();
+            ready.push((*hash, signer_count));
+        }
+
+        let mut jobs = Vec::new();
+        for (hash, signer_count) in ready {
             info!(
                 chain_key,
                 %hash,
                 signer_count,
                 "✅ threshold reached after set reload — dispatching delivery"
             );
-            jobs.push(DeliveryJob {
-                chain_key,
-                message_id: slot.indexed.message_id,
-                emitter: slot.indexed.emitter,
-                message_hash: *hash,
-                payload: slot.indexed.payload.clone(),
-                votes_calldata,
-                signer_count,
-                indexed_at: slot.inserted_at,
-            });
+            if let Some(job) =
+                Self::dispatch_if_ready(chain_key, hash, route, metrics, true, Instant::now())
+            {
+                jobs.push(job);
+            }
         }
         jobs
     }
@@ -470,7 +540,11 @@ impl State {
         for (chain_key, route) in &mut self.by_route {
             let threshold = route.threshold;
             for slot in route.by_message.values_mut() {
-                if slot.delivered || slot.signers.len() >= threshold {
+                if slot.delivered
+                    || slot.terminal
+                    || slot.in_flight
+                    || slot.signers.len() >= threshold
+                {
                     continue;
                 }
                 if now.duration_since(slot.inserted_at) < REOBS_STALL_AFTER {
@@ -520,6 +594,56 @@ impl State {
         }
         None
     }
+}
+
+impl State {
+    fn dispatch_if_ready(
+        chain_key: u64,
+        hash: B256,
+        route: &mut RouteState,
+        metrics: &dyn crate::prom::MetricsTrait,
+        observe_threshold: bool,
+        now: Instant,
+    ) -> Option<DeliveryJob> {
+        let slot = route.by_message.get_mut(&hash)?;
+        if slot.delivered || slot.terminal || slot.in_flight || slot.signers.len() < route.threshold
+        {
+            return None;
+        }
+        if slot.next_delivery_attempt_at.is_some_and(|next| now < next) {
+            return None;
+        }
+        slot.in_flight = true;
+        slot.delivery_attempts = slot.delivery_attempts.saturating_add(1);
+        slot.next_delivery_attempt_at = None;
+        let signatures: Vec<[u8; 65]> = slot.signers.values().copied().collect();
+        let signer_count = signatures.len();
+        let votes_calldata = encode_votes(&signatures);
+        if observe_threshold {
+            let elapsed = slot.inserted_at.elapsed();
+            metrics.observe_votes_per_message(signer_count as u64);
+            metrics.observe_time_to_threshold(elapsed);
+        }
+        Some(DeliveryJob {
+            chain_key,
+            message_id: slot.indexed.message_id,
+            emitter: slot.indexed.emitter,
+            message_hash: hash,
+            payload: slot.indexed.payload.clone(),
+            votes_calldata,
+            signer_count,
+            indexed_at: slot.inserted_at,
+        })
+    }
+}
+
+fn delivery_retry_delay(attempts: u32) -> Duration {
+    let shift = attempts.saturating_sub(1).min(4);
+    let secs = DELIVERY_RETRY_BASE
+        .as_secs()
+        .saturating_mul(1u64 << shift)
+        .min(DELIVERY_RETRY_MAX.as_secs());
+    Duration::from_secs(secs)
 }
 
 impl RouteState {
