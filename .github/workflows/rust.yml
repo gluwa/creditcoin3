@@ -106,6 +106,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install libclang
+        run: sudo apt-get install -y libclang-dev
+
       - name: Configure rustc version
         run: |
           RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
@@ -160,6 +163,9 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install libclang
+        run: sudo apt-get install -y libclang-dev
 
       - name: Configure rustc version
         run: |
@@ -226,6 +232,9 @@ jobs:
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install libclang
+        run: sudo apt-get install -y libclang-dev
 
       - name: Configure rustc version
         run: |
