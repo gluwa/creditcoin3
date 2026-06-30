@@ -117,19 +117,42 @@ fn is_transient_rpcs(err: &SubxtRpcsError) -> bool {
         // transient condition (overload, shutdown, gateway timeout, etc.).
         SubxtRpcsError::User(user_error) => is_transient_call_message(&user_error.message),
         SubxtRpcsError::Client(boxed) => {
-            let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() else {
-                return false;
-            };
-            match jr {
-                JsonRpseeError::Transport(_)
-                | JsonRpseeError::RestartNeeded(_)
-                | JsonRpseeError::RequestTimeout => true,
-                JsonRpseeError::Custom(msg) => is_transient_custom_message(msg),
-                _ => false,
+            // Direct jsonrpsee error (non-reconnecting client path).
+            if let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() {
+                return match jr {
+                    JsonRpseeError::Transport(_)
+                    | JsonRpseeError::RestartNeeded(_)
+                    | JsonRpseeError::RequestTimeout => true,
+                    JsonRpseeError::Custom(msg) => is_transient_custom_message(msg),
+                    _ => false,
+                };
             }
+            // Reconnecting-RPC-client wraps errors in a second Client layer; peel it.
+            if let Some(nested) = boxed.downcast_ref::<SubxtRpcsError>() {
+                return is_transient_rpcs(nested);
+            }
+            // Generic fallback: walk the source chain for transient IO error kinds.
+            is_transient_io_source_chain(boxed.as_ref())
         }
         _ => false,
     }
+}
+
+/// Walks the error source chain looking for a [`std::io::Error`] whose kind indicates
+/// a transient connection problem (node down, starting up, network blip).
+fn is_transient_io_source_chain(err: &(dyn std::error::Error + 'static)) -> bool {
+    if let Some(io) = err.downcast_ref::<std::io::Error>() {
+        return matches!(
+            io.kind(),
+            std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::UnexpectedEof
+                | std::io::ErrorKind::TimedOut
+        );
+    }
+    err.source().is_some_and(is_transient_io_source_chain)
 }
 
 /// jsonrpsee surfaces some connection deaths as a plain `Error::Custom(String)` rather than a
@@ -1435,6 +1458,25 @@ mod transient_classifier_tests {
         assert!(is_transient_subxt(&make("upstream timeout")));
         assert!(!is_transient_subxt(&make("method not found")));
         assert!(!is_transient_subxt(&make("invalid params")));
+    }
+
+    #[test]
+    fn connection_refused_nested_client_is_transient() {
+        // subxt 0.44 reconnecting-rpc-client adds a second Client layer around the
+        // jsonrpsee transport error; the outer downcast to JsonRpseeError fails and
+        // previously caused a crash instead of a reconnect.
+        let io_err =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        let inner = subxt::ext::subxt_rpcs::Error::Client(Box::new(JsonRpseeError::Transport(
+            Box::new(io_err),
+        )));
+        let err = subxt::Error::Rpc(RpcError::ClientError(
+            subxt::ext::subxt_rpcs::Error::Client(Box::new(inner)),
+        ));
+        assert!(
+            is_transient_subxt(&err),
+            "Client(Client(Transport(ConnectionRefused))) must classify as transient"
+        );
     }
 
     #[test]
