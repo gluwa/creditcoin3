@@ -224,7 +224,7 @@ impl StaticLookup for NativeOrEvmAddressLookup {
 impl frame_system::Config for Runtime {
     /// The ubiquitous event type.
     type RuntimeEvent = RuntimeEvent;
-    type MultiBlockMigrator = ();
+    type MultiBlockMigrator = pallet_migrations::Pallet<Runtime>;
     type SingleBlockMigrations = (
         pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
         pallet_attestation::MigrateAttestorsCountV1ToV2<Runtime>,
@@ -1013,6 +1013,24 @@ impl pallet_membership::Config<OperatorsInstance> for Runtime {
     type WeightInfo = pallet_membership::weights::SubstrateWeight<Self>;
 }
 
+parameter_types! {
+    pub MbmServiceWeight: Weight = Perbill::from_percent(80) * BlockWeights::get().max_block;
+}
+
+impl pallet_migrations::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    #[cfg(not(feature = "runtime-benchmarks"))]
+    type Migrations = (pallet_identity::migration::v2::LazyMigrationV1ToV2<Runtime>,);
+    #[cfg(feature = "runtime-benchmarks")]
+    type Migrations = pallet_migrations::mock_helpers::MockedMigrations;
+    type CursorMaxLen = ConstU32<65_536>;
+    type IdentifierMaxLen = ConstU32<256>;
+    type MigrationStatusHandler = ();
+    type FailedMigrationHandler = frame_support::migrations::FreezeChainOnFailedMigration;
+    type MaxServiceWeight = MbmServiceWeight;
+    type WeightInfo = pallet_migrations::weights::SubstrateWeight<Runtime>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
     pub enum Runtime {
@@ -1052,6 +1070,8 @@ construct_runtime!(
 
         Randomness: pallet_randomness,
         Operators: pallet_membership::<Instance1>,
+
+        MultiBlockMigrations: pallet_migrations,
     }
 );
 
@@ -1118,6 +1138,7 @@ type Migrations = (
         Runtime,
         pallet_session::migrations::v1::InitOffenceSeverity<Runtime>,
     >,
+    pallet_staking::migrations::v16::MigrateV15ToV16<Runtime>,
 );
 
 pub type Executive = frame_executive::Executive<
