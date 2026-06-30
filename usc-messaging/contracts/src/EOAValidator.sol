@@ -37,12 +37,17 @@ contract EOAValidator is IVoteValidator {
     event ThresholdUpdated(uint256 numerator, uint256 denominator, uint256 addition);
     event MinAttestorCountUpdated(uint256 newMin);
 
+    /// secp256k1 group order ÷ 2 — the EIP-2 upper bound on a non-malleable `s`.
+    uint256 internal constant SECP256K1_HALF_N =
+        0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0;
+
     error NotAdmin();
     error InvalidArgument(string reason);
     error InvalidSignatureLength();
     error InvalidAttestor();
     error DoubleSigning();
     error ThresholdNotMet(uint256 got, uint256 required);
+    error MalleableSignature();
 
     modifier onlyAdmin() {
         if (msg.sender != admin) revert NotAdmin();
@@ -85,20 +90,8 @@ contract EOAValidator is IVoteValidator {
         uint256 unique = 0;
 
         for (uint256 i = 0; i < signatures.length; i++) {
-            if (signatures[i].length != 65) revert InvalidSignatureLength();
-
-            bytes32 r;
-            bytes32 s;
-            uint8 v;
-            bytes memory sig = signatures[i];
-            assembly {
-                r := mload(add(sig, 32))
-                s := mload(add(sig, 64))
-                v := byte(0, mload(add(sig, 96)))
-            }
-
             // Direct hash signing — no EIP-191 prefix (matches the attestor signer).
-            address signer = ecrecover(messageHash, v, r, s);
+            address signer = _recoverChecked(messageHash, signatures[i]);
             if (!isAttestor[signer]) revert InvalidAttestor();
 
             for (uint256 j = 0; j < unique; j++) {
@@ -188,17 +181,7 @@ contract EOAValidator is IVoteValidator {
         address[] memory seen = new address[](sigs.length);
         uint256 unique = 0;
         for (uint256 i = 0; i < sigs.length; i++) {
-            if (sigs[i].length != 65) revert InvalidSignatureLength();
-            bytes32 r;
-            bytes32 s;
-            uint8 v;
-            bytes memory sig = sigs[i];
-            assembly {
-                r := mload(add(sig, 32))
-                s := mload(add(sig, 64))
-                v := byte(0, mload(add(sig, 96)))
-            }
-            address signer = ecrecover(updateHash, v, r, s);
+            address signer = _recoverChecked(updateHash, sigs[i]);
             if (!isAttestor[signer]) revert InvalidAttestor();
             for (uint256 j = 0; j < unique; j++) {
                 if (seen[j] == signer) revert DoubleSigning();
@@ -226,6 +209,29 @@ contract EOAValidator is IVoteValidator {
     }
 
     // -------------------------------------- Internals ------------------------------------------- //
+
+    /// @dev Recover a signer from a 65-byte `(r, s, v)` signature with EIP-2 hardening: reject a
+    /// high-`s` (malleable) value and any `v` outside {27, 28}, plus a zero-address recovery. Shared
+    /// by both signature-checking loops so they can't drift. Not a threshold bypass even without it
+    /// (both this contract and the relayer dedup by the *recovered* address, so a malleated copy
+    /// recovers to the same signer and can't inflate the unique count) — this is defense-in-depth so
+    /// the guarantee survives any future refactor of the dedup logic.
+    function _recoverChecked(bytes32 hash, bytes memory sig) internal pure returns (address) {
+        if (sig.length != 65) revert InvalidSignatureLength();
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(sig, 32))
+            s := mload(add(sig, 64))
+            v := byte(0, mload(add(sig, 96)))
+        }
+        if (uint256(s) > SECP256K1_HALF_N) revert MalleableSignature();
+        if (v != 27 && v != 28) revert MalleableSignature();
+        address signer = ecrecover(hash, v, r, s);
+        if (signer == address(0)) revert InvalidAttestor();
+        return signer;
+    }
 
     function _addAttestor(address attestor) internal {
         if (attestor == address(0)) revert InvalidArgument("attestor");

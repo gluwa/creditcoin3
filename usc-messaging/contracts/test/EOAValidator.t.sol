@@ -106,6 +106,29 @@ contract EOAValidatorTest {
         validator.validateVotes(MSG_HASH, _votes(sigs));
     }
 
+    /// secp256k1 group order, for constructing the malleated (high-`s`) twin of a signature.
+    uint256 constant SECP256K1_N =
+        0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
+
+    /// Flip a canonical (low-`s`) signature to its malleable twin: `s -> n - s`, `v` parity flipped.
+    /// It recovers to the SAME signer — so without the EIP-2 guard it would still count.
+    function _malleate(uint256 key, bytes32 h) internal returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, h);
+        bytes32 sHigh = bytes32(SECP256K1_N - uint256(s));
+        uint8 vFlip = v == 27 ? 28 : 27;
+        return abi.encodePacked(r, sHigh, vFlip);
+    }
+
+    function test_high_s_malleable_signature_reverts() public {
+        // K1's vote is the malleated twin; it recovers to K1 (a valid attestor) but EIP-2 rejects it.
+        bytes[] memory sigs = new bytes[](3);
+        sigs[0] = _malleate(K1, MSG_HASH);
+        sigs[1] = _sig(K2, MSG_HASH);
+        sigs[2] = _sig(K3, MSG_HASH);
+        vm.expectRevert();
+        validator.validateVotes(MSG_HASH, _votes(sigs));
+    }
+
     // --- attestor-set update (nonce / replay protection) ---------------------------------------- //
 
     /// Build the `submitAttestorSetUpdate` votes blob for `newAttestors` signed by the current
