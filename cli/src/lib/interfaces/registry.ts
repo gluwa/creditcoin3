@@ -147,6 +147,12 @@ import type {
     PalletMembershipCall,
     PalletMembershipError,
     PalletMembershipEvent,
+    PalletMigrationsActiveCursor,
+    PalletMigrationsCall,
+    PalletMigrationsError,
+    PalletMigrationsEvent,
+    PalletMigrationsHistoricCleanupSelector,
+    PalletMigrationsMigrationCursor,
     PalletNominationPoolsBondExtra,
     PalletNominationPoolsBondedPoolInner,
     PalletNominationPoolsCall,
@@ -395,6 +401,12 @@ declare module '@polkadot/types/types/registry' {
         PalletMembershipCall: PalletMembershipCall;
         PalletMembershipError: PalletMembershipError;
         PalletMembershipEvent: PalletMembershipEvent;
+        PalletMigrationsActiveCursor: PalletMigrationsActiveCursor;
+        PalletMigrationsCall: PalletMigrationsCall;
+        PalletMigrationsError: PalletMigrationsError;
+        PalletMigrationsEvent: PalletMigrationsEvent;
+        PalletMigrationsHistoricCleanupSelector: PalletMigrationsHistoricCleanupSelector;
+        PalletMigrationsMigrationCursor: PalletMigrationsMigrationCursor;
         PalletNominationPoolsBondExtra: PalletNominationPoolsBondExtra;
         PalletNominationPoolsBondedPoolInner: PalletNominationPoolsBondedPoolInner;
         PalletNominationPoolsCall: PalletNominationPoolsCall;
