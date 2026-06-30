@@ -335,6 +335,19 @@ fn resolve_attestors(route: &ChainRoute) -> Result<RouteAttestors> {
                 .threshold_override
                 .map(|t| t as usize)
                 .unwrap_or_else(|| calculate_threshold(n));
+            // The pool enforces THIS threshold locally; the destination `EOAValidator` enforces its
+            // own `threshold()`. For a static route the two are configured independently, so a
+            // mismatch is silent until delivery — too high assembles bundles the Inbox rejects, too
+            // low wastes delivery attempts. (On-chain routes avoid this by reading `threshold()`
+            // live; see `attestor_set::run`.) Surface the value so an operator can confirm parity
+            // with the deployed validator.
+            warn!(
+                chain_key = route.chain_key,
+                attestors = n,
+                threshold,
+                threshold_override = ?route.threshold_override,
+                "static attestor-set route — this threshold MUST equal the on-chain EOAValidator.threshold(); verify they match or delivery will revert"
+            );
             Ok(RouteAttestors {
                 chain_key: route.chain_key,
                 attestors,
