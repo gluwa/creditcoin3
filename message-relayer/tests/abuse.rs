@@ -51,6 +51,8 @@ async fn pool_drops_unknown_messages_and_emits_no_jobs() {
             vote_rx,
             delivery_txs,
             set_update_rx: set_rx,
+            reobs_tx: mpsc::channel(8).0,
+            query_rx: mpsc::channel(8).1,
         },
         NoopMetrics::new(),
         cancel_for_pool,
@@ -113,6 +115,8 @@ async fn pool_drops_votes_from_unknown_signers() {
             vote_rx,
             delivery_txs,
             set_update_rx: set_rx,
+            reobs_tx: mpsc::channel(8).0,
+            query_rx: mpsc::channel(8).1,
         },
         NoopMetrics::new(),
         cancel_for_pool,
@@ -129,6 +133,8 @@ async fn pool_drops_votes_from_unknown_signers() {
         creditcoin_chain_id: 1,
         payload: vec![],
         message_hash: alloy::primitives::B256::from(hash),
+        tx_hash: alloy::primitives::B256::ZERO,
+        block_height: 0,
     };
     let _ = indexed_tx.send(indexed).await;
 

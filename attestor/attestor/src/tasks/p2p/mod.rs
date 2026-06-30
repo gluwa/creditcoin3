@@ -18,8 +18,8 @@ use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
 use attestor_primitives::AttestorId;
-use write_ability::envelope::MessageVote;
-use write_ability::protocol::message_votes_topic;
+use write_ability::envelope::{MessageVote, ReobservationRequest};
+use write_ability::protocol::{message_votes_topic, reobservation_topic};
 
 use crate::error::Error;
 use crate::shared::Shared;
@@ -116,6 +116,22 @@ pub async fn run(
             .behaviour_mut()
             .gossipsub
             .subscribe(mv_topic)
+            .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+    }
+
+    // Reobservation requests (liveness recovery) ride the same swarm on their own topic. We only
+    // *receive* these (relayers publish them); on a valid request we re-verify + re-sign. Subscribed
+    // alongside the vote topic so message attestation is fully enabled or fully off.
+    let reobs_topic = shared.message_votes.is_some().then(|| {
+        let t = libp2p::gossipsub::IdentTopic::new(reobservation_topic(chain_key));
+        tracing::info!(topic = %t, "📫 subscribing to reobservation requests");
+        t
+    });
+    if let Some(reobs_topic) = &reobs_topic {
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(reobs_topic)
             .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
     }
 
@@ -293,6 +309,7 @@ pub async fn run(
                     &shared,
                     &mut swarm,
                     mv_topic.as_ref(),
+                    reobs_topic.as_ref(),
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
@@ -332,6 +349,7 @@ async fn handle_swarm(
     shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     mv_topic: Option<&libp2p::gossipsub::IdentTopic>,
+    reobs_topic: Option<&libp2p::gossipsub::IdentTopic>,
     pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
@@ -423,11 +441,15 @@ async fn handle_swarm(
         })) => {
             shared.metrics.increase_gossipsub_message_count();
 
-            // Route by topic: message votes (write-ability) vs block attestations. Both ride this
-            // one swarm; `mv_topic` is `Some` only when message attestation is enabled.
+            // Route by topic: message votes / reobservation requests (write-ability) vs block
+            // attestations. All ride this one swarm; the write-ability topics are `Some` only when
+            // message attestation is enabled.
             let is_message_vote = mv_topic.is_some_and(|t| message.topic == t.hash());
+            let is_reobs = reobs_topic.is_some_and(|t| message.topic == t.hash());
             let decision = if is_message_vote {
                 handle_message_vote(shared, &message.data)
+            } else if is_reobs {
+                handle_reobservation_request(shared, &message.data)
             } else {
                 let (acceptance, learned) = handle_vote_msg(
                     shared,
@@ -802,6 +824,39 @@ fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub:
             shared.metrics.increase_invalid_gossipsub_count();
             MessageAcceptance::Reject
         }
+    }
+}
+
+/// Decode a reobservation request and hand it to the write-ability task to verify + re-sign. The
+/// swarm loop must stay responsive, so we only decode + forward here (no RPC / signing). We Accept
+/// any well-formed request so it keeps propagating to other attestors — each re-verifies it
+/// independently — even if our own forward buffer is momentarily full.
+fn handle_reobservation_request(
+    shared: &Arc<Shared>,
+    bytes: &[u8],
+) -> libp2p::gossipsub::MessageAcceptance {
+    use libp2p::gossipsub::MessageAcceptance;
+    let Some(state) = &shared.message_votes else {
+        return MessageAcceptance::Ignore;
+    };
+    let request = match ReobservationRequest::decode_bytes(bytes) {
+        Ok(r) => r,
+        Err(err) => {
+            tracing::warn!(%err, "⛔ failed to decode reobservation request");
+            shared.metrics.increase_invalid_gossipsub_count();
+            return MessageAcceptance::Reject;
+        }
+    };
+    if request.chain_key != shared.chain_key {
+        return MessageAcceptance::Ignore;
+    }
+    match state.reobs_tx.try_send(request) {
+        Ok(()) => MessageAcceptance::Accept,
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!("reobservation queue full — dropping locally but still propagating");
+            MessageAcceptance::Accept
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => MessageAcceptance::Ignore,
     }
 }
 

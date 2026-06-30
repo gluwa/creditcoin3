@@ -25,6 +25,7 @@ pub mod attestor_set;
 pub mod config;
 pub mod ingest;
 pub mod listener;
+pub mod reobservation;
 pub mod resolver;
 pub mod signing;
 
@@ -39,7 +40,7 @@ use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
-use write_ability::envelope::MessageVote;
+use write_ability::envelope::{MessageVote, ReobservationRequest};
 
 use crate::error::Error;
 use crate::shared::Shared;
@@ -63,6 +64,10 @@ pub struct MessageVoteState {
     pub active_set: RwLock<HashSet<Address>>,
     /// Outgoing votes we produced, handed to the p2p task to publish on the message-vote topic.
     pub publish_tx: mpsc::Sender<MessageVote>,
+    /// Incoming reobservation requests the p2p task decoded off the reobservation topic, handed to
+    /// the write-ability task to verify + re-sign. `try_send` from the swarm loop (best effort:
+    /// shedding a request under a full buffer just means that stall recovers on the next request).
+    pub reobs_tx: mpsc::Sender<ReobservationRequest>,
 }
 
 /// Build the shared message-vote state and the matching publish channel receiver from config, or
@@ -71,7 +76,11 @@ pub struct MessageVoteState {
 #[must_use]
 pub async fn build_state(
     cfg: &Config,
-) -> Option<(Arc<MessageVoteState>, mpsc::Receiver<MessageVote>)> {
+) -> Option<(
+    Arc<MessageVoteState>,
+    mpsc::Receiver<MessageVote>,
+    mpsc::Receiver<ReobservationRequest>,
+)> {
     if !cfg.enabled {
         return None;
     }
@@ -80,17 +89,19 @@ pub async fn build_state(
     let aggregator =
         aggregator::VoteAggregator::new(threshold, cfg.max_tracked_messages, cfg.vote_ttl);
     let (publish_tx, publish_rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
+    let (reobs_tx, reobs_rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
     let state = Arc::new(MessageVoteState {
         aggregator: Mutex::new(aggregator),
         active_set: RwLock::new(active_set),
         publish_tx,
+        reobs_tx,
     });
     tracing::info!(
         attestors = state.active_set.read().len(),
         threshold,
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
-    Some((state, publish_rx))
+    Some((state, publish_rx, reobs_rx))
 }
 
 /// Resolve the authorized signer set. Returns `None` (with a logged reason) when the set can't be
@@ -152,7 +163,13 @@ async fn resolve_active_set(cfg: &Config) -> Option<HashSet<Address>> {
 
 /// Entry point spawned from `lib.rs`. Drives the Outbox listener and produces signed votes; the
 /// swarm itself is owned by the p2p task. `seed` is the 32-byte secret the EVM key derives from.
-pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) -> Result<(), Error> {
+/// `reobs_rx` carries reobservation requests the p2p task decoded off the reobservation topic.
+pub async fn run(
+    shared: Arc<Shared>,
+    cfg: Config,
+    seed: Zeroizing<[u8; 32]>,
+    mut reobs_rx: mpsc::Receiver<ReobservationRequest>,
+) -> Result<(), Error> {
     let Some(state) = shared.message_votes.clone() else {
         tracing::info!("📭 message attestation disabled — parking write-ability task");
         // Park until shutdown; returning Ok early would trip the supervisor's "exited early" guard.
@@ -243,6 +260,11 @@ pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) ->
         }
     });
 
+    // Cooldown so a spammed/forged reobservation topic can't make us re-scan the chain in a loop.
+    let mut reobs_limiter = reobservation::ReobsRateLimiter::new(reobservation::REOBS_MIN_INTERVAL);
+    // Flipped off if the reobservation sender is ever dropped, so we stop polling a closed channel.
+    let mut reobs_open = true;
+
     let chain_key = shared.chain_key;
     loop {
         tokio::select! {
@@ -254,6 +276,16 @@ pub async fn run(shared: Arc<Shared>, cfg: Config, seed: Zeroizing<[u8; 32]>) ->
                     break;
                 };
                 produce_vote(&state, &signer, our_address, chain_key, indexed);
+            }
+            maybe = reobs_rx.recv(), if reobs_open => {
+                let Some(request) = maybe else {
+                    reobs_open = false;
+                    continue;
+                };
+                handle_reobservation(
+                    &provider, &resolved, &state, &signer, our_address, chain_key,
+                    &mut reobs_limiter, request,
+                ).await;
             }
         }
     }
@@ -313,4 +345,56 @@ fn produce_vote(
             tracing::warn!(%err, "message-vote publish channel full/closed — dropping vote")
         }
     }
+}
+
+/// Honor a reobservation request (liveness recovery): rate-limit per `message_id`, independently
+/// re-verify the message against our own RPC, skip if we've already seen local quorum for it, then
+/// re-sign + re-gossip exactly as if we'd just indexed it. Errors and unverifiable requests are
+/// logged and dropped — never fatal.
+#[allow(clippy::too_many_arguments)]
+async fn handle_reobservation<P: alloy::providers::Provider>(
+    provider: &P,
+    resolved: &resolver::ResolvedOutbox,
+    state: &MessageVoteState,
+    signer: &signing::MessageSigner,
+    our_address: Address,
+    chain_key: u64,
+    limiter: &mut reobservation::ReobsRateLimiter,
+    request: ReobservationRequest,
+) {
+    let message_id = alloy::primitives::B256::from(request.message_id);
+    if request.chain_key != chain_key {
+        return; // not ours (topic is per-chain, but be defensive)
+    }
+    if !limiter.allow(message_id, Instant::now()) {
+        tracing::debug!(%message_id, "⏳ reobservation request within cooldown — ignoring");
+        return;
+    }
+
+    let indexed = match reobservation::reobserve(provider, resolved, &request).await {
+        Ok(Some(indexed)) => indexed,
+        Ok(None) => {
+            tracing::warn!(
+                %message_id,
+                block = request.block_height,
+                "🔎 reobservation request did not match a verifiable MessagePublished — ignoring"
+            );
+            return;
+        }
+        Err(err) => {
+            tracing::warn!(%message_id, %err, "reobservation re-fetch failed — ignoring");
+            return;
+        }
+    };
+
+    // Re-sign unconditionally (the per-`message_id` cooldown above is the bound). We must NOT skip
+    // just because our *own* aggregator already saw local quorum: the requester is the relayer, and
+    // the whole reason it asked is that it is missing votes the attestor mesh may have settled among
+    // itself. Re-gossiping is idempotent at the relayer (it dedups), so the worst case is harmless.
+    tracing::info!(
+        %message_id,
+        message_hash = %indexed.message_hash,
+        "♻️ re-signing reobserved message"
+    );
+    produce_vote(state, signer, our_address, chain_key, indexed);
 }

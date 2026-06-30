@@ -15,9 +15,10 @@ use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, PrimitiveSignature, B256};
 use anyhow::Result;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
+use write_ability::envelope::ReobservationRequest;
 
 use crate::config::VoteCacheConfig;
 use crate::delivery::encode::encode_votes;
@@ -30,6 +31,34 @@ use crate::prom::{Metrics, VoteOutcome};
 #[must_use]
 pub fn calculate_threshold(n: usize) -> usize {
     (2 * n) / 3 + 1
+}
+
+/// How long a message may sit below quorum before the relayer starts broadcasting reobservation
+/// requests for it (liveness recovery — see [`ReobservationRequest`]). Well above the normal
+/// vote-collection latency so healthy messages never trigger a request.
+const REOBS_STALL_AFTER: Duration = Duration::from_secs(60);
+/// Minimum gap between successive reobservation requests for the same stalled message.
+const REOBS_REPEAT_EVERY: Duration = Duration::from_secs(60);
+
+/// Snapshot of the votes accumulated for one message, answered by the pool over [`PoolQuery`] and
+/// served read-only at `GET /votes/{message_hash}`. Lets a relayer act as a queryable "spy node":
+/// an operator (or a sibling relayer) can ask what we have for a message and merge / act on it.
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct VoteBundle {
+    pub chain_key: u64,
+    pub message_id: B256,
+    pub message_hash: B256,
+    pub threshold: usize,
+    pub signer_count: usize,
+    pub delivered: bool,
+    /// Addresses whose (validated) signatures we have counted so far.
+    pub signers: Vec<Address>,
+}
+
+/// A read-only request for the [`VoteBundle`] of a `message_hash`, with a oneshot to reply on.
+pub struct PoolQuery {
+    pub message_hash: B256,
+    pub reply: oneshot::Sender<Option<VoteBundle>>,
 }
 
 /// Pre-resolved attestor allowlist for a route. The runtime resolves [`AttestorSet`] (which may
@@ -53,6 +82,11 @@ pub struct PoolHandles {
     /// route's allowlist + threshold and re-evaluates its pending messages. Routes with a static
     /// set never send here.
     pub set_update_rx: mpsc::Receiver<RouteAttestors>,
+    /// Reobservation requests this pool emits for messages stalled below quorum; the p2p worker
+    /// gossips them so attestors re-sign.
+    pub reobs_tx: mpsc::Sender<ReobservationRequest>,
+    /// Read-only vote-bundle queries (served at `GET /votes/{message_hash}`).
+    pub query_rx: mpsc::Receiver<PoolQuery>,
 }
 
 /// Run the pool task. Returns when `cancel` fires or both inputs close.
@@ -69,6 +103,8 @@ pub async fn run(
         mut vote_rx,
         delivery_txs,
         mut set_update_rx,
+        reobs_tx,
+        mut query_rx,
     } = handles;
 
     // Publish the starting allowlist sizes (static routes report their configured size; on-chain
@@ -78,6 +114,8 @@ pub async fn run(
     // Once every set-update sender is dropped (e.g. no on-chain routes, or all watchers exited),
     // `recv()` yields `None` forever; flip this off so the branch stops being polled.
     let mut set_updates_open = true;
+    // Same guard for the query channel (sender held by the HTTP layer until shutdown).
+    let mut query_open = true;
 
     let mut prune_tick = tokio::time::interval(Duration::from_secs(30));
     prune_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -142,9 +180,23 @@ pub async fn run(
                     }
                 }
             }
+            maybe = query_rx.recv(), if query_open => {
+                let Some(query) = maybe else {
+                    query_open = false;
+                    continue;
+                };
+                let _ = query.reply.send(state.query_bundle(&query.message_hash));
+            }
             _ = prune_tick.tick() => {
                 state.prune_expired();
                 metrics.set_pool_messages_pending(state.total_pending() as i64);
+                // Nudge attestors to re-sign anything stuck below quorum. Best effort: a full
+                // request channel just means we try again on the next tick.
+                for req in state.collect_stalled_reobservations(Instant::now()) {
+                    if let Err(err) = reobs_tx.try_send(req) {
+                        debug!(%err, "reobservation request channel full/closed");
+                    }
+                }
             }
         }
     }
@@ -173,6 +225,9 @@ struct MessageSlot {
     signers: BTreeMap<Address, [u8; 65]>,
     delivered: bool,
     inserted_at: Instant,
+    /// When we last gossiped a reobservation request for this message (`None` = never). Rate-limits
+    /// re-requests so a persistently stalled message doesn't spam the mesh.
+    last_reobs_request: Option<Instant>,
 }
 
 impl State {
@@ -220,6 +275,7 @@ impl State {
                 signers: BTreeMap::new(),
                 delivered: false,
                 inserted_at: Instant::now(),
+                last_reobs_request: None,
             },
         );
         route.order.push_back(hash);
@@ -405,6 +461,65 @@ impl State {
         }
         jobs
     }
+
+    /// Find messages stalled below quorum and build a [`ReobservationRequest`] for each, recording
+    /// the send time so we don't re-request more than once per [`REOBS_REPEAT_EVERY`]. A message
+    /// qualifies once it has been pending [`REOBS_STALL_AFTER`] without reaching threshold.
+    fn collect_stalled_reobservations(&mut self, now: Instant) -> Vec<ReobservationRequest> {
+        let mut requests = Vec::new();
+        for (chain_key, route) in &mut self.by_route {
+            let threshold = route.threshold;
+            for slot in route.by_message.values_mut() {
+                if slot.delivered || slot.signers.len() >= threshold {
+                    continue;
+                }
+                if now.duration_since(slot.inserted_at) < REOBS_STALL_AFTER {
+                    continue;
+                }
+                if slot
+                    .last_reobs_request
+                    .is_some_and(|t| now.duration_since(t) < REOBS_REPEAT_EVERY)
+                {
+                    continue;
+                }
+                slot.last_reobs_request = Some(now);
+                // info, not debug: a stalled message asking the attestor set to re-sign is a notable
+                // liveness event an operator should see, and it is rate-limited so it can't be noisy.
+                info!(
+                    chain_key,
+                    message_id = %slot.indexed.message_id,
+                    have = slot.signers.len(),
+                    threshold,
+                    "📣 requesting reobservation for stalled message"
+                );
+                requests.push(ReobservationRequest {
+                    chain_key: *chain_key,
+                    message_id: slot.indexed.message_id.0,
+                    tx_hash: slot.indexed.tx_hash.0,
+                    block_height: slot.indexed.block_height,
+                });
+            }
+        }
+        requests
+    }
+
+    /// Build the read-only [`VoteBundle`] for `message_hash`, or `None` if we have not indexed it.
+    fn query_bundle(&self, message_hash: &B256) -> Option<VoteBundle> {
+        for (chain_key, route) in &self.by_route {
+            if let Some(slot) = route.by_message.get(message_hash) {
+                return Some(VoteBundle {
+                    chain_key: *chain_key,
+                    message_id: slot.indexed.message_id,
+                    message_hash: *message_hash,
+                    threshold: route.threshold,
+                    signer_count: slot.signers.len(),
+                    delivered: slot.delivered,
+                    signers: slot.signers.keys().copied().collect(),
+                });
+            }
+        }
+        None
+    }
 }
 
 impl RouteState {
@@ -474,6 +589,8 @@ mod tests {
             creditcoin_chain_id: 1,
             payload: vec![1, 2, 3],
             message_hash: hash,
+            tx_hash: B256::from([0xab; 32]),
+            block_height: 99,
         }
     }
 
@@ -624,6 +741,71 @@ mod tests {
             .get(&hash)
             .unwrap();
         assert!(!slot.delivered);
+    }
+
+    #[test]
+    fn stalled_message_yields_one_request_then_respects_cooldown() {
+        let a = address!("000000000000000000000000000000000000000a");
+        let mut state = State::new(
+            vec![route_for(2, vec![a, a, a])],
+            VoteCacheConfig::default(),
+        );
+        // route_for sets threshold = calculate_threshold(3) = 3.
+        let hash = B256::from([1u8; 32]);
+        seed_slot(&mut state, 2, hash, &[a]); // 1 signer, below threshold 3
+
+        let t0 = Instant::now();
+        // Before the stall window: nothing.
+        assert!(state.collect_stalled_reobservations(t0).is_empty());
+
+        // Past the stall window: exactly one request, carrying the indexed tx pointer.
+        let after = t0 + REOBS_STALL_AFTER + Duration::from_secs(1);
+        let reqs = state.collect_stalled_reobservations(after);
+        assert_eq!(reqs.len(), 1);
+        assert_eq!(reqs[0].chain_key, 2);
+        assert_eq!(reqs[0].block_height, 99);
+
+        // Immediately again: cooldown suppresses it.
+        assert!(state.collect_stalled_reobservations(after).is_empty());
+        // After the repeat interval: requested again.
+        let later = after + REOBS_REPEAT_EVERY + Duration::from_secs(1);
+        assert_eq!(state.collect_stalled_reobservations(later).len(), 1);
+    }
+
+    #[test]
+    fn delivered_or_quorum_message_is_not_reobserved() {
+        let a = address!("000000000000000000000000000000000000000a");
+        let mut state = State::new(vec![route_for(2, vec![a])], VoteCacheConfig::default());
+        // Single attestor → threshold 1, so one seeded signer already meets quorum.
+        let hash = B256::from([2u8; 32]);
+        seed_slot(&mut state, 2, hash, &[a]);
+        let after = Instant::now() + REOBS_STALL_AFTER + Duration::from_secs(1);
+        assert!(
+            state.collect_stalled_reobservations(after).is_empty(),
+            "a message at/above quorum must not be reobserved"
+        );
+    }
+
+    #[test]
+    fn query_bundle_reports_accumulated_signers() {
+        let (a, b) = (
+            address!("000000000000000000000000000000000000000a"),
+            address!("000000000000000000000000000000000000000b"),
+        );
+        let mut state = State::new(vec![route_for(2, vec![a, b])], VoteCacheConfig::default());
+        let hash = B256::from([3u8; 32]);
+        seed_slot(&mut state, 2, hash, &[a]);
+
+        let bundle = state.query_bundle(&hash).expect("indexed message present");
+        assert_eq!(bundle.chain_key, 2);
+        assert_eq!(bundle.signer_count, 1);
+        assert!(!bundle.delivered);
+        assert_eq!(bundle.signers, vec![a]);
+
+        assert!(
+            state.query_bundle(&B256::from([0xff; 32])).is_none(),
+            "unknown hash returns None"
+        );
     }
 
     #[test]
