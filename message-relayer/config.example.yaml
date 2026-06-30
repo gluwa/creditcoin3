@@ -53,6 +53,9 @@ routes:
     # may be omitted while the relayer runs read-only for testing.
     # signer_key: "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
     block_confirmation_depth: 12
+    # First source-chain block to scan on first run when no checkpoint file exists.
+    # Omit to start at the current head.
+    # start_block: 123456
     attestor_set:
       kind: static
       addresses:
@@ -73,6 +76,8 @@ routes:
     #   # Blocks to lag behind the destination tip when scanning for MessageDelivered (reorg guard;
     #   # 0 for instant-finality destinations).
     #   confirmation_depth: 0
+    #   # First destination-chain block to scan for MessageDelivered on first run.
+    #   # start_block: 123456
 
   # Second route example: same Creditcoin chain_key cannot repeat, but the
   # binary handles many destination chains in parallel.

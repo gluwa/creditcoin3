@@ -68,6 +68,7 @@ mod tests {
             inbox_address: address!("0000000000000000000000000000000000000002"),
             signer_key: None,
             block_confirmation_depth: 0,
+            start_block: None,
             attestor_set: AttestorSet::Static(vec![address!(
                 "000000000000000000000000000000000000000a"
             )]),

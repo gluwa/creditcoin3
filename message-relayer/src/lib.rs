@@ -139,6 +139,8 @@ impl Server {
             mpsc::channel::<write_ability::envelope::ReobservationRequest>(REOBS_CHANNEL_CAP);
         let (query_tx, query_rx) = mpsc::channel::<pool::PoolQuery>(QUERY_CHANNEL_CAP);
         let mut delivery_txs: HashMap<u64, mpsc::Sender<DeliveryJob>> = HashMap::new();
+        let (delivery_result_tx, delivery_result_rx) =
+            mpsc::channel::<delivery::DeliveryResult>(DELIVERY_CHANNEL_CAP);
 
         let mut tasks = JoinSet::new();
 
@@ -153,11 +155,13 @@ impl Server {
                     route.clone(),
                     self.config.delivery.clone(),
                     drx,
+                    delivery_result_tx.clone(),
                     metrics.clone(),
                     cancel.clone(),
                 ),
             );
         }
+        drop(delivery_result_tx);
 
         // Pool.
         spawn_worker(
@@ -170,6 +174,7 @@ impl Server {
                     indexed_rx,
                     vote_rx,
                     delivery_txs,
+                    delivery_result_rx,
                     set_update_rx: set_rx,
                     reobs_tx,
                     query_rx,

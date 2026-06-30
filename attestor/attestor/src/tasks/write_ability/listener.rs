@@ -41,13 +41,22 @@ pub async fn watch<P: Provider>(
     provider: &P,
     resolved: ResolvedOutbox,
     block_confirmation_depth: u64,
+    start_block: Option<u64>,
     tx: mpsc::Sender<IndexedMessage>,
     token: CancellationToken,
 ) -> Result<()> {
-    let mut last_seen = provider
-        .get_block_number()
-        .await
-        .context("failed to read Creditcoin L1 chain head")?;
+    let mut last_seen = if let Some(start) = start_block {
+        tracing::info!(
+            start_block = start,
+            "⏮️ no persisted Outbox cursor; starting message-attestation scan from configured block"
+        );
+        start.saturating_sub(1)
+    } else {
+        provider
+            .get_block_number()
+            .await
+            .context("failed to read Creditcoin L1 chain head")?
+    };
 
     let mut tick = tokio::time::interval(Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
