@@ -19,7 +19,7 @@ name: write-ability-e2e
 "on":
   workflow_dispatch:
   pull_request:
-    branches: [main, usc-dev, usc-testnet]
+    branches: [main, usc-dev, usc-testnet, attestor_v2]
     paths:
       - "attestor/**"
       - "common/**"
