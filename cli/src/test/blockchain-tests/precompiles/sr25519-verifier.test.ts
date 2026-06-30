@@ -15,7 +15,7 @@ describe('Precompile: Sr25519Verifier.verify()', (): void => {
     let alith: any;
     let api: ApiPromise;
     let gasPrice: bigint;
-    let gasLimit: number;
+    let gasLimit: bigint;
     let keyring: Keyring;
 
     beforeAll(async () => {
@@ -40,7 +40,19 @@ describe('Precompile: Sr25519Verifier.verify()', (): void => {
         // Initialize keyring for sr25519 signatures
         keyring = new Keyring({ type: 'sr25519' });
 
-        gasLimit = 10000000;
+        // Read the EVM block gas limit from chain instead of hard-coding it. The runtime derives
+        // `WeightPerGas` from `BLOCK_GAS_LIMIT`, and that cap is profile-gated (180M prod, 60M
+        // fast/devnet), so a hard-coded limit can exceed the block cap or fall short on the
+        // calldata-heavy cases. Frontier reports the configured `BlockGasLimit` as the block
+        // `gasLimit` over the eth RPC, so any finalized block carries the current value. Using the
+        // full block limit is safe here: successful calls only pay for gas actually used, and the
+        // revert tests just need enough gas to reach the on-chain check rather than dying
+        // out-of-gas first.
+        const latestBlock = await provider.getBlock('finalized');
+        if (latestBlock === null || latestBlock.gasLimit <= 0n) {
+            throw new Error('could not read EVM block gas limit from chain');
+        }
+        gasLimit = latestBlock.gasLimit;
     }, 90_000);
 
     afterAll(async () => {
@@ -115,7 +127,7 @@ describe('Precompile: Sr25519Verifier.verify()', (): void => {
             // Call the precompile
             const result = await contract.verify(messageHex, signatureHex, publicKeyHex, {
                 gasPrice,
-                gasLimit: 20000000, // Higher gas limit for longer message
+                gasLimit,
             });
 
             expect(result).toBe(true);
@@ -293,7 +305,7 @@ describe('Precompile: Sr25519Verifier.verify()', (): void => {
             await expect(
                 contract.verify(messageHex, signatureHex, publicKeyHex, {
                     gasPrice,
-                    gasLimit: 75_000_000,
+                    gasLimit,
                 }),
             ).rejects.toThrow(/Value is too large for length/);
         }, 120_000);
