@@ -63,6 +63,8 @@ pub struct ChainRoute {
     pub inbox_address: Address,
     pub signer_key: Option<String>,
     pub block_confirmation_depth: u64,
+    /// First block to scan on first run when no persisted checkpoint exists.
+    pub start_block: Option<u64>,
     pub attestor_set: AttestorSet,
     pub threshold_override: Option<u32>,
     /// Opt-in trust-minimized acknowledgment. When set, the relayer watches the destination
@@ -87,6 +89,8 @@ pub struct AckConfig {
     /// ack watcher does not act on the unsafe head (a destination reorg could otherwise enqueue an
     /// ack for a delivery that later disappears). 0 for instant-finality destinations.
     pub confirmation_depth: u64,
+    /// First destination block to scan on first run when no persisted ack checkpoint exists.
+    pub start_block: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -288,6 +292,8 @@ pub struct ChainRouteFile {
     pub signer_key: Option<String>,
     #[serde(default)]
     pub block_confirmation_depth: u64,
+    #[serde(default)]
+    pub start_block: Option<u64>,
     pub attestor_set: AttestorSetFile,
     #[serde(default)]
     pub threshold_override: Option<u32>,
@@ -302,6 +308,8 @@ pub struct AckConfigFile {
     pub signer_key: String,
     #[serde(default)]
     pub confirmation_depth: u64,
+    #[serde(default)]
+    pub start_block: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -437,6 +445,7 @@ impl ChainRouteFile {
                     validator_address,
                     signer_key: a.signer_key,
                     confirmation_depth: a.confirmation_depth,
+                    start_block: a.start_block,
                 })
             })
             .transpose()?;
@@ -449,6 +458,7 @@ impl ChainRouteFile {
             inbox_address,
             signer_key: self.signer_key,
             block_confirmation_depth: self.block_confirmation_depth,
+            start_block: self.start_block,
             attestor_set,
             threshold_override: self.threshold_override,
             ack,

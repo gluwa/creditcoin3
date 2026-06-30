@@ -134,9 +134,20 @@ pub async fn run(
             );
             block
         }
-        None => dest_provider.get_block_number().await.with_context(|| {
-            format!("chain_key {chain_key}: ack submitter failed to read chain head")
-        })?,
+        None => {
+            if let Some(start) = ack.start_block {
+                info!(
+                    chain_key,
+                    start_block = start,
+                    "⏮️ no ack checkpoint; starting initial scan from configured block"
+                );
+                start.saturating_sub(1)
+            } else {
+                dest_provider.get_block_number().await.with_context(|| {
+                    format!("chain_key {chain_key}: ack submitter failed to read chain head")
+                })?
+            }
+        }
     };
 
     // Destination tx hashes seen but not yet acknowledged (proof not ready / transient failure).
@@ -224,6 +235,14 @@ async fn discover_delivered<P: Provider>(
             );
             continue;
         };
+        if log.block_number.is_none() {
+            warn!(
+                chain_key,
+                %tx_hash,
+                "MessageDelivered log without block_number; skipping"
+            );
+            continue;
+        }
         if done.contains(&tx_hash) || pending.contains(&tx_hash) {
             continue;
         }

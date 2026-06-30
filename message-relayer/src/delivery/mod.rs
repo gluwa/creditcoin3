@@ -20,7 +20,7 @@ use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, Bytes, B256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
@@ -48,11 +48,26 @@ pub struct DeliveryJob {
     pub indexed_at: Instant,
 }
 
+#[derive(Clone, Debug)]
+pub struct DeliveryResult {
+    pub chain_key: u64,
+    pub message_hash: B256,
+    pub outcome: DeliveryResultKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeliveryResultKind {
+    Delivered,
+    Terminal,
+    Retryable,
+}
+
 /// Spawn the delivery worker for one route. Exits on `cancel` or unrecoverable channel close.
 pub async fn run(
     route: ChainRoute,
     delivery_config: DeliveryConfig,
     mut job_rx: mpsc::Receiver<DeliveryJob>,
+    result_tx: mpsc::Sender<DeliveryResult>,
     metrics: Metrics,
     cancel: CancellationToken,
 ) -> Result<()> {
@@ -97,14 +112,30 @@ pub async fn run(
                     info!(chain_key, "delivery channel closed; worker exiting");
                     return Ok(());
                 };
-                if let Err(err) = handle_job(
+                let outcome = match handle_job(
                     &route,
                     &delivery_config,
                     &provider,
                     &job,
                     metrics.as_ref(),
                 ).await {
-                    error!(chain_key, message_id = %job.message_id, %err, "❌ delivery job failed");
+                    Ok(outcome) => outcome,
+                    Err(err) => {
+                        error!(chain_key, message_id = %job.message_id, %err, "❌ delivery job failed");
+                        DeliveryResultKind::Retryable
+                    }
+                };
+                if result_tx
+                    .send(DeliveryResult {
+                        chain_key: job.chain_key,
+                        message_hash: job.message_hash,
+                        outcome,
+                    })
+                    .await
+                    .is_err()
+                {
+                    warn!(chain_key, "delivery result channel closed; worker exiting");
+                    return Ok(());
                 }
             }
         }
@@ -117,7 +148,7 @@ async fn handle_job<P: Provider + Clone + 'static>(
     provider: &P,
     job: &DeliveryJob,
     metrics: &dyn crate::prom::MetricsTrait,
-) -> Result<()> {
+) -> Result<DeliveryResultKind> {
     let inbox = IInbox::new(route.inbox_address, provider);
 
     if delivery_config.simulate_before_send {
@@ -137,10 +168,16 @@ async fn handle_job<P: Provider + Clone + 'static>(
                 debug!(chain_key = route.chain_key, message_id = %job.message_id,
                     "simulate detected MessageAlreadyValidated; idempotent success");
                 metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::AlreadyValidated);
-                return Ok(());
+                return Ok(DeliveryResultKind::Delivered);
             }
             metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Reverted);
-            return Err(anyhow!("simulate(deliverMessage) reverted: {err}"));
+            warn!(
+                chain_key = route.chain_key,
+                message_id = %job.message_id,
+                %err,
+                "simulate(deliverMessage) reverted; treating as terminal"
+            );
+            return Ok(DeliveryResultKind::Terminal);
         }
     }
 
@@ -220,7 +257,7 @@ async fn handle_job<P: Provider + Clone + 'static>(
                 elapsed_ms = started.elapsed().as_millis() as u64,
                 "✅ message delivered"
             );
-            Ok(())
+            Ok(DeliveryResultKind::Delivered)
         }
         SendOutcome::AlreadyValidated => {
             metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::AlreadyValidated);
@@ -229,7 +266,7 @@ async fn handle_job<P: Provider + Clone + 'static>(
                 message_id = %job.message_id,
                 "↩️ another relayer already delivered — idempotent success"
             );
-            Ok(())
+            Ok(DeliveryResultKind::Delivered)
         }
         SendOutcome::Pending(err_str) => {
             metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Pending);
@@ -246,7 +283,7 @@ async fn handle_job<P: Provider + Clone + 'static>(
                 job.message_id,
                 route.chain_key,
             );
-            Ok(())
+            Ok(DeliveryResultKind::Delivered)
         }
         SendOutcome::Reverted => {
             metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Reverted);
@@ -255,11 +292,17 @@ async fn handle_job<P: Provider + Clone + 'static>(
                 message_id = %job.message_id,
                 "❌ tx mined but reverted; no further retries"
             );
-            Ok(())
+            Ok(DeliveryResultKind::Terminal)
         }
         SendOutcome::Failed(err_str) => {
             metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Reverted);
-            Err(anyhow!("send exhausted retries: {err_str}"))
+            warn!(
+                chain_key = route.chain_key,
+                message_id = %job.message_id,
+                err = %err_str,
+                "send exhausted delivery worker retries; returning to pool for bounded retry"
+            );
+            Ok(DeliveryResultKind::Retryable)
         }
     }
 }

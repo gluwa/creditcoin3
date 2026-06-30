@@ -57,6 +57,10 @@ pub struct Config {
     /// enough to sign (the probabilistic-finality fallback bound — confluence §6.8).
     pub block_confirmation_depth: u64,
 
+    /// First Creditcoin L1 EVM block to scan on startup. When `None`, the listener starts at the
+    /// current head and only signs future messages.
+    pub start_block: Option<u64>,
+
     /// Hard cap on distinct tracked `message_hash` entries (anti-abuse — confluence §5.4).
     pub max_tracked_messages: usize,
 
@@ -78,6 +82,7 @@ impl Config {
             destination_eth_rpc_url: None,
             write_ability_chain_key: 0,
             block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
+            start_block: None,
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
             attestor_set: AttestorSet::default(),

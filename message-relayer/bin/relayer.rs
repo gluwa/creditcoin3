@@ -241,6 +241,7 @@ fn single_route_config(cli: Cli) -> Result<Config> {
                 validator_address,
                 signer_key,
                 confirmation_depth: cli.ack_confirmation_depth,
+                start_block: None,
             })
         }
         (None, None, None) => None,
@@ -258,6 +259,7 @@ fn single_route_config(cli: Cli) -> Result<Config> {
         inbox_address,
         signer_key: cli.signer_key,
         block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
+        start_block: None,
         attestor_set: AttestorSet::Static(attestor_addresses),
         threshold_override: cli.threshold_override,
         ack,
