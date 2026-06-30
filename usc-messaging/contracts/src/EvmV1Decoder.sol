@@ -15,6 +15,11 @@ pragma solidity ^0.8.20;
  * usc-testnet-bridge-examples. Kept verbatim so it stays in sync with the prover's `txBytes`
  * encoding; only the receipt-log path (`decodeReceiptFields` + `getLogsByEventSignature`) is used
  * by the write-ability AcknowledgmentValidator.
+ *
+ * ⚠️ Drift hazard: a change to the prover's `txBytes` encoding silently breaks ack decoding (it
+ *    mis-reads chunks rather than reverting). When re-vendoring, pin the exact upstream source here
+ *    so the copy can be diffed against it:
+ *      source: CCNext-smart-contracts @ <COMMIT-SHA — fill in on next sync>
  */
 library EvmV1Decoder {
     struct AccessListEntry {
