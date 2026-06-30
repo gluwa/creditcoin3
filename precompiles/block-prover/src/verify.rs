@@ -32,6 +32,25 @@ pub const CONTINUITY_BLOCK_HASH_COST: u64 = 48; // Keccak-256 hash cost: 30 base
 // Gas cost for a storage lookup (matches cold SLOAD)
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
 
+/// Hard upper bound on the number of continuity roots accepted in a single proof.
+///
+/// A legitimate continuity proof spans the gap between the query height and the
+/// anchoring attestation/checkpoint. The current per-chain gap is
+/// `attestation_interval * checkpoint_interval`, but both are mutable, so a proof
+/// into a historically-checkpointed region may legitimately span a wider gap than
+/// the current config implies and the historical width is not recorded on-chain.
+/// This ceiling is therefore deliberately *loose*: it sits far above any plausible
+/// historical checkpoint spacing so it never rejects a valid proof, while still
+/// failing fast on pathological inputs (e.g. the ~100k-root case) before any
+/// allocation/hashing work.
+///
+/// This is defence-in-depth, not a soundness gate: the per-root work is already
+/// gas-metered at the EVM keccak rate, and an oversized proof can only reach the
+/// revert path (success requires a real attestation/checkpoint at the final block,
+/// which an attacker cannot fabricate). It mirrors the bounded arrays used
+/// elsewhere in this precompile (`MaxBatchSize`, `ConstU10MB`).
+pub const MAX_CONTINUITY_ROOTS: usize = 50_000;
+
 // Gas cost constants for calculateTxIndex
 // Base cost: 10 gas units
 pub const CALCULATE_TX_INDEX_BASE_COST: u64 = 10;
@@ -40,7 +59,10 @@ pub const CALCULATE_TX_INDEX_ITERATION_COST: u64 = 18;
 
 impl<Runtime> BlockProverPrecompile<Runtime>
 where
-    Runtime: pallet_evm::Config + frame_system::Config + pallet_attestation::Config,
+    Runtime: pallet_evm::Config
+        + frame_system::Config
+        + pallet_attestation::Config
+        + pallet_supported_chains::Config,
     Runtime::Hash: Into<H256>,
     H256: Into<Runtime::Hash>,
     Runtime::RuntimeCall: Dispatchable<PostInfo = PostDispatchInfo> + GetDispatchInfo,
@@ -321,8 +343,17 @@ where
             return Self::revert_with_message("Continuity chain cannot be empty");
         }
 
-        let last_block_number =
-            start_block_number + (shared_continuity_proof.roots.len() - 1) as u64;
+        // `start_block_number` and the proof length are caller-supplied. The earlier emptiness
+        // check guarantees `roots.len() >= 1`, but their sum can still wrap `u64`. Reject
+        // overflow explicitly so overflow-checking builds don't panic and release builds
+        // don't silently wrap into a spuriously-low `last_block_number`.
+        let roots_len_minus_one = (shared_continuity_proof.roots.len() as u64).saturating_sub(1);
+        let last_block_number = match start_block_number.checked_add(roots_len_minus_one) {
+            Some(n) => n,
+            None => {
+                return Self::revert_with_message("Continuity chain range overflows u64");
+            }
+        };
         if last_block_number < max_height {
             return Self::revert_with_message(
                 "Continuity chain doesn't cover maximum query height",

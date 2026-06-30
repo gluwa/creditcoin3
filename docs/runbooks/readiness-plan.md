@@ -31,7 +31,6 @@ Before running the plan, pin these inputs — they go at the top of the report:
 
 - `checkpoint-verifier` — dist-only in this repo, no source, no tests here
 - `scripts/usc-audit-automation` — unless used as part of the test
-- `scripts/traffic-simulator` — unless used as part of the test
 
 ## 2. Test phases (ordered by dependency)
 

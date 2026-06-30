@@ -23,6 +23,7 @@ url = { workspace = true }
 
 # Creditcoin-specific dependencies
 attestor-primitives = { workspace = true, features = ["std"] }
+cc-client = { workspace = true, features = ["std"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

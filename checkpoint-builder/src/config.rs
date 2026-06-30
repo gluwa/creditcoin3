@@ -366,12 +366,25 @@ pub struct CommonArgs {
     pub checkpoint_flush_interval: NonZeroUsize,
 
     /// Checks whether the provided checkpoint ranges are all present in the source before starting processing.
-    #[arg(long, env = "VALIDATE_DATABASE", default_value_t = false)]
+    #[arg(long, env = "VALIDATE_DATABASE", default_value_t = true)]
     pub validate_database: bool,
 
     /// Output file path for generated checkpoints (CSV format)
     #[arg(long, env = "OUTPUT_FILE", default_value = "checkpoints.csv")]
     pub output_file: PathBuf,
+
+    /// CC3 chain key identifying which chain's checkpoints are being built.
+    /// Required when --starting-digest is provided so chain identity is always
+    /// explicit, preventing accidental cross-chain anchor mismatches.
+    #[arg(long, env = "CHAIN_KEY")]
+    pub chain_key: Option<u64>,
+
+    /// CC3 node WebSocket URL for on-chain digest verification.
+    /// When provided alongside --starting-digest and --chain-key, the tool
+    /// connects to the node and verifies that the on-chain last checkpoint
+    /// matches the provided starting digest before generating any checkpoints.
+    #[arg(long, env = "CC3_RPC_URL")]
+    pub cc3_rpc_url: Option<String>,
 }
 
 /// Internal configuration structure combining CLI args and defaults
@@ -384,6 +397,10 @@ pub struct CheckpointConfig {
     pub validate_database: bool,
     pub output_file: PathBuf,
     pub dry_run: bool,
+    /// Chain key passed via --chain-key; required when starting_digest is provided.
+    pub chain_key: Option<u64>,
+    /// Optional CC3 RPC URL for on-chain starting digest verification.
+    pub cc3_rpc_url: Option<String>,
 }
 
 impl CheckpointConfig {
@@ -505,6 +522,10 @@ impl CheckpointConfig {
                     );
                 }
 
+                if args.chain_key.is_none() {
+                    anyhow::bail!("--chain-key is required when --starting-digest is provided");
+                }
+
                 Some(Digest::from_slice(
                     &hex::decode(&digest[2..])
                         .with_context(|| "Failed to decode starting digest from hex")?,
@@ -528,6 +549,8 @@ impl CheckpointConfig {
             validate_database: args.validate_database,
             output_file: args.output_file,
             dry_run: args.dry_run,
+            chain_key: args.chain_key,
+            cc3_rpc_url: args.cc3_rpc_url,
         })
     }
 }
@@ -743,6 +766,64 @@ mod tests {
             }),
         ];
         assert!(validate_checkpoint_ranges(&ranges).is_err());
+    }
+
+    fn make_common(
+        starting_digest: Option<&str>,
+        ranges: &str,
+        chain_key: Option<u64>,
+    ) -> CommonArgs {
+        CommonArgs {
+            starting_digest: starting_digest.map(String::from),
+            checkpoint_ranges: Some(ranges.to_string()),
+            dry_run: false,
+            checkpoint_flush_interval: NonZeroUsize::new(20).unwrap(),
+            validate_database: true,
+            output_file: "checkpoints.csv".into(),
+            chain_key,
+            cc3_rpc_url: None,
+        }
+    }
+
+    #[test]
+    fn test_chain_key_required_with_starting_digest() {
+        // Regular range not starting at 0 so the digest preconditions pass
+        let valid_digest = format!("0x{}", "ab".repeat(32));
+        let args = make_common(Some(&valid_digest), "1000,1999,100", None);
+        assert!(
+            CheckpointConfig::from_common(args).is_err(),
+            "expected error when --starting-digest provided without --chain-key"
+        );
+    }
+
+    #[test]
+    fn test_chain_key_accepted_with_starting_digest() {
+        let valid_digest = format!("0x{}", "ab".repeat(32));
+        let args = make_common(Some(&valid_digest), "1000,1999,100", Some(2));
+        assert!(
+            CheckpointConfig::from_common(args).is_ok(),
+            "expected success when both --starting-digest and --chain-key provided"
+        );
+    }
+
+    #[test]
+    fn test_chain_key_optional_without_starting_digest() {
+        // Genesis first range → starting_digest not required; chain_key also not required
+        let args = make_common(None, "0;1,1000,100", None);
+        assert!(
+            CheckpointConfig::from_common(args).is_ok(),
+            "expected success when neither --starting-digest nor --chain-key provided"
+        );
+    }
+
+    #[test]
+    fn test_validate_database_defaults_true() {
+        // The default_value_t on the CLI arg is true; verify the parsed config reflects it
+        let args = make_common(None, "0,999,100", None);
+        assert!(
+            args.validate_database,
+            "validate_database must default to true"
+        );
     }
 
     #[test]

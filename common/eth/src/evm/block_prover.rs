@@ -10,8 +10,31 @@ use crate::{Client, Error as ClientError};
 use alloy::{
     contract::Error as AlloyContractError,
     primitives::{Address, FixedBytes, U256},
+    rpc::types::TransactionReceipt,
     sol,
+    sol_types::SolEvent,
 };
+
+/// Count `TransactionVerified` logs emitted by the receipt's transaction.
+///
+/// We match on the event signature hash (`topic0`) of
+/// `TransactionVerified(uint64,uint64,uint64)` so an unrelated log accidentally aliasing the
+/// position of `topics[0]` cannot trigger a false positive.
+///
+/// Filtering by `log.address == precompile_address` is intentionally avoided here: the precompile
+/// is invoked via a transaction whose `to` is the precompile itself, so the emitted log's
+/// `address` is already constrained by the calldata path we built above. Counting is what catches
+/// (a) a reverted/OOG tx that emitted nothing despite a replay-via-eth_call success and (b) a
+/// silently dropped emission.
+fn count_transaction_verified_logs(receipt: &TransactionReceipt) -> usize {
+    let sig = INativeQueryVerifier::TransactionVerified::SIGNATURE_HASH;
+    receipt
+        .inner
+        .logs()
+        .iter()
+        .filter(|log| log.topics().first() == Some(&sig))
+        .count()
+}
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -224,25 +247,36 @@ impl BlockProver {
             receipt.transaction_hash, receipt.gas_used
         );
 
-        // Now call to get the result
-        let result = contract
-            .verifyAndEmit_0(
-                chain_key,
-                height,
-                encoded_transaction.to_vec().into(),
-                sol_proof,
-                sol_proof_struct,
-            )
-            .call()
-            .await
-            .map_err(|e| {
-                error!("Native query verifier call failed: {:?}", e);
-                Error::AlloyContractError(e)
-            })?;
+        // A successful receipt status is a precondition for trusting the emitted-events path:
+        // a reverted or out-of-gas transaction won't have emitted `TransactionVerified`, so the
+        // previous "replay with eth_call and report success" flow would silently mislabel
+        // those as successful verifications. Bail out here instead.
+        if !receipt.status() {
+            error!(
+                tx = ?receipt.transaction_hash,
+                gas_used = ?receipt.gas_used,
+                "verifyAndEmit transaction reverted on-chain"
+            );
+            return Err(Error::VerificationFailed);
+        }
+
+        // Require exactly one `TransactionVerified` log for the single-query path. Counting the
+        // emissions catches the case where the precompile silently returned without emitting
+        // (e.g. an upstream contract or proxy ate the receipt) and prevents reporting success
+        // when no event was actually published.
+        let emitted = count_transaction_verified_logs(&receipt);
+        if emitted != 1 {
+            error!(
+                tx = ?receipt.transaction_hash,
+                emitted,
+                "expected exactly 1 TransactionVerified log, got {emitted}"
+            );
+            return Err(Error::VerificationFailed);
+        }
 
         info!("Query verification successful (with events)");
 
-        Ok(result._0)
+        Ok(true)
     }
 
     /// Verify a batch of queries with shared continuity proof (view function)
@@ -360,25 +394,36 @@ impl BlockProver {
             receipt.transaction_hash, receipt.gas_used
         );
 
-        // Now call to get the result
-        let result = contract
-            .verifyAndEmit_1(
-                chain_key,
-                heights,
-                tx_data_bytes,
-                sol_proofs,
-                sol_proof_struct,
-            )
-            .call()
-            .await
-            .map_err(|e| {
-                error!("Native query verifier batch call failed: {:?}", e);
-                Error::AlloyContractError(e)
-            })?;
+        // See `verify_and_emit`: a reverted transaction emits no `TransactionVerified` events,
+        // so a replay-via-eth_call success report would lie about what landed on-chain. Bail.
+        if !receipt.status() {
+            error!(
+                tx = ?receipt.transaction_hash,
+                gas_used = ?receipt.gas_used,
+                "verifyAndEmit batch transaction reverted on-chain"
+            );
+            return Err(Error::VerificationFailed);
+        }
 
-        info!("Batch query verification successful (with events)");
+        // Each successfully verified query should produce one `TransactionVerified` log.
+        let expected = heights.len();
+        let emitted = count_transaction_verified_logs(&receipt);
+        if emitted != expected {
+            error!(
+                tx = ?receipt.transaction_hash,
+                expected,
+                emitted,
+                "batch TransactionVerified log count mismatch"
+            );
+            return Err(Error::VerificationFailed);
+        }
 
-        Ok(result._0)
+        info!(
+            "Batch query verification successful (with events): {} queries",
+            expected
+        );
+
+        Ok(true)
     }
 
     /// Estimate gas for a query verification

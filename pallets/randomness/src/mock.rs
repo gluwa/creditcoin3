@@ -230,6 +230,7 @@ impl randomness_pallet::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = crate::weights::WeightInfo<Test>;
     type EventListeners = ();
+    type MaxRandomnessEntries = ConstU32<5>;
 }
 
 pub fn go_to_block(n: u64, s: u64) {

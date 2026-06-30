@@ -414,6 +414,151 @@ fn test_verify_continuity_chain_errors_when_continuity_chain_doesnt_reach_query_
 }
 
 #[test]
+fn test_verify_continuity_chain_rejects_too_many_roots() {
+    ExtBuilder::default().build().execute_with(|| {
+        // A proof with more roots than MAX_CONTINUITY_ROOTS must fail fast,
+        // before any hashing/storage work, with the dedicated revert message.
+        let start_block_number = 1u64;
+        let oversized_len = crate::verify::MAX_CONTINUITY_ROOTS + 1;
+        let continuity_proof =
+            ContinuityProof::new(H256::zero(), vec![H256::zero(); oversized_len]);
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        let result = BlockProverPrecompile::<Runtime>::verify_continuity_chain(
+            &mut handle,
+            &continuity_proof,
+            start_block_number,
+            1, // chain_key
+            start_block_number + oversized_len as u64 - 1,
+        );
+
+        let expected =
+            crate::encode_revert_message("Continuity chain exceeds maximum allowed roots");
+        assert!(
+            matches!(&result, Err(PrecompileFailure::Revert { output, .. }) if *output == expected),
+            "Expected TooManyRoots revert, got {result:?}"
+        );
+
+        // The guard must fire before the upfront per-root gas charge: hashing
+        // MAX_CONTINUITY_ROOTS+1 blocks would otherwise cost far more than this.
+        assert!(
+            handle.gas_used < crate::verify::CONTINUITY_BLOCK_HASH_COST,
+            "Oversized proof should be rejected before charging per-root hashing gas"
+        );
+    });
+}
+
+#[test]
+fn test_verify_continuity_chain_accepts_max_roots_boundary() {
+    ExtBuilder::default().build().execute_with(|| {
+        // A proof at exactly MAX_CONTINUITY_ROOTS must pass the length guard.
+        // It still fails later (no matching attestation/checkpoint), proving the
+        // cap itself did not reject a within-bound proof.
+        let start_block_number = 1u64;
+        let max_len = crate::verify::MAX_CONTINUITY_ROOTS;
+        let continuity_proof = ContinuityProof::new(H256::zero(), vec![H256::zero(); max_len]);
+
+        let mut handle = MockHandle::new(
+            Account::Precompile.into(),
+            Context {
+                address: Account::Precompile.into(),
+                caller: Account::Alice.into(),
+                apparent_value: U256::zero(),
+            },
+        );
+
+        let result = BlockProverPrecompile::<Runtime>::verify_continuity_chain(
+            &mut handle,
+            &continuity_proof,
+            start_block_number,
+            1, // chain_key
+            start_block_number + max_len as u64 - 1,
+        );
+
+        let too_many =
+            crate::encode_revert_message("Continuity chain exceeds maximum allowed roots");
+        match result {
+            Err(PrecompileFailure::Revert { output, .. }) => assert_ne!(
+                output, too_many,
+                "Boundary-length proof must not be rejected by the roots cap"
+            ),
+            other => panic!("Expected a (non-TooManyRoots) revert, got {other:?}"),
+        }
+    });
+}
+
+#[test]
+fn test_verify_continuity_chain_at_checkpoint_height_errors_when_supported_chain_was_removed() {
+    ExtBuilder::default().build().execute_with(|| {
+        let query_height = 100;
+        let chain_key = 1u64;
+
+        let test_block = create_test_block(query_height, 4);
+        let tx_data = test_block.transactions[0].data.clone();
+        let merkle_proof = create_valid_merkle_proof_for_block(&test_block, 0);
+
+        let prev_digest = H256::zero();
+
+        let root = test_block.merkle_root;
+        let digest = compute_test_digest(query_height, &root, &prev_digest);
+
+        let next_root = H256::from([0x99; 32]);
+        let next_digest = compute_test_digest(query_height + 1, &next_root, &digest);
+
+        let continuity_blocks = vec![
+            Block {
+                block_number: query_height,
+                root,
+                prev_digest,
+                digest,
+            },
+            Block {
+                block_number: query_height + 1,
+                root: next_root,
+                prev_digest: digest,
+                digest: next_digest,
+            },
+        ];
+
+        // Set up a valid checkpoint anchor first.
+        setup_checkpoint(chain_key, query_height + 1, next_digest);
+
+        // Remove the supported chain, but do NOT remove checkpoints.
+        // This specifically tests the SupportedChains::<Runtime>::get(chain_key).is_none()
+        // guard in get_checkpoint().
+        assert_ok!(pallet_supported_chains::Pallet::<Runtime>::remove_chain(
+            RuntimeOrigin::root(),
+            chain_key,
+            false,
+        ));
+
+        precompiles()
+            .prepare_test(
+                Account::Alice,
+                Account::Precompile,
+                PCall::verify {
+                    chain_key,
+                    height: query_height,
+                    encoded_transaction: tx_data.into(),
+                    merkle_proof,
+                    continuity_proof: ContinuityProof::from_blocks(continuity_blocks),
+                },
+            )
+            .execute_reverts(|output| {
+                output == b"Continuity proof does not match attestation or checkpoint"
+            });
+    });
+}
+
+#[test]
 fn test_continuity_chain_at_attestation_height() {
     ExtBuilder::default().build().execute_with(|| {
         // Query at an attestation height - query block at index 0
@@ -470,7 +615,7 @@ fn test_continuity_chain_at_attestation_height() {
 #[test]
 fn test_continuity_chain_at_checkpoint_height() {
     ExtBuilder::default().build().execute_with(|| {
-        // Query at a checkpoint height - query block at index 0
+        // Query at a checkpoint height - query block at index 100
         let query_height = 100;
         let test_block = create_test_block(query_height, 4);
         let tx_data = test_block.transactions[0].data.clone();

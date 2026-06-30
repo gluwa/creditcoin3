@@ -1,6 +1,6 @@
 import { JsonRpcProvider, WebSocketProvider } from 'ethers';
 
-import { encoding, proofGenerator } from '@gluwa/usc-sdk';
+import { encoding, proofProvider } from '@gluwa/usc-sdk';
 
 import { getBlockWithReceipts } from './block-provider';
 import { Checkpoint, VerificationResult, VerificationSummary } from '../types/checkpoint';
@@ -30,14 +30,14 @@ export async function computeBlockDigest(
     const orderedTransactions = transactions.sort((a, b) => a.formatted.index - b.formatted.index);
 
     // Compute merkle root
-    const merkleRoot = proofGenerator.merkle.computeMerkleRootOfBlock(
+    const merkleRoot = proofProvider.merkle.computeMerkleRootOfBlock(
         orderedTransactions,
         orderedReceipts,
         encoding.EncodingVersion.V1,
     );
 
     // Compute digest
-    const digest = proofGenerator.merkle.computeDigestOf(blockNumber, merkleRoot, prevDigest);
+    const digest = proofProvider.merkle.computeDigestOf(blockNumber, merkleRoot, prevDigest);
 
     return { root: merkleRoot, digest };
 }
@@ -77,7 +77,7 @@ export async function computeRangeDigest(
 
     return {
         blockNumber: endBlock,
-        digest: prevDigest || proofGenerator.merkle.ZERO_HASH, // If no blocks were processed, return ZERO_HASH
+        digest: prevDigest || proofProvider.merkle.ZERO_HASH, // If no blocks were processed, return ZERO_HASH
     };
 }
 

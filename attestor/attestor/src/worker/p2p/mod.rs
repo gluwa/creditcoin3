@@ -117,12 +117,22 @@ pub struct Config {
 
 // ----------------------------------------- [ Worker ] ---------------------------------------- //
 
+/// Number of consecutive failed pings on a single connection before it is force-closed.
+///
+/// libp2p's ping behaviour no longer disconnects on failure, so wedged (e.g. half-open)
+/// connections are reaped here instead. Closing the connection makes the swarm re-dial a fresh
+/// socket rather than retrying the dead one indefinitely.
+const MAX_PING_FAILURES: u32 = 3;
+
 pub(crate) struct WorkerP2P {
     // P2P DATA
     swarm: libp2p::Swarm<behavior::P2PBehavior>,
     can_broadcast: bool,
     topic: libp2p::gossipsub::IdentTopic,
     listen_addr: libp2p::Multiaddr,
+    /// Consecutive ping failures per connection. Reset on a successful ping; once a connection
+    /// reaches [`MAX_PING_FAILURES`] it is closed and removed from this map.
+    ping_failures: std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
 
     chain_key: attestor_primitives::ChainKey,
     // CC3 CONNECTION
@@ -190,6 +200,7 @@ impl WorkerP2P {
             can_broadcast: false,
             topic,
             listen_addr,
+            ping_failures: std::collections::HashMap::new(),
 
             chain_key: config.chain_key,
             bls: config.bls,
@@ -353,6 +364,7 @@ impl WorkerP2P {
                 },
             )) => match result {
                 Ok(rtt) => {
+                    self.ping_failures.remove(&connection);
                     tracing::info!(
                         peer_id = %peer,
                         connection = %connection,
@@ -361,12 +373,30 @@ impl WorkerP2P {
                     );
                 }
                 Err(err) => {
+                    let failures = *self
+                        .ping_failures
+                        .entry(connection)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+
                     tracing::error!(
                         peer_id = %peer,
                         connection = %connection,
+                        failures,
                         %err,
                         "🔕 Failed to get ping response from peer"
                     );
+
+                    if failures >= MAX_PING_FAILURES {
+                        tracing::warn!(
+                            peer_id = %peer,
+                            connection = %connection,
+                            failures,
+                            "✂️ Closing connection after repeated ping failures"
+                        );
+                        self.ping_failures.remove(&connection);
+                        self.swarm.close_connection(connection);
+                    }
                 }
             },
 
@@ -563,6 +593,8 @@ impl WorkerP2P {
                 ..
             } => {
                 tracing::info!(%peer_id, connection = %connection_id, "⛓️‍💥 Connection closed");
+
+                self.ping_failures.remove(&connection_id);
 
                 let topic_attestation = self.topic.hash();
                 self.can_broadcast = self

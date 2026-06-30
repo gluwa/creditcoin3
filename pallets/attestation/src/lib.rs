@@ -35,7 +35,6 @@ pub mod pallet {
     use crate::clear_or_revert::CheckpointPruningState;
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
-        provider::{AttestationProvider, CheckpointProvider},
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
         BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType,
         ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
@@ -788,6 +787,10 @@ pub mod pallet {
         /// `register_attestor` was called under `AuthorizedOnly` without a prior `authorize_attestor`
         /// for this attestor controller account.
         NotPreAuthorizedToRegister,
+        /// `register_attestor` targeted a controller account whose retired BLS-key protection is
+        /// still live and owned by a different stash. Clearing it would prematurely release that
+        /// stash's BLS-key claim, so the registration is rejected.
+        ControllerRetiredByAnotherStash,
         // Attestor is not authorized for the chain.
         AttestorNotAuthorized,
         // No finalized attestation found when one is required
@@ -891,6 +894,16 @@ pub mod pallet {
                 new_target_sample_size > 0,
                 Error::<T>::InvalidTargetSampleSize
             };
+
+            // Mirror `set_chain_attestation_interval` / `set_max_catchup`: reject pending
+            // entries for chains we don't track. Without this, the epoch hook would write
+            // `TargetSampleSize::<T>::set(bogus_key, _)` and emit an event — and because
+            // `apply_interval_updates` previously bounded its cleanup by the supported-chain
+            // count, surplus bogus entries even survived the clear and re-fired every epoch.
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
 
             PendingTargetSampleSize::<T>::set(chain_key, Some(new_target_sample_size));
 
@@ -1387,33 +1400,6 @@ pub mod pallet {
         }
     }
 
-    impl<T: Config> CheckpointProvider for Pallet<T> {
-        fn get_checkpoint(chain_key: ChainKey, block_number: u64) -> Option<Digest> {
-            Checkpoints::<T>::get(chain_key, block_number)
-        }
-
-        fn get_checkpoint_interval(chain_key: ChainKey) -> u64 {
-            AttestationCheckpointInterval::<T>::get(chain_key).into()
-        }
-
-        fn get_last_checkpoint_number(chain_key: ChainKey) -> Option<u64> {
-            LastCheckpoint::<T>::get(chain_key).map(|checkpoint| checkpoint.block_number)
-        }
-    }
-
-    impl<T: Config> AttestationProvider<T::Hash, T::AccountId> for Pallet<T> {
-        fn get_attestation(
-            chain_key: ChainKey,
-            digest: Digest,
-        ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
-            Attestations::<T>::get(chain_key, digest)
-        }
-
-        fn get_attestation_interval(chain_key: ChainKey) -> u64 {
-            ChainAttestationInterval::<T>::get(chain_key)
-        }
-    }
-
     impl<T: Config> OnRegisterChainProvider for Pallet<T> {
         fn on_register_chain(
             chain_key: ChainKey,
@@ -1426,7 +1412,32 @@ pub mod pallet {
             max_invulnerables: Option<u32>,
             attestation_chain_genesis_block_number: Option<u64>,
             _encoding: ChainEncodingVersion,
-        ) {
+        ) -> Result<(), &'static str> {
+            // Reject zero attestation parameters before any storage write — `Some(0)` would
+            // otherwise bypass the per-setter `ensure! ... > 0` checks (those only fire when an
+            // operator updates the value later, not at registration). A live `Some(0)` for
+            // `chain_attestation_interval` or `attestation_checkpoint_interval` panics the
+            // `commit_attestation` weight calc (`proof_len / checkpoint_width` where
+            // `checkpoint_width = attestation_interval * checkpoint_interval`), bricking the
+            // chain's attestation submission until storage is repaired. The extrinsic in
+            // `pallet-supported-chains::register_chain` is transactional, so returning Err here
+            // rolls back the chain insert too.
+            if let Some(v) = target_sample_size {
+                if v == 0 {
+                    return Err("InvalidTargetSampleSize");
+                }
+            }
+            if let Some(v) = chain_attestation_interval {
+                if v == 0 {
+                    return Err("InvalidAttestationInterval");
+                }
+            }
+            if let Some(v) = attestation_checkpoint_interval {
+                if v == 0 {
+                    return Err("InvalidAttestationsPerCheckpoint");
+                }
+            }
+
             TargetSampleSize::<T>::insert(
                 chain_key,
                 target_sample_size.unwrap_or(T::DefaultTargetSampleSize::get()),
@@ -1485,6 +1496,8 @@ pub mod pallet {
                 attestation_chain_genesis_block_number
                     .unwrap_or(T::DefaultAttestationChainGenesisBlockNumber::get()),
             ));
+
+            Ok(())
         }
     }
 

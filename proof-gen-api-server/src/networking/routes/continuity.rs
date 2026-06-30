@@ -24,13 +24,13 @@ type TxHashes = Vec<String>;
     params(
         ("chain_key" = u64, Path, description = "Chain identifier"),
         ("header_number" = u64, Path, description = "Block number"),
-        ("tx_index" = u64, Path, description = "Transaction index in the block (0 for empty blocks)")
+        ("tx_index" = u64, Path, description = "Transaction index in the block. Empty blocks have no transaction proof; request EmptyBlockTxProof (422) for those.")
     ),
     responses(
         (status = 200, description = "Continuity and merkle proof", body = SingleContinuityResponse),
         (status = 400, description = "Invalid parameters", body = ErrorResponse),
         (status = 404, description = "Block or transaction not found", body = ErrorResponse),
-        (status = 422, description = "Unprocessable: block not yet attested (BlockNotReady), or source RPC block/header inconsistent (UnsupportedBlockFormat)", body = ErrorResponse),
+        (status = 422, description = "Unprocessable: block not yet attested (BlockNotReady), source RPC block/header inconsistent (UnsupportedBlockFormat), or block contains no transactions (EmptyBlockTxProof)", body = ErrorResponse),
         (status = 503, description = "RPC unavailable", body = ErrorResponse)
     )
 )]

@@ -2,31 +2,50 @@
 
 A Creditcoin3 node with the Ethereum RPC support, ready for deploying smart contracts.
 
+## What is Creditcoin?
+
+Creditcoin is a Substrate based layer 1 blockchain with full EVM support. Users and builders on Creditcoin can benefit from a growing ecosystem of [1st and 3rd party dApps](https://penguinbase.com/).
+
+## Key Capabilities of Creditcoin
+
+- Fully compatible smart contract environment: Build new contracts in Solidity, or deploy your existing contracts from any EVM chain on Creditcoin.
+- Universal Smart Contracts (USC): Contracts deployed on Creditcoin can securely and cheaply use data from Ethereum and a growing list of supported chains.
+
+## Documentation and Supporting Repositories
+
+- [Creditcoin Gitbook](https://docs.creditcoin.org/): A comprehensive resource describing the core systems of the Creditcoin chain, 1st party on-chain services, and Universal Smart Contracts
+- [USC Examples Repository](https://github.com/gluwa/usc-testnet-bridge-examples): A series of examples to lead builders through constructing and deploying their first Universal Smart Contracts
+- [USC SDK](https://github.com/gluwa/cc-next-query-builder): Tools which make it easy to interact with all the components of the USC protocol.
+
 ## Major components
 
 The following directories correspond to major components:
 
-- `attestor/` and `attestor_zombienet/`
-- `cc3-indexer/`
-- `cli/`
-- `pallets/` and `precompiles/`
-- `common/eth/contracts/`
-- `query-cli/`
+- `archiver/`: Utility enabling quick and inexpensive construction of USC proofs even for very old transactions
+- `attestor/` and `attestor_zombienet/`: The core cross-chain consensus component of USC
+- `cc3-indexer/`: Indexes Creditcoin transactions and USC event data for easy use in tools and dashboards
+- `cli/`: Enables common interactions with Creditcoin and USC systems
+- `pallets/` and `precompiles/`: Custom Creditcoin on-chain functionality, including attestation and USC proof verification
+- `proof-gen-api-server/`: A server which builds the proofs required to use USC readability
+- `query-cli/`: A cli specifically for building and submitting USC queries. Enables use of cross-chain data
 
 See individual README files for more information
 
-## Supported operating system
+# /////////////////////// CORE DEVELOPER SETUP ///////////////////////////////////////
 
-The only supported OS is Linux / x86_64 - see the `runs-on:` sections in
-`.github/workflows/ci.yml` for the actual distro/version used during testing.
+The following setup instructions and tips are most relevant for core contributors who
+are already familiar with the big picture design of Creditcoin and USC. For those new
+to the project, it is highly recommended to start by reading the [Creditcoin Gitbook](https://docs.creditcoin.org/).
 
-**WARNING:** this repository makes heavy use of symbolic links to account for
-inter-dependencies between various components and to avoid artifacts in different
-directories diverging from one another. This works well on Linux and MacOS, however
-symbolic links are not supported on Windows! If you see a symlink file being removed
-by git and replaced by its content that is most likely the reason.
+## Supported operating systems
 
-This is a mistake and should be corrected before merging!
+Creditcoin3 is actively developed and tested on Linux and macOS.
+
+Supported architectures:
+- x86_64 (Intel/AMD)
+- ARM64 (Apple Silicon, ARM servers)
+
+Windows is not currently supported.
 
 ## Dev environment setup
 
