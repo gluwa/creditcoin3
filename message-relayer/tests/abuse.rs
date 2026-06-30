@@ -25,6 +25,7 @@ async fn pool_drops_unknown_messages_and_emits_no_jobs() {
     let (_indexed_tx, indexed_rx) = mpsc::channel::<IndexedMessage>(16);
     let (vote_tx, vote_rx) = mpsc::channel::<MessageVote>(8192);
     let (delivery_tx, mut delivery_rx) = mpsc::channel(16);
+    let (_delivery_result_tx, delivery_result_rx) = mpsc::channel(16);
 
     let route = RouteAttestors {
         chain_key: 2,
@@ -50,6 +51,7 @@ async fn pool_drops_unknown_messages_and_emits_no_jobs() {
             indexed_rx,
             vote_rx,
             delivery_txs,
+            delivery_result_rx,
             set_update_rx: set_rx,
             reobs_tx: mpsc::channel(8).0,
             query_rx: mpsc::channel(8).1,
@@ -91,6 +93,7 @@ async fn pool_drops_votes_from_unknown_signers() {
     let (indexed_tx, indexed_rx) = mpsc::channel::<IndexedMessage>(16);
     let (vote_tx, vote_rx) = mpsc::channel::<MessageVote>(64);
     let (delivery_tx, mut delivery_rx) = mpsc::channel(16);
+    let (_delivery_result_tx, delivery_result_rx) = mpsc::channel(16);
 
     let allowed = address!("000000000000000000000000000000000000000a");
     let route = RouteAttestors {
@@ -114,6 +117,7 @@ async fn pool_drops_votes_from_unknown_signers() {
             indexed_rx,
             vote_rx,
             delivery_txs,
+            delivery_result_rx,
             set_update_rx: set_rx,
             reobs_tx: mpsc::channel(8).0,
             query_rx: mpsc::channel(8).1,

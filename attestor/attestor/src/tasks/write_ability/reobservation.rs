@@ -19,7 +19,7 @@
 //! [`MessageVote`]: write_ability::envelope::MessageVote
 //! [`ReobservationRequest`]: write_ability::envelope::ReobservationRequest
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
 use alloy::primitives::B256;
@@ -39,13 +39,16 @@ use super::resolver::ResolvedOutbox;
 /// RPC work a spammy or adversarial requester can induce; a genuine stall lasts far longer than this,
 /// so legitimate retries are unaffected.
 pub const REOBS_MIN_INTERVAL: Duration = Duration::from_secs(30);
+pub const REOBS_MAX_TRACKED_IDS: usize = 10_000;
 
 /// Per-`message_id` cooldown tracker for reobservation requests. Synchronous and clock-injected so
 /// it unit-tests without a network or real time.
 #[derive(Default)]
 pub struct ReobsRateLimiter {
     last: HashMap<B256, Instant>,
+    order: VecDeque<B256>,
     min_interval: Duration,
+    max_tracked: usize,
 }
 
 impl ReobsRateLimiter {
@@ -53,7 +56,19 @@ impl ReobsRateLimiter {
     pub fn new(min_interval: Duration) -> Self {
         Self {
             last: HashMap::new(),
+            order: VecDeque::new(),
             min_interval,
+            max_tracked: REOBS_MAX_TRACKED_IDS,
+        }
+    }
+
+    #[must_use]
+    pub fn with_capacity(min_interval: Duration, max_tracked: usize) -> Self {
+        Self {
+            last: HashMap::new(),
+            order: VecDeque::new(),
+            min_interval,
+            max_tracked: max_tracked.max(1),
         }
     }
 
@@ -66,12 +81,26 @@ impl ReobsRateLimiter {
             .get(&message_id)
             .is_none_or(|&t| now.duration_since(t) >= self.min_interval);
         if allowed {
+            if !self.last.contains_key(&message_id) {
+                self.order.push_back(message_id);
+            }
             self.last.insert(message_id, now);
             let cutoff = self.min_interval;
-            self.last
-                .retain(|_, &mut t| now.duration_since(t) < cutoff || t == now);
+            self.prune(now, cutoff);
         }
         allowed
+    }
+
+    fn prune(&mut self, now: Instant, cutoff: Duration) {
+        self.last
+            .retain(|_, &mut t| now.duration_since(t) < cutoff || t == now);
+        self.order.retain(|id| self.last.contains_key(id));
+        while self.last.len() > self.max_tracked {
+            let Some(oldest) = self.order.pop_front() else {
+                break;
+            };
+            self.last.remove(&oldest);
+        }
     }
 }
 
@@ -167,5 +196,18 @@ mod tests {
         // A later allow for a different id prunes id(1) (older than the cooldown).
         rl.allow(id(2), t0 + Duration::from_secs(20));
         assert_eq!(rl.last.len(), 1, "stale entry should have been pruned");
+    }
+
+    #[test]
+    fn capacity_evicts_oldest_distinct_ids() {
+        let mut rl = ReobsRateLimiter::with_capacity(Duration::from_secs(30), 2);
+        let now = Instant::now();
+        assert!(rl.allow(id(1), now));
+        assert!(rl.allow(id(2), now));
+        assert!(rl.allow(id(3), now));
+
+        assert!(!rl.last.contains_key(&id(1)), "oldest id should be evicted");
+        assert!(rl.last.contains_key(&id(2)));
+        assert!(rl.last.contains_key(&id(3)));
     }
 }
