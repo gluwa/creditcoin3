@@ -183,9 +183,7 @@ async function main(
     }
     const blockGasLimit = latestBlock.gasLimit;
     const totalGasThreshold = (blockGasLimit * 7n) / 10n;
-    console.log(
-        `**** INFO: on-chain EVM block gas limit = ${blockGasLimit}, 70% threshold = ${totalGasThreshold}`,
-    );
+    console.log(`**** INFO: on-chain EVM block gas limit = ${blockGasLimit}, 70% threshold = ${totalGasThreshold}`);
 
     const sleepTime = parseInt(process.env.SLEEP_TIME || '500', 10);
     for (const blockNumber of blocksToInspect) {
