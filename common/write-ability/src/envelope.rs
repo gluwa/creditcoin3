@@ -39,6 +39,43 @@ impl MessageVote {
     }
 }
 
+/// Request to re-observe a stalled message, gossiped on
+/// [`reobservation_topic`](crate::protocol::reobservation_topic).
+///
+/// A relayer (or dApp) that watches a message sit below quorum past a timeout publishes this so the
+/// attestor set re-signs. It carries **no signature and no authority** — every field is a pointer to
+/// public on-chain data. An attestor that receives it does not trust the request: it independently
+/// re-fetches the named transaction from its own Creditcoin RPC, re-verifies the `MessagePublished`
+/// event for `message_id` was emitted by the resolved Outbox, recomputes the `messageHash`, and only
+/// then re-signs and re-gossips its [`MessageVote`]. This makes the request safe to accept from any
+/// peer — the worst a forged request can do is make attestors do a bounded amount of RPC work, which
+/// the responder rate-limits per `message_id`.
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
+pub struct ReobservationRequest {
+    /// USC chain_key the stalled message is scoped to. Must match the topic prefix.
+    pub chain_key: u64,
+    /// Outbox `messageId` to re-observe.
+    pub message_id: [u8; 32],
+    /// Transaction hash of the `MessagePublished` emission, so the attestor can locate it directly.
+    pub tx_hash: [u8; 32],
+    /// Block height the event was emitted at — lets the responder run a tightly-scoped `eth_getLogs`
+    /// rather than a full range scan.
+    pub block_height: u64,
+}
+
+impl ReobservationRequest {
+    /// Decode an incoming gossipsub payload.
+    pub fn decode_bytes(bytes: &[u8]) -> Result<Self, parity_scale_codec::Error> {
+        Self::decode(&mut &bytes[..])
+    }
+
+    /// Encode for publishing / fixtures.
+    #[must_use]
+    pub fn encode_bytes(&self) -> Vec<u8> {
+        self.encode()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,5 +106,18 @@ mod tests {
         let bytes = fixture().encode_bytes();
         let truncated = &bytes[..bytes.len() - 4];
         assert!(MessageVote::decode_bytes(truncated).is_err());
+    }
+
+    #[test]
+    fn reobservation_request_round_trips() {
+        let req = ReobservationRequest {
+            chain_key: 2,
+            message_id: [7u8; 32],
+            tx_hash: [9u8; 32],
+            block_height: 123_456,
+        };
+        let bytes = req.encode_bytes();
+        assert_eq!(ReobservationRequest::decode_bytes(&bytes).unwrap(), req);
+        assert!(ReobservationRequest::decode_bytes(&bytes[..bytes.len() - 4]).is_err());
     }
 }
