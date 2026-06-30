@@ -420,6 +420,14 @@ const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// The maximum storage growth per block in bytes.
 const MAX_STORAGE_GROWTH: u64 = 400 * 1024;
 
+/// Pin the EVM hard fork to Cancun explicitly. `pallet_evm::Config::config()` defaults to
+/// whatever hard fork our Frontier fork ships (currently Osaka), which silently pulled in
+/// EIP-7623's calldata-floor gas pricing (40 gas per non-zero calldata byte) on the stable2512
+/// upgrade. That floor charges every call up front for raw calldata length before any contract
+/// or precompile logic runs, making our 3MB precompile message limits effectively unaffordable
+/// within BLOCK_GAS_LIMIT. Pin to Cancun to keep the gas economics this chain was tuned for.
+static CANCUN_EVM_CONFIG: fp_evm::Config = fp_evm::Config::cancun();
+
 parameter_types! {
     pub BlockGasLimit: U256 = U256::from(BLOCK_GAS_LIMIT);
     pub const GasLimitPovSizeRatio: u64 = BLOCK_GAS_LIMIT.saturating_div(MAX_POV_SIZE);
@@ -452,6 +460,10 @@ impl pallet_evm::Config for Runtime {
     type AccountProvider = FrameSystemAccountProvider<Runtime>;
     type CreateOriginFilter = ();
     type CreateInnerOriginFilter = ();
+
+    fn config() -> &'static fp_evm::Config {
+        &CANCUN_EVM_CONFIG
+    }
 }
 
 parameter_types! {
