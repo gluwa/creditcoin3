@@ -91,7 +91,8 @@ contract SimpleInboxTest {
     }
 
     function test_invalid_votes_revert_propagates() public {
-        SimpleInbox badInbox = new SimpleInbox(address(new RejectValidator()), CC_CHAIN_ID, LOCAL_KEY);
+        SimpleInbox badInbox =
+            new SimpleInbox(address(new RejectValidator()), CC_CHAIN_ID, LOCAL_KEY);
         vm.expectRevert(); // "bad votes" from the validator
         badInbox.deliverMessage(keccak256("m2"), EMITTER, _payload(address(dest)), "");
     }
@@ -125,5 +126,49 @@ contract SimpleInboxTest {
         // executeDelivery is `external` but gated on `msg.sender == address(this)`.
         vm.expectRevert(); // "Only self"
         inbox.executeDelivery(address(dest), keccak256("x"), EMITTER, "");
+    }
+
+    /// The exposed `computeMessageHash` view must equal the inline formula attestors mirror:
+    /// keccak256(abi.encode(messageId, emitter, localChainKey, creditcoinChainId, payload)).
+    function test_compute_message_hash_matches_formula() public view {
+        bytes32 id = keccak256("m-hash");
+        bytes memory payload = _payload(address(dest));
+        bytes32 expected = keccak256(abi.encode(id, EMITTER, LOCAL_KEY, CC_CHAIN_ID, payload));
+        require(inbox.computeMessageHash(id, EMITTER, payload) == expected, "hash mismatch");
+    }
+
+    /// The view is what `deliverMessage` feeds the validator: a validator that only accepts the
+    /// matching hash must accept delivery for the hash the view returns.
+    function test_compute_message_hash_is_what_deliver_validates() public {
+        bytes32 id = keccak256("m-hash2");
+        bytes memory payload = _payload(address(dest));
+        bytes32 h = inbox.computeMessageHash(id, EMITTER, payload);
+
+        SimpleInbox boundInbox =
+            new SimpleInbox(address(new ExpectHashValidator(h)), CC_CHAIN_ID, LOCAL_KEY);
+        // Same components → same hash → validator accepts.
+        boundInbox.deliverMessage(id, EMITTER, payload, "");
+    }
+}
+
+/// Accepts only when `validateVotes` is called with a pre-agreed `messageHash`, proving the hash
+/// `deliverMessage` computes is exactly what `computeMessageHash` returns.
+contract ExpectHashValidator is IVoteValidator {
+    bytes32 immutable expected;
+
+    constructor(bytes32 _expected) {
+        expected = _expected;
+    }
+
+    function validateVotes(bytes32 messageHash, bytes calldata) external view {
+        require(messageHash == expected, "unexpected hash");
+    }
+
+    function attestors() external pure returns (address[] memory) {
+        return new address[](0);
+    }
+
+    function threshold() external pure returns (uint256) {
+        return 0;
     }
 }

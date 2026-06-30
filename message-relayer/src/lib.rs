@@ -58,6 +58,11 @@ const VOTE_CHANNEL_CAP: usize = 8_192;
 const DELIVERY_CHANNEL_CAP: usize = 64;
 /// Attestor-set updates are rare (one per on-chain set change); a small buffer is ample.
 const SET_UPDATE_CHANNEL_CAP: usize = 16;
+/// Reobservation requests are emitted at most once per stalled message per minute; a modest buffer
+/// absorbs a burst when many messages stall at once.
+const REOBS_CHANNEL_CAP: usize = 256;
+/// Read-only vote-bundle queries from the HTTP layer.
+const QUERY_CHANNEL_CAP: usize = 64;
 
 /// Top-level relayer process.
 pub struct Server {
@@ -130,6 +135,9 @@ impl Server {
         let (indexed_tx, indexed_rx) = mpsc::channel::<IndexedMessage>(INDEXED_CHANNEL_CAP);
         let (vote_tx, vote_rx) = mpsc::channel::<MessageVote>(VOTE_CHANNEL_CAP);
         let (set_tx, set_rx) = mpsc::channel::<RouteAttestors>(SET_UPDATE_CHANNEL_CAP);
+        let (reobs_tx, reobs_rx) =
+            mpsc::channel::<write_ability::envelope::ReobservationRequest>(REOBS_CHANNEL_CAP);
+        let (query_tx, query_rx) = mpsc::channel::<pool::PoolQuery>(QUERY_CHANNEL_CAP);
         let mut delivery_txs: HashMap<u64, mpsc::Sender<DeliveryJob>> = HashMap::new();
 
         let mut tasks = JoinSet::new();
@@ -163,6 +171,8 @@ impl Server {
                     vote_rx,
                     delivery_txs,
                     set_update_rx: set_rx,
+                    reobs_tx,
+                    query_rx,
                 },
                 metrics.clone(),
                 cancel.clone(),
@@ -234,6 +244,7 @@ impl Server {
                 self.config.p2p.clone(),
                 self.config.routes.iter().map(|r| r.chain_key).collect(),
                 vote_tx,
+                reobs_rx,
                 metrics.clone(),
                 cancel.clone(),
             ),
@@ -255,7 +266,7 @@ impl Server {
                 )
             })?;
         let bind_addr = SocketAddr::new(ip, self.config.bind_port);
-        let app = prom::build_router(self.prom_metrics.clone());
+        let app = prom::build_router(self.prom_metrics.clone(), query_tx);
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
             .with_context(|| format!("failed to bind HTTP listener at {bind_addr}"))?;
