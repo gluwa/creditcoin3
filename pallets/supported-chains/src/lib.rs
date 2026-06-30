@@ -376,7 +376,10 @@ pub mod pallet {
                 SupportedChains::<T>::contains_key(chain_key),
                 Error::<T>::ChainNotSupported
             );
-            ensure!(address != H160::zero(), Error::<T>::ZeroOutboxFactoryAddress);
+            ensure!(
+                address != H160::zero(),
+                Error::<T>::ZeroOutboxFactoryAddress
+            );
 
             OutboxFactories::<T>::insert(chain_key, address);
 

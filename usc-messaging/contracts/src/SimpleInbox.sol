@@ -33,6 +33,22 @@ contract SimpleInbox {
         localChainKey = _localChainKey;
     }
 
+    /// @notice The exact digest attestors sign and `deliverMessage` recomputes before validating
+    /// votes: `keccak256(abi.encode(messageId, emitterAddress, localChainKey, creditcoinChainId,
+    /// payload))` (raw 32-byte hash, no EIP-191 prefix). Exposed as a view so off-chain components
+    /// (the Rust attestor / relayer) can assert byte-for-byte parity against this contract instead
+    /// of mirroring the formula — any drift would silently break delivery.
+    function computeMessageHash(bytes32 messageId, address emitterAddress, bytes calldata payload)
+        public
+        view
+        returns (bytes32)
+    {
+        return
+            keccak256(
+                abi.encode(messageId, emitterAddress, localChainKey, creditcoinChainId, payload)
+            );
+    }
+
     function deliverMessage(
         bytes32 messageId,
         address emitterAddress,
@@ -41,9 +57,7 @@ contract SimpleInbox {
     ) external returns (bool) {
         require(!validatedMessages[messageId], "Already validated");
 
-        bytes32 messageHash = keccak256(
-            abi.encode(messageId, emitterAddress, localChainKey, creditcoinChainId, payload)
-        );
+        bytes32 messageHash = computeMessageHash(messageId, emitterAddress, payload);
         voteValidator.validateVotes(messageHash, votes);
 
         validatedMessages[messageId] = true;
