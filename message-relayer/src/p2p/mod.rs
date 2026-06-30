@@ -18,6 +18,7 @@ use libp2p::gossipsub::{IdentTopic, MessageAcceptance, TopicHash};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, trace, warn};
+use write_ability::envelope::ReobservationRequest;
 use zeroize::Zeroize;
 
 use crate::config::P2pConfig;
@@ -39,6 +40,7 @@ pub async fn run(
     p2p: P2pConfig,
     chain_keys: Vec<u64>,
     vote_tx: mpsc::Sender<MessageVote>,
+    mut reobs_rx: mpsc::Receiver<ReobservationRequest>,
     metrics: Metrics,
     cancel: CancellationToken,
 ) -> Result<()> {
@@ -60,8 +62,12 @@ pub async fn run(
         .with_swarm_config(|c| c.with_idle_connection_timeout(Duration::from_secs(60)))
         .build();
 
-    // Subscribe to one topic per route — same mesh, different topic-id per chain_key.
+    // Subscribe to one topic per route — same mesh, different topic-id per chain_key. We also
+    // subscribe to (and keep a handle on) each reobservation topic so we can *publish* requests for
+    // stalled messages — the relayer is otherwise a passive observer, but reobservation is the one
+    // thing it actively gossips.
     let mut topic_to_chain_key: HashMap<TopicHash, u64> = HashMap::new();
+    let mut chain_key_to_reobs_topic: HashMap<u64, IdentTopic> = HashMap::new();
     for ck in &chain_keys {
         let topic = IdentTopic::new(protocols::message_votes_topic(*ck));
         info!(chain_key = ck, topic = %topic, "📥 subscribing to attestor votes");
@@ -71,6 +77,14 @@ pub async fn run(
             .subscribe(&topic)
             .with_context(|| format!("subscribe to {topic} failed"))?;
         topic_to_chain_key.insert(topic.hash(), *ck);
+
+        let reobs = IdentTopic::new(protocols::reobservation_topic(*ck));
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(&reobs)
+            .with_context(|| format!("subscribe to {reobs} failed"))?;
+        chain_key_to_reobs_topic.insert(*ck, reobs);
     }
 
     // Boot nodes (best-effort: parse what we can, log what we cannot).
@@ -109,6 +123,10 @@ pub async fn run(
 
     info!(routes = chain_keys.len(), "✅ libp2p subscriber online");
 
+    let reobs_topic_hashes: std::collections::HashSet<TopicHash> = chain_key_to_reobs_topic
+        .values()
+        .map(IdentTopic::hash)
+        .collect();
     let mut peer_counts: HashMap<u64, usize> = HashMap::new();
 
     loop {
@@ -117,11 +135,29 @@ pub async fn run(
                 info!("🛑 libp2p worker exiting on cancel");
                 return Ok(());
             }
+            maybe = reobs_rx.recv() => {
+                let Some(req) = maybe else {
+                    // Pool dropped the request sender — it is shutting down; so are we shortly.
+                    debug!("reobservation request channel closed");
+                    continue;
+                };
+                let Some(topic) = chain_key_to_reobs_topic.get(&req.chain_key) else {
+                    warn!(chain_key = req.chain_key, "no reobservation topic for chain_key; dropping request");
+                    continue;
+                };
+                match swarm.behaviour_mut().gossipsub.publish(topic.hash(), req.encode_bytes()) {
+                    Ok(_) => debug!(chain_key = req.chain_key, "📣 gossiped reobservation request"),
+                    // No mesh peers yet is the common transient case (e.g. attestors not connected);
+                    // log at debug since the pool will retry on its next tick.
+                    Err(err) => debug!(chain_key = req.chain_key, %err, "reobservation publish failed"),
+                }
+            }
             event = swarm.select_next_some() => {
                 handle_swarm_event(
                     event,
                     &mut swarm,
                     &topic_to_chain_key,
+                    &reobs_topic_hashes,
                     &vote_tx,
                     metrics.as_ref(),
                     &mut peer_counts,
@@ -136,6 +172,7 @@ async fn handle_swarm_event(
     event: libp2p::swarm::SwarmEvent<behavior::RelayerBehaviorEvent>,
     swarm: &mut libp2p::Swarm<RelayerBehavior>,
     topic_to_chain_key: &HashMap<TopicHash, u64>,
+    reobs_topic_hashes: &std::collections::HashSet<TopicHash>,
     vote_tx: &mpsc::Sender<MessageVote>,
     metrics: &dyn crate::prom::MetricsTrait,
     peer_counts: &mut HashMap<u64, usize>,
@@ -173,6 +210,20 @@ async fn handle_swarm_event(
                 message,
             },
         )) => {
+            // Reobservation requests: the relayer originates these, but it is subscribed so it can
+            // publish — when one arrives from another node, Accept it so the mesh keeps propagating
+            // it to attestors (the relayer itself takes no action on inbound requests).
+            if reobs_topic_hashes.contains(&message.topic) {
+                swarm
+                    .behaviour_mut()
+                    .gossipsub
+                    .report_message_validation_result(
+                        &message_id,
+                        &propagation_source,
+                        MessageAcceptance::Accept,
+                    );
+                return;
+            }
             let Some(&chain_key) = topic_to_chain_key.get(&message.topic) else {
                 trace!(topic = %message.topic, "ignoring message on unsubscribed topic");
                 return;

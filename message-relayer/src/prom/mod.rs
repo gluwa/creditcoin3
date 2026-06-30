@@ -349,8 +349,12 @@ impl MetricsTrait for RelayerMetrics {
     }
 }
 
-/// Build the minimal HTTP surface (`/metrics` + `/health`).
-pub fn build_router(metrics: Arc<RelayerMetrics>) -> axum::Router {
+/// Build the HTTP surface (`/metrics` + `/health` + `/votes/{message_hash}`). `query_tx` reaches the
+/// vote pool so the votes endpoint can serve the live accumulated bundle for a message.
+pub fn build_router(
+    metrics: Arc<RelayerMetrics>,
+    query_tx: tokio::sync::mpsc::Sender<crate::pool::PoolQuery>,
+) -> axum::Router {
     use axum::routing::get;
     use axum::Extension;
 
@@ -362,7 +366,52 @@ pub fn build_router(metrics: Arc<RelayerMetrics>) -> axum::Router {
                 m.build_metrics_response()
             }),
         )
+        .route("/votes/{message_hash}", get(votes_handler))
         .layer(Extension(metrics))
+        .layer(Extension(query_tx))
+}
+
+/// `GET /votes/{message_hash}` — return the votes the relayer has accumulated for a message, so it
+/// acts as a queryable spy node (an operator or sibling relayer can ask what we have and act on it).
+/// `message_hash` is a 0x-prefixed 32-byte hex string. 404 if we have not indexed it.
+async fn votes_handler(
+    axum::extract::Path(hash_str): axum::extract::Path<String>,
+    axum::Extension(query_tx): axum::Extension<tokio::sync::mpsc::Sender<crate::pool::PoolQuery>>,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    let Ok(message_hash) = hash_str.parse::<alloy::primitives::B256>() else {
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            "message_hash must be 0x-prefixed 32-byte hex",
+        )
+            .into_response();
+    };
+
+    let (reply, rx) = tokio::sync::oneshot::channel();
+    if query_tx
+        .send(crate::pool::PoolQuery {
+            message_hash,
+            reply,
+        })
+        .await
+        .is_err()
+    {
+        return (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "vote pool unavailable",
+        )
+            .into_response();
+    }
+    match rx.await {
+        Ok(Some(bundle)) => axum::Json(bundle).into_response(),
+        Ok(None) => (axum::http::StatusCode::NOT_FOUND, "message not indexed").into_response(),
+        Err(_) => (
+            axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            "vote pool dropped query",
+        )
+            .into_response(),
+    }
 }
 
 // ---------------------------------------------------------------------------

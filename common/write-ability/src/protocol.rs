@@ -14,6 +14,17 @@ pub fn message_votes_topic(chain_key: u64) -> String {
     format!("{chain_key}/message-votes/v1")
 }
 
+/// Build the gossipsub topic on which a stalled message's reobservation is requested. A relayer
+/// (or dApp) that sees a message stuck below quorum publishes a
+/// [`ReobservationRequest`](crate::envelope::ReobservationRequest) here; attestors subscribe,
+/// independently re-verify the message on their own RPC, and re-sign + re-gossip their
+/// [`MessageVote`](crate::envelope::MessageVote). Distinct from the vote topic so a vote subscriber
+/// is not forced to also receive requests.
+#[must_use]
+pub fn reobservation_topic(chain_key: u64) -> String {
+    format!("{chain_key}/reobservation-requests/v1")
+}
+
 /// Canonical mapping of a Substrate `ChainKey` (`u64`) to the Solidity `bytes32` chain key passed
 /// to `IOutboxFactory.getOutbox` and bound into each `messageHash` (research §2.3).
 ///
@@ -33,6 +44,13 @@ mod tests {
     #[test]
     fn topic_matches_spec() {
         assert_eq!(message_votes_topic(42), "42/message-votes/v1");
+    }
+
+    #[test]
+    fn reobservation_topic_matches_spec() {
+        assert_eq!(reobservation_topic(42), "42/reobservation-requests/v1");
+        // Must be a *different* topic from the vote topic for the same chain.
+        assert_ne!(reobservation_topic(42), message_votes_topic(42));
     }
 
     #[test]

@@ -12,3 +12,7 @@ pub const KADEMLIA: StreamProtocol = StreamProtocol::new("/gluwa/relayer-kad/1.0
 /// The gossipsub topic the relayer subscribes to for a given USC chain_key. Defined in the shared
 /// [`write_ability`] crate so it always matches the topic attestors publish on (PoC §6.1).
 pub use write_ability::protocol::message_votes_topic;
+
+/// The gossipsub topic the relayer publishes reobservation requests on (attestors subscribe to it).
+/// Shared so requester and responder never disagree on the topic id.
+pub use write_ability::protocol::reobservation_topic;

@@ -302,12 +302,13 @@ impl Attestor {
         // share the aggregator + active set. `mv_publish_rx` is the channel the p2p task drains to
         // publish our outgoing votes; a dummy (immediately-closed) receiver stands in when disabled
         // and is never polled (the p2p arm is guarded on `message_votes.is_some()`).
-        let (message_votes, mv_publish_rx) =
+        let (message_votes, mv_publish_rx, wa_reobs_rx) =
             match tasks::write_ability::build_state(&self.config.write_ability).await {
-                Some((state, rx)) => (Some(state), rx),
+                Some((state, publish_rx, reobs_rx)) => (Some(state), publish_rx, reobs_rx),
                 None => (
                     None,
                     mpsc::channel::<write_ability::envelope::MessageVote>(1).1,
+                    mpsc::channel::<write_ability::envelope::ReobservationRequest>(1).1,
                 ),
             };
 
@@ -407,7 +408,7 @@ impl Attestor {
             let shared = shared.clone();
             let wa_cfg = self.config.write_ability;
             set.spawn(async move {
-                tasks::write_ability::run(shared, wa_cfg, write_ability_seed)
+                tasks::write_ability::run(shared, wa_cfg, write_ability_seed, wa_reobs_rx)
                     .await
                     .map(|_| "write_ability")
             });

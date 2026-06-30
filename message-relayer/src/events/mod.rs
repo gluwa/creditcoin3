@@ -44,6 +44,11 @@ pub struct IndexedMessage {
     pub creditcoin_chain_id: u64,
     pub payload: Vec<u8>,
     pub message_hash: B256,
+    /// Transaction + block of the `MessagePublished` emission. Carried so the pool can build a
+    /// [`ReobservationRequest`](write_ability::envelope::ReobservationRequest) pointing attestors at
+    /// the exact event when a message stalls below quorum.
+    pub tx_hash: B256,
+    pub block_height: u64,
 }
 
 /// Spawn one outbox watcher per route. Returns immediately; the watcher loops until `cancel`
@@ -194,6 +199,8 @@ async fn poll_once<P: Provider>(
                     creditcoin_chain_id,
                     payload,
                     message_hash: hash,
+                    tx_hash: log.transaction_hash.unwrap_or_default(),
+                    block_height: log.block_number.unwrap_or(to_block),
                 };
                 debug!(
                     chain_key,
