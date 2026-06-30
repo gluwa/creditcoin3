@@ -251,6 +251,7 @@ pub async fn run(
             &listener_provider,
             resolved,
             confirmation_depth,
+            cfg.start_block,
             tx,
             listener_token,
         )

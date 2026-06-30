@@ -107,10 +107,21 @@ pub async fn watch_outbox(
             );
             block
         }
-        None => provider
-            .get_block_number()
-            .await
-            .with_context(|| format!("chain_key {chain_key}: failed to read chain head"))?,
+        None => {
+            if let Some(start) = route.start_block {
+                info!(
+                    chain_key,
+                    start_block = start,
+                    "⏮️ no Outbox checkpoint; starting initial scan from configured block"
+                );
+                start.saturating_sub(1)
+            } else {
+                provider
+                    .get_block_number()
+                    .await
+                    .with_context(|| format!("chain_key {chain_key}: failed to read chain head"))?
+            }
+        }
     };
 
     let mut tick = tokio::time::interval(Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS));
@@ -183,6 +194,20 @@ async fn poll_once<P: Provider>(
     for log in logs {
         match IOutbox::MessagePublished::decode_log(&log.inner, true) {
             Ok(decoded) => {
+                let Some(tx_hash) = log.transaction_hash else {
+                    warn!(
+                        chain_key,
+                        "MessagePublished log without transaction_hash; skipping"
+                    );
+                    continue;
+                };
+                let Some(block_height) = log.block_number else {
+                    warn!(
+                        chain_key,
+                        "MessagePublished log without block_number; skipping"
+                    );
+                    continue;
+                };
                 let payload = decoded.data.payload.to_vec();
                 let hash = message_hash(
                     decoded.data.messageId,
@@ -199,8 +224,8 @@ async fn poll_once<P: Provider>(
                     creditcoin_chain_id,
                     payload,
                     message_hash: hash,
-                    tx_hash: log.transaction_hash.unwrap_or_default(),
-                    block_height: log.block_number.unwrap_or(to_block),
+                    tx_hash,
+                    block_height,
                 };
                 debug!(
                     chain_key,
