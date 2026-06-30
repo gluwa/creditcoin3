@@ -108,10 +108,14 @@ fn is_transient_subxt(err: &subxt::Error) -> bool {
 
 /// Classifier for the inner [`SubxtRpcsError`]. subxt 0.44 moved the RPC-client error variants
 /// (`DisconnectedWillReconnect`, the boxed jsonrpsee client error) out of `RpcError` and into
-/// `subxt_rpcs::Error`, reached via `RpcError::ClientError`.
+/// `subxt_rpcs::Error`, reached via `RpcError::ClientError`. Server-returned JSON-RPC error
+/// objects (previously `jsonrpsee::Error::Call`) are now `SubxtRpcsError::User`.
 fn is_transient_rpcs(err: &SubxtRpcsError) -> bool {
     match err {
         SubxtRpcsError::DisconnectedWillReconnect(_) => true,
+        // Server returned a JSON-RPC error object — check whether the message indicates a
+        // transient condition (overload, shutdown, gateway timeout, etc.).
+        SubxtRpcsError::User(user_error) => is_transient_call_message(&user_error.message),
         SubxtRpcsError::Client(boxed) => {
             let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() else {
                 return false;
@@ -120,7 +124,6 @@ fn is_transient_rpcs(err: &SubxtRpcsError) -> bool {
                 JsonRpseeError::Transport(_)
                 | JsonRpseeError::RestartNeeded(_)
                 | JsonRpseeError::RequestTimeout => true,
-                JsonRpseeError::Call(obj) => is_transient_call_message(obj.message()),
                 JsonRpseeError::Custom(msg) => is_transient_custom_message(msg),
                 _ => false,
             }
@@ -1237,15 +1240,11 @@ mod util {
 
     pub fn is_fee_error(e: &subxt::Error) -> bool {
         if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(
-            subxt::ext::subxt_rpcs::Error::Client(err),
+            subxt::ext::subxt_rpcs::Error::User(user_error),
         )) = e
         {
-            if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
-                err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
-            {
-                if let Some(data) = call_err.data() {
-                    return data.get().contains(INABILITY_TO_PAY_SOME_FEE_MSG);
-                }
+            if let Some(data) = &user_error.data {
+                return data.get().contains(INABILITY_TO_PAY_SOME_FEE_MSG);
             }
         }
 
@@ -1378,6 +1377,7 @@ mod transient_classifier_tests {
         is_transient_call_message, is_transient_custom_message, is_transient_subxt, JsonRpseeError,
     };
     use subxt::error::RpcError;
+    use subxt::ext::subxt_rpcs::UserError;
 
     #[test]
     fn request_timeout_is_transient() {
@@ -1415,6 +1415,26 @@ mod transient_classifier_tests {
             "Unparseable message: {garbage}"
         ));
         assert!(!is_transient_custom_message("some unrelated custom error"));
+    }
+
+    #[test]
+    fn server_rpc_error_transient_via_user_variant() {
+        // In subxt-rpcs 0.44, server-returned JSON-RPC error objects (previously routed through
+        // jsonrpsee::Error::Call inside Client(boxed)) now surface as SubxtRpcsError::User.
+        // Transient server messages must still classify as transient through this new path.
+        let make = |msg: &str| {
+            subxt::Error::Rpc(RpcError::ClientError(subxt::ext::subxt_rpcs::Error::User(
+                UserError {
+                    code: -32000,
+                    message: msg.to_owned(),
+                    data: None,
+                },
+            )))
+        };
+        assert!(is_transient_subxt(&make("the server is going down")));
+        assert!(is_transient_subxt(&make("upstream timeout")));
+        assert!(!is_transient_subxt(&make("method not found")));
+        assert!(!is_transient_subxt(&make("invalid params")));
     }
 
     #[test]
