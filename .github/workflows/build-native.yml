@@ -139,7 +139,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: install
-          args: subxt-cli@${{ steps.subxt_version.outputs.version }} --locked
+          args: subxt-cli@0.50.1 --locked
 
       - name: Upload subxt binary
         if: ${{ inputs.build-subxt }}
