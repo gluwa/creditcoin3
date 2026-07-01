@@ -19,7 +19,7 @@
     "devDependencies": {
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
-        "prettier": "3.8.1"
+        "prettier": "3.9.4"
     },
     "engines": {
         "node": ">=18.0.0"
