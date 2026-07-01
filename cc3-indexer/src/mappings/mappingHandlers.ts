@@ -285,11 +285,10 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
 
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
-    attestorEntity.lastUpdateBlockNumber = blockNumber;
-    // Unregistering an attestor removes it from storage on chain, here we just set it to Idle status to keep history of the attestor in the db.
-    attestorEntity.status = RuntimeAttestorStatus.idle;
-
-    await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
+    // Unregistering an attestor removes it from storage on chain (Attestors::<T>::remove), so we
+    // delete the Attestors entity here to keep the GraphQL list in sync with chain state. The
+    // unregistration history is preserved separately in the AttestorUnregistered entity.
+    await Promise.all([attestorUnregistered.save(), Attestors.remove(attestorEntity.id)]);
 }
 
 export async function handleEventInvulnerableRegistered(event: SubstrateEvent): Promise<void> {
