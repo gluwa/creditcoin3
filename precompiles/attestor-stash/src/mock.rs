@@ -13,7 +13,7 @@ use pallet_evm::{
 };
 use pallet_session::historical as pallet_session_historical;
 use pallet_staking::FixedNominationsQuota;
-use parity_scale_codec::{Decode, Encode, MaxEncodedLen};
+use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode, MaxEncodedLen};
 use scale_info::TypeInfo;
 use serde::{Deserialize, Serialize};
 use sp_core::crypto::KeyTypeId;
@@ -44,6 +44,7 @@ pub type Block = frame_system::mocking::MockBlockU32<Runtime>;
     Clone,
     Encode,
     Decode,
+    DecodeWithMemTracking,
     Debug,
     MaxEncodedLen,
     Serialize,
@@ -168,6 +169,7 @@ impl frame_system::Config for Runtime {
     type SS58Prefix = SS58Prefix;
     type OnSetCode = ();
     type MaxConsumers = frame_support::traits::ConstU32<16>;
+    type ExtensionsWeightInfo = ();
 }
 
 parameter_types! {
@@ -195,10 +197,11 @@ impl pallet_balances::Config for Runtime {
     type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
     type WeightInfo = ();
-    type RuntimeHoldReason = ();
+    type RuntimeHoldReason = RuntimeHoldReason;
     type FreezeIdentifier = ();
     type MaxFreezes = ();
     type RuntimeFreezeReason = RuntimeFreezeReason;
+    type DoneSlashHandler = ();
 }
 
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
@@ -235,7 +238,6 @@ impl pallet_evm::Config for Runtime {
     type WithdrawOrigin = EnsureAddressNever<AccountId>;
     type AddressMapping = IdentityAddressMapping;
     type Currency = Balances;
-    type RuntimeEvent = RuntimeEvent;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
     type PrecompilesType = Precompiles<Self>;
     type PrecompilesValue = PrecompilesValue;
@@ -250,6 +252,8 @@ impl pallet_evm::Config for Runtime {
     type WeightInfo = pallet_evm::weights::SubstrateWeight<Runtime>;
     type AccountProvider = FrameSystemAccountProvider<Runtime>;
     type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
+    type CreateOriginFilter = ();
+    type CreateInnerOriginFilter = ();
 }
 
 use attestor_primitives::ChainEncodingVersion;
@@ -334,8 +338,10 @@ impl onchain::Config for OnChainSeqPhragmen {
     type Solver = SequentialPhragmen<AccountId, Perbill>;
     type DataProvider = Staking;
     type WeightInfo = ();
-    type MaxWinners = ConstU32<100>;
     type Bounds = ElectionsBounds;
+    type Sort = frame_support::traits::ConstBool<true>;
+    type MaxBackersPerWinner = ConstU32<{ u32::MAX }>;
+    type MaxWinnersPerPage = ConstU32<100>;
 }
 
 impl pallet_staking::Config for Runtime {
@@ -366,7 +372,10 @@ impl pallet_staking::Config for Runtime {
     type BenchmarkingConfig = pallet_staking::TestBenchmarkingConfig;
     type WeightInfo = ();
     type MaxControllersInDeprecationBatch = ConstU32<100>;
-    type DisablingStrategy = pallet_staking::UpToLimitDisablingStrategy<SLASHING_DISABLING_FACTOR>;
+    type OldCurrency = Balances;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type MaxValidatorSet = ConstU32<100>;
+    type Filter = frame_support::traits::Nothing;
 }
 
 impl_opaque_keys! {
@@ -378,13 +387,17 @@ impl_opaque_keys! {
 impl pallet_session::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ValidatorId = <Self as frame_system::Config>::AccountId;
-    type ValidatorIdOf = pallet_staking::StashOf<Self>;
+    type ValidatorIdOf = sp_runtime::traits::ConvertInto;
     type ShouldEndSession = Babe;
     type NextSessionRotation = Babe;
     type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
     type SessionHandler = <MockSessionKeys as OpaqueKeys>::KeyTypeIdProviders;
     type Keys = MockSessionKeys;
     type WeightInfo = ();
+    type DisablingStrategy =
+        pallet_session::disabling::UpToLimitDisablingStrategy<SLASHING_DISABLING_FACTOR>;
+    type Currency = Balances;
+    type KeyDeposit = frame_support::traits::ConstU128<0>;
 }
 
 parameter_types! {
@@ -406,8 +419,9 @@ impl pallet_babe::Config for Runtime {
 }
 
 impl pallet_session::historical::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
     type FullIdentification = pallet_staking::Exposure<Account, u128>;
-    type FullIdentificationOf = pallet_staking::ExposureOf<Self>;
+    type FullIdentificationOf = pallet_staking::DefaultExposureOf<Self>;
 }
 
 construct_runtime!(
@@ -447,6 +461,7 @@ impl ExtBuilder {
 
         pallet_balances::GenesisConfig::<Runtime> {
             balances: self.balances,
+            dev_accounts: None,
         }
         .assimilate_storage(&mut t)
         .expect("Pallet balances storage can be assimilated");
