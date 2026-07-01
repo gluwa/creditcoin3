@@ -1,0 +1,9 @@
+{
+  "name": "@creditcoin3/usc-messaging-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Solidity contracts for the USC write-ability layer (Foundry). npm dependencies here are Solidity libraries consumed via remappings.txt; installing them into this package's node_modules keeps the library source id inside the Foundry project root so `forge create --libraries` can link it.",
+  "dependencies": {
+    "@gluwa/usc-contracts": "0.1.1"
+  }
+}
