@@ -21,11 +21,15 @@ CONTRIBUTING step 3, which we run in step 3 below, *after* deploying.
 
 ### 1. Set environment variables
 
-Install this package's Node dependencies (provides `tsx` and the `@polkadot/api` used by the deploy
-script to register the factory on-chain), then copy `.env.example`:
+Install dependencies for **both** `package.json` files — the top-level one (provides `tsx` and the
+`@polkadot/api` the deploy script uses to register the factory on-chain) and the Foundry contracts'
+one (Solidity libraries such as `@gluwa/usc-contracts`, whose `EvmV1Decoder` library the
+`AcknowledgmentValidator` links against at deploy time). They are separate packages with no
+workspace linking them, so each needs its own install. Then copy `.env.example`:
 ```bash
 cd usc-messaging
-npm install
+npm install                    # top-level: tsx + @polkadot/api for the deploy script
+(cd contracts && npm install)  # Foundry contracts: @gluwa/usc-contracts (EvmV1Decoder library)
 cp .env.example .env
 ```
 
