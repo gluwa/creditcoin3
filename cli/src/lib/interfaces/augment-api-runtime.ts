@@ -151,12 +151,7 @@ declare module '@polkadot/api-base/types/calls' {
                 ApiType,
                 (
                     transaction:
-                        | TransactionV2
-                        | { Legacy: any }
-                        | { EIP2930: any }
-                        | { EIP1559: any }
-                        | string
-                        | Uint8Array,
+                        TransactionV2 | { Legacy: any } | { EIP2930: any } | { EIP1559: any } | string | Uint8Array,
                 ) => Observable<Extrinsic>
             >;
             /**
@@ -353,10 +348,7 @@ declare module '@polkadot/api-base/types/calls' {
                 ApiType,
                 (
                     equivocationProof:
-                        | GrandpaEquivocationProof
-                        | { setId?: any; equivocation?: any }
-                        | string
-                        | Uint8Array,
+                        GrandpaEquivocationProof | { setId?: any; equivocation?: any } | string | Uint8Array,
                     keyOwnerProof: OpaqueKeyOwnershipProof | string | Uint8Array,
                 ) => Observable<Option<Null>>
             >;
