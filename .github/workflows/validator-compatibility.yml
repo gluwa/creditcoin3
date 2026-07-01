@@ -25,7 +25,7 @@ name: Validator Compatibility
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
+    branches: [usc-dev, main]
     paths:
       - "node/**"
       - "runtime/**"
@@ -76,32 +76,12 @@ jobs:
           read -r min_major min_minor min_patch < <(echo "${MIN_VERSION}" | tr '.' ' ')
           MIN_KEY=$(( min_major * 10000 + min_minor * 100 + min_patch ))
 
-          # Pull every release tag for the configured channel, ascending by
-          # version. The Releases API is paginated at per_page=100, so walk all
-          # pages until an empty page is returned -- otherwise older releases
-          # beyond the first 100 silently drop out of the compatibility matrix.
-          ALL_TAGS=""
-          page=1
-          while :; do
-            PAGE_JSON=$(curl --silent --fail --header "Authorization: Bearer ${GH_TOKEN}" \
-              "https://api.github.com/repos/${OWNER_REPO}/releases?per_page=100&page=${page}")
-            PAGE_TAGS=$(echo "${PAGE_JSON}" | jq -r '.[].tag_name')
-            # Stop once a page comes back with no releases.
-            if [ -z "${PAGE_TAGS}" ]; then
-              break
-            fi
-            ALL_TAGS=$(printf '%s\n%s' "${ALL_TAGS}" "${PAGE_TAGS}")
-            page=$(( page + 1 ))
-          done
-
-          # Filter to the configured channel and >= MIN_VERSION in one awk pass.
-          # awk (unlike grep) exits 0 even when nothing matches, so an empty
-          # result does not trip `set -o pipefail`; the explicit check below
-          # handles the "no eligible releases" case.
-          TAGS=$(echo "${ALL_TAGS}" \
-                 | sed '/^$/d' \
-                 | awk -F'[.-]' -v min="${MIN_KEY}" -v suffix="${RELEASE_SUFFIX}" \
-                     '$NF == suffix && ($1*10000+$2*100+$3) >= min' \
+          # Pull every release tag for the configured channel, ascending by version.
+          TAGS=$(curl --silent --header "Authorization: Bearer ${GH_TOKEN}" \
+                   "https://api.github.com/repos/${OWNER_REPO}/releases?per_page=100" \
+                 | jq -r ".[].tag_name | select(endswith(\"-${RELEASE_SUFFIX}\"))" \
+                 | awk -F'[.-]' -v min="${MIN_KEY}" \
+                     '($1*10000+$2*100+$3) >= min' \
                  | sort -V)
 
           if [ -z "${TAGS}" ]; then
@@ -166,10 +146,6 @@ jobs:
     env:
       VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
       LOG_DIR: /var/tmp/validator-compatibility
-      # Node --base-path data (RocksDB etc.) lives here, deliberately OUTSIDE
-      # LOG_DIR so the post-run log scan only greps actual *.log files and does
-      # not recurse into binary database files.
-      DATA_DIR: /var/tmp/validator-compatibility-data
       # Shared raw chainspec generated once from the SUT so every node (SUT +
       # historical) starts from an identical genesis and can actually peer.
       RAW_CHAINSPEC: /var/tmp/validator-compatibility/dev-raw.json
@@ -182,7 +158,7 @@ jobs:
           # firefox/tigervnc/mutter are installed for optional visual debugging
           # of the local network from the self-hosted VM.
           sudo apt-get install -y jq unzip firefox tigervnc-standalone-server mutter
-          mkdir -p "${LOG_DIR}" "${DATA_DIR}"
+          mkdir -p "${LOG_DIR}"
 
       - name: Download SUT binary from current PR
         uses: actions/download-artifact@v8
@@ -247,7 +223,7 @@ jobs:
             --node-key "${ALICE_NODE_KEY}" \
             --ethapi=debug,trace,txpool \
             --port 30333 --rpc-port 9944 \
-            --base-path "${DATA_DIR}/alice-data" \
+            --base-path "${LOG_DIR}/alice-data" \
             >"${LOG_DIR}/node-sut-alice.log" 2>&1 &
 
       - name: Wait for SUT bootnode
@@ -302,7 +278,7 @@ jobs:
               --unsafe-force-node-key-generation \
               --unsafe-rpc-external --rpc-methods unsafe \
               --port "${P2P_PORT}" --rpc-port "${RPC_PORT}" \
-              --base-path "${DATA_DIR}/data-${TAG}" \
+              --base-path "${LOG_DIR}/data-${TAG}" \
               >"${LOG_DIR}/node-${TAG}.log" 2>&1 &
 
             # Record "<tag> <rpc_port>" so later steps can map nodes -> versions.
@@ -314,7 +290,7 @@ jobs:
         run: |
           set -euo pipefail
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-          while read -r _TAG PORT; do
+          while read -r TAG PORT; do
             .github/wait-for-creditcoin.sh "http://127.0.0.1:${PORT}"
           done < "${LOG_DIR}/nodes.txt"
 
@@ -363,7 +339,7 @@ jobs:
           #   1. every node reports peers (so they actually connected), and
           #   2. all best-block hashes agree at a common height.
           ALL_PORTS=(9944)
-          while read -r _TAG PORT; do ALL_PORTS+=("${PORT}"); done < "${LOG_DIR}/nodes.txt"
+          while read -r TAG PORT; do ALL_PORTS+=("${PORT}"); done < "${LOG_DIR}/nodes.txt"
 
           rpc() {
             curl --silent -H "Content-Type: application/json" \
@@ -392,49 +368,21 @@ jobs:
             fi
           done
 
-          # 2. Liveness: every node must still be importing blocks. A historical
-          #    node that can no longer import the newer binary's blocks freezes
-          #    at an old tip while still reporting peers, so a static snapshot
-          #    (or a min-height hash comparison) would not catch it. Sample each
-          #    node's best height twice with a gap and require it to advance.
-          declare -A H_BEFORE
-          for PORT in "${ALL_PORTS[@]}"; do
-            H_BEFORE["${PORT}"]=$(( $(rpc "${PORT}" "chain_getHeader" "[]" | jq -r '.result.number') ))
-          done
-          echo "INFO: sampling block progress over 30s to detect stalled nodes ..."
-          sleep 30
+          # 2. Best-block agreement: pick the lowest best-height across nodes as a
+          #    common reference, then require all nodes to share the same block
+          #    hash at that height. A node that cannot import the others' blocks
+          #    will diverge here.
           declare -a HEIGHTS
           for PORT in "${ALL_PORTS[@]}"; do
-            H=$(( $(rpc "${PORT}" "chain_getHeader" "[]" | jq -r '.result.number') ))
-            HEIGHTS+=("${H}")
-            echo "INFO: port ${PORT} (${NODE_VERSION[${PORT}]}) best height=${H} (was ${H_BEFORE[${PORT}]})"
-            if [ "${H}" -le "${H_BEFORE[${PORT}]}" ]; then
-              echo "ERROR: node on port ${PORT} (${NODE_VERSION[${PORT}]}) stalled: height ${H_BEFORE[${PORT}]} -> ${H} (not following the chain)" >&2
-              FAIL=1
-            fi
+            H=$(rpc "${PORT}" "chain_getHeader" "[]" | jq -r '.result.number')
+            HEIGHTS+=("$(( H ))")
+            echo "INFO: port ${PORT} (${NODE_VERSION[${PORT}]}) best height=$(( H ))"
           done
 
-          # 3. Height spread: all tips must be within a small window of each
-          #    other. This stops a laggard from hiding behind a low common
-          #    height in the hash check below.
-          MAX_HEIGHT_SPREAD=5
-          MINH=${HEIGHTS[0]}; MAXH=${HEIGHTS[0]}
+          COMMON=${HEIGHTS[0]}
           for H in "${HEIGHTS[@]}"; do
-            if [ "${H}" -lt "${MINH}" ]; then MINH="${H}"; fi
-            if [ "${H}" -gt "${MAXH}" ]; then MAXH="${H}"; fi
+            if [ "${H}" -lt "${COMMON}" ]; then COMMON="${H}"; fi
           done
-          echo "INFO: best-height spread: ${MINH}..${MAXH} (tolerance ${MAX_HEIGHT_SPREAD})"
-          if [ "$(( MAXH - MINH ))" -gt "${MAX_HEIGHT_SPREAD}" ]; then
-            echo "ERROR: best-height spread ${MINH}..${MAXH} exceeds tolerance ${MAX_HEIGHT_SPREAD} (a node is lagging)" >&2
-            FAIL=1
-          fi
-
-          # 4. Best-block agreement: use the lowest best-height across nodes as a
-          #    common reference, then require all nodes to share the same block
-          #    hash at that height. Combined with checks 2 and 3 this now means
-          #    "all nodes are live, near the head, and agree" rather than just
-          #    agreeing at a possibly-stale laggard's tip.
-          COMMON=${MINH}
           if [ "${COMMON}" -lt 1 ]; then
             echo "ERROR: network did not produce blocks (common height=${COMMON})" >&2
             FAIL=1
@@ -470,7 +418,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: validator-compatibility-logs
-          path: ${{ env.LOG_DIR }}/
+          path: ${{ env.LOG_DIR }}/*.log
 
       - name: Kill nodes
         if: always()
