@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {INativeQueryVerifier, NativeQueryVerifierLib} from "./INativeQueryVerifier.sol";
-import {EvmV1Decoder} from "./EvmV1Decoder.sol";
+import {EvmV1Decoder} from "@gluwa/usc-contracts/decoding/EvmV1Decoder.sol";
 
 /// @notice The slice of the Outbox this validator drives. `acknowledgeMessage` is `onlyValidator`,
 /// so this contract must be the Outbox's configured `validator`.

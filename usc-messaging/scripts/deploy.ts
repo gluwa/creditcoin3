@@ -15,6 +15,18 @@ const REPO_ROOT = path.resolve(__dirname, "..");
 const CONTRACTS_DIR = path.join(REPO_ROOT, "contracts");
 const ENV_FILE = path.join(REPO_ROOT, ".env");
 
+// EvmV1Decoder ships as a *linked* (public) library from @gluwa/usc-contracts, so it must be
+// deployed on its own and its address linked into consumers at create time (`forge create` rejects
+// dynamic linking). forge identifies the library by its on-disk source id — the node_modules path
+// that `remappings.txt` maps `@gluwa/usc-contracts/` onto — and uses it for both the deploy target
+// and the `--libraries` linker reference. This path MUST stay inside the Foundry project root
+// (CONTRACTS_DIR) with no leading `../`, otherwise forge's internal source id won't match the
+// `--libraries` key and linking silently falls back to "dynamic linking not supported". That is why
+// the dependency is installed into `contracts/node_modules` (see contracts/package.json), not the
+// parent package's node_modules.
+const EVM_V1_DECODER_LIB =
+  "node_modules/@gluwa/usc-contracts/contracts/decoding/EvmV1Decoder.sol:EvmV1Decoder";
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -71,7 +83,11 @@ function deployToDestination(contractSpec: string, constructorArgs: string[] = [
   return parseDeployedAddress(output, contractSpec);
 }
 
-function deployToSource(contractSpec: string, constructorArgs: string[] = []): string {
+function deployToSource(
+  contractSpec: string,
+  constructorArgs: string[] = [],
+  libraries: string[] = [],
+): string {
   const rpcUrl = requireEnv("CREDITCOIN_RPC_URL");
   const privateKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
 
@@ -82,6 +98,8 @@ function deployToSource(contractSpec: string, constructorArgs: string[] = []): s
     "--private-key",
     privateKey,
     "--broadcast",
+    // Pre-linked libraries (`<sourceId>:<Lib>:<address>`) must precede the contract spec.
+    ...libraries.flatMap((lib) => ["--libraries", lib]),
     contractSpec,
     ...(
       constructorArgs.length > 0
@@ -268,6 +286,10 @@ async function main(): Promise<void> {
   // chainKeyU64 (above) is also the destination chain key the AcknowledgmentValidator proves
   // MessageDelivered events on.
 
+  // EvmV1Decoder is a public (linked) library that AcknowledgmentValidator depends on. Deploy it
+  // standalone first so its address can be linked into the validator's bytecode at create time.
+  const evmV1Decoder = deployToSource(EVM_V1_DECODER_LIB);
+
   // Trust-minimized acknowledgment validator (research §05/§10): verifies a native USC delivery
   // proof (block-prover precompile: merkle inclusion + continuity) that MessageDelivered was emitted
   // in a finalized block on the destination chain, decodes the messageIds, and acknowledges them on
@@ -276,6 +298,7 @@ async function main(): Promise<void> {
   const ackValidator = deployToSource(
     "src/AcknowledgmentValidator.sol:AcknowledgmentValidator",
     [chainKeyU64.toString(), payee], // (destinationChainKey, owner)
+    [`${EVM_V1_DECODER_LIB}:${evmV1Decoder}`], // link the pre-deployed EvmV1Decoder library
   );
   castSendSource(outboxFactory, "createOutbox(bytes32,address)", [
     chainKeyBytes32,
@@ -334,6 +357,7 @@ async function main(): Promise<void> {
   console.log(`SimpleInbox: ${inbox}`);
   console.log(`OutboxFactory: ${outboxFactory}`);
   console.log(`SimpleOutbox (via factory): ${outbox}`);
+  console.log(`EvmV1Decoder (library): ${evmV1Decoder}`);
   console.log(`AcknowledgmentValidator (outbox validator): ${ackValidator}`);
   console.log(`SimpleDApp: ${dapp}`);
   console.log(`TestDestination: ${destination}`);
