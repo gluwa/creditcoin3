@@ -1557,10 +1557,7 @@ declare module '@polkadot/types/lookup' {
         readonly isDuplicateOffenceReport: boolean;
         readonly isInvalidConfiguration: boolean;
         readonly type:
-            | 'InvalidEquivocationProof'
-            | 'InvalidKeyOwnershipProof'
-            | 'DuplicateOffenceReport'
-            | 'InvalidConfiguration';
+            'InvalidEquivocationProof' | 'InvalidKeyOwnershipProof' | 'DuplicateOffenceReport' | 'InvalidConfiguration';
     }
 
     /** @name PalletTimestampCall (152) */
@@ -3191,13 +3188,7 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isClearPrime: boolean;
         readonly type:
-            | 'AddMember'
-            | 'RemoveMember'
-            | 'SwapMember'
-            | 'ResetMembers'
-            | 'ChangeKey'
-            | 'SetPrime'
-            | 'ClearPrime';
+            'AddMember' | 'RemoveMember' | 'SwapMember' | 'ResetMembers' | 'ChangeKey' | 'SetPrime' | 'ClearPrime';
     }
 
     /** @name PalletSudoError (334) */
@@ -3339,12 +3330,7 @@ declare module '@polkadot/types/lookup' {
         readonly isAlreadyHead: boolean;
         readonly isCallNotAllowed: boolean;
         readonly type:
-            | 'NotController'
-            | 'AlreadyQueued'
-            | 'NotFullyBonded'
-            | 'NotQueued'
-            | 'AlreadyHead'
-            | 'CallNotAllowed';
+            'NotController' | 'AlreadyQueued' | 'NotFullyBonded' | 'NotQueued' | 'AlreadyHead' | 'CallNotAllowed';
     }
 
     /** @name PalletNominationPoolsPoolMember (364) */

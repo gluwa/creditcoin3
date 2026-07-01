@@ -801,10 +801,7 @@ declare module '@polkadot/api-base/types/submittable' {
             reportEquivocation: AugmentedSubmittable<
                 (
                     equivocationProof:
-                        | SpConsensusGrandpaEquivocationProof
-                        | { setId?: any; equivocation?: any }
-                        | string
-                        | Uint8Array,
+                        SpConsensusGrandpaEquivocationProof | { setId?: any; equivocation?: any } | string | Uint8Array,
                     keyOwnerProof:
                         | SpSessionMembershipProof
                         | { session?: any; trieNodes?: any; validatorCount?: any }
@@ -827,10 +824,7 @@ declare module '@polkadot/api-base/types/submittable' {
             reportEquivocationUnsigned: AugmentedSubmittable<
                 (
                     equivocationProof:
-                        | SpConsensusGrandpaEquivocationProof
-                        | { setId?: any; equivocation?: any }
-                        | string
-                        | Uint8Array,
+                        SpConsensusGrandpaEquivocationProof | { setId?: any; equivocation?: any } | string | Uint8Array,
                     keyOwnerProof:
                         | SpSessionMembershipProof
                         | { session?: any; trieNodes?: any; validatorCount?: any }
@@ -1411,11 +1405,7 @@ declare module '@polkadot/api-base/types/submittable' {
             bondExtra: AugmentedSubmittable<
                 (
                     extra:
-                        | PalletNominationPoolsBondExtra
-                        | { FreeBalance: any }
-                        | { Rewards: any }
-                        | string
-                        | Uint8Array,
+                        PalletNominationPoolsBondExtra | { FreeBalance: any } | { Rewards: any } | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [PalletNominationPoolsBondExtra]
             >;
@@ -1442,11 +1432,7 @@ declare module '@polkadot/api-base/types/submittable' {
                         | string
                         | Uint8Array,
                     extra:
-                        | PalletNominationPoolsBondExtra
-                        | { FreeBalance: any }
-                        | { Rewards: any }
-                        | string
-                        | Uint8Array,
+                        PalletNominationPoolsBondExtra | { FreeBalance: any } | { Rewards: any } | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [MultiAddress, PalletNominationPoolsBondExtra]
             >;
@@ -3491,11 +3477,7 @@ declare module '@polkadot/api-base/types/submittable' {
             dispatchAs: AugmentedSubmittable<
                 (
                     asOrigin:
-                        | Creditcoin3RuntimeOriginCaller
-                        | { system: any }
-                        | { Ethereum: any }
-                        | string
-                        | Uint8Array,
+                        Creditcoin3RuntimeOriginCaller | { system: any } | { Ethereum: any } | string | Uint8Array,
                     call: Call | IMethod | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [Creditcoin3RuntimeOriginCaller, Call]
