@@ -3703,11 +3703,7 @@ declare module '@polkadot/api-base/types/submittable' {
             dispatchAsFallible: AugmentedSubmittable<
                 (
                     asOrigin:
-                        | Creditcoin3RuntimeOriginCaller
-                        | { system: any }
-                        | { Ethereum: any }
-                        | string
-                        | Uint8Array,
+                        Creditcoin3RuntimeOriginCaller | { system: any } | { Ethereum: any } | string | Uint8Array,
                     call: Call | IMethod | string | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [Creditcoin3RuntimeOriginCaller, Call]
