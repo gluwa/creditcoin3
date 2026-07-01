@@ -24,7 +24,7 @@ jobs:
             slack_channel_id: C09BX3KSL3C
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Extract Deno version from Dockerfile
         id: deno_version

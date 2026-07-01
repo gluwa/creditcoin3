@@ -23,7 +23,7 @@ jobs:
   build-wasm-runtime:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Configure rustc version
         run: |

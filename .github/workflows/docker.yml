@@ -48,7 +48,7 @@ jobs:
           docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
           docker images
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Start a Devnet container from image
         run: |
