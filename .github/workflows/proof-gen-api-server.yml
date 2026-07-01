@@ -21,7 +21,7 @@ jobs:
   integration-tests:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -63,7 +63,7 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.81.8
+        uses: taiki-e/install-action@v2.82.7
         with:
           tool: cargo-llvm-cov@0.6.24
 
@@ -119,7 +119,7 @@ jobs:
       - build-everything
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download binaries
         uses: actions/download-artifact@v8
@@ -385,7 +385,7 @@ jobs:
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
