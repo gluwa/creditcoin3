@@ -1,0 +1,493 @@
+---
+name: Validator Compatibility
+
+# Spins up a single isolated dev network (shared raw chainspec generated from
+# the SUT via `build-spec --raw`) where the System-Under-Test
+# (SUT) binary built from this PR / the usc-dev branch is the genesis authority
+# and bootnode (Alice), and every published `-mainnet` release >= MIN_VERSION
+# joins as its own node and is then onboarded into the active validator set via
+# bonding + staking.validate.
+#
+# CC3 dev is a BABE + GRANDPA + staking (PoS) chain, so historical nodes cannot
+# simply claim a well-known dev authority slot; they must bond and be elected.
+# The chain is first configured to allow up to 1000 validators, and each
+# onboarded validator's on-chain identity is set to its version string
+# (e.g. v3.66.0) so the nodes are easy to tell apart.
+#
+# The goal is to catch cross-version incompatibilities: an older binary that can
+# no longer import blocks authored by the newer one (or vice-versa) shows up as a
+# node that stops following the chain. We assert that every node peers up and
+# that the network keeps producing and agreeing on blocks.
+#
+# The matrix of historical versions is discovered dynamically from the GitHub
+# Releases API at run time, so newly published releases are exercised
+# automatically without editing this file.
+
+"on":
+  pull_request:
+    branches: [main, usc-testnet, usc-dev]
+    paths:
+      - "node/**"
+      - "runtime/**"
+      - "chainspecs/**"
+      - ".github/workflows/validator-compatibility.yml"
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+env:
+  # Inclusive lower bound. Only releases >= this version are tested.
+  MIN_VERSION: "3.55.0"
+  # Which release channel to pull historical validators from.
+  RELEASE_SUFFIX: "mainnet"
+  # Well-known dev node-key for the SUT bootnode (Alice) and its derived peer id.
+  # Matches the values already used across ci.yml so the bootnode multiaddr is
+  # deterministic.
+  ALICE_NODE_KEY: "d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463"
+  ALICE_PEER_ID: "12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Discover the set of historical releases to test, as a JSON array of tags.
+  # ---------------------------------------------------------------------------
+  discover-versions:
+    runs-on: ubuntu-24.04
+    outputs:
+      versions: ${{ steps.collect.outputs.versions }}
+      count: ${{ steps.collect.outputs.count }}
+    steps:
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Collect eligible release tags
+        id: collect
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          OWNER_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # Numeric comparison key: X.Y.Z -> X*10000 + Y*100 + Z
+          read -r min_major min_minor min_patch < <(echo "${MIN_VERSION}" | tr '.' ' ')
+          MIN_KEY=$(( min_major * 10000 + min_minor * 100 + min_patch ))
+
+          # Pull every release tag for the configured channel, ascending by
+          # version. The Releases API is paginated at per_page=100, so walk all
+          # pages until an empty page is returned -- otherwise older releases
+          # beyond the first 100 silently drop out of the compatibility matrix.
+          ALL_TAGS=""
+          page=1
+          while :; do
+            PAGE_JSON=$(curl --silent --fail --header "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${OWNER_REPO}/releases?per_page=100&page=${page}")
+            PAGE_TAGS=$(echo "${PAGE_JSON}" | jq -r '.[].tag_name')
+            # Stop once a page comes back with no releases.
+            if [ -z "${PAGE_TAGS}" ]; then
+              break
+            fi
+            ALL_TAGS=$(printf '%s\n%s' "${ALL_TAGS}" "${PAGE_TAGS}")
+            page=$(( page + 1 ))
+          done
+
+          # Filter to the configured channel and >= MIN_VERSION in one awk pass.
+          # awk (unlike grep) exits 0 even when nothing matches, so an empty
+          # result does not trip `set -o pipefail`; the explicit check below
+          # handles the "no eligible releases" case.
+          TAGS=$(echo "${ALL_TAGS}" \
+                 | sed '/^$/d' \
+                 | awk -F'[.-]' -v min="${MIN_KEY}" -v suffix="${RELEASE_SUFFIX}" \
+                     '$NF == suffix && ($1*10000+$2*100+$3) >= min' \
+                 | sort -V)
+
+          if [ -z "${TAGS}" ]; then
+            echo "ERROR: no '-${RELEASE_SUFFIX}' releases >= ${MIN_VERSION} found" >&2
+            exit 1
+          fi
+
+          echo "INFO: selected historical validators:"
+          echo "${TAGS}"
+
+          VERSIONS_JSON=$(echo "${TAGS}" | jq -R . | jq -c -s .)
+          COUNT=$(echo "${TAGS}" | wc -l | tr -d ' ')
+
+          echo "versions=${VERSIONS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Build the SUT binary from the current PR / usc-dev branch on a GitHub-hosted
+  # runner. The self-hosted Linode runner is only provisioned after this build
+  # succeeds, so we don't pay for Linode time if the build fails.
+  # ---------------------------------------------------------------------------
+  build-sut:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      # fast-runtime shortens block time + BABE epoch so validators get elected
+      # quickly. The setting lives in the runtime WASM, which is baked into the
+      # shared raw chainspec, so every node (incl. older binaries) reads the
+      # fast timing from the runtime via BabeApi and honours it.
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: true
+      version-string: PR
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-24.04']"
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Provision a large self-hosted Linode runner for the compatibility job.
+  # ---------------------------------------------------------------------------
+  deploy-runner:
+    needs:
+      - discover-versions
+      - build-sut
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      # Shared CPU, Linode 64 GB, 16 vCPU, disk: 1280 GB
+      LINODE_VM_SIZE: "g6-standard-16"
+      proxy_type: "validator-compatibility"
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Run the actual compatibility network.
+  # ---------------------------------------------------------------------------
+  validator-compatibility:
+    needs:
+      - discover-versions
+      - deploy-runner
+      - build-sut
+    runs-on:
+      [self-hosted, "workflow-${{ github.run_id }}", "type-validator-compatibility"]
+    env:
+      VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
+      LOG_DIR: /var/tmp/validator-compatibility
+      # Node --base-path data (RocksDB etc.) lives here, deliberately OUTSIDE
+      # LOG_DIR so the post-run log scan only greps actual *.log files and does
+      # not recurse into binary database files.
+      DATA_DIR: /var/tmp/validator-compatibility-data
+      # Shared raw chainspec generated once from the SUT so every node (SUT +
+      # historical) starts from an identical genesis and can actually peer.
+      RAW_CHAINSPEC: /var/tmp/validator-compatibility/dev-raw.json
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          # firefox/tigervnc/mutter are installed for optional visual debugging
+          # of the local network from the self-hosted VM.
+          sudo apt-get install -y jq unzip firefox tigervnc-standalone-server mutter
+          mkdir -p "${LOG_DIR}" "${DATA_DIR}"
+
+      - name: Download SUT binary from current PR
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-PR
+          path: sut
+
+      - name: Download historical release binaries
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          OWNER_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p historical
+          for TAG in $(echo "${VERSIONS_JSON}" | jq -r '.[]'); do
+            ASSET="creditcoin-${TAG}-x86_64-unknown-linux-gnu.zip"
+            echo "INFO: downloading ${ASSET}"
+            curl --silent --location --fail \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/octet-stream" \
+              "https://api.github.com/repos/${OWNER_REPO}/releases/assets/$(
+                curl --silent --header "Authorization: Bearer ${GH_TOKEN}" \
+                  "https://api.github.com/repos/${OWNER_REPO}/releases/tags/${TAG}" \
+                | jq -r ".assets[] | select(.name == \"${ASSET}\") | .id"
+              )" -o "historical/${TAG}.zip"
+
+            mkdir -p "historical/${TAG}"
+            unzip -o "historical/${TAG}.zip" -d "historical/${TAG}"
+            chmod a+x "historical/${TAG}/creditcoin3-node"
+            echo -n "INFO: ${TAG} -> "
+            "historical/${TAG}/creditcoin3-node" --version
+          done
+
+      - name: Generate shared raw chainspec from SUT
+        run: |
+          set -euo pipefail
+          chmod a+x ./sut/creditcoin3-node
+          # build-spec --raw pins the genesis storage (including the runtime
+          # WASM), so every node started from this file shares an identical
+          # genesis hash. Without this, each binary's `--chain dev` computes its
+          # own genesis from its compiled-in WASM and nodes reject each other
+          # with "Genesis mismatch".
+          ./sut/creditcoin3-node build-spec --chain dev --raw --disable-default-bootnode \
+            > "${RAW_CHAINSPEC}"
+          echo "INFO: generated raw chainspec at ${RAW_CHAINSPEC}"
+
+      - name: Start SUT bootnode (Alice)
+        env:
+          RUST_LOG: info
+        run: |
+          set -euo pipefail
+          echo -n "INFO: SUT -> "
+          ./sut/creditcoin3-node --version
+
+          # --ethapi=debug,trace,txpool enables EVM tracing so the blockchain
+          # integration tests (which expect CREDITCOIN_HAS_EVM_TRACING) can run
+          # against this node.
+          ./sut/creditcoin3-node \
+            --chain "${RAW_CHAINSPEC}" \
+            --validator --alice --pruning archive \
+            --node-key "${ALICE_NODE_KEY}" \
+            --ethapi=debug,trace,txpool \
+            --port 30333 --rpc-port 9944 \
+            --base-path "${DATA_DIR}/alice-data" \
+            >"${LOG_DIR}/node-sut-alice.log" 2>&1 &
+
+      - name: Wait for SUT bootnode
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Install CLI dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - name: Build CLI
+        working-directory: cli
+        run: |
+          npm install -g yarn
+          yarn install --immutable
+          yarn build
+
+      - name: Configure chain to allow 1000 validators
+        working-directory: cli
+        run: |
+          node dist/scripts/validatorCompatibility.js increase-validators \
+            --node-url ws://127.0.0.1:9944 --additional 1000
+
+      - name: Start historical nodes
+        env:
+          RUST_LOG: info
+        run: |
+          set -euo pipefail
+
+          # Each historical release joins the same network as its own node.
+          # They start as `--validator` (so the keystore + authorship machinery
+          # is active) but are NOT genesis authorities; they are onboarded into
+          # the active validator set below via bonding + staking.validate.
+          BOOTNODE="/ip4/127.0.0.1/tcp/30333/p2p/${ALICE_PEER_ID}"
+
+          i=0
+          for TAG in $(echo "${VERSIONS_JSON}" | jq -r '.[]'); do
+            P2P_PORT=$(( 30334 + i ))
+            RPC_PORT=$(( 9945 + i ))
+
+            # Node names must not contain '.' or '@', so use dashes: v3-55-0.
+            VERSION="${TAG%-*}"
+            NODE_NAME="v${VERSION//./-}"
+            echo "INFO: starting ${TAG} as ${NODE_NAME} (p2p ${P2P_PORT}, rpc ${RPC_PORT})"
+            "historical/${TAG}/creditcoin3-node" \
+              --chain "${RAW_CHAINSPEC}" \
+              --validator --pruning archive \
+              --name "${NODE_NAME}" \
+              --bootnodes "${BOOTNODE}" \
+              --unsafe-force-node-key-generation \
+              --unsafe-rpc-external --rpc-methods unsafe \
+              --port "${P2P_PORT}" --rpc-port "${RPC_PORT}" \
+              --base-path "${DATA_DIR}/data-${TAG}" \
+              >"${LOG_DIR}/node-${TAG}.log" 2>&1 &
+
+            # Record "<tag> <rpc_port>" so later steps can map nodes -> versions.
+            echo "${TAG} ${RPC_PORT}" >> "${LOG_DIR}/nodes.txt"
+            i=$(( i + 1 ))
+          done
+
+      - name: Wait for all nodes to come online
+        run: |
+          set -euo pipefail
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          while read -r _TAG PORT; do
+            .github/wait-for-creditcoin.sh "http://127.0.0.1:${PORT}"
+          done < "${LOG_DIR}/nodes.txt"
+
+      - name: Onboard each historical node as a validator (identity = version)
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          # LOG_DIR is absolute, so this works regardless of working-directory.
+          while read -r TAG PORT; do
+            # On-chain identity is set to the version string (e.g. v3.66.0) so
+            # validators are easy to tell apart.
+            VERSION="v${TAG%-*}"
+            echo "INFO: onboarding ${TAG} as ${VERSION} via ws://127.0.0.1:${PORT}"
+            node dist/scripts/validatorCompatibility.js onboard \
+              --node-url "ws://127.0.0.1:${PORT}" \
+              --version "${VERSION}" \
+              --bond 1000
+          done < "${LOG_DIR}/nodes.txt"
+
+      - name: Wait 3 eras so validators get elected
+        working-directory: cli
+        run: |
+          node dist/scripts/validatorCompatibility.js wait-eras \
+            --node-url ws://127.0.0.1:9944 --eras 3
+
+      - name: Run blockchain integration tests against the network
+        working-directory: cli
+        # Drive some real-world traffic through the mixed-version network, similar
+        # to what test-against-fork does during a runtime upgrade. Uses the
+        # default blockchain global setup (no BLOCKCHAIN_TESTS_GLOBAL_SETUP), so
+        # no Anvil / attestation chain is started -- it just talks to the SUT
+        # (Alice) node on 9944, which is started with EVM tracing enabled.
+        env:
+          SKIP_ON_PURPOSE: "true"
+        run: |
+          yarn test:blockchain
+
+      - name: Assert peering and block agreement
+        run: |
+          set -euo pipefail
+
+          # Every historical validator + the SUT must be in one network and
+          # follow the same chain. By this point the blockchain integration
+          # tests have already driven traffic through the network, so we check
+          # that:
+          #   1. every node reports peers (so they actually connected), and
+          #   2. all best-block hashes agree at a common height.
+          ALL_PORTS=(9944)
+          while read -r _TAG PORT; do ALL_PORTS+=("${PORT}"); done < "${LOG_DIR}/nodes.txt"
+
+          rpc() {
+            curl --silent -H "Content-Type: application/json" \
+              -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"$2\",\"params\":$3}" \
+              "http://127.0.0.1:$1"
+          }
+
+          # Map each port to the node version reported over RPC so the logs below
+          # identify nodes by version rather than just an opaque port number.
+          declare -A NODE_VERSION
+          for PORT in "${ALL_PORTS[@]}"; do
+            VER=$(rpc "${PORT}" "system_version" "[]" | jq -r '.result')
+            if [ -z "${VER}" ] || [ "${VER}" = "null" ]; then VER="unknown"; fi
+            NODE_VERSION["${PORT}"]="${VER}"
+          done
+
+          FAIL=0
+
+          # 1. Peer count must be > 0 on every node.
+          for PORT in "${ALL_PORTS[@]}"; do
+            PEERS=$(rpc "${PORT}" "system_health" "[]" | jq -r '.result.peers')
+            echo "INFO: port ${PORT} (${NODE_VERSION[${PORT}]}) peers=${PEERS}"
+            if [ "${PEERS}" = "null" ] || [ "${PEERS}" -lt 1 ]; then
+              echo "ERROR: node on port ${PORT} (${NODE_VERSION[${PORT}]}) has no peers" >&2
+              FAIL=1
+            fi
+          done
+
+          # 2. Liveness: every node must still be importing blocks. A historical
+          #    node that can no longer import the newer binary's blocks freezes
+          #    at an old tip while still reporting peers, so a static snapshot
+          #    (or a min-height hash comparison) would not catch it. Sample each
+          #    node's best height twice with a gap and require it to advance.
+          declare -A H_BEFORE
+          for PORT in "${ALL_PORTS[@]}"; do
+            H_BEFORE["${PORT}"]=$(( $(rpc "${PORT}" "chain_getHeader" "[]" | jq -r '.result.number') ))
+          done
+          echo "INFO: sampling block progress over 30s to detect stalled nodes ..."
+          sleep 30
+          declare -a HEIGHTS
+          for PORT in "${ALL_PORTS[@]}"; do
+            H=$(( $(rpc "${PORT}" "chain_getHeader" "[]" | jq -r '.result.number') ))
+            HEIGHTS+=("${H}")
+            echo "INFO: port ${PORT} (${NODE_VERSION[${PORT}]}) best height=${H} (was ${H_BEFORE[${PORT}]})"
+            if [ "${H}" -le "${H_BEFORE[${PORT}]}" ]; then
+              echo "ERROR: node on port ${PORT} (${NODE_VERSION[${PORT}]}) stalled: height ${H_BEFORE[${PORT}]} -> ${H} (not following the chain)" >&2
+              FAIL=1
+            fi
+          done
+
+          # 3. Height spread: all tips must be within a small window of each
+          #    other. This stops a laggard from hiding behind a low common
+          #    height in the hash check below.
+          MAX_HEIGHT_SPREAD=5
+          MINH=${HEIGHTS[0]}; MAXH=${HEIGHTS[0]}
+          for H in "${HEIGHTS[@]}"; do
+            if [ "${H}" -lt "${MINH}" ]; then MINH="${H}"; fi
+            if [ "${H}" -gt "${MAXH}" ]; then MAXH="${H}"; fi
+          done
+          echo "INFO: best-height spread: ${MINH}..${MAXH} (tolerance ${MAX_HEIGHT_SPREAD})"
+          if [ "$(( MAXH - MINH ))" -gt "${MAX_HEIGHT_SPREAD}" ]; then
+            echo "ERROR: best-height spread ${MINH}..${MAXH} exceeds tolerance ${MAX_HEIGHT_SPREAD} (a node is lagging)" >&2
+            FAIL=1
+          fi
+
+          # 4. Best-block agreement: use the lowest best-height across nodes as a
+          #    common reference, then require all nodes to share the same block
+          #    hash at that height. Combined with checks 2 and 3 this now means
+          #    "all nodes are live, near the head, and agree" rather than just
+          #    agreeing at a possibly-stale laggard's tip.
+          COMMON=${MINH}
+          if [ "${COMMON}" -lt 1 ]; then
+            echo "ERROR: network did not produce blocks (common height=${COMMON})" >&2
+            FAIL=1
+          fi
+          COMMON_HEX=$(printf '0x%x' "${COMMON}")
+          echo "INFO: comparing block hashes at common height ${COMMON} (${COMMON_HEX})"
+
+          REF_HASH=""
+          for PORT in "${ALL_PORTS[@]}"; do
+            HASH=$(rpc "${PORT}" "chain_getBlockHash" "[\"${COMMON_HEX}\"]" | jq -r '.result')
+            echo "INFO: port ${PORT} (${NODE_VERSION[${PORT}]}) hash@${COMMON}=${HASH}"
+            if [ -z "${REF_HASH}" ]; then
+              REF_HASH="${HASH}"
+            elif [ "${HASH}" != "${REF_HASH}" ]; then
+              echo "ERROR: block hash mismatch on port ${PORT} (${NODE_VERSION[${PORT}]}) at height ${COMMON}: ${HASH} != ${REF_HASH}" >&2
+              FAIL=1
+            fi
+          done
+
+          if [ "${FAIL}" -ne 0 ]; then
+            echo "ERROR: validator compatibility check FAILED" >&2
+            exit 1
+          fi
+          echo "DONE: all validators peered and agree on the chain at height ${COMMON}"
+
+      - name: Scan node logs for errors
+        if: always()
+        run: |
+          .github/check-logs-for-error.sh "${LOG_DIR}"
+
+      - name: Upload node logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: validator-compatibility-logs
+          path: ${{ env.LOG_DIR }}/
+
+      - name: Kill nodes
+        if: always()
+        continue-on-error: true
+        run: |
+          killall -9 creditcoin3-node
+
+  # ---------------------------------------------------------------------------
+  # Tear down the self-hosted runner.
+  # ---------------------------------------------------------------------------
+  remove-runner:
+    needs:
+      - deploy-runner
+      - validator-compatibility
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy_type: "validator-compatibility"
+    secrets: inherit
