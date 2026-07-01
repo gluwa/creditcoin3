@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {EvmV1Decoder} from "../src/EvmV1Decoder.sol";
+import {EvmV1Decoder} from "@gluwa/usc-contracts/decoding/EvmV1Decoder.sol";
 
 /// Direct coverage of the decoder path the AcknowledgmentValidator relies on: tx-type extraction,
 /// validity check, and receipt/log decoding + filtering from prover `txBytes`

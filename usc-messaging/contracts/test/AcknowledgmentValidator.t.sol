@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 import {AcknowledgmentValidator, IAckOutbox} from "../src/AcknowledgmentValidator.sol";
 import {INativeQueryVerifier} from "../src/INativeQueryVerifier.sol";
-import {EvmV1Decoder} from "../src/EvmV1Decoder.sol";
+import {EvmV1Decoder} from "@gluwa/usc-contracts/decoding/EvmV1Decoder.sol";
 
 /// Minimal foundry cheatcode surface (this project has no `lib/forge-std`).
 interface Vm {
