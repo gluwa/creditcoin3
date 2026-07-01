@@ -26,7 +26,7 @@ jobs:
           channel: "#protocol-internal"
           message: "Release pipeline started! cc <@U028EMRHS3S>"
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -72,7 +72,7 @@ jobs:
       previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set-Up
         run: |
@@ -199,7 +199,7 @@ jobs:
       - build-wasm-runtime
       - docker-build
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
