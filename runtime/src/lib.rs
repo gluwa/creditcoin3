@@ -426,27 +426,21 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
     }
 }
 
-/// EVM gas available per block. The prod value was raised from 75_000_000 (2.4x)
-/// so that large cross-chain operations — e.g. verifying + decoding a Sepolia
-/// transaction — fit within a single (15s) block, which they previously could not.
+/// EVM gas available per block. Held UNIFORM at 75_000_000 across all profiles by
+/// requirement — this is the value external tooling and integrators calibrate against,
+/// so it must not vary per profile.
 ///
-/// Macro-gated to track `WEIGHT_MILLISECS_PER_BLOCK`. `WeightPerGas` is derived as
+/// `WeightPerGas` is NOT held constant; it is derived from this cap together with the
+/// (profile-gated) compute budget as
 /// `NORMAL_DISPATCH_RATIO * WEIGHT_MILLISECS_PER_BLOCK * WEIGHT_REF_TIME_PER_MILLIS
-/// / BLOCK_GAS_LIMIT` (see below). The compute budget (`WEIGHT_MILLISECS_PER_BLOCK`)
-/// is itself profile-gated (5000/1666/1666 ms), so leaving this cap uniform made the
-/// derived gas->weight price diverge per profile (~20_833 ref_time/gas in prod vs
-/// ~6_941 under fast/devnet). That skew inflated EVM gas estimates ~2.9x on
-/// fast/devnet, which silently broke fee/funding assumptions calibrated against
-/// prod (e.g. accounts funded by the bridge example scripts ran out of gas).
-///
-/// Scaling the cap by the same prod:devnet:fast ratio (≈ 180M × 1666/5000 = 60M)
-/// keeps `WeightPerGas` ~constant (~20_833) across all profiles, so precompile gas
-/// costs and fee estimates match prod everywhere. This does lower the fast/devnet
-/// block gas *ceiling* to 60M; that does not reduce reproducible compute (the
-/// binding constraint there is the profile-gated block *weight*, unchanged), only
-/// the maximum single-tx calldata size — which is far above any real cross-chain
-/// payload and still clears the 3 MB precompile size-limit tests.
-const BLOCK_GAS_LIMIT: u64 = prod_devnet_fast!(180_000_000, 60_000_000, 60_000_000);
+/// / BLOCK_GAS_LIMIT` (see below). Because `WEIGHT_MILLISECS_PER_BLOCK` is gated
+/// (5000/1666/1666 ms) while this cap is fixed, the derived gas->weight price varies
+/// per profile — ~50_000 ref_time/gas in prod vs ~16_660 under fast/devnet — which is
+/// exactly what keeps a full 75M-gas block consistent with each profile's normal
+/// dispatch weight budget (3.75e12 in prod, 1.2495e12 under fast/devnet). Deviating
+/// from the derived value would desync the gas and weight limits and cause
+/// "block weight exceeded" drops.
+const BLOCK_GAS_LIMIT: u64 = 75_000_000;
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// The maximum storage growth per block in bytes.
 const MAX_STORAGE_GROWTH: u64 = 400 * 1024;
