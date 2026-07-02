@@ -3,7 +3,7 @@ const experimental = require('@ethersproject/experimental');
 
 // Define default and devnet provider URLs
 const DEFAULT_PROVIDER_URL = "http://127.0.0.1:8141";
-const DEVNET_PROVIDER_URL = "https://anvil.ccnext-devnet.creditcoin.network";
+const DEVNET_PROVIDER_URL = "https://ethereum-sepolia-rpc.publicnode.com";
 
 function getRandomEthAddress() {
   return ethers.Wallet.createRandom().address;
