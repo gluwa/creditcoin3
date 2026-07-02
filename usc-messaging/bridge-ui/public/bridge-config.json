@@ -1,0 +1,29 @@
+{
+  "destChainKey": 7,
+  "proofGenPath": "/proofgen",
+  "chains": {
+    "creditcoin": {
+      "name": "Creditcoin (usc-dev)",
+      "chainId": 102035,
+      "metamaskRpcUrl": "https://rpc.usc-devnet.creditcoin.network",
+      "readRpcPath": "/rpc/cc",
+      "currencySymbol": "CTC",
+      "token": "0x4bD851fc39995dC614Dc7275756aEFdd0316353b",
+      "bridge": "0x37267A7586d4163FD6BFB7C9367c8418FD4C3ef4"
+    },
+    "dest": {
+      "name": "Sepolia",
+      "chainId": 11155111,
+      "metamaskRpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+      "readRpcPath": "https://ethereum-sepolia-rpc.publicnode.com",
+      "readRpcFallbacks": [
+        "https://sepolia.drpc.org",
+        "https://1rpc.io/sepolia",
+        "https://sepolia.gateway.tenderly.co"
+      ],
+      "currencySymbol": "SepETH",
+      "token": "0xAE5bb7d6e1e7A79DA7C535B12b82592210F035Fa",
+      "bridge": "0x89A9f943280b6EDa949A75AB1Bb884048701D932"
+    }
+  }
+}
