@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/rpc/cc", "destination": "https://rpc.usc-devnet.creditcoin.network" },
+    { "source": "/proofgen/:path*", "destination": "https://prover.usc-devnet.creditcoin.network/:path*" }
+  ]
+}
