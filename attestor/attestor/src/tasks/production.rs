@@ -318,7 +318,8 @@ async fn handle_one(
         // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
         // Without this, pool pollution persists until the next `AttestorsElected` epoch.
         CcEvent::AttestorChilled(_, who) | CcEvent::AttestorKicked(who) => {
-            if who == shared.account_id {
+            let is_local = who == shared.account_id;
+            if is_local {
                 tracing::info!("🪫 local node deactivated/kicked");
                 let _ = shared.can_attest_tx.send(false);
             } else {
@@ -335,6 +336,17 @@ async fn handle_one(
                 .await
                 .map_err(Error::Rpc)?;
             shared.pool_send.note_attestors_elected(attestors);
+
+            // Nudge the p2p task to evict this attestor's peer from the routing table / drop the
+            // connection. Sent *after* the `bls_store` refresh above so the p2p task's active-set
+            // view (which drives its deny decision) already reflects the removal. Skip the local
+            // node — there is no remote peer of our own to evict. A closed receiver (p2p task
+            // gone / shutting down) is not fatal here, so the send error is ignored.
+            if !is_local {
+                let _ = shared
+                    .peer_deactivated_tx
+                    .send(attestor_primitives::AttestorId::from_public(who.0));
+            }
         }
 
         CcEvent::AttestationChainGenesisBlockNumberSet(_, h) => {
