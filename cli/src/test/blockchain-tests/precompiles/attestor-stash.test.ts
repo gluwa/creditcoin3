@@ -35,7 +35,7 @@ describe('Precompile: AttestorStash', (): void => {
     let gasPrice: bigint;
     // PoV-heavy calls need an explicit gas limit; auto-estimate under-counts the
     // proof-size component (5 KB @ ratio 14.3 → ~72 K PoV gas alone).
-    const GAS_LIMIT = 300_000;
+    const GAS_LIMIT = 1_000_000;
 
     // Alith's derived Substrate account (via HashedAddressMapping<BlakeTwo256>).
     // This is the `stash` AccountId used by pallet-attestation when the precompile
