@@ -32,7 +32,6 @@ members = [
     "common/streams/stream",
     "query-cli",
     "proof-gen-api-server",
-    "message-relayer",
     "attestor/attestor",
     "attestor/pool",
     "attestor/zombienet",

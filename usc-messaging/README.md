@@ -5,7 +5,7 @@ USC Write-Ability
 > **Note — attestor & relayer are now in Rust.** The TypeScript mock **attestor** and **relayer**
 > workers that used to live here (`src/attestor/`, `src/relayer/`) have been removed: the attestor
 > is now the attestor's `tasks/write_ability` module (`attestor/attestor/`), and the relayer is the
-> `message-relayer` crate. What remains in this package is the still-TS-only **dApp ack worker**,
+> [`gluwa/usc-message-relayer`](https://github.com/gluwa/usc-message-relayer) repository. What remains in this package is the still-TS-only **dApp ack worker**,
 > the Solidity **contracts**, and the demo/deploy scripts. The end-to-end demo
 > steps below that invoked `npm run dev:attestor` / `dev:relayer` therefore now point at the Rust
 > components instead.
@@ -115,7 +115,8 @@ bash usc-messaging/scripts/launch-attestors.sh        # add a number to run N !=
 > keys, not `--well-known-keys`, so the addresses it writes stay valid across restarts.)
 
 When the script prints the attestor set, copy it (also saved to `usc-messaging/scripts/.attestor-set`)
-and, in a **separate terminal**, start the relayer. The relayer is the Rust `message-relayer` crate;
+and, in a **separate terminal**, start the relayer. The relayer is the Rust `message-relayer` crate from
+[`gluwa/usc-message-relayer`](https://github.com/gluwa/usc-message-relayer) (clone it as a sibling of this repo);
 it snoops the attestors' `{chain_key}/message-votes/v1` votes, aggregates a 2N/3+1 quorum, and calls
 `Inbox.deliverMessage` on the destination anvil chain:
 
@@ -124,7 +125,8 @@ cd usc-messaging
 source .env                                  # exports $OUTBOX_ADDR and $INBOX_ADDR
 ATTESTOR_SET=$(cat scripts/.attestor-set)    # the set written by launch-attestors.sh
 
-cargo run -p message-relayer -- --single-route \
+# relayer lives in gluwa/usc-message-relayer — clone it next to this repo first
+cargo run --manifest-path ../../usc-message-relayer/Cargo.toml -p message-relayer -- --single-route \
   --cc3-rpc-url ws://localhost:9944 \
   --creditcoin-eth-rpc-url http://localhost:9944 \
   --chain-key 2 \
@@ -272,7 +274,8 @@ destination RPC (the Creditcoin/`--cc3-*` flags are unchanged):
    source .env
    ATTESTOR_SET=$(cat scripts/.attestor-set)
 
-   cargo run -p message-relayer -- --single-route \
+   # relayer lives in gluwa/usc-message-relayer — clone it next to this repo first
+   cargo run --manifest-path ../../usc-message-relayer/Cargo.toml -p message-relayer -- --single-route \
      --cc3-rpc-url ws://localhost:9944 \
      --creditcoin-eth-rpc-url http://localhost:9944 \
      --chain-key 3 \
@@ -300,7 +303,7 @@ npx tsx scripts/publish-message/publish-message.ts
 
 ## Relayer (Rust)
 
-The relayer is the `message-relayer` crate (workspace root), not part of this package. It watches the
+The relayer is the `message-relayer` crate in [`gluwa/usc-message-relayer`](https://github.com/gluwa/usc-message-relayer), not part of this repository. It watches the
 Creditcoin L1 Outbox for `MessagePublished`, snoops attestor votes on the
 `{chain_key}/message-votes/v1` gossip topic, aggregates 2N/3+1, and calls `Inbox.deliverMessage`.
-See `message-relayer/config.example.yaml` for configuration.
+See `config.example.yaml` in that repository for configuration.

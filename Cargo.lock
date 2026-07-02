@@ -8031,42 +8031,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "message-relayer"
-version = "3.126.0"
-dependencies = [
- "alloy",
- "alloy-node-bindings",
- "anyhow",
- "async-trait",
- "axum",
- "bip39",
- "clap",
- "dotenvy",
- "futures 0.3.31",
- "hex",
- "libp2p 0.56.0",
- "parameterized",
- "parity-scale-codec",
- "prometheus-client 0.24.0",
- "reqwest",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha3",
- "sysinfo",
- "tempfile",
- "thiserror 1.0.69",
- "tokio",
- "tokio-util",
- "tower-http 0.6.7",
- "tracing",
- "tracing-subscriber",
- "url",
- "write-ability",
- "zeroize",
-]
-
-[[package]]
 name = "metrics"
 version = "3.126.0"
 dependencies = [
