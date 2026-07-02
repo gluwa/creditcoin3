@@ -17,6 +17,7 @@ use parity_scale_codec::{Decode, Encode};
 use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
+use attestor_primitives::AttestorId;
 
 use crate::error::Error;
 use crate::shared::Shared;
@@ -43,6 +44,7 @@ pub async fn run(
     shared: Arc<Shared>,
     cfg: Config,
     mut gossip_rx: mpsc::Receiver<Vote>,
+    mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
 
@@ -113,6 +115,16 @@ pub async fn run(
     // crosses MAX_PING_FAILURES so a wedged socket can't silently starve the mesh.
     let mut ping_failures: std::collections::HashMap<libp2p::swarm::ConnectionId, u32> =
         std::collections::HashMap::new();
+
+    // Known attestor → libp2p peer id bindings, learned from the (gossipsub-signed) authorship of
+    // BLS-verified votes. `message.source` is the original signer and survives relaying, so it
+    // reliably identifies an attestor's own peer even when the relaying neighbour differs. Used to
+    // (a) evict a chilled/kicked attestor's peer on the production nudge and (b) refuse to re-add
+    // or reconnect that peer while it stays chilled (the deny-list). A `Vec` suffices: the set is
+    // bounded by committee size and only ever linearly scanned. The p2p keypair is ed25519 while
+    // the on-chain attestor id is sr25519, so this binding cannot be derived — it must be learned.
+    let mut peers_by_attestor: Vec<(AttestorId, libp2p::PeerId)> = Vec::new();
+
     let mut local_produced_rx = shared.local_produced_rx.clone();
     let mut latest_finalized_rx = shared.latest_finalized_rx.clone();
 
@@ -167,6 +179,12 @@ pub async fn run(
                 }
             }
 
+            // Production observed a chill/kick on chain and refreshed the active set — evict the
+            // deactivated attestor's peer (if we know it) and keep it out until it reactivates.
+            Some(attestor) = peer_deactivated_rx.recv() => {
+                handle_peer_deactivated(&shared, &mut swarm, &peers_by_attestor, &attestor);
+            }
+
             // Incoming events from the swarm.
             event = swarm.select_next_some() => {
                 handle_swarm(
@@ -177,6 +195,7 @@ pub async fn run(
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
+                    &mut peers_by_attestor,
                     event,
                 ).await;
             }
@@ -193,6 +212,7 @@ async fn handle_swarm(
     pending_votes: &mut std::collections::HashMap<attestor_primitives::Height, Vec<Vote>>,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
+    peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
     event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
 ) {
     use behavior::P2PBehaviorEvent;
@@ -205,12 +225,25 @@ async fn handle_swarm(
             connection_id,
         })) => {
             tracing::debug!(%peer_id, %connection_id, "🛰️ discovered peer");
+            // Deny-list gate: don't re-populate the routing table for a peer belonging to a
+            // deactivated attestor. Without this, discovery would silently undo the eviction the
+            // moment a still-running chilled node re-announces itself.
+            if is_peer_denied(shared, peers_by_attestor, &peer_id) {
+                tracing::info!(%peer_id, "🚫 ignoring discovery for denied (chilled/kicked) peer");
+                evict_peer(swarm, peer_id);
+                return;
+            }
             for a in listen_addrs {
                 swarm.behaviour_mut().kad.add_address(&peer_id, a);
             }
         }
         SwarmEvent::Behaviour(P2PBehaviorEvent::Mdns(libp2p::mdns::Event::Discovered(peers))) => {
             for (peer_id, address) in peers {
+                if is_peer_denied(shared, peers_by_attestor, &peer_id) {
+                    tracing::info!(%peer_id, "🚫 ignoring mdns discovery for denied peer");
+                    evict_peer(swarm, peer_id);
+                    continue;
+                }
                 tracing::info!(%peer_id, %address, "🛰️ local mdns peer");
                 swarm.behaviour_mut().kad.add_address(&peer_id, address);
             }
@@ -265,8 +298,18 @@ async fn handle_swarm(
         })) => {
             shared.metrics.increase_gossipsub_message_count();
 
-            let acceptance =
+            let (acceptance, learned) =
                 handle_vote_msg(shared, pending_votes, max_pending_per_height, &message.data).await;
+
+            // Learn the attestor → peer id binding from the *original signer* of a BLS-verified
+            // vote (`message.source`, preserved across relays), not the relaying neighbour. Only
+            // recorded when the vote cryptographically verified as the attestor's, so the binding
+            // is trustworthy. This is what later lets us evict / deny that peer once its attestor
+            // is chilled.
+            if let (Some(attestor), Some(source)) = (learned, message.source) {
+                note_attestor_peer(peers_by_attestor, attestor, source);
+            }
+
             let decision = match acceptance {
                 Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
                 Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
@@ -340,6 +383,15 @@ async fn handle_swarm(
             if num_established.get() == 1 {
                 shared.metrics.note_peer_connected();
             }
+            // Deny-list gate for *incoming* connections: a chilled node that keeps running will
+            // dial us. We disconnect *after* the gauge bump above so the paired
+            // `ConnectionClosed` decrement keeps the connected-peer count balanced (it's an
+            // unsigned gauge — an unbalanced `dec()` would underflow). Its gossip is already
+            // rejected via the BLS allow-set; this stops it from holding a connection slot.
+            if is_peer_denied(shared, peers_by_attestor, &peer_id) {
+                tracing::info!(%peer_id, %connection_id, "🚫 dropping connection from denied peer");
+                evict_peer(swarm, peer_id);
+            }
         }
         SwarmEvent::OutgoingConnectionError {
             peer_id,
@@ -364,6 +416,116 @@ async fn handle_swarm(
     }
 }
 
+// -------------------------------------* peer deny-list *-------------------------------------- //
+
+/// Records (or refreshes) the libp2p peer id we've observed for an attestor. Called only for
+/// BLS-verified votes, so the binding is trustworthy. A single attestor keeps at most one peer id;
+/// a node that re-registers under a *new* attestor id simply adds a second `(attestor, peer)`
+/// entry, which is exactly what lets [`deny_decision`] treat a peer as active while *any* attestor
+/// mapped to it is active.
+fn note_attestor_peer(
+    peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    attestor: AttestorId,
+    peer_id: libp2p::PeerId,
+) {
+    // `position` (shared borrow) then index (mutable borrow) keeps the two borrows disjoint, so
+    // the `push` in the not-found case is accepted without relying on Polonius.
+    if let Some(pos) = peers_by_attestor.iter().position(|(a, _)| *a == attestor) {
+        let existing = &mut peers_by_attestor[pos].1;
+        if *existing != peer_id {
+            tracing::info!(%attestor, old = %existing, new = %peer_id, "🔁 attestor peer id changed");
+            *existing = peer_id;
+        }
+    } else {
+        tracing::debug!(%attestor, %peer_id, "🪪 learned attestor peer id");
+        peers_by_attestor.push((attestor, peer_id));
+    }
+}
+
+/// Pure deny decision, split out so it can be unit tested without a live swarm or chain.
+///
+/// A peer is denied iff we have mapped it to at least one attestor **and none** of those attestors
+/// is currently active. A peer we've never associated with an attestor is never denied — we only
+/// gate peers we can positively tie to a removed attestor, never arbitrary addresses. Keying on
+/// attestor identity (not network address) is deliberate: the same address can host an unrelated,
+/// legitimate peer, and a node that re-registers under a new active attestor id sharing one peer id
+/// stays allowed because that active mapping short-circuits the decision.
+fn deny_decision<'a>(
+    mapped_attestors: impl Iterator<Item = &'a AttestorId>,
+    is_active: impl Fn(&AttestorId) -> bool,
+) -> bool {
+    let mut mapped = false;
+    for attestor in mapped_attestors {
+        mapped = true;
+        if is_active(attestor) {
+            return false;
+        }
+    }
+    mapped
+}
+
+/// [`deny_decision`] wired to live state: "is this attestor active" is answered by `bls_store`,
+/// which the production task refreshes on every chill/kick/election, so this needs no separate
+/// deny-list state to keep in sync — it always reflects current on-chain status.
+fn is_peer_denied(
+    shared: &Arc<Shared>,
+    peers_by_attestor: &[(AttestorId, libp2p::PeerId)],
+    peer_id: &libp2p::PeerId,
+) -> bool {
+    deny_decision(
+        peers_by_attestor
+            .iter()
+            .filter(|(_, p)| p == peer_id)
+            .map(|(a, _)| a),
+        |a| shared.bls_store.pubkey(a.account_id()).is_some(),
+    )
+}
+
+/// Remove a peer from the Kademlia routing table and force-close any live connection to it.
+/// Takes the [`PeerId`] by value because `disconnect_peer_id` consumes it and `PeerId` is not
+/// `Copy`.
+///
+/// [`PeerId`]: libp2p::PeerId
+fn evict_peer(swarm: &mut libp2p::Swarm<behavior::P2PBehavior>, peer_id: libp2p::PeerId) {
+    swarm.behaviour_mut().kad.remove_peer(&peer_id);
+    if swarm.disconnect_peer_id(peer_id).is_ok() {
+        tracing::info!(%peer_id, "✂️  closed connection to denied peer");
+    }
+}
+
+/// Handle a production nudge that an attestor was chilled/kicked: evict every peer we've mapped to
+/// it that is now denied. We keep the `(attestor, peer)` binding afterwards so the discovery /
+/// connection gates keep rejecting the peer while it stays chilled; once it reactivates,
+/// `bls_store` reports it active again, [`is_peer_denied`] returns false, and ordinary discovery
+/// lets it back in — no explicit "re-add" path needed. A peer id shared with a still-active
+/// attestor is left untouched.
+fn handle_peer_deactivated(
+    shared: &Arc<Shared>,
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    peers_by_attestor: &[(AttestorId, libp2p::PeerId)],
+    attestor: &AttestorId,
+) {
+    let peers: Vec<libp2p::PeerId> = peers_by_attestor
+        .iter()
+        .filter(|(a, _)| a == attestor)
+        .map(|(_, p)| *p)
+        .collect();
+
+    if peers.is_empty() {
+        tracing::debug!(%attestor, "🚫 deactivated attestor has no known peer — nothing to evict");
+        return;
+    }
+
+    for peer_id in peers {
+        if !is_peer_denied(shared, peers_by_attestor, &peer_id) {
+            tracing::debug!(%attestor, %peer_id, "↩️  peer still maps to an active attestor — keeping");
+            continue;
+        }
+        tracing::info!(%attestor, %peer_id, "🚫 evicting peer for deactivated attestor");
+        evict_peer(swarm, peer_id);
+    }
+}
+
 enum Acceptance {
     Accept,
     Ignore,
@@ -375,16 +537,22 @@ async fn handle_vote_msg(
     pending_votes: &mut std::collections::HashMap<attestor_primitives::Height, Vec<Vote>>,
     max_pending_per_height: usize,
     bytes: &[u8],
-) -> Acceptance {
+) -> (Acceptance, Option<AttestorId>) {
     let mut slice = bytes;
     let Ok(vote) = Vote::decode(&mut slice) else {
         tracing::warn!("⛔ failed to decode vote");
-        return Acceptance::Reject;
+        return (Acceptance::Reject, None);
     };
 
     let local = shared.proof_cache.local_data(vote.height);
     let pubkey = shared.bls_store.pubkey(vote.attestor.account_id());
-    match verify_vote(&vote, shared.chain_key, local.as_ref(), pubkey.as_ref()) {
+    let result = verify_vote(&vote, shared.chain_key, local.as_ref(), pubkey.as_ref());
+
+    // Only trust (and later act on) the peer → attestor binding once the vote has BLS-verified as
+    // genuinely this attestor's; `Accept` is the only such outcome.
+    let learned = matches!(result, VerifyResult::Accept).then(|| vote.attestor.clone());
+
+    let acceptance = match result {
         VerifyResult::Accept => match shared.pool_send.send(vote.clone()) {
             Some(Ok(())) => Acceptance::Accept,
             Some(Err(err)) => {
@@ -421,39 +589,39 @@ async fn handle_vote_msg(
                     height = vote.height,
                     "👤 unknown attestor at no-local height — rejecting"
                 );
-                return Acceptance::Reject;
-            }
-            if !worth_buffering(shared, vote.height) {
+                Acceptance::Reject
+            } else if !worth_buffering(shared, vote.height) {
                 tracing::debug!(
                     digest = ?vote.digest,
                     height = vote.height,
                     "🚮 no-local vote outside producible window — dropping"
                 );
-                return Acceptance::Ignore;
-            }
-            // Queue the vote — when production caches local data at this height it'll signal us via
-            // `local_produced_rx` and we'll drain the queue + re-verify. Bounded per height; once
-            // full, return Ignore so gossipsub retransmission can fill in later. Still return
-            // Ignore on gossip propagation (not Accept) so we don't propagate a vote we haven't
-            // verified yet.
-            let entry = pending_votes.entry(vote.height).or_default();
-            if entry.len() < max_pending_per_height {
-                tracing::debug!(
-                    digest = ?vote.digest,
-                    height = vote.height,
-                    queued = entry.len() + 1,
-                    "🕳️ no local data yet — queuing vote"
-                );
-                entry.push(vote);
+                Acceptance::Ignore
             } else {
-                tracing::warn!(
-                    digest = ?vote.digest,
-                    height = vote.height,
-                    cap = max_pending_per_height,
-                    "🕳️ pending buffer full — dropping vote"
-                );
+                // Queue the vote — when production caches local data at this height it'll signal
+                // us via `local_produced_rx` and we'll drain the queue + re-verify. Bounded per
+                // height; once full, Ignore so gossipsub retransmission can fill in later. Still
+                // Ignore on gossip propagation (not Accept) so we don't propagate a vote we
+                // haven't verified yet.
+                let entry = pending_votes.entry(vote.height).or_default();
+                if entry.len() < max_pending_per_height {
+                    tracing::debug!(
+                        digest = ?vote.digest,
+                        height = vote.height,
+                        queued = entry.len() + 1,
+                        "🕳️ no local data yet — queuing vote"
+                    );
+                    entry.push(vote);
+                } else {
+                    tracing::warn!(
+                        digest = ?vote.digest,
+                        height = vote.height,
+                        cap = max_pending_per_height,
+                        "🕳️ pending buffer full — dropping vote"
+                    );
+                }
+                Acceptance::Ignore
             }
-            Acceptance::Ignore
         }
         VerifyResult::DivergentDigest => {
             tracing::warn!(digest = ?vote.digest, height = vote.height, "↯ divergent digest from peer");
@@ -473,7 +641,9 @@ async fn handle_vote_msg(
             tracing::warn!(attestor = %vote.attestor, "👤 unknown attestor");
             Acceptance::Reject
         }
-    }
+    };
+
+    (acceptance, learned)
 }
 
 /// Whether a `NoLocal` vote at `height` is worth buffering. It must sit on the local attestation
@@ -542,7 +712,53 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
 
 #[cfg(test)]
 mod tests {
-    use super::is_bufferable;
+    use super::{deny_decision, is_bufferable};
+    use attestor_primitives::AttestorId;
+
+    fn att(n: u8) -> AttestorId {
+        AttestorId::from_public([n; 32])
+    }
+
+    // ------------------------------* deny-list decision *------------------------------ //
+
+    #[test]
+    fn unmapped_peer_is_never_denied() {
+        // No attestor mapped to the peer → we can't tie it to a removed attestor → allow.
+        let active: Vec<AttestorId> = vec![];
+        let mapped: [AttestorId; 0] = [];
+        assert!(!deny_decision(mapped.iter(), |a| active.contains(a)));
+    }
+
+    #[test]
+    fn peer_mapped_only_to_inactive_attestor_is_denied() {
+        let active: Vec<AttestorId> = vec![];
+        let mapped = [att(1)];
+        assert!(deny_decision(mapped.iter(), |a| active.contains(a)));
+    }
+
+    #[test]
+    fn peer_mapped_to_active_attestor_is_allowed() {
+        let active: Vec<AttestorId> = vec![att(1)];
+        let mapped = [att(1)];
+        assert!(!deny_decision(mapped.iter(), |a| active.contains(a)));
+    }
+
+    #[test]
+    fn shared_peer_with_one_active_attestor_is_allowed() {
+        // Same peer id bound to a chilled id (1) and a re-registered active id (2): the active
+        // mapping must win, so a node that re-registers under a new active attestor id keeps
+        // connectivity even though its old id is still chilled.
+        let active: Vec<AttestorId> = vec![att(2)];
+        let mapped = [att(1), att(2)];
+        assert!(!deny_decision(mapped.iter(), |a| active.contains(a)));
+    }
+
+    #[test]
+    fn shared_peer_with_all_inactive_attestors_is_denied() {
+        let active: Vec<AttestorId> = vec![];
+        let mapped = [att(1), att(2)];
+        assert!(deny_decision(mapped.iter(), |a| active.contains(a)));
+    }
 
     // MAX_CATCHUP = 500, so the admission window is 500 * interval above the finalized height.
     const INTERVAL: u64 = 30;

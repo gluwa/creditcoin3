@@ -46,6 +46,13 @@ pub struct Shared {
     pub pool_send: attestor_pool::Sender,
     pub gossip_tx: mpsc::Sender<crate::vote::Vote>,
 
+    /// Signals the p2p task that an attestor was chilled/kicked on-chain, so it can evict that
+    /// attestor's libp2p peer (if known) from the routing table and drop the connection. Sent by
+    /// the production task *after* it refreshes `bls_store`, so the p2p task's active-set view is
+    /// already up to date when it re-evaluates the peer. Unbounded because these events are rare
+    /// (committee changes) and the p2p task must never block production on backpressure.
+    pub peer_deactivated_tx: mpsc::UnboundedSender<attestor_primitives::AttestorId>,
+
     pub can_attest_tx: watch::Sender<bool>,
     pub can_attest_rx: watch::Receiver<bool>,
 
