@@ -3,6 +3,14 @@
 #   anvil + cc3 node + USC contracts + bridge contracts + attestors + proof-gen + relayer.
 # Funds your MetaMask address with gas + bridge tokens on both chains and writes the UI config.
 #
+# Prerequisites:
+#   - this repo built:            cargo build --release --features=fast-runtime
+#   - the relayer (lives in its own repo) cloned NEXT TO this repo and built:
+#       git clone git@github.com:gluwa/usc-message-relayer.git ../usc-message-relayer
+#       (cd ../usc-message-relayer && cargo build --release)
+#     or point RELAYER_BIN at an existing message-relayer binary.
+#   - foundry (anvil/cast/forge) on PATH.
+#
 #   USER_ADDR=0xYourMetaMaskAddress bash usc-messaging/scripts/bridge/dev-stack.sh
 #
 # Then in another terminal:  cd usc-messaging/bridge-ui && npm run dev
@@ -11,6 +19,9 @@ set -uo pipefail
 export PATH="$HOME/.foundry/bin:$PATH"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 REL="$REPO/target/release"
+# The relayer lives in its own repo (gluwa/usc-message-relayer); default to a sibling checkout.
+RELAYER_BIN="${RELAYER_BIN:-$REPO/../usc-message-relayer/target/release/message-relayer}"
+[ -x "$RELAYER_BIN" ] || { echo "❌ missing $RELAYER_BIN — clone gluwa/usc-message-relayer next to this repo and run: cargo build --release (or set RELAYER_BIN)"; exit 1; }
 CONTRACTS="$REPO/usc-messaging/contracts"
 UI="$REPO/usc-messaging/bridge-ui"
 LOGS=/tmp/bridge-dev-stack
@@ -84,7 +95,7 @@ CHAIN_KEY=2 "$REL/proof-gen-api-server" --cc3-key //Alice --cc3-rpc-url ws://loc
   --eth-rpc-url http://localhost:8545 --bind-host 127.0.0.1 --bind-port 3100 >"$LOGS/proof-gen.log" 2>&1 &
 for i in $(seq 1 20); do grep -q 'Server listening on' "$LOGS/proof-gen.log" && break; sleep 2; done
 ATTESTOR_SET="$(cat "$REPO/usc-messaging/scripts/.attestor-set")"
-RUST_LOG=info "$REL/message-relayer" --single-route \
+RUST_LOG=info "$RELAYER_BIN" --single-route \
   --cc3-rpc-url ws://localhost:9944 --creditcoin-eth-rpc-url http://localhost:9944 \
   --chain-key 2 --cc3-chain-id 42 --outbox-address "$OUTBOX_ADDR" \
   --destination-rpc-url http://localhost:8545 --inbox-address "$INBOX_ADDR" \

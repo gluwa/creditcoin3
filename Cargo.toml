@@ -33,7 +33,6 @@ members = [
     "query-cli",
     "proof-gen-api-server",
     # Attestor
-    "message-relayer",
     "attestor/attestor",
     "attestor/pool",
     "attestor/zombienet",
