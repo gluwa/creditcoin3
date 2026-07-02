@@ -69,7 +69,6 @@ updates:
       - "/common/streams/attestation"
       - "/common/streams/util"
       - "/common/streams/stream"
-      - "/message-relayer"
       - "/node"
       - "/node/cli-opt"
       - "/pallets/attestation"

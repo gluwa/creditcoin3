@@ -23,7 +23,6 @@ name: write-ability-e2e
     paths:
       - "attestor/**"
       - "common/**"
-      - "message-relayer/**"
       - "usc-messaging/**"
       - "pallets/supported-chains/**"
       - "precompiles/chain-info/**"
@@ -95,6 +94,29 @@ jobs:
         with:
           name: binary-for-write-ability-e2e
           path: target/release
+
+      # The relayer lives in its own repository (public) since the extraction — build it from
+      # source here so the e2e still exercises attestor + relayer together. Pinned to `main`;
+      # cross-repo protocol drift is caught by the shared write-ability golden vectors on both
+      # sides. (Alternative once image publishing is wired: docker cp the binary out of
+      # gluwa/usc-message-relayer:main.)
+      - name: Check out usc-message-relayer
+        uses: actions/checkout@v6
+        with:
+          repository: gluwa/usc-message-relayer
+          path: usc-message-relayer
+
+      - name: Rust cache (usc-message-relayer)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: usc-message-relayer
+
+      - name: Build message-relayer
+        working-directory: ./usc-message-relayer
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo build --release --locked -p message-relayer
+          cp target/release/message-relayer ../target/release/message-relayer
 
       - name: Make binaries executable
         run: |
