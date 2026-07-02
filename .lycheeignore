@@ -21,6 +21,8 @@ https://sepolia.etherscan.io/tx/0xa519add3d602460c2b30c7ff4b1215fd705f049bb87260
 http://subquery-node:3000
 postgres://(.*)
 https://github.com/gluwa/creditcoin3/pull(.*)
+# GitHub API URLs that embed shell template variables in workflow scripts
+https://api\.github\.com/repos/(.*)/releases(.*)
 https://sepolia.infura.io/v3/(.*)
 https://registry.npmjs.org/-/npm/v1/(.*)
 https://github.com/request/request/issues/(.*)

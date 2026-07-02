@@ -15,3 +15,8 @@ paths = [
     # Chain specs: "key" fields (e.g. sudo) are SS58 addresses, not API secrets
     '''chainspecs/.*\.json$''',
 ]
+regexes = [
+    # Well-known public dev node key (Alice). Not a secret; used across CI
+    # workflows to get a deterministic local bootnode peer id.
+    '''d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463''',
+]
