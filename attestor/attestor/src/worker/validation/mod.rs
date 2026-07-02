@@ -1064,25 +1064,24 @@ impl WorkerAttestationValidation {
                     // does not included them into the mempool to avoid competing attestors paying
                     // an inclusion fee.
                     if let cc_client::Error::SubxtError(subxt::Error::Rpc(
-                        subxt::error::RpcError::ClientError(boxed),
+                        subxt::error::RpcError::ClientError(subxt::ext::subxt_rpcs::Error::User(
+                            user_error,
+                        )),
                     )) = &err
                     {
-                        if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(obj)) =
-                            boxed.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
-                        {
-                            if obj.code() == POOL_INVALID_TX {
-                                let detail = obj
-                                    .data()
-                                    .map(|raw| raw.get().trim_matches('"').to_owned())
-                                    .unwrap_or_else(|| obj.message().to_owned());
-                                tracing::info!(
-                                    height,
-                                    code = obj.code(),
-                                    detail = %detail,
-                                    "🚫 Attestation prevalidation rejected at txpool, skipping submission"
-                                );
-                                return Ok(());
-                            }
+                        if user_error.code == POOL_INVALID_TX {
+                            let detail = user_error
+                                .data
+                                .as_ref()
+                                .map(|raw| raw.get().trim_matches('"').to_owned())
+                                .unwrap_or_else(|| user_error.message.clone());
+                            tracing::info!(
+                                height,
+                                code = user_error.code,
+                                detail = %detail,
+                                "🚫 Attestation prevalidation rejected at txpool, skipping submission"
+                            );
+                            return Ok(());
                         }
                     }
 

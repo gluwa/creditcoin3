@@ -416,14 +416,11 @@ impl WorkerP2P {
                     tracing::error!(peer_id = %propagation_source, "⛔ Received invalid attestation");
 
                     self.metrics.increase_invalid_gossipsub_count();
-                    self.swarm
-                        .behaviour_mut()
-                        .gossipsub
-                        .report_message_validation_result(
-                            &message_id,
-                            &propagation_source,
-                            libp2p::gossipsub::MessageAcceptance::Reject,
-                        );
+                    self.report_validation_result(
+                        &message_id,
+                        &propagation_source,
+                        libp2p::gossipsub::MessageAcceptance::Reject,
+                    );
 
                     return Ok(());
                 };
@@ -445,14 +442,11 @@ impl WorkerP2P {
                         tracing::error!(?err, "⛔ Invalid attestation");
 
                         self.metrics.increase_invalid_gossipsub_count();
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .report_message_validation_result(
-                                &message_id,
-                                &propagation_source,
-                                libp2p::gossipsub::MessageAcceptance::Reject,
-                            );
+                        self.report_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Reject,
+                        );
 
                         return Ok(());
                     }
@@ -473,25 +467,19 @@ impl WorkerP2P {
                     // Valid insertions or failures which depend on local state are still propagated
                     // to the rest of the network.
                     Ok(_) => {
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .report_message_validation_result(
-                                &message_id,
-                                &propagation_source,
-                                libp2p::gossipsub::MessageAcceptance::Accept,
-                            );
+                        self.report_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Accept,
+                        );
                     }
                     Err(err @ attestation_pool::Error::NoSpaceLeft(..)) => {
                         err.log_error(digest);
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .report_message_validation_result(
-                                &message_id,
-                                &propagation_source,
-                                libp2p::gossipsub::MessageAcceptance::Accept,
-                            );
+                        self.report_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Accept,
+                        );
                     }
                     // CASE 2] IGNORE
                     //
@@ -500,26 +488,20 @@ impl WorkerP2P {
                     Err(err @ attestation_pool::Error::InvalidHeight(..))
                     | Err(err @ attestation_pool::Error::InvalidDigest(..)) => {
                         err.log_error(digest);
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .report_message_validation_result(
-                                &message_id,
-                                &propagation_source,
-                                libp2p::gossipsub::MessageAcceptance::Ignore,
-                            );
+                        self.report_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Ignore,
+                        );
                     }
                     Err(err @ attestation_pool::Error::Equivocation(..)) => {
                         err.log_error(digest);
                         self.metrics.increase_equivocation_count();
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .report_message_validation_result(
-                                &message_id,
-                                &propagation_source,
-                                libp2p::gossipsub::MessageAcceptance::Ignore,
-                            );
+                        self.report_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Ignore,
+                        );
                     }
                     // CASE 3] REJECT
                     //
@@ -527,14 +509,11 @@ impl WorkerP2P {
                     // not propagated to the rest of the network.
                     Err(err @ attestation_pool::Error::Unauthorized(..)) => {
                         err.log_error(digest);
-                        self.swarm
-                            .behaviour_mut()
-                            .gossipsub
-                            .report_message_validation_result(
-                                &message_id,
-                                &propagation_source,
-                                libp2p::gossipsub::MessageAcceptance::Reject,
-                            );
+                        self.report_validation_result(
+                            &message_id,
+                            &propagation_source,
+                            libp2p::gossipsub::MessageAcceptance::Reject,
+                        );
                     }
                 }
             }
@@ -648,8 +627,10 @@ impl WorkerP2P {
                     // is a commitment to an attestor's private key. For an attestor to fail PeerID
                     // verification means it is impersonating another attestor, and should be
                     // considered malicious.
-                    libp2p::swarm::DialError::WrongPeerId { obtained, address } => {
-                        tracing::error!(%obtained, expected = %address, "⛔  Peer ID mismatch");
+                    libp2p::swarm::DialError::WrongPeerId {
+                        obtained, endpoint, ..
+                    } => {
+                        tracing::error!(%obtained, expected = %endpoint.get_remote_address(), "⛔  Peer ID mismatch");
 
                         if let Some(peer_id) = peer_id {
                             self.swarm.behaviour_mut().kad.remove_peer(&peer_id);
@@ -673,6 +654,26 @@ impl WorkerP2P {
         };
 
         Ok(())
+    }
+
+    fn report_validation_result(
+        &mut self,
+        message_id: &libp2p::gossipsub::MessageId,
+        propagation_source: &libp2p::PeerId,
+        acceptance: libp2p::gossipsub::MessageAcceptance,
+    ) {
+        if let Err(e) = self
+            .swarm
+            .behaviour_mut()
+            .gossipsub
+            .report_message_validation_result(message_id, propagation_source, acceptance)
+        {
+            tracing::warn!(
+                peer_id = %propagation_source,
+                ?e,
+                "Failed to report message validation result"
+            );
+        }
     }
 
     /// Verifies attestor eligibility and attestation bls signature before submitting to the
