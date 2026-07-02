@@ -14,11 +14,21 @@
 # Asserts: the relayer logged a reobservation request, at least one attestor re-signed, and the
 # destination dApp actually received the message.
 #
+# Prerequisites:
+#   - this repo built:            cargo build --release --features=fast-runtime
+#   - the relayer (lives in its own repo) cloned NEXT TO this repo and built:
+#       git clone git@github.com:gluwa/usc-message-relayer.git ../usc-message-relayer
+#       (cd ../usc-message-relayer && cargo build --release)
+#     or point RELAYER_BIN at an existing message-relayer binary.
+#   - foundry (anvil/cast) on PATH.
+#
 #   bash usc-messaging/scripts/reobservation-e2e.sh
 set -uo pipefail
 export PATH="$HOME/.foundry/bin:$PATH"
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 REL="$REPO/target/release"
+# The relayer lives in its own repo (gluwa/usc-message-relayer); default to a sibling checkout.
+RELAYER_BIN="${RELAYER_BIN:-$REPO/../usc-message-relayer/target/release/message-relayer}"
 USC="$REPO/usc-messaging"
 CKPT="$USC/relayer-checkpoints.json"
 LOGS=/tmp/reobs-e2e
@@ -33,9 +43,10 @@ trap cleanup EXIT
 killall -KILL message-relayer attestor_zombienet attestor creditcoin3-node anvil 2>/dev/null; sleep 1
 rm -f "$CKPT"
 
-for b in creditcoin3-node attestor attestor_zombienet message-relayer; do
+for b in creditcoin3-node attestor attestor_zombienet; do
   [ -x "$REL/$b" ] || { echo "❌ missing $REL/$b — build with: cargo build --release --features=fast-runtime"; exit 1; }
 done
+[ -x "$RELAYER_BIN" ] || { echo "❌ missing $RELAYER_BIN — clone gluwa/usc-message-relayer next to this repo and run: cargo build --release (or set RELAYER_BIN)"; exit 1; }
 
 echo "=== 1. start chains ==="
 anvil --block-time 2 --chain-id 31337 --port 8545 >"$LOGS/anvil.log" 2>&1 &
@@ -79,7 +90,7 @@ echo "attestors that produced a vote with no relayer listening: $SIGNED"
 
 echo "=== 6. rewind relayer checkpoint past the publish, then start the relayer ==="
 printf '{\n  "outbox:2": %s\n}\n' "$B0" > "$CKPT"
-RUST_LOG=info,message_relayer=debug "$REL/message-relayer" --single-route \
+RUST_LOG=info,message_relayer=debug "$RELAYER_BIN" --single-route \
   --cc3-rpc-url ws://localhost:9944 --creditcoin-eth-rpc-url http://localhost:9944 \
   --chain-key 2 --cc3-chain-id 42 --outbox-address "$OUTBOX_ADDR" \
   --destination-rpc-url http://localhost:8545 --inbox-address "$INBOX_ADDR" \

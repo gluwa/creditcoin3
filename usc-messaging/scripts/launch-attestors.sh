@@ -175,7 +175,8 @@ cat <<EOF
 In a SEPARATE terminal, launch the relayer with that flag, e.g.:
 
   source usc-messaging/.env
-  cargo run -p message-relayer -- --single-route \\
+  # relayer lives in gluwa/usc-message-relayer — run from a sibling checkout:
+  cargo run --manifest-path ../usc-message-relayer/Cargo.toml -p message-relayer -- --single-route \\
     --cc3-rpc-url $CC3_URL \\
     --creditcoin-eth-rpc-url http://localhost:9944 \\
     --chain-key $CHAIN_KEY --cc3-chain-id 42 \\
