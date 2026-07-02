@@ -4,9 +4,14 @@
 //! destination chain. Implements the PoC §7 + §9 behaviour:
 //!
 //!  1. (Optional) `eth_call` simulate to catch `validateVotes` reverts before paying gas.
-//!  2. Send the transaction, watching for receipt.
-//!  3. Classify the outcome: success / `MessageAlreadyValidated` / `MessagePending` / other.
-//!  4. On `MessagePending`, schedule `retryPendingMessage` with multiplicative backoff.
+//!     Simulation distinguishes reverts (terminal / already-validated) from transport failures
+//!     (returned to the pool's bounded retry) — a mere RPC blip must not drop a message.
+//!  2. Send the transaction, watching for receipt (bounded by [`RECEIPT_TIMEOUT`] so a stuck
+//!     underpriced tx cannot wedge the route's serial worker).
+//!  3. Classify the outcome. Note `MessagePending` is an **event on a successful tx** (the inbox
+//!     validated the votes but the dApp's `receiveMessage` reverted) — it is detected from the
+//!     receipt logs, not from a revert.
+//!  4. On `MessagePending`, schedule bounded `retryPendingMessage` attempts (permissionless).
 //!  5. On RPC-level failure, retry up to `delivery.max_retries` with backoff.
 //!
 //! The worker processes one job at a time per route — serial nonce management is the simplest
@@ -20,6 +25,7 @@ use alloy::network::EthereumWallet;
 use alloy::primitives::{Address, Bytes, B256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
+use alloy::sol_types::{SolError, SolEvent};
 use anyhow::{Context, Result};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -28,12 +34,28 @@ use tracing::{debug, error, info, warn};
 use crate::abi::IInbox;
 use crate::config::{ChainRoute, DeliveryConfig};
 use crate::prom::{DeliveryStatus, Metrics};
+use crate::revert::{has_selector, is_revert};
 
 pub mod encode;
 
 /// Initial retry backoff. Subsequent attempts double the wait, capped by [`MAX_BACKOFF`].
 const INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(60);
+
+/// Upper bound on waiting for a delivery receipt. Without it, one stuck (e.g. underpriced) tx
+/// blocks the route's serial worker — and every message queued behind it — indefinitely. On
+/// timeout the job returns to the pool's bounded retry; if the stuck tx mines later, the next
+/// attempt's simulate detects the duplicate ("Already validated") and resolves idempotently.
+const RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// Bounded, permissionless `retryPendingMessage` schedule after a delivery lands in the
+/// `MessagePending` state (dApp callback reverted). Backoff gives the destination dApp time to
+/// recover (e.g. gas market spike); anyone else may also retry, so this is best-effort.
+const PENDING_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_secs(15),
+    Duration::from_secs(60),
+    Duration::from_secs(240),
+];
 
 /// Job dispatched by the pool when a `messageHash` clears the threshold.
 #[derive(Clone, Debug)]
@@ -162,22 +184,33 @@ async fn handle_job<P: Provider + Clone + 'static>(
             .call()
             .await
         {
-            // The inbox reverted at simulation time. If it already accepted this message we
-            // treat it as success (idempotent — PoC §6.5). Otherwise we don't burn gas.
+            // If the inbox already accepted this message we treat it as success (idempotent —
+            // PoC §6.5). Any other *revert* is deterministic, so we don't burn gas. A transport
+            // failure (RPC blip, timeout) is neither — the pool retries it with backoff; treating
+            // it as terminal would silently drop a deliverable message.
             if revert_already_validated(&err) {
                 debug!(chain_key = route.chain_key, message_id = %job.message_id,
-                    "simulate detected MessageAlreadyValidated; idempotent success");
+                    "simulate detected already-validated; idempotent success");
                 metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::AlreadyValidated);
                 return Ok(DeliveryResultKind::Delivered);
             }
-            metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Reverted);
+            if is_revert(&err.to_string()) {
+                metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Reverted);
+                warn!(
+                    chain_key = route.chain_key,
+                    message_id = %job.message_id,
+                    %err,
+                    "simulate(deliverMessage) reverted; treating as terminal"
+                );
+                return Ok(DeliveryResultKind::Terminal);
+            }
             warn!(
                 chain_key = route.chain_key,
                 message_id = %job.message_id,
                 %err,
-                "simulate(deliverMessage) reverted; treating as terminal"
+                "simulate(deliverMessage) failed at transport level; returning to pool for retry"
             );
-            return Ok(DeliveryResultKind::Terminal);
+            return Ok(DeliveryResultKind::Retryable);
         }
     }
 
@@ -199,17 +232,30 @@ async fn handle_job<P: Provider + Clone + 'static>(
             .await;
 
         match pending {
-            Ok(builder) => match builder.get_receipt().await {
-                Ok(receipt) => {
+            Ok(builder) => match tokio::time::timeout(RECEIPT_TIMEOUT, builder.get_receipt()).await
+            {
+                Ok(Ok(receipt)) => {
                     if receipt.status() {
+                        // `deliverMessage` succeeds even when the dApp callback reverts — the
+                        // inbox stores the message and emits `MessagePending` instead of
+                        // `MessageDelivered`. Detect that from the receipt logs; it is NOT a
+                        // revert (see SimpleInbox.deliverMessage's try/catch).
+                        let left_pending = receipt.inner.logs().iter().any(|l| {
+                            l.address() == route.inbox_address
+                                && l.topics().first()
+                                    == Some(&IInbox::MessagePending::SIGNATURE_HASH)
+                        });
+                        if left_pending {
+                            break SendOutcome::Pending;
+                        }
                         break SendOutcome::Succeeded;
                     }
                     // Receipt with `status = false` means the tx mined but reverted. For PoC
                     // we don't decode the revert reason from the receipt — we surface it via
                     // metrics and stop retrying (the next message will get its own attempt).
-                    break SendOutcome::Reverted;
+                    break SendOutcome::Reverted("tx mined but reverted".into());
                 }
-                Err(err) if attempts <= delivery_config.max_retries => {
+                Ok(Err(err)) if attempts <= delivery_config.max_retries => {
                     warn!(
                         chain_key = route.chain_key,
                         message_id = %job.message_id,
@@ -218,16 +264,24 @@ async fn handle_job<P: Provider + Clone + 'static>(
                         "receipt fetch failed; retrying"
                     );
                 }
-                Err(err) => break SendOutcome::Failed(format!("receipt: {err}")),
+                Ok(Err(err)) => break SendOutcome::Failed(format!("receipt: {err}")),
+                Err(_elapsed) => {
+                    // Stuck / underpriced tx: stop blocking the route. The pool retries with
+                    // backoff; if this tx mines meanwhile, the next simulate resolves it as
+                    // already-validated.
+                    break SendOutcome::Failed(format!(
+                        "no receipt within {RECEIPT_TIMEOUT:?} (tx possibly stuck)"
+                    ));
+                }
             },
             Err(err) if revert_already_validated(&err) => {
                 // Lost the race to another relayer (PoC §6.5). Treat as success.
                 break SendOutcome::AlreadyValidated;
             }
-            Err(err) if revert_message_pending(&err) => {
-                // The inbox accepted votes but the dApp's `receiveMessage` ran out of gas.
-                // Schedule a retry via the permissionless `retryPendingMessage` path.
-                break SendOutcome::Pending(err.to_string());
+            Err(err) if is_revert(&err.to_string()) => {
+                // Deterministic contract revert at send / gas-estimation time — retrying would
+                // revert identically, so don't burn the retry budget on it.
+                break SendOutcome::Reverted(err.to_string());
             }
             Err(err) if attempts <= delivery_config.max_retries => {
                 warn!(
@@ -268,15 +322,17 @@ async fn handle_job<P: Provider + Clone + 'static>(
             );
             Ok(DeliveryResultKind::Delivered)
         }
-        SendOutcome::Pending(err_str) => {
+        SendOutcome::Pending => {
             metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Pending);
             warn!(
                 chain_key = route.chain_key,
                 message_id = %job.message_id,
-                err = %err_str,
-                "⚠️ message left in pending state — scheduling retryPendingMessage"
+                "⚠️ votes validated but the dApp callback reverted — message left pending; \
+                 scheduling bounded retryPendingMessage attempts"
             );
-            // Best-effort retry; we do not block delivery of subsequent messages on this.
+            // The votes are consumed on-chain (`validatedMessages[messageId] = true`), so from the
+            // pool's perspective delivery is complete — a re-dispatch would revert as a duplicate.
+            // The remaining `retryPendingMessage` work is permissionless best-effort.
             spawn_pending_retry(
                 (*provider).clone(),
                 *inbox.address(),
@@ -285,12 +341,13 @@ async fn handle_job<P: Provider + Clone + 'static>(
             );
             Ok(DeliveryResultKind::Delivered)
         }
-        SendOutcome::Reverted => {
+        SendOutcome::Reverted(reason) => {
             metrics.inc_deliver_tx(route.chain_key, DeliveryStatus::Reverted);
             error!(
                 chain_key = route.chain_key,
                 message_id = %job.message_id,
-                "❌ tx mined but reverted; no further retries"
+                %reason,
+                "❌ delivery reverted; no further retries"
             );
             Ok(DeliveryResultKind::Terminal)
         }
@@ -311,24 +368,33 @@ async fn handle_job<P: Provider + Clone + 'static>(
 enum SendOutcome {
     Succeeded,
     AlreadyValidated,
-    Pending(String),
-    Reverted,
+    /// Tx succeeded but the receipt carries `MessagePending` — the dApp callback reverted and the
+    /// message is stored for `retryPendingMessage`.
+    Pending,
+    /// Deterministic revert (mined-and-reverted, or revert at send/estimation time).
+    Reverted(String),
+    /// Transient infrastructure failure — returned to the pool's bounded retry.
     Failed(String),
 }
 
+/// Whether a `deliverMessage` error means the inbox already accepted this message (idempotent
+/// success — we lost the race to another relayer, or a previous stuck attempt mined).
+///
+/// Matched three ways because node dialects differ: the deployed `SimpleInbox` rejects duplicates
+/// with `require(..., "Already validated")` (a *string* revert), the custom error name covers
+/// future inbox versions on nodes that decode names, and the selector covers nodes that return
+/// raw revert data (see [`crate::revert`]).
 fn revert_already_validated(err: &impl std::fmt::Display) -> bool {
     let s = err.to_string();
-    // String-matching is brittle but alloy's typed revert-data API is still in flux. Once it
-    // stabilizes, switch this to decoded error-data classification (selector compare against
-    // `IInbox::MessageAlreadyValidated::SELECTOR`).
-    s.contains("MessageAlreadyValidated") || s.contains("AlreadyValidated")
+    s.contains("Already validated")
+        || s.contains("MessageAlreadyValidated")
+        || has_selector(&s, IInbox::MessageAlreadyValidated::SELECTOR)
 }
 
-fn revert_message_pending(err: &impl std::fmt::Display) -> bool {
-    let s = err.to_string();
-    s.contains("MessagePending") || s.contains("Pending")
-}
-
+/// Bounded, detached best-effort `retryPendingMessage` attempts. Detached because it must not
+/// block the route's serial delivery worker; bounded ([`PENDING_RETRY_DELAYS`]) because the call
+/// is permissionless — anyone (including a future relayer restart) can retry a message that is
+/// still pending, so giving up here strands nothing.
 fn spawn_pending_retry<P: Provider + 'static>(
     provider: P,
     inbox_address: Address,
@@ -336,25 +402,76 @@ fn spawn_pending_retry<P: Provider + 'static>(
     chain_key: u64,
 ) {
     tokio::spawn(async move {
-        // Single best-effort retry after a short delay. PoC scope; production should bound
-        // total attempts and persist state across restarts.
-        tokio::time::sleep(Duration::from_secs(15)).await;
         let inbox = IInbox::new(inbox_address, &provider);
-        match inbox.retryPendingMessage(message_id).send().await {
-            Ok(builder) => match builder.get_receipt().await {
-                Ok(receipt) if receipt.status() => {
-                    info!(chain_key, %message_id, "♻️ retryPendingMessage succeeded");
+        for (attempt, delay) in PENDING_RETRY_DELAYS.iter().enumerate() {
+            tokio::time::sleep(*delay).await;
+            // Someone (a dApp user, another relayer) may have completed the retry meanwhile.
+            match inbox.isPending(message_id).call().await {
+                Ok(ret) if !ret._0 => {
+                    info!(chain_key, %message_id, "♻️ pending message already resolved");
+                    return;
                 }
-                Ok(_) => {
-                    warn!(chain_key, %message_id, "retryPendingMessage tx reverted");
+                Ok(_) => {}
+                Err(err) => {
+                    warn!(chain_key, %message_id, %err, "isPending check failed; attempting retry anyway");
+                }
+            }
+            match inbox.retryPendingMessage(message_id).send().await {
+                Ok(builder) => {
+                    match tokio::time::timeout(RECEIPT_TIMEOUT, builder.get_receipt()).await {
+                        Ok(Ok(receipt)) if receipt.status() => {
+                            info!(chain_key, %message_id, "♻️ retryPendingMessage succeeded");
+                            return;
+                        }
+                        Ok(Ok(_)) => {
+                            warn!(chain_key, %message_id, attempt, "retryPendingMessage tx reverted");
+                        }
+                        Ok(Err(err)) => {
+                            warn!(chain_key, %message_id, attempt, %err, "retryPendingMessage receipt failed");
+                        }
+                        Err(_) => {
+                            warn!(chain_key, %message_id, attempt, "retryPendingMessage receipt timed out");
+                        }
+                    }
                 }
                 Err(err) => {
-                    warn!(chain_key, %message_id, %err, "retryPendingMessage receipt failed");
+                    warn!(chain_key, %message_id, attempt, %err, "retryPendingMessage send failed");
                 }
-            },
-            Err(err) => {
-                warn!(chain_key, %message_id, %err, "retryPendingMessage send failed");
             }
         }
+        warn!(
+            chain_key,
+            %message_id,
+            "retryPendingMessage attempts exhausted; message stays retryable on-chain \
+             (permissionless retryPendingMessage)"
+        );
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn already_validated_matches_all_dialects() {
+        // The deployed SimpleInbox string revert.
+        assert!(revert_already_validated(
+            &"execution reverted: Already validated"
+        ));
+        // Decoded custom-error name (future inbox versions).
+        assert!(revert_already_validated(
+            &"reverted: MessageAlreadyValidated"
+        ));
+        // Raw selector data (Creditcoin-style node).
+        let sel = alloy::hex::encode(IInbox::MessageAlreadyValidated::SELECTOR);
+        assert!(revert_already_validated(&format!(
+            "VM Exception while processing transaction: revert, data: \"0x{sel}\""
+        )));
+        // A transport failure is not a duplicate.
+        assert!(!revert_already_validated(&"connection refused"));
+        // An unrelated revert is not a duplicate either.
+        assert!(!revert_already_validated(
+            &"execution reverted: VotesBelowThreshold"
+        ));
+    }
 }
