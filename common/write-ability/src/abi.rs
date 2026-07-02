@@ -30,6 +30,19 @@ sol! {
             bytes payload
         );
 
+        /// Whether `messageId` was published with `requiresAck = true`. Mirrors the public
+        /// `SimpleOutbox.messageRequiresAck` mapping; the ack submitter pre-checks this so bridge
+        /// traffic (`requiresAck = false`) skips the proof fetch entirely.
+        function messageRequiresAck(bytes32 messageId) external view returns (bool);
+
+        /// Stored message state. Mirrors the public `SimpleOutbox.messages` mapping getter:
+        /// `emitter == address(0)` means unknown message, `acknowledged` means the ack already
+        /// landed (a duplicate submit would revert `MessageAlreadyAcknowledged`).
+        function messages(bytes32 messageId)
+            external
+            view
+            returns (address emitter, bool acknowledged, bytes32 payloadHash);
+
         /// Reverts bubbled up through `AcknowledgmentValidator.submitAcknowledgment` when it calls
         /// `acknowledgeMessage` here. All three are permanent for a given delivery tx — the ack
         /// submitter classifies them as terminal (see `message-relayer/src/ack`).
