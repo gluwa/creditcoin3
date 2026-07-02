@@ -49,7 +49,7 @@ pub mod pallet {
         Blake2_128Concat, Twox64Concat,
     };
     use frame_system::pallet_prelude::*;
-    use parity_scale_codec::FullCodec;
+    use parity_scale_codec::{DecodeWithMemTracking, FullCodec};
     use sp_staking::StakingInterface;
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
@@ -66,7 +66,17 @@ pub mod pallet {
 
     /// The election policy used when electing new attestors after each epoch.
     #[derive(
-        PartialEq, Eq, Copy, Clone, Encode, Decode, RuntimeDebug, TypeInfo, MaxEncodedLen, Default,
+        PartialEq,
+        Eq,
+        Copy,
+        Clone,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        RuntimeDebug,
+        TypeInfo,
+        MaxEncodedLen,
+        Default,
     )]
     pub enum AttestorElectionPolicy {
         /// Any attestor can be selected.
@@ -83,6 +93,7 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config + pallet_balances::Config {
+        #[allow(deprecated)]
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
         type WeightInfo: WeightInfo;
         // TODO: when updating polkadot-sdk we should use `InspectLockableCurrency`
@@ -758,6 +769,16 @@ pub mod pallet {
         InvalidMaxCatchup,
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
+        /// Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
+        /// ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
+        /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
+        /// would either overflow those bounds or undercharge weight.
+        InvalidMaxAttestors,
+        /// A `commit_attestation` payload carried more attestor accounts than the per-chain
+        /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
+        /// is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
+        /// and a storage-bloat vector. Rejected before any expensive BLS work.
+        TooManyAttestors,
         // Tried to import checkpoints for chain key that already has attestations.
         AttestationFoundWhileImporting,
         // Invalid attestation chain block number.
@@ -949,6 +970,25 @@ pub mod pallet {
             new_max: u32,
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
+
+            // Bound by the runtime-level ceiling. This is the same value that backs the
+            // `BoundedVec` capacities used elsewhere for active attestors and that drives
+            // the `commit_attestation` weight benchmark, so accepting a per-chain `new_max`
+            // above it would either overflow those bounds or silently undercharge dispatch
+            // weight. Also reject zero so the operator can't accidentally disable
+            // attestations for a chain through this path — chain removal has its own flow.
+            ensure!(new_max > 0, Error::<T>::InvalidMaxAttestors);
+            ensure!(
+                new_max <= T::MaxAttestationNodes::get(),
+                Error::<T>::InvalidMaxAttestors
+            );
+
+            // Mirror the other setters: pending updates for unsupported chains are useless
+            // storage churn at best and surface bogus events at worst.
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
 
             MaxAttestors::<T>::insert(chain_key, new_max);
 
@@ -1518,7 +1558,16 @@ pub mod pallet {
         fn weigh_data(&self, attestation: (&SignedAttestation<T::Hash, T::AccountId>,)) -> Weight {
             let chain_key = attestation.0.chain_key();
             let s = attestation.0.continuity_proof.len() as u32;
-            let m = T::MaxAttestationNodes::get();
+            // Charge the variable attestor-list cost from the *actual* payload length rather than
+            // the fixed runtime `MaxAttestationNodes`. The on-chain `validate_attestation` /
+            // txpool prevalidation reject any payload whose `attestors.len()` exceeds the
+            // per-chain `MaxAttestors`, so the count is bounded; we cap here as defense in depth
+            // so a payload that somehow slips past still cannot undercharge below the benchmarked
+            // ceiling. Using the real length avoids over-charging the common case where a chain's
+            // `MaxAttestors` (or the actual quorum) is far below `MaxAttestationNodes`.
+            let max_attestors =
+                MaxAttestors::<T>::get(chain_key).min(T::MaxAttestationNodes::get());
+            let m = (attestation.0.attestors.len() as u32).min(max_attestors);
 
             // Base weight from benchmarks (measured with checkpoint_width = 10 * 10 = 100)
             let mut weight = <T as Config>::WeightInfo::commit_attestation(s, m);

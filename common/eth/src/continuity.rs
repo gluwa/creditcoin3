@@ -24,6 +24,10 @@ pub enum Error {
     BlockError(#[from] BlockError),
     #[error("MMR computation join error: {0}")]
     JoinError(#[from] tokio::task::JoinError),
+    /// A user-initiated `Interrupt::Stop` (Ctrl+C / service shutdown) propagated out of a block
+    /// fetch. Surfaced as a typed error so callers exit gracefully instead of panicking.
+    #[error(transparent)]
+    Shutdown(#[from] user::Shutdown),
 }
 
 pub struct Manager<'a> {
@@ -58,10 +62,13 @@ impl<'a> Manager<'a> {
             .collect::<Vec<_>>()
             .await;
 
+        // Propagate a user-initiated `Interrupt::Stop` as `Error::Shutdown` instead of
+        // panicking, so Ctrl+C / service shutdown exits gracefully. `Interrupt::Cont` errors
+        // map to `Error::Eth` as before.
         let collected_blocks = blocks
             .into_iter()
             .collect::<Result<Vec<_>, _>>()
-            .unwrap_interrupt("Not handling user interrupts yet")?;
+            .propagate_shutdown::<Error>()?;
 
         // Spawn MMR computations in parallel threads
         let blocks_with_roots = stream::iter(collected_blocks)

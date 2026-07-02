@@ -125,6 +125,72 @@ describe('Precompile: AttestorStash', (): void => {
     });
 
     // -----------------------------------------------------------------------------
+    // getLedger / getLedgerByAddress / getCallerLedger
+    //
+    // Audit follow-up: `getLedger(bytes32)` expects the *hashed* AccountId32 that
+    // AddressMapping derives from the EVM address, which is easy to misuse — EVM
+    // consumers tend to convert the emitted `address` to bytes32 and get an empty
+    // ledger back. The two new entries surface the same data keyed by the EVM
+    // `address`, so we cross-check that all three return the same ledger once one
+    // exists for the caller. The `LedgerInfo.stash` field is what proves they
+    // refer to the *same account* — without it, three distinct ledgers carrying
+    // identical balances would be indistinguishable.
+    // -----------------------------------------------------------------------------
+
+    test('getLedger / getLedgerByAddress / getCallerLedger all return the same ledger', async () => {
+        const minBond = (await contract.getMinBondRequirement(chainKey)) as bigint;
+        expect(minBond).toBeGreaterThan(0n);
+
+        // `getLedger` keyed by the *hashed* AccountId32.
+        const byStash = await contract.getLedger(stashAccountIdHex);
+        // `getLedgerByAddress` keyed by the EVM address (precompile applies
+        // AddressMapping internally) — must resolve to the same stash.
+        const byAddress = await contract.getLedgerByAddress(alith.address);
+        // `getCallerLedger()` uses msg.sender so the result should equal `byAddress`.
+        const byCaller = await contract.getCallerLedger();
+
+        // The stash actually has a ledger after registerAttestor above.
+        expect(byStash.exists).toBe(true);
+        expect(byStash.totalStaked).toBe(minBond);
+        expect(byStash.active).toBe(minBond);
+        expect(byStash.unlockingChunks).toBe(0n);
+        expect(byStash.withdrawable).toBe(0n);
+
+        // The identity proof: the ledger's `stash` field must be Alith's hashed
+        // AccountId32 — the same value `getLedger` was keyed by. This ties the
+        // EVM-address entries to a concrete on-chain account rather than just a
+        // bag of matching balance fields.
+        expect(byStash.stash.toLowerCase()).toBe(stashAccountIdHex.toLowerCase());
+        expect(byAddress.stash.toLowerCase()).toBe(stashAccountIdHex.toLowerCase());
+        expect(byCaller.stash.toLowerCase()).toBe(stashAccountIdHex.toLowerCase());
+
+        // Full equality across all three entries, including the stash field. Any
+        // divergence would re-introduce the silently-empty-ledger foot-gun the new
+        // entries were added to prevent.
+        expect(byAddress.stash).toBe(byStash.stash);
+        expect(byAddress.exists).toBe(byStash.exists);
+        expect(byAddress.totalStaked).toBe(byStash.totalStaked);
+        expect(byAddress.active).toBe(byStash.active);
+        expect(byAddress.unlockingChunks).toBe(byStash.unlockingChunks);
+        expect(byAddress.withdrawable).toBe(byStash.withdrawable);
+
+        expect(byCaller.stash).toBe(byStash.stash);
+        expect(byCaller.exists).toBe(byStash.exists);
+        expect(byCaller.totalStaked).toBe(byStash.totalStaked);
+        expect(byCaller.active).toBe(byStash.active);
+        expect(byCaller.unlockingChunks).toBe(byStash.unlockingChunks);
+        expect(byCaller.withdrawable).toBe(byStash.withdrawable);
+
+        // Negative control: a different, unregistered address must resolve to a
+        // distinct (empty) stash — its ledger does not exist and carries the zero
+        // stash, so it can never be confused with Alith's.
+        const otherWallet = ethers.Wallet.createRandom();
+        const otherByAddress = await contract.getLedgerByAddress(otherWallet.address);
+        expect(otherByAddress.exists).toBe(false);
+        expect(otherByAddress.stash).not.toBe(byStash.stash);
+    });
+
+    // -----------------------------------------------------------------------------
     // chill
     // -----------------------------------------------------------------------------
 

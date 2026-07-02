@@ -13,7 +13,8 @@ const DEFAULT_SOURCE_RPC_URL = process.env.ETH_RPC_URL || 'http://127.0.0.1:8545
 const DEVNET_SOURCE_RPC_URL = 'https://anvil.ccnext-devnet.creditcoin.network';
 const DEFAULT_CC3_WS_URL = 'ws://localhost:9944';
 const DEFAULT_CC3_HTTP_URL = 'http://localhost:9944';
-const DEFAULT_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+// Well-known Anvil development account #0 private key (public, not a secret)
+const DEFAULT_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'; // gitleaks:allow
 const DEFAULT_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 const DEFAULT_API_URL = 'http://localhost:3100';
 const GAS_BUFFER_MULTIPLIER = 135; // 100% + 35% buffer

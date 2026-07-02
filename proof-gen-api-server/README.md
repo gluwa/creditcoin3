@@ -46,7 +46,7 @@ cargo run -p proof-gen-api-server -- \
 ```bash
 cargo run -p proof-gen-api-server -- \
   --cc3-key "//Alice" \
-  --cc3-rpc-url wss://rpc.ccnext-devnet.creditcoin.network \
+  --cc3-rpc-url wss://rpc.cc3-devnet.creditcoin.network \
   --eth-rpc-url https://anvil.ccnext-devnet.creditcoin.network
 ```
 

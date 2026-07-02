@@ -52,9 +52,15 @@ pub struct AttestorInfo {
 /// elapsed (i.e. chunks that `withdrawUnbonded` would actually return). It
 /// lets callers distinguish between "funds are unlocking but not yet ready"
 /// and "funds are ready to withdraw" without a second call.
+///
+/// `stash` is the hashed `AccountId32` the ledger is keyed by. It lets callers
+/// (and tests) confirm which account a ledger actually belongs to, rather than
+/// trusting that two lookups returning identical balances refer to the same
+/// stash. It is `H256::zero()` when `exists == false`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct LedgerInfo {
     pub exists: bool,
+    pub stash: H256,
     pub total_staked: u128,
     pub active: u128,
     pub unlocking_chunks: u32,
@@ -274,10 +280,55 @@ where
     }
 
     /// Returns ledger info for a given stash account.
+    ///
+    /// `stash` must be the **hashed** `AccountId32` produced by `AddressMapping` from the EVM
+    /// address — not the raw 20-byte EVM address zero-padded to 32 bytes. EVM consumers
+    /// emitting events tied to their own `msg.sender` should prefer
+    /// [`Self::get_ledger_by_address`] or [`Self::get_caller_ledger`], which apply
+    /// `AddressMapping` internally and avoid the silently-empty-ledger foot-gun.
     #[precompile::public("getLedger(bytes32)")]
     #[precompile::view]
     fn get_ledger(handle: &mut impl PrecompileHandle, stash: H256) -> EvmResult<LedgerInfo> {
         let account = Runtime::AccountId::from(stash.0);
+        Self::get_ledger_for_account(handle, account)
+    }
+
+    /// Same as [`Self::get_ledger`] but takes the raw EVM `address` and applies the runtime's
+    /// `AddressMapping` internally. This is what EVM-side consumers usually want: events and
+    /// state-changing calls in this precompile already use the EVM `address` as the caller
+    /// identifier, so symmetric reads with the same key avoid the historical foot-gun where
+    /// users converted the emitted address to `bytes32` and got an empty ledger back.
+    #[precompile::public("getLedgerByAddress(address)")]
+    #[precompile::view]
+    fn get_ledger_by_address(
+        handle: &mut impl PrecompileHandle,
+        addr: Address,
+    ) -> EvmResult<LedgerInfo> {
+        let account = Runtime::AddressMapping::into_account_id(addr.into());
+        Self::get_ledger_for_account(handle, account)
+    }
+
+    /// Same as [`Self::get_ledger_by_address`] but uses the EVM caller (`msg.sender`).
+    /// Convenience entry for self-lookups; saves the caller from passing their own address.
+    ///
+    /// Implemented as a delegation to [`Self::get_ledger_by_address`] so the
+    /// `AddressMapping::into_account_id` step lives in exactly one place — keeps the two
+    /// helpers from drifting if the mapping behavior ever changes.
+    #[precompile::public("getCallerLedger()")]
+    #[precompile::view]
+    fn get_caller_ledger(handle: &mut impl PrecompileHandle) -> EvmResult<LedgerInfo> {
+        let caller_evm = handle.context().caller;
+        Self::get_ledger_by_address(handle, Address(caller_evm))
+    }
+
+    /// Shared ledger lookup body. Kept private so all three public entries (`getLedger`,
+    /// `getLedgerByAddress`, `getCallerLedger`) charge the same gas and return identical
+    /// results.
+    fn get_ledger_for_account(
+        handle: &mut impl PrecompileHandle,
+        account: Runtime::AccountId,
+    ) -> EvmResult<LedgerInfo> {
+        let stash = H256::from(Into::<[u8; 32]>::into(account.clone()));
         match Ledger::<Runtime>::get(&account) {
             None => {
                 handle.record_db_read::<Runtime>(0)?;
@@ -298,6 +349,7 @@ where
                     );
                 Ok(LedgerInfo {
                     exists: true,
+                    stash,
                     total_staked: ledger.total_staked.unique_saturated_into(),
                     active: ledger.active.unique_saturated_into(),
                     unlocking_chunks: ledger.unlocking.len() as u32,

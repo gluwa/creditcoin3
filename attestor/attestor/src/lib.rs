@@ -96,6 +96,10 @@ impl Attestor {
             .map_err(Error::Init)?
             .ok_or(Error::ChainKeyNotSupported(chain_key))?;
 
+        // Source-chain block encoding from CC3 metadata, instead of assuming V1.
+        let chain_encoding =
+            usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
+
         if supported_chain.chain_id != client_eth.chain_id() {
             return Err(Error::ChainIdMisMatch {
                 runtime: supported_chain.chain_id,
@@ -299,6 +303,7 @@ impl Attestor {
             .with_finalization_lag(maturity_delay)
             .with_max_concurrency(common::constants::MAX_CONCURRENT_RPC_CALLS)
             .with_max_parallelism(get_available_parallelism())
+            .with_encoding(chain_encoding)
             .build();
         let stream_roots = stream::eth::StreamRoots::new(config).await;
 
@@ -418,6 +423,7 @@ impl Attestor {
 
             match wait_for_genesis(
                 genesis,
+                chain_encoding,
                 &client_eth,
                 &account_id,
                 &mut stream_cc3_genesis,
@@ -697,8 +703,10 @@ async fn wait_for_eligible(
     Ok(attestors)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn wait_for_genesis(
     genesis: attestor_primitives::Height,
+    chain_encoding: usc_abi_encoding::common::EncodingVersion,
     client_eth: &eth::Client,
     account_id: &cc_client::AccountId32,
     stream_cc3: &mut stream::cc3::StreamCC3,
@@ -711,7 +719,7 @@ async fn wait_for_genesis(
     use futures::TryStreamExt as _;
 
     let block = client_eth
-        .get_block(genesis, usc_abi_encoding::common::EncodingVersion::V1)
+        .get_block(genesis, chain_encoding)
         .await
         .context("Failed to fetch genesis block")
         .map_interrupt(Error::Init)?;

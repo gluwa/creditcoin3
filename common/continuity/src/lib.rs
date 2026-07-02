@@ -20,10 +20,6 @@
 //! 1. **Indexer (Fast)** - Fetches pre-computed proofs from the indexer GraphQL API
 //! 2. **CC3 Chain (Fallback)** - Builds proofs from CC3 chain queries and source chain data
 //!
-//! ## Features
-//!
-//! - `block_cache` - Enable Redis-based block caching for improved performance
-//!
 //! ## Main Types
 //!
 //! - [`ContinuityBuilder`] - Main entry point for building proofs

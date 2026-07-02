@@ -150,7 +150,10 @@ async fn main() -> Result<()> {
 
                 while let Some(info) = gap_stream.next().await {
                     let done = info.height >= *gap_end;
-                    batch_buf.push((info.height, info.root));
+                    // Store the source block hash alongside the root so canonical
+                    // replacements (same root, different block) are reconciled across
+                    // restart/backfill, not just within a single run.
+                    batch_buf.push((info.height, info.root, info.hash));
                     filled += 1;
 
                     if batch_buf.len() >= flush_size || done {
@@ -331,9 +334,11 @@ async fn main() -> Result<()> {
 
         let height = info.height;
         let root = info.root;
+        let block_hash = info.hash;
         last_height = Some(height);
 
-        batch_buf.push((height, root));
+        // Persist the source block hash with the root for reorg reconciliation.
+        batch_buf.push((height, root, block_hash));
         count += 1;
 
         let end_reached = cfg.end_height.is_some_and(|end| height >= end);
@@ -444,8 +449,7 @@ async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
         .await
         .context("Failed to retrieve supported chain")?
         .ok_or(anyhow!(
-            "No such supported chain. Check that provided chain_key is valid. chain_key: {}",
-            chain_key
+            "No such supported chain. Check that provided chain_key is valid. chain_key: {chain_key}"
         ))?;
 
     if supported_chain.chain_id != eth_client.chain_id() {
@@ -461,11 +465,10 @@ async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
         .maturity_strategy
         .as_str()
         .try_into()
-        .map_err(|e| anyhow!("Invalid maturity strategy: {:?}", e))?;
+        .map_err(|e| anyhow!("Invalid maturity strategy: {e:?}"))?;
 
     // Return final maturity delay
     strategy_enum.maturity_delay().ok_or(anyhow!(
-        "No maturity delay for strategy: strategy_enum: {:?}",
-        strategy_enum
+        "No maturity delay for strategy: strategy_enum: {strategy_enum:?}"
     ))
 }
