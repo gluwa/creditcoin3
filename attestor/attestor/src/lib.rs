@@ -276,6 +276,10 @@ impl Attestor {
         // Channels and watches
         let (gossip_tx, gossip_rx) =
             mpsc::channel::<vote::Vote>(common::constants::CAPACITY_CHANNEL);
+        // Production → p2p nudge to evict a chilled/kicked attestor's peer. Unbounded: rare
+        // (committee-change) events that must not apply backpressure to the production task.
+        let (peer_deactivated_tx, peer_deactivated_rx) =
+            mpsc::unbounded_channel::<attestor_primitives::AttestorId>();
         let (can_attest_tx, can_attest_rx) = watch::channel::<bool>(true);
         // `None` until the production task observes the first BlockAttested event. Validation's
         // `wait_for_finalized` helper waits for `Some(info)` with `info.height >= target`, so it
@@ -306,6 +310,7 @@ impl Attestor {
 
             pool_send,
             gossip_tx,
+            peer_deactivated_tx,
 
             can_attest_tx,
             can_attest_rx,
@@ -344,7 +349,11 @@ impl Attestor {
                 .with_keypair(keypair_p2p)
                 .with_chain_key(chain_key)
                 .build();
-            set.spawn(async move { tasks::p2p::run(shared, cfg, gossip_rx).await.map(|_| "p2p") });
+            set.spawn(async move {
+                tasks::p2p::run(shared, cfg, gossip_rx, peer_deactivated_rx)
+                    .await
+                    .map(|_| "p2p")
+            });
         }
 
         {
