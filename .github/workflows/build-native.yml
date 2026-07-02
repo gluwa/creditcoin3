@@ -53,6 +53,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install libclang
+        run: sudo apt-get install -y libclang-dev
+
       - name: Configure rustc version
         run: |
           RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
@@ -62,7 +65,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: rust-src
 
       - uses: Swatinem/rust-cache@v2
@@ -126,7 +129,7 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: install
-          args: subxt-cli@0.37.0 --locked
+          args: subxt-cli@0.50.1 --locked
 
       - name: Upload subxt binary
         if: ${{ inputs.build-subxt }}
