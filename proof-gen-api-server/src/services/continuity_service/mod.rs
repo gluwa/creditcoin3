@@ -28,6 +28,7 @@ pub struct ChainState {
     pub merkle_proof_cache: MerkleProofCache,
     pub attestation_genesis_block: AtomicU64,
     pub checkpoint_interval: AtomicU64,
+    pub attestation_interval: AtomicU64,
 }
 
 // Single block proof query object, used in batch requests to specify which transactions to include merkle proofs for. If a block is included in the batch but not listed in the tx_indexes, it will be processed with tx_index = None (continuity proof only)
@@ -270,6 +271,7 @@ impl ContinuityService {
             let latest_attested_height = attestation_map.keys().next_back().copied();
             metrics.set_last_attested_height(chain_key, latest_attested_height);
             let checkpoint_interval = builder.config.checkpoint_interval;
+            let attestation_interval = builder.config.attestation_interval;
 
             chains.insert(
                 chain_key,
@@ -280,6 +282,7 @@ impl ContinuityService {
                     merkle_proof_cache: MerkleProofCache::default(),
                     attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
                     checkpoint_interval: AtomicU64::new(checkpoint_interval),
+                    attestation_interval: AtomicU64::new(attestation_interval),
                 }),
             );
         }
@@ -512,10 +515,8 @@ impl ContinuityService {
 
     fn merkle_cache_retention_blocks(&self, chain: &ChainState) -> u64 {
         let checkpoint_interval = chain.checkpoint_interval.load(Ordering::Relaxed);
-        chain
-            .builder
-            .config
-            .attestation_interval
+        let attestation_interval = chain.attestation_interval.load(Ordering::Relaxed);
+        attestation_interval
             .saturating_mul(checkpoint_interval)
             .saturating_mul(MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER)
     }
@@ -536,6 +537,20 @@ impl ContinuityService {
             chain
                 .checkpoint_interval
                 .store(checkpoint_interval, Ordering::Relaxed);
+        }
+    }
+
+    /// Update the attestation interval used by merkle-cache retention sizing.
+    ///
+    /// The continuity bracket math reads the live interval over RPC, so this value only
+    /// affects cache-retention sizing — but it must track on-chain changes, otherwise a
+    /// runtime interval change leaves retention sized by the stale startup value (pruning
+    /// the merkle cache too early or retaining too much).
+    pub fn update_attestation_interval(&self, chain_key: u64, attestation_interval: u64) {
+        if let Some(chain) = self.chains.get(&chain_key) {
+            chain
+                .attestation_interval
+                .store(attestation_interval, Ordering::Relaxed);
         }
     }
 

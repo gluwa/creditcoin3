@@ -1,7 +1,13 @@
 //! Sled-backed root store.
 //!
-//! Schema: key = block height (u64 big-endian, 8 bytes), value = merkle root (H256, 32 bytes).
+//! Schema: key = block height (u64 big-endian, 8 bytes), value = merkle root (H256, 32 bytes)
+//! followed by the source block hash (H256, 32 bytes) — 64 bytes total.
 //! Big-endian keys ensure sled's sorted iteration yields blocks in height order.
+//!
+//! Backward compatibility: databases written before the block-hash column existed store
+//! 32-byte values (root only). Read paths accept both layouts; a legacy 32-byte value is
+//! treated as `block_hash = unknown` (H256::zero) and is never reorg-failed purely for the
+//! missing hash — only a genuine root mismatch (as before) is a hard failure.
 //!
 //! A separate `meta` tree holds a persisted entry counter so we avoid the O(n)
 //! `db.len()` startup scan that warms sled's page cache with the entire history.
@@ -21,12 +27,28 @@ pub enum StoreError {
     /// incoming value. Indicates either a canonical replacement (reorg past finalization
     /// lag) or an inconsistent upstream RPC — either way the operator needs to investigate
     /// before continuing, so we surface this as a hard failure rather than overwriting.
-    #[error("reorg or inconsistency at block {height}: stored {stored:?}, incoming {incoming:?}")]
+    ///
+    /// Carries both the root and the block-hash on each side so operators can tell a
+    /// pure root divergence apart from a canonical replacement (same root, different
+    /// source block hash) discovered across restart/backfill.
+    #[error("reorg or inconsistency at block {height}: stored root {stored_root:?} hash {stored_hash:?}, incoming root {incoming_root:?} hash {incoming_hash:?}")]
     ReorgDetected {
         height: u64,
-        stored: H256,
-        incoming: H256,
+        stored_root: H256,
+        stored_hash: H256,
+        incoming_root: H256,
+        incoming_hash: H256,
     },
+}
+
+/// A stored entry: the merkle root plus the source block hash it was derived from.
+///
+/// `block_hash` is [`H256::zero`] for legacy entries written before the hash column
+/// existed (and is treated as "unknown", not as a literal zero hash, by the reorg guard).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoredRoot {
+    pub root: H256,
+    pub block_hash: H256,
 }
 
 /// Soft cap for sled's page cache. The 0.34 default is ~1 GiB which is wildly
@@ -96,39 +118,58 @@ impl RootStore {
         })
     }
 
-    /// Insert a batch of roots atomically.
+    /// Insert a batch of `(height, root, block_hash)` tuples atomically.
     ///
-    /// If a height in `roots` already has a *different* root stored under it, the whole
-    /// batch is rejected with [`ReorgDetected`]. Silently overwriting would mask reorgs
-    /// and RPC inconsistencies — EVM continuity proofs are keyed on these roots, so an
-    /// undetected canonical replacement at a given height would silently corrupt any
-    /// proof spanning that block. Idempotent re-insertion of the same root is allowed
-    /// (covers backfill replays).
-    pub fn put_roots(&self, roots: &[(u64, H256)]) -> Result<()> {
+    /// If a height in `roots` already has a *different* root **or a different source
+    /// block hash** stored under it, the whole batch is rejected with [`ReorgDetected`].
+    /// Silently overwriting would mask reorgs and RPC inconsistencies — EVM continuity
+    /// proofs are keyed on these roots, so an undetected canonical replacement at a given
+    /// height would silently corrupt any proof spanning that block. Detecting a *same-root,
+    /// different-hash* divergence lets us reconcile canonical replacements across
+    /// restart/backfill, not just within a single run.
+    ///
+    /// Idempotent re-insertion of the same root **and** same hash is allowed (covers
+    /// backfill replays). Legacy entries (32-byte, hash unknown) only conflict on the
+    /// root: a matching root with a previously-unknown hash is accepted and upgraded to
+    /// the 64-byte layout.
+    pub fn put_roots(&self, roots: &[(u64, H256, H256)]) -> Result<()> {
         // Reorg / inconsistency guard. Scan first; this is a cheap point-read per entry
         // and means we never run the batch insert with a mixed-conflict payload.
         let mut new_entries = 0_usize;
-        for (height, incoming) in roots {
+        for (height, incoming_root, incoming_hash) in roots {
             match self.db.get(height.to_be_bytes())? {
                 Some(existing) => {
-                    let existing = parse_h256(&existing)?;
+                    let existing = parse_stored(&existing)?;
+                    // Root mismatch is always a hard failure (as before).
+                    // Same root but a different *known* block hash is a canonical
+                    // replacement at the same height — also a reorg.
+                    // A legacy entry (block_hash unknown == zero) never fails on the
+                    // hash alone; we accept and upgrade it in place.
+                    let hash_conflict =
+                        !existing.block_hash.is_zero() && existing.block_hash != *incoming_hash;
                     anyhow::ensure!(
-                        existing == *incoming,
+                        existing.root == *incoming_root && !hash_conflict,
                         StoreError::ReorgDetected {
                             height: *height,
-                            stored: existing,
-                            incoming: *incoming,
+                            stored_root: existing.root,
+                            stored_hash: existing.block_hash,
+                            incoming_root: *incoming_root,
+                            incoming_hash: *incoming_hash,
                         }
                     );
-                    // Same root — idempotent replay, don't count as new.
+                    // Same root (and compatible hash) — idempotent replay or a legacy
+                    // upgrade. Either way it's not a new entry, so don't count it.
                 }
                 None => new_entries += 1,
             }
         }
 
         let mut batch = sled::Batch::default();
-        for (height, root) in roots {
-            batch.insert(&height.to_be_bytes(), root.as_bytes());
+        for (height, root, block_hash) in roots {
+            batch.insert(
+                &height.to_be_bytes(),
+                encode_value(*root, *block_hash).as_slice(),
+            );
         }
         self.db
             .apply_batch(batch)
@@ -153,8 +194,8 @@ impl RootStore {
     }
 
     /// Get roots for an inclusive block range [from, to].
-    /// Returns (block_number, merkle_root) pairs in ascending order.
-    pub fn get_range(&self, from: u64, to: u64) -> Result<Vec<(u64, H256)>> {
+    /// Returns `(block_number, StoredRoot)` pairs in ascending order.
+    pub fn get_range(&self, from: u64, to: u64) -> Result<Vec<(u64, StoredRoot)>> {
         let start = from.to_be_bytes();
         let capacity = (to.saturating_sub(from) + 1) as usize;
         let mut results = Vec::with_capacity(capacity);
@@ -162,8 +203,8 @@ impl RootStore {
         for item in self.db.range(start..=to.to_be_bytes()) {
             let (key, value) = item.context("failed to read from sled")?;
             let height = parse_height(&key)?;
-            let root = parse_h256(&value)?;
-            results.push((height, root));
+            let stored = parse_stored(&value)?;
+            results.push((height, stored));
         }
 
         Ok(results)
@@ -226,18 +267,44 @@ fn parse_height(key: &sled::IVec) -> Result<u64> {
     Ok(u64::from_be_bytes(bytes))
 }
 
-fn parse_h256(value: &sled::IVec) -> Result<H256> {
-    anyhow::ensure!(
-        value.len() == 32,
-        "invalid digest length: expected 32, got {}",
-        value.len()
-    );
-    Ok(H256::from_slice(value.as_ref()))
+/// Encode a stored value as `root (32 bytes) ++ block_hash (32 bytes)`.
+fn encode_value(root: H256, block_hash: H256) -> [u8; 64] {
+    let mut buf = [0u8; 64];
+    buf[..32].copy_from_slice(root.as_bytes());
+    buf[32..].copy_from_slice(block_hash.as_bytes());
+    buf
+}
+
+/// Parse a stored value, accepting both the current 64-byte layout
+/// (`root ++ block_hash`) and the legacy 32-byte layout (`root` only).
+///
+/// Legacy values yield `block_hash = H256::zero` ("unknown"); the reorg guard
+/// treats a zero stored hash as unknown and never fails on it alone.
+fn parse_stored(value: &sled::IVec) -> Result<StoredRoot> {
+    match value.len() {
+        64 => Ok(StoredRoot {
+            root: H256::from_slice(&value[..32]),
+            block_hash: H256::from_slice(&value[32..]),
+        }),
+        32 => {
+            tracing::debug!("reading legacy 32-byte value (block hash unknown)");
+            Ok(StoredRoot {
+                root: H256::from_slice(value.as_ref()),
+                block_hash: H256::zero(),
+            })
+        }
+        other => anyhow::bail!("invalid stored value length: expected 32 or 64, got {other}"),
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Test helper: build a `(height, root, block_hash)` tuple with a random hash.
+    fn entry(height: u64, root: H256) -> (u64, H256, H256) {
+        (height, root, H256::random())
+    }
 
     #[test]
     fn roundtrip_put_get() {
@@ -245,11 +312,21 @@ mod tests {
         let store = RootStore::open(dir.path().join("test.sled")).unwrap();
 
         let root = H256::random();
-        store.put_roots(&[(42, root)]).unwrap();
+        let hash = H256::random();
+        store.put_roots(&[(42, root, hash)]).unwrap();
 
         let range = store.get_range(42, 42).unwrap();
         assert_eq!(range.len(), 1);
-        assert_eq!(range[0], (42, root));
+        assert_eq!(
+            range[0],
+            (
+                42,
+                StoredRoot {
+                    root,
+                    block_hash: hash
+                }
+            )
+        );
         assert_eq!(store.get_range(43, 43).unwrap().len(), 0);
         assert_eq!(store.latest_height().unwrap(), Some(42));
     }
@@ -260,17 +337,19 @@ mod tests {
         let store = RootStore::open(dir.path().join("test.sled")).unwrap();
 
         let roots: Vec<H256> = (0..10).map(|_| H256::random()).collect();
-        let entries: Vec<(u64, H256)> = roots
+        let entries: Vec<(u64, H256, H256)> = roots
             .iter()
             .enumerate()
-            .map(|(i, r)| (i as u64, *r))
+            .map(|(i, r)| entry(i as u64, *r))
             .collect();
         store.put_roots(&entries).unwrap();
 
         let range = store.get_range(3, 6).unwrap();
         assert_eq!(range.len(), 4);
-        assert_eq!(range[0], (3, roots[3]));
-        assert_eq!(range[3], (6, roots[6]));
+        assert_eq!(range[0].0, 3);
+        assert_eq!(range[0].1.root, roots[3]);
+        assert_eq!(range[3].0, 6);
+        assert_eq!(range[3].1.root, roots[6]);
     }
 
     #[test]
@@ -280,7 +359,8 @@ mod tests {
 
         {
             let store = RootStore::open(&path).unwrap();
-            let entries: Vec<(u64, H256)> = (0..7).map(|i| (i, H256::random())).collect();
+            let entries: Vec<(u64, H256, H256)> =
+                (0..7).map(|i| entry(i, H256::random())).collect();
             store.put_roots(&entries).unwrap();
             assert_eq!(store.count(), 7);
             // Drop the store, closing the database.
@@ -290,7 +370,7 @@ mod tests {
         // Count must be restored from the meta tree without a full scan.
         assert_eq!(reopened.count(), 7);
 
-        reopened.put_roots(&[(7, H256::random())]).unwrap();
+        reopened.put_roots(&[entry(7, H256::random())]).unwrap();
         assert_eq!(reopened.count(), 8);
     }
 
@@ -305,7 +385,8 @@ mod tests {
             // Open with the new code, write some entries, then manually wipe
             // the meta key to mimic a pre-upgrade db.
             let store = RootStore::open(&path).unwrap();
-            let entries: Vec<(u64, H256)> = (0..5).map(|i| (i, H256::random())).collect();
+            let entries: Vec<(u64, H256, H256)> =
+                (0..5).map(|i| entry(i, H256::random())).collect();
             store.put_roots(&entries).unwrap();
             store.meta.remove(META_KEY_COUNT).unwrap();
             store.db.flush().unwrap();
@@ -324,17 +405,27 @@ mod tests {
         let store = RootStore::open(dir.path().join("test.sled")).unwrap();
 
         let original = H256::from_slice(&[0xaa; 32]);
-        store.put_roots(&[(100, original)]).unwrap();
+        let hash = H256::from_slice(&[0x11; 32]);
+        store.put_roots(&[(100, original, hash)]).unwrap();
 
-        // Replaying the same root must succeed and stay idempotent.
-        store.put_roots(&[(100, original)]).unwrap();
-        assert_eq!(store.get_range(100, 100).unwrap(), vec![(100, original)]);
+        // Replaying the same root + hash must succeed and stay idempotent.
+        store.put_roots(&[(100, original, hash)]).unwrap();
+        assert_eq!(
+            store.get_range(100, 100).unwrap(),
+            vec![(
+                100,
+                StoredRoot {
+                    root: original,
+                    block_hash: hash
+                }
+            )]
+        );
 
         // A different root for the same height is a reorg / inconsistency signal —
         // surface it instead of silently overwriting.
         let conflicting = H256::from_slice(&[0xbb; 32]);
         let err = store
-            .put_roots(&[(100, conflicting)])
+            .put_roots(&[(100, conflicting, hash)])
             .expect_err("conflicting overwrite must be rejected");
         let downcast = err
             .downcast_ref::<StoreError>()
@@ -344,8 +435,113 @@ mod tests {
             StoreError::ReorgDetected { height: 100, .. }
         ));
 
-        // Storage stays at the original root.
-        assert_eq!(store.get_range(100, 100).unwrap(), vec![(100, original)]);
+        // Storage stays at the original root + hash.
+        assert_eq!(
+            store.get_range(100, 100).unwrap(),
+            vec![(
+                100,
+                StoredRoot {
+                    root: original,
+                    block_hash: hash
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn put_roots_rejects_same_root_different_block_hash() {
+        // Canonical replacement at the same height: the merkle root happens to match
+        // but the source block hash differs. This is a reorg that #1088's root-only
+        // guard could miss — the block-hash column lets us catch it across restarts.
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        let root = H256::from_slice(&[0xaa; 32]);
+        let hash_a = H256::from_slice(&[0x11; 32]);
+        let hash_b = H256::from_slice(&[0x22; 32]);
+        store.put_roots(&[(100, root, hash_a)]).unwrap();
+
+        let err = store
+            .put_roots(&[(100, root, hash_b)])
+            .expect_err("same root, different block hash must be rejected");
+        let downcast = err
+            .downcast_ref::<StoreError>()
+            .expect("StoreError variant");
+        assert!(matches!(
+            downcast,
+            StoreError::ReorgDetected {
+                height: 100,
+                stored_hash,
+                incoming_hash,
+                ..
+            } if *stored_hash == hash_a && *incoming_hash == hash_b
+        ));
+
+        // Storage is unchanged.
+        assert_eq!(
+            store.get_range(100, 100).unwrap(),
+            vec![(
+                100,
+                StoredRoot {
+                    root,
+                    block_hash: hash_a
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn put_roots_accepts_legacy_value_upgrade() {
+        // A legacy 32-byte value (root only, block hash unknown) must be accepted and
+        // upgraded to the 64-byte layout on a matching-root replay, without a reorg
+        // failure on the (previously unknown) hash.
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        let root = H256::from_slice(&[0xcd; 32]);
+        // Write a legacy 32-byte value directly, bypassing the encoder.
+        store
+            .db
+            .insert(100u64.to_be_bytes(), root.as_bytes())
+            .unwrap();
+
+        // Legacy value parses with a zero (unknown) block hash.
+        assert_eq!(
+            store.get_range(100, 100).unwrap(),
+            vec![(
+                100,
+                StoredRoot {
+                    root,
+                    block_hash: H256::zero()
+                }
+            )]
+        );
+
+        // Replaying the same root with a now-known hash must succeed (upgrade in place)
+        // rather than reorg-fail on the previously-unknown hash.
+        let hash = H256::from_slice(&[0x33; 32]);
+        store.put_roots(&[(100, root, hash)]).unwrap();
+        assert_eq!(
+            store.get_range(100, 100).unwrap(),
+            vec![(
+                100,
+                StoredRoot {
+                    root,
+                    block_hash: hash
+                }
+            )]
+        );
+
+        // But a legacy entry with a *different* root still fails (root guard intact).
+        let other = H256::from_slice(&[0xee; 32]);
+        store
+            .db
+            .insert(200u64.to_be_bytes(), other.as_bytes())
+            .unwrap();
+        let err = store
+            .put_roots(&[(200, root, hash)])
+            .expect_err("legacy root mismatch must still be rejected");
+        assert!(err.downcast_ref::<StoreError>().is_some());
     }
 
     #[test]
@@ -353,7 +549,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = RootStore::open(dir.path().join("test.sled")).unwrap();
 
-        let entries: Vec<(u64, H256)> = (0..5).map(|i| (i, H256::random())).collect();
+        let entries: Vec<(u64, H256, H256)> = (0..5).map(|i| entry(i, H256::random())).collect();
         store.put_roots(&entries).unwrap();
         assert_eq!(store.count(), 5);
 
@@ -370,7 +566,7 @@ mod tests {
 
         // DB begins at an intermediate height (mimicking a partial snapshot restore).
         store
-            .put_roots(&[(50, H256::random()), (51, H256::random())])
+            .put_roots(&[entry(50, H256::random()), entry(51, H256::random())])
             .unwrap();
 
         // Without an anchor, only neighbour-pair gaps are visible — the pre-first
@@ -390,10 +586,10 @@ mod tests {
 
         store
             .put_roots(&[
-                (10, H256::random()),
-                (11, H256::random()),
-                (15, H256::random()),
-                (20, H256::random()),
+                entry(10, H256::random()),
+                entry(11, H256::random()),
+                entry(15, H256::random()),
+                entry(20, H256::random()),
             ])
             .unwrap();
 

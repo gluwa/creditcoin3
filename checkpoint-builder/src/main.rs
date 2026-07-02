@@ -251,7 +251,7 @@ async fn process_blocks(
 
         // Read the genesis block from the source
         let genesis_block = source.get(starting_block)?.ok_or_else(|| {
-            anyhow::anyhow!("Source has no block at genesis height {}", starting_block)
+            anyhow::anyhow!("Source has no block at genesis height {starting_block}")
         })?;
 
         // Create checkpoint for the genesis block (no previous digest to chain from)

@@ -152,6 +152,7 @@ pub fn create_benchmark_extrinsic(
         pallet_transaction_payment::ChargeTransactionPayment::<runtime::Runtime>::from(0),
         frame_metadata_hash_extension::CheckMetadataHash::new(true),
         pallet_attestation::PrevalidateAttestationCommit::<runtime::Runtime>::new(),
+        frame_system::WeightReclaim::<runtime::Runtime>::new(),
     );
 
     let raw_payload = runtime::SignedPayload::from_raw(
@@ -167,6 +168,7 @@ pub fn create_benchmark_extrinsic(
             (),
             (),
             None,
+            (),
             (),
         ),
     );

@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo chmod a+rwx /mnt
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Devnet ENV
         if: inputs.target-chain == 'devnet'

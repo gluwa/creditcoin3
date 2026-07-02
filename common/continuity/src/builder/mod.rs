@@ -31,6 +31,7 @@ use indexer_client::{AttestationWithProof, IndexerClient};
 use sp_core::H256;
 use std::sync::Arc;
 use tracing::info;
+use usc_abi_encoding::common::EncodingVersion;
 
 /// Builder for generating continuity proofs.
 ///
@@ -181,71 +182,12 @@ impl ContinuityBuilder {
             .await
             .context("Failed to create ETH client")?;
 
-        Ok(Self::new_with_providers(
-            config,
-            Arc::new(cc_client),
-            Arc::new(ReconnectingEthRpcProvider::new(eth_client)),
-        ))
-    }
-
-    /// Create a new builder with Redis-based block caching enabled.
-    ///
-    /// Block caching can significantly improve performance by caching source chain
-    /// blocks in Redis, reducing RPC calls by ~70% for repeated queries.
-    ///
-    /// # Arguments
-    ///
-    /// * `config` - Continuity configuration
-    /// * `cache_config` - Redis cache configuration
-    ///
-    /// # Requires
-    ///
-    /// - `block_cache` feature must be enabled
-    /// - Redis server must be running and accessible
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Requires prometheus-client (from eth/block_cache) and block_cache feature
-    /// use continuity::{ContinuityBuilder, ContinuityConfig};
-    /// use eth::block_cache::BlockCacheConfig;
-    /// use eth::metrics::BlockCacheMetrics;
-    /// use prometheus_client::registry::Registry;
-    ///
-    /// let config = ContinuityConfig::builder()
-    ///     .cc3_rpc_url("wss://rpc.creditcoin.network")
-    ///     .eth_rpc_url("https://eth-rpc.example.com")
-    ///     .chain_key(1)
-    ///     .checkpoint_interval(10)
-    ///     .build();
-    ///
-    /// let mut registry = Registry::default();
-    /// let block_cache_metrics = BlockCacheMetrics::new(&mut registry);
-    /// let cache_config = BlockCacheConfig {
-    ///     redis_url: "redis://localhost:6379".to_string(),
-    ///     redis_cluster_mode: false,
-    ///     metrics: block_cache_metrics,
-    /// };
-    ///
-    /// let builder = ContinuityBuilder::new_with_block_caching(config, cache_config).await?;
-    /// ```
-    #[cfg(feature = "block_cache")]
-    pub async fn new_with_block_caching(
-        config: ContinuityConfig,
-        cache_config: eth::block_cache::BlockCacheConfig,
-    ) -> Result<Self> {
-        let cc_client = CcClient::new_read_only(&config.cc3_rpc_url)
-            .await
-            .context("Failed to create CC client")?;
-
-        let eth_client = EthClient::new_with_cache(&config.eth_rpc_url, None, cache_config)
-            .await
-            .context("Failed to create caching ETH client")?;
+        let encoding = resolve_chain_encoding(&cc_client, config.chain_key).await;
 
         Ok(Self::new_with_providers(
             config,
             Arc::new(cc_client),
-            Arc::new(ReconnectingEthRpcProvider::new(eth_client)),
+            Arc::new(ReconnectingEthRpcProvider::new(eth_client, encoding)),
         ))
     }
 
@@ -696,6 +638,34 @@ impl ContinuityBuilder {
             .await?;
 
         Ok(attestation.map(|a| a.attestation.header_number))
+    }
+}
+
+/// Resolve the source-chain block encoding from CC3 supported-chain metadata.
+///
+/// Off-chain block fetching used to hardcode [`EncodingVersion::V1`]. We instead
+/// read the chain's configured `chain_encoding` so a per-chain or future encoding
+/// change is honoured. If the chain is not found or the lookup fails we fall back
+/// to V1 (the only encoding in existence today) and log, rather than failing
+/// startup.
+async fn resolve_chain_encoding(cc_client: &CcClient, chain_key: u64) -> EncodingVersion {
+    match cc_client.get_supported_chain(chain_key).await {
+        Ok(Some(chain)) => EncodingVersion::from(chain.chain_encoding),
+        Ok(None) => {
+            tracing::warn!(
+                chain_key,
+                "supported chain not found while resolving block encoding; defaulting to V1"
+            );
+            EncodingVersion::V1
+        }
+        Err(e) => {
+            tracing::warn!(
+                chain_key,
+                error = %e,
+                "failed to fetch supported chain encoding; defaulting to V1"
+            );
+            EncodingVersion::V1
+        }
     }
 }
 

@@ -114,9 +114,9 @@ async fn roots(
 
     let entries: Vec<RootEntry> = range
         .into_iter()
-        .map(|(height, root)| RootEntry {
+        .map(|(height, stored)| RootEntry {
             block_number: height,
-            merkle_root: format!("{root:?}"),
+            merkle_root: format!("{:?}", stored.root),
         })
         .collect();
 

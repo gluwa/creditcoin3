@@ -280,7 +280,8 @@ fn set_min_bond_requirement_should_succeed_when_signed_by_operator() {
 #[test]
 fn set_max_attestors_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        let max_attestors = 200;
+        // Stay at-or-below the mock runtime ceiling (`MaxAttestorsDefault = 100`).
+        let max_attestors = 50;
 
         assert_ok!(Attestation::set_max_attestors(
             RuntimeOrigin::root(),
@@ -300,13 +301,48 @@ fn set_max_attestors_should_update_storage_and_emit_event() {
 #[test]
 fn set_max_attestors_should_succeed_when_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
-        let max_attestors = 200;
+        let max_attestors = 50;
 
         assert_ok!(Attestation::set_max_attestors(
             RuntimeOrigin::signed(ALICE),
             SUPPORTED_CHAIN_KEY,
             max_attestors
         ));
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_zero() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 0),
+            Error::<Test>::InvalidMaxAttestors
+        );
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        // Mock runtime ceiling is `MaxAttestorsDefault = 100`. Anything above it must be
+        // rejected: the runtime ceiling backs the `BoundedVec` capacities used elsewhere
+        // and drives the `commit_attestation` weight benchmark, so silently storing a
+        // higher per-chain value would overflow those bounds or undercharge weight.
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 101),
+            Error::<Test>::InvalidMaxAttestors
+        );
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_unsupported_chain() {
+    ExtBuilder.build_and_execute(|| {
+        let unsupported_chain: ChainKey = 999;
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), unsupported_chain, 50),
+            Error::<Test>::ChainNotSupported
+        );
     })
 }
 
@@ -8164,8 +8200,10 @@ mod migrate_attestors_count_v1_to_v2 {
 mod prevalidate_attestation_commit_extension {
     use super::*;
     use crate::extensions::PrevalidateAttestationCommit;
-    use sp_runtime::traits::SignedExtension;
-    use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidityError};
+    use sp_runtime::traits::{TransactionExtension, TxBaseImplication};
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionSource, TransactionValidityError,
+    };
 
     #[test]
     fn prevalidate_attestation_passes_for_unique() {
@@ -8213,10 +8251,13 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor.attestor_id,
+                RuntimeOrigin::signed(attestor.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert!(res.is_ok());
@@ -8302,15 +8343,18 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor_2.attestor_id,
+                RuntimeOrigin::signed(attestor_2.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert_eq!(
-                res,
-                Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+                res.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Stale)
             );
         })
     }
@@ -8345,10 +8389,13 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &account.attestor_id,
+                RuntimeOrigin::signed(account.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert!(
@@ -8939,6 +8986,102 @@ mod on_register_chain_rejects_zero {
                 AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
                 <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
             );
+        })
+    }
+}
+
+/// Tests for the monotonic-height guard (`check_duplicate`) and the attestor-count bound
+/// (`attestors_within_bound`) added by the audit hardening pass. These exercise the pure
+/// validation helpers directly (no BLS aggregation needed) since both the on-chain
+/// `validate_attestation` path and the txpool prevalidation extension route through them.
+mod audit_attestation_bounds {
+    use super::*;
+    use attestor_primitives::AttestationData as AttestationPrimitive;
+
+    /// Minimal `SignedAttestation` with `attestors.len() == n` and the given height. The
+    /// signature / continuity proof are irrelevant to `check_duplicate` and
+    /// `attestors_within_bound`, which never inspect them.
+    fn attestation_with(
+        chain_key: ChainKey,
+        header_number: u64,
+        n_attestors: usize,
+    ) -> SignedAttestation<H256, mock::AccountId> {
+        let attestation = AttestationPrimitive {
+            chain_key,
+            header_number,
+            header_hash: H256::zero(),
+            root: H256::zero(),
+            prev_digest: None,
+        };
+        SignedAttestation {
+            attestation,
+            signature: [0u8; core::mem::size_of::<BlsSignature>()],
+            attestors: (0..n_attestors as u64)
+                .map(|i| i as mock::AccountId)
+                .collect(),
+            continuity_proof: Default::default(),
+        }
+    }
+
+    #[test]
+    fn attestors_within_bound_respects_per_chain_max() {
+        ExtBuilder.build_and_execute(|| {
+            MaxAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, 3);
+
+            // At or below the ceiling => within bound.
+            assert!(Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 3)
+            ));
+            assert!(Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 1)
+            ));
+
+            // Above the ceiling => rejected.
+            assert!(!Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 4)
+            ));
+        })
+    }
+
+    #[test]
+    fn check_duplicate_rejects_non_monotonic_height() {
+        ExtBuilder.build_and_execute(|| {
+            // Last accepted attestation height for the chain is 100.
+            LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, (100u64, H256::zero()));
+
+            // Equal height => non-monotonic, rejected.
+            assert!(Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                100,
+                1
+            )));
+            // Lower height => rejected.
+            assert!(Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                99,
+                1
+            )));
+            // Strictly higher => accepted (not a duplicate).
+            assert!(!Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                101,
+                1
+            )));
+        })
+    }
+
+    #[test]
+    fn check_duplicate_first_attestation_allowed_when_no_last_digest() {
+        ExtBuilder.build_and_execute(|| {
+            // No LastDigest / LastCheckpoint set => any height is fresh.
+            assert!(!Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                1,
+                1
+            )));
         })
     }
 }

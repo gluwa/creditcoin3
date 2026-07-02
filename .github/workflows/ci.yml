@@ -30,7 +30,7 @@ jobs:
       regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: "Examine which files have been modified by this PR"
         uses: dorny/paths-filter@v4.0.1
@@ -151,7 +151,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Install Node Dependencies
         uses: actions/setup-node@v6
         with:
@@ -215,7 +215,7 @@ jobs:
     if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download binaries
         uses: actions/download-artifact@v8
@@ -589,7 +589,7 @@ jobs:
     if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
   integration-test-cli:
     strategy:
@@ -623,7 +623,7 @@ jobs:
       - regenerate-metadata
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -734,7 +734,7 @@ jobs:
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v8
@@ -909,7 +909,7 @@ jobs:
     if: ${{ needs.should-run.outputs.docs_smart_contract == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download creditcoin-node binary
         uses: actions/download-artifact@v8
@@ -1101,7 +1101,7 @@ jobs:
     if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download binaries
         uses: actions/download-artifact@v8
@@ -1317,7 +1317,7 @@ jobs:
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download binaries
         uses: actions/download-artifact@v8
@@ -1447,7 +1447,7 @@ jobs:
     if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' || needs.should-run.outputs.integration_test_cli == 'true' || needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -1638,7 +1638,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download binaries
         uses: actions/download-artifact@v8

@@ -65,6 +65,7 @@ merkle = { workspace = true }
 prometheus-client = { workspace = true }
 stream = { workspace = true, features = ["cc3"] }
 sysinfo = { workspace = true }
+usc-abi-encoding = { workspace = true }
 
 [features]
 default = []
