@@ -35,7 +35,7 @@ use serde::Deserialize;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn};
 
-use crate::abi::{ContinuityProof, IInbox, MerkleProof, MerkleProofEntry};
+use crate::abi::{ContinuityProof, IInbox, IOutbox, MerkleProof, MerkleProofEntry};
 use crate::checkpoint::CheckpointStore;
 use crate::config::{AckConfig, ChainRoute};
 
@@ -78,12 +78,32 @@ const MAX_BLOCKS_PER_SCAN: u64 = 5_000;
 /// a duplicate lands as `MessageAlreadyAcknowledged`, a terminal revert).
 const RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Retry cadence while the proof block is simply not attested yet (`BlockNotReady`). This is the
+/// normal early state of every ack — destination finality plus attestation takes minutes — so it
+/// does not count against the transient-failure budget.
+const NOT_READY_RETRY: Duration = Duration::from_secs(15);
+
+/// Give up on a tx whose proof never becomes ready (e.g. its block is never attested). Generous:
+/// far beyond any healthy finality + attestation latency.
+const MAX_ACK_AGE: Duration = Duration::from_secs(24 * 60 * 60);
+
+/// Exponential backoff for *transient* submit failures (RPC down, timeout, nonce). Doubles from
+/// the base per failed attempt, capped, and gives up loudly after [`MAX_ACK_TRANSIENT_ATTEMPTS`] —
+/// a permanently failing submit (e.g. unfunded ack signer) must not hammer the RPC every tick
+/// forever.
+const TRANSIENT_BACKOFF_BASE: Duration = Duration::from_secs(30);
+const TRANSIENT_BACKOFF_MAX: Duration = Duration::from_secs(10 * 60);
+const MAX_ACK_TRANSIENT_ATTEMPTS: u32 = 20;
+
 /// Spawn the acknowledgment submitter for one route. Returns immediately when the route has no
 /// `ack` config; otherwise loops until `cancel` fires or an unrecoverable error occurs.
+/// `scan_lookback_blocks` rewinds the persisted cursor on startup so acks that were pending when
+/// the process died are re-discovered (see [`crate::config::DEFAULT_SCAN_LOOKBACK_BLOCKS`]).
 pub async fn run(
     route: ChainRoute,
     creditcoin_eth_rpc_url: String,
     checkpoint: Option<Arc<CheckpointStore>>,
+    scan_lookback_blocks: u64,
     cancel: CancellationToken,
 ) -> Result<()> {
     let chain_key = route.chain_key;
@@ -135,14 +155,20 @@ pub async fn run(
 
     // Resume from the persisted cursor so MessageDelivered events emitted while we were down are
     // not skipped; fall back to the current head on first run / when persistence is disabled.
+    // The cursor is rewound by `scan_lookback_blocks`: the pending-ack queue is memory-only, so a
+    // delivery discovered-but-not-acknowledged before a crash would otherwise be skipped forever.
+    // Re-processing is cheap — already-acked / no-ack-needed txs are skipped by the requiresAck
+    // pre-check before any proof is fetched.
     let mut last_seen = match checkpoint.as_ref().and_then(|c| c.get(&checkpoint_key)) {
         Some(block) => {
+            let resume = block.saturating_sub(scan_lookback_blocks);
             info!(
                 chain_key,
-                resume_from = block + 1,
-                "↩️ resuming ack scan from checkpoint"
+                checkpoint = block,
+                resume_from = resume + 1,
+                "↩️ resuming ack scan from checkpoint (rewound by lookback)"
             );
-            block
+            resume
         }
         None => {
             if let Some(start) = ack.start_block {
@@ -197,6 +223,7 @@ pub async fn run(
                 process_pending(
                     chain_key,
                     &ack,
+                    route.outbox_address,
                     &client,
                     &source_provider,
                     &mut pending,
@@ -255,28 +282,45 @@ async fn discover_delivered<P: Provider>(
             );
             continue;
         }
-        if done.contains(&tx_hash) || pending.contains(&tx_hash) {
+        // The delivered messageId feeds the requiresAck pre-check on the source Outbox, so bridge
+        // traffic never costs a proof fetch. A tx may carry several MessageDelivered logs.
+        let message_id = match IInbox::MessageDelivered::decode_log(&log.inner, true) {
+            Ok(decoded) => decoded.data.messageId,
+            Err(err) => {
+                warn!(chain_key, %tx_hash, %err, "could not decode MessageDelivered log; skipping");
+                continue;
+            }
+        };
+        if done.contains(&tx_hash) {
             continue;
         }
-        if let Some(evicted) = pending.insert(tx_hash, Instant::now()) {
+        if pending.contains(&tx_hash) {
+            pending.note_message_id(&tx_hash, message_id);
+            continue;
+        }
+        if let Some(evicted) = pending.insert(tx_hash, Instant::now(), vec![message_id]) {
             warn!(
                 chain_key,
                 %evicted,
                 "ack pending queue at capacity; giving up on oldest un-acknowledged delivery"
             );
         }
-        debug!(chain_key, %tx_hash, "🧾 observed MessageDelivered; queued for acknowledgment");
+        debug!(chain_key, %tx_hash, %message_id, "🧾 observed MessageDelivered; queued for acknowledgment");
     }
 
     *last_seen = to_block;
     Ok(())
 }
 
-/// Try to fetch a proof and submit an acknowledgment for every pending destination tx. Successful
-/// (or terminally-reverting) submissions move to `done`; not-yet-ready proofs stay pending.
+/// Try to fetch a proof and submit an acknowledgment for every pending destination tx that is due
+/// for an attempt. Successful (or terminally-reverting) submissions move to `done`; not-yet-ready
+/// proofs are deferred by [`NOT_READY_RETRY`]; transient failures back off exponentially and give
+/// up after [`MAX_ACK_TRANSIENT_ATTEMPTS`].
+#[allow(clippy::too_many_arguments)]
 async fn process_pending<P: Provider>(
     chain_key: u64,
     ack: &AckConfig,
+    outbox: Option<alloy::primitives::Address>,
     client: &ProofGenClient,
     source_provider: &P,
     pending: &mut PendingAcks,
@@ -284,7 +328,8 @@ async fn process_pending<P: Provider>(
 ) {
     // Retry oldest-first, a bounded batch per tick, so a large backlog cannot make one tick run
     // unboundedly long (or starve `discover_delivered` / shutdown).
-    let batch = pending.oldest(MAX_ACKS_PER_TICK);
+    let now = Instant::now();
+    let batch = pending.ready(MAX_ACKS_PER_TICK, now);
     if batch.is_empty() {
         return;
     }
@@ -293,16 +338,24 @@ async fn process_pending<P: Provider>(
     // is independent and dominated by network latency. Mutations to `pending`/`done` are applied
     // afterwards, on this task, so no shared-state synchronization is needed.
     let results: Vec<(B256, Result<AckOutcome>)> = futures::stream::iter(batch)
-        .map(|tx_hash| async move {
-            (
+        .map(|(tx_hash, message_ids)| async move {
+            let outcome = acknowledge_tx(
+                chain_key,
+                ack,
+                outbox,
+                &message_ids,
+                client,
+                source_provider,
                 tx_hash,
-                acknowledge_tx(chain_key, ack, client, source_provider, tx_hash).await,
             )
+            .await;
+            (tx_hash, outcome)
         })
         .buffer_unordered(MAX_ACK_CONCURRENCY)
         .collect()
         .await;
 
+    let now = Instant::now();
     for (tx_hash, outcome) in results {
         match outcome {
             Ok(AckOutcome::Acknowledged) => {
@@ -311,15 +364,49 @@ async fn process_pending<P: Provider>(
                 done.insert(tx_hash);
             }
             Ok(AckOutcome::Terminal(reason)) => {
-                warn!(chain_key, %tx_hash, %reason, "ack skipped (terminal); will not retry");
+                info!(chain_key, %tx_hash, %reason, "ack skipped (terminal); will not retry");
                 pending.remove(&tx_hash);
                 done.insert(tx_hash);
             }
             Ok(AckOutcome::NotReady) => {
-                debug!(chain_key, %tx_hash, "proof not ready yet; will retry");
+                // Normal early state (destination finality + attestation take minutes) — defer
+                // without burning the transient budget, but don't wait forever on a block that
+                // never attests.
+                if pending.age(&tx_hash, now) > Some(MAX_ACK_AGE) {
+                    warn!(
+                        chain_key,
+                        %tx_hash,
+                        "proof never became ready within {MAX_ACK_AGE:?}; giving up on this ack"
+                    );
+                    pending.remove(&tx_hash);
+                    done.insert(tx_hash);
+                } else {
+                    debug!(chain_key, %tx_hash, "proof not ready yet; deferred");
+                    pending.defer(&tx_hash, now + NOT_READY_RETRY);
+                }
             }
             Err(err) => {
-                warn!(chain_key, %tx_hash, %err, "ack attempt failed transiently; will retry");
+                let attempts = pending.record_transient_failure(&tx_hash, now);
+                if attempts >= MAX_ACK_TRANSIENT_ATTEMPTS {
+                    warn!(
+                        chain_key,
+                        %tx_hash,
+                        attempts,
+                        %err,
+                        "ack transient-failure budget exhausted; giving up (operator action likely \
+                         required — check the ack signer balance and the Creditcoin RPC)"
+                    );
+                    pending.remove(&tx_hash);
+                    done.insert(tx_hash);
+                } else {
+                    warn!(
+                        chain_key,
+                        %tx_hash,
+                        attempts,
+                        %err,
+                        "ack attempt failed transiently; will retry with backoff"
+                    );
+                }
             }
         }
     }
@@ -329,11 +416,23 @@ async fn process_pending<P: Provider>(
 // Bounded tracking structures
 // ---------------------------------------------------------------------------
 
+/// One destination tx awaiting acknowledgment.
+struct PendingAck {
+    /// When the delivery was first observed — drives cap eviction and the [`MAX_ACK_AGE`] cutoff.
+    first_seen: Instant,
+    /// Earliest next attempt ([`NOT_READY_RETRY`] deferral or transient backoff).
+    next_attempt_at: Instant,
+    /// Transient submit failures so far (NotReady deferrals do not count).
+    transient_attempts: u32,
+    /// messageIds decoded from this tx's `MessageDelivered` logs, for the requiresAck pre-check.
+    message_ids: Vec<B256>,
+}
+
 /// Destination tx hashes awaiting acknowledgment, bounded by [`MAX_PENDING_ACKS`]. Retried
 /// oldest-first; on overflow the oldest entry is evicted (an unacknowledged delivery we give up
 /// on) so the queue cannot grow without limit during a proof-gen outage.
 struct PendingAcks {
-    seen: HashMap<B256, Instant>,
+    seen: HashMap<B256, PendingAck>,
     cap: usize,
 }
 
@@ -353,15 +452,30 @@ impl PendingAcks {
         self.seen.remove(tx);
     }
 
+    /// How long `tx` has been tracked, or `None` if unknown.
+    fn age(&self, tx: &B256, now: Instant) -> Option<Duration> {
+        self.seen
+            .get(tx)
+            .map(|e| now.saturating_duration_since(e.first_seen))
+    }
+
     /// Track a newly-observed tx (no-op if already tracked). Returns the tx hash evicted to honour
     /// the cap, if any — the caller logs it as an unacknowledged delivery being abandoned.
-    fn insert(&mut self, tx: B256, now: Instant) -> Option<B256> {
+    fn insert(&mut self, tx: B256, now: Instant, message_ids: Vec<B256>) -> Option<B256> {
         if self.seen.contains_key(&tx) {
             return None;
         }
-        self.seen.insert(tx, now);
+        self.seen.insert(
+            tx,
+            PendingAck {
+                first_seen: now,
+                next_attempt_at: now,
+                transient_attempts: 0,
+                message_ids,
+            },
+        );
         if self.seen.len() > self.cap {
-            if let Some((&oldest, _)) = self.seen.iter().min_by_key(|(_, &t)| t) {
+            if let Some((&oldest, _)) = self.seen.iter().min_by_key(|(_, e)| e.first_seen) {
                 self.seen.remove(&oldest);
                 return Some(oldest);
             }
@@ -369,11 +483,52 @@ impl PendingAcks {
         None
     }
 
-    /// The oldest `n` tracked tx hashes, oldest-first.
-    fn oldest(&self, n: usize) -> Vec<B256> {
-        let mut entries: Vec<(B256, Instant)> = self.seen.iter().map(|(&h, &t)| (h, t)).collect();
-        entries.sort_by_key(|&(_, t)| t);
-        entries.into_iter().take(n).map(|(h, _)| h).collect()
+    /// Append another delivered messageId to an already-tracked tx (a tx may emit several
+    /// `MessageDelivered` logs discovered across scans).
+    fn note_message_id(&mut self, tx: &B256, message_id: B256) {
+        if let Some(entry) = self.seen.get_mut(tx) {
+            if !entry.message_ids.contains(&message_id) {
+                entry.message_ids.push(message_id);
+            }
+        }
+    }
+
+    /// The oldest `n` tx hashes whose next attempt is due, oldest-first, with their messageIds.
+    fn ready(&self, n: usize, now: Instant) -> Vec<(B256, Vec<B256>)> {
+        let mut entries: Vec<(B256, Instant, Vec<B256>)> = self
+            .seen
+            .iter()
+            .filter(|(_, e)| e.next_attempt_at <= now)
+            .map(|(&h, e)| (h, e.first_seen, e.message_ids.clone()))
+            .collect();
+        entries.sort_by_key(|&(_, first_seen, _)| first_seen);
+        entries
+            .into_iter()
+            .take(n)
+            .map(|(h, _, ids)| (h, ids))
+            .collect()
+    }
+
+    /// Defer the next attempt for `tx` (proof not ready — not a failure).
+    fn defer(&mut self, tx: &B256, until: Instant) {
+        if let Some(entry) = self.seen.get_mut(tx) {
+            entry.next_attempt_at = until;
+        }
+    }
+
+    /// Record a transient submit failure: bump the attempt counter and schedule the next try with
+    /// exponential backoff. Returns the attempts so far so the caller can enforce the budget.
+    fn record_transient_failure(&mut self, tx: &B256, now: Instant) -> u32 {
+        let Some(entry) = self.seen.get_mut(tx) else {
+            return 0;
+        };
+        entry.transient_attempts += 1;
+        let exp = entry.transient_attempts.saturating_sub(1).min(31);
+        let backoff = TRANSIENT_BACKOFF_BASE
+            .saturating_mul(2u32.saturating_pow(exp))
+            .min(TRANSIENT_BACKOFF_MAX);
+        entry.next_attempt_at = now + backoff;
+        entry.transient_attempts
     }
 }
 
@@ -420,13 +575,41 @@ enum AckOutcome {
 }
 
 /// Fetch the delivery proof for `tx_hash` and submit it to the source `AcknowledgmentValidator`.
+///
+/// Before any proof is fetched, the delivered messageIds are checked against the source Outbox:
+/// when none requires an acknowledgment (bridge traffic publishes `requiresAck = false`) or all
+/// are already acknowledged, the tx is terminal without costing a proof-gen round-trip or a
+/// guaranteed-revert gas estimate.
+#[allow(clippy::too_many_arguments)]
 async fn acknowledge_tx<P: Provider>(
     chain_key: u64,
     ack: &AckConfig,
+    outbox: Option<alloy::primitives::Address>,
+    message_ids: &[B256],
     client: &ProofGenClient,
     source_provider: &P,
     tx_hash: B256,
 ) -> Result<AckOutcome> {
+    // Fail open: if the view calls error we fall through to the proof path — the validator
+    // enforces the same rules on-chain, this is purely a cost-saving shortcut.
+    if let Some(outbox_addr) = outbox {
+        if !message_ids.is_empty() {
+            match any_requires_ack(source_provider, outbox_addr, message_ids).await {
+                Ok(false) => {
+                    return Ok(AckOutcome::Terminal(
+                        "no delivered message requires acknowledgment (requiresAck=false or \
+                         already acknowledged)"
+                            .into(),
+                    ));
+                }
+                Ok(true) => {}
+                Err(err) => {
+                    warn!(chain_key, %tx_hash, %err, "requiresAck pre-check failed; proceeding with proof");
+                }
+            }
+        }
+    }
+
     let proof = match client.proof_by_tx(chain_key, tx_hash).await? {
         ProofFetch::Ready(p) => p,
         ProofFetch::NotReady => return Ok(AckOutcome::NotReady),
@@ -488,6 +671,36 @@ async fn acknowledge_tx<P: Provider>(
         Err(err) if is_terminal_revert(&err) => Ok(AckOutcome::Terminal(describe_revert(&err))),
         Err(err) => Err(anyhow!("submitAcknowledgment send failed: {err}")),
     }
+}
+
+/// Whether any of `ids` still needs an acknowledgment on the source Outbox: published with
+/// `requiresAck = true`, known to the outbox (`emitter != 0`), and not yet acknowledged.
+async fn any_requires_ack<P: Provider>(
+    provider: &P,
+    outbox: alloy::primitives::Address,
+    ids: &[B256],
+) -> Result<bool> {
+    let outbox = IOutbox::new(outbox, provider);
+    for id in ids {
+        if !outbox
+            .messageRequiresAck(*id)
+            .call()
+            .await
+            .context("IOutbox.messageRequiresAck call failed")?
+            ._0
+        {
+            continue;
+        }
+        let m = outbox
+            .messages(*id)
+            .call()
+            .await
+            .context("IOutbox.messages call failed")?;
+        if m.emitter != alloy::primitives::Address::ZERO && !m.acknowledged {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// Decode a known ack-path revert selector into its error name, for actionable Terminal logs
@@ -782,15 +995,26 @@ mod tests {
         B256::from([n; 32])
     }
 
+    /// `ready(..)` tx hashes only, for FIFO assertions.
+    fn ready_txs(p: &PendingAcks, n: usize, now: Instant) -> Vec<B256> {
+        p.ready(n, now).into_iter().map(|(h, _)| h).collect()
+    }
+
     #[test]
     fn pending_dedupes_and_reports_no_eviction_under_cap() {
         let mut p = PendingAcks::new(4);
         let now = Instant::now();
-        assert!(p.insert(tx(1), now).is_none());
+        assert!(p.insert(tx(1), now, vec![tx(9)]).is_none());
         assert!(p.contains(&tx(1)));
         // Re-inserting the same tx is a no-op (no eviction, still tracked once).
-        assert!(p.insert(tx(1), now).is_none());
-        assert_eq!(p.oldest(10), vec![tx(1)]);
+        assert!(p.insert(tx(1), now, vec![tx(9)]).is_none());
+        assert_eq!(ready_txs(&p, 10, now), vec![tx(1)]);
+        // The messageIds ride along for the requiresAck pre-check.
+        assert_eq!(p.ready(10, now)[0].1, vec![tx(9)]);
+        // note_message_id appends without duplicating.
+        p.note_message_id(&tx(1), tx(9));
+        p.note_message_id(&tx(1), tx(8));
+        assert_eq!(p.ready(10, now)[0].1, vec![tx(9), tx(8)]);
     }
 
     #[test]
@@ -798,10 +1022,12 @@ mod tests {
         let mut p = PendingAcks::new(2);
         let t0 = Instant::now();
         // Distinct, increasing timestamps so "oldest" is unambiguous.
-        assert!(p.insert(tx(1), t0).is_none());
-        assert!(p.insert(tx(2), t0 + Duration::from_millis(1)).is_none());
+        assert!(p.insert(tx(1), t0, Vec::new()).is_none());
+        assert!(p
+            .insert(tx(2), t0 + Duration::from_millis(1), Vec::new())
+            .is_none());
         // Third insert exceeds cap → evicts tx(1), the oldest.
-        let evicted = p.insert(tx(3), t0 + Duration::from_millis(2));
+        let evicted = p.insert(tx(3), t0 + Duration::from_millis(2), Vec::new());
         assert_eq!(evicted, Some(tx(1)));
         assert!(!p.contains(&tx(1)));
         assert!(p.contains(&tx(2)));
@@ -809,15 +1035,52 @@ mod tests {
     }
 
     #[test]
-    fn pending_oldest_is_fifo_and_bounded_by_n() {
+    fn pending_ready_is_fifo_and_bounded_by_n() {
         let mut p = PendingAcks::new(100);
         let t0 = Instant::now();
         for i in 0..5u8 {
-            p.insert(tx(i), t0 + Duration::from_millis(u64::from(i)));
+            p.insert(tx(i), t0 + Duration::from_millis(u64::from(i)), Vec::new());
         }
-        assert_eq!(p.oldest(3), vec![tx(0), tx(1), tx(2)]);
+        let now = t0 + Duration::from_secs(1);
+        assert_eq!(ready_txs(&p, 3, now), vec![tx(0), tx(1), tx(2)]);
         p.remove(&tx(0));
-        assert_eq!(p.oldest(3), vec![tx(1), tx(2), tx(3)]);
+        assert_eq!(ready_txs(&p, 3, now), vec![tx(1), tx(2), tx(3)]);
+    }
+
+    #[test]
+    fn pending_defer_and_backoff_gate_readiness() {
+        let mut p = PendingAcks::new(10);
+        let t0 = Instant::now();
+        p.insert(tx(1), t0, Vec::new());
+        assert_eq!(ready_txs(&p, 10, t0), vec![tx(1)]);
+
+        // NotReady deferral: hidden until `until`, no attempt counted.
+        p.defer(&tx(1), t0 + NOT_READY_RETRY);
+        assert!(ready_txs(&p, 10, t0).is_empty());
+        assert_eq!(ready_txs(&p, 10, t0 + NOT_READY_RETRY), vec![tx(1)]);
+
+        // Transient failures back off exponentially: 30s, 60s, 120s, … capped at 10min.
+        assert_eq!(p.record_transient_failure(&tx(1), t0), 1);
+        assert!(ready_txs(&p, 10, t0 + TRANSIENT_BACKOFF_BASE - Duration::from_secs(1)).is_empty());
+        assert_eq!(ready_txs(&p, 10, t0 + TRANSIENT_BACKOFF_BASE), vec![tx(1)]);
+        assert_eq!(p.record_transient_failure(&tx(1), t0), 2);
+        assert!(ready_txs(&p, 10, t0 + TRANSIENT_BACKOFF_BASE).is_empty());
+        assert_eq!(
+            ready_txs(&p, 10, t0 + TRANSIENT_BACKOFF_BASE * 2),
+            vec![tx(1)]
+        );
+        // Deep attempt counts saturate at the cap instead of overflowing.
+        for _ in 0..40 {
+            p.record_transient_failure(&tx(1), t0);
+        }
+        assert_eq!(ready_txs(&p, 10, t0 + TRANSIENT_BACKOFF_MAX), vec![tx(1)]);
+
+        // Age is measured from first_seen, unaffected by deferrals.
+        assert_eq!(
+            p.age(&tx(1), t0 + Duration::from_secs(5)),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(p.age(&tx(2), t0), None);
     }
 
     #[test]
