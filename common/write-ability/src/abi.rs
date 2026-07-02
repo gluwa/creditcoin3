@@ -45,7 +45,8 @@ sol! {
 
         /// Reverts bubbled up through `AcknowledgmentValidator.submitAcknowledgment` when it calls
         /// `acknowledgeMessage` here. All three are permanent for a given delivery tx — the ack
-        /// submitter classifies them as terminal (see `message-relayer/src/ack`).
+        /// submitter classifies them as terminal (see the ack submitter in
+        /// the `gluwa/usc-message-relayer` repository).
         error MessageDoesNotRequireAck(bytes32 messageId);
         error MessageNotFound(bytes32 messageId);
         error MessageAlreadyAcknowledged(bytes32 messageId);
