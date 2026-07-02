@@ -934,6 +934,7 @@ impl pallet_attestation::Config for Runtime {
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type RandomnessProvider = Randomness;
 }
 
 parameter_types! {
