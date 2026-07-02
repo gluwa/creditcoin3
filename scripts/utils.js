@@ -10,7 +10,7 @@ const fetch = globalThis.fetch || require('node-fetch');
 
 // Constants
 const DEFAULT_SOURCE_RPC_URL = process.env.ETH_RPC_URL || 'http://127.0.0.1:8545';
-const DEVNET_SOURCE_RPC_URL = 'https://anvil.ccnext-devnet.creditcoin.network';
+const DEVNET_SOURCE_RPC_URL = 'https://ethereum-sepolia-rpc.publicnode.com';
 const DEFAULT_CC3_WS_URL = 'ws://localhost:9944';
 const DEFAULT_CC3_HTTP_URL = 'http://localhost:9944';
 // Well-known Anvil development account #0 private key (public, not a secret)
