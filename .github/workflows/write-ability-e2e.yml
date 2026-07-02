@@ -1,0 +1,291 @@
+---
+# USC write-ability end-to-end: dApp -> Outbox -> attestors (gossip votes) -> relayer
+# (2N/3+1 quorum) -> EOAValidator.validateVotes -> Inbox.deliverMessage -> destination dApp,
+# then the proof-based acknowledgment round-trip: proof-gen serves a native USC delivery proof
+# (block-prover precompile: merkle inclusion + continuity) for the attested destination block ->
+# relayer submits it to AcknowledgmentValidator -> Outbox.acknowledgeMessage (acknowledged=true).
+#
+# Modeled on ci.yml's `integration-test-attestator-network`: it reuses the same self-hosted
+# build pipeline (deploy-runner -> build-native.yml) to produce the release binaries, then runs
+# the full cross-chain message flow on a fresh local stack and asserts the message is delivered
+# on the destination chain.
+#
+# NOTE: relayer<->attestor peer discovery uses mDNS (the single-route relayer has no --boot-nodes
+# flag). That works for processes co-located on one runner, mirroring the validated local run. If
+# this proves flaky on the runner, add a --boot-nodes flag to the relayer and wire the zombienet
+# attestor addresses in here.
+name: write-ability-e2e
+
+"on":
+  workflow_dispatch:
+  pull_request:
+    branches: [main, usc-dev, usc-testnet, attestor_v2]
+    paths:
+      - "attestor/**"
+      - "common/**"
+      - "usc-messaging/**"
+      - "pallets/supported-chains/**"
+      - "precompiles/chain-info/**"
+      - "primitives/supported-chains/**"
+      - "runtime/**"
+      - "node/src/chain_spec.rs"
+      - ".github/workflows/write-ability-e2e.yml"
+      - ".github/workflows/build-native.yml"
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  deploy-runner-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: build-write-ability-e2e
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: ${{ matrix.proxy }}
+    secrets: inherit
+
+  build:
+    needs:
+      - deploy-runner-build
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
+      version-string: write-ability-e2e
+      cache-key-name: build-creditcoin-node
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-write-ability-e2e']"
+    secrets: inherit
+
+  rm-runner:
+    needs:
+      - build
+    if: ${{ always() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - proxy: build-write-ability-e2e
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: ${{ matrix.proxy }}
+    secrets: inherit
+
+  e2e:
+    needs:
+      - build
+    runs-on: ubuntu-24.04
+    env:
+      LOGS: /var/tmp/write-ability-e2e
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download binaries
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-write-ability-e2e
+          path: target/release
+
+      # The relayer lives in its own repository (public) since the extraction — build it from
+      # source here so the e2e still exercises attestor + relayer together. Pinned to `main`;
+      # cross-repo protocol drift is caught by the shared write-ability golden vectors on both
+      # sides. (Alternative once image publishing is wired: docker cp the binary out of
+      # gluwa/usc-message-relayer:main.)
+      - name: Check out usc-message-relayer
+        uses: actions/checkout@v6
+        with:
+          repository: gluwa/usc-message-relayer
+          path: usc-message-relayer
+
+      - name: Rust cache (usc-message-relayer)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: usc-message-relayer
+
+      - name: Build message-relayer
+        working-directory: ./usc-message-relayer
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo build --release --locked -p message-relayer
+          cp target/release/message-relayer ../target/release/message-relayer
+
+      - name: Make binaries executable
+        run: |
+          mkdir -p "$LOGS"
+          chmod a+x ./target/release/creditcoin3-node ./target/release/attestor* ./target/release/message-relayer ./target/release/proof-gen-api-server
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: usc-messaging/package-lock.json
+
+      - name: Install usc-messaging deps
+        working-directory: ./usc-messaging
+        run: npm install
+
+      - name: Start anvil (destination chain)
+        run: |
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8545 >"$LOGS/anvil.log" 2>&1 &
+
+      - name: Start creditcoin3-node (--dev)
+        env:
+          RUST_LOG: info
+        run: |
+          ./target/release/creditcoin3-node --dev --tmp >"$LOGS/cc3-node.log" 2>&1 &
+
+      - name: Wait for chains
+        run: |
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Deploy contracts (incl. EOAValidator) + register factory on-chain
+        working-directory: ./usc-messaging
+        run: |
+          cp .env.example .env
+          npx tsx scripts/deploy.ts
+
+      - name: Launch attestor zombienet (discovers addresses, syncs EOAValidator set)
+        run: |
+          export PATH="$HOME/.foundry/bin:$PATH"
+          bash usc-messaging/scripts/launch-attestors.sh 3 >"$LOGS/zombienet.log" 2>&1 &
+          echo "Waiting for attestors to resolve the Outbox and the validator set to sync…"
+          for i in $(seq 1 90); do
+            if grep -q 'Attestor set ready' "$LOGS/zombienet.log"; then
+              echo "✅ attestors ready"; grep -E 'zombie-[0-9] →|EOAValidator attestor set updated' "$LOGS/zombienet.log" || true
+              exit 0
+            fi
+            if grep -qE 'Timed out|zombienet exited|❌' "$LOGS/zombienet.log"; then
+              echo "❌ attestor launch failed:"; tail -40 "$LOGS/zombienet.log"; exit 1
+            fi
+            sleep 3
+          done
+          echo "❌ timed out waiting for attestors"; tail -60 "$LOGS/zombienet.log"; exit 1
+
+      - name: Start proof-gen API server (native USC delivery proofs for the ack path)
+        run: |
+          # Legacy single-chain mode (default CHAIN_KEY=2) — consumes BlockAttested for the
+          # destination (anvil, chain_key 2) that the attestors above produce, so it can build the
+          # continuity proofs the AcknowledgmentValidator verifies on the source chain.
+          CHAIN_KEY=2 ./target/release/proof-gen-api-server \
+            --cc3-key //Alice \
+            --cc3-rpc-url ws://localhost:9944 \
+            --eth-rpc-url http://localhost:8545 \
+            --bind-host 127.0.0.1 \
+            --bind-port 3100 >"$LOGS/proof-gen.log" 2>&1 &
+          for i in $(seq 1 30); do
+            grep -q 'Server listening on' "$LOGS/proof-gen.log" && { echo "✅ proof-gen online"; exit 0; }
+            sleep 2
+          done
+          echo "❌ proof-gen did not come online"; tail -40 "$LOGS/proof-gen.log"; exit 1
+
+      - name: Start relayer
+        working-directory: ./usc-messaging
+        env:
+          RUST_LOG: info
+        run: |
+          set -a; source .env; set +a
+          ATTESTOR_SET="$(cat scripts/.attestor-set)"
+          ../target/release/message-relayer --single-route \
+            --cc3-rpc-url ws://localhost:9944 \
+            --creditcoin-eth-rpc-url http://localhost:9944 \
+            --chain-key 2 \
+            --cc3-chain-id 42 \
+            --outbox-address "$OUTBOX_ADDR" \
+            --destination-rpc-url http://localhost:8545 \
+            --inbox-address "$INBOX_ADDR" \
+            --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+            --attestor-set "$ATTESTOR_SET" \
+            --ack-proof-gen-url http://127.0.0.1:3100 \
+            --ack-validator-address "$ACK_VALIDATOR_ADDR" \
+            --ack-signer-key "$CREDITCOIN_CHAIN_PRIVATE_KEY" >"$LOGS/relayer.log" 2>&1 &
+          for i in $(seq 1 20); do
+            grep -q 'libp2p subscriber online' "$LOGS/relayer.log" && { echo "✅ relayer online"; exit 0; }
+            sleep 2
+          done
+          echo "❌ relayer did not come online"; tail -40 "$LOGS/relayer.log"; exit 1
+
+      - name: Publish a cross-chain message
+        working-directory: ./usc-messaging
+        run: |
+          timeout 180 npx tsx scripts/publish-message/publish-message.ts --requiresAck true >"$LOGS/publish.log" 2>&1 || true
+          tail -20 "$LOGS/publish.log" || true
+
+      - name: Assert message was delivered on the destination chain
+        working-directory: ./usc-messaging
+        run: |
+          export PATH="$HOME/.foundry/bin:$PATH"
+          set -a; source .env; set +a
+          for i in $(seq 1 40); do
+            CNT="$(cast call "$DESTINATION_CONTRACT_ADDR" 'messageCount()(uint256)' --rpc-url http://127.0.0.1:8545 2>/dev/null || echo 0)"
+            if [ "${CNT:-0}" -ge 1 ]; then
+              echo "✅ message delivered — TestDestination.messageCount=$CNT"
+              grep -E 'threshold reached|message delivered' "$LOGS/relayer.log" || true
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "❌ message was NOT delivered within timeout"
+          echo "--- relayer log ---"; tail -60 "$LOGS/relayer.log" || true
+          exit 1
+
+      - name: Assert message was acknowledged on the source Outbox (proof-based ack round-trip)
+        working-directory: ./usc-messaging
+        run: |
+          export PATH="$HOME/.foundry/bin:$PATH"
+          set -a; source .env; set +a
+          # messageId is logged by publish-message.ts on MessageDispatched.
+          MSG_ID="$(grep -m1 'messageId:' "$LOGS/publish.log" | grep -oE '0x[0-9a-fA-F]{64}' | head -1)"
+          if [ -z "$MSG_ID" ]; then
+            echo "❌ could not extract messageId from publish log"; tail -40 "$LOGS/publish.log" || true
+            exit 1
+          fi
+          echo "Asserting acknowledgment for messageId=$MSG_ID"
+          # Ack lands ~90s after delivery (waits for the destination block to be attested on CC3,
+          # then proof-gen serves the proof and the relayer submits it). Outbox.messages returns
+          # (address emitter, bool acknowledged, bytes32 payloadHash) — line 2 is `acknowledged`.
+          for i in $(seq 1 60); do
+            ACK="$(cast call "$OUTBOX_ADDR" 'messages(bytes32)(address,bool,bytes32)' "$MSG_ID" \
+              --rpc-url http://127.0.0.1:9944 2>/dev/null | sed -n '2p')"
+            if [ "$ACK" = "true" ]; then
+              echo "✅ message acknowledged — Outbox.messages($MSG_ID).acknowledged=true"
+              grep -E 'acknowledg|submitAcknowledgment|✅' "$LOGS/relayer.log" | tail -10 || true
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "❌ message was NOT acknowledged within timeout"
+          echo "--- relayer log ---"; tail -80 "$LOGS/relayer.log" || true
+          echo "--- proof-gen log ---"; tail -60 "$LOGS/proof-gen.log" || true
+          exit 1
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: write-ability-e2e-logs
+          path: |
+            /var/tmp/write-ability-e2e/
+            ./logs
+          include-hidden-files: true
+
+      - name: Stop background processes
+        if: always()
+        continue-on-error: true
+        run: |
+          killall -TERM message-relayer proof-gen-api-server attestor_zombienet attestor creditcoin3-node anvil || true
+          sleep 5
+          killall -KILL message-relayer proof-gen-api-server attestor_zombienet attestor creditcoin3-node anvil || true

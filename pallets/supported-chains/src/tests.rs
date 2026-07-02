@@ -1,8 +1,13 @@
-use crate::{self as pallet, mock, mock::SupportedChain, mock::*, Error, SupportedChains};
+use crate::{
+    self as pallet, mock, mock::SupportedChain, mock::*, Error, OutboxFactories, SupportedChains,
+    WriteAbilityConfigs,
+};
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
 use rstest::rstest;
-use sp_runtime::traits::BadOrigin;
+use sp_core::H160;
+use sp_runtime::{traits::BadOrigin, BuildStorage};
+use supported_chains_primitives::WriteAbilityConfig;
 use supported_chains_primitives::{
     provider::SupportedChainsProvider, MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST,
     MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY, MATURITY_FIXED_DELAY_10,
@@ -92,10 +97,10 @@ fn register_chain_should_error_when_not_signed() {
 }
 
 #[test]
-fn register_chain_should_error_when_not_signed_by_alice() {
+fn register_chain_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        // This should fail because account 2 is not ALICE (1)
+        // This should fail because account 2 is not OPERATOR_ACCOUNT (1)
         assert_noop!(
             SupportedChain::register_chain(
                 RuntimeOrigin::signed(2),
@@ -113,9 +118,9 @@ fn register_chain_should_error_when_not_signed_by_alice() {
             BadOrigin
         );
 
-        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        // This should succeed because OPERATOR_ACCOUNT is allowed in our MockOperators EnsureOrigin
         assert_ok!(SupportedChain::register_chain(
-            RuntimeOrigin::signed(ALICE),
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             201,
             "Ethereum_1".to_owned(),
             None,
@@ -338,20 +343,20 @@ fn remove_chain_should_error_when_not_signed() {
 }
 
 #[test]
-fn remove_chain_should_error_when_not_signed_by_alice() {
+fn remove_chain_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
         let chain_key = 1;
 
-        // This should fail because account 2 is not ALICE (1)
+        // This should fail because account 2 is not OPERATOR_ACCOUNT (1)
         assert_noop!(
             SupportedChain::remove_chain(RuntimeOrigin::signed(2), chain_key, false),
             BadOrigin
         );
 
-        // This should succeed because ALICE is allowed in our MockOperators EnsureOrigin
+        // This should succeed because OPERATOR_ACCOUNT is allowed in our MockOperators EnsureOrigin
         assert_ok!(SupportedChain::remove_chain(
-            RuntimeOrigin::signed(ALICE),
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             chain_key,
             false
         ));
@@ -547,5 +552,327 @@ fn register_chain_rejects_invalid_maturity_strategy(#[case] strategy: String) {
             chain_name.as_bytes().to_vec(),
         );
         assert!(chain_key.is_none());
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_works() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
+
+        assert_ok!(SupportedChain::set_outbox_factory_addr(
+            RuntimeOrigin::root(),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), Some(address));
+
+        System::assert_last_event(
+            crate::Event::OutboxFactoryRegistered {
+                chain_key,
+                outbox_factory_addr: address,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::none(), chain_key, address,),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_not_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::signed(2), chain_key, address,),
+            BadOrigin
+        );
+
+        assert_ok!(SupportedChain::set_outbox_factory_addr(
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), Some(address));
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_chain_is_not_supported() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(RuntimeOrigin::root(), chain_key, address,),
+            Error::<Test>::ChainNotSupported
+        );
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
+fn set_outbox_factory_addr_should_error_when_zero_address() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_outbox_factory_addr(
+                RuntimeOrigin::root(),
+                chain_key,
+                H160::zero(),
+            ),
+            Error::<Test>::ZeroOutboxFactoryAddress
+        );
+
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
+fn set_write_ability_config_works() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let write_ability_chain_key = [0x22u8; 32];
+
+        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            chain_key,
+            write_ability_chain_key,
+            true,
+        ));
+
+        assert_eq!(
+            WriteAbilityConfigs::<Test>::get(chain_key),
+            Some(WriteAbilityConfig {
+                write_ability_chain_key,
+                message_attestation_enabled: true,
+            })
+        );
+
+        // Provider getter returns the stored config.
+        assert_eq!(
+            <SupportedChain as SupportedChainsProvider>::get_write_ability_config(chain_key),
+            Some(WriteAbilityConfig {
+                write_ability_chain_key,
+                message_attestation_enabled: true,
+            })
+        );
+
+        System::assert_last_event(
+            crate::Event::WriteAbilityConfigSet {
+                chain_key,
+                write_ability_chain_key,
+                message_attestation_enabled: true,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_write_ability_config_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_write_ability_config(
+                RuntimeOrigin::none(),
+                chain_key,
+                [0u8; 32],
+                true,
+            ),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_write_ability_config_should_error_when_not_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_write_ability_config(
+                RuntimeOrigin::signed(2),
+                chain_key,
+                [0u8; 32],
+                true,
+            ),
+            BadOrigin
+        );
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
+            chain_key,
+            [0x22u8; 32],
+            true,
+        ));
+
+        assert_eq!(
+            WriteAbilityConfigs::<Test>::get(chain_key),
+            Some(WriteAbilityConfig {
+                write_ability_chain_key: [0x22u8; 32],
+                message_attestation_enabled: true,
+            })
+        );
+    });
+}
+
+#[test]
+fn set_write_ability_config_should_error_when_chain_is_not_supported() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_write_ability_config(
+                RuntimeOrigin::root(),
+                chain_key,
+                [0u8; 32],
+                true,
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+
+        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
+fn set_write_ability_config_should_error_when_chain_key_is_zero() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_write_ability_config(
+                RuntimeOrigin::root(),
+                chain_key,
+                [0u8; 32],
+                true,
+            ),
+            Error::<Test>::ZeroWriteAbilityChainKey
+        );
+
+        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
+fn remove_chain_clears_write_ability_config() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+        let chain_key = 1;
+
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            chain_key,
+            [0x33u8; 32],
+            true,
+        ));
+        assert!(WriteAbilityConfigs::<Test>::get(chain_key).is_some());
+
+        assert_ok!(SupportedChain::remove_chain(
+            RuntimeOrigin::root(),
+            chain_key,
+            false
+        ));
+
+        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
+fn genesis_seeds_write_ability_configs() {
+    let mut storage = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+
+    let write_ability_chain_key = [0x44u8; 32];
+    let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+        supported_chains: vec![(
+            200,
+            "Ethereum".as_bytes().to_vec(),
+            ChainEncodingVersion::V1,
+            MATURITY_FIXED_DELAY_10.to_string(),
+        )],
+        write_ability_configs: vec![(1, write_ability_chain_key, true)],
+        outbox_factories: Default::default(),
+        _phantom: Default::default(),
+    };
+    pallet_genesis.assimilate_storage(&mut storage).unwrap();
+
+    let mut ext: sp_io::TestExternalities = storage.into();
+    ext.execute_with(|| {
+        assert_eq!(
+            WriteAbilityConfigs::<Test>::get(1),
+            Some(WriteAbilityConfig {
+                write_ability_chain_key,
+                message_attestation_enabled: true,
+            })
+        );
+    });
+}
+
+#[test]
+fn genesis_seeds_outbox_factories() {
+    let mut storage = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+
+    let address = H160::repeat_byte(0x44);
+    let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+        supported_chains: vec![(
+            200,
+            "Ethereum".as_bytes().to_vec(),
+            ChainEncodingVersion::V1,
+            MATURITY_FIXED_DELAY_10.to_string(),
+        )],
+        write_ability_configs: Default::default(),
+        outbox_factories: vec![(1, address)],
+        _phantom: Default::default(),
+    };
+    pallet_genesis.assimilate_storage(&mut storage).unwrap();
+
+    let mut ext: sp_io::TestExternalities = storage.into();
+    ext.execute_with(|| {
+        assert_eq!(OutboxFactories::<Test>::get(1), Some(address));
+        // The provider method backing the runtime API returns the same value.
+        assert_eq!(
+            <SupportedChain as SupportedChainsProvider>::get_outbox_factory_address(1),
+            Some(address)
+        );
     });
 }

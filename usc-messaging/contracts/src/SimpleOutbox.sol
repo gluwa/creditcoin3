@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract Outbox {
+    // Message structure stored for each published message
+    struct Message {
+        address emitter;
+        bool acknowledged;
+        bytes32 payloadHash;
+    }
+
+    // Events
+    event MessagePublished(
+        bytes32 indexed messageId, address indexed emitterAddress, bool requiresAck, bytes payload
+    );
+
+    event MessageAcknowledged(bytes32 indexed messageId);
+
+    // Errors
+    error MessageDoesNotRequireAck(bytes32 messageId);
+    error MessageNotFound(bytes32 messageId);
+    error MessageAlreadyAcknowledged(bytes32 messageId);
+    error NotValidator();
+
+    // Mapping of messageId to Message struct for stored messages (e.g. requiresAck = true)
+    mapping(bytes32 => Message) public messages;
+
+    // Mapping to track whether a message requires acknowledgment (messageId => requiresAck)
+    mapping(bytes32 => bool) public messageRequiresAck;
+
+    // Sequence numbers per Universal Contract used to generate nonces for message IDs
+    mapping(address => uint64) public uscSequences;
+
+    // Destination chain this outbox publishes toward. Set once by the factory at creation.
+    bytes32 public chainKey;
+
+    // Account authorized to acknowledge messages on this outbox (the ack authority). Supplied by
+    // the factory at creation. `acknowledgeMessage` is gated on this address.
+    // In production this is the `AcknowledgmentValidator` contract, which only acknowledges after
+    // verifying a native USC delivery proof that the destination `MessageDelivered` event was
+    // finalized (research §05/§10) — so acks are trust-minimized, not merely access-controlled.
+    address public validator;
+
+    // Owner shared with the factory — the factory passes its own owner in so the same account
+    // controls the factory and every outbox it creates.
+    address public owner;
+
+    // Created by `OutboxFactory.createOutbox` (see SimpleOutboxFactory.sol). The factory passes its
+    // own owner so the same account controls both.
+    constructor(bytes32 _chainKey, address _validator, address _owner) {
+        chainKey = _chainKey;
+        validator = _validator;
+        owner = _owner;
+    }
+
+    function publishMessage(bool requiresAck, bytes calldata payload)
+        external
+        returns (bytes32 messageId)
+    {
+        address usContract = msg.sender;
+        uint64 seq = uint64(++uscSequences[usContract]);
+        bytes32 payloadHash = keccak256(payload);
+
+        messageId = keccak256(abi.encode(address(this), usContract, seq, payloadHash));
+
+        messages[messageId] =
+            Message({emitter: usContract, acknowledged: false, payloadHash: payloadHash});
+
+        messageRequiresAck[messageId] = requiresAck;
+
+        emit MessagePublished(messageId, usContract, requiresAck, payload);
+    }
+
+    // Gated on the configured `validator`. In production that is the `AcknowledgmentValidator`,
+    // which calls this only after verifying a native USC delivery proof of the destination
+    // `MessageDelivered` event — so acknowledgments are trust-minimized (the access check here is
+    // the on-chain half; the proof verification lives in the validator).
+    function acknowledgeMessage(bytes32 messageId) public {
+        if (msg.sender != validator) {
+            revert NotValidator();
+        }
+
+        Message storage m = messages[messageId];
+
+        if (m.emitter == address(0)) {
+            revert MessageNotFound(messageId);
+        }
+        if (m.acknowledged) {
+            revert MessageAlreadyAcknowledged(messageId);
+        }
+
+        if (!messageRequiresAck[messageId]) {
+            revert MessageDoesNotRequireAck(messageId);
+        }
+
+        m.acknowledged = true;
+        emit MessageAcknowledged(messageId);
+    }
+
+    function batchAcknowledgeMessages(bytes32[] calldata messageIds) external {
+        for (uint256 i = 0; i < messageIds.length; ++i) {
+            acknowledgeMessage(messageIds[i]);
+        }
+    }
+}

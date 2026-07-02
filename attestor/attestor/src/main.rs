@@ -21,6 +21,7 @@ struct Config {
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
     no_mdns: bool,
+    write_ability: attestor::tasks::write_ability::Config,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -37,6 +38,8 @@ struct ConfigFile {
     cc3: ConfigFileCC3,
     #[serde(default)]
     attestation: ConfigAttestation,
+    #[serde(default)]
+    write_ability: ConfigFileWriteAbility,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -81,6 +84,31 @@ struct ConfigFileCC3 {
 struct ConfigAttestation {
     start_height: Option<attestor_primitives::Height>,
     interval: Option<std::num::NonZero<attestor_primitives::Height>>,
+}
+
+/// `write_ability:` section — USC cross-chain message attestation. Disabled unless `enabled: true`
+/// (or `--writeability`). When on, the attestor watches the Creditcoin L1 Outbox over the
+/// EVM RPC and gossips message votes on the existing p2p swarm.
+#[derive(Debug, Default, serde::Deserialize)]
+struct ConfigFileWriteAbility {
+    #[serde(default)]
+    enabled: bool,
+    /// Confirmation depth below the EVM tip before signing a `MessagePublished` log. Defaults to
+    /// 3 blocks (the usual time-to-finality on Creditcoin) when unset.
+    block_confirmation_depth: Option<u64>,
+    /// First Creditcoin L1 EVM block to scan on startup. When unset, starts at current head.
+    start_block: Option<u64>,
+    /// Anti-abuse cap on distinct tracked message hashes.
+    max_tracked_messages: Option<usize>,
+    /// TTL (seconds) for incomplete vote aggregates.
+    vote_ttl_secs: Option<u64>,
+    /// Authorized message-vote signer EVM addresses (the static attestor set).
+    #[serde(default)]
+    attestors: Vec<alloy::primitives::Address>,
+    /// On-chain `IVoteValidator` address; if set, takes precedence over `attestors` (not yet wired
+    /// in the attestor — it lives on the destination chain — so this currently disables the task
+    /// with a clear log).
+    validator_address: Option<alloy::primitives::Address>,
 }
 
 impl Config {
@@ -227,6 +255,19 @@ impl Config {
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
+                clap::arg!(--"writeability")
+                    .help("Enable USC write-ability message attestation")
+                    .long_help(
+                        "Enable USC write-ability message attestation. \
+                        When set, the attestor watches the Creditcoin L1 Outbox for this chain_key \
+                        and gossips ECDSA message votes on the existing p2p swarm. \
+                        Uses the cc3 RPC endpoint and a configured attestor set (write_ability section)."
+                    )
+                    .env("ATTESTOR_WRITEABILITY")
+                    .required(false)
+                    .action(clap::ArgAction::SetTrue),
+            )
+            .arg(
                 clap::arg!(--"expose-urls-in-logs")
                     .help("Expose full RPC urls in the logs")
                     .long_help(
@@ -344,7 +385,7 @@ impl Config {
 
         let expose_url = matches.get_flag("expose-urls-in-logs");
 
-        let eth_url = match matches.get_one::<url::Url>("eth-url") {
+        let eth_url_raw = match matches.get_one::<url::Url>("eth-url") {
             Some(url) => url.clone(),
             None => config_file
                 .eth
@@ -352,12 +393,12 @@ impl Config {
                 .expect("Eth url is set either in config or by clap"),
         };
         let eth_url = if expose_url {
-            attestor::secret::RpcSecret::new_exposed(eth_url)
+            attestor::secret::RpcSecret::new_exposed(eth_url_raw.clone())
         } else {
-            attestor::secret::RpcSecret::new_opaque(eth_url)
+            attestor::secret::RpcSecret::new_opaque(eth_url_raw.clone())
         };
 
-        let cc3_url = match matches.get_one::<url::Url>("cc3-url") {
+        let cc3_url_raw = match matches.get_one::<url::Url>("cc3-url") {
             Some(url) => url.clone(),
             None => config_file
                 .cc3
@@ -365,9 +406,9 @@ impl Config {
                 .expect("CC3 url is set either in config or by clap"),
         };
         let cc3_url = if expose_url {
-            attestor::secret::RpcSecret::new_exposed(cc3_url)
+            attestor::secret::RpcSecret::new_exposed(cc3_url_raw.clone())
         } else {
-            attestor::secret::RpcSecret::new_opaque(cc3_url)
+            attestor::secret::RpcSecret::new_opaque(cc3_url_raw.clone())
         };
 
         let start_height = matches
@@ -381,6 +422,14 @@ impl Config {
             .or(config_file.attestation.interval);
 
         let no_mdns = matches.get_flag("no-mdns") || config_file.p2p.no_mdns;
+
+        let write_ability = Self::build_write_ability(
+            &matches,
+            config_file.write_ability,
+            chain_key,
+            &cc3_url_raw,
+            &eth_url_raw,
+        );
 
         Ok(Config {
             name,
@@ -396,7 +445,51 @@ impl Config {
             start_height,
             attestation_interval,
             no_mdns,
+            write_ability,
         })
+    }
+
+    /// Assemble the write-ability config from the `--writeability` flag and the `write_ability:`
+    /// config-file section, reusing already-resolved top-level config to avoid redundant and
+    /// error-prone duplication: the Creditcoin EVM RPC endpoint is derived from the top-level
+    /// `cc3` url, and the `bytes32` write-ability chain key from the top-level `chain_key`. Outbox
+    /// addresses are not configurable — they are resolved on-chain from `chain_key` at runtime.
+    fn build_write_ability(
+        matches: &clap::ArgMatches,
+        file: ConfigFileWriteAbility,
+        chain_key: attestor_primitives::ChainKey,
+        cc3_url: &url::Url,
+        eth_url: &url::Url,
+    ) -> attestor::tasks::write_ability::Config {
+        use attestor::tasks::write_ability::{config, AttestorSet, Config as WaConfig};
+
+        let enabled = matches.get_flag("writeability") || file.enabled;
+
+        let attestor_set = match file.validator_address {
+            Some(addr) => AttestorSet::OnChainValidator(addr),
+            None => AttestorSet::Static(file.attestors),
+        };
+
+        WaConfig {
+            enabled,
+            cc3_eth_rpc_url: Some(cc3_url.clone()),
+            // The destination chain (where the Inbox + EOAValidator live) is the same chain this
+            // attestor set attests block heights for — its `eth` URL. Used to read the on-chain
+            // attestor set when `attestor_set` is an OnChainValidator.
+            destination_eth_rpc_url: Some(eth_url.clone()),
+            write_ability_chain_key: chain_key,
+            block_confirmation_depth: file
+                .block_confirmation_depth
+                .unwrap_or(config::DEFAULT_BLOCK_CONFIRMATION_DEPTH),
+            start_block: file.start_block,
+            max_tracked_messages: file
+                .max_tracked_messages
+                .unwrap_or(config::DEFAULT_MAX_TRACKED_MESSAGES),
+            vote_ttl: file
+                .vote_ttl_secs
+                .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
+            attestor_set,
+        }
     }
 }
 
@@ -545,6 +638,7 @@ async fn main() -> anyhow::Result<()> {
                 .build(),
         )
         .with_api(attestor::tasks::api::ConfigBuilder::new().with_port(args.api_port))
+        .with_write_ability(args.write_ability)
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------

@@ -13,7 +13,7 @@ use supported_chains_primitives::MATURITY_FIXED_DELAY_10;
 pub type AccountId = u64;
 type Block = frame_system::mocking::MockBlock<Test>;
 
-pub const ALICE: AccountId = 1;
+pub const OPERATOR_ACCOUNT: AccountId = 1;
 
 frame_support::construct_runtime!(
     pub enum Test
@@ -130,13 +130,15 @@ impl ExtBuilder {
                 ChainEncodingVersion::V1,
                 MATURITY_FIXED_DELAY_10.to_string(),
             )],
+            write_ability_configs: Default::default(),
+            outbox_factories: Default::default(),
             _phantom: Default::default(),
         };
 
         pallet_genesis.assimilate_storage(&mut storage).unwrap();
 
         let membership_config = pallet_membership::GenesisConfig::<Test, OperatorsInstance> {
-            members: bounded_vec![ALICE],
+            members: bounded_vec![OPERATOR_ACCOUNT],
             ..Default::default()
         };
 
@@ -160,13 +162,15 @@ impl ExtBuilder {
 
         let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
             supported_chains,
+            write_ability_configs: Default::default(),
+            outbox_factories: Default::default(),
             _phantom: Default::default(),
         };
 
         pallet_genesis.assimilate_storage(&mut storage).unwrap();
 
         let membership_config = pallet_membership::GenesisConfig::<Test, OperatorsInstance> {
-            members: bounded_vec![ALICE],
+            members: bounded_vec![OPERATOR_ACCOUNT],
             ..Default::default()
         };
 
