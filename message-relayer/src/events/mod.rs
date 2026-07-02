@@ -32,6 +32,12 @@ pub use factory::{ConfigOverrideResolver, FactoryResolver, OutboxResolver};
 /// extra failure mode (silent stream stalls) we don't want in PoC scope.
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
 
+/// Maximum block span per `eth_getLogs` scan. Public RPCs cap the queryable range; an over-large
+/// resume range (long downtime, deep `start_block` backfill) would error on every tick and wedge
+/// the watcher forever on the same oversized query. Bounded chunks advance the checkpoint
+/// incrementally — at one chunk per 6s tick the watcher catches up quickly.
+const MAX_BLOCKS_PER_SCAN: u64 = 5_000;
+
 /// A finalized message that the relayer has discovered on the Creditcoin Outbox. The vote pool
 /// keys on `message_hash`; the rest of the fields are needed to recompute the calldata for
 /// `Inbox.deliverMessage`.
@@ -174,11 +180,13 @@ async fn poll_once<P: Provider>(
     cancel: &CancellationToken,
 ) -> Result<()> {
     let tip = provider.get_block_number().await?;
-    let to_block = tip.saturating_sub(confirmation_depth);
-    if to_block <= *last_seen {
+    let confirmed = tip.saturating_sub(confirmation_depth);
+    if confirmed <= *last_seen {
         return Ok(());
     }
     let from_block = *last_seen + 1;
+    // Bounded chunk (see MAX_BLOCKS_PER_SCAN): never ask the RPC for more than it will serve.
+    let to_block = confirmed.min(last_seen.saturating_add(MAX_BLOCKS_PER_SCAN));
 
     let filter = Filter::new()
         .address(outbox)

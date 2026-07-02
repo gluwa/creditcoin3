@@ -29,6 +29,13 @@ sol! {
             bool requiresAck,
             bytes payload
         );
+
+        /// Reverts bubbled up through `AcknowledgmentValidator.submitAcknowledgment` when it calls
+        /// `acknowledgeMessage` here. All three are permanent for a given delivery tx — the ack
+        /// submitter classifies them as terminal (see `message-relayer/src/ack`).
+        error MessageDoesNotRequireAck(bytes32 messageId);
+        error MessageNotFound(bytes32 messageId);
+        error MessageAlreadyAcknowledged(bytes32 messageId);
     }
 
     #[sol(rpc)]
@@ -47,6 +54,10 @@ sol! {
         /// of gas during `receiveMessage`). Permissionless.
         function retryPendingMessage(bytes32 messageId) external;
 
+        /// Whether `messageId` was validated but its `receiveMessage` callback failed, leaving it
+        /// retryable via `retryPendingMessage`. Mirrors `SimpleInbox.isPending`.
+        function isPending(bytes32 messageId) external view returns (bool);
+
         /// Pure check used by the relayer to simulate before paying gas. Reverts if the votes
         /// are malformed, below threshold, or signed by unauthorized signers.
         function validateVotes(bytes32 messageHash, bytes calldata votes)
@@ -55,10 +66,16 @@ sol! {
             returns (bool);
 
         event MessageDelivered(bytes32 indexed messageId);
-        event MessagePending(bytes32 indexed messageId);
+        /// Emitted (on a **successful** `deliverMessage` tx) when the votes validated but the
+        /// dApp's `receiveMessage` callback reverted — the message is stored for
+        /// `retryPendingMessage`. Signature must match `SimpleInbox.MessagePending` exactly or
+        /// receipt-log classification silently misses it.
+        event MessagePending(bytes32 indexed messageId, address indexed destinationContract);
 
         /// Reverts emitted by the inbox when delivery fails or is redundant. Used to classify
-        /// transaction outcomes for metrics + retry logic.
+        /// transaction outcomes for metrics + retry logic. NOTE: the current `SimpleInbox` rejects
+        /// duplicates with `require(..., "Already validated")` (a string revert) — classifiers must
+        /// match that string as well as the custom-error selector kept for future inbox versions.
         error MessageAlreadyValidated();
         error InvalidVotes();
         error VotesBelowThreshold();
@@ -119,6 +136,16 @@ sol! {
         ) external;
 
         event Acknowledged(bytes32 indexed messageId);
+
+        /// Validator-local reverts (proof rejected before reaching the Outbox). Permanent for a
+        /// given proof, so the ack submitter treats them as terminal. Message-state errors
+        /// (`MessageDoesNotRequireAck` / `MessageNotFound` / `MessageAlreadyAcknowledged`) bubble
+        /// up from the Outbox — see [`IOutbox`].
+        error ProofVerificationFailed();
+        error NoMessageDeliveredLogs();
+        error MalformedMessageDeliveredLog();
+        error EncodedTransactionTooLarge(uint256 size, uint256 maxSize);
+        error UnsupportedTxType(uint8 txType);
     }
 
     /// One sibling along the merkle inclusion path. `isLeft` says whether the sibling is the

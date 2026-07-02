@@ -28,7 +28,7 @@ use alloy::primitives::{Bytes, B256};
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Filter;
 use alloy::signers::local::PrivateKeySigner;
-use alloy::sol_types::SolEvent;
+use alloy::sol_types::{SolError, SolEvent};
 use anyhow::{anyhow, Context, Result};
 use futures::StreamExt;
 use serde::Deserialize;
@@ -67,6 +67,16 @@ const MAX_ACKS_PER_TICK: usize = 256;
 /// Maximum concurrent proof-fetch + submit attempts within a tick. Bounds load on the proof-gen
 /// API and the source RPC while still pipelining instead of going strictly serial.
 const MAX_ACK_CONCURRENCY: usize = 8;
+
+/// Maximum block span per `eth_getLogs` scan. Public RPCs cap the queryable range; an over-large
+/// resume range (long downtime, deep `start_block` backfill) would error on every tick and wedge
+/// discovery forever. Bounded chunks advance the cursor incrementally — the 6s tick catches up.
+const MAX_BLOCKS_PER_SCAN: u64 = 5_000;
+
+/// Upper bound on waiting for the submitAcknowledgment receipt, so one stuck tx cannot wedge the
+/// per-tick pipeline. On timeout the tx stays pending and is retried on a later tick (idempotent:
+/// a duplicate lands as `MessageAlreadyAcknowledged`, a terminal revert).
+const RECEIPT_TIMEOUT: Duration = Duration::from_secs(120);
 
 /// Spawn the acknowledgment submitter for one route. Returns immediately when the route has no
 /// `ack` config; otherwise loops until `cancel` fires or an unrecoverable error occurs.
@@ -211,11 +221,13 @@ async fn discover_delivered<P: Provider>(
     done: &BoundedSeen,
 ) -> Result<()> {
     let tip = provider.get_block_number().await?;
-    let to_block = tip.saturating_sub(confirmation_depth);
-    if to_block <= *last_seen {
+    let confirmed = tip.saturating_sub(confirmation_depth);
+    if confirmed <= *last_seen {
         return Ok(());
     }
     let from_block = *last_seen + 1;
+    // Bounded chunk (see MAX_BLOCKS_PER_SCAN): never ask the RPC for more than it will serve.
+    let to_block = confirmed.min(last_seen.saturating_add(MAX_BLOCKS_PER_SCAN));
 
     let filter = Filter::new()
         .address(inbox)
@@ -445,45 +457,81 @@ async fn acknowledge_tx<P: Provider>(
         .await;
 
     match pending_tx {
-        Ok(builder) => match builder.get_receipt().await {
-            Ok(receipt) if receipt.status() => {
-                // Report the on-chain gas cost of the submitAcknowledgment call.
-                // gas_used is cast to u128 so the arithmetic is valid regardless of
-                // the receipt's integer width; the wide-integer fields are recorded
-                // via Display (`%`) because `tracing` has no native u128 Value impl.
-                let gas_used = u128::from(receipt.gas_used);
-                let effective_gas_price = receipt.effective_gas_price;
-                let gas_cost_wei = gas_used.saturating_mul(effective_gas_price);
-                info!(
-                    chain_key,
-                    %tx_hash,
-                    ack_tx_hash = %receipt.transaction_hash,
-                    gas_used = %gas_used,
-                    effective_gas_price_wei = %effective_gas_price,
-                    gas_cost_wei = %gas_cost_wei,
-                    "submitAcknowledgment confirmed",
-                );
-                Ok(AckOutcome::Acknowledged)
-            }
-            Ok(_) => Ok(AckOutcome::Terminal("tx mined but reverted".into())),
-            Err(err) => Err(anyhow!("receipt fetch failed: {err}")),
+        Ok(builder) => match tokio::time::timeout(RECEIPT_TIMEOUT, builder.get_receipt()).await {
+            Err(_elapsed) => Err(anyhow!(
+                "no receipt within {RECEIPT_TIMEOUT:?} (ack tx possibly stuck)"
+            )),
+            Ok(receipt_result) => match receipt_result {
+                Ok(receipt) if receipt.status() => {
+                    // Report the on-chain gas cost of the submitAcknowledgment call.
+                    // gas_used is cast to u128 so the arithmetic is valid regardless of
+                    // the receipt's integer width; the wide-integer fields are recorded
+                    // via Display (`%`) because `tracing` has no native u128 Value impl.
+                    let gas_used = u128::from(receipt.gas_used);
+                    let effective_gas_price = receipt.effective_gas_price;
+                    let gas_cost_wei = gas_used.saturating_mul(effective_gas_price);
+                    info!(
+                        chain_key,
+                        %tx_hash,
+                        ack_tx_hash = %receipt.transaction_hash,
+                        gas_used = %gas_used,
+                        effective_gas_price_wei = %effective_gas_price,
+                        gas_cost_wei = %gas_cost_wei,
+                        "submitAcknowledgment confirmed",
+                    );
+                    Ok(AckOutcome::Acknowledged)
+                }
+                Ok(_) => Ok(AckOutcome::Terminal("tx mined but reverted".into())),
+                Err(err) => Err(anyhow!("receipt fetch failed: {err}")),
+            },
         },
-        Err(err) if is_terminal_revert(&err) => Ok(AckOutcome::Terminal(err.to_string())),
+        Err(err) if is_terminal_revert(&err) => Ok(AckOutcome::Terminal(describe_revert(&err))),
         Err(err) => Err(anyhow!("submitAcknowledgment send failed: {err}")),
     }
 }
 
-/// Classify a submit error as a permanent on-chain revert (vs. a transient RPC failure). Already
-/// acknowledged / does-not-require-ack / proof-verification reverts are permanent — retrying will
-/// only revert again.
+/// Decode a known ack-path revert selector into its error name, for actionable Terminal logs
+/// (Creditcoin's EVM RPC returns raw selector data with no decoded name). Selectors come from the
+/// shared [`write_ability::abi`] `sol!` declarations, so they cannot drift from the contracts.
+fn ack_revert_name(sel: [u8; 4]) -> Option<&'static str> {
+    use crate::abi::{IAcknowledgmentValidator as V, IOutbox as O};
+    Some(match sel {
+        s if s == O::MessageDoesNotRequireAck::SELECTOR => "MessageDoesNotRequireAck",
+        s if s == O::MessageAlreadyAcknowledged::SELECTOR => "MessageAlreadyAcknowledged",
+        s if s == O::MessageNotFound::SELECTOR => "MessageNotFound",
+        s if s == V::ProofVerificationFailed::SELECTOR => "ProofVerificationFailed",
+        s if s == V::NoMessageDeliveredLogs::SELECTOR => "NoMessageDeliveredLogs",
+        _ => return None,
+    })
+}
+
+/// Classify a submit error as a permanent on-chain revert (vs. a transient RPC failure). A contract
+/// revert observed at send / gas-estimation time is deterministic, so it must be terminal — otherwise
+/// the tx is retried forever (e.g. every bridge Release delivery, which reverts
+/// `MessageDoesNotRequireAck`). Matches revert phrasing across node dialects (see [`crate::revert`])
+/// plus decoded error names as a fallback.
 fn is_terminal_revert(err: &impl std::fmt::Display) -> bool {
     let s = err.to_string();
+    if crate::revert::is_revert(&s) {
+        return true;
+    }
+    // Decoded error-name fallback (nodes that surface the custom-error name without standard
+    // revert phrasing).
     s.contains("AlreadyAcknowledged")
         || s.contains("DoesNotRequireAck")
         || s.contains("MessageNotFound")
         || s.contains("ProofVerificationFailed")
         || s.contains("NoMessageDeliveredLogs")
-        || s.contains("execution reverted")
+}
+
+/// Prefix a terminal revert with the decoded error name when the selector is recognized, so the
+/// `ack skipped (terminal)` log tells the operator *why* without a manual selector lookup.
+fn describe_revert(err: &impl std::fmt::Display) -> String {
+    let s = err.to_string();
+    match crate::revert::revert_selector(&s).and_then(ack_revert_name) {
+        Some(name) => format!("{name}: {s}"),
+        None => s,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -680,11 +728,54 @@ mod tests {
 
     #[test]
     fn terminal_revert_classification() {
+        // Decoded-name form (nodes that surface the custom-error name).
         assert!(is_terminal_revert(&"reverted: MessageAlreadyAcknowledged"));
         assert!(is_terminal_revert(&"execution reverted"));
+
+        // Creditcoin EVM RPC form: raw selector data, no decoded name — this is what was slipping
+        // through and retrying forever on every bridge Release delivery (MessageDoesNotRequireAck).
+        assert!(is_terminal_revert(
+            &"submitAcknowledgment send failed: server returned an error response: error code \
+              -32603: VM Exception while processing transaction: revert, data: \
+              \"0x2f28bb55c8e0b2db4217508f44fb2d148bd9fab3c94e876a56a3fdbcf71f17570ecbe54c\""
+        ));
+        // Unknown selector but a clear revert phrasing is still terminal.
+        assert!(is_terminal_revert(
+            &"VM Exception while processing transaction: revert, data: \"0xdeadbeef\""
+        ));
+
+        // Genuine transient infra failures stay retryable.
         assert!(!is_terminal_revert(
             &"error sending request: connection refused"
         ));
+        assert!(!is_terminal_revert(
+            &"server returned an error response: error code -32000: insufficient funds for gas"
+        ));
+    }
+
+    #[test]
+    fn describe_revert_decodes_known_selectors() {
+        // The real-world Creditcoin node string for a bridge Release delivery: raw selector, no
+        // name. The Terminal log should still name the error for the operator.
+        let s = "VM Exception while processing transaction: revert, data: \
+                 \"0x2f28bb55c8e0b2db4217508f44fb2d148bd9fab3c94e876a56a3fdbcf71f17570ecbe54c\"";
+        assert!(describe_revert(&s).starts_with("MessageDoesNotRequireAck: "));
+        // Unknown selector passes through unchanged.
+        let unknown = "revert, data: \"0xdeadbeef\"";
+        assert_eq!(describe_revert(&unknown), unknown);
+        // Selector constants in the shared ABI must still hash to the on-wire values.
+        assert_eq!(
+            crate::abi::IOutbox::MessageDoesNotRequireAck::SELECTOR,
+            [0x2f, 0x28, 0xbb, 0x55]
+        );
+        assert_eq!(
+            crate::abi::IOutbox::MessageAlreadyAcknowledged::SELECTOR,
+            [0x33, 0x70, 0x4b, 0x28]
+        );
+        assert_eq!(
+            crate::abi::IOutbox::MessageNotFound::SELECTOR,
+            [0x5d, 0x80, 0x3c, 0xca]
+        );
     }
 
     fn tx(n: u8) -> B256 {

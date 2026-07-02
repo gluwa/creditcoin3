@@ -41,6 +41,7 @@ pub mod hash;
 pub mod p2p;
 pub mod pool;
 pub mod prom;
+pub mod revert;
 
 pub use config::{
     AttestorSet, AttestorSource, ChainRoute, Config, DeliveryConfig, P2pConfig, VoteCacheConfig,
