@@ -198,6 +198,7 @@ impl Server {
                     metrics.clone(),
                     resolver.clone(),
                     checkpoint.clone(),
+                    self.config.scan_lookback_blocks,
                     cancel.clone(),
                 ),
             );
@@ -217,6 +218,7 @@ impl Server {
                     route.clone(),
                     self.config.creditcoin_eth_rpc_url.clone(),
                     checkpoint.clone(),
+                    self.config.scan_lookback_blocks,
                     cancel.clone(),
                 ),
             );

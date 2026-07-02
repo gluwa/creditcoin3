@@ -27,6 +27,12 @@ pub const DEFAULT_GAS_MULTIPLIER: f64 = 1.2;
 pub const DEFAULT_P2P_PORT: u16 = 9100;
 /// Default reorg lag (blocks) for source chain finality.
 pub const DEFAULT_BLOCK_CONFIRMATION_DEPTH: u64 = 0;
+/// Default blocks to rewind the persisted scan cursors on startup. Pool/ack state is memory-only,
+/// so a message indexed-but-not-finished before a crash would otherwise be skipped forever (the
+/// cursor is already past it and stray votes are dropped by the chain-first allowlist). Re-scanning
+/// a recent window is idempotent: already-delivered messages resolve as "Already validated" at
+/// simulate, already-acknowledged ones are skipped by the requiresAck pre-check.
+pub const DEFAULT_SCAN_LOOKBACK_BLOCKS: u64 = 600;
 
 // ---------------------------------------------------------------------------
 // Validated runtime config
@@ -52,6 +58,10 @@ pub struct Config {
     /// block after a restart (never silently skips on-chain events emitted while it was down).
     /// `None` disables persistence (watchers start from the chain head).
     pub checkpoint_path: Option<PathBuf>,
+    /// Blocks to rewind persisted cursors on startup so in-flight work lost with the process
+    /// (pool votes, pending acks) is re-discovered. See [`DEFAULT_SCAN_LOOKBACK_BLOCKS`];
+    /// 0 disables the rewind.
+    pub scan_lookback_blocks: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +181,7 @@ impl Config {
             delivery: DeliveryConfig::default(),
             routes: vec![route],
             checkpoint_path,
+            scan_lookback_blocks: DEFAULT_SCAN_LOOKBACK_BLOCKS,
         }
     }
 
@@ -226,6 +237,8 @@ pub struct ConfigFile {
     pub vote_cache: VoteCacheConfigFile,
     #[serde(default)]
     pub delivery: DeliveryConfigFile,
+    #[serde(default = "default_scan_lookback_blocks")]
+    pub scan_lookback_blocks: u64,
     pub routes: Vec<ChainRouteFile>,
 }
 
@@ -338,6 +351,9 @@ fn default_delivery_max_retries() -> u32 {
 fn default_gas_multiplier() -> f64 {
     DEFAULT_GAS_MULTIPLIER
 }
+fn default_scan_lookback_blocks() -> u64 {
+    DEFAULT_SCAN_LOOKBACK_BLOCKS
+}
 
 impl ConfigFile {
     fn into_config(
@@ -381,6 +397,7 @@ impl ConfigFile {
             },
             routes,
             checkpoint_path,
+            scan_lookback_blocks: self.scan_lookback_blocks,
         })
     }
 }

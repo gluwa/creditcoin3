@@ -58,7 +58,9 @@ pub struct IndexedMessage {
 }
 
 /// Spawn one outbox watcher per route. Returns immediately; the watcher loops until `cancel`
-/// fires or an unrecoverable error occurs.
+/// fires or an unrecoverable error occurs. `scan_lookback_blocks` rewinds the persisted cursor on
+/// startup so messages indexed-but-undelivered when the process died are re-discovered (see
+/// [`crate::config::DEFAULT_SCAN_LOOKBACK_BLOCKS`]).
 #[allow(clippy::too_many_arguments)]
 pub async fn watch_outbox(
     route: ChainRoute,
@@ -67,6 +69,7 @@ pub async fn watch_outbox(
     metrics: Metrics,
     resolver: Arc<dyn OutboxResolver>,
     checkpoint: Option<Arc<CheckpointStore>>,
+    scan_lookback_blocks: u64,
     cancel: CancellationToken,
 ) -> Result<()> {
     let chain_key = route.chain_key;
@@ -104,14 +107,21 @@ pub async fn watch_outbox(
 
     // Resume from the persisted cursor (so events emitted while we were down are not skipped),
     // falling back to the current head on first run / when persistence is disabled.
+    // The cursor is rewound by `scan_lookback_blocks`: pool votes are memory-only, so a message
+    // indexed-but-undelivered before a crash would otherwise be skipped forever (the cursor is
+    // past it and stray votes are dropped by the chain-first allowlist). Re-indexing the recent
+    // window is idempotent — already-delivered messages re-collect votes via reobservation and
+    // resolve as "Already validated" at simulate.
     let mut last_seen = match checkpoint.as_ref().and_then(|c| c.get(&checkpoint_key)) {
         Some(block) => {
+            let resume = block.saturating_sub(scan_lookback_blocks);
             info!(
                 chain_key,
-                resume_from = block + 1,
-                "↩️ resuming Outbox scan from checkpoint"
+                checkpoint = block,
+                resume_from = resume + 1,
+                "↩️ resuming Outbox scan from checkpoint (rewound by lookback)"
             );
-            block
+            resume
         }
         None => {
             if let Some(start) = route.start_block {
