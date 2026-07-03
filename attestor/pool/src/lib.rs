@@ -717,20 +717,43 @@ impl Forks {
         Ok(())
     }
 
-    /// Best candidate fork: highest height ≥ `target` votes, ties broken by largest size at
-    /// that height. We iterate `by_height_size` in reverse (height desc, then size desc within a
-    /// height, then digest desc) and return the first quorum-sized entry we see.
+    /// Best candidate fork: highest height with a *clearly dominant* quorum — a fork with
+    /// ≥ `target` votes that is strictly larger than every other quorum-qualified fork at the
+    /// same height.
+    ///
+    /// When the configured target is not proportional to the active set (see USCP2-004,
+    /// `target_sample_size` can put the threshold at or below half the committee), two
+    /// conflicting digests at one height can *both* reach the target with disjoint signer sets.
+    /// Selecting one by index ordering would arbitrarily commit this node to a side of the
+    /// split; instead the height is treated as ambiguous (fail closed) until one fork pulls
+    /// strictly ahead, and lower heights remain eligible meanwhile.
+    ///
+    /// We iterate `by_height_size` in reverse (height desc, then size desc within a height, then
+    /// digest desc), so the first entry seen per height is its largest fork; a tie is detected by
+    /// peeking at the next entry of the same height.
     fn best(&self, target: usize) -> Option<&AttestationVote> {
-        let mut skip_height: Option<Height> = None;
-        for (h, size, digest) in self.by_height_size.iter().rev() {
-            if Some(*h) == skip_height {
-                continue;
+        let mut iter = self.by_height_size.iter().rev().peekable();
+        while let Some((height, size, digest)) = iter.next() {
+            let qualified = *size >= target;
+            let tied_qualified = qualified
+                && iter
+                    .peek()
+                    .is_some_and(|(h, s, _)| h == height && s == size);
+            if qualified && !tied_qualified {
+                return self.by_digest.get(&(*height, *digest));
             }
-            if *size >= target {
-                return self.by_digest.get(&(*h, *digest));
+            if tied_qualified {
+                tracing::warn!(
+                    height = *height,
+                    votes = *size,
+                    target,
+                    "⚖️ multiple quorum-qualified forks at one height — waiting for a dominant fork"
+                );
             }
-            // Largest fork at this height fails quorum → skip the rest of this height.
-            skip_height = Some(*h);
+            // Sub-quorum largest fork, or an ambiguous tie → skip the rest of this height.
+            while iter.peek().is_some_and(|(h, ..)| h == height) {
+                iter.next();
+            }
         }
         None
     }
@@ -941,7 +964,13 @@ mod tests {
 
     fn pool(target: usize) -> Pool {
         Pool::new(
-            ValidateAttestor::new(vec![account(0), account(1), account(2), account(3)]),
+            ValidateAttestor::new(vec![
+                account(0),
+                account(1),
+                account(2),
+                account(3),
+                account(4),
+            ]),
             std::num::NonZero::new(target).unwrap(),
             std::num::NonZero::new(1).unwrap(),
             0,
@@ -985,20 +1014,49 @@ mod tests {
         // Fork A: 2 votes, sub-quorum.
         p.push(vote(0, 10, 0xaa)).unwrap();
         p.push(vote(1, 10, 0xaa)).unwrap();
-        // Fork B: 3 votes, quorum.
+        // Fork B: 2 votes, sub-quorum. Split 4 attestors across two forks for 2+2, target=3 →
+        // no quorum at all.
         p.push(vote(2, 10, 0xbb)).unwrap();
         p.push(vote(3, 10, 0xbb)).unwrap();
-        // Reuse a fresh seed to add a 3rd vote to fork B from yet another attestor — wait, our
-        // attestor set has 4 ids (0..3) and they have to be distinct. Hmm — split 4 across two
-        // forks for 2+2, target=3 → no quorum at all. That's actually a separate property
-        // worth checking: best() returns None when nothing crosses target.
         assert!(p.forks.best(3).is_none(), "no fork should cross target=3");
+    }
 
-        // Now lower target to 2 → both forks pass; we want the LARGER one (tie on height → tie
-        // on size means BTreeSet returns the larger-digest tuple first, both have size=2;
-        // any of the two is acceptable, but it must have size >= target).
-        let best = p.forks.best(2).expect("either fork qualifies");
-        assert!(best.signers.len() >= 2);
+    /// Two quorum-qualified forks of equal size at the same height are ambiguous — the pool must
+    /// fail closed (return neither) instead of committing to one by index ordering. A lower
+    /// height with an unambiguous quorum stays eligible.
+    #[test]
+    fn best_fails_closed_on_tied_qualified_forks() {
+        let mut p = pool(2);
+
+        // Height 5: a clean quorum (backup candidate).
+        p.push(vote(0, 5, 0xcc)).unwrap();
+        p.push(vote(1, 5, 0xcc)).unwrap();
+        // Height 10: two disjoint 2-vote forks, both meeting target=2 — ambiguous.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        p.push(vote(2, 10, 0xbb)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+
+        let best = p.forks.best(2).expect("lower unambiguous height qualifies");
+        assert_eq!(best.height, 5, "ambiguous height 10 must be skipped");
+        assert_eq!(best.digest, Digest::from([0xcc; 32]));
+    }
+
+    /// Once one of two qualified forks pulls strictly ahead it is clearly dominant and selected.
+    #[test]
+    fn best_selects_strictly_dominant_fork_over_qualified_runner_up() {
+        let mut p = pool(2);
+
+        // Fork A: 3 votes; fork B: 2 votes — both ≥ target, A strictly dominant.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        p.push(vote(2, 10, 0xaa)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+        p.push(vote(4, 10, 0xbb)).unwrap();
+
+        let best = p.forks.best(2).expect("dominant fork qualifies");
+        assert_eq!(best.digest, Digest::from([0xaa; 32]));
+        assert_eq!(best.signers.len(), 3);
     }
 
     /// `mark_valid` must lock the height: subsequent pushes at the same height are rejected.
