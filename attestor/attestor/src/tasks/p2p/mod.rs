@@ -58,6 +58,10 @@ pub async fn run(
     let enable_mdns = !cfg.no_mdns;
     let chain_key = cfg.chain_key;
 
+    // Built before the swarm because the behavior needs the topic hash to install its
+    // gossipsub peer-scoring topic parameters.
+    let topic = libp2p::gossipsub::IdentTopic::new(format!("{chain_key}/attest"));
+
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(cfg.keypair)
         .with_tokio()
         .with_tcp(
@@ -69,11 +73,10 @@ pub async fn run(
         .with_quic()
         .with_dns()
         .map_err(|e| Error::P2p(e.into()))?
-        .with_behaviour(|k| behavior::P2PBehavior::new(k, enable_mdns))
+        .with_behaviour(|k| behavior::P2PBehavior::new(k, enable_mdns, &topic))
         .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?
         .build();
 
-    let topic = libp2p::gossipsub::IdentTopic::new(format!("{chain_key}/attest"));
     tracing::info!(%topic, "📫 subscribing to lightweight attestation gossip");
     swarm
         .behaviour_mut()
