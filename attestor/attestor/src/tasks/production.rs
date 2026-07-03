@@ -74,7 +74,7 @@ pub async fn run(
                     ..Default::default()
                 }),
         )
-        .with_max_catchup(common::constants::MAX_CATCHUP)
+        .with_max_catchup(shared.max_catchup())
         .build();
     let mut stream_attestation = stream::attestation::StreamAttestation::new(attestation_cfg);
 
@@ -291,6 +291,21 @@ async fn handle_one(
         CcEvent::TargetSampleSizeChanged(_, target) => {
             tracing::info!(target, "📏 new target sample size");
             shared.pool_send.note_target_sample_size_change(target);
+        }
+
+        // 3b] new max catchup (block-count bound per continuity proof). Keep the off-chain view
+        // in sync with runtime policy: the eth stream's root cache / proof length, the pool's
+        // vote-admission window, and p2p pending-vote buffering all derive from this value.
+        CcEvent::MaxCatchupChanged(_, raw) => {
+            let Some(max_catchup) = NonZero::new(u64::from(raw)) else {
+                return Ok(());
+            };
+            tracing::info!(max_catchup = %max_catchup, "🔢 new max catchup");
+            *shared.max_catchup.write() = max_catchup;
+            stream_attestation
+                .note_max_catchup_change(max_catchup)
+                .await;
+            shared.pool_send.note_max_catchup_change(max_catchup);
         }
 
         // 4] attestor election

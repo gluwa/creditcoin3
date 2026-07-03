@@ -400,6 +400,14 @@ impl Sender {
         }
     }
 
+    /// The on-chain `MaxCatchup` (in blocks) changed — adjust the vote-admission window.
+    pub fn note_max_catchup_change(&self, max_catchup: NonZero<Height>) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.validate_quorum.max_catchup = max_catchup;
+        }
+    }
+
     pub fn note_target_sample_size_change(&self, target_sample_size: u32) {
         let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
         let Some(quorum_new) = NonZero::new(threshold) else {
@@ -894,7 +902,11 @@ struct ValidateQuorum {
 
 impl ValidateQuorum {
     fn height_admissible(&self, height: Height, last_finalized: Option<Height>) -> bool {
-        let window = self.max_catchup.get().saturating_mul(self.interval.get());
+        // `max_catchup` is a *block-count* bound (matching the runtime's `MaxCatchup` storage
+        // and `StreamAttestation`): production never emits more than `max_catchup` blocks above
+        // the last finalized attestation. `max(interval)` keeps the next interval-aligned
+        // target admissible when the configured catch-up bound is smaller than the interval.
+        let window = self.max_catchup.get().max(self.interval.get());
         let base = last_finalized.unwrap_or(self.start_height);
         let upper = base.saturating_add(window);
         let above = match last_finalized {

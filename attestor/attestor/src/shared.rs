@@ -71,6 +71,9 @@ pub struct Shared {
     pub proof_cache: Arc<ProofCache>,
 
     pub interval_attestation: parking_lot::RwLock<NonZero<Height>>,
+    /// On-chain `MaxCatchup` (block-count bound per continuity proof). Fetched at startup and
+    /// kept in sync by the production task via `MaxCatchupChanged` events.
+    pub max_catchup: parking_lot::RwLock<NonZero<Height>>,
     pub maturity_delay: u64,
     pub start_height: Height,
     pub genesis: Height,
@@ -89,5 +92,10 @@ impl Shared {
     /// Cheap typed accessor.
     pub fn attestation_interval(&self) -> NonZero<Height> {
         *self.interval_attestation.read()
+    }
+
+    /// Cheap typed accessor.
+    pub fn max_catchup(&self) -> NonZero<Height> {
+        *self.max_catchup.read()
     }
 }
