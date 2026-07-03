@@ -56,9 +56,16 @@ impl P2PBehavior {
                 .with_timeout(std::time::Duration::from_secs(10)),
         );
 
+        // Per-peer cap bounds a single peer's connections; the global caps bound the *total*
+        // established connections so a Sybil attacker opening connections from many fresh peer
+        // ids can't exhaust file descriptors / memory / gossip-processing capacity. Attestor
+        // networks are committee-sized (tens of peers), so these limits are generous for
+        // legitimate topologies while still bounding resource pressure.
         let limits = libp2p::connection_limits::Behaviour::new(
             libp2p::connection_limits::ConnectionLimits::default()
-                .with_max_established_per_peer(Some(8)),
+                .with_max_established_per_peer(Some(8))
+                .with_max_established(Some(512))
+                .with_max_established_incoming(Some(256)),
         );
 
         let identify = libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
