@@ -26,6 +26,13 @@ use crate::vote::{verify_vote, VerifyResult};
 /// Consecutive failed pings on a single connection before we reap it.
 const MAX_PING_FAILURES: u32 = 3;
 
+/// Consecutive failed *dials* to a peer before we drop it from the Kademlia routing table.
+/// Kademlia never evicts on dial failure by itself, and peers re-share stale records with each
+/// other, so a node that shut down while still registered on-chain would otherwise be redialed
+/// forever (the deny-list only covers attestors that were chilled/kicked). Eviction is safe: if
+/// the peer comes back it re-announces via identify/kad discovery and is re-added as usual.
+const MAX_DIAL_FAILURES: u32 = 5;
+
 #[derive(builder::Builder)]
 pub struct Config {
     pub boot_nodes: Vec<libp2p::Multiaddr>,
@@ -74,6 +81,11 @@ pub async fn run(
         .subscribe(&topic)
         .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
 
+    // Configured boot nodes are exempt from dial-failure eviction below: they are the rendezvous
+    // points the mesh reforms through, so a temporarily-down bootnode must keep being retried
+    // rather than dropped from the routing table.
+    let mut boot_peers: std::collections::HashSet<libp2p::PeerId> =
+        std::collections::HashSet::new();
     for address in cfg.boot_nodes {
         let Some(peer_id) = address.iter().find_map(|p| match p {
             libp2p::multiaddr::Protocol::P2p(pid) => Some(pid),
@@ -82,6 +94,7 @@ pub async fn run(
             tracing::error!(%address, "missing peer id in multiaddr");
             continue;
         };
+        boot_peers.insert(peer_id);
         swarm.behaviour_mut().kad.add_address(&peer_id, address);
     }
 
@@ -114,6 +127,13 @@ pub async fn run(
     // ourselves. Tracks consecutive failed pings per connection and reaps the connection once it
     // crosses MAX_PING_FAILURES so a wedged socket can't silently starve the mesh.
     let mut ping_failures: std::collections::HashMap<libp2p::swarm::ConnectionId, u32> =
+        std::collections::HashMap::new();
+
+    // Consecutive failed dial attempts per peer (transport-level failures only — timeouts,
+    // refused, handshake errors). Cleared the moment any connection to the peer is established,
+    // so only genuinely unreachable peers accumulate towards MAX_DIAL_FAILURES. Bounded by the
+    // set of peers we actually dial (committee-sized), and entries are removed on eviction.
+    let mut dial_failures: std::collections::HashMap<libp2p::PeerId, u32> =
         std::collections::HashMap::new();
 
     // Known attestor → libp2p peer id bindings, learned from the (gossipsub-signed) authorship of
@@ -195,6 +215,8 @@ pub async fn run(
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
+                    &mut dial_failures,
+                    &boot_peers,
                     &mut peers_by_attestor,
                     event,
                 ).await;
@@ -212,6 +234,8 @@ async fn handle_swarm(
     pending_votes: &mut std::collections::HashMap<attestor_primitives::Height, Vec<Vote>>,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
+    dial_failures: &mut std::collections::HashMap<libp2p::PeerId, u32>,
+    boot_peers: &std::collections::HashSet<libp2p::PeerId>,
     peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
     event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
 ) {
@@ -383,6 +407,9 @@ async fn handle_swarm(
             if num_established.get() == 1 {
                 shared.metrics.note_peer_connected();
             }
+            // Any established connection (either direction) proves the peer reachable — restart
+            // its dial-failure count from a clean slate.
+            dial_failures.remove(&peer_id);
             // Deny-list gate for *incoming* connections: a chilled node that keeps running will
             // dial us. We disconnect *after* the gauge bump above so the paired
             // `ConnectionClosed` decrement keeps the connected-peer count balanced (it's an
@@ -400,13 +427,32 @@ async fn handle_swarm(
         } => {
             tracing::warn!(?peer_id, %connection_id, %error, "⛔ outgoing connection error");
             shared.metrics.increase_connection_failure_count();
-            // Only drop a peer for unambiguously malicious / unrecoverable errors. v1 logic
-            // verbatim, condensed: WrongPeerId and Denied → remove; everything else → log.
             match error {
+                // Unambiguously malicious / unrecoverable — drop immediately (v1 logic).
                 libp2p::swarm::DialError::WrongPeerId { .. }
                 | libp2p::swarm::DialError::Denied { .. } => {
                     if let Some(p) = peer_id {
                         swarm.behaviour_mut().kad.remove_peer(&p);
+                        dial_failures.remove(&p);
+                    }
+                }
+                // Transport-level failure (timeout, refused, handshake error) — genuine evidence
+                // of unreachability. Count it, and once a peer racks up MAX_DIAL_FAILURES in a
+                // row without a single established connection, drop it from the routing table so
+                // we stop redialing a node that shut down while still registered on-chain.
+                // Deliberately NOT counted: `DialPeerConditionFalse` (dial suppressed, nothing
+                // attempted), `NoAddresses` (nothing to evict), `Aborted`/`LocalPeerId` (not
+                // reachability evidence).
+                libp2p::swarm::DialError::Transport(_) => {
+                    if let Some(p) = peer_id {
+                        if note_dial_failure(dial_failures, boot_peers, p) {
+                            tracing::info!(
+                                peer_id = %p,
+                                failures = MAX_DIAL_FAILURES,
+                                "🧹 evicting unreachable peer after repeated dial failures"
+                            );
+                            swarm.behaviour_mut().kad.remove_peer(&p);
+                        }
                     }
                 }
                 _ => {}
@@ -491,6 +537,29 @@ fn evict_peer(swarm: &mut libp2p::Swarm<behavior::P2PBehavior>, peer_id: libp2p:
     if swarm.disconnect_peer_id(peer_id).is_ok() {
         tracing::info!(%peer_id, "✂️  closed connection to denied peer");
     }
+}
+
+/// Records one transport-level dial failure for `peer_id` and reports whether the peer just
+/// crossed [`MAX_DIAL_FAILURES`] and should be evicted from the routing table. On eviction the
+/// counter is cleared so a later rediscovery of the same peer starts a fresh count instead of
+/// being evicted on its first failure. Boot nodes never evict — they are the rendezvous points
+/// the mesh reforms through, so their counter isn't even tracked. Split out from the swarm arm
+/// so the counting/threshold logic is unit-testable without a live swarm.
+fn note_dial_failure(
+    dial_failures: &mut std::collections::HashMap<libp2p::PeerId, u32>,
+    boot_peers: &std::collections::HashSet<libp2p::PeerId>,
+    peer_id: libp2p::PeerId,
+) -> bool {
+    if boot_peers.contains(&peer_id) {
+        return false;
+    }
+    let count = dial_failures.entry(peer_id).or_insert(0);
+    *count += 1;
+    if *count >= MAX_DIAL_FAILURES {
+        dial_failures.remove(&peer_id);
+        return true;
+    }
+    false
 }
 
 /// Handle a production nudge that an attestor was chilled/kicked: evict every peer we've mapped to
@@ -758,6 +827,61 @@ mod tests {
         let active: Vec<AttestorId> = vec![];
         let mapped = [att(1), att(2)];
         assert!(deny_decision(mapped.iter(), |a| active.contains(a)));
+    }
+
+    // ---------------------------* dial-failure eviction *--------------------------- //
+
+    use super::{note_dial_failure, MAX_DIAL_FAILURES};
+    use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn peer_evicts_only_after_max_consecutive_dial_failures() {
+        let mut failures = HashMap::new();
+        let boot = HashSet::new();
+        let peer = libp2p::PeerId::random();
+        for _ in 0..MAX_DIAL_FAILURES - 1 {
+            assert!(!note_dial_failure(&mut failures, &boot, peer));
+        }
+        assert!(note_dial_failure(&mut failures, &boot, peer));
+    }
+
+    #[test]
+    fn eviction_clears_the_counter_for_a_fresh_start() {
+        let mut failures = HashMap::new();
+        let boot = HashSet::new();
+        let peer = libp2p::PeerId::random();
+        for _ in 0..MAX_DIAL_FAILURES {
+            note_dial_failure(&mut failures, &boot, peer);
+        }
+        // Counter was cleared on eviction: the peer must survive another full round of failures
+        // before evicting again (rediscovery is not punished for the old streak).
+        assert!(!failures.contains_key(&peer));
+        assert!(!note_dial_failure(&mut failures, &boot, peer));
+    }
+
+    #[test]
+    fn boot_nodes_are_never_evicted_and_never_tracked() {
+        let mut failures = HashMap::new();
+        let peer = libp2p::PeerId::random();
+        let boot: HashSet<_> = [peer].into();
+        for _ in 0..MAX_DIAL_FAILURES * 2 {
+            assert!(!note_dial_failure(&mut failures, &boot, peer));
+        }
+        assert!(failures.is_empty());
+    }
+
+    #[test]
+    fn dial_failures_are_tracked_per_peer() {
+        let mut failures = HashMap::new();
+        let boot = HashSet::new();
+        let a = libp2p::PeerId::random();
+        let b = libp2p::PeerId::random();
+        for _ in 0..MAX_DIAL_FAILURES - 1 {
+            assert!(!note_dial_failure(&mut failures, &boot, a));
+        }
+        // b's single failure must not tip a over the threshold or vice versa.
+        assert!(!note_dial_failure(&mut failures, &boot, b));
+        assert!(note_dial_failure(&mut failures, &boot, a));
     }
 
     // MAX_CATCHUP = 500, so the admission window is 500 * interval above the finalized height.
