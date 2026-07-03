@@ -499,7 +499,7 @@ async fn aggregate_and_validate(
         height,
         last_finalized,
         digest_local,
-        shared.start_height,
+        shared.genesis,
     )
     .map_err(|_| ValidationError::Invalid)?;
 
@@ -538,13 +538,16 @@ fn validate_proof_chain(
     height: Height,
     last_finalized: cc_client::H256,
     digest_local: Option<Digest>,
-    start_height: Height,
+    genesis: Height,
 ) -> Result<(), ()> {
     let proof = &cached.continuity_proof;
     let data = &cached.attestation_data;
 
     if proof.is_empty() {
-        if height == start_height {
+        // Only the true chain genesis is exempt from the direct-link check. Keying this on the
+        // local start height would let a restarted node (start = last finalized + 1) locally
+        // accept a malformed non-genesis empty-proof attestation that the runtime then rejects.
+        if height == genesis {
             return Ok(());
         }
         // Direct-link path: runtime accepts empty continuity proof when prev_digest
