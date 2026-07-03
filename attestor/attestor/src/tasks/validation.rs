@@ -196,6 +196,7 @@ async fn handle_submission_result(
     submission: Submission,
 ) {
     let Submission { height, outcome } = submission;
+    let unresolved = matches!(outcome, Outcome::Unresolved);
     match outcome {
         Outcome::Eligible {
             result: Ok(events), ..
@@ -268,10 +269,35 @@ async fn handle_submission_result(
         Outcome::Finalized => {
             tracing::info!(height, "✅ finalized externally");
         }
+        Outcome::Unresolved => {
+            tracing::warn!(
+                height,
+                "❓ submission outcome unresolved — unlocking height unless it finalizes shortly"
+            );
+        }
     }
 
     // Wait briefly for this height to finalize on chain before pulling the next stash.
     wait_finalized(shared, height).await;
+
+    // Unresolved outcome (timeout, txpool rejection, chilled skip, rpc failure): if the height
+    // *still* hasn't finalized after the bounded wait, clear the local validation lock. Leaving
+    // it set would reject every future vote at this height, blocking same-height retries until
+    // an unrelated recovery path happened to clear it.
+    if unresolved {
+        let finalized = shared
+            .latest_finalized_rx
+            .borrow()
+            .map(|info| info.height >= height)
+            .unwrap_or(false);
+        if !finalized {
+            tracing::warn!(
+                height,
+                "🔓 height not finalized after unresolved submission — unlocking"
+            );
+            shared.pool_send.note_majority_not_reached(height);
+        }
+    }
 
     // Stashed quorums were validated against the threshold / active set *at stash time*; either
     // may have changed while the previous submission was in flight. Revalidate before
@@ -608,7 +634,14 @@ enum Outcome {
         result: Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>,
         votes: Vec<Vote>,
     },
+    /// The height was *observed finalized* on chain (via the shared finalized watch) — the
+    /// pipeline can safely move on, whatever happened to our own extrinsic.
     Finalized,
+    /// We did not submit (chilled, txpool rejection, failed rpc) or stopped watching before an
+    /// outcome was known (watch timeout). Finalization was NOT observed. The handler unlocks
+    /// the height if it still hasn't finalized after the bounded wait, so future votes and
+    /// quorums aren't rejected forever behind a stale validation lock.
+    Unresolved,
 }
 
 fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHandle<Submission> {
@@ -620,6 +653,7 @@ fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHa
         let outcome = match submit_one(&shared, agg).await {
             OutcomeInternal::Eligible(result) => Outcome::Eligible { result, votes },
             OutcomeInternal::Finalized => Outcome::Finalized,
+            OutcomeInternal::Unresolved => Outcome::Unresolved,
         };
         Submission { height, outcome }
     })
@@ -630,14 +664,17 @@ fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHa
 enum OutcomeInternal {
     Eligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
     Finalized,
+    Unresolved,
 }
 
 async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
     let height = agg.height;
 
     if !*shared.can_attest_rx.borrow() {
+        // Deliberate skip, but nothing was observed finalized — Unresolved so the handler
+        // unlocks the height and the pool keeps collecting for it (matters if we reactivate).
         tracing::info!(height, "⏳ chilled, skipping submission");
-        return OutcomeInternal::Finalized;
+        return OutcomeInternal::Unresolved;
     }
 
     // Submit jitter (skipped for genesis). Every attestor submits on quorum — the
@@ -670,7 +707,8 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         }
 
         if !*shared.can_attest_rx.borrow() {
-            return OutcomeInternal::Finalized;
+            // Chilled while jittering — same reasoning as the pre-jitter chill check above.
+            return OutcomeInternal::Unresolved;
         }
     }
 
@@ -718,21 +756,25 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
                                     "🩺 txpool flagged bad-sig — forcing reconnect"
                                 );
                                 let _ = reconnect(shared).await;
-                                return OutcomeInternal::Finalized;
+                                return OutcomeInternal::Unresolved;
                             }
+                            // Usually "another attestor won the race" — but that competing tx
+                            // hasn't finalized yet, so classify as Unresolved: if it does land,
+                            // the handler's bounded wait observes it; if not, the height is
+                            // unlocked for a retry instead of staying locked forever.
                             tracing::info!(
                                 height,
                                 code = obj.code(),
                                 %detail,
                                 "🚫 prevalidation rejected"
                             );
-                            return OutcomeInternal::Finalized;
+                            return OutcomeInternal::Unresolved;
                         }
                     }
                 }
                 tracing::warn!(height, ?err, "submission rpc error");
                 if reconnect(shared).await.is_err() {
-                    return OutcomeInternal::Finalized;
+                    return OutcomeInternal::Unresolved;
                 }
             }
         }
@@ -768,7 +810,7 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
                 height,
                 "🏃 submit watch timed out — unblocking pipeline (extrinsic may still finalize asynchronously; nonce burns either way)"
             );
-            OutcomeInternal::Finalized
+            OutcomeInternal::Unresolved
         }
     }
 }
