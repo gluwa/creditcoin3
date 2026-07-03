@@ -136,6 +136,13 @@ impl StreamAttestation {
         self.max_catchup
     }
 
+    /// Latest observed source-chain tip, aligned down to the attestation interval (the highest
+    /// producible attestation target). `0` until the tip stream has yielded at least once.
+    /// Exposed so callers can report source-chain lag without a second tip subscription.
+    pub fn tip(&self) -> attestor_primitives::Height {
+        self.tip
+    }
+
     /// Lets the [`StreamAttestation`] know that a new attestation has finalized on-chain.
     ///
     /// This is a no-op if the stream was already notified of a higher attestation finalizing, or
