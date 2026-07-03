@@ -8,10 +8,9 @@
 pragma solidity ^0.8.24;
 
 interface IOutbox {
-    function publishMessage(
-        bool requiresAck,
-        bytes calldata payload
-    ) external returns (bytes32 messageId);
+    function publishMessage(bool requiresAck, bytes calldata payload)
+        external
+        returns (bytes32 messageId);
 }
 
 contract SimpleDApp {
@@ -37,11 +36,10 @@ contract SimpleDApp {
         outbox = IOutbox(_outboxAddr);
     }
 
-    function publishMessage(
-        bool requiresAck,
-        address destinationContract,
-        string calldata message
-    ) external returns (bytes32 messageId) {
+    function publishMessage(bool requiresAck, address destinationContract, string calldata message)
+        external
+        returns (bytes32 messageId)
+    {
         bytes memory payloadData = bytes(message);
         bytes memory payload = abi.encode(destinationContract, payloadData);
 
