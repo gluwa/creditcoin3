@@ -290,7 +290,18 @@ impl StreamAttestation {
         );
 
         let continuity_proof = attestor_primitives::block::ContinuityProof::from_blocks(blocks);
-        let prev_digest = if self.attestation_interval.get() == 1 {
+        // `prev_digest` derives from the *shape of the continuity proof*, not the attestation
+        // interval:
+        //
+        // * Empty proof (the target directly follows the previous finalized attestation —
+        //   e.g. after an interval change, a reversion, or a restart from a non-aligned
+        //   height): the runtime's direct-link path requires `prev_digest` to equal the last
+        //   finalized digest. Deriving it from the (empty) proof would yield the proof's
+        //   default zero `lower_endpoint_digest`, which the runtime rejects for non-genesis
+        //   attestations.
+        // * Non-empty proof: the runtime reconstructs the digest chain over the proof roots and
+        //   requires `prev_digest` to equal the reconstructed head.
+        let prev_digest = if continuity_proof.is_empty() {
             Some(self.attestation_prev.digest)
         } else {
             Some(continuity_proof.compute_continuity_digest(block_first))
