@@ -517,6 +517,23 @@ impl Client {
         Ok(result)
     }
 
+    /// On-chain `MaxCatchup` (block-count bound per continuity proof) for a chain. The storage
+    /// entry is `ValueQuery` with a runtime default, so `fetch_or_default` always yields the
+    /// effective value even when the chain never set one explicitly.
+    pub async fn max_catchup(&self, chain_key: ChainKey) -> Result<u32, Error> {
+        let storage_query = cc3::storage().attestation().max_catchup(chain_key);
+
+        let result = self
+            .api()
+            .storage()
+            .at_latest()
+            .await?
+            .fetch_or_default(&storage_query)
+            .await?;
+
+        Ok(result)
+    }
+
     pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>, Error> {
         let storage_query = cc3::storage().attestation().last_digest(chain_key);
 

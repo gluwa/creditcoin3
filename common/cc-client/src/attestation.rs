@@ -15,7 +15,7 @@ use crate::cc3::{
     attestation::events::{
         AttestationChainGenesisBlockNumberSet, AttestationIntervalChanged, AttestorActivated,
         AttestorChilled, AttestorsElected, BlockAttested, CheckpointIntervalChanged,
-        CheckpointReached, RevertedAttestationChainTo, TargetSampleSizeChanged,
+        CheckpointReached, MaxCatchupChanged, RevertedAttestationChainTo, TargetSampleSizeChanged,
     },
     randomness::events::StoreRandomnessForEpoch,
     staking::events::Kicked,
@@ -56,6 +56,8 @@ pub enum CcEvent {
     AttestationIntervalChanged(ChainKey, u64),
     TargetSampleSizeChanged(ChainKey, u32),
     CheckpointIntervalChanged(ChainKey, u64),
+    /// On-chain `MaxCatchup` (block-count bound per continuity proof) changed for a chain.
+    MaxCatchupChanged(ChainKey, u32),
     AttestorsElected(ChainKey, Vec<AccountId32>),
     AttestorActivated(ChainKey, AccountId32),
     AttestorChilled(ChainKey, AccountId32),
@@ -330,6 +332,20 @@ impl Client {
                             chain_key,
                             interval_new,
                         )))
+                    }
+                    (MaxCatchupChanged::PALLET, MaxCatchupChanged::EVENT) => {
+                        let Ok(Some(event)) = event.as_event::<MaxCatchupChanged>() else {
+                            tracing::error!("Invalid event mapping");
+                            return None;
+                        };
+
+                        let MaxCatchupChanged(chain_key, max_catchup_new) = event;
+
+                        if !chain_filter.contains(&chain_key) {
+                            return None;
+                        }
+
+                        Some(Ok(CcEvent::MaxCatchupChanged(chain_key, max_catchup_new)))
                     }
                     (CheckpointIntervalChanged::PALLET, CheckpointIntervalChanged::EVENT) => {
                         let Ok(Some(event)) = event.as_event::<CheckpointIntervalChanged>() else {

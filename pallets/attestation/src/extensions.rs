@@ -107,12 +107,14 @@ where
 
             // Reject oversized continuity proofs at txpool admission so a malicious or buggy
             // active attestor cannot force the runtime to run an unbounded keccak chain (over
-            // attacker-chosen `roots: Vec<H256>`) inside dispatch. Any legitimate proof spans
-            // at most `max_catchup * attestation_interval` blocks; anything beyond that is
-            // structurally non-finalizable.
+            // attacker-chosen `roots: Vec<H256>`) inside dispatch. `MaxCatchup` is a *block*
+            // bound (see its storage docs): each continuity proof spans at most that many
+            // blocks. `max(attestation_interval)` keeps steady-state attestations (whose
+            // proofs span `attestation_interval - 1` roots) admissible if `MaxCatchup` is ever
+            // configured below the interval. Anything beyond is structurally non-finalizable.
             let max_catchup = MaxCatchup::<T>::get(chain_key) as u64;
             let attestation_interval = Pallet::<T>::chain_attestation_interval(chain_key);
-            let max_roots = max_catchup.saturating_mul(attestation_interval) as usize;
+            let max_roots = max_catchup.max(attestation_interval) as usize;
             if attestation.continuity_proof.len() > max_roots {
                 return Err(TransactionValidityError::Invalid(
                     InvalidTransaction::Custom(OVERSIZED_PROOF_CODE),
@@ -135,7 +137,7 @@ where
 }
 
 /// `InvalidTransaction::Custom` code returned when `commit_attestation` carries a continuity
-/// proof exceeding `max_catchup * attestation_interval` roots. Distinct from `Stale`/`BadProof`
-/// so downstream tooling can disambiguate resource-exhaustion attempts from race-loser
-/// duplicates.
+/// proof exceeding `max(max_catchup, attestation_interval)` roots. Distinct from
+/// `Stale`/`BadProof` so downstream tooling can disambiguate resource-exhaustion attempts from
+/// race-loser duplicates.
 pub const OVERSIZED_PROOF_CODE: u8 = 1;

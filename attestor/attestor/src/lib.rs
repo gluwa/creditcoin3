@@ -216,9 +216,20 @@ impl Attestor {
         let quorum = NonZero::new(attestor_primitives::calculate_threshold(target) as usize)
             .expect("quorum > 0");
 
+        // On-chain `MaxCatchup` (block-count bound per continuity proof). The runtime rejects
+        // zero at `set_max_catchup`, so the fallback only guards a default-free chain state.
+        let max_catchup = cc3
+            .max_catchup(chain_key)
+            .await
+            .map(u64::from)
+            .ok()
+            .and_then(NonZero::new)
+            .unwrap_or(common::constants::MAX_CATCHUP);
+
         tracing::info!(
             quorum = %quorum,
             interval = %interval_attestation,
+            max_catchup = %max_catchup,
             start_height,
             ?start_attestation,
             "🧑‍🤝‍🧑 chain data");
@@ -264,7 +275,7 @@ impl Attestor {
                 .with_quorum(quorum)
                 .with_attestation_interval(interval_attestation)
                 .with_start_height(start_height)
-                .with_max_catchup(common::constants::MAX_CATCHUP)
+                .with_max_catchup(max_catchup)
                 .with_start_digest(start_attestation.map(|i| i.digest))
                 .with_start_height_finalized(start_attestation.map(|i| i.height))
                 .with_metrics(
@@ -324,6 +335,7 @@ impl Attestor {
             proof_cache,
 
             interval_attestation: parking_lot::RwLock::new(interval_attestation),
+            max_catchup: parking_lot::RwLock::new(max_catchup),
             maturity_delay,
             start_height,
             genesis: genesis_height,
