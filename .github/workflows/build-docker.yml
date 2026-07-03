@@ -26,17 +26,17 @@ jobs:
 
       - name: Build ${{ github.repository }} docker image
         run: |
-          docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" --sbom=true .
+          docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" --sbom=true --provenance=mode=max .
           docker images
 
       - name: Build ${{ github.repository }}:indexer-for-${{ inputs.version-string }} docker image
         run: |
-          tar --create --dereference --exclude-from=.dockerignore --exclude-from=cc3-indexer/.dockerignore . | docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ inputs.version-string }} --sbom=true -
+          tar --create --dereference --exclude-from=.dockerignore --exclude-from=cc3-indexer/.dockerignore . | docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max -
           docker images
 
       - name: Build ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} docker image
         run: |
-          docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true .
+          docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max .
           docker images
 
       - name: Export docker image into a file
