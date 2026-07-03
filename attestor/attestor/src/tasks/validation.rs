@@ -698,10 +698,13 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
                 return OutcomeInternal::Finalized;
             }
             tokio::select! {
-                _ = shared.token.cancelled() => return OutcomeInternal::Finalized,
+                // Shutdown / closed finalized watch: the height was never observed finalized,
+                // so report Unresolved — Finalized here would skip the handler's unlock path
+                // and leave the pool's validation lock set for a height that never landed.
+                _ = shared.token.cancelled() => return OutcomeInternal::Unresolved,
                 _ = tokio::time::sleep_until(deadline) => break,
                 r = rx.changed() => {
-                    if r.is_err() { return OutcomeInternal::Finalized; }
+                    if r.is_err() { return OutcomeInternal::Unresolved; }
                 }
             }
         }
