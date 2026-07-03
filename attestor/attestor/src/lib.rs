@@ -286,9 +286,10 @@ impl Attestor {
                 .build(),
         );
 
-        // Channels and watches
-        let (gossip_tx, gossip_rx) =
-            mpsc::channel::<vote::Vote>(common::constants::CAPACITY_CHANNEL);
+        // Channels and watches. The gossip channel is unbounded: production must neither block
+        // on nor drop a locally signed vote (see `Shared::gossip_tx`); the p2p task drains it
+        // unconditionally and its own retry queue is bounded.
+        let (gossip_tx, gossip_rx) = mpsc::unbounded_channel::<vote::Vote>();
         // Production → p2p nudge to evict a chilled/kicked attestor's peer. Unbounded: rare
         // (committee-change) events that must not apply backpressure to the production task.
         let (peer_deactivated_tx, peer_deactivated_rx) =

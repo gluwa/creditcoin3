@@ -211,23 +211,13 @@ async fn emit_local(shared: &Arc<Shared>, attestation: &common::types::Attestati
         err.log_error(digest);
     }
 
-    // Send to gossip. `try_send` (not `send().await`) so a wedged or backed-up p2p task can
-    // never apply backpressure into the production loop — blocking here would stall finality for
-    // every chain. A full channel means p2p is already struggling; drop this round's broadcast
-    // (our vote is in the local pool regardless, and peers re-gossip) rather than freeze
-    // production. A closed channel means p2p has exited; the supervisor will act on that.
-    match shared.gossip_tx.try_send(vote) {
-        Ok(()) => {}
-        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
-            tracing::warn!(
-                height,
-                ?digest,
-                "📭 gossip channel full — dropping broadcast this round"
-            );
-        }
-        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
-            tracing::warn!(?digest, "📭 gossip channel closed");
-        }
+    // Send to gossip. The channel is unbounded so this never blocks production and never drops
+    // a signed vote (a vote dropped here would be lost to the whole network — p2p's retry queue
+    // only covers votes that reached it). The p2p task drains unconditionally, bounding memory
+    // by its processing rate. A closed channel means p2p has exited; the supervisor will act on
+    // that.
+    if shared.gossip_tx.send(vote).is_err() {
+        tracing::warn!(?digest, "📭 gossip channel closed");
     }
 
     // metrics
