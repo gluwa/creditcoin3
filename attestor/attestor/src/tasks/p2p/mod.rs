@@ -33,6 +33,15 @@ const MAX_PING_FAILURES: u32 = 3;
 /// the peer comes back it re-announces via identify/kad discovery and is re-added as usual.
 const MAX_DIAL_FAILURES: u32 = 5;
 
+/// Upper bound on locally-produced votes retained for publish retry (see `retry_queue` in
+/// [`run`]). Overflow drops the *oldest* entry — the height most likely to finalize without our
+/// broadcast anyway.
+const MAX_RETRY_QUEUE: usize = 256;
+
+/// How often queued unpublished votes are retried while the queue is non-empty. Retries also
+/// fire immediately when gossip publishing first becomes possible again (mesh regained).
+const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+
 #[derive(builder::Builder)]
 pub struct Config {
     pub boot_nodes: Vec<libp2p::Multiaddr>,
@@ -154,28 +163,33 @@ pub async fn run(
     let mut local_produced_rx = shared.local_produced_rx.clone();
     let mut latest_finalized_rx = shared.latest_finalized_rx.clone();
 
+    // Locally-produced votes that could not be published (no mesh peers yet, or a transient
+    // publish failure). Retried when the mesh comes back and on a fixed interval; entries at or
+    // below the finalized height are pruned since they no longer need propagation. Without this,
+    // votes produced while peerless were silently lost: the channel backed up until production
+    // dropped fresh broadcasts, and publish failures discarded the vote outright.
+    let mut retry_queue: std::collections::VecDeque<Vote> = std::collections::VecDeque::new();
+    let mut retry_tick = tokio::time::interval(RETRY_INTERVAL);
+    retry_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     loop {
         tokio::select! {
             biased;
             _ = shared.token.cancelled() => return Ok(()),
 
-            // Outgoing — production gives us a freshly built local vote to gossip.
-            Some(vote) = gossip_rx.recv(), if can_broadcast => {
-                let bytes = vote.encode();
-                if let Err(err) = swarm.behaviour_mut().gossipsub.publish(topic.hash(), bytes) {
-                    tracing::warn!(
-                        digest = ?vote.digest,
-                        height = vote.height,
-                        %err,
-                        "✉️ gossip publish failed",
-                    );
-                } else {
-                    tracing::info!(
-                        digest = ?vote.digest,
-                        height = vote.height,
-                        attestor = %vote.attestor,
-                        "✉️ gossiped vote",
-                    );
+            // Outgoing — production gives us a freshly built local vote to gossip. Always drain
+            // the channel (even while peerless) so production's `try_send` never starts dropping
+            // fresh votes behind a full channel; anything unpublishable goes to the retry queue.
+            Some(vote) = gossip_rx.recv() => {
+                if !can_broadcast || !try_publish(&mut swarm, &topic, &vote) {
+                    queue_for_retry(&mut retry_queue, vote);
+                }
+            }
+
+            // Periodic retry of unpublished votes.
+            _ = retry_tick.tick(), if !retry_queue.is_empty() => {
+                if can_broadcast {
+                    flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
                 }
             }
 
@@ -196,12 +210,14 @@ pub async fn run(
 
             // An attestation finalized on chain → drop every buffered vote at or below it. Bounds
             // the buffer even when our local production schedule never reaches the heights a peer
-            // buffered (e.g. it stalled, or the votes were just shy of producible).
+            // buffered (e.g. it stalled, or the votes were just shy of producible). Unpublished
+            // votes at or below the finalized height no longer need propagation either.
             res = latest_finalized_rx.changed() => {
                 if res.is_err() { return Ok(()); }
                 let finalized = latest_finalized_rx.borrow().map(|info| info.height);
                 if let Some(fin) = finalized {
                     pending_votes.retain(|&height, _| height > fin);
+                    retry_queue.retain(|vote| vote.height > fin);
                 }
             }
 
@@ -213,6 +229,7 @@ pub async fn run(
 
             // Incoming events from the swarm.
             event = swarm.select_next_some() => {
+                let could_broadcast = can_broadcast;
                 handle_swarm(
                     &shared,
                     &mut swarm,
@@ -226,6 +243,11 @@ pub async fn run(
                     &mut peers_by_attestor,
                     event,
                 ).await;
+                // Mesh just (re)formed — flush queued votes immediately rather than waiting for
+                // the next retry tick.
+                if !could_broadcast && can_broadcast && !retry_queue.is_empty() {
+                    flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                }
             }
         }
     }
@@ -479,6 +501,84 @@ async fn handle_swarm(
             }
         }
         _ => {}
+    }
+}
+
+// ------------------------------------* publish + retry *-------------------------------------- //
+
+/// Publish one vote to the gossip topic. Returns `true` when the vote needs no further retry:
+/// either it was published, or gossipsub reports it a duplicate (already in the message cache
+/// from a previous successful publish). Any other failure returns `false` so the caller can
+/// queue the vote for retry.
+fn try_publish(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    vote: &Vote,
+) -> bool {
+    match swarm
+        .behaviour_mut()
+        .gossipsub
+        .publish(topic.hash(), vote.encode())
+    {
+        Ok(_) => {
+            tracing::info!(
+                digest = ?vote.digest,
+                height = vote.height,
+                attestor = %vote.attestor,
+                "✉️ gossiped vote",
+            );
+            true
+        }
+        Err(libp2p::gossipsub::PublishError::Duplicate) => true,
+        Err(err) => {
+            tracing::warn!(
+                digest = ?vote.digest,
+                height = vote.height,
+                %err,
+                "✉️ gossip publish failed — queueing for retry",
+            );
+            false
+        }
+    }
+}
+
+/// Append a vote to the bounded retry queue, dropping the oldest entry on overflow (lowest
+/// height — the one most likely to finalize without our broadcast).
+fn queue_for_retry(retry_queue: &mut std::collections::VecDeque<Vote>, vote: Vote) {
+    if retry_queue.len() >= MAX_RETRY_QUEUE {
+        if let Some(dropped) = retry_queue.pop_front() {
+            tracing::warn!(
+                digest = ?dropped.digest,
+                height = dropped.height,
+                cap = MAX_RETRY_QUEUE,
+                "🗑️ retry queue full — dropping oldest unpublished vote"
+            );
+        }
+    }
+    retry_queue.push_back(vote);
+}
+
+/// Republish queued votes in order (oldest first) until one fails, which usually means the mesh
+/// went away again — the remainder stays queued for the next trigger.
+fn flush_retry_queue(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    retry_queue: &mut std::collections::VecDeque<Vote>,
+) {
+    let backlog = retry_queue.len();
+    while let Some(vote) = retry_queue.front() {
+        if try_publish(swarm, topic, vote) {
+            retry_queue.pop_front();
+        } else {
+            break;
+        }
+    }
+    if retry_queue.len() < backlog {
+        tracing::info!(
+            published = backlog - retry_queue.len(),
+            remaining = retry_queue.len(),
+            "📤 flushed unpublished vote backlog"
+        );
     }
 }
 
@@ -972,6 +1072,37 @@ mod tests {
         // b's single failure must not tip a over the threshold or vice versa.
         assert!(!note_dial_failure(&mut failures, &boot, b));
         assert!(note_dial_failure(&mut failures, &boot, a));
+    }
+
+    // ---------------------------* publish retry queue *--------------------------- //
+
+    use super::{queue_for_retry, MAX_RETRY_QUEUE};
+    use attestor_pool::Vote;
+
+    fn vote_at(height: u64) -> Vote {
+        let sk = bls_signatures::PrivateKey::new([1u8; 32]);
+        Vote {
+            chain_key: 1,
+            height,
+            digest: attestor_primitives::Digest::from([0xAA; 32]),
+            attestor: att(1),
+            signature_bls: attestor_primitives::bls::WrapEncode(sk.sign([0u8; 1])),
+        }
+    }
+
+    #[test]
+    fn retry_queue_is_bounded_and_drops_oldest_first() {
+        let mut queue = std::collections::VecDeque::new();
+        for h in 0..(MAX_RETRY_QUEUE as u64 + 2) {
+            queue_for_retry(&mut queue, vote_at(h));
+        }
+        assert_eq!(queue.len(), MAX_RETRY_QUEUE);
+        // The two oldest entries (h=0, h=1) were displaced; the newest survives at the back.
+        assert_eq!(queue.front().map(|v| v.height), Some(2));
+        assert_eq!(
+            queue.back().map(|v| v.height),
+            Some(MAX_RETRY_QUEUE as u64 + 1)
+        );
     }
 
     // The admission window is `max(max_catchup, interval)` *blocks* above the finalized height
