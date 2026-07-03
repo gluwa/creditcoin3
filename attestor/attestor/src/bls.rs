@@ -61,6 +61,7 @@ async fn fetch(
     use bls_signatures::Serialize as _;
 
     let mut out = HashMap::with_capacity(attestors.len());
+    let mut missing: Vec<&cc_client::AccountId32> = Vec::new();
 
     for attestor_id in attestors {
         let id_bytes: [u8; 32] = *attestor_id.as_ref();
@@ -77,6 +78,7 @@ async fn fetch(
         .await?;
 
         let Some(raw) = raw else {
+            missing.push(attestor_id);
             continue;
         };
         let key = bls_signatures::PublicKey::from_bytes(&raw).map_err(|_| {
@@ -85,6 +87,21 @@ async fn fetch(
             )))
         })?;
         out.insert(id_bytes, key);
+    }
+
+    // The runtime requires a registered BLS key before an attestor can activate, so an active
+    // attestor without one indicates chain-state drift or a race with deregistration. Their
+    // votes cannot be verified locally: gossip from them is rejected (`UnknownAttestor`) and
+    // they contribute nothing toward quorum on this node, effectively shrinking the committee.
+    // Surface that loudly instead of silently skipping — but keep running: hard-failing here
+    // would let a single misconfigured peer take down every other attestor.
+    if !missing.is_empty() {
+        tracing::error!(
+            ?missing,
+            fetched = out.len(),
+            total = attestors.len(),
+            "🕵️ active attestors without an on-chain BLS pubkey — their votes cannot be verified"
+        );
     }
 
     Ok(out)
