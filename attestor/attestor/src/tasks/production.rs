@@ -150,6 +150,19 @@ pub async fn run(
 
             Some(attestation) = stream_attestation.next(), if can_attest => {
                 emit_local(&shared, &attestation).await;
+                // Refresh the source-chain lag gauge with the tip the stream is tracking —
+                // the config-time seed would otherwise never be updated after startup and the
+                // gauge would drift into meaninglessness. Tip is 0 until the tip stream has
+                // yielded once (e.g. the genesis bootstrap path); skip rather than report a
+                // bogus positive lag.
+                let tip = stream_attestation.tip();
+                if tip > 0 {
+                    shared.metrics.update_attestation_lag_eth(
+                        attestation.header_number(),
+                        tip,
+                        shared.attestation_interval(),
+                    );
+                }
             }
         }
     }
