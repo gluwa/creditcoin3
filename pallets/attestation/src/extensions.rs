@@ -27,12 +27,22 @@ use crate::pallet::{ActiveAttestors, Call, Config, MaxCatchup, Pallet};
 /// `SignedExtension` that pre-validates `commit_attestation` calls in the transaction pool,
 /// rejecting:
 ///
-/// * calls signed by accounts that are not in the active attestor set for the target chain, and
-/// * calls for an attestation digest that is already stored on chain (or has been superseded by a
-///   later checkpoint).
+/// * calls with over-long attestor lists or oversized continuity proofs (invalid regardless of
+///   signer), and
+/// * calls from *active* attestors for an attestation digest that is already stored on chain (or
+///   has been superseded by a later checkpoint).
 ///
-/// Both rejections happen *before* fees are charged, eliminating the drain vector where attestors
-/// lose a race and still pay the inclusion fee.
+/// These rejections happen *before* fees are charged, eliminating the drain vector where
+/// attestors lose a race and still pay the inclusion fee.
+///
+/// Calls signed by accounts that are **not** in the active attestor set are deliberately let
+/// through: they fail in dispatch (`AttestorNotActive`) and pay fees, so a deregistered or
+/// misconfigured node cannot spam free prevalidation-rejected submissions.
+///
+/// Admitted `commit_attestation` transactions carry a `provides` tag keyed by
+/// `(chain_key, digest)` so the pool holds at most one pending submission per attestation —
+/// racing duplicates from other attestors are deduplicated at admission instead of all being
+/// broadcast and racing to dispatch.
 ///
 /// Other calls are passed through untouched.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo)]
@@ -130,6 +140,15 @@ where
             if active_attestors.contains(who) && Pallet::<T>::check_duplicate(attestation) {
                 return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
             }
+
+            // Tag the transaction with what it provides: the attestation itself. Two pending
+            // `commit_attestation` submissions for the same `(chain_key, digest)` then conflict
+            // in the pool and only one is kept, deduplicating the every-attestor-submits race at
+            // admission time instead of letting all copies broadcast and race to dispatch.
+            return Ok(ValidTransaction {
+                provides: sp_std::vec![(Self::IDENTIFIER, chain_key, attestation.digest()).encode()],
+                ..Default::default()
+            });
         }
 
         Ok(ValidTransaction::default())
