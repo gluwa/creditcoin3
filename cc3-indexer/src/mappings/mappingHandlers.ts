@@ -44,6 +44,11 @@ const RuntimeAttestorStatus = {
     idle: 1,
     waiting: 2,
     leaving: 3,
+    // Indexer-only status: the attestor has been unregistered and purged from chain storage
+    // (Attestors::<T>::remove). We keep the Attestors entity so historical MapAttestationAttestor
+    // rows can still resolve their non-nullable `attestor` relation, but flag it as unregistered so
+    // the GraphQL `attestors` list can filter it out to stay in sync with chain state.
+    unregistered: 4,
 } as const;
 
 export async function handleEventAttestorsElected(event: SubstrateEvent): Promise<void> {
@@ -285,10 +290,15 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
 
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
-    // Unregistering an attestor removes it from storage on chain (Attestors::<T>::remove), so we
-    // delete the Attestors entity here to keep the GraphQL list in sync with chain state. The
-    // unregistration history is preserved separately in the AttestorUnregistered entity.
-    await Promise.all([attestorUnregistered.save(), Attestors.remove(attestorEntity.id)]);
+    // Unregistering an attestor purges it from storage on chain (Attestors::<T>::remove). We do NOT
+    // delete the Attestors entity, because historical MapAttestationAttestor rows reference it via a
+    // non-nullable `attestor: Attestors!` relation; deleting the row would leave those maps with an
+    // unresolvable foreign key. Instead we flag the attestor as `unregistered` so it can be filtered
+    // out of the GraphQL `attestors` list while preserving referential integrity. The unregistration
+    // history is also preserved separately in the AttestorUnregistered entity.
+    attestorEntity.status = RuntimeAttestorStatus.unregistered;
+    attestorEntity.lastUpdateBlockNumber = blockNumber;
+    await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
 }
 
 export async function handleEventInvulnerableRegistered(event: SubstrateEvent): Promise<void> {
