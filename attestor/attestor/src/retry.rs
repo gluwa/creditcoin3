@@ -111,6 +111,11 @@ pub fn is_transient(err: &cc_client::Error) -> bool {
     }
 }
 
+// NOTE: jsonrpsee client errors reach us as `Box<dyn Error>`, so the classification below is
+// necessarily substring-based on the Display output. That coupling to upstream error text is
+// fragile by nature — the regression tests at the bottom of this file pin every string this
+// classifier is expected to recognize, so an upstream Display change that would silently flip a
+// transient error to permanent fails a test here first.
 fn is_transient_rpc(rpc_err: &subxt::error::RpcError) -> bool {
     use subxt::error::RpcError;
     match rpc_err {
@@ -149,5 +154,83 @@ fn is_transient_rpc(rpc_err: &subxt::error::RpcError) -> bool {
         }
         RpcError::RequestRejected(_) | RpcError::InsecureUrl(_) => false,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_transient;
+
+    /// Wrap a message the way subxt surfaces jsonrpsee client errors: a boxed `dyn Error` whose
+    /// Display output is all the classifier gets to see.
+    fn client_error(msg: &str) -> cc_client::Error {
+        cc_client::Error::from(subxt::Error::Rpc(subxt::error::RpcError::ClientError(
+            Box::new(std::io::Error::other(msg.to_owned())),
+        )))
+    }
+
+    /// Every Display string the classifier must keep recognizing as transient. If an upstream
+    /// jsonrpsee/subxt release rewords one of these, this test fails instead of the retry loop
+    /// silently giving up on a recoverable outage.
+    #[test]
+    fn known_transient_client_error_strings_classify_transient() {
+        for msg in [
+            "Networking or low-level protocol error: Transport error",
+            "connection reset by peer",
+            "the client is disconnected",
+            "connection closed unexpectedly",
+            "The background task closed; restart required",
+            // jsonrpsee 0.24 clean WS close (see comment in `is_transient_rpc`).
+            "Error reason could not be found. This is a bug. Please open an issue.",
+            "TransportReceiver dropped",
+            "request timeout exceeded",
+            "DEADLINE_EXCEEDED",
+            "503 Service Unavailable",
+            "server is going down for maintenance",
+            "node is shutting down",
+            "rate limit exceeded",
+            "429 Too Many Requests",
+        ] {
+            assert!(
+                is_transient(&client_error(msg)),
+                "expected transient classification for: {msg}"
+            );
+        }
+    }
+
+    /// Domain-level failures must stay permanent — retrying them would spin forever on an error
+    /// that reconnecting cannot fix.
+    #[test]
+    fn permanent_client_errors_are_not_transient() {
+        for msg in [
+            "Invalid params",
+            "Method not found",
+            "Invalid request",
+            "parse error",
+        ] {
+            assert!(
+                !is_transient(&client_error(msg)),
+                "expected permanent classification for: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn structural_variants_classify_transient() {
+        let disconnected = cc_client::Error::from(subxt::Error::Rpc(
+            subxt::error::RpcError::DisconnectedWillReconnect("ws closed".into()),
+        ));
+        assert!(is_transient(&disconnected));
+
+        let dropped = cc_client::Error::from(subxt::Error::Rpc(
+            subxt::error::RpcError::SubscriptionDropped,
+        ));
+        assert!(is_transient(&dropped));
+    }
+
+    #[test]
+    fn decode_and_metadata_errors_are_permanent() {
+        let metadata = cc_client::Error::from(subxt::Error::Other("metadata mismatch".into()));
+        assert!(!is_transient(&metadata));
     }
 }
