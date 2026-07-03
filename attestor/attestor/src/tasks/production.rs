@@ -117,9 +117,14 @@ pub async fn run(
         let genesis_att = stream_attestation.generate_attestation_genesis(root_info);
         emit_local(&shared, &genesis_att).await;
 
-        // Wait for the genesis BlockAttested on cc3 — we need the *real* digest.
+        // Wait for the genesis BlockAttested on cc3 — we need the *real* digest. `None` means
+        // shutdown was requested while waiting; exit cleanly like every other task does on
+        // cancellation instead of surfacing a spurious startup failure to the supervisor.
         tracing::info!(genesis, "⏲️ waiting for genesis attestation to finalize");
-        let info = wait_for_block_attested(&shared, &mut events, genesis).await?;
+        let Some(info) = wait_for_block_attested(&shared, &mut events, genesis).await? else {
+            tracing::info!("🔌 shutdown while waiting for genesis attestation");
+            return Ok(());
+        };
         stream_attestation.note_attestation_finalization(stream::util::AttestationInfo {
             height: info.height,
             digest: info.digest,
@@ -436,23 +441,23 @@ async fn handle_one(
 // --------------------------- [ Helper: wait for a BlockAttested event ] ----------------------- //
 //
 // Drains CC3 events on the production task's own subscription until BlockAttested(height ≥ N)
-// arrives. Returns the real `(height, digest)`. Used by the genesis bootstrap path to learn the
-// runtime-committed digest before initializing the eth attestation stream's prev-digest.
+// arrives. Returns the real `(height, digest)`, or `None` when shutdown was requested while
+// waiting (an intentional cancellation, not a failure). Used by the genesis bootstrap path to
+// learn the runtime-committed digest before initializing the eth attestation stream's
+// prev-digest.
 
 async fn wait_for_block_attested(
     shared: &Arc<Shared>,
     events: &mut stream::cc3::StreamCC3,
     target: attestor_primitives::Height,
-) -> Result<AttestationInfo, Error> {
+) -> Result<Option<AttestationInfo>, Error> {
     use cc_client::attestation::CcEvent;
     use futures::{StreamExt as _, TryStreamExt as _};
 
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
         tokio::select! {
-            _ = shared.token.cancelled() => {
-                return Err(Error::Init(anyhow::anyhow!("cancelled while waiting for genesis")));
-            }
+            _ = shared.token.cancelled() => return Ok(None),
             _ = tick.tick() => {
                 tracing::info!(target, "⏲️ still waiting for genesis BlockAttested...");
             }
@@ -468,10 +473,10 @@ async fn wait_for_block_attested(
                                 digest = ?att.digest,
                                 "✅ genesis attestation finalized on-chain"
                             );
-                            return Ok(AttestationInfo {
+                            return Ok(Some(AttestationInfo {
                                 height: att.header_number,
                                 digest: att.digest,
-                            });
+                            }));
                         }
                     }
                 }
