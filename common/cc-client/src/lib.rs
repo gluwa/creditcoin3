@@ -538,6 +538,19 @@ impl Client {
     }
 
     pub async fn fetch_last_digest(&self, chain_key: ChainKey) -> Result<Option<Digest>, Error> {
+        Ok(self
+            .fetch_last_finalized(chain_key)
+            .await?
+            .map(|(_, digest)| digest))
+    }
+
+    /// Height and digest of the chain's latest finalized attestation, falling back to the last
+    /// checkpoint (mirrors the runtime's `Pallet::last_digest` lookup order). `None` only when
+    /// the chain has neither — i.e. before genesis.
+    pub async fn fetch_last_finalized(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<(u64, Digest)>, Error> {
         let storage_query = cc3::storage().attestation().last_digest(chain_key);
 
         let result = self
@@ -548,7 +561,20 @@ impl Client {
             .fetch(&storage_query)
             .await?;
 
-        Ok(result.map(|(_, d)| Digest::from(d.0)))
+        if let Some((height, digest)) = result {
+            return Ok(Some((height, Digest::from(digest.0))));
+        }
+
+        let checkpoint_query = cc3::storage().attestation().last_checkpoint(chain_key);
+        let checkpoint = self
+            .api()
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&checkpoint_query)
+            .await?;
+
+        Ok(checkpoint.map(|c| (c.block_number, Digest::from_slice(&c.digest.0))))
     }
 
     /// Check the clients membership in the attestor pallet
