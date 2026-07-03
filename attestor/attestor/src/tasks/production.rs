@@ -336,15 +336,25 @@ async fn handle_one(
             let is_local = who == shared.account_id;
             if is_local {
                 tracing::info!("🪫 local node deactivated/kicked");
-                let _ = shared.can_attest_tx.send(false);
             } else {
                 tracing::info!(attestor = %who, "🪫 peer deactivated/kicked");
             }
-            let attestors = shared
-                .cc3
-                .get_attestor_active_set(shared.chain_key)
+            // `with_retries`, matching the election path: a transient RPC blip here must ride
+            // out with backoff, not bubble up and terminate the whole production task (the
+            // unscoped `staking::Kicked` event makes this handler fire more often than actual
+            // committee changes).
+            let chain_key = shared.chain_key;
+            let attestors =
+                crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+                    cc3.get_attestor_active_set(chain_key).await
+                })
                 .await
                 .map_err(Error::Rpc)?;
+            // Derive `can_attest` from the refreshed on-chain membership rather than from the
+            // event itself: `staking::Kicked` carries no chain scope, so trusting the event
+            // could wrongly chill us on an unrelated kick — the authoritative active set can't.
+            let eligible = attestors.contains(&shared.account_id);
+            let _ = shared.can_attest_tx.send(eligible);
             shared
                 .bls_store
                 .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
