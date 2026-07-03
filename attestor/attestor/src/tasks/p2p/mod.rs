@@ -808,12 +808,13 @@ fn admit_pending_vote(
 /// would only grow the pending buffer — the call sites drop those.
 fn worth_buffering(shared: &Arc<Shared>, height: attestor_primitives::Height) -> bool {
     let interval = shared.attestation_interval().get();
+    let max_catchup = shared.max_catchup().get();
     let finalized = shared
         .latest_finalized_rx
         .borrow()
         .map(|info| info.height)
         .unwrap_or(shared.start_height);
-    is_bufferable(height, shared.genesis, interval, finalized)
+    is_bufferable(height, shared.genesis, interval, max_catchup, finalized)
 }
 
 /// Pure predicate behind [`worth_buffering`], split out so the schedule/window logic is unit
@@ -822,6 +823,7 @@ fn is_bufferable(
     height: attestor_primitives::Height,
     genesis: attestor_primitives::Height,
     interval: attestor_primitives::Height,
+    max_catchup: attestor_primitives::Height,
     finalized: attestor_primitives::Height,
 ) -> bool {
     // `StreamAttestation` emits the genesis attestation once and every later attestation at an
@@ -830,13 +832,14 @@ fn is_bufferable(
     if height != genesis && height % interval != 0 {
         return false;
     }
-    // Bound to the window the pool would admit (see `ValidateQuorum::height_admissible`): strictly
-    // above the last finalized attestation and within `max_catchup` intervals of it. Anchoring on
-    // the finalized height (not local production, which only climbs) keeps the buffer bounded to
-    // at most `max_catchup` distinct heights.
-    let window = common::constants::MAX_CATCHUP
-        .get()
-        .saturating_mul(interval);
+    // Bound to the window the pool would admit (see `ValidateQuorum::height_admissible`):
+    // strictly above the last finalized attestation and within `max_catchup` *blocks* of it
+    // (`max_catchup` is a block-count bound, matching the runtime storage docs and
+    // `StreamAttestation` — production never emits further ahead than that). `max(interval)`
+    // keeps the next interval-aligned target admissible when the configured bound is smaller
+    // than the interval. Anchoring on the finalized height (not local production, which only
+    // climbs) keeps the buffer bounded.
+    let window = max_catchup.max(interval);
     height > finalized && height <= finalized.saturating_add(window)
 }
 
@@ -971,48 +974,52 @@ mod tests {
         assert!(note_dial_failure(&mut failures, &boot, a));
     }
 
-    // MAX_CATCHUP = 500, so the admission window is 500 * interval above the finalized height.
+    // The admission window is `max(max_catchup, interval)` *blocks* above the finalized height
+    // (`max_catchup` is a block-count bound, like the runtime's `MaxCatchup`).
     const INTERVAL: u64 = 30;
+    const MAX_CATCHUP: u64 = 500;
     const GENESIS: u64 = 100;
 
     #[test]
     fn aligned_height_in_window_is_bufferable() {
         // 150 is a multiple of 30, above finalized (120), well within the window.
-        assert!(is_bufferable(150, GENESIS, INTERVAL, 120));
+        assert!(is_bufferable(150, GENESIS, INTERVAL, MAX_CATCHUP, 120));
     }
 
     #[test]
     fn misaligned_height_is_rejected() {
         // 151 is neither genesis nor a multiple of the interval — production never emits there.
-        assert!(!is_bufferable(151, GENESIS, INTERVAL, 120));
+        assert!(!is_bufferable(151, GENESIS, INTERVAL, MAX_CATCHUP, 120));
     }
 
     #[test]
     fn genesis_height_is_allowed_even_if_not_interval_aligned() {
         // genesis (100) is not a multiple of 30 but is produced once; allow it while still
         // unfinalized.
-        assert!(is_bufferable(GENESIS, GENESIS, INTERVAL, 90));
+        assert!(is_bufferable(GENESIS, GENESIS, INTERVAL, MAX_CATCHUP, 90));
     }
 
     #[test]
     fn height_at_or_below_finalized_is_rejected() {
         // Equal to finalized — already attested, nothing to wait for.
-        assert!(!is_bufferable(120, GENESIS, INTERVAL, 120));
+        assert!(!is_bufferable(120, GENESIS, INTERVAL, MAX_CATCHUP, 120));
         // Below finalized.
-        assert!(!is_bufferable(90, GENESIS, INTERVAL, 120));
+        assert!(!is_bufferable(90, GENESIS, INTERVAL, MAX_CATCHUP, 120));
     }
 
     #[test]
     fn window_edge_is_inclusive_but_beyond_is_rejected() {
-        let window = 500 * INTERVAL;
-        // Exactly at finalized + window (and interval-aligned) is admitted.
-        assert!(is_bufferable(120 + window, GENESIS, INTERVAL, 120));
-        // One interval past the window is dropped.
-        assert!(!is_bufferable(
-            120 + window + INTERVAL,
-            GENESIS,
-            INTERVAL,
-            120
-        ));
+        // 120 + 500 = 620 is not interval-aligned; the highest aligned height inside the window
+        // is 600. One interval later (630) is out of the window.
+        assert!(is_bufferable(600, GENESIS, INTERVAL, MAX_CATCHUP, 120));
+        assert!(!is_bufferable(630, GENESIS, INTERVAL, MAX_CATCHUP, 120));
+    }
+
+    #[test]
+    fn next_target_stays_admissible_when_max_catchup_is_below_interval() {
+        // With max_catchup < interval, the window widens to one interval so the next aligned
+        // target (150) is still bufferable.
+        assert!(is_bufferable(150, GENESIS, INTERVAL, 10, 120));
+        assert!(!is_bufferable(180, GENESIS, INTERVAL, 10, 120));
     }
 }

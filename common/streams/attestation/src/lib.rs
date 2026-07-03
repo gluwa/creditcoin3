@@ -207,6 +207,33 @@ impl StreamAttestation {
         *self = self.reset(info).await;
     }
 
+    /// Lets the [`StreamAttestation`] know that the on-chain `MaxCatchup` (block-count bound per
+    /// continuity proof) has changed. Rebuilds the stream from the last finalized attestation so
+    /// the root cache and catch-up stop respect the new bound (mirrors
+    /// [`note_attestation_interval_change`]).
+    ///
+    /// [`note_attestation_interval_change`]: Self::note_attestation_interval_change
+    pub async fn note_max_catchup_change(
+        &mut self,
+        max_catchup_new: std::num::NonZero<attestor_primitives::Height>,
+    ) {
+        use stream_util::ChainData as _;
+
+        let next = stream_util::AttestationInfo {
+            height: self.attestation_prev.height + 1,
+            ..self.attestation_prev
+        };
+
+        let config = self
+            .config()
+            .with_stream_roots(self.stream_roots.reset(next).await)
+            .with_stream_tip(self.stream_tip.reset(next).await)
+            .with_max_catchup(max_catchup_new)
+            .build();
+
+        *self = Self::new(config)
+    }
+
     /// Generates an attestation with no previous digest.
     pub fn generate_attestation_genesis(
         &self,
