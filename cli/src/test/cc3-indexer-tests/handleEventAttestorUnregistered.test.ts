@@ -99,23 +99,20 @@ describe('handleEventAttestorUnregistered()', () => {
             expect(foundMatch).toEqual(true);
         });
 
-        it('graphQL no longer returns the unregistered Attestor entity', async () => {
-            // Unregistering removes the attestor from chain storage, so the indexer deletes the
-            // Attestors entity to keep the GraphQL list in sync with chain state.
+        it('graphQL flags the unregistered Attestor entity as unregistered (status 4)', async () => {
+            // Unregistering purges the attestor from chain storage, but the indexer keeps the
+            // Attestors entity (so historical MapAttestationAttestor relations still resolve) and
+            // flags it with the indexer-only `unregistered` status (4). Consumers filter out
+            // status = 4 to match chain state.
             const response = await graphQLQuery(
                 `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } } }`,
             );
             expect(response.data.attestors.nodes).toBeTruthy();
 
-            let foundMatch = false;
-            for (const node of response.data.attestors.nodes) {
-                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(0n);
-
-                if (node.attestorId === attestor.address) {
-                    foundMatch = true;
-                }
-            }
-            expect(foundMatch).toEqual(false);
+            const matches = response.data.attestors.nodes.filter((node: any) => node.attestorId === attestor.address);
+            expect(matches.length).toEqual(1);
+            expect(matches[0].status).toEqual(4); // unregistered
+            expect(BigInt(matches[0].lastUpdateBlockNumber)).toBeGreaterThan(0n);
         });
     });
 });
