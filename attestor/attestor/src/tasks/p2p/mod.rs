@@ -59,7 +59,7 @@ pub struct Config {
 pub async fn run(
     shared: Arc<Shared>,
     cfg: Config,
-    mut gossip_rx: mpsc::Receiver<Vote>,
+    mut gossip_rx: mpsc::UnboundedReceiver<Vote>,
     mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
@@ -178,8 +178,9 @@ pub async fn run(
             _ = shared.token.cancelled() => return Ok(()),
 
             // Outgoing — production gives us a freshly built local vote to gossip. Always drain
-            // the channel (even while peerless) so production's `try_send` never starts dropping
-            // fresh votes behind a full channel; anything unpublishable goes to the retry queue.
+            // the channel (even while peerless): the channel is unbounded, so draining
+            // unconditionally is what keeps it from growing; anything unpublishable goes to the
+            // bounded retry queue.
             Some(vote) = gossip_rx.recv() => {
                 if !can_broadcast || !try_publish(&mut swarm, &topic, &vote) {
                     queue_for_retry(&mut retry_queue, vote);
