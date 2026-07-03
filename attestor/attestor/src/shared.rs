@@ -49,7 +49,12 @@ pub struct Shared {
     pub health: crate::health::SharedHealth,
 
     pub pool_send: attestor_pool::Sender,
-    pub gossip_tx: mpsc::Sender<crate::vote::Vote>,
+    /// Production → p2p channel for freshly signed local votes. Unbounded: a signed vote must
+    /// never be dropped at the producer (a vote lost here is lost to the whole network — the
+    /// p2p retry queue only covers votes that reached it), and production must never block on
+    /// p2p backpressure. The p2p task drains this unconditionally, so memory stays bounded by
+    /// its processing rate; a closed channel means p2p exited and the supervisor restarts us.
+    pub gossip_tx: mpsc::UnboundedSender<crate::vote::Vote>,
 
     /// Signals the p2p task that an attestor was chilled/kicked on-chain, so it can evict that
     /// attestor's libp2p peer (if known) from the routing table and drop the connection. Sent by
