@@ -27,6 +27,13 @@ const ENV_FILE = path.join(REPO_ROOT, ".env");
 const EVM_V1_DECODER_LIB =
   "node_modules/@gluwa/usc-contracts/contracts/decoding/EvmV1Decoder.sol:EvmV1Decoder";
 
+// The write-ability contracts now live in the published @gluwa/usc-contracts package (and are tested
+// there), so `forge create` targets them by their on-disk node_modules source id rather than a local
+// `src/` copy. Same reasoning as EVM_V1_DECODER_LIB: the path stays inside the Foundry project root
+// so forge's source id resolves cleanly. Note the package file is `AcknowledgementValidator.sol`
+// (British spelling) while the contract it declares is `AcknowledgmentValidator`.
+const USC_WRITE_ABILITY = "node_modules/@gluwa/usc-contracts/contracts/write-ability";
+
 function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) {
@@ -281,7 +288,7 @@ async function main(): Promise<void> {
   // first, then have it create the outbox for our chain key (the factory passes its own owner to
   // the outbox). This mirrors the "create factory first -> use factory to create outbox" pattern.
   const outboxFactory = deployToSource(
-    "src/SimpleOutboxFactory.sol:OutboxFactory",
+    `${USC_WRITE_ABILITY}/SimpleOutboxFactory.sol:OutboxFactory`,
   );
   // chainKeyU64 (above) is also the destination chain key the AcknowledgmentValidator proves
   // MessageDelivered events on.
@@ -296,7 +303,7 @@ async function main(): Promise<void> {
   // the Outbox. It is the Outbox's `validator` (acknowledgeMessage is onlyValidator). Created first
   // (without the Outbox), then `setOutbox` once the factory has created the Outbox.
   const ackValidator = deployToSource(
-    "src/AcknowledgmentValidator.sol:AcknowledgmentValidator",
+    `${USC_WRITE_ABILITY}/AcknowledgementValidator.sol:AcknowledgmentValidator`,
     [chainKeyU64.toString(), payee], // (destinationChainKey, owner)
     [`${EVM_V1_DECODER_LIB}:${evmV1Decoder}`], // link the pre-deployed EvmV1Decoder library
   );
@@ -325,7 +332,7 @@ async function main(): Promise<void> {
   // destination deployer is the validator admin). threshold = 2/3 + 1, minAttestorCount = 1.
   const validatorAdmin = getDestinationDeployerAddress();
   const initialAttestors = readInitialAttestors();
-  const validator = deployToDestination("src/EOAValidator.sol:EOAValidator", [
+  const validator = deployToDestination(`${USC_WRITE_ABILITY}/EOAValidator.sol:EOAValidator`, [
     validatorAdmin,
     `[${initialAttestors.join(",")}]`,
     "1", // minAttestorCount
@@ -337,7 +344,7 @@ async function main(): Promise<void> {
     "src/TestDestination.sol:TestDestination",
   );
   const inbox = deployToDestination(
-    "src/SimpleInbox.sol:SimpleInbox",
+    `${USC_WRITE_ABILITY}/SimpleInbox.sol:SimpleInbox`,
     [validator, sourceChainId, chainKeyBytes32],
   );
   const destinationChainId = getDestinationChainId();
