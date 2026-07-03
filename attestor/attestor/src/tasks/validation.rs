@@ -273,22 +273,93 @@ async fn handle_submission_result(
     // Wait briefly for this height to finalize on chain before pulling the next stash.
     wait_finalized(shared, height).await;
 
-    if let Some(stashed) = pool_rx.take_next_validated() {
-        tracing::info!(
-            digest = ?stashed.digest, height = stashed.height,
-            "🛫 submitting pre-validated stash"
-        );
-        *in_flight_height = Some(stashed.height);
-        *in_flight = Some(spawn_submission(
-            shared.clone(),
-            Aggregated {
-                height: stashed.height,
-                digest: stashed.digest,
-                attestation_signed: stashed.signed,
-                votes: stashed.votes,
-            },
-        ));
+    // Stashed quorums were validated against the threshold / active set *at stash time*; either
+    // may have changed while the previous submission was in flight. Revalidate before
+    // submitting — a stale aggregate is guaranteed to be rejected at runtime level
+    // (`MajorityNotReached` / `InvalidBlsSignature`) and would only burn fees. Stale stashes are
+    // dropped (their height is unlocked so a fresh quorum can form from gossip) and we move on
+    // to the next stashed height.
+    while let Some(stashed) = pool_rx.take_next_validated() {
+        let stash_height = stashed.height;
+        let stash_digest = stashed.digest;
+        match revalidate_stashed(shared, stashed).await {
+            Some(agg) => {
+                tracing::info!(
+                    digest = ?stash_digest, height = stash_height,
+                    "🛫 submitting pre-validated stash"
+                );
+                *in_flight_height = Some(agg.height);
+                *in_flight = Some(spawn_submission(shared.clone(), agg));
+                break;
+            }
+            None => {
+                tracing::warn!(
+                    digest = ?stash_digest, height = stash_height,
+                    "🗑️ stashed quorum went stale while waiting — dropping and unlocking height"
+                );
+                shared.pool_send.note_majority_not_reached(stash_height);
+            }
+        }
     }
+}
+
+/// Re-check a stashed quorum against the *live* chain state immediately before submission:
+///
+/// 1. Drop votes whose signer left the active attestor set (the runtime filters `attestors` to
+///    `ActiveAttestors`; a stale signer in the aggregate yields `InvalidBlsSignature`).
+/// 2. Re-fetch `target_sample_size` and require the surviving vote count to still satisfy the
+///    live threshold (otherwise the runtime rejects with `MajorityNotReached`).
+///
+/// If signers were dropped but the quorum still stands, the BLS aggregate and attestor list are
+/// rebuilt from the surviving votes. Returns `None` when the quorum no longer satisfies the live
+/// threshold (or the threshold fetch was cancelled at shutdown) — the caller drops the stash and
+/// unlocks the height.
+async fn revalidate_stashed(shared: &Arc<Shared>, stashed: SignedQuorum) -> Option<Aggregated> {
+    let chain_key = shared.chain_key;
+    let target_sample_size =
+        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+            cc3.target_sample_size(chain_key).await
+        })
+        .await
+        .ok()?;
+    let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
+
+    let votes: Vec<Vote> = stashed
+        .votes
+        .iter()
+        .filter(|v| shared.bls_store.pubkey(v.attestor.account_id()).is_some())
+        .cloned()
+        .collect();
+
+    if votes.len() < threshold {
+        tracing::warn!(
+            digest = ?stashed.digest,
+            height = stashed.height,
+            needed = threshold,
+            got = votes.len(),
+            "🗳️ stashed quorum below live threshold"
+        );
+        return None;
+    }
+
+    let mut signed = stashed.signed;
+    if votes.len() < stashed.votes.len() {
+        // Some signers went inactive — rebuild the aggregate from the surviving votes.
+        let sigs = votes.iter().map(|v| v.signature_bls.0).collect::<Vec<_>>();
+        let agg_sig = bls_signatures::aggregate(&sigs)
+            .map_err(|err| tracing::warn!(?err, "bls re-aggregation of stashed quorum failed"))
+            .ok()?;
+        let agg_bytes = agg_sig.as_bytes();
+        signed.signature = agg_bytes[..].first_chunk::<96>().copied()?;
+        signed.attestors = votes.iter().map(|v| v.attestor.clone()).collect();
+    }
+
+    Some(Aggregated {
+        height: stashed.height,
+        digest: stashed.digest,
+        attestation_signed: signed,
+        votes,
+    })
 }
 
 // ---------------------------- [ Aggregate + validate (submitter) ] ---------------------------- //
@@ -360,6 +431,27 @@ async fn aggregate_and_validate(
         return Err(ValidationError::Invalid);
     }
 
+    // Eligibility gate: drop votes whose signer has left the active attestor set since the vote
+    // was pooled (election / chill / kick). The runtime filters the submitted `attestors` list
+    // to the live `ActiveAttestors`; an aggregate containing an inactive signer would fail its
+    // BLS check (`InvalidBlsSignature`) because the runtime-derived aggregate pubkey no longer
+    // matches. `bls_store` is refreshed by production on every set change, so it reflects the
+    // current membership.
+    let votes_active: Vec<Vote> = quorum
+        .votes
+        .iter()
+        .filter(|v| shared.bls_store.pubkey(v.attestor.account_id()).is_some())
+        .cloned()
+        .collect();
+    if votes_active.len() < quorum.votes.len() {
+        tracing::info!(
+            ?digest,
+            height,
+            dropped = quorum.votes.len() - votes_active.len(),
+            "🍂 dropped votes from signers no longer in the active set"
+        );
+    }
+
     // Threshold gate: refresh `target_sample_size` from the chain and refuse to submit if our
     // quorum is now under-threshold. The pool's quorum count is captured at startup; if the
     // active `target_sample_size` grew (epoch rotation, runtime upgrade), an under-threshold
@@ -373,10 +465,10 @@ async fn aggregate_and_validate(
         .await
         .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
     let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
-    if quorum.votes.len() < threshold {
+    if votes_active.len() < threshold {
         return Err(ValidationError::InsufficientVotes {
             needed: threshold,
-            got: quorum.votes.len(),
+            got: votes_active.len(),
             target_sample_size,
         });
     }
@@ -413,7 +505,7 @@ async fn aggregate_and_validate(
 
     // BLS aggregate.
     let mut rng = rand::rngs::StdRng::from_os_rng();
-    let mut votes = quorum.votes.clone();
+    let mut votes = votes_active;
     votes.shuffle(&mut rng);
 
     let sigs = votes.iter().map(|v| v.signature_bls.0).collect::<Vec<_>>();
