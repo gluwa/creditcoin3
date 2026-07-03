@@ -45,6 +45,7 @@ pub async fn run(
         .with_finalization_lag(shared.maturity_delay)
         .with_max_concurrency(common::constants::MAX_CONCURRENT_RPC_CALLS)
         .with_max_parallelism(max_parallelism)
+        .with_encoding(shared.encoding)
         .build();
     let stream_roots = stream::eth::StreamRoots::new(roots_cfg).await;
 
@@ -105,7 +106,7 @@ pub async fn run(
         tracing::info!(genesis, "👶 generating genesis attestation");
         let block = shared
             .eth
-            .get_block(genesis, usc_abi_encoding::common::EncodingVersion::V1)
+            .get_block(genesis, shared.encoding)
             .await
             .map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
         let root_info = stream::util::RootInfo {

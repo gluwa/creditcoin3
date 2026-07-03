@@ -30,6 +30,11 @@ use crate::proof_cache::ProofCache;
 pub struct Shared {
     pub name: String,
     pub chain_key: ChainKey,
+    /// Source-chain block encoding from the CC3 supported-chain metadata. Every block fetch
+    /// (root stream, genesis bootstrap) must use this — hardcoding a version would silently
+    /// produce wrong roots/digests the moment the runtime registers a chain with a different
+    /// encoding.
+    pub encoding: usc_abi_encoding::common::EncodingVersion,
     pub account_id: cc_client::AccountId32,
     pub attestor_id: attestor_primitives::AttestorId,
 
