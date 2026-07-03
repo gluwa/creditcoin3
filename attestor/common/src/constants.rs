@@ -22,6 +22,15 @@ pub const ATTESTATION_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// General delay used to retry network connections.
 pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Warmup pause after observing our own election before attestation tasks start.
+///
+/// Peers process the same `AttestorsElected` event on their own schedule: they must refresh
+/// their BLS key store and admit our peer id before our gossip verifies. Starting to produce
+/// and broadcast immediately gets those first votes rejected as `UnknownAttestor` (and, with
+/// peer scoring active, penalizes us for them). Two CC3 block times (~15 s each in production)
+/// gives the committee a comfortable window to catch up.
+pub const POST_ELECTION_WARMUP: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Default P2P port for libp2p networking.
 ///
 /// This port is used when no explicit P2P port is configured via CLI args, environment variables,

@@ -111,7 +111,16 @@ pub async fn wait_for_eligible(
                     if let CcEvent::AttestorsElected(key, list) = event {
                         if key == chain_key && list.contains(account_id) {
                             attestors = list;
-                            tracing::info!(%account_id, "☀️ elected");
+                            tracing::info!(%account_id, "☀️ elected — warming up before attesting");
+                            // Give the rest of the committee time to process the same election
+                            // (refresh BLS stores, admit our peer) before we start producing —
+                            // otherwise our first votes arrive before peers can verify them and
+                            // are rejected as UnknownAttestor (feeding their peer-scoring
+                            // penalty against us).
+                            tokio::select! {
+                                _ = token.cancelled() => return Err(Error::ShutdownDuringStartup),
+                                _ = tokio::time::sleep(common::constants::POST_ELECTION_WARMUP) => {}
+                            }
                             return Ok(attestors);
                         }
                     }
