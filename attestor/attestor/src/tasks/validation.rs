@@ -479,20 +479,17 @@ async fn aggregate_and_validate(
         .get(height, digest)
         .ok_or(ValidationError::NoLocalProof)?;
 
-    // Head/tail/continuity validation (submitter only).
-    let last_finalized = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
-        let r = cc3.api().runtime_api().at_latest().await?;
-        r.call(
-            cc_client::Client::runtime_api()
-                .attestor_api()
-                .last_digest(chain_key),
-        )
+    // Head/tail/continuity validation (submitter only). `last_finalized` stays an `Option`
+    // (height + digest) end to end: collapsing "no finalized attestation yet" into a zero
+    // digest would reintroduce the sentinel ambiguity the runtime's own Option-based handling
+    // avoids, and the height is needed to mirror the runtime's header-number continuity checks.
+    let last_finalized: Option<(Height, cc_client::H256)> =
+        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+            cc3.fetch_last_finalized(chain_key).await
+        })
         .await
-        .map_err(cc_client::Error::from)
-    })
-    .await
-    .map_err(|e| ValidationError::External(Error::Rpc(e)))?
-    .unwrap_or_else(cc_client::H256::zero);
+        .map_err(|e| ValidationError::External(Error::Rpc(e)))?
+        .map(|(h, d)| (h, cc_client::H256(d.0)));
 
     validate_proof_chain(
         &cached,
@@ -533,10 +530,14 @@ async fn aggregate_and_validate(
     })
 }
 
+/// Local mirror of the runtime's `validate_attestation_continuity`, run by the submitter before
+/// burning fees on an extrinsic. Kept deliberately aligned with the runtime checks (digest AND
+/// header-number continuity) — anything accepted here but rejected at runtime level costs a
+/// wasted submission and a quorum re-formation round.
 fn validate_proof_chain(
     cached: &crate::proof_cache::CachedProof,
     height: Height,
-    last_finalized: cc_client::H256,
+    last_finalized: Option<(Height, cc_client::H256)>,
     digest_local: Option<Digest>,
     genesis: Height,
 ) -> Result<(), ()> {
@@ -550,28 +551,44 @@ fn validate_proof_chain(
         if height == genesis {
             return Ok(());
         }
-        // Direct-link path: runtime accepts empty continuity proof when prev_digest
-        // matches the latest finalized digest (see validate_attestation_continuity).
-        if data.prev_digest().map(|d| cc_client::H256(d.0)) == Some(last_finalized) {
+        // Direct-link path: runtime accepts an empty continuity proof when prev_digest matches
+        // the latest finalized digest AND the height directly follows it (see
+        // validate_attestation_continuity's header-number check). Requires a known finalized
+        // attestation — `None` means the chain has nothing to link to and only genesis passes.
+        let Some((last_height, last_digest)) = last_finalized else {
+            return Err(());
+        };
+        if data.prev_digest().map(|d| cc_client::H256(d.0)) == Some(last_digest)
+            && height == last_height.saturating_add(1)
+        {
             return Ok(());
         }
         return Err(());
     }
 
-    if !proof.is_empty() {
-        let start = proof.start_block_number(height);
-        let head = proof.compute_continuity_digest(start);
-        if Some(head) != data.prev_digest() {
-            return Err(());
-        }
+    let start = proof.start_block_number(height);
+    let head = proof.compute_continuity_digest(start);
+    if Some(head) != data.prev_digest() {
+        return Err(());
     }
 
     if let Some(tail) = proof.tail_prev_digest() {
         let tail_h256 = cc_client::H256(tail.0);
-        if tail_h256 != last_finalized
-            && digest_local.map(|d| cc_client::H256(d.0)) != Some(tail_h256)
-        {
-            return Err(());
+        match last_finalized {
+            // Tail links to the finalized attestation/checkpoint: mirror the runtime's tail
+            // header-number check — the proof's first block must directly follow it.
+            Some((last_height, last_digest)) if tail_h256 == last_digest => {
+                if start != last_height.saturating_add(1) {
+                    return Err(());
+                }
+            }
+            // Otherwise the tail must link to our own previously-validated digest (pipeline
+            // case: the prior submission is still in flight / not yet observed finalized).
+            _ => {
+                if digest_local.map(|d| cc_client::H256(d.0)) != Some(tail_h256) {
+                    return Err(());
+                }
+            }
         }
     }
     Ok(())
@@ -846,13 +863,13 @@ mod tests {
     #[test]
     fn empty_proof_allowed_at_genesis() {
         let cached = cached(None);
-        assert!(validate_proof_chain(&cached, 0, cc_client::H256::zero(), None, 0).is_ok());
+        assert!(validate_proof_chain(&cached, 0, None, None, 0).is_ok());
     }
 
     #[test]
     fn empty_proof_allowed_on_direct_link_to_last_finalized() {
         let prev = Digest::from([0x11; 32]);
-        let last_finalized = cc_client::H256(prev.0);
+        let last_finalized = Some((1, cc_client::H256(prev.0)));
         let cached = cached(Some(prev));
         assert!(validate_proof_chain(&cached, 2, last_finalized, None, 0).is_ok());
     }
@@ -860,14 +877,80 @@ mod tests {
     #[test]
     fn empty_proof_rejected_when_prev_digest_does_not_match_last_finalized() {
         let cached = cached(Some(Digest::from([0x11; 32])));
-        assert!(
-            validate_proof_chain(&cached, 2, cc_client::H256::from([0x22; 32]), None, 0,).is_err()
-        );
+        let last_finalized = Some((1, cc_client::H256::from([0x22; 32])));
+        assert!(validate_proof_chain(&cached, 2, last_finalized, None, 0).is_err());
     }
 
     #[test]
     fn empty_proof_rejected_at_non_genesis_without_prev_digest() {
         let cached = cached(None);
-        assert!(validate_proof_chain(&cached, 2, cc_client::H256::zero(), None, 0).is_err());
+        assert!(validate_proof_chain(&cached, 2, None, None, 0).is_err());
+    }
+
+    /// Runtime enforces `height == prev_header_number + 1` on the direct-link path; the local
+    /// check must too — a matching digest at a non-adjacent height is still rejected on-chain.
+    #[test]
+    fn empty_proof_rejected_when_height_does_not_directly_follow_last_finalized() {
+        let prev = Digest::from([0x11; 32]);
+        let last_finalized = Some((1, cc_client::H256(prev.0)));
+        let cached = cached(Some(prev));
+        assert!(validate_proof_chain(&cached, 3, last_finalized, None, 0).is_err());
+    }
+
+    /// Non-genesis attestation with an empty proof cannot link to anything when the chain has no
+    /// finalized attestation — the zero-digest sentinel must not sneak it through.
+    #[test]
+    fn empty_proof_rejected_at_non_genesis_when_nothing_finalized() {
+        let prev = Digest::from([0x11; 32]);
+        let cached = cached(Some(prev));
+        assert!(validate_proof_chain(&cached, 2, None, None, 0).is_err());
+    }
+
+    fn cached_with_proof(height: attestor_primitives::Height, tail: Digest) -> CachedProof {
+        // One-root proof covering block `height - 1`, chaining from `tail`.
+        let root = sp_core::H256::from([0xCC; 32]);
+        let proof =
+            attestor_primitives::block::ContinuityProof::new(sp_core::H256(tail.0), vec![root]);
+        let head = proof.compute_continuity_digest(height - 1);
+        CachedProof {
+            attestation_data: attestor_primitives::AttestationData::new(
+                1u64,
+                height,
+                Digest::from([0xAA; 32]),
+                sp_core::H256::from([0xBB; 32]),
+                Some(Digest::from(head.0)),
+            ),
+            continuity_proof: proof,
+        }
+    }
+
+    /// Tail links to the finalized digest at the right height (proof starts directly after it).
+    #[test]
+    fn proof_tail_accepted_when_it_directly_follows_last_finalized() {
+        let tail = Digest::from([0x11; 32]);
+        let cached = cached_with_proof(10, tail);
+        // Proof covers block 9, so the finalized attestation must sit at height 8.
+        let last_finalized = Some((8, cc_client::H256(tail.0)));
+        assert!(validate_proof_chain(&cached, 10, last_finalized, None, 0).is_ok());
+    }
+
+    /// Runtime verifies the tail's expected header number; a tail digest matching the finalized
+    /// digest at the wrong height must be rejected locally too.
+    #[test]
+    fn proof_tail_rejected_when_finalized_height_does_not_match() {
+        let tail = Digest::from([0x11; 32]);
+        let cached = cached_with_proof(10, tail);
+        // Finalized attestation claims height 5, but the proof starts at block 9.
+        let last_finalized = Some((5, cc_client::H256(tail.0)));
+        assert!(validate_proof_chain(&cached, 10, last_finalized, None, 0).is_err());
+    }
+
+    /// Pipeline case: the tail may link to our previously-validated (not yet finalized) digest.
+    #[test]
+    fn proof_tail_accepted_when_it_links_to_local_digest() {
+        let tail = Digest::from([0x33; 32]);
+        let cached = cached_with_proof(10, tail);
+        let last_finalized = Some((5, cc_client::H256::from([0x22; 32])));
+        assert!(validate_proof_chain(&cached, 10, last_finalized, Some(tail), 0).is_ok());
     }
 }
