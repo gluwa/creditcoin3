@@ -389,6 +389,14 @@ impl Sender {
         let mut guard = self.inner.pool.lock();
         if let State::Open(pool) = &mut *guard {
             pool.validate_attestor = ValidateAttestor::new(attestors);
+            // Revalidate stored state against the new set: votes already pooled by signers that
+            // just left the active set can no longer contribute to an on-chain quorum (the
+            // runtime filters `attestors` to the live `ActiveAttestors`), so keeping them
+            // around only inflates fork sizes and lets stale quorums surface. Prune them now
+            // rather than letting the submitter discover the shortfall at aggregation time.
+            let validate_attestor = &pool.validate_attestor;
+            pool.forks
+                .retain_signers(|attestor| validate_attestor.set.contains(attestor));
         }
     }
 
@@ -736,6 +744,34 @@ impl Forks {
         self.invalid.insert((height, digest));
     }
 
+    /// Drop every stored vote whose signer fails `keep` (i.e. left the active attestor set).
+    /// Fork sizes, the size index, and the equivocation tracker are all updated; forks left with
+    /// no signers are removed entirely. `seen` entries for removed signers are dropped too — a
+    /// removed attestor that gets re-elected may legitimately vote again at heights it voted at
+    /// under its previous tenure.
+    fn retain_signers(&mut self, keep: impl Fn(&AttestorId) -> bool) {
+        let keys: Vec<(Height, Digest)> = self.by_digest.keys().copied().collect();
+        for (height, digest) in keys {
+            let Some(entry) = self.by_digest.get_mut(&(height, digest)) else {
+                continue;
+            };
+            let size_before = entry.signers.len();
+            entry.votes.retain(|v| keep(&v.attestor));
+            entry.signers.retain(&keep);
+            if entry.signers.len() == size_before {
+                continue;
+            }
+            self.by_height_size.remove(&(height, size_before, digest));
+            if entry.signers.is_empty() {
+                self.by_digest.remove(&(height, digest));
+            } else {
+                self.by_height_size
+                    .insert((height, entry.signers.len(), digest));
+            }
+        }
+        self.seen.retain(|(_, attestor), _| keep(attestor));
+    }
+
     fn split_off(&mut self, finalized_height: Height) {
         let split = finalized_height.saturating_add(1);
         let to_keep = self.by_digest.split_off(&(split, Digest::zero()));
@@ -1022,6 +1058,51 @@ mod tests {
             p.forks.best(2).is_none(),
             "tombstoned fork must not re-form a quorum"
         );
+    }
+
+    /// An active-set change must prune pooled votes from removed signers: a fork that reached
+    /// quorum under the old set no longer counts those votes, so it must not surface as a
+    /// quorum under the new set.
+    #[test]
+    fn attestors_elected_prunes_votes_from_removed_signers() {
+        let mut p = pool(2);
+
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        assert!(p.forks.best(2).is_some(), "quorum under the old set");
+
+        // Attestor 1 leaves the active set.
+        p.validate_attestor = ValidateAttestor::new(vec![account(0), account(2), account(3)]);
+        let keep = &p.validate_attestor;
+        p.forks.retain_signers(|a| keep.set.contains(a));
+
+        assert!(
+            p.forks.best(2).is_none(),
+            "pruned fork must not surface as quorum"
+        );
+
+        // A still-active attestor can complete the quorum again.
+        p.push(vote(2, 10, 0xaa)).unwrap();
+        let best = p.forks.best(2).expect("quorum re-formed under new set");
+        assert_eq!(best.signers.len(), 2);
+    }
+
+    /// Pruning must clear the `seen` (equivocation) entry for removed signers so a re-elected
+    /// attestor can vote again, and must drop forks left with no signers.
+    #[test]
+    fn retain_signers_clears_seen_and_empty_forks() {
+        let mut p = pool(2);
+
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.forks.retain_signers(|_| false);
+
+        assert!(p.forks.by_digest.is_empty(), "empty fork must be removed");
+        assert!(p.forks.by_height_size.is_empty());
+        assert!(p.forks.seen.is_empty(), "seen entry must be cleared");
+
+        // The same attestor (re-elected) can vote at the same height again — with a different
+        // digest, even — without tripping the equivocation check.
+        p.push(vote(0, 10, 0xbb)).unwrap();
     }
 
     /// `mark_skipped` drops only the one fork and does NOT lock the height: a different fork at
