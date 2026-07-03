@@ -16,7 +16,7 @@ use subxt::{
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use cc3::runtime_types::{
     attestor_primitives::{
@@ -495,7 +495,10 @@ impl Client {
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
+        // Propagate iterator errors instead of `while let Some(Ok(..))`, which silently stopped
+        // at the first error and returned a truncated list as if it were complete.
+        while let Some(item) = iter.next().await {
+            let kv = item?;
             supported_chains.push(kv.value.into());
         }
 
@@ -592,6 +595,8 @@ impl Client {
         &self,
         chain_key: u64,
     ) -> Result<Option<AttestorStatus>, Error> {
+        use cc3::runtime_types::attestor_primitives::AttestorStatus as RuntimeAttestorStatus;
+
         let storage_query = cc3::storage()
             .attestation()
             .attestors(chain_key, self.signer.account_id());
@@ -604,22 +609,15 @@ impl Client {
             .fetch(&storage_query)
             .await?;
 
-        match result {
-            Some(attestor) => match attestor.status {
-                _ if format!("{:?}", attestor.status) == "Active" => {
-                    Ok(Some(AttestorStatus::Active))
-                }
-                _ if format!("{:?}", attestor.status) == "Idle" => Ok(Some(AttestorStatus::Idle)),
-                _ if format!("{:?}", attestor.status) == "Waiting" => {
-                    Ok(Some(AttestorStatus::Waiting))
-                }
-                _ if format!("{:?}", attestor.status) == "Leaving" => {
-                    Ok(Some(AttestorStatus::Leaving))
-                }
-                _ => Ok(None),
-            },
-            None => Ok(None),
-        }
+        // Match the generated runtime enum variants directly — the previous
+        // `format!("{:?}")` string comparison silently returned `None` if the generated
+        // Debug output ever changed shape.
+        Ok(result.map(|attestor| match attestor.status {
+            RuntimeAttestorStatus::Active => AttestorStatus::Active,
+            RuntimeAttestorStatus::Idle => AttestorStatus::Idle,
+            RuntimeAttestorStatus::Waiting => AttestorStatus::Waiting,
+            RuntimeAttestorStatus::Leaving => AttestorStatus::Leaving,
+        }))
     }
 
     /// Register to the attestation pallet
@@ -899,7 +897,10 @@ impl Client {
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
+        // Propagate iterator errors — a partial result silently truncated at the first error
+        // would be indistinguishable from a complete one.
+        while let Some(item) = iter.next().await {
+            let kv = item?;
             attestations.push(kv.value.into());
         }
 
@@ -935,7 +936,10 @@ impl Client {
             .iter(address)
             .await?;
 
-        while let Some(Ok(kv)) = iter.next().await {
+        // Propagate iterator errors — a partial result silently truncated at the first error
+        // would be indistinguishable from a complete one.
+        while let Some(item) = iter.next().await {
+            let kv = item?;
             if kv.key_bytes.len() < 8 {
                 error!(
                     "Storage key for chainkey {} is less than 8 bytes, checkpoint: {:?}",
@@ -1133,7 +1137,7 @@ impl Client {
             DefaultExtrinsicParamsBuilder::new().build()
         };
 
-        let ext = self
+        let tx_progress = self
             .api()
             .tx()
             .create_signed(&tx, &self.signer.signing_keypair, params)
@@ -1141,13 +1145,9 @@ impl Client {
             .submit_and_watch()
             .await?;
 
-        let hash = ext.extrinsic_hash();
-        debug!(
-            "Set attestation chain genesis block number extrinsic submitted with hash: {:?}",
-            hash
-        );
-
-        Ok(())
+        // Wait for finalized dispatch success like every other transaction helper — returning
+        // right after submit_and_watch would report success for a transaction that later fails.
+        utils::handle_tx(tx_progress, "Set attestation chain genesis block number").await
     }
 
     pub async fn get_attestation_chain_genesis_block_number(
