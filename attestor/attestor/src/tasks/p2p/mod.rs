@@ -13,7 +13,7 @@ pub mod protocols;
 
 use std::sync::Arc;
 
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{DecodeAll, Encode};
 use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
@@ -116,12 +116,15 @@ pub async fn run(
     let mut can_broadcast = false;
 
     // Per-height pending buffer for incoming votes that arrived before our local production
-    // reached that height. Drained when `shared.local_produced_rx` changes. Bounded per height
-    // to avoid memory bloat from spammy peers; spillover is dropped (gossipsub heartbeats
-    // will retransmit anyway).
+    // reached that height. Drained when `shared.local_produced_rx` changes.
+    //
+    // Keyed by attestor within each height so a peer flooding garbage votes that *claim* active
+    // attestor identities can occupy at most one slot per claimed attestor — it can no longer
+    // push legitimate early votes out of a shared per-height queue (one-vote-per-attestor holds
+    // even before BLS verification is possible). A per-height cap on distinct attestors remains
+    // as a backstop; spillover is dropped (gossipsub heartbeats will retransmit anyway).
     const MAX_PENDING_PER_HEIGHT: usize = 32;
-    let mut pending_votes: std::collections::HashMap<attestor_primitives::Height, Vec<Vote>> =
-        std::collections::HashMap::new();
+    let mut pending_votes: PendingVotes = std::collections::HashMap::new();
 
     // Modern libp2p ping no longer tears down a connection on repeated failures; we do it
     // ourselves. Tracks consecutive failed pings per connection and reaps the connection once it
@@ -181,7 +184,7 @@ pub async fn run(
                 if res.is_err() { return Ok(()); }
                 let Some(h) = *local_produced_rx.borrow() else { continue; };
                 if let Some(queued) = pending_votes.remove(&h) {
-                    for vote in queued {
+                    for (_, vote) in queued {
                         let _ = retry_pending_vote(&shared, vote).await;
                     }
                 }
@@ -225,13 +228,20 @@ pub async fn run(
     }
 }
 
+/// Pending buffer for votes that arrived before local production reached their height:
+/// `height -> (attestor -> vote)`. See the construction site in [`run`] for the admission rules.
+type PendingVotes = std::collections::HashMap<
+    attestor_primitives::Height,
+    std::collections::HashMap<AttestorId, Vote>,
+>;
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_swarm(
     shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     topic: &libp2p::gossipsub::IdentTopic,
     can_broadcast: &mut bool,
-    pending_votes: &mut std::collections::HashMap<attestor_primitives::Height, Vec<Vote>>,
+    pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
     dial_failures: &mut std::collections::HashMap<libp2p::PeerId, u32>,
@@ -322,8 +332,15 @@ async fn handle_swarm(
         })) => {
             shared.metrics.increase_gossipsub_message_count();
 
-            let (acceptance, learned) =
-                handle_vote_msg(shared, pending_votes, max_pending_per_height, &message.data).await;
+            let (acceptance, learned) = handle_vote_msg(
+                shared,
+                pending_votes,
+                max_pending_per_height,
+                peers_by_attestor,
+                message.source,
+                &message.data,
+            )
+            .await;
 
             // Learn the attestor → peer id binding from the *original signer* of a BLS-verified
             // vote (`message.source`, preserved across relays), not the relaying neighbour. Only
@@ -603,12 +620,15 @@ enum Acceptance {
 
 async fn handle_vote_msg(
     shared: &Arc<Shared>,
-    pending_votes: &mut std::collections::HashMap<attestor_primitives::Height, Vec<Vote>>,
+    pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
+    peers_by_attestor: &[(AttestorId, libp2p::PeerId)],
+    source: Option<libp2p::PeerId>,
     bytes: &[u8],
 ) -> (Acceptance, Option<AttestorId>) {
-    let mut slice = bytes;
-    let Ok(vote) = Vote::decode(&mut slice) else {
+    // `decode_all` enforces canonical SCALE consumption — payloads with trailing bytes are
+    // malformed gossip and rejected outright rather than silently accepted.
+    let Ok(vote) = Vote::decode_all(&mut &bytes[..]) else {
         tracing::warn!("⛔ failed to decode vote");
         return (Acceptance::Reject, None);
     };
@@ -642,7 +662,7 @@ async fn handle_vote_msg(
             None => Acceptance::Ignore,
         },
         VerifyResult::NoLocal => {
-            // We haven't produced at this height yet. Before buffering, gate on two cheap checks
+            // We haven't produced at this height yet. Before buffering, gate on cheap checks
             // so a peer can't grow this map without bound:
             //   * membership — we can't BLS-verify without local data, but we CAN check the sender
             //     is in the active attestor set. `verify_vote` returns `NoLocal` *before* its
@@ -652,6 +672,15 @@ async fn handle_vote_msg(
             //     (on the attestation schedule and within the catch-up window). Off-schedule or
             //     far-future heights never gain local data, so buffering them is pure memory-
             //     attack surface; drop them (Ignore) instead.
+            //   * sender identity — the vote's BLS signature can't be checked yet, so a peer
+            //     could otherwise occupy pending slots by *claiming* an active attestor's
+            //     identity. If we've already learned the attestor's libp2p peer id (from an
+            //     earlier BLS-verified vote), require the gossipsub-authenticated original
+            //     publisher (`message.source`, which survives relaying — NOT the relaying
+            //     `propagation_source`) to match it; a mismatch is a spoofed claim and is
+            //     rejected. Without a binding yet we can't authenticate, so we admit
+            //     first-come per `(height, attestor)` — the per-attestor keying still bounds
+            //     the damage to one contested slot per claimed identity.
             if pubkey.is_none() {
                 tracing::warn!(
                     attestor = %vote.attestor,
@@ -667,29 +696,13 @@ async fn handle_vote_msg(
                 );
                 Acceptance::Ignore
             } else {
-                // Queue the vote — when production caches local data at this height it'll signal
-                // us via `local_produced_rx` and we'll drain the queue + re-verify. Bounded per
-                // height; once full, Ignore so gossipsub retransmission can fill in later. Still
-                // Ignore on gossip propagation (not Accept) so we don't propagate a vote we
-                // haven't verified yet.
-                let entry = pending_votes.entry(vote.height).or_default();
-                if entry.len() < max_pending_per_height {
-                    tracing::debug!(
-                        digest = ?vote.digest,
-                        height = vote.height,
-                        queued = entry.len() + 1,
-                        "🕳️ no local data yet — queuing vote"
-                    );
-                    entry.push(vote);
-                } else {
-                    tracing::warn!(
-                        digest = ?vote.digest,
-                        height = vote.height,
-                        cap = max_pending_per_height,
-                        "🕳️ pending buffer full — dropping vote"
-                    );
-                }
-                Acceptance::Ignore
+                admit_pending_vote(
+                    pending_votes,
+                    max_pending_per_height,
+                    peers_by_attestor,
+                    source,
+                    vote,
+                )
             }
         }
         VerifyResult::DivergentDigest => {
@@ -713,6 +726,77 @@ async fn handle_vote_msg(
     };
 
     (acceptance, learned)
+}
+
+/// Admit a `NoLocal` vote into the pending buffer, enforcing one slot per `(height, attestor)`
+/// and — when we've already learned the claimed attestor's peer id — that the authenticated
+/// gossipsub publisher matches it. Returns the gossip acceptance to report:
+///
+/// * `Reject` — the authenticated publisher does not match the known peer binding for the
+///   claimed attestor (spoofed identity; feeds the peer-scoring penalty).
+/// * `Ignore` — buffered (or dropped on a full/contested slot); we never propagate a vote we
+///   haven't BLS-verified yet.
+fn admit_pending_vote(
+    pending_votes: &mut PendingVotes,
+    max_pending_per_height: usize,
+    peers_by_attestor: &[(AttestorId, libp2p::PeerId)],
+    source: Option<libp2p::PeerId>,
+    vote: Vote,
+) -> Acceptance {
+    let bound_peer = peers_by_attestor
+        .iter()
+        .find(|(a, _)| *a == vote.attestor)
+        .map(|(_, p)| *p);
+
+    let authenticated = match (bound_peer, source) {
+        // Known binding and the signed publisher matches — authenticated claim.
+        (Some(bound), Some(src)) if src == bound => true,
+        // Known binding but the publisher differs (or is missing) — spoofed identity claim.
+        (Some(bound), _) => {
+            tracing::warn!(
+                attestor = %vote.attestor,
+                height = vote.height,
+                expected_peer = %bound,
+                source = ?source,
+                "🎭 pending vote claims an attestor bound to a different peer — rejecting"
+            );
+            return Acceptance::Reject;
+        }
+        // No binding learned yet — can't authenticate the claim.
+        (None, _) => false,
+    };
+
+    let entry = pending_votes.entry(vote.height).or_default();
+    if entry.contains_key(&vote.attestor) {
+        // An authenticated vote replaces whatever occupied the slot (e.g. an earlier spoof
+        // that raced in before we had the binding). An unauthenticated one never displaces
+        // an existing entry — first-come wins so a flooder can't overwrite a real vote.
+        if authenticated {
+            entry.insert(vote.attestor.clone(), vote);
+        } else {
+            tracing::debug!(
+                digest = ?vote.digest,
+                height = vote.height,
+                "🕳️ pending slot already taken for this attestor — dropping"
+            );
+        }
+    } else if entry.len() < max_pending_per_height {
+        tracing::debug!(
+            digest = ?vote.digest,
+            height = vote.height,
+            queued = entry.len() + 1,
+            "🕳️ no local data yet — queuing vote"
+        );
+        entry.insert(vote.attestor.clone(), vote);
+    } else {
+        tracing::warn!(
+            digest = ?vote.digest,
+            height = vote.height,
+            cap = max_pending_per_height,
+            "🕳️ pending buffer full — dropping vote"
+        );
+    }
+    Acceptance::Ignore
 }
 
 /// Whether a `NoLocal` vote at `height` is worth buffering. It must sit on the local attestation
