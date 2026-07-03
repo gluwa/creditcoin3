@@ -157,6 +157,8 @@ impl Attestor {
         let maturity_delay = strategy
             .maturity_delay()
             .ok_or(Error::NoMaturityDelayForStrategy(strategy))?;
+        let encoding =
+            usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
 
         // ----------------------------------* balance check *---------------------------------- //
 
@@ -306,6 +308,7 @@ impl Attestor {
         let shared = Arc::new(Shared {
             name: self.config.name.clone(),
             chain_key,
+            encoding,
             account_id,
             attestor_id,
 
