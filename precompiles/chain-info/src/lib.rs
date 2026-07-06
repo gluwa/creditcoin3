@@ -165,9 +165,9 @@ where
         }
     }
 
-    #[precompile::public("outbox_factory_address(uint64)")]
+    #[precompile::public("get_outbox_factory_address(uint64)")]
     #[precompile::view]
-    fn outbox_factory_address(
+    fn get_outbox_factory_address(
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<OutboxFactoryResult> {
