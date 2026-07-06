@@ -167,6 +167,12 @@ pub mod pallet {
             for (chain_key, write_ability_chain_key, message_attestation_enabled) in
                 &self.write_ability_configs
             {
+                // Mirror the `set_write_ability_config` guard: a zero key would break messageHash
+                // binding and Outbox resolution, so a chainspec must not seed one either.
+                assert!(
+                    *write_ability_chain_key != [0u8; 32],
+                    "Genesis write_ability_configs has a zero write_ability_chain_key for chain_key {chain_key:?}"
+                );
                 WriteAbilityConfigs::<T>::insert(
                     chain_key,
                     WriteAbilityConfig {
@@ -177,6 +183,12 @@ pub mod pallet {
             }
 
             for (chain_key, outbox_factory_addr) in &self.outbox_factories {
+                // Mirror the `set_outbox_factory_addr` guard: a zero factory reads as "unregistered"
+                // to the attestor/relayer, so a chainspec must not seed one.
+                assert!(
+                    !outbox_factory_addr.is_zero(),
+                    "Genesis outbox_factories has a zero address for chain_key {chain_key:?}"
+                );
                 OutboxFactories::<T>::insert(chain_key, *outbox_factory_addr);
             }
         }
