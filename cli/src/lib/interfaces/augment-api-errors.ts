@@ -922,6 +922,17 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaturityStrategy: AugmentedError<ApiType>;
             /**
+             * The Outbox Factory address is the zero address. A zero factory cannot be resolved by the
+             * attestor/relayer (it reads as "not registered"), so setting it via the operator path is
+             * rejected to fail loudly instead of silently disabling write-ability for the chain.
+             **/
+            ZeroOutboxFactoryAddress: AugmentedError<ApiType>;
+            /**
+             * The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
+             * zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
+             **/
+            ZeroWriteAbilityChainKey: AugmentedError<ApiType>;
+            /**
              * Generic error
              **/
             [key: string]: AugmentedError<ApiType>;
