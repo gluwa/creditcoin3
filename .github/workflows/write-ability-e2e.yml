@@ -135,7 +135,11 @@ jobs:
 
       - name: Install usc-messaging deps
         working-directory: ./usc-messaging
-        run: npm install
+        # deploy.ts drives `forge create` against artifacts in contracts/node_modules
+        # (@gluwa/usc-contracts), so the nested package needs its own install.
+        run: |
+          npm install
+          (cd contracts && npm ci)
 
       - name: Start anvil (destination chain)
         run: |
