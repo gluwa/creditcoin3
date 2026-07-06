@@ -17688,7 +17688,6 @@ version = "3.128.0"
 dependencies = [
  "alloy",
  "parity-scale-codec",
- "sha3",
 ]
 
 [[package]]

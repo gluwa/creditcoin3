@@ -13,4 +13,3 @@ path = "src/lib.rs"
 [dependencies]
 alloy = { workspace = true, features = ["full"] }
 parity-scale-codec = { workspace = true, features = ["derive"] }
-sha3 = { workspace = true, default-features = false }

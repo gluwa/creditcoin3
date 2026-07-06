@@ -104,3 +104,17 @@ async fn read_attestors<P: Provider>(
         .await?;
     Ok(ret._0.into_iter().collect())
 }
+
+/// Connect to the destination chain and read the validator's attestor set once. Shared by the
+/// startup resolution in [`super::build_state`] and this module's hot-reload watcher so the
+/// trust-critical fetch cannot drift between the two.
+pub(super) async fn fetch_attestor_set(
+    dest_rpc_url: &str,
+    validator: Address,
+) -> anyhow::Result<HashSet<Address>> {
+    let provider = ProviderBuilder::new()
+        .on_builtin(dest_rpc_url)
+        .await
+        .map_err(|err| anyhow::anyhow!("connect destination chain RPC: {err}"))?;
+    read_attestors(&provider, validator).await
+}
