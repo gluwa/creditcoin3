@@ -3824,7 +3824,15 @@ declare module '@polkadot/types/lookup' {
         readonly isChainNotSupported: boolean;
         readonly isArithmetic: boolean;
         readonly isInvalidMaturityStrategy: boolean;
-        readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic' | 'InvalidMaturityStrategy';
+        readonly isZeroOutboxFactoryAddress: boolean;
+        readonly isZeroWriteAbilityChainKey: boolean;
+        readonly type:
+            | 'ChainAlreadyRegistered'
+            | 'ChainNotSupported'
+            | 'Arithmetic'
+            | 'InvalidMaturityStrategy'
+            | 'ZeroOutboxFactoryAddress'
+            | 'ZeroWriteAbilityChainKey';
     }
 
     /** @name PalletRandomnessError (429) */
