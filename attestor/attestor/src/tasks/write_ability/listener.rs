@@ -144,7 +144,19 @@ pub async fn poll_once<P: Provider>(
                 }
             }
             Err(err) => {
-                tracing::warn!(%err, "could not decode MessagePublished log; skipping");
+                // The log matched the MessagePublished topic filter but failed to decode. That is
+                // not a per-message data issue — it means our IOutbox ABI does not match the
+                // deployed contract, a systematic misconfiguration. Bail instead of skipping: we
+                // return before advancing `last_seen`, so the caller retries this exact range
+                // rather than silently stepping over an on-chain message that would then never be
+                // indexed, signed, or gossiped. Re-processing the range's already-sent logs on
+                // retry is harmless (the aggregator dedups by signer and the relayer dedups votes).
+                return Err(err).with_context(|| {
+                    format!(
+                        "failed to decode a MessagePublished log (block {:?}, tx {:?}) — IOutbox ABI likely does not match the deployed Outbox",
+                        log.block_number, log.transaction_hash
+                    )
+                });
             }
         }
     }

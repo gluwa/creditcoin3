@@ -313,8 +313,12 @@ pub async fn run(
 
     let chain_key = shared.chain_key;
     loop {
+        // Not `biased`: a biased select would always poll the listener channel before reobservation
+        // requests, starving `reobs_rx` whenever indexed messages arrive continuously (catch-up or a
+        // high publish rate) — exactly when relayer liveness recovery matters most. Random selection
+        // keeps the two data channels fair; the cancellation token, once fired, stays ready and so is
+        // still picked promptly (graceful shutdown tolerates finishing one in-flight item first).
         tokio::select! {
-            biased;
             () = shared.token.cancelled() => break,
             maybe = rx.recv() => {
                 let Some(indexed) = maybe else {
