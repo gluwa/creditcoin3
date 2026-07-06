@@ -24,6 +24,41 @@ if (!DAPP_CONTRACT_ADDR) throw new Error("Missing DAPP_CONTRACT_ADDR");
 
 const dappAbi = ["function markDelivered(bytes32 messageId) external"];
 
+const MARK_DELIVERED_RETRY_MS = 5_000;
+const MARK_DELIVERED_MAX_ATTEMPTS = 10;
+
+// Retries live here (not via the listener cursor): the listener advances past the event's block
+// as soon as the batch is dispatched, so a failed markDelivered would otherwise never be
+// re-fetched and the ack would be silently lost.
+async function markDeliveredWithRetry(
+  dapp: ethers.Contract,
+  messageId: string,
+  attempt = 1,
+): Promise<void> {
+  try {
+    const tx = await dapp.markDelivered(messageId);
+    console.log(`markDelivered tx sent: ${tx.hash}`);
+
+    const receipt = await tx.wait();
+    console.log(`markDelivered confirmed in block ${receipt.blockNumber}`);
+  } catch (err) {
+    if (attempt >= MARK_DELIVERED_MAX_ATTEMPTS) {
+      console.error(
+        `Failed to markDelivered for ${messageId} after ${attempt} attempts — giving up:`,
+        err,
+      );
+      return;
+    }
+    console.error(
+      `Failed to markDelivered for ${messageId} (attempt ${attempt}), retrying in ${MARK_DELIVERED_RETRY_MS}ms:`,
+      err,
+    );
+    setTimeout(() => {
+      void markDeliveredWithRetry(dapp, messageId, attempt + 1);
+    }, MARK_DELIVERED_RETRY_MS);
+  }
+}
+
 async function main() {
   const destinationProvider = new ethers.JsonRpcProvider(DESTINATION_RPC_URL);
   const sourceProvider = new ethers.JsonRpcProvider(SOURCE_RPC_URL);
@@ -69,16 +104,7 @@ async function main() {
         console.log(`  txHash:    ${txHash}`);
       }
 
-      try {
-        const tx = await dapp.markDelivered(messageId);
-        console.log(`markDelivered tx sent: ${tx.hash}`);
-
-        const receipt = await tx.wait();
-        console.log(`markDelivered confirmed in block ${receipt.blockNumber}`);
-      } catch (err) {
-        seenMessageIds.delete(id);
-        console.error(`Failed to markDelivered for ${id}:`, err);
-      }
+      await markDeliveredWithRetry(dapp, messageId);
     },
   );
 
