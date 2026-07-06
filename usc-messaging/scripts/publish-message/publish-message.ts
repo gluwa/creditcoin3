@@ -65,11 +65,16 @@ async function main() {
     EVENT_MESSAGE_DELIVERED,
     async ({ messageId }) => {
       // We only care about the delivery of a message with a matching id
-      if (messageIdStore && messageIdStore == messageId) {
+      if (messageIdStore && messageIdStore === messageId) {
         console.log("📬 MessageDelivered event received!");
         console.log("🆔 messageId:", messageId);
 
-        clearInterval(heartbeat); // ✅ stop the periodic log
+        // Done: stop the pollers and exit 0 so callers (CI wraps this in `timeout`) can tell
+        // success from a hang.
+        clearInterval(heartbeat);
+        stopDispatched();
+        stopDelivered();
+        process.exit(0);
       }
     },
   );
