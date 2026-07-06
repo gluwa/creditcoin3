@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "deploy": "cd contracts && ./script/deploy.sh",
+    "deploy": "tsx scripts/deploy.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
