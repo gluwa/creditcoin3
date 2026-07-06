@@ -128,6 +128,7 @@ mod tests {
             active_set: RwLock::new(active_set),
             publish_tx: tx,
             reobs_tx: tokio::sync::mpsc::channel(8).0,
+            destination_chain_key: write_ability::protocol::chain_key_to_bytes32(CHAIN_KEY),
         }
     }
 
