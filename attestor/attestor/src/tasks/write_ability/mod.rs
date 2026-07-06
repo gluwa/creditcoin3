@@ -33,7 +33,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use alloy::primitives::Address;
+use alloy::primitives::{Address, B256};
 use alloy::providers::ProviderBuilder;
 use anyhow::anyhow;
 use parking_lot::{Mutex, RwLock};
@@ -41,6 +41,7 @@ use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
 use write_ability::envelope::{MessageVote, ReobservationRequest};
+use write_ability::protocol::chain_key_to_bytes32;
 
 use crate::error::Error;
 use crate::shared::Shared;
@@ -68,14 +69,26 @@ pub struct MessageVoteState {
     /// the write-ability task to verify + re-sign. `try_send` from the swarm loop (best effort:
     /// shedding a request under a full buffer just means that stall recovers on the next request).
     pub reobs_tx: mpsc::Sender<ReobservationRequest>,
+    /// The `bytes32` write-ability chain key bound into every `messageHash` and passed to
+    /// `IOutboxFactory.getOutbox`. Sourced from the on-chain `WriteAbilityConfigs` entry when one
+    /// is registered for this `chain_key`; derived locally (right-padded `u64`) otherwise.
+    pub destination_chain_key: B256,
 }
 
 /// Build the shared message-vote state and the matching publish channel receiver from config, or
 /// `None` when message attestation is disabled / not yet supported. Runs during `lib.rs` startup
 /// before tasks spawn; resolving an [`AttestorSet::OnChainValidator`] set performs one RPC read.
+///
+/// Enablement is gated twice: the local `enabled` flag is the *operator's* opt-in (and implies the
+/// RPC endpoints are configured), while the on-chain `WriteAbilityConfigs` entry for `chain_key` is
+/// *governance's* switch — when an entry exists with `message_attestation_enabled == false` the
+/// task stays off regardless of local config. A missing entry (or a failed read) falls back to
+/// local config so dev setups and chain outages don't disable a configured attestor. On-chain
+/// changes are picked up on restart.
 #[must_use]
 pub async fn build_state(
     cfg: &Config,
+    cc3: &cc_client::Client,
 ) -> Option<(
     Arc<MessageVoteState>,
     mpsc::Receiver<MessageVote>,
@@ -84,6 +97,7 @@ pub async fn build_state(
     if !cfg.enabled {
         return None;
     }
+    let destination_chain_key = resolve_destination_chain_key(cfg, cc3).await?;
     let active_set = resolve_active_set(cfg).await?;
     let threshold = attestor_primitives::calculate_threshold(active_set.len() as u32) as usize;
     let aggregator =
@@ -95,6 +109,7 @@ pub async fn build_state(
         active_set: RwLock::new(active_set),
         publish_tx,
         reobs_tx,
+        destination_chain_key,
     });
     tracing::info!(
         attestors = state.active_set.read().len(),
@@ -102,6 +117,52 @@ pub async fn build_state(
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
     Some((state, publish_rx, reobs_rx))
+}
+
+/// Read the on-chain `WriteAbilityConfigs` entry for this `chain_key` and derive the effective
+/// `bytes32` write-ability chain key. Returns `None` when governance has explicitly disabled
+/// message attestation for the chain (an entry exists with `message_attestation_enabled == false`).
+async fn resolve_destination_chain_key(cfg: &Config, cc3: &cc_client::Client) -> Option<B256> {
+    let chain_key = cfg.write_ability_chain_key;
+    let local = chain_key_to_bytes32(chain_key);
+    match cc3.get_write_ability_config(chain_key).await {
+        Ok(Some(on_chain)) => {
+            if !on_chain.message_attestation_enabled {
+                tracing::info!(
+                    chain_key,
+                    "📴 on-chain WriteAbilityConfig disables message attestation for this chain — disabling"
+                );
+                return None;
+            }
+            let key = B256::from(on_chain.write_ability_chain_key);
+            if key != local {
+                tracing::warn!(
+                    chain_key,
+                    on_chain_key = %key,
+                    derived_key = %local,
+                    "on-chain write-ability chain key differs from the locally derived one — using the on-chain value"
+                );
+            }
+            Some(key)
+        }
+        Ok(None) => {
+            tracing::warn!(
+                chain_key,
+                "no on-chain WriteAbilityConfig registered for this chain — using the locally derived chain key"
+            );
+            Some(local)
+        }
+        Err(err) => {
+            // Availability over strictness: a transient read failure must not disable a locally
+            // configured attestor. Explicit governance "off" is only honored via Ok(Some(..)).
+            tracing::warn!(
+                chain_key,
+                %err,
+                "failed to read on-chain WriteAbilityConfig — falling back to local config"
+            );
+            Some(local)
+        }
+    }
 }
 
 /// Resolve the authorized signer set. Returns `None` (with a logged reason) when the set can't be
@@ -202,7 +263,7 @@ pub async fn run(
     // doing block attestation. (Polling is simpler and more robust than event subscription; picking
     // up a later Outbox *re-registration* mid-run remains a finer-grained TODO in resolver.rs.)
     let resolved = loop {
-        match resolver::resolve(&provider, &cfg).await {
+        match resolver::resolve(&provider, &cfg, state.destination_chain_key).await {
             Ok(Some(r)) => break r,
             Ok(None) => {
                 tracing::info!(
