@@ -363,6 +363,8 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Registers the outbox factory contract address for a supported chain. Only accounts in
+        /// the Operators membership (or root) can call this extrinsic.
         #[pallet::call_index(2)]
         #[pallet::weight(T::WeightInfo::set_outbox_factory_addr())]
         pub fn set_outbox_factory_addr(
