@@ -42,13 +42,17 @@ export interface AccountBalance {
 export async function getBalance(address: string, api: ApiPromise) {
     const balacesAll = await getBalancesAll(address, api);
     const stakingInfo = await getStakingInfo(address, api);
+    const stakingHold = await getStakingHoldBalance(address, api);
 
     const balance: AccountBalance = {
         address,
         transferable: balacesAll.availableBalance,
         bonded: stakingInfo?.stakingLedger.active?.unwrap() || new BN(0),
         evm: new BN(0), // Get Balance does not reflect EVM balance, it must be added manually
-        locked: balacesAll.lockedBalance,
+        // pallet-staking now bonds funds via a balances hold (HoldReason::Staking) instead of
+        // the legacy lock, so `lockedBalance` (derived from `balances.locks`) alone is 0 for any
+        // stash that hasn't gone through the old lock->hold migration.
+        locked: balacesAll.lockedBalance.add(stakingHold),
         total: balacesAll.freeBalance.add(balacesAll.reservedBalance),
         unbonding: calcUnbonding(stakingInfo),
     };
@@ -59,6 +63,11 @@ export async function getBalance(address: string, api: ApiPromise) {
 export async function getBalancesAll(address: string, api: ApiPromise) {
     const balance = await api.derive.balances.all(address);
     return balance;
+}
+
+async function getStakingHoldBalance(address: string, api: ApiPromise): Promise<BN> {
+    const holds = await api.query.balances.holds(address);
+    return holds.filter((hold) => hold.id.isStaking).reduce((total, hold) => total.iadd(hold.amount), new BN(0));
 }
 
 async function getStakingInfo(address: string, api: ApiPromise) {
