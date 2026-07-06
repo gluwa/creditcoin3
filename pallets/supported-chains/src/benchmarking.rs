@@ -60,7 +60,8 @@ mod benchmarks {
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             chain_key,
-            H160::zero(),
+            // Must be non-zero: the extrinsic rejects H160::zero() with ZeroOutboxFactoryAddress.
+            H160::repeat_byte(0x01),
         )
     }
 
@@ -75,7 +76,8 @@ mod benchmarks {
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             chain_key,
-            [0u8; 32],
+            // Must be non-zero: the extrinsic rejects [0u8; 32] with ZeroWriteAbilityChainKey.
+            [1u8; 32],
             true,
         )
     }

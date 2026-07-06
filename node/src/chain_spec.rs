@@ -470,15 +470,10 @@ fn devnet_genesis(
                 (5, *chain_key_to_bytes32(5), true),
                 (6, *chain_key_to_bytes32(6), true),
             ],
-            // TODO: Replace with address of deployed outbox factory contract on local devnet once contract is completed
-            outbox_factories: vec![
-                (1, H160(hex!("0000000000000000000000000000000000000000"))),
-                (2, H160(hex!("0000000000000000000000000000000000000000"))),
-                (3, H160(hex!("0000000000000000000000000000000000000000"))),
-                (4, H160(hex!("0000000000000000000000000000000000000000"))),
-                (5, H160(hex!("0000000000000000000000000000000000000000"))),
-                (6, H160(hex!("0000000000000000000000000000000000000000"))),
-            ],
+            // Left empty on purpose: factories are registered post-genesis via
+            // `set_outbox_factory_addr` once deployed (the extrinsic rejects zero addresses, so
+            // seeding zeros here would create entries that look registered but are invalid).
+            outbox_factories: vec![],
             _phantom: Default::default(),
         },
         operators: Default::default(),
