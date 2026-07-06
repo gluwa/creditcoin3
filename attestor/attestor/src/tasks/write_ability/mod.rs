@@ -371,17 +371,32 @@ fn produce_vote(
         }
     };
 
-    // Chain-seen (we observed it on-chain) + count our own vote.
+    // Chain-seen (we observed it on-chain) + count our own vote — but only tally our signature
+    // toward local quorum when our address is actually in the authorized set. Peers reject votes
+    // from non-attestors, so counting our own unconditionally would let a misconfigured node (a
+    // signer key that isn't in the on-chain EOAValidator set) log a false "threshold reached" while
+    // the relayer still lacks enough valid votes. We still gossip below regardless: if the on-chain
+    // set was just updated to include us but our local view hasn't refreshed yet (30s poll), the
+    // relayer counts our vote even though we don't count it locally for another tick.
+    let authorized = state.active_set.read().contains(&our_address);
     {
         let now = Instant::now();
         let mut agg = state.aggregator.lock();
         agg.note_indexed(indexed.message_hash.0, now);
-        if let aggregator::VoteOutcome::Accepted {
-            reached_threshold: true,
-        } = agg.add_vote(indexed.message_hash.0, our_address, now)
-        {
-            ingest::note_threshold(chain_key, &indexed.message_hash);
+        if authorized {
+            if let aggregator::VoteOutcome::Accepted {
+                reached_threshold: true,
+            } = agg.add_vote(indexed.message_hash.0, our_address, now)
+            {
+                ingest::note_threshold(chain_key, &indexed.message_hash);
+            }
         }
+    }
+    if !authorized {
+        tracing::warn!(
+            %our_address,
+            "⚠️ our signer is not in the active attestor set — gossiping our vote but not counting it locally"
+        );
     }
 
     let vote = MessageVote {
@@ -392,15 +407,25 @@ fn produce_vote(
         signature,
     };
 
+    // `try_send` (not `send().await`) so a wedged/backed-up p2p task can never apply backpressure
+    // into this loop. A dropped vote is recoverable: the gossipsub mesh re-gossips from peers that
+    // did receive it, and the relayer's reobservation request re-drives `produce_vote` when a
+    // message sits below quorum — by which point the channel has typically drained. Mirrors the
+    // block-attestation broadcast in `production.rs`.
     match state.publish_tx.try_send(vote) {
         Ok(()) => tracing::info!(
             message_id = %indexed.message_id,
             message_hash = %indexed.message_hash,
             "✉️ queued message vote for gossip"
         ),
-        Err(err) => {
-            tracing::warn!(%err, "message-vote publish channel full/closed — dropping vote")
-        }
+        Err(mpsc::error::TrySendError::Full(_)) => tracing::warn!(
+            message_id = %indexed.message_id,
+            "📭 message-vote channel full — dropping broadcast (recovered via gossip/reobservation)"
+        ),
+        Err(mpsc::error::TrySendError::Closed(_)) => tracing::warn!(
+            message_id = %indexed.message_id,
+            "📭 message-vote channel closed — p2p task exited"
+        ),
     }
 }
 
