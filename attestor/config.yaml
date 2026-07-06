@@ -81,6 +81,13 @@ write_ability:
   # (chain-info precompile -> OutboxFactory -> getOutbox). If no factory/Outbox is
   # registered for this chain_key, write-ability stays disabled for the run (the
   # rest of the attestor keeps running normally).
+  #
+  # `enabled` is the operator's opt-in; the on-chain WriteAbilityConfigs entry for
+  # this chain_key is governance's switch. When an entry exists it is authoritative:
+  # message_attestation_enabled == false keeps the task off regardless of this flag,
+  # and its bytes32 write-ability chain key overrides the locally derived one. No
+  # entry (or a failed read) falls back to this local config. Read at startup;
+  # on-chain changes are picked up on restart.
   enabled: true
 
   # Authorized message-vote signer EVM addresses (the static attestor set). The
