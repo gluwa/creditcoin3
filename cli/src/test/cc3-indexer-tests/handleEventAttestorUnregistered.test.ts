@@ -1,4 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
@@ -8,6 +9,7 @@ describe('handleEventAttestorUnregistered()', () => {
     let api: ApiPromise;
     let bob: KeyringPair;
     let attestor: any;
+    let startingBlock: bigint;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -63,6 +65,9 @@ describe('handleEventAttestorUnregistered()', () => {
             expect(foundMatch).toEqual(false);
 
             // NOTE: now remove it and observe GraphQL responses below
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
+
             await api.tx.attestation
                 .unregisterAttestor(chain_Anvil2_Key, attestor.address)
                 .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
@@ -105,14 +110,14 @@ describe('handleEventAttestorUnregistered()', () => {
             // flags it with the indexer-only `unregistered` status (4). Consumers filter out
             // status = 4 to match chain state.
             const response = await graphQLQuery(
-                `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } } }`,
+                `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10, filter: {attestorId: {equalTo: "${attestor.address}"}}) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } } }`,
             );
             expect(response.data.attestors.nodes).toBeTruthy();
+            expect(response.data.attestors.nodes.length).toEqual(1);
 
-            const matches = response.data.attestors.nodes.filter((node: any) => node.attestorId === attestor.address);
-            expect(matches.length).toEqual(1);
-            expect(matches[0].status).toEqual(4); // unregistered
-            expect(BigInt(matches[0].lastUpdateBlockNumber)).toBeGreaterThan(0n);
+            const node = response.data.attestors.nodes[0];
+            expect(node.status).toEqual(4); // unregistered
+            expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
         });
     });
 });
