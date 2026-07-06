@@ -87,18 +87,18 @@ async fn resolve_outbox_address<P: Provider>(
 ) -> Result<Option<Address>> {
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
-        .outbox_factory_address(chain_key)
+        .get_outbox_factory_address(chain_key)
         .call()
         .await
-        .context("chain-info precompile outbox_factory_address() reverted")?;
-    if !factory.exists || factory.factory_addr.is_zero() {
+        .context("chain-info precompile get_outbox_factory_address() reverted")?;
+    if !factory.exists || factory.factoryAddr.is_zero() {
         tracing::warn!(
             chain_key,
             "no Outbox factory registered on-chain for chain_key"
         );
         return Ok(None);
     }
-    let factory = factory.factory_addr;
+    let factory = factory.factoryAddr;
 
     // 2. The factory's Outbox for this chain key.
     let outbox = IOutboxFactory::new(factory, provider)
