@@ -58,6 +58,8 @@ cd "$REPO"
 echo "=== 2. deploy USC contracts ==="
 cd "$USC"
 npm install >"$LOGS/npm.log" 2>&1
+# deploy.ts needs @gluwa/usc-contracts artifacts in contracts/node_modules
+(cd contracts && npm ci) >>"$LOGS/npm.log" 2>&1
 cp .env.example .env
 npx tsx scripts/deploy.ts >"$LOGS/deploy.log" 2>&1 || { echo "❌ deploy failed"; tail -20 "$LOGS/deploy.log"; exit 1; }
 set -a; source .env; set +a
