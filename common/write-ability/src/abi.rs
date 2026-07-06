@@ -113,10 +113,10 @@ sol! {
         /// `chain-info` precompile accessor (PR #873) exposing the per-chain Outbox factory
         /// address registered in `SupportedChains::OutboxFactories`. `exists` is false when no
         /// factory has been set for `chainKey`. Precompile address: `0x…0fD3` (4051).
-        function outbox_factory_address(uint64 chainKey)
+        function get_outbox_factory_address(uint64 chainKey)
             external
             view
-            returns (address factory_addr, bool exists);
+            returns (address factoryAddr, bool exists);
     }
 
     #[sol(rpc)]
