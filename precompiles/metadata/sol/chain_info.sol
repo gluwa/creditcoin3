@@ -26,10 +26,10 @@ struct ChainInfoResult {
 }
 
 /**
- * @dev outbox_factory_address result structure
+ * @dev get_outbox_factory_address result structure
  */
 struct OutboxFactoryResult {
-    address factory_addr;
+    address factoryAddr;
     bool exists;
 }
 
@@ -97,7 +97,7 @@ interface ChainInfoContract {
      * @param chainKey The chain key for which to get the outbox factory
      * @return result outbox factory address if found
      */
-    function outbox_factory_address(uint64 chainKey) external view returns (OutboxFactoryResult memory result);
+    function get_outbox_factory_address(uint64 chainKey) external view returns (OutboxFactoryResult memory result);
 
     /**
      * @dev Get attestation genesis height for a chain

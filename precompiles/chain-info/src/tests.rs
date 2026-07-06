@@ -94,7 +94,7 @@ fn get_chain_by_key_works() {
 }
 
 #[test]
-fn outbox_factory_address_works() {
+fn get_outbox_factory_address_works() {
     let alice: H160 = Alice.into();
 
     let factory_addr = H160::repeat_byte(0x11);
@@ -115,7 +115,7 @@ fn outbox_factory_address_works() {
                 .prepare_test(
                     alice,
                     Precompile,
-                    PCall::outbox_factory_address {
+                    PCall::get_outbox_factory_address {
                         chain_key: SUPPORTED_CHAIN_KEY,
                     },
                 )
@@ -178,7 +178,7 @@ fn get_chain_by_key_returns_default_data_with_unknown_chain_key() {
 }
 
 #[test]
-fn outbox_factory_address_returns_default_when_not_set() {
+fn get_outbox_factory_address_returns_default_when_not_set() {
     let alice: H160 = Alice.into();
 
     let unknown_chain_key: u64 = 9999;
@@ -199,7 +199,7 @@ fn outbox_factory_address_returns_default_when_not_set() {
                 .prepare_test(
                     alice,
                     Precompile,
-                    PCall::outbox_factory_address {
+                    PCall::get_outbox_factory_address {
                         chain_key: unknown_chain_key,
                     },
                 )
