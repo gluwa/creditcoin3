@@ -71,8 +71,8 @@ pub struct MessageVoteState {
 }
 
 /// Build the shared message-vote state and the matching publish channel receiver from config, or
-/// `None` when message attestation is disabled / not yet supported. Pure (no async) so it can run
-/// during `lib.rs` startup before tasks spawn. Called from `lib.rs`.
+/// `None` when message attestation is disabled / not yet supported. Runs during `lib.rs` startup
+/// before tasks spawn; resolving an [`AttestorSet::OnChainValidator`] set performs one RPC read.
 #[must_use]
 pub async fn build_state(
     cfg: &Config,
@@ -127,36 +127,23 @@ async fn resolve_active_set(cfg: &Config) -> Option<HashSet<Address>> {
                 );
                 return None;
             };
-            let provider = match ProviderBuilder::new().on_builtin(url.as_str()).await {
-                Ok(p) => p,
+            let set = match attestor_set::fetch_attestor_set(url.as_str(), *validator).await {
+                Ok(set) => set,
                 Err(err) => {
-                    tracing::error!(%err, "failed to connect destination chain to read EOAValidator — disabling");
+                    tracing::error!(%validator, %err, "failed to read attestor set from on-chain EOAValidator — disabling");
                     return None;
                 }
             };
-            match write_ability::abi::IVoteValidator::new(*validator, &provider)
-                .attestors()
-                .call()
-                .await
-            {
-                Ok(ret) => {
-                    let set: HashSet<Address> = ret._0.into_iter().collect();
-                    if set.is_empty() {
-                        tracing::error!(%validator, "EOAValidator.attestors() returned an empty set — disabling");
-                        return None;
-                    }
-                    tracing::info!(
-                        %validator,
-                        attestors = set.len(),
-                        "🧑‍⚖️ read attestor set from on-chain EOAValidator"
-                    );
-                    Some(set)
-                }
-                Err(err) => {
-                    tracing::error!(%validator, %err, "EOAValidator.attestors() call failed — disabling");
-                    None
-                }
+            if set.is_empty() {
+                tracing::error!(%validator, "EOAValidator.attestors() returned an empty set — disabling");
+                return None;
             }
+            tracing::info!(
+                %validator,
+                attestors = set.len(),
+                "🧑‍⚖️ read attestor set from on-chain EOAValidator"
+            );
+            Some(set)
         }
     }
 }
@@ -246,8 +233,8 @@ pub async fn run(
     let listener_provider = provider.clone();
     let listener_token = shared.token.clone();
     let confirmation_depth = cfg.block_confirmation_depth;
-    let listener = tokio::spawn(async move {
-        if let Err(err) = listener::watch(
+    let mut listener = tokio::spawn(async move {
+        listener::watch(
             &listener_provider,
             resolved,
             confirmation_depth,
@@ -256,9 +243,6 @@ pub async fn run(
             listener_token,
         )
         .await
-        {
-            tracing::error!(%err, "outbox listener exited with error");
-        }
     });
 
     // Cooldown so a spammed/forged reobservation topic can't make us re-scan the chain in a loop.
@@ -273,8 +257,19 @@ pub async fn run(
             () = shared.token.cancelled() => break,
             maybe = rx.recv() => {
                 let Some(indexed) = maybe else {
-                    tracing::warn!("listener channel closed — write-ability task exiting");
-                    break;
+                    // The listener holds the only sender, so a closed channel means it exited.
+                    // Harvest its result and surface the underlying error to the supervisor —
+                    // otherwise it would only see a generic early-Ok exit and the failure reason
+                    // would be lost.
+                    let err = match (&mut listener).await {
+                        Ok(Ok(())) => anyhow!("outbox listener exited without error or shutdown"),
+                        Ok(Err(err)) => err.context("outbox listener died"),
+                        Err(join_err) => anyhow!("outbox listener panicked: {join_err}"),
+                    };
+                    if let Some(w) = &set_watcher {
+                        w.abort();
+                    }
+                    return Err(Error::WriteAbility(err));
                 };
                 produce_vote(&state, &signer, our_address, chain_key, indexed);
             }
