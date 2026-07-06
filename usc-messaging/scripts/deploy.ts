@@ -146,7 +146,7 @@ function toWs(url: string): string {
 }
 
 // Register the deployed OutboxFactory with `pallet_supported_chains` so the attestor (and relayer)
-// can resolve the outbox on-chain via the chain-info precompile (`outbox_factory_address` ->
+// can resolve the outbox on-chain via the chain-info precompile (`get_outbox_factory_address` ->
 // factory -> `getOutbox(chainKey)`). This is a Substrate extrinsic
 // (`supportedChains.setOutboxFactoryAddr`), NOT an EVM call, and it is operator-gated — on a --dev
 // node we submit it through sudo with the dev sudo account. The chain must already be supported.

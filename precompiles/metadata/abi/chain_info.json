@@ -445,13 +445,13 @@
         "type": "uint64"
       }
     ],
-    "name": "outbox_factory_address",
+    "name": "get_outbox_factory_address",
     "outputs": [
       {
         "components": [
           {
             "internalType": "address",
-            "name": "factory_addr",
+            "name": "factoryAddr",
             "type": "address"
           },
           {
