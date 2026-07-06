@@ -5,8 +5,9 @@
 //! deliberately not configurable, because an address supplied separately from the chain key may
 //! not correspond to it.
 //!
-//! The destination chain key is the attestor's configured write-ability chain key; its `bytes32`
-//! form is computed locally and bound into `messageHash`, never read back from the Outbox.
+//! The destination chain key (`bytes32`) is supplied by the caller — sourced from the on-chain
+//! `WriteAbilityConfigs` entry when registered, else derived locally from the attestor's
+//! `chain_key` — and bound into `messageHash`, never read back from the Outbox.
 //!
 //! Activation is dynamic: the write-ability task ([`super::run`]) retries `resolve` on a timer, so
 //! an attestor started before the factory/Outbox is registered activates automatically once they
@@ -24,7 +25,6 @@ use anyhow::{Context, Result};
 
 use attestor_primitives::ChainKey;
 use write_ability::abi::{IChainInfo, IOutboxFactory};
-use write_ability::protocol::chain_key_to_bytes32;
 
 use super::config::Config;
 
@@ -39,24 +39,31 @@ pub const CHAIN_INFO_PRECOMPILE: Address = Address::new([
 pub struct ResolvedOutbox {
     /// Outbox contract address on Creditcoin L1.
     pub address: Address,
-    /// The destination chain key bound into `messageHash` (PoC §5.2). The `bytes32` form of the
-    /// attestor's configured write-ability chain key, computed locally rather than read from chain.
+    /// The destination chain key bound into `messageHash` (PoC §5.2). Sourced from the on-chain
+    /// `WriteAbilityConfigs` entry when registered, else derived locally from `chain_key`.
     pub destination_chain_key: B256,
     /// Creditcoin L1 EVM chain id (`eth_chainId`) bound into `messageHash`.
     pub creditcoin_chain_id: u64,
 }
 
 /// Resolve the Outbox for the configured write-ability chain key using `provider` (a Creditcoin L1
-/// EVM connection).
+/// EVM connection). `destination_chain_key` is the effective `bytes32` key (see
+/// [`super::MessageVoteState::destination_chain_key`]) used both to ask the factory for its Outbox
+/// and as the hash-binding key.
 ///
 /// Returns `Ok(None)` when no Outbox factory / Outbox is registered on-chain for this chain key —
 /// the caller treats that as "write-ability not available" and disables it for the run rather than
 /// failing. `Err` is reserved for genuine RPC/contract failures.
-pub async fn resolve<P: Provider>(provider: &P, cfg: &Config) -> Result<Option<ResolvedOutbox>> {
+pub async fn resolve<P: Provider>(
+    provider: &P,
+    cfg: &Config,
+    destination_chain_key: B256,
+) -> Result<Option<ResolvedOutbox>> {
     let chain_key = cfg.write_ability_chain_key;
 
     // The Outbox address is resolved entirely on-chain from chain_key — never configured.
-    let Some(address) = resolve_outbox_address(provider, chain_key).await? else {
+    let Some(address) = resolve_outbox_address(provider, chain_key, destination_chain_key).await?
+    else {
         return Ok(None);
     };
 
@@ -67,7 +74,7 @@ pub async fn resolve<P: Provider>(provider: &P, cfg: &Config) -> Result<Option<R
 
     Ok(Some(ResolvedOutbox {
         address,
-        destination_chain_key: chain_key_to_bytes32(chain_key),
+        destination_chain_key,
         creditcoin_chain_id,
     }))
 }
@@ -84,6 +91,7 @@ pub async fn resolve<P: Provider>(provider: &P, cfg: &Config) -> Result<Option<R
 async fn resolve_outbox_address<P: Provider>(
     provider: &P,
     chain_key: ChainKey,
+    destination_chain_key: B256,
 ) -> Result<Option<Address>> {
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
@@ -102,7 +110,7 @@ async fn resolve_outbox_address<P: Provider>(
 
     // 2. The factory's Outbox for this chain key.
     let outbox = IOutboxFactory::new(factory, provider)
-        .getOutbox(chain_key_to_bytes32(chain_key))
+        .getOutbox(destination_chain_key)
         .call()
         .await
         .with_context(|| format!("IOutboxFactory.getOutbox at {factory} reverted"))?
