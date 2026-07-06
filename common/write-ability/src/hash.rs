@@ -16,9 +16,8 @@
 //! `validateVotes`. The golden-vector tests at the bottom of this file are the contract: any
 //! drift here will silently break delivery.
 
-use alloy::primitives::{Address, B256, U256};
+use alloy::primitives::{keccak256, Address, B256, U256};
 use alloy::sol_types::SolValue;
-use sha3::{Digest, Keccak256};
 
 /// Compute `messageHash` exactly as the Solidity `validateVotes` will recompute it.
 #[must_use]
@@ -42,9 +41,7 @@ pub fn message_hash(
     )
         .abi_encode_params();
 
-    let mut hasher = Keccak256::new();
-    hasher.update(&encoded);
-    B256::from_slice(&hasher.finalize())
+    keccak256(&encoded)
 }
 
 #[cfg(test)]
