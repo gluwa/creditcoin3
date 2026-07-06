@@ -65,7 +65,8 @@ wired to that factory-created outbox.
 > acknowledge — and it only does so after verifying a **native USC delivery proof** (block-prover
 > precompile: merkle inclusion + continuity) that the destination `MessageDelivered` event was
 > emitted in a finalized block, then decoding the messageIds (research §05/§10). The off-chain
-> submitter (delivery infra/relayer) that assembles + submits the proof is the remaining piece. This
+> submitter that assembles + submits the proof is the message-relayer's ack worker (see
+> `gluwa/usc-message-relayer`, enabled with the `--ack-*` flags / `ack:` route config). This
 > is distinct from the **destination-chain vote validator** (contract 6 above), the `EOAValidator`
 > that gates `deliverMessage`.
 
@@ -157,10 +158,11 @@ npx tsx src/dApp-ack-worker/dApp-ack-worker.ts
 >   its message arrived. This is what the default demo exercises (messages are published with
 >   `requiresAck = false`).
 > - **Protocol-level Outbox acknowledgement (`AcknowledgmentValidator`).** Only for messages
->   published with `requiresAck = true`: a native USC delivery proof is submitted to the
->   `AcknowledgmentValidator`, which verifies it and calls `Outbox.acknowledgeMessage`. The off-chain
->   proof submitter for this is not implemented yet, so the `requiresAck = true` path is not wired
->   end-to-end in this demo. The `dApp-ack-worker` above does **not** drive it.
+>   published with `requiresAck = true`: a native USC delivery proof is fetched from proof-gen and
+>   submitted to the `AcknowledgmentValidator`, which verifies it and calls
+>   `Outbox.acknowledgeMessage`. The message-relayer's ack worker drives this (run it with the
+>   `--ack-*` flags pointing at a proof-gen instance; the `write-ability-e2e` CI job exercises the
+>   full path and asserts `acknowledged == true`). The `dApp-ack-worker` above does **not** drive it.
 
 ### 4. Submit message request to dApp contract
 To submit our message, run the following:
