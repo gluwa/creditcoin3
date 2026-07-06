@@ -3229,7 +3229,14 @@ export default {
      * Lookup424: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
-        _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
+        _enum: [
+            'ChainAlreadyRegistered',
+            'ChainNotSupported',
+            'Arithmetic',
+            'InvalidMaturityStrategy',
+            'ZeroOutboxFactoryAddress',
+            'ZeroWriteAbilityChainKey',
+        ],
     },
     /**
      * Lookup429: pallet_randomness::pallet::Error<T>

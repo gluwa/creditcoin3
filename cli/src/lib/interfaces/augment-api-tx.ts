@@ -3250,6 +3250,10 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, bool]
             >;
+            /**
+             * Registers the outbox factory contract address for a supported chain. Only accounts in
+             * the Operators membership (or root) can call this extrinsic.
+             **/
             setOutboxFactoryAddr: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
