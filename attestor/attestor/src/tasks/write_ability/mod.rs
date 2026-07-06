@@ -34,7 +34,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use alloy::primitives::{Address, B256};
-use alloy::providers::ProviderBuilder;
+use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::anyhow;
 use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc;
@@ -257,6 +257,18 @@ pub async fn run(
         .await
         .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
 
+    // Capture the chain head *before* the resolve loop. When no explicit `start_block` is
+    // configured we scan from here, not from the head after resolution finishes — otherwise
+    // messages published on the Outbox during the resolve-retry window (the Outbox can exist and
+    // receive messages a poll interval before we resolve it) would be silently skipped, never
+    // signed or gossiped. Operators expecting a long activation wait should still set `start_block`
+    // to bound the initial backfill range (no MessagePublished logs exist before Outbox creation,
+    // so the effective scan is small in the common case).
+    let head_before_resolve = provider
+        .get_block_number()
+        .await
+        .map_err(|e| Error::WriteAbility(anyhow!("read Creditcoin L1 chain head: {e}")))?;
+
     // Resolve the Outbox, retrying until it's available rather than disabling for the whole run:
     // an attestor can be started before the factory/Outbox is registered on-chain and will activate
     // write-ability automatically once they are, with no restart. While unresolved it just keeps
@@ -294,12 +306,14 @@ pub async fn run(
     let listener_provider = provider.clone();
     let listener_token = shared.token.clone();
     let confirmation_depth = cfg.block_confirmation_depth;
+    // Fall back to the pre-resolution head (not "now") so the resolve-wait window is covered.
+    let scan_from = cfg.start_block.or(Some(head_before_resolve));
     let mut listener = tokio::spawn(async move {
         listener::watch(
             &listener_provider,
             resolved,
             confirmation_depth,
-            cfg.start_block,
+            scan_from,
             tx,
             listener_token,
         )
