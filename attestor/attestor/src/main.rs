@@ -105,9 +105,9 @@ struct ConfigFileWriteAbility {
     /// Authorized message-vote signer EVM addresses (the static attestor set).
     #[serde(default)]
     attestors: Vec<alloy::primitives::Address>,
-    /// On-chain `IVoteValidator` address; if set, takes precedence over `attestors` (not yet wired
-    /// in the attestor — it lives on the destination chain — so this currently disables the task
-    /// with a clear log).
+    /// On-chain `IVoteValidator` (EOAValidator) address on the destination chain; if set, takes
+    /// precedence over `attestors`. The set is read once at startup via `destination_eth_rpc_url`
+    /// and hot-reloaded by the attestor-set watcher while running.
     validator_address: Option<alloy::primitives::Address>,
 }
 
