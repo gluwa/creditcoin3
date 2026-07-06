@@ -7,7 +7,7 @@
 //! The on-the-wire encoding is SCALE (`parity_scale_codec`) so it round-trips byte-for-byte across
 //! both crates. Do **not** switch to JSON / CBOR here — that would silently desync the mesh.
 
-use parity_scale_codec::{Decode, Encode};
+use parity_scale_codec::{Decode, DecodeAll, Encode};
 
 /// Vote envelope as published by attestors and consumed by the relayer.
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
@@ -27,9 +27,10 @@ pub struct MessageVote {
 }
 
 impl MessageVote {
-    /// Decode an incoming gossipsub payload.
+    /// Decode an incoming gossipsub payload. Uses `decode_all` so payloads with trailing bytes are
+    /// rejected (canonical SCALE consumption), matching how block-attestation votes are decoded.
     pub fn decode_bytes(bytes: &[u8]) -> Result<Self, parity_scale_codec::Error> {
-        Self::decode(&mut &bytes[..])
+        Self::decode_all(&mut &bytes[..])
     }
 
     /// Encode for publishing / fixtures.
@@ -64,9 +65,10 @@ pub struct ReobservationRequest {
 }
 
 impl ReobservationRequest {
-    /// Decode an incoming gossipsub payload.
+    /// Decode an incoming gossipsub payload. Uses `decode_all` so payloads with trailing bytes are
+    /// rejected (canonical SCALE consumption), matching how block-attestation votes are decoded.
     pub fn decode_bytes(bytes: &[u8]) -> Result<Self, parity_scale_codec::Error> {
-        Self::decode(&mut &bytes[..])
+        Self::decode_all(&mut &bytes[..])
     }
 
     /// Encode for publishing / fixtures.
@@ -106,6 +108,15 @@ mod tests {
         let bytes = fixture().encode_bytes();
         let truncated = &bytes[..bytes.len() - 4];
         assert!(MessageVote::decode_bytes(truncated).is_err());
+    }
+
+    #[test]
+    fn rejects_trailing_bytes() {
+        // A frame with extra bytes appended must be rejected (canonical SCALE consumption), so a
+        // peer can't smuggle a payload that decodes here but differs on a byte-for-byte comparison.
+        let mut bytes = fixture().encode_bytes();
+        bytes.extend_from_slice(&[0xAB, 0xCD]);
+        assert!(MessageVote::decode_bytes(&bytes).is_err());
     }
 
     #[test]
