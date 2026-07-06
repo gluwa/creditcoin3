@@ -240,6 +240,12 @@ pub async fn run(
     // votes produced while peerless were silently lost: the channel backed up until production
     // dropped fresh broadcasts, and publish failures discarded the vote outright.
     let mut retry_queue: std::collections::VecDeque<Vote> = std::collections::VecDeque::new();
+    // Same, for locally signed message votes: a vote produced while the message-votes mesh has no
+    // peers must not be lost — the relayer can only count votes it hears. Bounded like
+    // `retry_queue`; message votes need no finalized-height pruning (stale entries age out of the
+    // relayer's aggregation window harmlessly, and the cap evicts the oldest first).
+    let mut mv_retry_queue: std::collections::VecDeque<MessageVote> =
+        std::collections::VecDeque::new();
     let mut retry_tick = tokio::time::interval(RETRY_INTERVAL);
     retry_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -260,11 +266,14 @@ pub async fn run(
                 }
             }
 
-            // Periodic retry of unpublished votes. Unconditional attempt for the same reason as
-            // above; the flush stops at the first failure, so a peerless tick costs one publish
-            // call per 30s.
-            _ = retry_tick.tick(), if !retry_queue.is_empty() => {
+            // Periodic retry of unpublished votes (block attestation + message votes).
+            // Unconditional attempts (no mesh-hint gate — see `can_broadcast`); each flush stops
+            // at its first failure, so a peerless tick costs one publish call per queue per 30s.
+            _ = retry_tick.tick(), if !retry_queue.is_empty() || !mv_retry_queue.is_empty() => {
                 flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                if let Some(mv_topic) = &mv_topic {
+                    flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue);
+                }
             }
 
             // Local production cached new AttestationData → drain every buffered height up to
@@ -301,16 +310,13 @@ pub async fn run(
                 handle_peer_deactivated(&shared, &mut swarm, &peers_by_attestor, &attestor);
             }
 
-            // Outgoing — the write_ability task produced a signed message vote to gossip. Best
-            // effort: a publish with no mesh peers yet is logged and dropped (PoC scope).
+            // Outgoing — the write_ability task produced a signed message vote to gossip. A
+            // publish that fails (typically no mesh peers yet) is queued and retried, same as
+            // block-attestation votes: dropping it would silently cost the relayer our signature.
             Some(vote) = mv_publish_rx.recv(), if mv_topic.is_some() => {
                 if let Some(mv_topic) = &mv_topic {
-                    match swarm.behaviour_mut().gossipsub.publish(mv_topic.hash(), vote.encode_bytes()) {
-                        Ok(_) => tracing::info!(
-                            chain_key = vote.chain_key,
-                            "✉️ gossiped message vote",
-                        ),
-                        Err(err) => tracing::warn!(%err, "✉️ message-vote publish failed"),
+                    if !try_publish_message_vote(&mut swarm, mv_topic, &vote) {
+                        queue_message_vote_for_retry(&mut mv_retry_queue, vote);
                     }
                 }
             }
@@ -342,8 +348,13 @@ pub async fn run(
                     .is_some();
                 // Mesh just (re)formed — flush queued votes immediately rather than waiting for
                 // the next retry tick.
-                if !could_broadcast && can_broadcast && !retry_queue.is_empty() {
-                    flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                if !could_broadcast && can_broadcast {
+                    if !retry_queue.is_empty() {
+                        flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                    }
+                    if let Some(mv_topic) = &mv_topic {
+                        flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue);
+                    }
                 }
             }
         }
@@ -660,6 +671,78 @@ fn try_publish(
             );
             false
         }
+    }
+}
+
+/// Publish one message vote to the message-votes topic. Returns `true` when the vote needs no
+/// further retry: either it was published, or gossipsub reports it a duplicate (already in the
+/// message cache from a previous successful publish). Any other failure returns `false` so the
+/// caller can queue the vote for retry.
+fn try_publish_message_vote(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    vote: &MessageVote,
+) -> bool {
+    match swarm
+        .behaviour_mut()
+        .gossipsub
+        .publish(topic.hash(), vote.encode_bytes())
+    {
+        Ok(_) => {
+            tracing::info!(chain_key = vote.chain_key, "✉️ gossiped message vote");
+            true
+        }
+        Err(libp2p::gossipsub::PublishError::Duplicate) => true,
+        Err(err) => {
+            tracing::warn!(
+                chain_key = vote.chain_key,
+                %err,
+                "✉️ message-vote publish failed — queueing for retry",
+            );
+            false
+        }
+    }
+}
+
+/// Append a message vote to its bounded retry queue, dropping the oldest entry on overflow (the
+/// one whose aggregation window is closest to expiring anyway).
+fn queue_message_vote_for_retry(
+    mv_retry_queue: &mut std::collections::VecDeque<MessageVote>,
+    vote: MessageVote,
+) {
+    if mv_retry_queue.len() >= MAX_RETRY_QUEUE {
+        if let Some(dropped) = mv_retry_queue.pop_front() {
+            tracing::warn!(
+                chain_key = dropped.chain_key,
+                cap = MAX_RETRY_QUEUE,
+                "🗑️ message-vote retry queue full — dropping oldest unpublished vote"
+            );
+        }
+    }
+    mv_retry_queue.push_back(vote);
+}
+
+/// Republish queued message votes in order (oldest first) until one fails, which usually means
+/// the mesh went away again — the remainder stays queued for the next trigger.
+fn flush_mv_retry_queue(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    mv_retry_queue: &mut std::collections::VecDeque<MessageVote>,
+) {
+    let backlog = mv_retry_queue.len();
+    while let Some(vote) = mv_retry_queue.front() {
+        if try_publish_message_vote(swarm, topic, vote) {
+            mv_retry_queue.pop_front();
+        } else {
+            break;
+        }
+    }
+    if mv_retry_queue.len() < backlog {
+        tracing::info!(
+            published = backlog - mv_retry_queue.len(),
+            remaining = mv_retry_queue.len(),
+            "📤 flushed unpublished message-vote backlog"
+        );
     }
 }
 
