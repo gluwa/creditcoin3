@@ -1,0 +1,11 @@
+[
+  {
+    "type": "event",
+    "name": "OutboxCreated",
+    "inputs": [
+      { "name": "chainKey", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
+      { "name": "outboxAddress", "type": "address", "indexed": true, "internalType": "address" }
+    ],
+    "anonymous": false
+  }
+]

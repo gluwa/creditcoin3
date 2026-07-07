@@ -512,6 +512,85 @@ type TransactionVerified @entity {
     txHash: String! @index
 }
 
+type OutboxFactory @entity {
+    """
+    A USC write-ability OutboxFactory discovered on-chain via the substrate
+    `supportedChains.OutboxFactoryRegistered` event. Registering a factory triggers a dynamic
+    Frontier EVM datasource that watches it for OutboxCreated, so no factory address is configured.
+    """
+    # Factory contract address (hex, lowercase)
+    id: ID!
+    # USC chain key the factory serves
+    chainKey: BigInt! @index
+    # Creditcoin L1 block the factory was registered at
+    registeredAt: BigInt! @index
+    # Registration block timestamp (ms since epoch)
+    registeredTimestamp: BigInt!
+}
+
+type OutboxContract @entity {
+    """
+    An Outbox instance discovered on-chain via its factory's OutboxCreated event. Each discovery
+    spins up a dynamic Frontier EVM datasource that indexes this Outbox's messages — the addresses
+    are never hard-coded.
+    """
+    # Outbox contract address (hex, lowercase)
+    id: ID!
+    # bytes32 write-ability chain key this Outbox serves
+    chainKey: String! @index
+    # The factory that created it
+    factory: OutboxFactory
+    # Creditcoin L1 block the Outbox was created at
+    createdAt: BigInt! @index
+    # Creation block timestamp (ms since epoch)
+    createdTimestamp: BigInt!
+    # Creation transaction hash
+    createdTxHash: String! @index
+    # Messages published on this Outbox
+    messages: [OutboxMessage!] @derivedFrom(field: "outbox")
+}
+
+type OutboxMessage @entity {
+    """
+    A USC write-ability cross-chain message published on a Creditcoin L1 Outbox.
+    Keyed by the on-chain messageId so the MessageAcknowledged handler updates the
+    same record: `acknowledged == true` means the ack (with its native delivery
+    proof) landed back on Creditcoin. Messages published with requiresAck == false
+    are never acknowledged on this chain — their delivery is confirmed only on the
+    destination chain, which this indexer does not observe.
+    """
+    # messageId (bytes32, hex) — the unique message handle
+    id: ID!
+
+    # Outbox contract that emitted the message (the dynamically-discovered instance).
+    # Foreign keys are indexed automatically, so no @index is needed here.
+    outbox: OutboxContract!
+    # dApp (emitterAddress) that called publishMessage
+    emitter: String! @index
+    # Whether the message must be acknowledged on-chain before it is complete
+    requiresAck: Boolean! @index
+    # Opaque payload bytes (hex) handed to the destination dApp's receiveMessage
+    payload: String!
+
+    # --- publish (MessagePublished) ---
+    # Creditcoin L1 block number the message was published at
+    publishedAt: BigInt! @index
+    # Publish block timestamp (ms since epoch)
+    publishedTimestamp: BigInt!
+    # Publish transaction hash
+    publishedTxHash: String! @index
+
+    # --- acknowledgment (MessageAcknowledged; only for requiresAck == true) ---
+    # True once the ack landed on the Outbox
+    acknowledged: Boolean! @index
+    # Creditcoin L1 block number the ack landed at (null until acknowledged)
+    acknowledgedAt: BigInt
+    # Ack block timestamp (ms since epoch, null until acknowledged)
+    acknowledgedTimestamp: BigInt
+    # Ack transaction hash (null until acknowledged)
+    acknowledgedTxHash: String
+}
+
 type SupportedChain @entity {
     id: ID!
     # Chain key

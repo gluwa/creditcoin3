@@ -225,6 +225,16 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                 },
             },
             {
+                // USC write-ability: on-chain factory registration. The handler spins up a dynamic
+                // datasource for the registered factory (no address is configured anywhere).
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleOutboxFactoryRegistered',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'OutboxFactoryRegistered',
+                },
+            },
+            {
                 kind: SubstrateHandlerKind.Event,
                 handler: 'handleMaxAttestorsChanged',
                 filter: {
@@ -297,6 +307,83 @@ export const blockProverDatasource: FrontierEvmDatasource = {
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
                     topics: ['TransactionVerified(uint64,uint64,uint64)'],
+                },
+            },
+        ],
+    },
+};
+
+// USC write-ability — fully on-chain discovery, no configured addresses:
+//
+//   OutboxCreated (EVM, chain-wide topic filter — the static datasource below)
+//     └─▶ createDynamicDatasource('Outbox', { address })   // watches each created Outbox
+//           └─ MessagePublished / MessageAcknowledged (EVM)
+//
+// Discovery watches `OutboxCreated` across all contracts by topic (no address), rather than
+// following the substrate OutboxFactoryRegistered event to the factory. This is deliberate: the
+// deploy flow calls the factory's `createOutbox` (emitting OutboxCreated) *before* it registers the
+// factory with the pallet, so a datasource that only started once the factory was registered would
+// miss the already-emitted OutboxCreated and index nothing. A chain-wide topic watch from block 1
+// is immune to that ordering. (The substrate OutboxFactoryRegistered handler still records the
+// OutboxFactory entity for display; it is no longer on the discovery path.)
+//
+// createDynamicDatasource spreads its `args` into the 'Outbox' template's `processor.options` (see
+// @subql/node BlockchainService.updateDynamicDs), so `{ address }` binds each instance to its
+// Outbox while inheriting the template's abi + handlers. Only our OutboxFactory emits this exact
+// event signature, so the address-less filter yields only real Outbox creations.
+
+type FrontierEvmTemplate = Omit<FrontierEvmDatasource, 'startBlock' | 'endBlock'> & { name: string };
+
+export const outboxDiscoveryDatasource: FrontierEvmDatasource = {
+    kind: 'substrate/FrontierEvm',
+    startBlock: 1,
+    processor: {
+        file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
+        options: {
+            // No `address`: match OutboxCreated by topic across all contracts.
+            abi: 'outbox_factory',
+        },
+    },
+    assets: new Map([['outbox_factory', { file: './abis/outbox_factory.json' }]]),
+    mapping: {
+        file: './dist/index.js',
+        handlers: [
+            {
+                handler: 'handleOutboxCreated',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: {
+                    topics: ['OutboxCreated(bytes32,address)'],
+                },
+            },
+        ],
+    },
+};
+
+export const outboxTemplate: FrontierEvmTemplate = {
+    name: 'Outbox',
+    kind: 'substrate/FrontierEvm',
+    processor: {
+        file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
+        options: {
+            abi: 'outbox',
+        },
+    },
+    assets: new Map([['outbox', { file: './abis/outbox.json' }]]),
+    mapping: {
+        file: './dist/index.js',
+        handlers: [
+            {
+                handler: 'handleMessagePublished',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: {
+                    topics: ['MessagePublished(bytes32,address,bool,bytes)'],
+                },
+            },
+            {
+                handler: 'handleMessageAcknowledged',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: {
+                    topics: ['MessageAcknowledged(bytes32)'],
                 },
             },
         ],
