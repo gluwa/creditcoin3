@@ -14,7 +14,7 @@ permissions: read-all
 
 jobs:
   sanity-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       TAG_NAME: ${{ steps.identify-tag.outputs.TAG_NAME }}
     steps:
@@ -65,7 +65,7 @@ jobs:
           node dist/scripts/npm-semver-check.js "${{ env.TAG_NAME }}"
 
   setup:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs: sanity-check
     outputs:
       build_options: ${{ steps.set-build-options.outputs.build_options}}
@@ -173,7 +173,7 @@ jobs:
       build-options: "${{ needs.setup.outputs.build_options }}"
       build-subwasm: true
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
-      runs-on: "['ubuntu-24.04']"
+      runs-on: "['ubuntu-26.04']"
 
   docker-build:
     needs:
@@ -190,7 +190,7 @@ jobs:
   create-release:
     permissions:
       contents: write
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     needs:
       - sanity-check
       - setup

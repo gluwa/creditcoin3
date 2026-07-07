@@ -29,7 +29,7 @@ permissions: read-all
 jobs:
   execute-command:
     name: ${{ matrix.command }} / ${{ matrix.directory }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         directory:
@@ -68,7 +68,7 @@ jobs:
 
   deno-checks:
     name: ${{ matrix.command }} / ${{ matrix.directory }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         directory: [scripts/stress-test, scripts/usc-audit-automation]

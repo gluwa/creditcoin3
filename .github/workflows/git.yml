@@ -12,7 +12,7 @@ permissions: read-all
 
 jobs:
   setup:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
 
@@ -63,7 +63,7 @@ jobs:
   sanity:
     # note: github.{base_ref|head_ref} only available on pull requests
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -106,7 +106,7 @@ jobs:
           .github/check-for-broken-symlinks.sh
 
   rebase-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: github.base_ref == 'usc-dev'
     steps:
       - uses: actions/checkout@v7
@@ -151,7 +151,7 @@ jobs:
           git merge-base "${{ env.BRANCH_NAME }}" origin/usc-testnet --all
 
   merge-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: github.base_ref == 'usc-dev'
     steps:
       - uses: actions/checkout@v7
@@ -207,7 +207,7 @@ jobs:
           git log --merge
 
   target-branch-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Check the target branch of this PR
         run: |
