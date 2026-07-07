@@ -39,6 +39,43 @@ jobs:
           docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max .
           docker images
 
+      # DO-2217: informational only — never fails the build. See DO-2104 for the org-wide compliance initiative.
+      - name: Docker Scout - CVE scan (${{ github.repository }})
+        if: env.DOCKER_PUSH_USERNAME
+        env:
+          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ github.repository }}:${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          exit-code: false
+
+      - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
+        if: env.DOCKER_PUSH_USERNAME
+        env:
+          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ github.repository }}:indexer-for-${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          exit-code: false
+
+      - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
+        if: env.DOCKER_PUSH_USERNAME
+        env:
+          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          exit-code: false
+
       - name: Export docker image into a file
         run: |
           mkdir -p "${{ runner.temp }}/gluwa/"

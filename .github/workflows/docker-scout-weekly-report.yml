@@ -1,0 +1,79 @@
+---
+name: Docker Scout Weekly Report
+
+"on":
+  schedule:
+    # every Monday at 09:00 EDT / 13:00 UTC
+    - cron: "0 13 * * 1"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  scout-weekly-report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Docker Scout CLI
+        run: curl -fsSL https://raw.githubusercontent.com/docker/scout-cli/main/install.sh | sh -s --
+
+      - name: Docker Hub login (Scout org policy evaluation)
+        env:
+          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          DOCKER_PUSH_PASSWORD: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+        run: echo "$DOCKER_PUSH_PASSWORD" | docker login -u "$DOCKER_PUSH_USERNAME" --password-stdin
+
+      # Only the main image has a stable :latest tag (mainnet builds only).
+      # The indexer and proof-gen-stress-test images are only ever pushed with
+      # per-version tags, so we resolve each to its most-recently-pushed
+      # digest from Docker Hub before scanning — pinning to a sha rather than
+      # a moving tag name, same reasoning as the DO-2206 base image pin.
+      - name: Resolve current published digests and run Scout quickview
+        id: scout
+        run: |
+          set -euo pipefail
+
+          TAGS_JSON=$(curl -fsSL "https://hub.docker.com/v2/repositories/gluwa/creditcoin3/tags?page_size=100&ordering=last_updated")
+
+          resolve() {
+            local mode="$1" pattern="$2"
+            echo "$TAGS_JSON" | jq -r --arg p "$pattern" --arg m "$mode" '
+              ([.results[] | select(
+                if $m == "exact" then .name == $p else (.name | startswith($p)) end
+              )] | sort_by(.last_updated) | reverse | .[0]) // {} | "\(.name // "null")|\(.digest // "null")"'
+          }
+
+          report=""
+          for entry in "main|exact|latest" "indexer|prefix|indexer-for-" "proof-gen-stress-test|prefix|proof-gen-stress-test-for-"; do
+            label="${entry%%|*}"
+            rest="${entry#*|}"
+            mode="${rest%%|*}"
+            pattern="${rest#*|}"
+
+            resolved=$(resolve "$mode" "$pattern")
+            tag="${resolved%%|*}"
+            digest="${resolved##*|}"
+
+            if [ -z "$tag" ] || [ "$tag" = "null" ]; then
+              report="${report}*${label}*: no published tag found matching \`${pattern}*\`\n"
+              continue
+            fi
+
+            quickview=$(docker scout quickview "gluwa/creditcoin3@${digest}" 2>&1 || true)
+            report="${report}*${label}* (\`${tag}\`)\n\`\`\`\n${quickview}\n\`\`\`\n"
+          done
+
+          {
+            echo "report<<SCOUT_EOF"
+            echo -e "$report"
+            echo "SCOUT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Report to Penguin Patrol
+        uses: gluwa/penguin-patrol-message@v1
+        with:
+          webhook-url: ${{ secrets.PENGUIN_PATROL_WEBHOOK_URL }}
+          alert-title: "Weekly Docker Scout Report — creditcoin3"
+          channel: "#noti-docker-scout"
+          message: |
+            ${{ steps.scout.outputs.report }}
+            Full org dashboard: https://scout.docker.com/reports/org/gluwa/overview
