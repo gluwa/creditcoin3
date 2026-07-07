@@ -40,7 +40,7 @@ jobs:
   deploy-runner:
     timeout-minutes: 15
     name: proxy=${{ inputs.proxy }} / ${{ inputs.secret }} / type=${{ inputs.proxy_type }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 

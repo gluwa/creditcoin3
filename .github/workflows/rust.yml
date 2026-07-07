@@ -20,7 +20,7 @@ permissions: read-all
 jobs:
   cargo-audit:
     if: github.base_ref == 'usc-dev'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -64,7 +64,7 @@ jobs:
           fi
 
   cargo-fmt:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -95,7 +95,7 @@ jobs:
           taplo format --check
 
   cargo-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -140,7 +140,7 @@ jobs:
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
   cargo-clippy:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -178,7 +178,7 @@ jobs:
           args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
 
   cargo-machete:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -200,7 +200,7 @@ jobs:
         uses: bnjbvr/cargo-machete@main
 
   cargo-test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:

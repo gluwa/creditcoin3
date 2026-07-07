@@ -18,7 +18,7 @@ permissions: read-all
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   should-run:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       archiver: ${{ steps.filter.outputs.archiver }}
       attestor_cli_testing: ${{ steps.filter.outputs.attestor_cli_testing }}
@@ -149,7 +149,7 @@ jobs:
     if: github.base_ref == 'usc-dev'
     needs:
       - build-creditcoin-node-for-testing-ci
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
       - name: Install Node Dependencies
@@ -213,7 +213,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -587,7 +587,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -621,7 +621,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - trigger-integration-test-cli
       - regenerate-metadata
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
         with:
@@ -732,7 +732,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -907,7 +907,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.docs_smart_contract == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -1099,7 +1099,7 @@ jobs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -1315,7 +1315,7 @@ jobs:
       - should-run
       - regenerate-metadata
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -1445,7 +1445,7 @@ jobs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' || needs.should-run.outputs.integration_test_cli == 'true' || needs.should-run.outputs.attestor_cli_testing == 'true' }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -1625,7 +1625,7 @@ jobs:
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
     uses: gluwa/usc-testnet-bridge-examples/.github/workflows/loan-flow.yml@main
     with:
-      runs-on: "['ubuntu-24.04']"
+      runs-on: "['ubuntu-26.04']"
       source_chain_kind: "anvil"
       usc_kind: "local"
       checkout_repo: "gluwa/usc-testnet-bridge-examples"
@@ -1636,7 +1636,7 @@ jobs:
     needs:
       - should-run
       - build-creditcoin-node-for-testing-ci
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 

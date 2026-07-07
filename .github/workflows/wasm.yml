@@ -24,4 +24,4 @@ jobs:
       build-options: "--features devnet"
       build-subwasm: true
       version-string: ${{ github.sha }}
-      runs-on: "['ubuntu-24.04']"
+      runs-on: "['ubuntu-26.04']"
