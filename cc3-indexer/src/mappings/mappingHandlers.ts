@@ -35,6 +35,7 @@ import {
     ContinuityProof,
     ForcedElection,
     RevertedAttestationChainTo,
+    OutboxFactory,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, fetchAttestationParams, chainDataId } from './initStore';
@@ -194,6 +195,34 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     logger.info(`New Supported Chain event created at block ${blockNumber}`);
 
     await Promise.all([chainRegistered.save(), suportedChain.save(), newChain.save()]);
+}
+
+// USC write-ability: an operator registered an OutboxFactory for a chain key
+// (supportedChains.OutboxFactoryRegistered { chain_key, outbox_factory_addr }). Recorded for
+// display / to resolve OutboxContract.factory. Discovery of Outboxes does NOT depend on this event
+// — see the chain-wide OutboxCreated watch in datasources.ts (the factory creates Outboxes before
+// it is registered here, so following this event would miss them).
+export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Promise<void> {
+    const {
+        event: {
+            data: [chainKey, outboxFactoryAddr],
+        },
+    } = event;
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+    const address = outboxFactoryAddr.toString().toLowerCase();
+
+    logger.info(`OutboxFactoryRegistered: factory=${address}, chainKey=${chainKey.toString()} at block ${blockNumber}`);
+
+    const factory = OutboxFactory.create({
+        id: address,
+        chainKey: BigInt(chainKey.toString()),
+        registeredAt: blockNumber,
+        registeredTimestamp: event.block.timestamp
+            ? BigInt(event.block.timestamp.getTime())
+            : BigInt(0),
+    });
+    await factory.save();
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {
