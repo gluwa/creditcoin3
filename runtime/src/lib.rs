@@ -225,15 +225,18 @@ impl frame_system::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type MultiBlockMigrator = ();
     type SingleBlockMigrations = (
-        pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
-        pallet_attestation::MigrateAttestorsCountV1ToV2<Runtime>,
+        // Still pending on mainnet (Randomness storage version 0 as of 2026-07-07); already
+        // executed on devnet/testnet (version 1). Remove once mainnet runs a runtime that
+        // includes it.
         pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
-        // NOTE: the one-time genesis-init migrations (`v1_init_supported_chains`,
-        // `v1_init_attestation`, `v1_init_operators`) have already run on every network
-        // (devnet/testnet/mainnet) and are intentionally NOT registered here. Their modules
-        // are kept in `migrations.rs` for reference. Re-registering them is unsafe: their
-        // `post_upgrade` checks assert the original genesis state (e.g. `ChainKeyValue == 2`),
-        // which no longer holds on the evolved live chains.
+        // NOTE: all other historical migrations are intentionally NOT registered:
+        // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
+        //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2
+        //   verified on devnet/testnet/mainnet, 2026-07-07).
+        // - the one-time genesis-init migrations (`v1_init_operators`, kept in
+        //   `migrations.rs` for reference): their data-absence guards are permanently
+        //   satisfied on every network (operators membership is non-empty on
+        //   devnet/testnet/mainnet), so they can never run again.
     );
     type PreInherents = ();
     type PostInherents = ();
