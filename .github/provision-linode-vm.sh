@@ -42,7 +42,7 @@ while [ -z "$IP_ADDRESS" ]; do
     # All SSH logins should be via the `ubuntu@` user. For more info see:
     # https://www.linode.com/community/questions/21290/how-to-pass-multiple-ssh-public-keys-with-linode-cli-linodes-create
     linode-cli linodes create --json \
-        --image 'linode/ubuntu24.04' --region "$LINODE_REGION" \
+        --image 'linode/ubuntu26.04' --region "$LINODE_REGION" \
         --type "$LINODE_VM_SIZE" --label "$LC_RUNNER_VM_NAME" \
         --root_pass "$(uuidgen)" --backups_enabled false --booted true --private_ip false \
         --tags "$VM_KIND" --tags "keep_until_$KEEP_UNTIL" \
