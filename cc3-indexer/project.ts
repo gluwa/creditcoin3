@@ -1,7 +1,13 @@
 import { SubstrateProject, SubstrateRuntimeDatasource } from '@subql/types';
 import { FrontierEvmDatasource } from '@subql/frontier-evm-processor';
 
-import { blockProverDatasource, attestationDatasources, genesisDatasource } from './datasources';
+import {
+    blockProverDatasource,
+    attestationDatasources,
+    genesisDatasource,
+    outboxDiscoveryDatasource,
+    outboxTemplate,
+} from './datasources';
 
 import * as dotenv from 'dotenv';
 import path from 'path';
@@ -18,6 +24,8 @@ const dataSources: (FrontierEvmDatasource | SubstrateRuntimeDatasource)[] = [];
 dataSources.push(attestationDatasources);
 dataSources.push(blockProverDatasource);
 dataSources.push(genesisDatasource);
+// USC write-ability: chain-wide OutboxCreated watch that spawns a dynamic datasource per Outbox.
+dataSources.push(outboxDiscoveryDatasource);
 
 // Can expand the Datasource processor types via the genreic param
 const project: SubstrateProject<FrontierEvmDatasource> = {
@@ -52,6 +60,8 @@ const project: SubstrateProject<FrontierEvmDatasource> = {
         endpoint: process.env.ENDPOINT!?.split(',') as string[] | string,
     },
     dataSources,
+    // USC write-ability dynamic-datasource template (instantiated per discovered Outbox).
+    templates: [outboxTemplate],
 };
 
 // Must set default to the project instance
