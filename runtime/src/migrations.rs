@@ -1,9 +1,9 @@
 //! One-time genesis-init migrations.
 //!
-//! These have already run on every network (devnet/testnet/mainnet), so they are no longer
-//! registered in the runtime's `SingleBlockMigrations` tuple (see `lib.rs`). They are kept
-//! here for reference and historical record only. The `Migration` structs are therefore
-//! intentionally never constructed, hence the module-wide `dead_code` allow.
+//! These are no longer registered in the runtime's `SingleBlockMigrations` tuple (see
+//! `lib.rs`): every live network (devnet/testnet/mainnet) already has a non-empty operators
+//! membership, so the data-absence guard below can never fire again. The module is kept for
+//! reference and historical record only, hence the module-wide `dead_code` allow.
 #![allow(dead_code)]
 
 use frame_support::{traits::OnRuntimeUpgrade, weights::Weight};
