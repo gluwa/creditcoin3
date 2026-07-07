@@ -60,11 +60,11 @@ sp-trie = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable
 # Frontier
 ethereum = { version = "0.18.2", features = ["std", "with-scale"] }
 ethereum-types = { version = "0.15", features = ["std"] }
-fc-api = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
-fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = [
+fc-api = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", features = [
     "rpc-binary-search-estimate",
 ] }
-fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
-fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch", features = [
+fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", features = [
     "std",
 ] }
