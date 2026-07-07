@@ -326,8 +326,8 @@ impl Config {
             .unwrap_or(common::constants::DEFAULT_API_PORT);
 
         let boot_nodes = matches
-            .get_one::<Vec<libp2p::Multiaddr>>("boot-nodes")
-            .cloned()
+            .get_many::<libp2p::Multiaddr>("boot-nodes")
+            .map(|vals| vals.cloned().collect::<Vec<_>>())
             .or(config_file.p2p.boot_nodes)
             .unwrap_or_default();
 
