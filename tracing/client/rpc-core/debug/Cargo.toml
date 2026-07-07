@@ -16,4 +16,4 @@ moonbeam-client-evm-tracing = { path = "../../evm-tracing" }
 moonbeam-rpc-core-types = { path = "../types" }
 
 # Frontier
-fc-rpc-core = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch" }
+fc-rpc-core = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
