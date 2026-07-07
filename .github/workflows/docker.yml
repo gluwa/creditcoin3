@@ -35,7 +35,7 @@ jobs:
   docker-test:
     needs:
       - docker-build
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Download locally built docker image
         uses: actions/download-artifact@v8

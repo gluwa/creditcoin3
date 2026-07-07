@@ -19,7 +19,7 @@ permissions: read-all
 
 jobs:
   integration-tests:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -117,7 +117,7 @@ jobs:
   exercise-scripts:
     needs:
       - build-everything
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
 
@@ -369,7 +369,7 @@ jobs:
   stress-test-sanity:
     needs:
       - build-everything
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1

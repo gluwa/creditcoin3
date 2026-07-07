@@ -54,7 +54,7 @@ jobs:
   # Discover the set of historical releases to test, as a JSON array of tags.
   # ---------------------------------------------------------------------------
   discover-versions:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       versions: ${{ steps.collect.outputs.versions }}
       count: ${{ steps.collect.outputs.count }}
@@ -134,7 +134,7 @@ jobs:
       git-lfs-checkout: true
       version-string: PR
       cache-key-name: build-creditcoin-node
-      runs-on: "['ubuntu-24.04']"
+      runs-on: "['ubuntu-26.04']"
     secrets: inherit
 
   # ---------------------------------------------------------------------------

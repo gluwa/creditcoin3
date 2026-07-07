@@ -18,7 +18,7 @@ permissions: read-all
 
 jobs:
   setup:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       target_chain: ${{ steps.testnet-env.outputs.target_chain || steps.mainnet-env.outputs.target_chain }}
       boot_node: ${{ steps.testnet-env.outputs.boot_node || steps.mainnet-env.outputs.boot_node }}
