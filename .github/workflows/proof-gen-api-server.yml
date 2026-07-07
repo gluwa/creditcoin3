@@ -17,6 +17,12 @@ concurrency:
 
 permissions: read-all
 
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+env:
+  CXXFLAGS: "-include cstdint"
+
 jobs:
   integration-tests:
     runs-on: ubuntu-26.04
