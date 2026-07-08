@@ -111,9 +111,30 @@ impl ReobsRateLimiter {
 pub async fn reobserve<P: Provider>(
     provider: &P,
     resolved: &ResolvedOutbox,
+    confirmation_depth: u64,
     request: &ReobservationRequest,
 ) -> Result<Option<IndexedMessage>> {
     let requested_id = B256::from(request.message_id);
+
+    // Finality gate — the same bound the listener signs under (it only scans up to
+    // `tip - confirmation_depth`). Without this, an unauthenticated reobservation request could
+    // get us to sign a MessagePublished that is still reorg-able: if the publish then reorgs
+    // away, quorum signatures over a never-finalized message would still satisfy the destination
+    // Inbox. A not-yet-final request is simply ignored (`Ok(None)`); legitimate reobservation
+    // targets are stalled *old* messages, and the relayer re-requests on its own cadence anyway.
+    let tip = provider
+        .get_block_number()
+        .await
+        .context("reobservation tip fetch failed")?;
+    if request.block_height.saturating_add(confirmation_depth) > tip {
+        tracing::warn!(
+            block = request.block_height,
+            tip,
+            confirmation_depth,
+            "🔎 reobservation request targets a not-yet-final block — ignoring"
+        );
+        return Ok(None);
+    }
 
     // Tightly-scoped scan at the named block for our Outbox's MessagePublished — independent of the
     // request's claims beyond which block to look at.
