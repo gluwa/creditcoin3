@@ -359,7 +359,7 @@ pub async fn run(
                 };
                 handle_reobservation(
                     &provider, &resolved, &state, &signer, our_address, chain_key,
-                    &mut reobs_limiter, request,
+                    confirmation_depth, &mut reobs_limiter, request,
                 ).await;
             }
         }
@@ -459,6 +459,7 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
     signer: &signing::MessageSigner,
     our_address: Address,
     chain_key: u64,
+    confirmation_depth: u64,
     limiter: &mut reobservation::ReobsRateLimiter,
     request: ReobservationRequest,
 ) {
@@ -471,7 +472,9 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
         return;
     }
 
-    let indexed = match reobservation::reobserve(provider, resolved, &request).await {
+    let indexed = match reobservation::reobserve(provider, resolved, confirmation_depth, &request)
+        .await
+    {
         Ok(Some(indexed)) => indexed,
         Ok(None) => {
             tracing::warn!(
