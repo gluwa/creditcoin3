@@ -46,7 +46,7 @@ pub struct Config {
     stream: secret::Config,
     attestation: attestation::Config,
     p2p: tasks::p2p::ConfigIncomplete,
-    api: tasks::api::ConfigIncomplete,
+    api: tasks::api::Config,
 }
 
 // ---------------------------------------- [ Attestor ] ---------------------------------------- //
@@ -124,6 +124,39 @@ impl Attestor {
         .await
         .map_err(Error::Init)?;
         let cc3 = Arc::new(cc3_raw);
+
+        // -------------------------* liveness endpoint (early) *------------------------------- //
+        //
+        // Bind and serve /health + /metrics BEFORE the long startup phases: the election wait
+        // below can take days and the BLS fetch rides out outages unboundedly. Without an
+        // endpoint during those, a k8s livenessProbe gets connection-refused throughout a
+        // legitimate wait — forcing either kill-loops or a huge initialDelaySeconds that blunts
+        // real wedge detection. /health serves `starting` (200) until the tasks spawn
+        // (health.note_started below); /metrics serves 503 until the registry — which needs
+        // post-election chain state — is dropped into the OnceLock slot. Binding here also
+        // surfaces a port conflict immediately instead of after the election wait. The only
+        // phase still uncovered is the endpoint wait above, which needs no cc3 client and is
+        // where "connection refused" is a fair description of the pod's state anyway.
+        let health: crate::health::SharedHealth = Arc::new(crate::health::Health::new());
+        let api_metrics: Arc<std::sync::OnceLock<metrics::Metrics>> =
+            Arc::new(std::sync::OnceLock::new());
+        let api_listener =
+            tokio::net::TcpListener::bind(format!("0.0.0.0:{}", self.config.api.port))
+                .await
+                .map_err(Error::Io)?;
+
+        let mut set: JoinSet<Result<&'static str, Error>> = JoinSet::new();
+        {
+            let token = token.clone();
+            let health = health.clone();
+            let cc3 = cc3.clone();
+            let api_metrics = api_metrics.clone();
+            set.spawn(async move {
+                tasks::api::run(token, health, cc3, api_metrics, api_listener)
+                    .await
+                    .map(|_| "api")
+            });
+        }
 
         // Reconcile the metadata the binary was compiled against with the chain's live
         // metadata before doing anything that depends on extrinsic encoding. Applies the
@@ -255,6 +288,8 @@ impl Attestor {
             .with_attestation_interval(interval_attestation)
             .build();
         let metrics = metrics::Metrics::new(metrics_cfg);
+        // Un-degrade /metrics: the early-spawned api task serves 503 until this lands.
+        let _ = api_metrics.set(metrics.clone());
 
         // Pool — wires its MetricsHook to our Prometheus registry.
         struct PoolMetrics(metrics::Metrics);
@@ -320,7 +355,8 @@ impl Attestor {
 
             bls_store,
             metrics,
-            health: Arc::new(crate::health::Health::new()),
+            // The instance the early-spawned api task already serves — one watchdog, one view.
+            health: health.clone(),
 
             pool_send,
             gossip_tx,
@@ -347,14 +383,13 @@ impl Attestor {
         });
 
         // ----------------------------------* spawn tasks *------------------------------------ //
+        //
+        // (`set` was created up top so the api task could spawn before the startup waits.)
 
-        let mut set: JoinSet<Result<&'static str, Error>> = JoinSet::new();
-
-        {
-            let shared = shared.clone();
-            let cfg = self.config.api.with_metrics(shared.metrics.clone()).build();
-            set.spawn(async move { tasks::api::run(shared, cfg).await.map(|_| "api") });
-        }
+        // Leave the watchdog's Starting state and re-seed its deadlines: the tasks are about to
+        // run, so "no progress yet" starts counting from here, not from construction (which may
+        // be days ago if the election wait was long).
+        health.note_started();
 
         {
             let shared = shared.clone();
