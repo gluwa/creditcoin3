@@ -110,6 +110,19 @@ pub async fn run(
         swarm.behaviour_mut().kad.add_address(&peer_id, address);
     }
 
+    // Fail fast on a mesh-less configuration. There is no explicit `swarm.dial()` anywhere —
+    // connectivity is entirely kad-bootstrap-driven off the boot addresses (plus mdns locally) —
+    // so with mdns disabled (the k8s reality) and no usable bootnode the node sits permanently
+    // peerless while reporting healthy: /health has no p2p input and the task never exits.
+    // Malformed multiaddrs (missing /p2p/<peer-id>) are skipped above with only an error log, so
+    // an all-malformed list would otherwise fail just as silently as an empty one.
+    if boot_peers.is_empty() && !enable_mdns {
+        return Err(Error::P2p(anyhow::anyhow!(
+            "no usable boot nodes (list empty or every multiaddr missing its /p2p/<peer-id> \
+             suffix) and mdns is disabled — this node could never discover a peer"
+        )));
+    }
+
     if let Some(dns) = cfg.public_addr {
         let external: libp2p::Multiaddr = format!("/dns4/{}/tcp/{}", dns, cfg.port)
             .parse()
