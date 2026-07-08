@@ -757,8 +757,18 @@ async fn handle_vote_msg(
                         shared.metrics.increase_equivocation_count();
                         Acceptance::Ignore
                     }
-                    // Bad attestor / known invalid — reject.
-                    PoolError::Unauthorized(..) | PoolError::KnownInvalid(..) => Acceptance::Reject,
+                    // Ignore, NOT Reject: both verdicts depend on *our local view* of chain
+                    // state, not on anything provably wrong with the message — and the vote
+                    // already BLS-verified, so the sender is a real attestor. `Unauthorized`
+                    // can be our allow-set lagging an election; `KnownInvalid` a fork we
+                    // tombstoned that peers legitimately voted on. Reject feeds gossipsub's
+                    // P4 penalty (weight −10, squared, ~10 min decay): three of these inside
+                    // the window graylists an honest committee peer — quorum-relevant at
+                    // small committee sizes, and a negative retained score also blocks the
+                    // peer's mesh re-entry after a reconnect. Reject is reserved for
+                    // provable invalidity (decode failure, bad signature, wrong chain,
+                    // spoofed identity claim).
+                    PoolError::Unauthorized(..) | PoolError::KnownInvalid(..) => Acceptance::Ignore,
                 }
             }
             None => Acceptance::Ignore,
@@ -784,12 +794,17 @@ async fn handle_vote_msg(
             //     first-come per `(height, attestor)` — the per-attestor keying still bounds
             //     the damage to one contested slot per claimed identity.
             if pubkey.is_none() {
+                // Ignore, NOT Reject: "unknown" means *our* bls_store has no pubkey for the
+                // claimed attestor — which is just as often our own staleness (an election we
+                // haven't processed, a missing on-chain BLS key registration) as a bogus
+                // identity. Rejecting would P4-penalize whoever relayed it (see the pool-error
+                // arm above). Not buffered either: without a pubkey the vote can never verify.
                 tracing::warn!(
                     attestor = %vote.attestor,
                     height = vote.height,
-                    "👤 unknown attestor at no-local height — rejecting"
+                    "👤 unknown attestor at no-local height — dropping"
                 );
-                Acceptance::Reject
+                Acceptance::Ignore
             } else if !worth_buffering(shared, vote.height) {
                 tracing::debug!(
                     digest = ?vote.digest,
@@ -822,8 +837,10 @@ async fn handle_vote_msg(
             Acceptance::Reject
         }
         VerifyResult::UnknownAttestor => {
-            tracing::warn!(attestor = %vote.attestor, "👤 unknown attestor");
-            Acceptance::Reject
+            // Ignore, NOT Reject — same reasoning as the no-local unknown-attestor arm: this
+            // verdict reflects our local bls_store view, not provable message invalidity.
+            tracing::warn!(attestor = %vote.attestor, "👤 unknown attestor — dropping");
+            Acceptance::Ignore
         }
     };
 
