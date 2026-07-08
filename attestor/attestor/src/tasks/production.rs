@@ -151,7 +151,16 @@ pub async fn run(
             biased;
             _ = shared.token.cancelled() => return Ok(()),
 
-            Some(batch) = events.next() => {
+            maybe_batch = events.next() => {
+                // The cc3 stream only ends on a *permanent* backfill error (state pruned beyond
+                // recovery — see `is_permanent_backfill_error` in the stream). Fail fast so the
+                // supervisor restarts us: a fresh boot re-seeds from the current head with no
+                // backfill, which is the only way to get past pruned state. A `Some(batch) = …`
+                // pattern here would instead silently disable this arm and leave production
+                // half-alive on the eth side.
+                let Some(batch) = maybe_batch else {
+                    return Err(Error::Cc3Stream(stream::cc3::Error::EndOfStream));
+                };
                 handle_cc3_batch(&shared, &mut stream_attestation, &mut latest_cc3, batch).await?;
             }
 
@@ -473,7 +482,11 @@ async fn wait_for_block_attested(
             _ = tick.tick() => {
                 tracing::info!(target, "⏲️ still waiting for genesis BlockAttested...");
             }
-            Some(mut batch) = events.next() => {
+            maybe_batch = events.next() => {
+                // Stream end = permanent backfill error (see the main-loop arm) — fail fast.
+                let Some(mut batch) = maybe_batch else {
+                    return Err(Error::Cc3Stream(stream::cc3::Error::EndOfStream));
+                };
                 // Keep the watchdog fed during a slow genesis wait (can exceed the startup grace
                 // on a slow chain) — batches are still arriving, so we're alive, not wedged.
                 shared.health.note_progress();
