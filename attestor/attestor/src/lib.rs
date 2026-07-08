@@ -71,13 +71,12 @@ impl Attestor {
         // Watch for Ctrl+C / SIGTERM from the very first await so a shutdown during the
         // synchronous startup phase (waiting on RPC endpoints, election) takes effect promptly
         // instead of hanging until the task supervisor is up. The supervisor below also selects
-        // on `ctrl_c`; both cancelling the same token is idempotent.
+        // on the same signals; both cancelling the same token is idempotent.
         tokio::spawn({
             let token = token.clone();
             async move {
-                if tokio::signal::ctrl_c().await.is_ok() {
-                    token.cancel();
-                }
+                shutdown_signal().await;
+                token.cancel();
             }
         });
 
@@ -414,7 +413,7 @@ impl Attestor {
         // select (no looping) — we then cancel and drain. Tasks are meant to run until
         // `token.cancelled()`, so *any* task exit here is the trigger to shut the whole set down.
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
+            _ = shutdown_signal() => {
                 tracing::info!("🔌 shutdown signal");
                 token.cancel();
             }
@@ -473,5 +472,37 @@ impl Attestor {
         }
 
         result
+    }
+}
+
+/// Resolves on SIGINT (Ctrl-C) or SIGTERM. Kubernetes stops pods with SIGTERM; handling only
+/// Ctrl-C meant every k8s stop skipped the clean cancel-and-drain path and rode out the
+/// termination grace period to the SIGKILL.
+async fn shutdown_signal() {
+    let ctrl_c = tokio::signal::ctrl_c();
+
+    #[cfg(unix)]
+    {
+        let mut sigterm =
+            match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                Ok(sigterm) => sigterm,
+                Err(err) => {
+                    tracing::warn!(
+                        ?err,
+                        "failed to install SIGTERM handler — only Ctrl-C triggers clean shutdown"
+                    );
+                    let _ = ctrl_c.await;
+                    return;
+                }
+            };
+        tokio::select! {
+            _ = ctrl_c => {}
+            _ = sigterm.recv() => {}
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = ctrl_c.await;
     }
 }
