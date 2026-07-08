@@ -544,7 +544,11 @@ async fn main() -> anyhow::Result<()> {
                 .with_start_height(args.start_height)
                 .build(),
         )
-        .with_api(attestor::tasks::api::ConfigBuilder::new().with_port(args.api_port))
+        .with_api(
+            attestor::tasks::api::ConfigBuilder::new()
+                .with_port(args.api_port)
+                .build(),
+        )
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------
