@@ -33,6 +33,28 @@ const RESUBSCRIBE_BACKOFF_START: std::time::Duration = std::time::Duration::from
 /// over. 100ms = ~10 fetches/sec is the default; tune via [`ConfigBuilder::with_backfill_min_interval`].
 const DEFAULT_BACKFILL_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// Whether a block/events fetch failed *permanently* for the block being asked about: the node
+/// has pruned the state (or never had the block) and no amount of reconnecting brings it back —
+/// only an archive node could answer. This happens when an outage outlasts the node's pruning
+/// horizon (~256 blocks on a default non-archive node), leaving the gap walk asking for blocks
+/// whose state is gone. Retrying such errors forever wedges the stream silently: every retry's
+/// `reconnect()` succeeds against the healthy node, so even a reconnect-aware watchdog reads
+/// "actively reconnecting" indefinitely. The stream ends instead; the consumer treats that as
+/// fatal and restarts, which re-seeds from the current head with no backfill.
+///
+/// String-matched because subxt surfaces no structured code for pruned state. Deliberately
+/// narrow — matching only substrate's pruned/missing-block messages — so a transient error can
+/// never be misclassified as permanent (the failure mode of a broad match); an unlisted
+/// permanent message just falls back to today's behavior (retry forever).
+fn is_permanent_backfill_error(err: &subxt::Error) -> bool {
+    let text = err.to_string().to_ascii_lowercase();
+    text.contains("state already discarded")
+        || text.contains("unknownblock")
+        || text.contains("unknown block")
+        || text.contains("header was not found")
+        || text.contains("body was not found")
+}
+
 #[derive(Debug, builder::Builder)]
 pub struct Config {
     /// Shared client handle. Held as `Arc` (not a value `Client`) so the stream's
@@ -111,6 +133,14 @@ impl StreamCC3 {
                             match block.events().await {
                                 Ok(e) => break e,
                                 Err(err) => {
+                                    if is_permanent_backfill_error(&err) {
+                                        tracing::error!(
+                                            n, ?err,
+                                            "🧱 head block state permanently unavailable (pruned) — ending the cc3 stream; \
+                                             a restart re-seeds from the current head"
+                                        );
+                                        return;
+                                    }
                                     tracing::warn!(n, ?err, "🛜 events fetch failed for head block — retrying");
                                     let _ = cc3.reconnect().await;
                                     tokio::time::sleep(head_backoff).await;
@@ -154,6 +184,14 @@ impl StreamCC3 {
                             let (parent_n, parent_events, next_parent) = loop {
                                 match cc3.api().blocks().at(walk_parent).await {
                                     Err(err) => {
+                                        if is_permanent_backfill_error(&err) {
+                                            tracing::error!(
+                                                parent = ?walk_parent, ?err,
+                                                "🧱 backfill hit permanently pruned state (outage outlasted the node's pruning \
+                                                 horizon) — ending the cc3 stream; a restart re-seeds from the current head"
+                                            );
+                                            return;
+                                        }
                                         tracing::warn!(parent = ?walk_parent, ?err, "🛜 parent fetch failed during backfill — retrying");
                                         let _ = cc3.reconnect().await;
                                         tokio::time::sleep(backoff).await;
@@ -161,6 +199,14 @@ impl StreamCC3 {
                                     }
                                     Ok(b) => match b.events().await {
                                         Err(err) => {
+                                            if is_permanent_backfill_error(&err) {
+                                                tracing::error!(
+                                                    n = b.number() as u64, ?err,
+                                                    "🧱 backfill hit permanently pruned state (outage outlasted the node's pruning \
+                                                     horizon) — ending the cc3 stream; a restart re-seeds from the current head"
+                                                );
+                                                return;
+                                            }
                                             tracing::warn!(n = b.number() as u64, ?err, "🛜 parent events fetch failed — retrying");
                                             let _ = cc3.reconnect().await;
                                             tokio::time::sleep(backoff).await;
@@ -288,5 +334,49 @@ impl futures::Stream for StreamEvents {
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
         self.stream.as_mut().poll_next(cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_permanent_backfill_error;
+
+    fn other(msg: &str) -> subxt::Error {
+        subxt::Error::Other(msg.to_owned())
+    }
+
+    /// Pin the substrate pruned/missing-block message shapes the classifier must recognize —
+    /// these are the errors an outage-outlasting-the-pruning-horizon backfill produces, and
+    /// missing one silently reverts to today's retry-forever wedge.
+    #[test]
+    fn recognizes_pruned_state_messages() {
+        for msg in [
+            "UnknownBlock: State already discarded for 0xabc…",
+            "Client error: UnknownBlock: State already discarded for 0xdead",
+            "UnknownBlock: Header was not found in the database: 0xabc",
+            "unknown block: Body was not found for 0xabc",
+        ] {
+            assert!(
+                is_permanent_backfill_error(&other(msg)),
+                "should be permanent: {msg}"
+            );
+        }
+    }
+
+    /// Transient failures must never classify as permanent — that direction would turn an
+    /// ordinary outage into a stream death + restart loop.
+    #[test]
+    fn transient_messages_keep_retrying() {
+        for msg in [
+            "connection reset by peer",
+            "the background task closed",
+            "request timed out",
+            "RPC error: server is overloaded",
+        ] {
+            assert!(
+                !is_permanent_backfill_error(&other(msg)),
+                "should be transient: {msg}"
+            );
+        }
     }
 }
