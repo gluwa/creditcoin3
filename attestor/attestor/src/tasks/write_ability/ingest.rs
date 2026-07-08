@@ -5,10 +5,13 @@
 //! block attestation, adding only the second topic. The decision returned maps straight onto a
 //! gossipsub `MessageAcceptance`:
 //!
-//! * **Reject** — undecodable, wrong chain key, bad/forged signature, or a non-attestor signer.
-//!   Never propagate.
-//! * **Ignore** — valid but redundant (duplicate signer) or not-yet-chain-seen (allowlist miss):
-//!   don't count, don't propagate, but don't penalise the sender.
+//! * **Reject** — provably invalid: undecodable, wrong chain key, bad/forged signature. Never
+//!   propagate; feeds gossipsub's P4 penalty.
+//! * **Ignore** — valid but redundant (duplicate signer), not-yet-chain-seen (allowlist miss),
+//!   or from a signer outside *our view* of the active set (which may simply lag the on-chain
+//!   EOAValidator — set-membership is state-dependent, not provable message invalidity, and
+//!   Rejecting it would P4-graylist honest attestors under set-refresh lag): don't count, don't
+//!   propagate, but don't penalise the sender.
 //! * **Accept** — valid, authorized, chain-seen, newly counted. `reached_threshold` is true exactly
 //!   on the transition that meets 2N/3+1.
 
@@ -67,8 +70,13 @@ pub fn validate_and_count(
         return Acceptance::Reject;
     }
     if !state.active_set.read().contains(&recovered) {
-        tracing::warn!(signer = %recovered, "👤 message vote from non-attestor — rejecting");
-        return Acceptance::Reject;
+        // Ignore, NOT Reject: `active_set` is our locally polled view of the on-chain
+        // EOAValidator set (30s cadence). Under set-refresh lag an honest, just-added attestor
+        // would otherwise collect P4 penalties (~10 min graylist; scores retained across
+        // disconnects) — the same class as the block-vote verdicts fixed on attestor_v2.
+        // Reject stays reserved for provable invalidity above.
+        tracing::warn!(signer = %recovered, "👤 message vote from non-attestor — dropping");
+        return Acceptance::Ignore;
     }
 
     // Chain-first allowlist + dedup live in the aggregator.
@@ -175,7 +183,7 @@ mod tests {
     }
 
     #[test]
-    fn vote_from_non_attestor_is_rejected() {
+    fn vote_from_non_attestor_is_ignored_not_rejected() {
         let attestor = MessageSigner::from_seed(&[1u8; 32]).unwrap();
         let outsider = MessageSigner::from_seed(&[2u8; 32]).unwrap();
         let state = state_with(&[&attestor], 1); // only `attestor` is authorized
@@ -183,9 +191,10 @@ mod tests {
         state.aggregator.lock().note_indexed(hash.0, Instant::now());
 
         let bytes = signed_vote(&outsider, hash).encode_bytes();
+        // Ignore (not Reject): the set view may just be lagging the chain — see ingest doc.
         assert_eq!(
             validate_and_count(&state, CHAIN_KEY, &bytes),
-            Acceptance::Reject
+            Acceptance::Ignore
         );
     }
 
