@@ -96,11 +96,20 @@ pub struct Health {
     /// Set once and never cleared: the supervisor detected a task fault/early-exit. The pod is on
     /// its way down; report unhealthy immediately so k8s doesn't route or wait on it.
     faulted: AtomicBool,
+    /// False until the tasks spawn ([`Health::note_started`]). While false, everything except a
+    /// latched fault reads `Starting`: the startup phases (election wait, BLS fetch) produce no
+    /// progress ticks by nature, and legitimate transient blips during a days-long wait would
+    /// otherwise accumulate toward the futility threshold.
+    started: AtomicBool,
 }
 
 /// Outcome of a liveness check — `Display`s to a short body for the HTTP response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Liveness {
+    /// Startup phases before the tasks spawn (endpoint waits, election wait — potentially days —
+    /// BLS fetch). Alive: killing a pod for waiting on an election would just repeat the wait.
+    /// Entered at construction, left via [`Health::note_started`] when the tasks spawn.
+    Starting,
     Progressing,
     Reconnecting,
     Faulted,
@@ -124,6 +133,7 @@ impl Liveness {
 impl std::fmt::Display for Liveness {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
+            Liveness::Starting => "starting",
             Liveness::Progressing => "progressing",
             Liveness::Reconnecting => "reconnecting",
             Liveness::Faulted => "faulted",
@@ -148,7 +158,21 @@ impl Health {
             attest_expected_since_ms: AtomicU64::new(now),
             reconnect_success_baseline: AtomicU64::new(0),
             faulted: AtomicBool::new(false),
+            started: AtomicBool::new(false),
         }
+    }
+
+    /// Leave the `Starting` state — called when the tasks spawn. Re-seeds every timestamp so the
+    /// deadlines measure from task start, not from construction: `Health` is created *before*
+    /// the startup waits (so `/health` exists during them), which can be days for an election —
+    /// stale construction-time seeds would otherwise read as an instant wedge/stall.
+    pub fn note_started(&self) {
+        let now = now_unix_ms();
+        self.last_progress_ms.store(now, Ordering::Relaxed);
+        self.last_chain_attested_ms.store(now, Ordering::Relaxed);
+        self.last_local_attested_ms.store(now, Ordering::Relaxed);
+        self.attest_expected_since_ms.store(now, Ordering::Relaxed);
+        self.started.store(true, Ordering::Relaxed);
     }
 
     /// Record forward progress. Called from the production task whenever it handles a cc3
@@ -209,6 +233,12 @@ impl Health {
             return Liveness::Faulted;
         }
 
+        // Startup phases produce no progress ticks by design; every other axis is meaningless
+        // until the tasks actually run (note_started re-seeds the timestamps at that point).
+        if !self.started.load(Ordering::Relaxed) {
+            return Liveness::Starting;
+        }
+
         // Axis 2 — production stall, checked before the cc3-progress axis because its whole
         // point is that cc3 progress keeps flowing while the source-chain pipeline is dead.
         let expected = self.attest_expected.load(Ordering::Relaxed);
@@ -257,8 +287,8 @@ pub type SharedHealth = Arc<Health>;
 mod tests {
     use super::*;
 
-    /// Build a `Health` with every timestamp seeded to a known value so `observe` is exercised
-    /// against a fixed clock instead of wall-time.
+    /// Build a started `Health` with every timestamp seeded to a known value so `observe` is
+    /// exercised against a fixed clock instead of wall-time.
     fn health_at(ts: u64) -> Health {
         Health {
             last_progress_ms: AtomicU64::new(ts),
@@ -268,7 +298,29 @@ mod tests {
             attest_expected_since_ms: AtomicU64::new(ts),
             reconnect_success_baseline: AtomicU64::new(0),
             faulted: AtomicBool::new(false),
+            started: AtomicBool::new(true),
         }
+    }
+
+    #[test]
+    fn starting_until_note_started_regardless_of_staleness() {
+        let h = Health::new();
+        // Way past every deadline with no signals — still Starting (alive): the election wait
+        // can legitimately take days and produces no ticks.
+        let now = 100 * STALL_DEADLINE_MS;
+        assert_eq!(h.observe(now, 0, 50), Liveness::Starting);
+        // Fault still wins during startup.
+        h.note_fault();
+        assert_eq!(h.observe(now, 0, 0), Liveness::Faulted);
+    }
+
+    #[test]
+    fn note_started_reseeds_deadlines() {
+        let h = Health::new();
+        h.note_started();
+        // Immediately after starting, everything reads Progressing — the (very stale)
+        // construction-era view must not carry over into the running state.
+        assert_eq!(h.observe(now_unix_ms(), 0, 0), Liveness::Progressing);
     }
 
     #[test]
@@ -400,6 +452,7 @@ mod tests {
 
     #[test]
     fn liveness_alive_mapping() {
+        assert!(Liveness::Starting.is_alive());
         assert!(Liveness::Progressing.is_alive());
         assert!(Liveness::Reconnecting.is_alive());
         assert!(!Liveness::Faulted.is_alive());
