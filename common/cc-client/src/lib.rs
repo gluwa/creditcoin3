@@ -221,6 +221,12 @@ pub struct Client {
     /// (recent value) from "internally wedged" (stale) — a reconnect that's in progress means
     /// the binary is making forward effort even though no chain data is flowing. 0 = never.
     last_reconnect_ms: std::sync::atomic::AtomicU64,
+    /// Monotonic count of `reconnect()` attempts that actually swapped in a fresh connection.
+    /// Together with `last_reconnect_ms` this lets a watchdog distinguish "riding out an outage"
+    /// (attempts recent, successes static — the dials are failing) from "reconnecting is not the
+    /// problem" (successes keep landing yet no chain data flows — an internal loop is wedged and
+    /// futilely reconnecting a healthy connection).
+    reconnect_success_count: std::sync::atomic::AtomicU64,
 }
 
 /// Wall-clock unix-millis, saturating to 0 if the clock is before the epoch.
@@ -279,6 +285,7 @@ impl Clone for Client {
             inner: ArcSwap::new(self.inner.load_full()),
             reconnect_state: tokio::sync::Mutex::new(BackoffState::new()),
             last_reconnect_ms: std::sync::atomic::AtomicU64::new(0),
+            reconnect_success_count: std::sync::atomic::AtomicU64::new(0),
         }
     }
 }
@@ -305,6 +312,7 @@ impl Client {
             inner: ArcSwap::new(Arc::new(inner)),
             reconnect_state: tokio::sync::Mutex::new(BackoffState::new()),
             last_reconnect_ms: std::sync::atomic::AtomicU64::new(0),
+            reconnect_success_count: std::sync::atomic::AtomicU64::new(0),
         })
     }
 
@@ -364,6 +372,8 @@ impl Client {
             Ok(Ok(inner)) => {
                 self.inner.store(Arc::new(inner));
                 state.note_success();
+                self.reconnect_success_count
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 Ok(())
             }
             Ok(Err(err)) => {
@@ -431,6 +441,15 @@ impl Client {
     #[must_use]
     pub fn last_reconnect_unix_ms(&self) -> u64 {
         self.last_reconnect_ms
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Monotonic count of reconnect attempts that actually swapped in a fresh connection. See the
+    /// field doc — read alongside [`Self::last_reconnect_unix_ms`] by the liveness watchdog to
+    /// tell failing-reconnects (outage ride-out) from succeeding-but-futile reconnect loops.
+    #[must_use]
+    pub fn reconnect_success_count(&self) -> u64 {
+        self.reconnect_success_count
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 

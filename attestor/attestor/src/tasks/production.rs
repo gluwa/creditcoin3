@@ -138,6 +138,8 @@ pub async fn run(
         let _ = shared.latest_finalized_tx.send(Some(info));
         shared.proof_cache.note_finalized(info.height);
         shared.metrics.set_attestation_finalized(info.height);
+        // Watchdog: genesis finalizing is the first on-chain attestation observation.
+        shared.health.note_chain_attested();
         info
     };
 
@@ -186,6 +188,9 @@ async fn emit_local(shared: &Arc<Shared>, attestation: &common::types::Attestati
         attestor = %attestation.attestor,
         "📡 produced local attestation",
     );
+
+    // Watchdog: our source-chain pipeline demonstrably produced (the stall axis' local side).
+    shared.health.note_local_attested();
 
     // Cache the proof + AttestationData so future incoming votes at this height can be verified
     // and so the validation task has the proof to submit later.
@@ -265,6 +270,9 @@ async fn handle_one(
             if info.height > latest_cc3.height {
                 tracing::info!(height = info.height, digest = ?info.digest, "💾 cc3 finalized");
                 *latest_cc3 = info;
+                // 0. watchdog: the network is visibly finalizing attestations right now — an
+                //    eligible attestor that produces nothing against this backdrop is stalled.
+                shared.health.note_chain_attested();
                 // 1. nudge eth stream
                 stream_attestation.note_attestation_finalization(stream::util::AttestationInfo {
                     height: info.height,
@@ -323,6 +331,8 @@ async fn handle_one(
             let eligible = attestors.contains(&shared.account_id);
             // can_attest toggle wakes any watcher (production select, validation submit gate).
             let _ = shared.can_attest_tx.send(eligible);
+            // Watchdog: the stall axis only applies while we're expected to produce.
+            shared.health.set_attest_expected(eligible);
             shared
                 .bls_store
                 .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
@@ -364,6 +374,8 @@ async fn handle_one(
             // could wrongly chill us on an unrelated kick — the authoritative active set can't.
             let eligible = attestors.contains(&shared.account_id);
             let _ = shared.can_attest_tx.send(eligible);
+            // Watchdog: the stall axis only applies while we're expected to produce.
+            shared.health.set_attest_expected(eligible);
             shared
                 .bls_store
                 .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
