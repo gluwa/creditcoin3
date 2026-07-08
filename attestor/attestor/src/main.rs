@@ -469,7 +469,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| {
             tracing_subscriber::EnvFilter::new(
                 "attestor=info,\
-                attestation_pool=info,\
+                attestor_pool=info,\
                 stream_attestation=info,\
                 stream_eth=info,\
                 stream_cc3=info,\
@@ -496,7 +496,7 @@ async fn main() -> anyhow::Result<()> {
         .with_default(tracing_subscriber::filter::LevelFilter::OFF)
         .with_target("attestor", tracing::Level::TRACE)
         .with_target("stream_attestation", tracing::Level::TRACE)
-        .with_target("attestation_pool", tracing::Level::TRACE)
+        .with_target("attestor_pool", tracing::Level::TRACE)
         .with_target("stream_eth", tracing::Level::TRACE)
         .with_target("stream_cc3", tracing::Level::TRACE)
         .with_target("cc_client", tracing::Level::TRACE)
