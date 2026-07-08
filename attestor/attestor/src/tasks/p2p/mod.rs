@@ -125,6 +125,14 @@ pub async fn run(
         .listen_on(listen_addr.clone())
         .map_err(|e| Error::P2p(e.into()))?;
 
+    // Mesh-visibility hint: "≥1 gossipsub mesh peer on the attest topic", recomputed after every
+    // swarm event. Used ONLY as the edge trigger for eagerly flushing the retry queue when the
+    // mesh (re)forms — never as a gate on publishing. Gating publishes on it wedged the node
+    // whenever the mesh regained peers without a swarm event (heartbeat GRAFTs, score recovery):
+    // the flag stayed false, both publish paths were short-circuited, and the node never even
+    // attempted to publish again. `try_publish`'s own error is the authoritative "no peers"
+    // signal (and with flood_publish, topic peers — not mesh membership — are what publishing
+    // actually needs).
     let mut can_broadcast = false;
 
     // Per-height pending buffer for incoming votes that arrived before our local production
@@ -180,18 +188,20 @@ pub async fn run(
             // Outgoing — production gives us a freshly built local vote to gossip. Always drain
             // the channel (even while peerless): the channel is unbounded, so draining
             // unconditionally is what keeps it from growing; anything unpublishable goes to the
-            // bounded retry queue.
+            // bounded retry queue. Always *attempt* the publish — `try_publish` failing is the
+            // authoritative no-peers signal; pre-gating on the mesh hint wedged publishing
+            // whenever the hint went stale-false (see `can_broadcast`).
             Some(vote) = gossip_rx.recv() => {
-                if !can_broadcast || !try_publish(&mut swarm, &topic, &vote) {
+                if !try_publish(&mut swarm, &topic, &vote) {
                     queue_for_retry(&mut retry_queue, vote);
                 }
             }
 
-            // Periodic retry of unpublished votes.
+            // Periodic retry of unpublished votes. Unconditional attempt for the same reason as
+            // above; the flush stops at the first failure, so a peerless tick costs one publish
+            // call per 30s.
             _ = retry_tick.tick(), if !retry_queue.is_empty() => {
-                if can_broadcast {
-                    flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
-                }
+                flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
             }
 
             // Local production cached new AttestationData → drain any votes we held back at this
@@ -234,8 +244,6 @@ pub async fn run(
                 handle_swarm(
                     &shared,
                     &mut swarm,
-                    &topic,
-                    &mut can_broadcast,
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
@@ -244,6 +252,15 @@ pub async fn run(
                     &mut peers_by_attestor,
                     event,
                 ).await;
+                // Recompute the mesh hint after *every* event rather than inside selected event
+                // handlers: the mesh can change with no dedicated event (heartbeat GRAFT/PRUNE),
+                // so any event-driven update goes stale. This is a cheap in-memory lookup.
+                can_broadcast = swarm
+                    .behaviour()
+                    .gossipsub
+                    .mesh_peers(&topic.hash())
+                    .next()
+                    .is_some();
                 // Mesh just (re)formed — flush queued votes immediately rather than waiting for
                 // the next retry tick.
                 if !could_broadcast && can_broadcast && !retry_queue.is_empty() {
@@ -265,8 +282,6 @@ type PendingVotes = std::collections::HashMap<
 async fn handle_swarm(
     shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
-    topic: &libp2p::gossipsub::IdentTopic,
-    can_broadcast: &mut bool,
     pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
@@ -405,25 +420,8 @@ async fn handle_swarm(
                 shared.metrics.note_peer_disconnected();
             }
             ping_failures.remove(&connection_id);
-            *can_broadcast = swarm
-                .behaviour()
-                .gossipsub
-                .mesh_peers(&topic.hash())
-                .next()
-                .is_some();
-        }
-        SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
-            libp2p::gossipsub::Event::Subscribed { .. },
-        ))
-        | SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
-            libp2p::gossipsub::Event::Unsubscribed { .. },
-        )) => {
-            *can_broadcast = swarm
-                .behaviour()
-                .gossipsub
-                .mesh_peers(&topic.hash())
-                .next()
-                .is_some();
+            // The mesh hint (`can_broadcast`) is recomputed in the run loop after every event —
+            // no per-event update needed here.
         }
         SwarmEvent::NewListenAddr {
             listener_id,
