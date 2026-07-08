@@ -721,6 +721,16 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         .commit_attestation(agg.attestation_signed.into());
     const POOL_INVALID_TX: i32 = 1010;
 
+    // Bound the submit-retry loop as a whole. Transient RPC errors ride out via reconnect
+    // within this window; a *deterministic* rejection (metadata drift, a proxy refusing the
+    // method — anything that recurs after a successful reconnect) would otherwise loop
+    // submit → reconnect-succeeds → resubmit forever, pinning validation: `in_flight` never
+    // resolves, every new quorum is stashed via `mark_for_later` and never drained, and the
+    // watchdog reads healthy the whole time because each round's reconnect succeeds. Bailing
+    // `Unresolved` unlocks the height so a later quorum can retry (or a peer's submission
+    // finalizes it externally).
+    let submit_deadline = tokio::time::Instant::now() + common::constants::ATTESTATION_TIMEOUT;
+
     let submit_handle = loop {
         match shared
             .cc3
@@ -777,6 +787,19 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
                 }
                 tracing::warn!(height, ?err, "submission rpc error");
                 if reconnect(shared).await.is_err() {
+                    return OutcomeInternal::Unresolved;
+                }
+                // Cancellation during the retry loop: report Unresolved (mirrors the jitter
+                // path) rather than spinning through shutdown.
+                if shared.token.is_cancelled() {
+                    return OutcomeInternal::Unresolved;
+                }
+                if tokio::time::Instant::now() >= submit_deadline {
+                    tracing::warn!(
+                        height,
+                        "⏰ submit retry window exhausted without txpool acceptance — \
+                         releasing the pipeline (height unlocked for a later quorum)"
+                    );
                     return OutcomeInternal::Unresolved;
                 }
             }
