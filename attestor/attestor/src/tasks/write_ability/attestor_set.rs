@@ -77,7 +77,20 @@ pub async fn watch(
                     *guard = set.clone();
                     old
                 };
-                state.aggregator.lock().set_threshold(new_threshold);
+                // Re-evaluates every tracked aggregate against the new quorum; a lowered threshold
+                // can push already-collected messages over it, in which case the milestone must be
+                // surfaced here — there is no later vote transition to fire it.
+                let newly_completed = state
+                    .aggregator
+                    .lock()
+                    .set_threshold(new_threshold, std::time::Instant::now());
+                for hash in newly_completed {
+                    tracing::info!(
+                        message_hash = %alloy::primitives::B256::from(hash),
+                        threshold = new_threshold,
+                        "🎯 message vote reached 2/3+1 under the reloaded threshold — ready for relayer delivery"
+                    );
+                }
                 tracing::info!(
                     %validator,
                     old = old_len,
