@@ -6,7 +6,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use sp_core::{Encode, H160, H256};
+use sp_core::{Encode, H160, H256, U256};
 use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
@@ -15,7 +15,7 @@ use pallet_attestation::{
     LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
-use pallet_supported_chains::{OutboxFactories, SupportedChains};
+use pallet_supported_chains::{CoreFees, OutboxFactories, SupportedChains};
 use precompile_utils::{prelude::*, solidity::Codec};
 
 // Gas cost constants
@@ -60,6 +60,18 @@ impl ChainInfoResult {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct OutboxFactoryResult {
     pub factory_addr: Address,
+    pub exists: bool,
+}
+
+/// USC write-ability core (protocol) fee for a chain, read live from pallet storage so the
+/// Outbox charges the current governance-set value on every `publishMessage` without redeploys.
+/// `token == address(0)` denominates the fee in native CTC (`msg.value`); any other address is an
+/// ERC20 on this EVM (attestcoin, pulled via `transferFrom`). `exists == false` (or a zero
+/// `amount`) means no fee is configured — the Outbox charges nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
+pub struct CoreFeeResult {
+    pub token: Address,
+    pub amount: U256,
     pub exists: bool,
 }
 
@@ -187,6 +199,38 @@ where
             }),
             None => Ok(OutboxFactoryResult {
                 factory_addr: Address(H160::zero()),
+                exists: false,
+            }),
+        }
+    }
+
+    #[precompile::public("get_core_fee(uint64)")]
+    #[precompile::view]
+    fn get_core_fee(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+    ) -> EvmResult<CoreFeeResult> {
+        let maybe_fee = CoreFees::<Runtime>::get(chain_key);
+
+        handle.record_db_read::<Runtime>(
+            maybe_fee
+                .as_ref()
+                .map(|fee| fee.encoded_size())
+                .unwrap_or_default(),
+        )?;
+
+        match maybe_fee {
+            Some(fee) => Ok(CoreFeeResult {
+                // `token: None` (native CTC) surfaces as address(0) — the conventional "native"
+                // sentinel on the EVM side. The extrinsic rejects Some(H160::zero()), so a zero
+                // token here always means native, never a broken ERC20 config.
+                token: Address(fee.token.unwrap_or_default()),
+                amount: fee.amount,
+                exists: true,
+            }),
+            None => Ok(CoreFeeResult {
+                token: Address(H160::zero()),
+                amount: U256::zero(),
                 exists: false,
             }),
         }

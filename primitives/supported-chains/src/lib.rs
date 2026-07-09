@@ -34,6 +34,26 @@ pub struct WriteAbilityConfig {
     pub message_attestation_enabled: bool,
 }
 
+/// Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
+/// `publishMessage`. Governance-set (operators/root) and read live by the EVM through the
+/// chain-info precompile, so changes take effect on the next publish without redeploys.
+///
+/// The denomination is part of the config rather than hardcoded: v1 launches with the fee in
+/// native CTC (`token: None`, paid via `msg.value`), and the planned switch to attestcoin is a
+/// single governance update (`token: Some(erc20)`, pulled via `transferFrom`) — no migration, no
+/// Outbox redeploy, no precompile change.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode, TypeInfo)]
+pub struct CoreFeeConfig {
+    /// Fee token: `None` = the chain's native currency (CTC, paid via `msg.value`);
+    /// `Some(address)` = an ERC20 on Creditcoin's EVM (attestcoin, pulled via `transferFrom`).
+    /// `Some(H160::zero())` is rejected at the extrinsic — the zero address means "native" on the
+    /// EVM side and must map to `None` here, never to an ERC20.
+    pub token: Option<sp_core::H160>,
+    /// Fee amount in the token's smallest units (wei for native CTC). Zero disables the fee while
+    /// keeping the entry (equivalent to no entry at all).
+    pub amount: sp_core::U256,
+}
+
 // Maturity strategy enum used for robustness in attestors
 #[derive(Debug, Clone)]
 pub enum MaturityStrategy {
