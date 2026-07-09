@@ -2,7 +2,7 @@ use attestor_primitives::{ChainEncodingVersion, ChainId, ChainKey};
 use sp_core::H160;
 use sp_std::vec::Vec;
 
-use crate::{SupportedChain, WriteAbilityConfig};
+use crate::{CoreFeeConfig, SupportedChain, WriteAbilityConfig};
 
 pub trait SupportedChainsProvider {
     fn is_chain_supported(chain_key: ChainKey) -> bool;
@@ -11,6 +11,7 @@ pub trait SupportedChainsProvider {
     fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain>;
     fn get_write_ability_config(chain_key: ChainKey) -> Option<WriteAbilityConfig>;
     fn get_outbox_factory_address(chain_key: ChainKey) -> Option<H160>;
+    fn get_core_fee(chain_key: ChainKey) -> Option<CoreFeeConfig>;
 }
 
 pub trait OnRegisterChainProvider {

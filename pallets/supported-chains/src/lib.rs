@@ -34,7 +34,7 @@ pub mod pallet {
     use supported_chains_primitives::{
         chain_removal_listener::ChainRemovalListener,
         provider::{OnRegisterChainProvider as OnChainRegisteredProvider, SupportedChainsProvider},
-        SupportedChain, WriteAbilityConfig,
+        CoreFeeConfig, SupportedChain, WriteAbilityConfig,
     };
 
     /// The in-code storage version.
@@ -77,6 +77,7 @@ pub mod pallet {
         fn remove_chain() -> Weight;
         fn set_outbox_factory_addr() -> Weight;
         fn set_write_ability_config() -> Weight;
+        fn set_core_fee() -> Weight;
     }
 
     #[pallet::storage]
@@ -122,6 +123,19 @@ pub mod pallet {
         Hasher = Blake2_128Concat,
         Key = ChainKey,
         Value = WriteAbilityConfig,
+        QueryKind = OptionQuery,
+    >;
+
+    /// Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
+    /// `publishMessage`. Read live by the EVM through the chain-info precompile
+    /// (`get_core_fee(uint64)`), so a governance change takes effect on the next publish with no
+    /// contract redeploys. No entry (or a zero amount) means no fee is charged.
+    #[pallet::storage]
+    #[pallet::getter(fn core_fee)]
+    pub type CoreFees<T> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = ChainKey,
+        Value = CoreFeeConfig,
         QueryKind = OptionQuery,
     >;
 
@@ -229,6 +243,15 @@ pub mod pallet {
             write_ability_chain_key: [u8; 32],
             message_attestation_enabled: bool,
         },
+
+        /// The USC write-ability core (protocol) fee for a supported chain has been set.
+        /// `token: None` means the fee is denominated in native CTC; `Some(address)` an ERC20
+        /// (attestcoin). A zero `amount` disables the fee.
+        CoreFeeSet {
+            chain_key: ChainKey,
+            token: Option<H160>,
+            amount: sp_core::U256,
+        },
     }
 
     #[pallet::error]
@@ -253,6 +276,11 @@ pub mod pallet {
         /// The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
         /// zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
         ZeroWriteAbilityChainKey,
+
+        /// The core-fee token is `Some(H160::zero())`. On the EVM side the zero address means
+        /// "native currency", which this config expresses as `None` — a zero ERC20 address is
+        /// always a misconfiguration and would make the Outbox `transferFrom` the zero address.
+        ZeroCoreFeeToken,
     }
 
     #[pallet::call]
@@ -359,6 +387,8 @@ pub mod pallet {
 
             WriteAbilityConfigs::<T>::remove(chain_key);
 
+            CoreFees::<T>::remove(chain_key);
+
             SupportedChains::<T>::remove(chain_key);
 
             // Notify event listeners
@@ -442,6 +472,42 @@ pub mod pallet {
 
             Ok(())
         }
+
+        /// Sets the USC write-ability core (protocol) fee for a supported chain, charged by that
+        /// chain's Outbox on every `publishMessage`. `token: None` denominates the fee in native
+        /// CTC (paid via `msg.value`); `Some(address)` in an ERC20 on Creditcoin's EVM
+        /// (attestcoin, pulled via `transferFrom`). A zero `amount` disables the fee. Only
+        /// accounts in the Operators membership (or root) can call this extrinsic.
+        ///
+        /// The value is read live by the EVM through the chain-info precompile
+        /// (`get_core_fee(uint64)`), so changes take effect on the next publish without any
+        /// contract redeploys — including a later native→attestcoin denomination switch.
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::set_core_fee())]
+        pub fn set_core_fee(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            token: Option<H160>,
+            amount: sp_core::U256,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                SupportedChains::<T>::contains_key(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+            ensure!(token != Some(H160::zero()), Error::<T>::ZeroCoreFeeToken);
+
+            CoreFees::<T>::insert(chain_key, CoreFeeConfig { token, amount });
+
+            Self::deposit_event(Event::CoreFeeSet {
+                chain_key,
+                token,
+                amount,
+            });
+
+            Ok(())
+        }
     }
 
     impl<T: Config> SupportedChainsProvider for Pallet<T> {
@@ -472,6 +538,10 @@ pub mod pallet {
 
         fn get_outbox_factory_address(chain_key: ChainKey) -> Option<H160> {
             OutboxFactories::<T>::get(chain_key)
+        }
+
+        fn get_core_fee(chain_key: ChainKey) -> Option<CoreFeeConfig> {
+            CoreFees::<T>::get(chain_key)
         }
     }
 }
