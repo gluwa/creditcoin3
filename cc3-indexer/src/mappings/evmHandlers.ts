@@ -101,6 +101,13 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
         logger.error(`Transaction hash missing for MessagePublished at block ${event.blockNumber}. Skipping.`);
         return;
     }
+    // Defensive: EVM logs always carry the emitting contract address, but if it were ever absent,
+    // skip loudly rather than save a message with an empty outboxId — that would be an OutboxMessage
+    // dangling outside every OutboxContract relation, silently invisible to by-outbox queries.
+    if (!event.address) {
+        logger.error(`Contract address missing for MessagePublished at block ${event.blockNumber}. Skipping.`);
+        return;
+    }
 
     const [messageId, emitterAddress, requiresAck, payload] = event.args;
     logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitterAddress}, requiresAck=${requiresAck}`);
@@ -109,7 +116,7 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     // outboxId references the OutboxContract created by handleOutboxCreated (same lowercased address).
     const message = OutboxMessage.create({
         id: messageId,
-        outboxId: event.address ? event.address.toLowerCase() : '',
+        outboxId: event.address.toLowerCase(),
         emitter: emitterAddress,
         requiresAck,
         payload,
