@@ -59,10 +59,33 @@ impl VoteAggregator {
         }
     }
 
-    /// Update the quorum threshold after an on-chain attestor-set change. Applies to all subsequent
-    /// `add_vote` calls; already-`completed` entries are unaffected (they fired at the old quorum).
-    pub fn set_threshold(&mut self, threshold: usize) {
+    /// Update the quorum threshold after an on-chain attestor-set change, re-evaluating every
+    /// tracked entry against the new value (a hot-reload must not leave entries frozen at the old
+    /// quorum's verdict):
+    ///
+    /// * **raised** — an entry that completed under the old (lower) quorum but is below the new one
+    ///   is un-completed, so the threshold signal re-fires when the new quorum is *genuinely* met
+    ///   (previously `completed` stayed latched and it could never signal again). Its TTL window is
+    ///   restarted: the raised quorum is a fresh race for the missing votes, and un-completing also
+    ///   returns it to the prunable/evict-first retention class where an incomplete entry belongs.
+    /// * **lowered** — an entry whose existing count already meets the new quorum completes now;
+    ///   such hashes are returned so the caller can surface the milestone (there is no later
+    ///   `add_vote` transition to fire it).
+    pub fn set_threshold(&mut self, threshold: usize, now: Instant) -> Vec<[u8; 32]> {
         self.threshold = threshold.max(1);
+        let mut newly_completed = Vec::new();
+        for (hash, entry) in &mut self.entries {
+            let meets = entry.signers.len() >= self.threshold;
+            if entry.completed && !meets {
+                entry.completed = false;
+                entry.inserted_at = now;
+            } else if !entry.completed && meets {
+                entry.completed = true;
+                entry.last_update = now;
+                newly_completed.push(*hash);
+            }
+        }
+        newly_completed
     }
 
     /// Number of distinct hashes currently tracked.
@@ -225,6 +248,61 @@ mod tests {
         let later = t0 + Duration::from_secs(11);
         assert_eq!(agg.add_vote(h, addr(2), later), VoteOutcome::NotIndexed);
         assert_eq!(agg.tracked(), 0);
+    }
+
+    #[test]
+    fn raised_threshold_unlatches_completed_and_refires_at_new_quorum() {
+        let mut agg = VoteAggregator::new(2, 100, Duration::from_secs(60));
+        let now = Instant::now();
+        let h = [9u8; 32];
+        agg.note_indexed(h, now);
+        agg.add_vote(h, addr(1), now);
+        assert_eq!(
+            agg.add_vote(h, addr(2), now),
+            VoteOutcome::Accepted {
+                reached_threshold: true
+            },
+            "completes at the old quorum of 2"
+        );
+
+        // Set grows: quorum rises to 3. The old completion no longer represents quorum, so the
+        // entry is un-latched (previously it stayed `completed` and could never signal again).
+        assert!(agg.set_threshold(3, now).is_empty());
+        assert_eq!(
+            agg.add_vote(h, addr(3), now),
+            VoteOutcome::Accepted {
+                reached_threshold: true
+            },
+            "signal must re-fire when the NEW quorum is genuinely met"
+        );
+        // And exactly once, as usual.
+        assert_eq!(
+            agg.add_vote(h, addr(4), now),
+            VoteOutcome::Accepted {
+                reached_threshold: false
+            }
+        );
+    }
+
+    #[test]
+    fn lowered_threshold_completes_pending_entries_and_reports_them() {
+        let mut agg = VoteAggregator::new(3, 100, Duration::from_secs(60));
+        let now = Instant::now();
+        let h = [7u8; 32];
+        agg.note_indexed(h, now);
+        agg.add_vote(h, addr(1), now);
+        agg.add_vote(h, addr(2), now); // 2 of 3 — below quorum
+
+        // Set shrinks: quorum drops to 2 and the existing count now meets it. There is no later
+        // vote transition to fire the signal, so set_threshold reports the hash itself.
+        assert_eq!(agg.set_threshold(2, now), vec![h]);
+        // Latched: a further vote does not re-fire.
+        assert_eq!(
+            agg.add_vote(h, addr(3), now),
+            VoteOutcome::Accepted {
+                reached_threshold: false
+            }
+        );
     }
 
     #[test]
