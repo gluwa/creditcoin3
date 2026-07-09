@@ -24,25 +24,19 @@ const ATTESTOR_SET_POLL_SECS: u64 = 30;
 /// Watch the destination validator's attestor set and apply changes to `state` until `token` fires.
 /// Best-effort: connection/read failures are logged and retried; the attestor keeps validating
 /// against the last-known-good set in the meantime.
+///
+/// Connects *per poll* (via [`fetch_attestor_set`]) rather than holding one long-lived provider. A
+/// bare alloy WS provider's pubsub service exits permanently after a single failed reconnect, so a
+/// held provider would silently stop reading after one routine RPC blip — the set would freeze and,
+/// with the post-F3 `Ignore` semantics, votes from newly-added attestors would go uncounted
+/// fleet-wide with no recovery short of a restart (S1). A fresh connection each tick is cheap at the
+/// 30s cadence and self-heals across blips; a failed tick just retries the next one.
 pub async fn watch(
     state: Arc<MessageVoteState>,
     validator: Address,
     dest_rpc_url: String,
     token: CancellationToken,
 ) {
-    let provider = match ProviderBuilder::new()
-        .on_builtin(dest_rpc_url.as_str())
-        .await
-    {
-        Ok(p) => p,
-        Err(err) => {
-            tracing::error!(
-                %validator, %err,
-                "attestor-set watcher could not connect to destination RPC — set will not hot-reload"
-            );
-            return;
-        }
-    };
     tracing::info!(%validator, "🛂 attestor-set watcher online");
 
     // `interval` fires immediately on the first tick — but `build_state` already resolved the set at
@@ -57,7 +51,9 @@ pub async fn watch(
                 return;
             }
             _ = tick.tick() => {
-                let set = match read_attestors(&provider, validator).await {
+                // Fresh connection each poll — see the fn doc. A dead/transiently-unreachable RPC
+                // fails only this tick and is retried on the next, instead of wedging the watcher.
+                let set = match fetch_attestor_set(&dest_rpc_url, validator).await {
                     Ok(s) => s,
                     Err(err) => {
                         tracing::warn!(%validator, %err, "failed to read on-chain attestor set; will retry");

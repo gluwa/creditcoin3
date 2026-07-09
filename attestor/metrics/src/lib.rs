@@ -547,6 +547,21 @@ impl Metrics {
             .inc();
     }
 
+    /// Count a USC write-ability message vote this attestor *produced* (signed locally — from the
+    /// Outbox listener or a reobservation re-sign). Distinct from [`Self::note_message_vote`], which
+    /// counts *incoming* peer votes: if the local signing pipeline wedges (e.g. a dead Creditcoin
+    /// RPC), incoming votes keep arriving and `MessageVote` keeps moving, so only this counter going
+    /// flat while the chain has Outbox activity reveals that we stopped producing (S4). Alert on
+    /// `rate(...MessageVoteProduced) == 0` with Outbox activity present.
+    pub fn note_message_vote_produced(&self) {
+        self.0
+            .metrics_p2p_messages
+            .get_or_create(&labels::LabelPeerToPeerMessages {
+                kind: labels::PeerToPeerMessages::MessageVoteProduced,
+            })
+            .inc();
+    }
+
     pub fn increase_invalid_attestation_count(&self) {
         self.0
             .metrics_error
@@ -683,6 +698,9 @@ mod labels {
         Gossipsub,
         /// USC write-ability message votes that were accepted and counted toward quorum.
         MessageVote,
+        /// USC write-ability message votes this attestor produced (signed) locally — the liveness
+        /// signal for the local signing pipeline (see [`super::Metrics::note_message_vote_produced`]).
+        MessageVoteProduced,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]
