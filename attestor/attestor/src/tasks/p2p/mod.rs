@@ -181,15 +181,21 @@ pub async fn run(
         .listen_on(listen_addr.clone())
         .map_err(|e| Error::P2p(e.into()))?;
 
-    // Mesh-visibility hint: "≥1 gossipsub mesh peer on the attest topic", recomputed after every
-    // swarm event. Used ONLY as the edge trigger for eagerly flushing the retry queue when the
-    // mesh (re)forms — never as a gate on publishing. Gating publishes on it wedged the node
-    // whenever the mesh regained peers without a swarm event (heartbeat GRAFTs, score recovery):
-    // the flag stayed false, both publish paths were short-circuited, and the node never even
-    // attempted to publish again. `try_publish`'s own error is the authoritative "no peers"
-    // signal (and with flood_publish, topic peers — not mesh membership — are what publishing
-    // actually needs).
+    // Mesh-visibility hints: "≥1 gossipsub mesh peer on <topic>", recomputed after every swarm
+    // event. Used ONLY as edge triggers for eagerly flushing the matching retry queue when that
+    // topic's mesh (re)forms — never as a gate on publishing. Gating publishes on a hint wedged
+    // the node whenever the mesh regained peers without a swarm event (heartbeat GRAFTs, score
+    // recovery): the flag stayed false, both publish paths were short-circuited, and the node
+    // never even attempted to publish again. `try_publish`'s own error is the authoritative "no
+    // peers" signal (and with flood_publish, topic peers — not mesh membership — are what
+    // publishing actually needs).
+    //
+    // One hint per topic: gossipsub meshes are independent per topic and form at different times,
+    // so keying the message-vote flush off the attest topic's mesh would fire it into a peerless
+    // mv mesh (harmless — stays queued) or miss the mv mesh forming first (flush deferred to the
+    // periodic retry tick).
     let mut can_broadcast = false;
+    let mut can_broadcast_mv = false;
 
     // Per-height pending buffer for incoming votes that arrived before our local production
     // reached that height. Drained when `shared.local_produced_rx` changes.
@@ -324,6 +330,7 @@ pub async fn run(
             // Incoming events from the swarm.
             event = swarm.select_next_some() => {
                 let could_broadcast = can_broadcast;
+                let could_broadcast_mv = can_broadcast_mv;
                 handle_swarm(
                     &shared,
                     &mut swarm,
@@ -346,12 +353,21 @@ pub async fn run(
                     .mesh_peers(&topic.hash())
                     .next()
                     .is_some();
-                // Mesh just (re)formed — flush queued votes immediately rather than waiting for
-                // the next retry tick.
-                if !could_broadcast && can_broadcast {
-                    if !retry_queue.is_empty() {
-                        flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
-                    }
+                can_broadcast_mv = mv_topic.as_ref().is_some_and(|t| {
+                    swarm
+                        .behaviour()
+                        .gossipsub
+                        .mesh_peers(&t.hash())
+                        .next()
+                        .is_some()
+                });
+                // A topic's mesh just (re)formed — flush that topic's queued votes immediately
+                // rather than waiting for the next retry tick. Each topic on its own edge: the
+                // meshes are independent, so one forming says nothing about the other.
+                if !could_broadcast && can_broadcast && !retry_queue.is_empty() {
+                    flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                }
+                if !could_broadcast_mv && can_broadcast_mv {
                     if let Some(mv_topic) = &mv_topic {
                         flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue);
                     }
