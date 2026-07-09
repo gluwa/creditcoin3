@@ -3,8 +3,8 @@ use crate::{
         Account::{Alice, Precompile},
         *,
     },
-    BoundsCheckResult, ChainInfo, ChainInfoResult, HashResult, HeightHashResult, HeightResult,
-    OutboxFactories, OutboxFactoryResult,
+    BoundsCheckResult, ChainInfo, ChainInfoResult, CoreFeeResult, CoreFees, HashResult,
+    HeightHashResult, HeightResult, OutboxFactories, OutboxFactoryResult,
 };
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
@@ -18,7 +18,8 @@ use precompile_utils::{
     testing::*,
 };
 
-use sp_core::{H160, H256};
+use sp_core::{H160, H256, U256};
+use supported_chains_primitives::CoreFeeConfig;
 
 fn precompiles() -> Precompiles<Runtime> {
     PrecompilesValue::get()
@@ -120,6 +121,89 @@ fn get_outbox_factory_address_works() {
                     },
                 )
                 .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_core_fee_works_native_and_erc20() {
+    let alice: H160 = Alice.into();
+
+    let amount = U256::from(1_000_000_000_000_000_000u128); // 1 CTC
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Native-denominated fee (token: None) surfaces as address(0).
+            CoreFees::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                CoreFeeConfig {
+                    token: None,
+                    amount,
+                },
+            );
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_core_fee {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .execute_returns(CoreFeeResult {
+                    token: Address(H160::zero()),
+                    amount,
+                    exists: true,
+                });
+
+            // ERC20-denominated fee (the planned attestcoin switch) surfaces the token address.
+            let token = H160::repeat_byte(0x22);
+            CoreFees::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                CoreFeeConfig {
+                    token: Some(token),
+                    amount,
+                },
+            );
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_core_fee {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .execute_returns(CoreFeeResult {
+                    token: Address(token),
+                    amount,
+                    exists: true,
+                });
+        });
+}
+
+#[test]
+fn get_core_fee_returns_default_when_not_set() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            assert!(!CoreFees::<Runtime>::contains_key(SUPPORTED_CHAIN_KEY));
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_core_fee {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .execute_returns(CoreFeeResult {
+                    token: Address(H160::zero()),
+                    amount: U256::zero(),
+                    exists: false,
+                });
         });
 }
 
