@@ -52,6 +52,13 @@ pub use config::{AttestorSet, Config};
 /// activation without a restart).
 const OUTBOX_RESOLVE_RETRY_SECS: u64 = 12;
 
+/// After this many consecutive failed resolves (~5 min at [`OUTBOX_RESOLVE_RETRY_SECS`]) the retry is
+/// probably no longer "waiting for on-chain registration" but a misconfiguration — most likely a
+/// deploy-ordering trap where the attestor was upgraded ahead of the runtime, so the renamed
+/// chain-info selector (`get_outbox_factory_address`) reverts and resolution can never succeed (S3).
+/// Escalate the log to error-level at each multiple so it is alertable instead of buried in warns.
+const RESOLVE_ESCALATE_EVERY_ATTEMPTS: u64 = (5 * 60) / OUTBOX_RESOLVE_RETRY_SECS;
+
 /// Message-vote state shared between this task (producer) and the p2p task (publisher + incoming
 /// validator). Lives on [`Shared`](crate::shared::Shared) as `Option`, set only when message
 /// attestation is enabled with a usable attestor set.
@@ -165,6 +172,45 @@ async fn resolve_destination_chain_key(cfg: &Config, cc3: &cc_client::Client) ->
     }
 }
 
+/// Bounded retry budget for the *startup* on-chain attestor-set read. A single transient
+/// destination-RPC failure must not permanently disable message voting for the whole run: if a fleet
+/// restart (e.g. a rollout) coincides with a brief RPC hiccup, a large fraction of attestors would
+/// otherwise come up mv-disabled and starve quorum network-wide until the *next* restart (C2). The
+/// backoff (2s, 4s, 8s, 16s, 32s, 32s ≈ 94s total) rides out an ordinary blip; a genuine
+/// misconfiguration (bad URL/validator address) still gives up after the budget so the attestor
+/// doesn't hang forever. The steady-state watcher (`attestor_set::watch`) takes over once running.
+const STARTUP_SET_FETCH_ATTEMPTS: u32 = 6;
+const STARTUP_SET_FETCH_BASE_BACKOFF: std::time::Duration = std::time::Duration::from_secs(2);
+const STARTUP_SET_FETCH_MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(32);
+
+/// Read the on-chain attestor set at startup, retrying a *transient* read failure with bounded
+/// backoff (see [`STARTUP_SET_FETCH_ATTEMPTS`]). `None` only after the budget is exhausted.
+async fn fetch_attestor_set_with_retry(url: &str, validator: Address) -> Option<HashSet<Address>> {
+    let mut backoff = STARTUP_SET_FETCH_BASE_BACKOFF;
+    for attempt in 1..=STARTUP_SET_FETCH_ATTEMPTS {
+        match attestor_set::fetch_attestor_set(url, validator).await {
+            Ok(set) => return Some(set),
+            Err(err) if attempt == STARTUP_SET_FETCH_ATTEMPTS => {
+                tracing::error!(
+                    %validator, %err, attempts = attempt,
+                    "failed to read attestor set from on-chain EOAValidator after retries — disabling message attestation for this run"
+                );
+                return None;
+            }
+            Err(err) => {
+                tracing::warn!(
+                    %validator, %err, attempt,
+                    next_retry_secs = backoff.as_secs(),
+                    "attestor-set read failed at startup; retrying"
+                );
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(STARTUP_SET_FETCH_MAX_BACKOFF);
+            }
+        }
+    }
+    None
+}
+
 /// Resolve the authorized signer set. Returns `None` (with a logged reason) when the set can't be
 /// determined, which disables message attestation for the run while the rest of the attestor keeps
 /// working.
@@ -188,13 +234,7 @@ async fn resolve_active_set(cfg: &Config) -> Option<HashSet<Address>> {
                 );
                 return None;
             };
-            let set = match attestor_set::fetch_attestor_set(url.as_str(), *validator).await {
-                Ok(set) => set,
-                Err(err) => {
-                    tracing::error!(%validator, %err, "failed to read attestor set from on-chain EOAValidator — disabling");
-                    return None;
-                }
-            };
+            let set = fetch_attestor_set_with_retry(url.as_str(), *validator).await?;
             if set.is_empty() {
                 tracing::error!(%validator, "EOAValidator.attestors() returned an empty set — disabling");
                 return None;
@@ -274,17 +314,37 @@ pub async fn run(
     // write-ability automatically once they are, with no restart. While unresolved it just keeps
     // doing block attestation. (Polling is simpler and more robust than event subscription; picking
     // up a later Outbox *re-registration* mid-run remains a finer-grained TODO in resolver.rs.)
+    let mut resolve_attempts: u64 = 0;
     let resolved = loop {
         match resolver::resolve(&provider, &cfg, state.destination_chain_key).await {
             Ok(Some(r)) => break r,
             Ok(None) => {
-                tracing::info!(
-                    retry_secs = OUTBOX_RESOLVE_RETRY_SECS,
-                    "📭 no Outbox factory/Outbox registered on-chain yet — write-ability idle; will retry"
-                );
+                resolve_attempts += 1;
+                if resolve_attempts % RESOLVE_ESCALATE_EVERY_ATTEMPTS == 0 {
+                    tracing::error!(
+                        attempts = resolve_attempts,
+                        elapsed_secs = resolve_attempts * OUTBOX_RESOLVE_RETRY_SECS,
+                        "⏳ Outbox still unresolved after prolonged retrying — verify the on-chain WriteAbilityConfigs entry and the runtime/attestor deploy ordering (chain-info `get_outbox_factory_address` selector)"
+                    );
+                } else {
+                    tracing::info!(
+                        retry_secs = OUTBOX_RESOLVE_RETRY_SECS,
+                        "📭 no Outbox factory/Outbox registered on-chain yet — write-ability idle; will retry"
+                    );
+                }
             }
             Err(err) => {
-                tracing::warn!(%err, retry_secs = OUTBOX_RESOLVE_RETRY_SECS, "Outbox resolution failed — will retry");
+                resolve_attempts += 1;
+                if resolve_attempts % RESOLVE_ESCALATE_EVERY_ATTEMPTS == 0 {
+                    tracing::error!(
+                        %err,
+                        attempts = resolve_attempts,
+                        elapsed_secs = resolve_attempts * OUTBOX_RESOLVE_RETRY_SECS,
+                        "Outbox resolution still failing after prolonged retrying — likely a misconfiguration (RPC or chain-info selector mismatch); will keep retrying"
+                    );
+                } else {
+                    tracing::warn!(%err, retry_secs = OUTBOX_RESOLVE_RETRY_SECS, "Outbox resolution failed — will retry");
+                }
             }
         }
         tokio::select! {
@@ -350,7 +410,7 @@ pub async fn run(
                     }
                     return Err(Error::WriteAbility(err));
                 };
-                produce_vote(&state, &signer, our_address, chain_key, indexed);
+                produce_vote(&state, &shared.metrics, &signer, our_address, chain_key, indexed);
             }
             maybe = reobs_rx.recv(), if reobs_open => {
                 let Some(request) = maybe else {
@@ -358,7 +418,7 @@ pub async fn run(
                     continue;
                 };
                 handle_reobservation(
-                    &provider, &resolved, &state, &signer, our_address, chain_key,
+                    &provider, &resolved, &state, &shared.metrics, &signer, our_address, chain_key,
                     confirmation_depth, &mut reobs_limiter, request,
                 ).await;
             }
@@ -376,6 +436,7 @@ pub async fn run(
 /// and hand it to the p2p task to gossip.
 fn produce_vote(
     state: &MessageVoteState,
+    metrics: &metrics::Metrics,
     signer: &signing::MessageSigner,
     our_address: Address,
     chain_key: u64,
@@ -388,6 +449,9 @@ fn produce_vote(
             return;
         }
     };
+    // Liveness signal for the local signing pipeline: a flat produced-rate while the chain still has
+    // Outbox activity means we stopped signing even though incoming peer votes may keep arriving (S4).
+    metrics.note_message_vote_produced();
 
     // Chain-seen (we observed it on-chain) + count our own vote — but only tally our signature
     // toward local quorum when our address is actually in the authorized set. Peers reject votes
@@ -456,6 +520,7 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
     provider: &P,
     resolved: &resolver::ResolvedOutbox,
     state: &MessageVoteState,
+    metrics: &metrics::Metrics,
     signer: &signing::MessageSigner,
     our_address: Address,
     chain_key: u64,
@@ -467,16 +532,24 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
     if request.chain_key != chain_key {
         return; // not ours (topic is per-chain, but be defensive)
     }
-    if !limiter.allow(message_id, Instant::now()) {
+    let now = Instant::now();
+    if !limiter.allow(message_id, now) {
         tracing::debug!(%message_id, "⏳ reobservation request within cooldown — ignoring");
         return;
     }
 
+    // Record the cooldown *after* verifying, and only apply the full cooldown to a verified
+    // request. An unauthenticated forged/garbage request gets the short failure cooldown so it can't
+    // burn this message's 30s window and starve the genuine relayer request (S2).
     let indexed = match reobservation::reobserve(provider, resolved, confirmation_depth, &request)
         .await
     {
-        Ok(Some(indexed)) => indexed,
+        Ok(Some(indexed)) => {
+            limiter.record(message_id, now, true);
+            indexed
+        }
         Ok(None) => {
+            limiter.record(message_id, now, false);
             tracing::warn!(
                 %message_id,
                 block = request.block_height,
@@ -485,6 +558,7 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
             return;
         }
         Err(err) => {
+            limiter.record(message_id, now, false);
             tracing::warn!(%message_id, %err, "reobservation re-fetch failed — ignoring");
             return;
         }
@@ -499,5 +573,5 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
         message_hash = %indexed.message_hash,
         "♻️ re-signing reobserved message"
     );
-    produce_vote(state, signer, our_address, chain_key, indexed);
+    produce_vote(state, metrics, signer, our_address, chain_key, indexed);
 }

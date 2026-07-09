@@ -26,6 +26,24 @@ use super::resolver::ResolvedOutbox;
 /// Poll cadence for `eth_getLogs`.
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
 
+/// Per-poll RPC deadline. A healthy `eth_getLogs`/`eth_blockNumber` returns in well under this; the
+/// timeout exists so a *black-holed* connection (socket accepted but no response — the failure mode
+/// a bare alloy WS provider can silently enter after its one-shot reconnect gives up) surfaces as an
+/// error that counts toward the consecutive-failure budget instead of pending forever and wedging
+/// the whole write-ability task (which shares this provider with the reobservation responder).
+const POLL_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Consecutive failed polls before the listener gives up and returns `Err`. The write-ability task
+/// harvests that error and propagates it to the supervisor, which restarts the pod — rebuilding the
+/// provider from scratch. This is the reconnect story for the write-ability EVM provider: unlike the
+/// block-attestation path (wrapped in the reconnecting `eth::Client`), this provider is a bare alloy
+/// connection whose pubsub service exits permanently after a single failed reconnect, so a routine
+/// RPC blip would otherwise silently kill message voting for the process lifetime (C1). At the 6s
+/// cadence this rides out ~1 minute of fast errors, or (with `POLL_TIMEOUT`) a few minutes of a
+/// black-holed endpoint, before restarting — long enough to absorb a transient blip, short enough
+/// that a dead provider does not strand quorum indefinitely.
+const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
+
 /// A finalized `MessagePublished` the attestor should vote on.
 #[derive(Clone, Debug)]
 pub struct IndexedMessage {
@@ -69,6 +87,7 @@ pub async fn watch<P: Provider>(
         "📡 message-attestation Outbox listener online"
     );
 
+    let mut consecutive_failures: u32 = 0;
     loop {
         tokio::select! {
             () = token.cancelled() => {
@@ -76,14 +95,42 @@ pub async fn watch<P: Provider>(
                 return Ok(());
             }
             _ = tick.tick() => {
-                if let Err(err) = poll_once(
-                    provider,
-                    &resolved,
-                    block_confirmation_depth,
-                    &mut last_seen,
-                    &tx,
-                ).await {
-                    tracing::warn!(%err, "outbox poll iteration failed; will retry");
+                // Bound each poll so a black-holed connection can't hang the loop indefinitely; a
+                // timeout counts as a failure just like an RPC error.
+                let outcome = match tokio::time::timeout(
+                    POLL_TIMEOUT,
+                    poll_once(provider, &resolved, block_confirmation_depth, &mut last_seen, &tx),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "outbox poll exceeded {POLL_TIMEOUT:?} — RPC unresponsive"
+                    )),
+                };
+
+                match outcome {
+                    Ok(()) => consecutive_failures = 0,
+                    Err(err) => {
+                        consecutive_failures += 1;
+                        // Give up after a sustained failure run. Returning Err lets the
+                        // write-ability task harvest it and restart the pod, which rebuilds this
+                        // (non-self-healing) provider — the only reconnect path it has (C1).
+                        if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
+                            return Err(err).with_context(|| {
+                                format!(
+                                    "outbox poll failed {consecutive_failures} times in a row — \
+                                     RPC connection is likely dead; restarting to rebuild it"
+                                )
+                            });
+                        }
+                        tracing::warn!(
+                            %err,
+                            consecutive_failures,
+                            max = MAX_CONSECUTIVE_POLL_FAILURES,
+                            "outbox poll iteration failed; will retry"
+                        );
+                    }
                 }
             }
         }
