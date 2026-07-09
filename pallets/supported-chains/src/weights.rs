@@ -176,4 +176,29 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::CoreFees` (r:0 w:1)
+	/// Proof: `SupportedChains::CoreFees` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	// NOTE: copied from `set_write_ability_config` (identical storage-access shape: one
+	// SupportedChains read + one map insert + event) pending regeneration via the BENCHMARKS
+	// workflow.
+	fn set_core_fee() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `369`
+		//  Estimated: `3834`
+		// Minimum execution time: 27_230_000 picoseconds.
+		Weight::from_parts(28_220_000, 0)
+			.saturating_add(Weight::from_parts(0, 3834))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(3))
+	}
 }

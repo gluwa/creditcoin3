@@ -81,4 +81,22 @@ mod benchmarks {
             true,
         )
     }
+
+    #[benchmark]
+    fn set_core_fee() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        // In mock.rs we set up a single supported chain with chain_key 1
+        let chain_key: ChainKey = 1;
+
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_key,
+            // ERC20-denominated is the encoding worst case (Some(H160) vs None); must be
+            // non-zero: the extrinsic rejects Some(H160::zero()) with ZeroCoreFeeToken.
+            Some(H160::repeat_byte(0x02)),
+            sp_core::U256::from(1_000_000_000_000_000_000u128),
+        )
+    }
 }
