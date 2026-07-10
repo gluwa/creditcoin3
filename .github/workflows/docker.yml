@@ -31,6 +31,7 @@ jobs:
       build-options: "BUILD_ARGS="
       version-string: "latest"
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
+    secrets: inherit
 
   docker-test:
     needs:

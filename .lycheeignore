@@ -33,3 +33,4 @@ https://prover(.*)creditcoin.network/
 https://proof-gen-api(.*)creditcoin.network/
 https://nixos.wiki/wiki/flakes#Enable_flakes_temporarily
 https://opencollective.com/(.*)
+https://scout\.docker\.com/(.*)
