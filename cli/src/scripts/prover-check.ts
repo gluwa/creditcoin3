@@ -154,6 +154,20 @@ async function main(
         );
     }
 
+    // Override with SPECIFIC_BLOCKS if provided (e.g. forked/reorganised blocks from chain reorgs).
+    // Accepts a comma-separated list of source-chain block numbers; spaces around numbers are ignored.
+    const specificBlocksEnv = process.env.SPECIFIC_BLOCKS;
+    if (specificBlocksEnv && specificBlocksEnv.trim() !== '') {
+        blocksToInspect.splice(0, blocksToInspect.length);
+        for (const b of specificBlocksEnv.split(',')) {
+            const trimmed = b.trim();
+            if (trimmed !== '') blocksToInspect.push(BigInt(trimmed));
+        }
+        console.log(
+            `**** INFO: SPECIFIC_BLOCKS override – will check ${blocksToInspect.length} specific (forked) blocks`,
+        );
+    }
+
     if (blocksToInspect.length === 0) {
         throw new Error('no blocks to inspect. Something is wrong! Investigate!');
     }

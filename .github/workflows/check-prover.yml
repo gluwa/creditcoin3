@@ -14,33 +14,72 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # CC3 Devnet, Sepolia Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 1
-
-          # CC3 Devnet, Ethereum Mainnet Full Archive
-          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
-            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
-            indexerUrl: "https://graphql-usc.cc3-devnet.creditcoin.network"
-            evmV1Decoder: "0xf882f3a71A36E29E86615B7055f42A68D7E4cfBB"
-            chainKey: 4
-
           # CC3 Testnet, Sepolia Full Archive
+          # Forked blocks sourced from https://sepolia.etherscan.io/blocks_forked?ps=100 (first 200)
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
             evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
             chainKey: 1
+            specificBlocks: >-
+              11201009,11195850,11193511,11189603,11188336,11186910,11164179,11160711,
+              11119015,11103806,11102872,11079664,10947358,10945434,10942854,10932487,
+              10892742,10892336,10891713,10891248,10742206,10716637,10686706,10673670,
+              10653110,10650128,10645970,10628538,10628485,10625100,10622383,10621089,
+              10619823,10618648,10618028,10617225,10616390,10615280,10608162,10608050,
+              10607504,10607033,10604199,10603147,10600218,10598605,10597273,10597141,
+              10595994,10595630,10595318,10595261,10594725,10593191,10592807,10592776,
+              10592641,10592069,10591940,10591861,10591640,10590317,10589491,10588909,
+              10537474,10535790,10535767,10535452,10532849,10532093,10525893,10514282,
+              10493528,10334288,10296582,10248412,10142877,10035638,10030170,10026826,
+              10026430,10025138,10020516,10017291,10014571,9888494,9873821,9801559,
+              9800842,9787081,9720511,9720452,9719823,9719798,9719788,9719694,9719656,
+              9718951,9544538,9507118,9505593,9336776,9209361,9190928,9188504,9163054,
+              9158480,9040426,9039297,9032651,8924731,8920743,8903766,8843187,8840148,
+              8812538,8811631,8809860,8759528,8753727,8751637,8726451,8697162,8686928,
+              8661659,8631653,8571631,8567660,8565891,8559870,8507497,8433951,8422289,
+              8375473,8374841,8368348,8368288,8367773,8364590,8266983,8115556,8109837,
+              8073257,8034601,8034421,8033713,8032158,8030553,8029398,8025838,8025468,
+              8025203,7916071,7904752,7901327,7891492,7838088,7820457,7812196,7795943,
+              7779108,7774682,7754886,7705490,7615847,7555624,7462387,7449159,7254196,
+              6995999,6986522,6976877,6955042,6601266,6591922,6543177,6471091,6075614,
+              6058087,6049660,5990773,5943727,5814299,5772216,5761481,5709380,5690564,
+              5681872,5569739,5508989,5413427,5338067,5301989,5300275,5297231,5296203,
+              5295080,5293708,5293671,5284401
 
           # CC3 Testnet, Ethereum Mainnet Full Archive
+          # Forked blocks sourced from https://etherscan.io/blocks_forked?ps=100 (first 200)
           - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
             proverUrl: "https://prover.cc3-testnet.creditcoin.network"
             indexerUrl: "https://graphql-usc.cc3-testnet.creditcoin.network"
             evmV1Decoder: "0x731c345d79Fb8BbDC541f9DF3b6317585F849F9f"
             chainKey: 3
+            specificBlocks: >-
+              25498580,25498516,25497881,25497198,25495300,25494917,25494470,25493260,
+              25492703,25491793,25489526,25488984,25488698,25488379,25486372,25486117,
+              25485734,25481999,25479829,25477943,25477467,25475714,25474563,25474532,
+              25474342,25472587,25472141,25471886,25469813,25468382,25466359,25465609,
+              25465323,25464942,25463985,25463684,25462234,25461608,25459786,25459563,
+              25459357,25458756,25458513,25457675,25455960,25455578,25455458,25453411,
+              25452993,25450669,25450191,25449906,25449796,25449179,25445071,25444409,
+              25443896,25441951,25440325,25439689,25438292,25437900,25437746,25437081,
+              25435711,25433414,25430767,25430473,25428897,25428189,25427040,25426131,
+              25424613,25424457,25422915,25422259,25422101,25421495,25421266,25420890,
+              25420629,25420444,25420104,25419913,25418723,25416965,25415031,25414965,
+              25409509,25409350,25408264,25407951,25407711,25407694,25406703,25406416,
+              25406065,25404278,25404248,25403865,25401253,25400424,25396953,25396903,
+              25395809,25395651,25393895,25393800,25393737,25388469,25387790,25387785,
+              25386007,25385207,25384818,25382032,25381606,25380238,25380099,25379542,
+              25376967,25375362,25374821,25374566,25373864,25373577,25370066,25369971,
+              25364367,25364336,25361537,25360924,25360803,25360414,25360095,25360064,
+              25354866,25354717,25354549,25352635,25350592,25348853,25346221,25344804,
+              25343891,25342684,25337191,25337064,25336861,25336811,25334001,25333484,
+              25329961,25329847,25328539,25325731,25325571,25324389,25321347,25318361,
+              25315206,25313105,25309438,25309185,25307652,25305803,25305134,25304752,
+              25303892,25303793,25302075,25301819,25299400,25296320,25294300,25294110,
+              25293120,25292547,25292420,25292262,25291568,25291408,25289136,25288811,
+              25288249,25283113,25282283,25276765,25275810,25272428,25272262,25271440,
+              25271082,25268034,25267559,25267391,25264518,25263501,25263356,25261942
 
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
     runs-on: ubuntu-26.04
@@ -77,22 +116,10 @@ jobs:
           NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
           echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
 
-      - name: Execute prover-check.ts on checkpoint boundaries
+      - name: Execute prover-check.ts on forked blocks
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: '3600'
-          SLEEP_TIME: '500'
-        run: |
-          node dist/scripts/prover-check.js \
-            ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
-            /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }} ${{ matrix.indexerUrl }} ${{ matrix.evmV1Decoder }}
-
-      - name: Execute prover-check.ts on random blocks
-        working-directory: ./cli
-        env:
-          # LAST_SOURCE_BLOCK: '1000000'
-          GO_BACK_BLOCKS: '4000'
-          STEP_THROUGH_BLOCKS: '7'
+          SPECIFIC_BLOCKS: '${{ matrix.specificBlocks }}'
           SLEEP_TIME: '500'
         run: |
           node dist/scripts/prover-check.js \
@@ -115,119 +142,3 @@ jobs:
           inputs: ${{ toJson(matrix) }}
           channel: "#noti-creditcoin-snapshots"
           message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! cc <@U028EMRHS3S>"
-
-  compare-proofs-sepolia:
-    needs:
-      - check-for
-    runs-on: ubuntu-26.04
-    steps:
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff unzip
-
-      - name: Download proofs from Sepolia CC3 Devnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-devnet-ck-1
-
-      - name: Git commit proofs data
-        working-directory: /var/tmp/proofs
-        run: |
-          git config --global init.defaultBranch main
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
-
-          git init
-          git add .
-          git commit -a -m "Import data"
-
-          # remove everything b/c next we'll download data from CC3 Testnet
-          rm -rf ./*
-
-      - name: Download proofs from Sepolia CC3 Testnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-testnet-ck-1
-
-      - name: Compare
-        working-directory: /var/tmp/proofs
-        timeout-minutes: 5
-        run: |
-          git status
-
-          set -eo pipefail
-          # filter only modified content b/c between the 2 CI jobs we may not have
-          # proofs for exactly the same set of blocks
-          git diff --diff-filter=M | colordiff
-
-          # will exit non-zero in case of differences
-          git diff --quiet --diff-filter=M
-
-      - name: Report result to Slack
-        if: always()
-        uses: act10ns/slack@v2
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Sepolia complete! cc <@U028EMRHS3S>"
-
-  compare-proofs-ethereum:
-    needs:
-      - check-for
-    runs-on: ubuntu-26.04
-    steps:
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff unzip
-
-      - name: Download proofs from Ethereum CC3 Devnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-devnet-ck-4
-
-      - name: Git commit proofs data
-        working-directory: /var/tmp/proofs
-        run: |
-          git config --global init.defaultBranch main
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
-
-          git init
-          git add .
-          git commit -a -m "Import data"
-
-          # remove everything b/c next we'll download data from CC3 Testnet
-          rm -rf ./*
-
-      - name: Download proofs from Ethereum CC3 Testnet
-        uses: actions/download-artifact@v8
-        with:
-          path: /var/tmp/proofs
-          pattern: proofs-for-cc3-testnet-ck-3
-
-      - name: Compare Testnet vs Devnet
-        working-directory: /var/tmp/proofs
-        timeout-minutes: 5
-        run: |
-          git status
-
-          set -eo pipefail
-          # filter only modified content b/c between the 2 CI jobs we may not have
-          # proofs for exactly the same set of blocks
-          git diff --diff-filter=M | colordiff
-
-          # will exit non-zero in case of differences
-          git diff --quiet --diff-filter=M
-
-      - name: Report result to Slack
-        if: always()
-        uses: act10ns/slack@v2
-        with:
-          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-          status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Ethereum complete! cc <@U028EMRHS3S>"
