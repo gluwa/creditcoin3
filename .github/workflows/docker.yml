@@ -32,32 +32,6 @@ jobs:
       version-string: "latest"
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
 
-  docker-scout:
-    needs:
-      - docker-build
-    runs-on: ubuntu-26.04
-    steps:
-      - name: Download locally built docker image
-        uses: actions/download-artifact@v8
-        with:
-          name: locally-built-docker-image
-          path: ${{ runner.temp }}/gluwa/
-
-      - name: Load locally built docker image
-        run: |
-          docker load --input ${{ runner.temp }}/${{ github.repository }}.tar
-          docker images
-
-      # DO-2217: informational only — never fails the build. See DO-2104 for the org-wide compliance initiative.
-      # docker-build doesn't inherit secrets on PR runs (so it never pushes here) — scan the
-      # locally-loaded image straight from the build artifact instead, no DockerHub login needed.
-      - name: Docker Scout - CVE scan (${{ github.repository }})
-        uses: docker/scout-action@v1
-        with:
-          command: cves
-          image: local://${{ github.repository }}:latest
-          exit-code: false
-
   docker-test:
     needs:
       - docker-build

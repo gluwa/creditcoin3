@@ -32,14 +32,33 @@ jobs:
         run: |
           set -euo pipefail
 
-          TAGS_JSON=$(curl -fsSL "https://hub.docker.com/v2/repositories/gluwa/creditcoin3/tags?page_size=100&ordering=last_updated")
-
           resolve() {
+            # Paginates through Docker Hub tags (newest-first, per ordering=last_updated) until a
+            # tag matching the given pattern is found or MAX_PAGES is exhausted. A single 100-tag
+            # page can miss indexer/stress-test tags if enough other tags were pushed more recently.
+            # Prints "name|digest", or "null|null" if nothing matched.
             local mode="$1" pattern="$2"
-            echo "$TAGS_JSON" | jq -r --arg p "$pattern" --arg m "$mode" '
-              ([.results[] | select(
-                if $m == "exact" then .name == $p else (.name | startswith($p)) end
-              )] | sort_by(.last_updated) | reverse | .[0]) // {} | "\(.name // "null")|\(.digest // "null")"'
+            local url="https://hub.docker.com/v2/repositories/gluwa/creditcoin3/tags?page_size=100&ordering=last_updated"
+            local page=0 max_pages=10
+
+            while [ -n "$url" ] && [ "$url" != "null" ] && [ "$page" -lt "$max_pages" ]; do
+              page=$((page + 1))
+              local response
+              response=$(curl -fsSL "$url")
+
+              local match
+              match=$(echo "$response" | jq -r --arg p "$pattern" --arg m "$mode" '
+                [.results[] | select(if $m == "exact" then .name == $p else (.name | startswith($p)) end)] | .[0] // {} | "\(.name // "null")|\(.digest // "null")"')
+
+              if [ "${match%%|*}" != "null" ]; then
+                echo "$match"
+                return
+              fi
+
+              url=$(echo "$response" | jq -r '.next // empty')
+            done
+
+            echo "null|null"
           }
 
           report=""
@@ -54,7 +73,12 @@ jobs:
             digest="${resolved##*|}"
 
             if [ -z "$tag" ] || [ "$tag" = "null" ]; then
-              report="${report}*${label}*: no published tag found matching \`${pattern}*\`\n"
+              report="${report}*${label}*: no published tag found matching \`${pattern}*\` (searched up to 10 pages)\n"
+              continue
+            fi
+
+            if [ -z "$digest" ] || [ "$digest" = "null" ]; then
+              report="${report}*${label}* (\`${tag}\`): matched but Docker Hub returned no digest, skipping scan\n"
               continue
             fi
 
