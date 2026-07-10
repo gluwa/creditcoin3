@@ -1,0 +1,22 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "baseBranchPatterns": ["usc-dev", "main"],
+  "gitAuthor": "gluwa-bot <devops@gluwa.com>",
+  "enabledManagers": ["dockerfile", "cargo", "npm", "github-actions", "custom.regex"],
+  "pinDigests": true,
+  "dependencyDashboard": true,
+  "vulnerabilityAlerts": { "enabled": true, "dependencyDashboardApproval": false },
+  "customManagers": [
+    { "customType": "regex", "managerFilePatterns": ["/^rust-toolchain\\.toml$/"],
+      "matchStrings": ["channel\\s*=\\s*\"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "github-releases", "depNameTemplate": "rust-lang/rust", "versioningTemplate": "loose" },
+    { "customType": "regex", "managerFilePatterns": ["/^Dockerfile$/"],
+      "matchStrings": ["setup_(?<currentValue>\\d+)\\.x"],
+      "datasourceTemplate": "node-version", "depNameTemplate": "node" }
+  ],
+  "packageRules": [
+    { "matchBaseBranches": ["main"], "matchManagers": ["dockerfile","cargo","npm","github-actions","custom.regex"], "enabled": false },
+    { "matchBaseBranches": ["usc-dev"], "matchManagers": ["dockerfile","cargo","npm","github-actions"], "enabled": false },
+    { "matchManagers": ["custom.regex"], "matchUpdateTypes": ["major"], "dependencyDashboardApproval": true }
+  ]
+}
