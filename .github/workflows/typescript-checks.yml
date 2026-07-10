@@ -82,7 +82,7 @@ jobs:
         working-directory: ${{ matrix.directory }}
         run: |
           # Extract version from "FROM denoland/deno:X.Y.Z" line
-          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | tr -d '[:space:]')
+          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | sed 's/@sha256:.*//' | tr -d '[:space:]')
           if [ -z "$VERSION" ]; then
             echo "Error: Could not extract Deno version from Dockerfile"
             exit 1
