@@ -1,5 +1,5 @@
 # Use the base image from subquery-node service
-FROM subquerynetwork/subql-node-substrate:v6.4.6
+FROM subquerynetwork/subql-node-substrate:v6.4.6@sha256:9105388a6755db198e389c48a453f9eb856dbd5e895ffa76a4a06eb7b65cfca8
 
 # Switch to root user to install system dependencies
 USER root
