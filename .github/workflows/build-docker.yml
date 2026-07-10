@@ -39,11 +39,14 @@ jobs:
           docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max .
           docker images
 
-      # DO-2217: informational only — never fails the build. See DO-2104 for the org-wide compliance initiative.
+      # DO-2217: informational only — never fails the build (continue-on-error backs up exit-code:false
+      # in case the action itself errors, e.g. on an empty dockerhub-user during PR runs). See DO-2104
+      # for the org-wide compliance initiative. Runs unconditionally: local CVE scanning needs no
+      # DockerHub credentials — only org-policy evaluation does, and dockerhub-user/password are empty
+      # (not missing) on PR runs since docker-build doesn't inherit secrets there, which the action
+      # treats as "skip login, scan locally".
       - name: Docker Scout - CVE scan (${{ github.repository }})
-        if: env.DOCKER_PUSH_USERNAME
-        env:
-          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        continue-on-error: true
         uses: docker/scout-action@v1
         with:
           command: cves
@@ -53,9 +56,7 @@ jobs:
           exit-code: false
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
-        if: env.DOCKER_PUSH_USERNAME
-        env:
-          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        continue-on-error: true
         uses: docker/scout-action@v1
         with:
           command: cves
@@ -65,9 +66,7 @@ jobs:
           exit-code: false
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
-        if: env.DOCKER_PUSH_USERNAME
-        env:
-          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+        continue-on-error: true
         uses: docker/scout-action@v1
         with:
           command: cves
