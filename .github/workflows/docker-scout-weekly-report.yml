@@ -86,20 +86,22 @@ jobs:
 
             # Compact digest: pull the Target-row counts and policy status out of the quickview
             # table rather than posting the whole thing (Slack caps a section block at 3000 chars).
-            target=$(echo "$quickview" | grep -m1 'Target')
-            crit=$(echo "$target" | grep -oE '[0-9]+C' | head -1 | tr -d C)
-            high=$(echo "$target" | grep -oE '[0-9]+H' | head -1 | tr -d H)
-            med=$(echo "$target"  | grep -oE '[0-9]+M' | head -1 | tr -d M)
-            low=$(echo "$target"  | grep -oE '[0-9]+L' | head -1 | tr -d L)
-            unk=$(echo "$target"  | grep -oE '[0-9]+\?' | head -1 | tr -d '?')
-            pstatus=$(echo "$quickview" | grep -m1 'Policy status' | grep -oE 'PASSED|FAILED')
-            pratio=$(echo "$quickview"  | grep -m1 'Policy status' | grep -oE '[0-9]+/[0-9]+')
+            # Every grep is guarded with `|| true` because a no-match (e.g. an image with no
+            # Unknown count) returns exit 1, which would abort the step under `set -euo pipefail`.
+            target=$(echo "$quickview" | grep -m1 'Target' || true)
+            crit=$(echo "$target" | grep -oE '[0-9]+C' | head -1 | tr -d C || true)
+            high=$(echo "$target" | grep -oE '[0-9]+H' | head -1 | tr -d H || true)
+            med=$(echo "$target"  | grep -oE '[0-9]+M' | head -1 | tr -d M || true)
+            low=$(echo "$target"  | grep -oE '[0-9]+L' | head -1 | tr -d L || true)
+            unk=$(echo "$target"  | grep -oE '[0-9]+\?' | head -1 | tr -d '?' || true)
+            pstatus=$(echo "$quickview" | grep -m1 'Policy status' | grep -oE 'PASSED|FAILED' || true)
+            pratio=$(echo "$quickview"  | grep -m1 'Policy status' | grep -oE '[0-9]+/[0-9]+' || true)
 
-            counts="Critical ${crit:-?} · High ${high:-?} · Medium ${med:-?} · Low ${low:-?}"
-            [ -n "$unk" ] && counts="${counts} · Unknown ${unk}"
-            echo "$quickview" | grep -q 'Updated base image' && counts="${counts} · base image update available"
+            line="*${label}* (\`${tag}\`) — Policy ${pstatus:-UNKNOWN} (${pratio:-n/a}) · Critical ${crit:-?} · High ${high:-?} · Medium ${med:-?} · Low ${low:-?}"
+            if [ -n "$unk" ]; then line="${line} · Unknown ${unk}"; fi
+            if echo "$quickview" | grep -q 'Updated base image'; then line="${line} · base image update available"; fi
 
-            report="${report}*${label}* (\`${tag}\`) — Policy ${pstatus:-UNKNOWN} (${pratio:-n/a})\n${counts}\n\n"
+            report="${report}${line}\n\n"
           done
 
           {
