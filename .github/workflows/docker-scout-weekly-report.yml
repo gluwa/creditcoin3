@@ -83,7 +83,23 @@ jobs:
             fi
 
             quickview=$(docker scout quickview "gluwa/creditcoin3@${digest}" 2>&1 || true)
-            report="${report}*${label}* (\`${tag}\`)\n\`\`\`\n${quickview}\n\`\`\`\n"
+
+            # Compact digest: pull the Target-row counts and policy status out of the quickview
+            # table rather than posting the whole thing (Slack caps a section block at 3000 chars).
+            target=$(echo "$quickview" | grep -m1 'Target')
+            crit=$(echo "$target" | grep -oE '[0-9]+C' | head -1 | tr -d C)
+            high=$(echo "$target" | grep -oE '[0-9]+H' | head -1 | tr -d H)
+            med=$(echo "$target"  | grep -oE '[0-9]+M' | head -1 | tr -d M)
+            low=$(echo "$target"  | grep -oE '[0-9]+L' | head -1 | tr -d L)
+            unk=$(echo "$target"  | grep -oE '[0-9]+\?' | head -1 | tr -d '?')
+            pstatus=$(echo "$quickview" | grep -m1 'Policy status' | grep -oE 'PASSED|FAILED')
+            pratio=$(echo "$quickview"  | grep -m1 'Policy status' | grep -oE '[0-9]+/[0-9]+')
+
+            counts="Critical ${crit:-?} · High ${high:-?} · Medium ${med:-?} · Low ${low:-?}"
+            [ -n "$unk" ] && counts="${counts} · Unknown ${unk}"
+            echo "$quickview" | grep -q 'Updated base image' && counts="${counts} · base image update available"
+
+            report="${report}*${label}* (\`${tag}\`) — Policy ${pstatus:-UNKNOWN} (${pratio:-n/a})\n${counts}\n\n"
           done
 
           {
