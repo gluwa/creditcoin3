@@ -125,6 +125,8 @@ jobs:
           PAYLOAD=$(jq -n --arg title "Weekly Docker Scout Report — creditcoin3" --arg msg "$MESSAGE" \
             '{alertTitle: $title, alertName: "github-action", channel_name: "#noti-docker-scout", message: $msg}')
           HTTP=$(curl -s -o /tmp/pp_resp.txt -w '%{http_code}' -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d "$PAYLOAD")
-          echo "webhook HTTP status: $HTTP"
-          echo "----- webhook response body -----"; cat /tmp/pp_resp.txt; echo; echo "---------------------------------"
-          [ "$HTTP" -lt 400 ] || { echo "webhook rejected (HTTP $HTTP)"; exit 1; }
+          if [ "$HTTP" -ge 400 ]; then
+            echo "Penguin Patrol webhook rejected (HTTP $HTTP):"; cat /tmp/pp_resp.txt; echo
+            exit 1
+          fi
+          echo "Posted weekly Scout digest to Penguin Patrol (HTTP $HTTP)."
