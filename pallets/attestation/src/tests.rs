@@ -2471,6 +2471,114 @@ fn commit_attestation_should_error_on_invalid_continuity_proof_tail() {
     })
 }
 
+/// Sets up an active attestor with a committed genesis attestation, so continuity checks for
+/// follow-up attestations run against a known finalized digest. Returns the attestor and the
+/// genesis digest.
+fn setup_attestor_with_genesis() -> (Attestor, Digest) {
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+    assert_ok!(Attestation::register_attestor(
+        attestor.stash.clone(),
+        SUPPORTED_CHAIN_KEY,
+        attestor.attestor_id,
+    ));
+    assert_ok!(Attestation::attest(
+        RuntimeOrigin::signed(attestor.attestor_id),
+        SUPPORTED_CHAIN_KEY,
+        attestor.public_key,
+        attestor.signature
+    ));
+
+    progress_to_block(5);
+
+    let genesis =
+        create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+    assert_ok!(Attestation::commit_attestation(
+        attestor.attestor_origin.clone(),
+        genesis.clone()
+    ));
+
+    let digest = genesis.digest();
+    (attestor, digest)
+}
+
+#[test]
+fn commit_attestation_should_error_on_oversized_continuity_proof() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis_digest) = setup_attestor_with_genesis();
+
+        // Tighten the catch-up window below the proof size we're about to submit. With the
+        // mock interval of 10, `max_roots = max(20, 10) = 20`.
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 20);
+
+        // A catch-up attestation at header 30 carries a 29-root proof (blocks 1..=29) — one
+        // root more than the window allows.
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            30,
+            Some(genesis_digest),
+            None,
+        );
+        assert_eq!(attestation.continuity_proof.len(), 29);
+
+        assert_err!(
+            Attestation::commit_attestation(attestor.attestor_origin, attestation),
+            Error::<Test>::OversizedContinuityProof
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_should_accept_continuity_proof_at_max_catchup_boundary() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis_digest) = setup_attestor_with_genesis();
+
+        // Exactly at the bound: a 29-root proof against `max_roots = max(29, 10) = 29` must
+        // pass the size gate and finalize.
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 29);
+
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            30,
+            Some(genesis_digest),
+            None,
+        );
+        assert_eq!(attestation.continuity_proof.len(), 29);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin,
+            attestation
+        ));
+    })
+}
+
+#[test]
+fn commit_attestation_should_accept_steady_state_proof_when_max_catchup_below_interval() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis_digest) = setup_attestor_with_genesis();
+
+        // `MaxCatchup` configured below the attestation interval (10): the `max(interval)`
+        // floor must keep steady-state proofs (`interval - 1` = 9 roots) admissible.
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            10,
+            Some(genesis_digest),
+            None,
+        );
+        assert_eq!(attestation.continuity_proof.len(), 9);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin,
+            attestation
+        ));
+    })
+}
+
 #[test]
 fn commit_attestation_should_error_on_invalid_prev_digest() {
     ExtBuilder.build_and_execute(|| {

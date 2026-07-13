@@ -157,7 +157,7 @@ pub async fn fetch_start_point(
         let last = cc3
             .get_attestation_by_digest(chain_key, last_digest)
             .await?
-            .expect("last digest must resolve to an attestation");
+            .ok_or(Error::DigestNotFound(chain_key, last_digest))?;
         Some(crate::shared::AttestationInfo {
             height: last.header_number(),
             digest: last.digest(),

@@ -820,8 +820,12 @@ impl Forks {
         let split_seen = (split, AttestorId::from_public([0u8; 32]));
         let kept = self.seen.split_off(&split_seen);
         self.seen = kept;
-        // Trim tombstones below `split` — finalized heights can't re-form a fork.
-        self.invalid = self.invalid.split_off(&(split, Digest::zero()));
+        // NOTE: `invalid` tombstones are deliberately *not* pruned here. `split_off` also runs
+        // on local `mark_valid`, and a locally-validated height can be reopened by
+        // `note_majority_not_reached` — if the tombstones were dropped alongside the forks,
+        // re-gossiped votes for a previously-invalidated digest would be re-admitted and could
+        // re-form the quorum we already rejected. Tombstones are only pruned once the height is
+        // finalized on-chain (see `note_finalized`), which is when reopening becomes impossible.
     }
 
     fn clear(&mut self) {
@@ -833,6 +837,11 @@ impl Forks {
 
     fn note_finalized(&mut self, height: Height, digest: Digest) {
         self.split_off(height);
+        // Finalized heights can't be reopened — safe to drop their tombstones now. Keeps
+        // `invalid` bounded by the catch-up window.
+        self.invalid = self
+            .invalid
+            .split_off(&(height.saturating_add(1), Digest::zero()));
         self.last_finalized_height = Some(height);
         self.last_finalized_digest = Some(digest);
     }
@@ -1173,6 +1182,45 @@ mod tests {
         // The same attestor (re-elected) can vote at the same height again — with a different
         // digest, even — without tripping the equivocation check.
         p.push(vote(0, 10, 0xbb)).unwrap();
+    }
+
+    /// A height reopened by `note_majority_not_reached` must not let a previously-invalidated
+    /// fork re-form: `mark_invalid` tombstones survive the local `mark_valid` at the same height
+    /// (they are only pruned on on-chain finalization), so re-gossiped votes for the rejected
+    /// digest stay rejected while fresh digests remain admissible.
+    #[test]
+    fn tombstones_survive_reopened_height() {
+        let mut p = pool(2);
+
+        // Fork A reaches quorum; the submitter validates it as genuinely invalid.
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        let (_quorum, permit) = p.peek().expect("fork A quorum");
+        p.mark_invalid(permit);
+
+        // Fork B reaches quorum and is marked valid — locks the height locally.
+        p.push(vote(2, 10, 0xbb)).unwrap();
+        p.push(vote(3, 10, 0xbb)).unwrap();
+        let (_quorum, permit) = p.peek().expect("fork B quorum");
+        p.mark_valid(permit);
+
+        // Runtime rejects the submission with `MajorityNotReached` — the validation lock is
+        // lifted and the height reopens (mirrors `Sender::note_majority_not_reached`).
+        p.locally_validated_height = None;
+        p.digest_local = None;
+
+        // A re-gossiped vote for the invalidated fork A must still be rejected...
+        let err = p
+            .push(vote(4, 10, 0xaa))
+            .expect_err("tombstone must survive the reopen");
+        assert!(matches!(err, Error::KnownInvalid(..)));
+
+        // ...while votes for a never-invalidated digest are admitted again.
+        p.push(vote(4, 10, 0xbb)).unwrap();
+
+        // On-chain finalization is what finally prunes the tombstone.
+        p.forks.note_finalized(10, Digest::from([0xbb; 32]));
+        assert!(p.forks.invalid.is_empty(), "finalization prunes tombstones");
     }
 
     /// `mark_skipped` drops only the one fork and does NOT lock the height: a different fork at

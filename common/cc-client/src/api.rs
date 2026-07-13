@@ -72,41 +72,35 @@ async fn reconnect(
 > {
     tracing::warn!(?err, "CC3 connection lost");
 
-    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
-        .max_delay(std::time::Duration::from_millis(5_000))
-        .map(tokio_retry::strategy::jitter);
-    let reconnect = || {
-        tracing::warn!("Reconnecting to CC3...");
-
-        async move {
-            // `Client::reconnect` now takes `&self` and atomically swaps the
-            // underlying subxt connection for every `Arc<Client>` (and shared
-            // borrow) holder. We can therefore refresh in place rather than
-            // shuffling a value-cloned `Client` around.
-            client.reconnect().await.map_err(|err| {
+    // No retry strategy stacked on top here: `Client::reconnect` performs a single dial per
+    // call but paces itself via the client-wide shared `BackoffState` (it sleeps until the
+    // shared `next_attempt_at` before dialing, and every failure advances it exponentially).
+    // A plain loop is therefore already backoff-limited — wrapping it in `tokio_retry` would
+    // just stack a second, uncoordinated backoff on top of the shared one.
+    let reconnect = async {
+        loop {
+            tracing::warn!("Reconnecting to CC3...");
+            // `Client::reconnect` takes `&self` and atomically swaps the underlying subxt
+            // connection for every `Arc<Client>` (and shared borrow) holder.
+            if let Err(err) = client.reconnect().await {
                 tracing::error!(?err, "Failed to reconnect to CC3");
-                err
-            })?;
-
-            let runtime_api = client
-                .api()
-                .runtime_api()
-                .at_latest()
-                .await
-                .map_err(|err| {
-                    tracing::error!(?err, "Failed to reconnect to CC3");
-                    crate::Error::SubxtError(err)
-                })?;
-
-            Ok::<_, crate::Error>(runtime_api)
+                continue;
+            }
+            match client.api().runtime_api().at_latest().await {
+                Ok(runtime_api) => break runtime_api,
+                Err(err) => {
+                    // Dial succeeded but the fresh connection failed immediately. The shared
+                    // backoff was just reset by the successful dial, so pause briefly to avoid
+                    // a hot connect/fail loop against a node that accepts sockets but can't
+                    // serve requests yet.
+                    tracing::error!(?err, "Reconnected but at_latest failed");
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+            }
         }
     };
     tokio::select! {
-        retry = tokio_retry::Retry::spawn(strategy, reconnect) => {
-            Ok(retry.expect("Unbounded retry cannot error"))
-        }
-        _ = tokio::signal::ctrl_c() => {
-            Err(Interrupt::Stop)
-        }
+        runtime_api = reconnect => Ok(runtime_api),
+        _ = tokio::signal::ctrl_c() => Err(Interrupt::Stop),
     }
 }

@@ -41,7 +41,6 @@ tokio = { workspace = true, features = [
     "sync",
     "time",
 ] }
-tokio-retry = { workspace = true }
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }
 
