@@ -922,6 +922,12 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaturityStrategy: AugmentedError<ApiType>;
             /**
+             * The core-fee token is `Some(H160::zero())`. On the EVM side the zero address means
+             * "native currency", which this config expresses as `None` — a zero ERC20 address is
+             * always a misconfiguration and would make the Outbox `transferFrom` the zero address.
+             **/
+            ZeroCoreFeeToken: AugmentedError<ApiType>;
+            /**
              * The Outbox Factory address is the zero address. A zero factory cannot be resolved by the
              * attestor/relayer (it reads as "not registered"), so setting it via the operator path is
              * rejected to fail loudly instead of silently disabling write-ability for the chain.

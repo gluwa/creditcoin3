@@ -85,6 +85,7 @@ import type {
     SpStakingExposurePage,
     SpStakingOffenceOffenceDetails,
     SpStakingPagedExposureMetadata,
+    SupportedChainsPrimitivesCoreFeeConfig,
     SupportedChainsPrimitivesSupportedChain,
     SupportedChainsPrimitivesWriteAbilityConfig,
 } from '@polkadot/types/lookup';
@@ -1708,6 +1709,18 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64, Bytes]>;
             chainKeyValue: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
+            /**
+             * Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
+             * `publishMessage`. Read live by the EVM through the chain-info precompile
+             * (`get_core_fee(uint64)`), so a governance change takes effect on the next publish with no
+             * contract redeploys. No entry (or a zero amount) means no fee is charged.
+             **/
+            coreFees: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesCoreFeeConfig>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             outboxFactories: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H160>>,
