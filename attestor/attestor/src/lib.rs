@@ -457,6 +457,7 @@ impl Attestor {
             .with_can_attest(std::sync::Arc::clone(&can_attest))
             .with_start_height(start_height)
             .with_account_id(account_id)
+            .with_chain_key(self.config.chain_key)
             .with_metrics(metrics)
             .build();
         let production = worker::production::WorkerAttestationProduction::new(config);
@@ -469,30 +470,34 @@ impl Attestor {
         let mut shutdown = 0;
         let mut res = Ok(());
 
-        // Worker error and shutdown signal
-        loop {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    tracing::info!("🔌 Received shutdown signal");
-                    monitor.shutdown();
-                    break;
-                },
-                _ = monitor.cancelled() => {
-                    tracing::info!("🔌 Received cancellation signal");
-                    break;
-                }
-                _ = monitor.failed() => {
-                    tracing::error!("⛔ Worker thread error");
-                    res = res.and(
-                        wait_for_worker(
-                            &mut shutdown,
-                            &mut handle_api,
-                            &mut handle_production,
-                            &mut handle_validation,
-                            &mut handle_p2p,
-                        ).await,
-                    );
-                }
+        // Wait for the first of: shutdown signal, external cancellation, or a worker failure.
+        // Every branch leads to teardown, so this runs exactly once (no loop) before we drain
+        // the remaining workers below.
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("🔌 Received shutdown signal");
+                monitor.shutdown();
+            },
+            _ = monitor.cancelled() => {
+                tracing::info!("🔌 Received cancellation signal");
+            }
+            _ = monitor.failed() => {
+                tracing::error!("⛔ Worker thread error");
+                res = res.and(
+                    wait_for_worker(
+                        &mut shutdown,
+                        &mut handle_api,
+                        &mut handle_production,
+                        &mut handle_validation,
+                        &mut handle_p2p,
+                    ).await,
+                );
+                // Fail fast: a single worker death must take the whole process down. Previously
+                // the loop kept spinning here with the surviving workers (incl. the /metrics API)
+                // still running, so the pod stayed Running+healthy while attestation was dead —
+                // a zombie k8s never restarted. Signal the rest to stop; the drain loop below
+                // reaps them and `res` carries the error so we exit non-zero and get rescheduled.
+                monitor.shutdown();
             }
         }
 

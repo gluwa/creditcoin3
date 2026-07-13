@@ -8,7 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{anyhow, Context, Result};
+use cc_client::Client as CcClient;
 use clap::Parser;
 use futures::StreamExt;
 
@@ -85,9 +86,41 @@ async fn main() -> Result<()> {
         }
     }
 
+    // ── Determine finalization lag ────────────────────────────────────────────────────
+    // If a finalization lag parameter is passed, we use that. Otherwise fall back to
+    // the lag from our on chain MaturityStrategy.
+    let finaliztion_lag = if let Some(lag) = cfg.finalization_lag_override {
+        tracing::info!(lag = lag, "Using cfg.finalization_lag_override");
+        lag
+    } else {
+        // Fetch maturity strategy
+        let lag = get_on_chain_finalization_lag(&cfg).await?;
+        tracing::info!(lag = lag, "Using on chain lag from MaturityStrategy");
+        lag
+    };
+
+    // ── Url Consistency Checks ────────────────────────────────────────────────────
+    // If http and ws urls point to chains with different `chain_id`s, we treat that
+    // as a fatal error.
+    {
+        let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+        let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+        if ws_client.chain_id() != http_client.chain_id() {
+            return Err(anyhow!(
+                "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
+                ws_client.chain_id(),
+                http_client.chain_id(),
+            ));
+        }
+    }
+
     // ── Backfill gaps ────────────────────────────────────────────────────
     if cfg.backfill {
-        let gaps = store.find_gaps()?;
+        // Pass `cfg.start_height` so the gap-finder also reports a pre-first-stored gap
+        // when the database begins at an intermediate height (e.g. partial snapshot
+        // restore). Without an explicit anchor, `find_gaps` could only see neighbour-pair
+        // gaps and would silently miss blocks below the first persisted entry.
+        let gaps = store.find_gaps(Some(cfg.start_height))?;
         if gaps.is_empty() {
             tracing::info!("backfill: no gaps found");
         } else {
@@ -105,7 +138,7 @@ async fn main() -> Result<()> {
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
-                    .with_finalization_lag(cfg.finalization_lag)
+                    .with_finalization_lag(finaliztion_lag)
                     .with_max_concurrency(cfg.max_fetch_tasks)
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
@@ -165,7 +198,7 @@ async fn main() -> Result<()> {
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
-        .with_finalization_lag(cfg.finalization_lag)
+        .with_finalization_lag(finaliztion_lag)
         .with_max_concurrency(cfg.max_fetch_tasks)
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
@@ -278,7 +311,7 @@ async fn main() -> Result<()> {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
-                                .with_finalization_lag(cfg.finalization_lag)
+                                .with_finalization_lag(finaliztion_lag)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();
@@ -379,4 +412,60 @@ fn format_eta(remaining: u64, rate: f64) -> String {
     } else {
         format!("{m}m")
     }
+}
+
+async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
+    // Check that chain_key is present in config
+    let chain_key = if let Some(ck) = cfg.chain_key {
+        ck
+    } else {
+        return Err(anyhow!(
+            "Either cfg.finalization_lag_override or cfg.chain_key must be set!"
+        ));
+    };
+
+    // Temp eth client for checking that chain_id matches expected.
+    let eth_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+
+    // Temp cc3 client for getting finalization lag
+    let cc3_client =
+        CcClient::new_read_only(&cfg.cc3_rpc_url)
+            .await
+            .with_context(|| {
+                format!(
+                    "Creditcoin3 RPC failed at cc3_rpc_url={}. \
+                        Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
+                    cfg.cc3_rpc_url
+                )
+            })?;
+
+    let supported_chain = cc3_client
+        .get_supported_chain(chain_key)
+        .await
+        .context("Failed to retrieve supported chain")?
+        .ok_or(anyhow!(
+            "No such supported chain. Check that provided chain_key is valid. chain_key: {}",
+            chain_key
+        ))?;
+
+    if supported_chain.chain_id != eth_client.chain_id() {
+        return Err(anyhow!(
+            "Source chain id doesn't match registered id on Creditcoin under chain_key. chain_key: {}, creditcoin_source_id: {}, eth_rpc_source_id: {}",
+            chain_key,
+            supported_chain.chain_id,
+            eth_client.chain_id()
+        ));
+    }
+
+    let strategy_enum: supported_chains_primitives::MaturityStrategy = supported_chain
+        .maturity_strategy
+        .as_str()
+        .try_into()
+        .map_err(|e| anyhow!("Invalid maturity strategy: {:?}", e))?;
+
+    // Return final maturity delay
+    strategy_enum.maturity_delay().ok_or(anyhow!(
+        "No maturity delay for strategy: strategy_enum: {:?}",
+        strategy_enum
+    ))
 }

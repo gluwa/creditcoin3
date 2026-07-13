@@ -225,11 +225,18 @@ impl frame_system::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type MultiBlockMigrator = ();
     type SingleBlockMigrations = (
-        pallet_attestation::MigrateAttestationContinuityProofV0ToV1<Runtime>,
-        pallet_attestation::MigrateAttestorsCountV1ToV2<Runtime>,
-        migrations::v1_init_supported_chains::Migration<Runtime>,
-        migrations::v1_init_attestation::Migration<Runtime>,
-        migrations::v1_init_operators::Migration<Runtime>,
+        // Still pending on mainnet (Randomness storage version 0 as of 2026-07-07); already
+        // executed on devnet/testnet (version 1). Remove once mainnet runs a runtime that
+        // includes it.
+        pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
+        // NOTE: all other historical migrations are intentionally NOT registered:
+        // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
+        //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2
+        //   verified on devnet/testnet/mainnet, 2026-07-07).
+        // - the one-time genesis-init migrations (`v1_init_operators`, kept in
+        //   `migrations.rs` for reference): their data-absence guards are permanently
+        //   satisfied on every network (operators membership is non-empty on
+        //   devnet/testnet/mainnet), so they can never run again.
     );
     type PreInherents = ();
     type PostInherents = ();
@@ -945,10 +952,17 @@ impl pallet_supported_chains::Config for Runtime {
     type OperatorsOrigin = EnsureRootOrOperators;
 }
 
+parameter_types! {
+    /// Maximum number of epoch-indexed randomness entries retained on chain. Once full,
+    /// inserting a new epoch evicts the oldest entry. Adjust to taste.
+    pub const MaxRandomnessEntries: u32 = 5;
+}
+
 impl pallet_randomness::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_randomness::weights::WeightInfo<Runtime>;
     type EventListeners = Attestation;
+    type MaxRandomnessEntries = MaxRandomnessEntries;
 }
 
 parameter_types! {

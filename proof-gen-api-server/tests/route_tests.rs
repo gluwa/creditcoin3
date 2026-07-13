@@ -183,6 +183,15 @@ async fn test_metrics_route_should_return_success() {
 
     let response = app.oneshot(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+
+    let bytes = axum::body::to_bytes(response.into_body(), 32 * 1024)
+        .await
+        .unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(body.contains("# TYPE proof_gen_last_attested_height gauge"));
+    assert!(body.contains("proof_gen_last_attested_height{chain_key=\"2\"} 1000"));
+    assert!(body.contains("# TYPE proof_gen_last_checkpoint_height gauge"));
+    assert!(body.contains("proof_gen_last_checkpoint_height{chain_key=\"2\"} 1000"));
 }
 
 #[tokio::test]

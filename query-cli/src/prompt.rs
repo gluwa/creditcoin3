@@ -9,16 +9,7 @@ pub(crate) struct PromptOutput {
     pub network: Network,
     pub height: u64,
     pub tx_hash: String,
-    pub selected_data: SelectedData,
     pub encoding: EncodingVersion,
-}
-
-#[derive(Debug)]
-pub(crate) enum SelectedData {
-    All,
-    RangeOfData,
-    Erc20TransferData,
-    NativeTokenTransferData,
 }
 
 pub(crate) fn prompt(args: PromptArgs) -> Result<PromptOutput> {
@@ -28,9 +19,6 @@ pub(crate) fn prompt(args: PromptArgs) -> Result<PromptOutput> {
     // Prompt the user for block height and transaction hash
     let (tx_height, tx_hash) = prompt_for_height_and_hash(args.clone());
 
-    // Prompt the user for all data, range of data, ERC20 preset data, or native transfer preset data
-    let (selected_data, offsets_and_sizes) = prompt_for_data_selection(args);
-
     // For now we hardcode the only version we support
     let encoding = EncodingVersion::V1;
 
@@ -39,20 +27,11 @@ pub(crate) fn prompt(args: PromptArgs) -> Result<PromptOutput> {
     println!("Network: {network:?}");
     println!("Block Height: {tx_height}");
     println!("Transaction Hash: {}", tx_hash.trim());
-    match selected_data {
-        SelectedData::All => println!("Data: All data\n"),
-        SelectedData::RangeOfData => {
-            println!("Data: Range (offset & end: {offsets_and_sizes:?})\n")
-        }
-        SelectedData::Erc20TransferData => println!("Data: ERC 20 Transfer Data)\n"),
-        SelectedData::NativeTokenTransferData => println!("Data: Native Token Transfer Data)\n"),
-    };
 
     Ok(PromptOutput {
         height: tx_height,
         network,
         tx_hash: tx_hash.trim().to_string(),
-        selected_data,
         encoding,
     })
 }
@@ -172,84 +151,4 @@ fn prompt_for_height_and_hash(args: PromptArgs) -> (u64, String) {
     });
 
     (height, tx_hash)
-}
-
-fn prompt_for_data_selection(args: PromptArgs) -> (SelectedData, Vec<(u64, u64)>) {
-    let data_choice: u64 = args.data_choice.unwrap_or_else(|| {
-        println!("Which data do you want represented in your proof results?");
-        println!("1. All data");
-        println!("2. Range of data");
-        println!("3. ERC20 transfer data");
-        println!("4. Native token transfer data");
-        print!("Enter your choice (1, 2, 3, or 4): ");
-        io::stdout().flush().unwrap();
-
-        let mut data_choice = String::new();
-        io::stdin()
-            .read_line(&mut data_choice)
-            .expect("Failed to read input");
-        data_choice
-            .trim()
-            .parse::<u64>()
-            .expect("Please enter a valid number")
-    });
-
-    let mut selected_data = SelectedData::RangeOfData;
-    let mut offsets_and_sizes: Vec<(u64, u64)> = Vec::new();
-
-    match data_choice {
-        1 => {
-            selected_data = SelectedData::All;
-        }
-        2 => loop {
-            print!("Enter the offset: ");
-            io::stdout().flush().unwrap();
-
-            let mut offset_input = String::new();
-            io::stdin()
-                .read_line(&mut offset_input)
-                .expect("Failed to read input");
-            let offset: u64 = offset_input
-                .trim()
-                .parse()
-                .expect("Please enter a valid number");
-
-            print!("Enter the size: ");
-            io::stdout().flush().unwrap();
-
-            let mut end_input = String::new();
-            io::stdin()
-                .read_line(&mut end_input)
-                .expect("Failed to read input");
-            let end: u64 = end_input
-                .trim()
-                .parse()
-                .expect("Please enter a valid number");
-
-            offsets_and_sizes.push((offset, end));
-
-            print!("Do you want to add another range? (y/n): ");
-            io::stdout().flush().unwrap();
-
-            let mut continue_choice = String::new();
-            io::stdin()
-                .read_line(&mut continue_choice)
-                .expect("Failed to read input");
-
-            if continue_choice.trim().eq_ignore_ascii_case("n") {
-                break;
-            }
-        },
-        3 => {
-            selected_data = SelectedData::Erc20TransferData;
-        }
-        4 => {
-            selected_data = SelectedData::NativeTokenTransferData;
-        }
-        _ => {
-            println!("Invalid choice. Defaulting to all data.");
-            selected_data = SelectedData::All;
-        }
-    };
-    (selected_data, offsets_and_sizes)
 }

@@ -3703,6 +3703,7 @@ declare module '@polkadot/types/lookup' {
         readonly isRetiredAttestorPendingFull: boolean;
         readonly isAttestorAlreadyAuthorized: boolean;
         readonly isNotPreAuthorizedToRegister: boolean;
+        readonly isControllerRetiredByAnotherStash: boolean;
         readonly isAttestorNotAuthorized: boolean;
         readonly isNoFinalizedAttestation: boolean;
         readonly isAttestationsAlreadyExist: boolean;
@@ -3766,6 +3767,7 @@ declare module '@polkadot/types/lookup' {
             | 'RetiredAttestorPendingFull'
             | 'AttestorAlreadyAuthorized'
             | 'NotPreAuthorizedToRegister'
+            | 'ControllerRetiredByAnotherStash'
             | 'AttestorNotAuthorized'
             | 'NoFinalizedAttestation'
             | 'AttestationsAlreadyExist'
@@ -3805,10 +3807,10 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic' | 'InvalidMaturityStrategy';
     }
 
-    /** @name PalletRandomnessError (424) */
+    /** @name PalletRandomnessError (428) */
     type PalletRandomnessError = Null;
 
-    /** @name PalletMembershipError (426) */
+    /** @name PalletMembershipError (430) */
     interface PalletMembershipError extends Enum {
         readonly isAlreadyMember: boolean;
         readonly isNotMember: boolean;
@@ -3816,42 +3818,42 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'AlreadyMember' | 'NotMember' | 'TooManyMembers';
     }
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (429) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (433) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (430) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (434) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (431) */
+    /** @name FrameSystemExtensionsCheckTxVersion (435) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (432) */
+    /** @name FrameSystemExtensionsCheckGenesis (436) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (435) */
+    /** @name FrameSystemExtensionsCheckNonce (439) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (436) */
+    /** @name FrameSystemExtensionsCheckWeight (440) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (437) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (441) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name FrameMetadataHashExtensionCheckMetadataHash (438) */
+    /** @name FrameMetadataHashExtensionCheckMetadataHash (442) */
     interface FrameMetadataHashExtensionCheckMetadataHash extends Struct {
         readonly mode: FrameMetadataHashExtensionMode;
     }
 
-    /** @name FrameMetadataHashExtensionMode (439) */
+    /** @name FrameMetadataHashExtensionMode (443) */
     interface FrameMetadataHashExtensionMode extends Enum {
         readonly isDisabled: boolean;
         readonly isEnabled: boolean;
         readonly type: 'Disabled' | 'Enabled';
     }
 
-    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (440) */
+    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (444) */
     type PalletAttestationExtensionsPrevalidateAttestationCommit = Null;
 
-    /** @name Creditcoin3RuntimeRuntime (442) */
+    /** @name Creditcoin3RuntimeRuntime (446) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module

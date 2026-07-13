@@ -3,7 +3,7 @@ name: Try Runtime
 
 "on":
   pull_request:
-    branches: [usc-testnet, usc-dev]
+    branches: [usc-dev]
     paths:
       - "**/migrations/**"
       - "**/migrations.rs"
@@ -44,6 +44,14 @@ jobs:
         with:
           shared-key: build-creditcoin-node
 
+      - name: Bump version to force try-runtime to attempt to apply migrations
+        id: bump-version
+        run: |
+          .github/bump-version.sh
+
+          git status
+          git diff
+
       - name: Build runtime with try-runtime
         run: |
           cargo build --release -p creditcoin3-runtime --features try-runtime
@@ -59,4 +67,4 @@ jobs:
             --runtime ./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm \
             on-runtime-upgrade \
             --blocktime 15000 \
-            live --uri wss://rpc.usc-testnet2.creditcoin.network
+            live --uri wss://rpc.cc3-devnet.creditcoin.network

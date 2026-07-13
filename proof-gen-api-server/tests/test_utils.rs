@@ -14,7 +14,7 @@ mod anvil_integration {
     use continuity::{ContinuityBuilder, ContinuityConfig};
     use proof_gen_api_server::{
         build_app,
-        prom::{NoopMetrics, ProofGenMetrics},
+        prom::{Metrics, ProofGenMetrics},
         ContinuityService,
     };
     use serde_json::Value;
@@ -201,16 +201,14 @@ mod anvil_integration {
             );
         }
 
+        let prom_metrics = Arc::new(ProofGenMetrics::new(chain_keys));
+        let metrics: Metrics = prom_metrics.clone();
         let service = Arc::new(
-            ContinuityService::new(builders, NoopMetrics::new(), 10, 1_000)
+            ContinuityService::new(builders, metrics, 10, 1_000)
                 .await
                 .expect("service init"),
         );
-        build_app(
-            service,
-            allowed,
-            std::sync::Arc::new(ProofGenMetrics::new(chain_keys)),
-        )
+        build_app(service, allowed, prom_metrics)
     }
 
     /// Assert a string is a strict 0x-prefixed, lowercase H256 hex.
