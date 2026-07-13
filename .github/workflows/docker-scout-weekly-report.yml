@@ -92,12 +92,17 @@ jobs:
             echo "SCOUT_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      # gluwa/penguin-patrol-message is a private action — public repos can never resolve
+      # actions from a private repo (hard GitHub platform rule, independent of any org
+      # sharing setting), so we replicate its webhook POST directly instead. Same pattern
+      # already used by attestor-operator (no GitHub Actions there) for the same reason.
       - name: Report to Penguin Patrol
-        uses: gluwa/penguin-patrol-message@v1
-        with:
-          webhook-url: ${{ secrets.PENGUIN_PATROL_WEBHOOK_URL }}
-          alert-title: "Weekly Docker Scout Report — creditcoin3"
-          channel: "#noti-docker-scout"
-          message: |
-            ${{ steps.scout.outputs.report }}
-            Full org dashboard: https://scout.docker.com/reports/org/gluwa/overview
+        env:
+          WEBHOOK_URL: ${{ secrets.PENGUIN_PATROL_WEBHOOK_URL }}
+        run: |
+          set -euo pipefail
+          MESSAGE="${{ steps.scout.outputs.report }}
+          Full org dashboard: https://scout.docker.com/reports/org/gluwa/overview"
+          PAYLOAD=$(jq -n --arg title "Weekly Docker Scout Report — creditcoin3" --arg channel "#noti-docker-scout" --arg msg "$MESSAGE" \
+            '{alertTitle: $title, channel_name: $channel, message: $msg}')
+          curl -sf -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d "$PAYLOAD"
