@@ -28,6 +28,7 @@ self-hosted-runner:
     - type-testnet
     - type-runtime-upgrade
     - type-validator-compatibility
+    - type-attestor-compatibility
     - type-wasm
 paths:
   .github/workflows/**/*.{yml,yaml}:
