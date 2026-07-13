@@ -116,10 +116,16 @@ pub async fn run(
     // peerless while reporting healthy: /health has no p2p input and the task never exits.
     // Malformed multiaddrs (missing /p2p/<peer-id>) are skipped above with only an error log, so
     // an all-malformed list would otherwise fail just as silently as an empty one.
-    if boot_peers.is_empty() && !enable_mdns {
+    //
+    // EXCEPT a node that advertises a `public_addr` is a *seed* (the mesh bootnode): peers dial
+    // IT, so it forms a mesh without any boot peers of its own. Requiring it to have a boot node
+    // would be circular — the bootnode is the root of the mesh. Only fail-fast for a node that is
+    // neither seeded (boot peers / mdns) nor itself discoverable as a seed (public_addr).
+    if boot_peers.is_empty() && !enable_mdns && cfg.public_addr.is_none() {
         return Err(Error::P2p(anyhow::anyhow!(
             "no usable boot nodes (list empty or every multiaddr missing its /p2p/<peer-id> \
-             suffix) and mdns is disabled — this node could never discover a peer"
+             suffix), mdns is disabled, and no public_addr is set — this node can neither \
+             discover a peer nor be discovered as a seed"
         )));
     }
 
