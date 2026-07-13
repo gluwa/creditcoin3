@@ -104,6 +104,6 @@ jobs:
           set -euo pipefail
           MESSAGE="${REPORT}
           Full org dashboard: https://scout.docker.com/reports/org/gluwa/overview"
-          PAYLOAD=$(jq -n --arg title "Weekly Docker Scout Report — creditcoin3" --arg channel "#noti-docker-scout" --arg msg "$MESSAGE" \
-            '{alertTitle: $title, channel_name: $channel, message: $msg}')
+          PAYLOAD=$(jq -n --arg title "Weekly Docker Scout Report — creditcoin3" --arg msg "$MESSAGE" \
+            '{alertTitle: $title, alertName: "github-action", channel_name: "#noti-docker-scout", message: $msg}')
           curl -sf -X POST "$WEBHOOK_URL" -H "Content-Type: application/json" -d "$PAYLOAD"
