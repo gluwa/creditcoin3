@@ -93,11 +93,59 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Report to Penguin Patrol
-        uses: gluwa/penguin-patrol-message@v1
-        with:
-          webhook-url: ${{ secrets.PENGUIN_PATROL_WEBHOOK_URL }}
-          alert-title: "Weekly Docker Scout Report — creditcoin3"
-          channel: "#noti-docker-scout"
-          message: |
-            ${{ steps.scout.outputs.report }}
-            Full org dashboard: https://scout.docker.com/reports/org/gluwa/overview
+        # gluwa/penguin-patrol-message is a private repo; GitHub Actions cannot resolve
+        # cross-repo private actions without an org-level access grant. Inline the
+        # equivalent curl call so the workflow is self-contained.
+        env:
+          WEBHOOK_URL: ${{ secrets.PENGUIN_PATROL_WEBHOOK_URL }}
+          REPORT: ${{ steps.scout.outputs.report }}
+        run: |
+          set -euo pipefail
+
+          full_message="${REPORT}
+          Full org dashboard: https://scout.docker.com/reports/org/gluwa/overview"
+
+          payload=$(jq -n \
+            --arg alertName  "github-action" \
+            --arg alertTitle "Weekly Docker Scout Report — creditcoin3" \
+            --arg channel    "#noti-docker-scout" \
+            --arg message    "$full_message" \
+            --arg repo       "$GITHUB_REPOSITORY" \
+            --arg ref        "$GITHUB_REF" \
+            --arg sha        "$GITHUB_SHA" \
+            --arg runId      "$GITHUB_RUN_ID" \
+            --arg runAttempt "$GITHUB_RUN_ATTEMPT" \
+            --arg workflow   "$GITHUB_WORKFLOW" \
+            --arg actor      "$GITHUB_ACTOR" \
+            --arg serverUrl  "$GITHUB_SERVER_URL" \
+            '{
+              alertName:    $alertName,
+              alertTitle:   $alertTitle,
+              channel_name: $channel,
+              message:      $message,
+              metadata: {
+                repository: $repo,
+                ref:        $ref,
+                sha:        $sha,
+                runId:      $runId,
+                runAttempt: $runAttempt,
+                workflow:   $workflow,
+                actor:      $actor,
+                serverUrl:  $serverUrl
+              }
+            }')
+
+          http_code=$(curl -s -o /tmp/pp_response.txt -w "%{http_code}" \
+            -X POST \
+            -H "Content-Type: application/json" \
+            -H "User-Agent: penguin-patrol-action/1.0" \
+            --data-binary "$payload" \
+            "$WEBHOOK_URL")
+
+          echo "Response: $(cat /tmp/pp_response.txt)"
+          echo "HTTP status: $http_code"
+
+          if [ "$http_code" -lt 200 ] || [ "$http_code" -ge 300 ]; then
+            echo "::error::Penguin Patrol webhook responded with status $http_code"
+            exit 1
+          fi
