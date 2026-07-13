@@ -113,7 +113,7 @@ struct Store {
     /// - _Attestation quorum delay_ ([`Histogram`])
     /// - _Attestation finalization delay_ ([`Histogram`])
     ///
-    /// See [`update_attestation_handler_delay`], [`update_attestation_delay_quorum`] and
+    /// See [`update_attestation_handler_delay`], [`observe_quorum_delay`] and
     /// [`update_attestation_delay_finalization`] for implementation details.
     ///
     /// ✅ Values **converging to a low time interval** indicates all is well.
@@ -129,7 +129,7 @@ struct Store {
     ///
     /// [`Histogram`]: prometheus_client::metrics::histogram::Histogram
     /// [`update_attestation_handler_delay`]: Self::update_attestation_handler_delay
-    /// [`update_attestation_delay_quorum`]: Self::update_attestation_delay_quorum
+    /// [`observe_quorum_delay`]: Self::observe_quorum_delay
     /// [`update_attestation_delay_finalization`]: Self::update_attestation_delay_finalization
     pub metrics_delay: prometheus_client::metrics::family::Family<
         labels::LabelAttestationLifecycle,
@@ -546,9 +546,8 @@ impl Metrics {
             .inc();
     }
 
-    /// Observe time-to-quorum for one height. Same observation that
-    /// `MetricsAttestationPool::update_attestation_delay_quorum` produces; exposed as an
-    /// inherent pub method so consumers don't need to import the legacy pool's trait.
+    /// Observe time-to-quorum for one height (time from first vote to quorum being
+    /// observed). Wired into the pool via the `MetricsHook` impl in the attestor binary.
     pub fn observe_quorum_delay(&self, delay: std::time::Duration) {
         self.0
             .metrics_delay
@@ -587,14 +586,6 @@ impl Metrics {
 }
 
 impl Metrics {
-    /// Quorum-delay histogram: time from first vote to quorum being observed for a height.
-    /// Inherent pub method (used to be behind a crate-private trait in the legacy pool).
-    /// Note: a thinner inherent helper `observe_quorum_delay` exists above with the same
-    /// semantics — kept for backward compatibility, both record into the same Histogram.
-    pub fn update_attestation_delay_quorum(&self, delay: std::time::Duration) {
-        self.observe_quorum_delay(delay);
-    }
-
     /// Finalization-delay histogram: time from first vote to on-chain finalization.
     pub fn update_attestation_delay_finalization(&self, delay: std::time::Duration) {
         self.0
