@@ -3251,6 +3251,25 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, bool]
             >;
             /**
+             * Sets the USC write-ability core (protocol) fee for a supported chain, charged by that
+             * chain's Outbox on every `publishMessage`. `token: None` denominates the fee in native
+             * CTC (paid via `msg.value`); `Some(address)` in an ERC20 on Creditcoin's EVM
+             * (attestcoin, pulled via `transferFrom`). A zero `amount` disables the fee. Only
+             * accounts in the Operators membership (or root) can call this extrinsic.
+             *
+             * The value is read live by the EVM through the chain-info precompile
+             * (`get_core_fee(uint64)`), so changes take effect on the next publish without any
+             * contract redeploys — including a later native→attestcoin denomination switch.
+             **/
+            setCoreFee: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    token: Option<H160> | null | Uint8Array | H160 | string,
+                    amount: U256 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, Option<H160>, U256]
+            >;
+            /**
              * Registers the outbox factory contract address for a supported chain. Only accounts in
              * the Operators membership (or root) can call this extrinsic.
              **/

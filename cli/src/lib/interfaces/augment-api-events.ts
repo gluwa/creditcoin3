@@ -999,6 +999,16 @@ declare module '@polkadot/api-base/types/events' {
                 }
             >;
             /**
+             * The USC write-ability core (protocol) fee for a supported chain has been set.
+             * `token: None` means the fee is denominated in native CTC; `Some(address)` an ERC20
+             * (attestcoin). A zero `amount` disables the fee.
+             **/
+            CoreFeeSet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, token: Option<H160>, amount: U256],
+                { chainKey: u64; token: Option<H160>; amount: U256 }
+            >;
+            /**
              * The outbox factory for a supported chain has been registered.
              * This signals to attestors that they can fetch the outbox
              * address and begin listening for writability messages.
