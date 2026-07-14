@@ -196,6 +196,17 @@ impl Health {
             .store(now_unix_ms(), Ordering::Relaxed);
     }
 
+    /// Re-arm axis 2 after an attestation-chain reversion. A deep revert clears the proof cache
+    /// and rolls the source stream back; rebuilding to the first post-revert `emit_local` can
+    /// legitimately exceed `STALL_DEADLINE_MS` while *peers* keep finalizing (uneven recovery) —
+    /// exactly axis 2's trigger shape. Stamping the local-attested clock grants recovery one
+    /// full stall window before it can be flagged, instead of the pod being restarted (and
+    /// re-starting the same rebuild) mid-catch-up.
+    pub fn note_revert_recovery(&self) {
+        self.last_local_attested_ms
+            .store(now_unix_ms(), Ordering::Relaxed);
+    }
+
     /// Mirror `can_attest` transitions. Stamps the transition time so axis 2 re-arms with a
     /// fresh grace window whenever eligibility begins (boot, re-election after a chill).
     pub fn set_attest_expected(&self, expected: bool) {

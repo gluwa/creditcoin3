@@ -341,6 +341,38 @@ async fn handle_submission_result(
 /// threshold (or the threshold fetch was cancelled at shutdown) — the caller drops the stash and
 /// unlocks the height.
 async fn revalidate_stashed(shared: &Arc<Shared>, stashed: SignedQuorum) -> Option<Aggregated> {
+    // Anchor check first (cheap, no RPC). A stash was continuity-validated *at stash time*,
+    // where `validate_proof_chain`'s pipeline case accepts a proof tail linking to the
+    // locally-validated-but-unfinalized prior digest (the submission that was in flight when we
+    // stashed). If that submission never landed, this stash's proof is a guaranteed
+    // `InvalidAttestationContinuityProofTail` at runtime level — submitting it burns fees and
+    // delays the failed height's clean retry. Only submit when the anchor is the digest the
+    // chain actually finalized; otherwise drop (the caller unlocks the height and the quorum
+    // re-forms from gossip). This can conservatively drop a stash anchored on an *older*
+    // finalized attestation the runtime would still accept — a rare race that costs one
+    // re-formation round, never a fee.
+    if stashed.height != shared.genesis {
+        let anchor = stashed
+            .signed
+            .continuity_proof
+            .tail_prev_digest()
+            .or_else(|| stashed.signed.prev_digest());
+        let finalized = shared.latest_finalized_rx.borrow().map(|info| info.digest);
+        match (anchor, finalized) {
+            (Some(anchor), Some(finalized)) if anchor == finalized => {}
+            _ => {
+                tracing::warn!(
+                    digest = ?stashed.digest,
+                    height = stashed.height,
+                    ?anchor,
+                    ?finalized,
+                    "⚓ stashed quorum's continuity anchor is not the finalized digest — dropping"
+                );
+                return None;
+            }
+        }
+    }
+
     let chain_key = shared.chain_key;
     let target_sample_size =
         crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {

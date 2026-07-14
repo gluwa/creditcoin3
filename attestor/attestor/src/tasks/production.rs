@@ -453,6 +453,11 @@ async fn handle_one(
                 height,
                 shared.attestation_interval(),
             );
+            // Re-arm the health stall axis: the rebuild from the revert height to the first
+            // post-revert emit_local can exceed the stall deadline while peers keep finalizing
+            // (uneven recovery), which is exactly axis 2's trigger shape — without this the pod
+            // gets restarted mid-catch-up and re-does the same rebuild.
+            shared.health.note_revert_recovery();
         }
     }
 
