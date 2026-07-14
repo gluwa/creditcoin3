@@ -227,9 +227,17 @@ impl Attestor {
         };
 
         let bls_store = Arc::new(
-            bls::BlsStore::new(&cc3, &token, chain_key, &attestors)
-                .await
-                .map_err(Error::Rpc)?,
+            match bls::BlsStore::new(&cc3, &token, chain_key, &attestors).await {
+                Ok(store) => store,
+                // `with_retries` inside the fetch maps a fired cancellation token to a synthetic
+                // RPC error — SIGTERM during the post-election BLS fetch is a clean shutdown, not
+                // a failure. Mirror the `ShutdownDuringStartup` handling of the waits above.
+                Err(_) if token.is_cancelled() => {
+                    tracing::info!("🔌 shutdown during startup (BLS fetch)");
+                    return Ok(());
+                }
+                Err(e) => return Err(Error::Rpc(e)),
+            },
         );
 
         // ----------------------------------* attestation params *----------------------------- //
@@ -481,8 +489,18 @@ impl Attestor {
                         }
                     }
                     Ok(Err(err)) => {
-                        tracing::error!(%err, "⛔ task failed");
-                        result = Err(err);
+                        if token.is_cancelled() {
+                            // Shutdown was already requested (the signal watcher cancels the
+                            // token directly), so this is the same cancellation artifact the
+                            // drain below tolerates — most commonly `with_retries` mapping the
+                            // fired token to a synthetic RPC error that the task propagates
+                            // with `?`. Not a fault, not a nonzero exit; the drain collects
+                            // the remaining tasks.
+                            tracing::warn!(%err, "🌀 task errored after shutdown was requested — cancellation noise");
+                        } else {
+                            tracing::error!(%err, "⛔ task failed");
+                            result = Err(err);
+                        }
                     }
                     Err(join_err) => {
                         tracing::error!(%join_err, "⛔ task join error");
