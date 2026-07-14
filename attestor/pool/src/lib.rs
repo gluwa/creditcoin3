@@ -386,17 +386,31 @@ impl Sender {
     }
 
     pub fn note_attestors_elected(&self, attestors: Vec<cc_client::AccountId32>) {
-        let mut guard = self.inner.pool.lock();
-        if let State::Open(pool) = &mut *guard {
-            pool.validate_attestor = ValidateAttestor::new(attestors);
-            // Revalidate stored state against the new set: votes already pooled by signers that
-            // just left the active set can no longer contribute to an on-chain quorum (the
-            // runtime filters `attestors` to the live `ActiveAttestors`), so keeping them
-            // around only inflates fork sizes and lets stale quorums surface. Prune them now
-            // rather than letting the submitter discover the shortfall at aggregation time.
-            let validate_attestor = &pool.validate_attestor;
-            pool.forks
-                .retain_signers(|attestor| validate_attestor.set.contains(attestor));
+        let mutated = {
+            let mut guard = self.inner.pool.lock();
+            if let State::Open(pool) = &mut *guard {
+                pool.validate_attestor = ValidateAttestor::new(attestors);
+                // Revalidate stored state against the new set: votes already pooled by signers
+                // that just left the active set can no longer contribute to an on-chain quorum
+                // (the runtime filters `attestors` to the live `ActiveAttestors`), so keeping
+                // them around only inflates fork sizes and lets stale quorums surface. Prune
+                // them now rather than letting the submitter discover the shortfall at
+                // aggregation time.
+                let validate_attestor = &pool.validate_attestor;
+                pool.forks
+                    .retain_signers(|attestor| validate_attestor.set.contains(attestor));
+                true
+            } else {
+                false
+            }
+        };
+        if mutated {
+            // `retain_signers` clears `deferred` (an active-set refresh is exactly the state
+            // change deferred forks wait for) and pruning can break a quorum tie — either can
+            // surface a ready quorum with no further vote to trigger a wake. A receiver parked
+            // in `recv()` would otherwise sleep until some unrelated notify while an eligible
+            // quorum sits unseen; mirror every other state-mutating seam.
+            self.inner.notify.notify_one();
         }
     }
 
@@ -1239,6 +1253,38 @@ mod tests {
             p.peek().is_some(),
             "new signer should re-enable the deferred fork"
         );
+    }
+
+    /// An election refresh must WAKE a parked receiver, not just clear `deferred`:
+    /// `note_attestors_elected` → `retain_signers` re-enables deferred forks (and pruning can
+    /// break a quorum tie) with no further vote arriving to fire the next notify. Without its
+    /// own `notify_one()`, validation sleeps in `recv()` while an eligible quorum sits unseen.
+    #[tokio::test]
+    async fn attestors_elected_wakes_parked_receiver() {
+        let active: Vec<cc_client::AccountId32> = (0..5).map(account).collect();
+        let (tx, rx) = attestation_pool(Config {
+            attestors: active.clone(),
+            quorum: NonZero::new(2).unwrap(),
+            attestation_interval: NonZero::new(1).unwrap(),
+            start_height: 0,
+            max_catchup: NonZero::new(1_000).unwrap(),
+            start_digest: None,
+            start_height_finalized: None,
+            metrics: Box::new(NoMetrics),
+        });
+
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_quorum, permit) = rx.recv().await.expect("initial quorum");
+        rx.defer(permit);
+
+        // No further votes: the election note alone must wake the receiver and re-yield.
+        tx.note_attestors_elected(active);
+        let woken = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("receiver was not woken by note_attestors_elected")
+            .expect("pool still open");
+        assert_eq!(woken.0.height, 10);
     }
 
     /// A height reopened by `note_majority_not_reached` must not let a previously-invalidated
