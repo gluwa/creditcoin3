@@ -944,12 +944,15 @@ fn admit_pending_vote(
 fn worth_buffering(shared: &Arc<Shared>, height: attestor_primitives::Height) -> bool {
     let interval = shared.attestation_interval().get();
     let max_catchup = shared.max_catchup().get();
-    let finalized = shared
-        .latest_finalized_rx
-        .borrow()
-        .map(|info| info.height)
-        .unwrap_or(shared.start_height);
-    is_bufferable(height, shared.genesis, interval, max_catchup, finalized)
+    let finalized = shared.latest_finalized_rx.borrow().map(|info| info.height);
+    is_bufferable(
+        height,
+        shared.genesis,
+        interval,
+        max_catchup,
+        finalized,
+        shared.start_height,
+    )
 }
 
 /// Pure predicate behind [`worth_buffering`], split out so the schedule/window logic is unit
@@ -959,7 +962,8 @@ fn is_bufferable(
     genesis: attestor_primitives::Height,
     interval: attestor_primitives::Height,
     max_catchup: attestor_primitives::Height,
-    finalized: attestor_primitives::Height,
+    finalized: Option<attestor_primitives::Height>,
+    start_height: attestor_primitives::Height,
 ) -> bool {
     // `StreamAttestation` emits the genesis attestation once and every later attestation at an
     // absolute multiple of the interval (`next - next % interval`). A height that is neither can
@@ -968,14 +972,24 @@ fn is_bufferable(
         return false;
     }
     // Bound to the window the pool would admit (see `ValidateQuorum::height_admissible`):
-    // strictly above the last finalized attestation and within `max_catchup` *blocks* of it
+    // above the last finalized attestation and within `max_catchup` *blocks* of it
     // (`max_catchup` is a block-count bound, matching the runtime storage docs and
     // `StreamAttestation` — production never emits further ahead than that). `max(interval)`
     // keeps the next interval-aligned target admissible when the configured bound is smaller
     // than the interval. Anchoring on the finalized height (not local production, which only
     // climbs) keeps the buffer bounded.
     let window = max_catchup.max(interval);
-    height > finalized && height <= finalized.saturating_add(window)
+    match finalized {
+        Some(finalized) => height > finalized && height <= finalized.saturating_add(window),
+        // Nothing attested on-chain yet. The floor must be *inclusive* of `start_height` here:
+        // at a cold-start bootstrap `start_height == genesis`, and the genesis votes peers
+        // gossip are exactly the ones we must hold until our own genesis data is built. An
+        // exclusive floor (the old `unwrap_or(start_height)` collapse) dropped them — and a
+        // gossipsub `Ignore` is terminal (the message is marked seen and never redelivered;
+        // production emits its genesis vote once), so staggered/parallel cold starts could
+        // leave every attestor short of genesis quorum.
+        None => height >= start_height && height <= start_height.saturating_add(window),
+    }
 }
 
 /// Re-process a vote that was previously queued because local data was missing. Local data
@@ -1149,43 +1163,172 @@ mod tests {
     #[test]
     fn aligned_height_in_window_is_bufferable() {
         // 150 is a multiple of 30, above finalized (120), well within the window.
-        assert!(is_bufferable(150, GENESIS, INTERVAL, MAX_CATCHUP, 120));
+        assert!(is_bufferable(
+            150,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            Some(120),
+            GENESIS
+        ));
     }
 
     #[test]
     fn misaligned_height_is_rejected() {
         // 151 is neither genesis nor a multiple of the interval — production never emits there.
-        assert!(!is_bufferable(151, GENESIS, INTERVAL, MAX_CATCHUP, 120));
+        assert!(!is_bufferable(
+            151,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            Some(120),
+            GENESIS
+        ));
     }
 
     #[test]
     fn genesis_height_is_allowed_even_if_not_interval_aligned() {
         // genesis (100) is not a multiple of 30 but is produced once; allow it while still
         // unfinalized.
-        assert!(is_bufferable(GENESIS, GENESIS, INTERVAL, MAX_CATCHUP, 90));
+        assert!(is_bufferable(
+            GENESIS,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            Some(90),
+            GENESIS
+        ));
     }
 
     #[test]
     fn height_at_or_below_finalized_is_rejected() {
         // Equal to finalized — already attested, nothing to wait for.
-        assert!(!is_bufferable(120, GENESIS, INTERVAL, MAX_CATCHUP, 120));
+        assert!(!is_bufferable(
+            120,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            Some(120),
+            GENESIS
+        ));
         // Below finalized.
-        assert!(!is_bufferable(90, GENESIS, INTERVAL, MAX_CATCHUP, 120));
+        assert!(!is_bufferable(
+            90,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            Some(120),
+            GENESIS
+        ));
     }
 
     #[test]
     fn window_edge_is_inclusive_but_beyond_is_rejected() {
         // 120 + 500 = 620 is not interval-aligned; the highest aligned height inside the window
         // is 600. One interval later (630) is out of the window.
-        assert!(is_bufferable(600, GENESIS, INTERVAL, MAX_CATCHUP, 120));
-        assert!(!is_bufferable(630, GENESIS, INTERVAL, MAX_CATCHUP, 120));
+        assert!(is_bufferable(
+            600,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            Some(120),
+            GENESIS
+        ));
+        assert!(!is_bufferable(
+            630,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            Some(120),
+            GENESIS
+        ));
     }
 
     #[test]
     fn next_target_stays_admissible_when_max_catchup_is_below_interval() {
         // With max_catchup < interval, the window widens to one interval so the next aligned
         // target (150) is still bufferable.
-        assert!(is_bufferable(150, GENESIS, INTERVAL, 10, 120));
-        assert!(!is_bufferable(180, GENESIS, INTERVAL, 10, 120));
+        assert!(is_bufferable(
+            150,
+            GENESIS,
+            INTERVAL,
+            10,
+            Some(120),
+            GENESIS
+        ));
+        assert!(!is_bufferable(
+            180,
+            GENESIS,
+            INTERVAL,
+            10,
+            Some(120),
+            GENESIS
+        ));
+    }
+
+    /// Cold-start bootstrap: nothing attested on-chain yet (`finalized = None`) and
+    /// `start_height == genesis`. A peer's genesis vote arriving before our own genesis data is
+    /// built MUST be bufferable — production gossips it exactly once and a gossipsub `Ignore`
+    /// is terminal, so dropping it here can permanently starve genesis quorum on
+    /// staggered/parallel cold starts.
+    #[test]
+    fn genesis_vote_is_bufferable_before_anything_finalized() {
+        assert!(is_bufferable(
+            GENESIS,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            None,
+            GENESIS
+        ));
+        // Later aligned heights within the window are admissible too...
+        assert!(is_bufferable(
+            150,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            None,
+            GENESIS
+        ));
+        // ...but below the start floor or beyond the window stays rejected.
+        assert!(!is_bufferable(
+            60,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            None,
+            GENESIS
+        ));
+        assert!(!is_bufferable(
+            630,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            None,
+            GENESIS
+        ));
+    }
+
+    /// Restart mid-chain before the first `BlockAttested` observation: `finalized` is still
+    /// `None` but `start_height` reflects the resume point — the floor is inclusive there as
+    /// well (production may re-produce at exactly `start_height`).
+    #[test]
+    fn resume_floor_is_inclusive_while_unobserved() {
+        assert!(is_bufferable(
+            300,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            None,
+            300
+        ));
+        assert!(!is_bufferable(
+            270,
+            GENESIS,
+            INTERVAL,
+            MAX_CATCHUP,
+            None,
+            300
+        ));
     }
 }
