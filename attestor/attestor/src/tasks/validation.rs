@@ -118,6 +118,22 @@ async fn handle_quorum(
             shared.metrics.increase_invalid_attestation_count();
             return Ok(());
         }
+        Err(ValidationError::AlreadyOnChain) => {
+            // Another attestor's submission for this digest already landed — this is the
+            // CANONICAL fork, observed via `contains_digest` before our finalized-watch caught
+            // up. Mirror the post-submission `AttestationExists` outcome: lock the height to
+            // this digest with `mark_valid` (rival forks are moot; the pool prunes everything
+            // ≤ height when the `BlockAttested` event arrives) and submit nothing. Emphatically
+            // NOT `mark_invalid`: tombstoning the winning digest would reject every later vote
+            // for the canonical fork as `KnownInvalid` while leaving the height open to rivals.
+            tracing::info!(
+                ?digest,
+                height,
+                "✅ already attested on-chain (lost the pre-submission race)"
+            );
+            pool_rx.mark_valid(permit);
+            return Ok(());
+        }
         Err(ValidationError::NoLocalProof) => {
             // Quorum reached on a fork we don't have a proof for. We can't submit without
             // someone's continuity proof. Skip just this fork (without locking the height) so a
@@ -432,6 +448,11 @@ struct Aggregated {
 
 enum ValidationError {
     Invalid,
+    /// The quorum's digest is already attested on-chain (`contains_digest`): another attestor's
+    /// submission landed before our finalized-watch observed it. This is the *winning* digest —
+    /// it must not be handled as `Invalid`, whose tombstone would reject every later vote for
+    /// the canonical fork as `KnownInvalid` while leaving the height open to rival forks.
+    AlreadyOnChain,
     NoLocalProof,
     /// Live `target_sample_size` is higher than our quorum size — submitting now would hit
     /// `MajorityNotReached` at runtime level. Bail before signing so we never burn fees/turns
@@ -487,7 +508,7 @@ async fn aggregate_and_validate(
     .await
     .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
     if is_dup {
-        return Err(ValidationError::Invalid);
+        return Err(ValidationError::AlreadyOnChain);
     }
 
     // Eligibility gate: drop votes whose signer has left the active attestor set since the vote
