@@ -90,7 +90,19 @@ pub async fn wait_for_eligible(
 
     let mut attestors = cc3.get_attestor_active_set(chain_key).await?;
     if attestors.contains(account_id) {
-        tracing::info!(%account_id, "☀️ already eligible");
+        tracing::info!(%account_id, "☀️ already eligible — warming up before attesting");
+        // Same committee warm-up as the freshly-elected path below. "Already in the active
+        // set at boot" includes the race where the election committed moments ago (e.g. a
+        // restart landing right on an epoch boundary): peers received the same
+        // `AttestorsElected` event and may still be refreshing their BLS stores, so gossiping
+        // immediately gets our first votes rejected as UnknownAttestor — and gossipsub marks
+        // rejected messages seen, so those votes are not redelivered. One warm-up window per
+        // boot is a cheaper price than permanently losing the restart-window votes at peers
+        // that hadn't refreshed yet.
+        tokio::select! {
+            _ = token.cancelled() => return Err(Error::ShutdownDuringStartup),
+            _ = tokio::time::sleep(common::constants::POST_ELECTION_WARMUP) => {}
+        }
         return Ok(attestors);
     }
 
