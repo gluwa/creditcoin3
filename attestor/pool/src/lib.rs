@@ -860,7 +860,12 @@ impl ValidBatch {
     }
 
     fn pop(&mut self) -> Option<SignedQuorum> {
-        self.by_height.pop_last().map(|(_, q)| q)
+        // Lowest height first. Stashed quorums were produced in ascending order while an earlier
+        // submission was in flight; draining highest-first would submit a later height and leave
+        // the lower stash to be rejected by the runtime afterwards (it's behind the new latest
+        // attestation) — a doomed, fee-burning extrinsic. Ascending order lets each stash link
+        // forward from the previous one.
+        self.by_height.pop_first().map(|(_, q)| q)
     }
 
     fn drop_up_to(&mut self, height: Height) {
@@ -1241,5 +1246,38 @@ mod tests {
         p.push(vote(3, 10, 0xbb)).unwrap();
         let best = p.forks.best(2).expect("second fork should reach quorum");
         assert_eq!(best.digest, Digest::from([0xbb; 32]));
+    }
+
+    fn signed_quorum(height: Height) -> SignedQuorum {
+        SignedQuorum {
+            height,
+            digest: Digest::from([height as u8; 32]),
+            signed: attestor_primitives::SignedAttestation {
+                attestation: attestor_primitives::AttestationData::new(
+                    1,
+                    height,
+                    Digest::from([height as u8; 32]),
+                    Default::default(),
+                    None,
+                ),
+                signature: [0u8; 96],
+                attestors: vec![],
+                continuity_proof: Default::default(),
+            },
+            votes: vec![],
+        }
+    }
+
+    /// Stashed quorums drain lowest-height-first. Draining highest-first would submit a later
+    /// height and leave the lower stash to be rejected by the runtime afterwards (behind the new
+    /// latest attestation) — a doomed, fee-burning extrinsic.
+    #[test]
+    fn stashed_quorums_drain_in_ascending_height_order() {
+        let mut batch = ValidBatch::default();
+        for height in [30, 10, 20] {
+            batch.push(signed_quorum(height));
+        }
+        let drained: Vec<Height> = std::iter::from_fn(|| batch.pop().map(|q| q.height)).collect();
+        assert_eq!(drained, vec![10, 20, 30]);
     }
 }
