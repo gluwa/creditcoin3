@@ -6,10 +6,19 @@
 //!   `Client::reconnect()` between attempts. v2 holds `Arc<Client>` (one swap shared across all
 //!   tasks) so we can't get `&mut`; we need a `&Arc<Client>`-friendly equivalent.
 //!
-//! `with_retries` retries an async closure with exponential backoff. If the inner error matches
-//! [`is_transient`] — JSON-RPC disconnects, subxt RPC errors, generic IO errors — it also
-//! triggers `cc3.reconnect()` between attempts. Because `cc3` is shared across all tasks via
-//! one `ArcSwap`, a reconnect here is observed by every other task on its next call.
+//! `with_retries` retries an async closure. If the inner error matches [`is_transient`] —
+//! JSON-RPC disconnects, subxt RPC errors, generic IO errors — it triggers `cc3.reconnect()`
+//! between attempts. Because `cc3` is shared across all tasks via one `ArcSwap`, a reconnect
+//! here is observed by every other task on its next call.
+//!
+//! Pacing is delegated to `Client::reconnect`'s shared `BackoffState` (it sleeps until the
+//! client-wide `next_attempt_at` before dialing; every failed dial advances it exponentially
+//! up to 30s), so this shim adds no backoff of its own — stacking a second schedule on top
+//! would double recovery time on every attempt (see `cc_client::api`'s reconnect helper for
+//! the same reasoning). The one case reconnect pacing can't cover is a node that accepts the
+//! dial but can't serve requests: the successful dial resets the shared backoff, so we pause
+//! [`FRESH_DIAL_STILL_FAILING_PAUSE`] before re-dialing once a fresh connection has already
+//! failed, keeping that loop from hot-spinning.
 //!
 //! Cancellation: each retry attempt is races against `token.cancelled()`. If cancellation fires
 //! mid-retry, we return an [`Err`] immediately.
@@ -18,12 +27,17 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-// Retry policy: unbounded retries on transient errors, with exponential backoff capped at 30s.
-// Per design feedback ("unbounded RPC reconnections were specifically added to handle longer
-// RPC downtime"), we ride out the outage rather than crash the task. Cancellation is observed
-// at every `tokio::select!` arm on `token.cancelled()`, so shutdown propagates instantly.
-const BACKOFF_START_MS: u64 = 100;
-const BACKOFF_CAP_MS: u64 = 30_000;
+// Retry policy: unbounded retries on transient errors, paced by `Client::reconnect`'s shared
+// exponential backoff (100ms → 30s). Per design feedback ("unbounded RPC reconnections were
+// specifically added to handle longer RPC downtime"), we ride out the outage rather than crash
+// the task. Cancellation is observed at every `tokio::select!` arm on `token.cancelled()`, so
+// shutdown propagates instantly.
+//
+// Pause before re-dialing when a *fresh* connection already failed the call: the successful
+// dial reset the shared backoff, so without this a node that accepts sockets but can't serve
+// requests would be re-dialed in a tight loop. Mirrors the fixed pause in `cc_client::api`'s
+// reconnect helper.
+const FRESH_DIAL_STILL_FAILING_PAUSE: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Retry an async closure that takes a `&Arc<cc_client::Client>` and returns
 /// `Result<T, cc_client::Error>`. On transient errors, `cc3.reconnect()` is invoked between
@@ -37,8 +51,10 @@ where
     F: FnMut(Arc<cc_client::Client>) -> Fut,
     Fut: std::future::Future<Output = Result<T, cc_client::Error>>,
 {
-    let mut delay_ms: u64 = BACKOFF_START_MS;
     let mut attempt: usize = 0;
+    // True when the attempt that just failed ran on a connection we freshly dialed (previous
+    // iteration's reconnect succeeded) — the accepts-sockets-but-broken case described above.
+    let mut fresh_dial_failed = false;
 
     loop {
         if token.is_cancelled() {
@@ -59,26 +75,41 @@ where
             Err(err) if is_transient(&err) => {
                 tracing::warn!(
                     attempt,
-                    delay_ms,
                     ?err,
                     "🔁 transient cc3 error — reconnecting and retrying"
                 );
-                // Best-effort reconnect; the next attempt's classifier sees the fresh
-                // connection or re-classifies the same transient error. We *log* the failure at
-                // debug so a permanent build_inner failure (e.g. malformed URL) doesn't vanish
-                // — `is_transient` may not catch every error variant from `build_inner`, and
-                // we'd otherwise spin silently.
-                if let Err(err) = cc3.reconnect().await {
-                    tracing::debug!(?err, "cc3 reconnect attempt failed inside with_retries");
+                if fresh_dial_failed {
+                    // A connection we just dialed still failed the call, and that successful
+                    // dial reset the shared backoff — pause so we don't hot-loop dials against
+                    // a node that accepts sockets but can't serve requests.
+                    tokio::select! {
+                        _ = token.cancelled() => return Err(cc_client::Error::from(
+                            subxt::Error::Other("cancelled".into()),
+                        )),
+                        () = tokio::time::sleep(FRESH_DIAL_STILL_FAILING_PAUSE) => {}
+                    }
                 }
-                tokio::select! {
+                // Best-effort reconnect, raced against cancellation (its shared-backoff sleep
+                // can hold us for up to 30s). No extra sleep on failure: the *next* reconnect
+                // call waits on the shared `BackoffState` schedule that this failure just
+                // advanced, so adding our own delay would stack a second backoff on top (the
+                // bug this replaced). We *log* the failure at debug so a permanent build_inner
+                // failure (e.g. malformed URL) doesn't vanish — `is_transient` may not catch
+                // every error variant from `build_inner`, and we'd otherwise spin silently.
+                let reconnect_res = tokio::select! {
                     _ = token.cancelled() => return Err(cc_client::Error::from(
                         subxt::Error::Other("cancelled".into()),
                     )),
-                    () = tokio::time::sleep(std::time::Duration::from_millis(delay_ms)) => {}
+                    r = cc3.reconnect() => r,
+                };
+                match reconnect_res {
+                    Ok(()) => fresh_dial_failed = true,
+                    Err(err) => {
+                        fresh_dial_failed = false;
+                        tracing::debug!(?err, "cc3 reconnect attempt failed inside with_retries");
+                    }
                 }
                 attempt = attempt.saturating_add(1);
-                delay_ms = (delay_ms.saturating_mul(2)).min(BACKOFF_CAP_MS);
             }
             Err(err) => return Err(err),
         }
