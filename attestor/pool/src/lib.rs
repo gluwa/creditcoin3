@@ -503,6 +503,11 @@ impl Drop for Sender {
             .fetch_sub(1, std::sync::atomic::Ordering::AcqRel);
         if prev == 1 {
             *self.inner.pool.lock() = State::Closed;
+            // Wake a parked `recv()` so it observes the close and returns `None` now — the
+            // same missed-wake class as `note_attestors_elected`: without this, a consumer
+            // waiting on an empty pool learns the senders are gone only when some unrelated
+            // notify happens to fire (never, once all senders are dropped).
+            self.inner.notify.notify_one();
         }
     }
 }
@@ -1285,6 +1290,37 @@ mod tests {
             .expect("receiver was not woken by note_attestors_elected")
             .expect("pool still open");
         assert_eq!(woken.0.height, 10);
+    }
+
+    /// Dropping the last `Sender` must wake a parked `recv()` so it observes the close and
+    /// returns `None` — otherwise the consumer waits for a notify that can never come.
+    #[tokio::test]
+    async fn dropping_last_sender_wakes_parked_receiver() {
+        let (tx, rx) = attestation_pool(Config {
+            attestors: (0..5).map(account).collect(),
+            quorum: NonZero::new(2).unwrap(),
+            attestation_interval: NonZero::new(1).unwrap(),
+            start_height: 0,
+            max_catchup: NonZero::new(1_000).unwrap(),
+            start_digest: None,
+            start_height_finalized: None,
+            metrics: Box::new(NoMetrics),
+        });
+
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            // `join!` polls the receiver first, parking it on the empty pool; the second
+            // future then drops the last sender, which must produce the wake.
+            async {
+                tokio::join!(rx.recv(), async {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    drop(tx);
+                })
+            },
+        )
+        .await
+        .expect("parked receiver was not woken by the last Sender dropping");
+        assert!(outcome.0.is_none(), "closed pool must yield None");
     }
 
     /// A height reopened by `note_majority_not_reached` must not let a previously-invalidated
