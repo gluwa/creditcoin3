@@ -77,13 +77,19 @@ pub async fn watch(
                     *guard = set.clone();
                     old
                 };
-                // Re-evaluates every tracked aggregate against the new quorum; a lowered threshold
-                // can push already-collected messages over it, in which case the milestone must be
-                // surfaced here — there is no later vote transition to fire it.
-                let newly_completed = state
-                    .aggregator
-                    .lock()
-                    .set_threshold(new_threshold, std::time::Instant::now());
+                // Prune signatures from signers that just left the set BEFORE re-evaluating the
+                // quorum: stale signatures must not keep counting toward completion, or a lowered
+                // threshold could mark a message complete with fewer *current* attestors than the
+                // destination validator will accept. Then re-evaluate every tracked aggregate
+                // against the new quorum; a lowered threshold can push already-collected messages
+                // over it, in which case the milestone must be surfaced here — there is no later
+                // vote transition to fire it.
+                let newly_completed = {
+                    let now = std::time::Instant::now();
+                    let mut agg = state.aggregator.lock();
+                    agg.retain_signers(&set, now);
+                    agg.set_threshold(new_threshold, now)
+                };
                 for hash in newly_completed {
                     tracing::info!(
                         message_hash = %alloy::primitives::B256::from(hash),
