@@ -234,6 +234,7 @@ jobs:
             --validator --alice  --pruning archive \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
 
       - name: Azure Login with OIDC
         uses: azure/login@v3
@@ -265,7 +266,9 @@ jobs:
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
               --load-state ./anvil10k_blocks.json \
+              --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart.json \
               >/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31338 --port 8242 \
               >/var/tmp/integration-test-attestor-network/anvil2.log 2>&1 &
@@ -389,6 +392,94 @@ jobs:
           node ExportCheckpoints.js
 
           mv checkpoints_2.csv checkpoints.csv.from_alice
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Verify attestors recover after CC3 websocket restart
+        run: |
+          BEFORE=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints.csv.from_alice)
+          if [ -z "$BEFORE" ]; then
+            echo "Could not determine pre-restart attestation height" >&2
+            exit 1
+          fi
+
+          kill -KILL "$(cat /var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid)"
+
+          ./target/release/creditcoin3-node \
+            --chain dev \
+            --validator --alice --pruning archive \
+            --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
+            --base-path ./alice-data >>/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
+
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          ~/.foundry/bin/cast rpc --rpc-url http://127.0.0.1:8141 anvil_mine 0xc8
+
+          for _ in $(seq 1 18); do
+            (cd attestor/scripts && node ExportCheckpoints.js)
+            AFTER=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+            if [ -n "$AFTER" ] && [ "$AFTER" -gt "$BEFORE" ]; then
+              echo "Attestation advanced from $BEFORE to $AFTER after CC3 restart"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Attestation did not advance after CC3 websocket restart" >&2
+          exit 1
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
+
+      - name: Verify attestors recover after Eth websocket restart
+        run: |
+          BEFORE=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+          if [ -z "$BEFORE" ]; then
+            echo "Could not determine pre-restart attestation height" >&2
+            exit 1
+          fi
+
+          ANVIL_PID=$(cat /var/tmp/integration-test-attestor-network/anvil1.pid)
+          kill -TERM "$ANVIL_PID"
+          for _ in $(seq 1 30); do
+            if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$ANVIL_PID" 2>/dev/null; then
+            echo "Anvil did not exit for websocket recovery test" >&2
+            exit 1
+          fi
+          if [ ! -s /var/tmp/integration-test-attestor-network/anvil1-restart.json ]; then
+            echo "Anvil did not dump restart state" >&2
+            exit 1
+          fi
+          cp /var/tmp/integration-test-attestor-network/anvil1-restart.json \
+            /var/tmp/integration-test-attestor-network/anvil1-load.json
+
+          ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
+            --load-state /var/tmp/integration-test-attestor-network/anvil1-load.json \
+            --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart-2.json \
+            >>/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
+          echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
+
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          ~/.foundry/bin/cast rpc --rpc-url http://127.0.0.1:8141 anvil_mine 0xc8
+
+          for _ in $(seq 1 18); do
+            (cd attestor/scripts && node ExportCheckpoints.js)
+            AFTER=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+            if [ -n "$AFTER" ] && [ "$AFTER" -gt "$BEFORE" ]; then
+              echo "Attestation advanced from $BEFORE to $AFTER after Eth restart"
+              exit 0
+            fi
+            sleep 10
+          done
+
+          echo "Attestation did not advance after Eth websocket restart" >&2
+          exit 1
         env:
           SOURCE_CHAIN: "ws://127.0.0.1:9944"
           CHAIN_KEY_ON_SOURCE: 2
@@ -543,6 +634,24 @@ jobs:
         with:
           name: checkpoints.csv
           path: attestor/scripts/checkpoints.csv*
+
+      - name: Verify attestors exit on SIGTERM
+        if: always()
+        run: |
+          killall -TERM attestor_zombienet || true
+          killall -TERM attestor || true
+
+          for _ in $(seq 1 30); do
+            if ! pgrep -x attestor >/dev/null; then
+              echo "All attestors exited after SIGTERM"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "Attestor processes remained alive 30s after SIGTERM" >&2
+          ps -ef
+          exit 1
 
       - name: TERM binaries
         if: always()

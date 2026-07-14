@@ -161,7 +161,15 @@ pub async fn run(
                 let Some(batch) = maybe_batch else {
                     return Err(Error::Cc3Stream(stream::cc3::Error::EndOfStream));
                 };
-                handle_cc3_batch(&shared, &mut stream_attestation, &mut latest_cc3, batch).await?;
+                tokio::select! {
+                    _ = shared.token.cancelled() => return Ok(()),
+                    result = handle_cc3_batch(
+                        &shared,
+                        &mut stream_attestation,
+                        &mut latest_cc3,
+                        batch,
+                    ) => result?,
+                }
             }
 
             Some(attestation) = stream_attestation.next(), if can_attest => {

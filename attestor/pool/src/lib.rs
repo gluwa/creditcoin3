@@ -417,6 +417,7 @@ impl Sender {
             let mut guard = self.inner.pool.lock();
             if let State::Open(pool) = &mut *guard {
                 pool.validate_quorum.target = quorum_new;
+                pool.forks.deferred.clear();
                 true
             } else {
                 false
@@ -515,6 +516,16 @@ impl Receiver {
         let mut guard = self.inner.pool.lock();
         if let State::Open(pool) = &mut *guard {
             pool.mark_skipped(permit);
+        }
+    }
+
+    /// Temporarily suppress a quorum that fell below the live runtime threshold after validation
+    /// filtered stale/unverifiable votes. The fork's votes are preserved; a new vote or
+    /// active-set refresh makes it eligible for consideration again.
+    pub fn defer(&self, permit: Permit) {
+        let mut guard = self.inner.pool.lock();
+        if let State::Open(pool) = &mut *guard {
+            pool.forks.deferred.insert((permit.height, permit.digest));
         }
     }
 
@@ -648,6 +659,9 @@ struct Forks {
     /// `split_off` / `note_finalized` as heights finalize, so it stays bounded by the catch-up
     /// window.
     invalid: BTreeSet<(Height, Digest)>,
+    /// Quorums temporarily suppressed because their raw vote count met the pool target but their
+    /// live-verifiable vote count did not. Cleared by new votes and active-set refreshes.
+    deferred: BTreeSet<(Height, Digest)>,
     last_finalized_height: Option<Height>,
     #[allow(dead_code)]
     last_finalized_digest: Option<Digest>,
@@ -669,6 +683,7 @@ impl Forks {
             by_height_size: BTreeSet::new(),
             seen: BTreeMap::new(),
             invalid: BTreeSet::new(),
+            deferred: BTreeSet::new(),
             last_finalized_height,
             last_finalized_digest,
         }
@@ -713,6 +728,7 @@ impl Forks {
         entry.votes.push(vote);
         self.by_height_size
             .insert((height, entry.signers.len(), digest));
+        self.deferred.remove(&(height, digest));
 
         Ok(())
     }
@@ -734,11 +750,16 @@ impl Forks {
     fn best(&self, target: usize) -> Option<&AttestationVote> {
         let mut iter = self.by_height_size.iter().rev().peekable();
         while let Some((height, size, digest)) = iter.next() {
+            if self.deferred.contains(&(*height, *digest)) {
+                continue;
+            }
             let qualified = *size >= target;
             let tied_qualified = qualified
                 && iter
-                    .peek()
-                    .is_some_and(|(h, s, _)| h == height && s == size);
+                    .clone()
+                    .take_while(|(h, ..)| h == height)
+                    .find(|(h, _, d)| !self.deferred.contains(&(*h, *d)))
+                    .is_some_and(|(_, s, _)| s == size);
             if qualified && !tied_qualified {
                 return self.by_digest.get(&(*height, *digest));
             }
@@ -762,6 +783,7 @@ impl Forks {
     /// height: `seen` is retained so those attestors can't later double-vote. Used for "skip this
     /// fork" (e.g. no local proof) where the digest may still be legitimate.
     fn drop_fork(&mut self, height: Height, digest: Digest) {
+        self.deferred.remove(&(height, digest));
         if let Some(entry) = self.by_digest.remove(&(height, digest)) {
             self.by_height_size
                 .remove(&(height, entry.signers.len(), digest));
@@ -781,6 +803,8 @@ impl Forks {
     /// removed attestor that gets re-elected may legitimately vote again at heights it voted at
     /// under its previous tenure.
     fn retain_signers(&mut self, keep: impl Fn(&AttestorId) -> bool) {
+        // A refreshed active/BLS set is exactly the state change deferred forks were waiting for.
+        self.deferred.clear();
         let keys: Vec<(Height, Digest)> = self.by_digest.keys().copied().collect();
         for (height, digest) in keys {
             let Some(entry) = self.by_digest.get_mut(&(height, digest)) else {
@@ -816,6 +840,7 @@ impl Forks {
         // Trim `by_height_size` of anything below `split`. Building a new set is `O(n log n)`
         // but `n` is bounded by `max_catchup`, well under 1000 in practice.
         self.by_height_size.retain(|(h, _, _)| *h >= split);
+        self.deferred.retain(|(h, _)| *h >= split);
         // Trim `seen`.
         let split_seen = (split, AttestorId::from_public([0u8; 32]));
         let kept = self.seen.split_off(&split_seen);
@@ -833,6 +858,7 @@ impl Forks {
         self.by_height_size.clear();
         self.seen.clear();
         self.invalid.clear();
+        self.deferred.clear();
     }
 
     fn note_finalized(&mut self, height: Height, digest: Digest) {
@@ -1187,6 +1213,32 @@ mod tests {
         // The same attestor (re-elected) can vote at the same height again — with a different
         // digest, even — without tripping the equivocation check.
         p.push(vote(0, 10, 0xbb)).unwrap();
+    }
+
+    #[test]
+    fn deferred_fork_waits_for_meaningful_state_change() {
+        let mut p = pool(2);
+        p.push(vote(0, 10, 0xaa)).unwrap();
+        p.push(vote(1, 10, 0xaa)).unwrap();
+
+        let (_quorum, permit) = p.peek().expect("initial quorum");
+        p.forks.deferred.insert((permit.height, permit.digest));
+
+        assert!(
+            p.peek().is_none(),
+            "deferred fork must not immediately re-yield"
+        );
+
+        // An exact duplicate is not a meaningful state change and must not restart the loop.
+        p.push(vote(1, 10, 0xaa)).unwrap();
+        assert!(p.peek().is_none());
+
+        // A new signer may complete the live quorum, so it re-enables consideration.
+        p.push(vote(2, 10, 0xaa)).unwrap();
+        assert!(
+            p.peek().is_some(),
+            "new signer should re-enable the deferred fork"
+        );
     }
 
     /// A height reopened by `note_majority_not_reached` must not let a previously-invalidated

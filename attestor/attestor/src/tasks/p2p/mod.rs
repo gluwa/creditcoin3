@@ -223,19 +223,19 @@ pub async fn run(
                 flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
             }
 
-            // Local production cached new AttestationData → drain any votes we held back at this
-            // height, then bulk-prune everything at or below it. We produce each height at most
-            // once, so lower entries (including off-schedule heights a peer may have injected)
-            // can never become verifiable and would otherwise linger forever.
+            // Local production cached new AttestationData → drain every buffered height up to
+            // the latest notification that now has local data. `watch` coalesces updates, so a
+            // catch-up burst may wake us at height N after production also emitted N-1, N-2, ...
+            // Draining only N would silently discard those now-verifiable votes.
             res = local_produced_rx.changed() => {
                 if res.is_err() { return Ok(()); }
                 let Some(h) = *local_produced_rx.borrow() else { continue; };
-                if let Some(queued) = pending_votes.remove(&h) {
-                    for (_, vote) in queued {
-                        let _ = retry_pending_vote(&shared, vote).await;
-                    }
+                let ready = drain_pending_votes(&mut pending_votes, h, |height| {
+                    shared.proof_cache.local_data(height).is_some()
+                });
+                for vote in ready {
+                    retry_pending_vote(&shared, vote).await;
                 }
-                pending_votes.retain(|&height, _| height > h);
             }
 
             // An attestation finalized on chain → drop every buffered vote at or below it. Bounds
@@ -296,6 +296,34 @@ type PendingVotes = std::collections::HashMap<
     attestor_primitives::Height,
     std::collections::HashMap<AttestorId, Vote>,
 >;
+
+/// Remove buffered heights at or below `produced_through`. Votes whose local data exists are
+/// returned for verification; the rest are stale/off-schedule and are dropped. Taking all ready
+/// heights, rather than only `produced_through`, makes the pending buffer robust to `watch`
+/// coalescing during catch-up bursts.
+fn drain_pending_votes(
+    pending_votes: &mut PendingVotes,
+    produced_through: attestor_primitives::Height,
+    mut has_local_data: impl FnMut(attestor_primitives::Height) -> bool,
+) -> Vec<Vote> {
+    let heights = pending_votes
+        .keys()
+        .copied()
+        .filter(|height| *height <= produced_through)
+        .collect::<Vec<_>>();
+    let mut ready = Vec::new();
+
+    for height in heights {
+        let Some(queued) = pending_votes.remove(&height) else {
+            continue;
+        };
+        if has_local_data(height) {
+            ready.extend(queued.into_values());
+        }
+    }
+
+    ready
+}
 
 #[allow(clippy::too_many_arguments)]
 async fn handle_swarm(
@@ -437,6 +465,7 @@ async fn handle_swarm(
             // peers I'm actually talking to right now”.
             if num_established == 0 {
                 shared.metrics.note_peer_disconnected();
+                shared.health.note_peer_disconnected();
             }
             ping_failures.remove(&connection_id);
             // The mesh hint (`can_broadcast`) is recomputed in the run loop after every event —
@@ -466,6 +495,7 @@ async fn handle_swarm(
             // which can hold a peer with no live connection.
             if num_established.get() == 1 {
                 shared.metrics.note_peer_connected();
+                shared.health.note_peer_connected();
             }
             // Any established connection (either direction) proves the peer reachable — restart
             // its dial-failure count from a clean slate.
@@ -1020,7 +1050,7 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
 
 #[cfg(test)]
 mod tests {
-    use super::{deny_decision, is_bufferable};
+    use super::{deny_decision, drain_pending_votes, is_bufferable, PendingVotes};
     use attestor_primitives::AttestorId;
 
     fn att(n: u8) -> AttestorId {
@@ -1137,6 +1167,28 @@ mod tests {
             attestor: att(1),
             signature_bls: attestor_primitives::bls::WrapEncode(sk.sign([0u8; 1])),
         }
+    }
+
+    #[test]
+    fn coalesced_local_production_drains_every_ready_height() {
+        let mut pending = PendingVotes::new();
+        pending.entry(100).or_default().insert(att(1), vote_at(100));
+        pending.entry(110).or_default().insert(att(1), vote_at(110));
+        pending.entry(120).or_default().insert(att(1), vote_at(120));
+        pending.entry(130).or_default().insert(att(1), vote_at(130));
+
+        // Simulate watch coalescing: p2p observes only the latest production update (120), while
+        // proof data for 100 and 120 is already cached. Height 110 was skipped locally and is
+        // stale; 130 is still in the future and must remain buffered.
+        let mut drained =
+            drain_pending_votes(&mut pending, 120, |height| matches!(height, 100 | 120));
+        drained.sort_unstable_by_key(|vote| vote.height);
+
+        assert_eq!(
+            drained.iter().map(|vote| vote.height).collect::<Vec<_>>(),
+            vec![100, 120]
+        );
+        assert_eq!(pending.keys().copied().collect::<Vec<_>>(), vec![130]);
     }
 
     #[test]
