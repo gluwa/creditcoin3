@@ -628,6 +628,32 @@ jobs:
         run: |
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
+      - name: Check attestor logs for errors
+        if: always()
+        run: |
+          # Gate on tracing-format ` ERROR ` lines from the attestors (check-logs-for-error.sh
+          # greps the node-log `ERROR:` shape, which never matches tracing output). Runs BEFORE
+          # the SIGTERM/TERM teardown steps so shutdown noise can't leak in. Connection /
+          # reconnect / subscription errors are allowlisted: the outage-recovery scenarios above
+          # deliberately kill the CC3 node and Anvil, and riding those out loudly is the
+          # designed behavior — the gate is for everything else (task failures, submission
+          # errors, invalid event mappings).
+          FAILED=0
+          for LOG in /var/tmp/integration-test-attestor-network/zombienet-*.log; do
+            echo "INFO: inspecting '$LOG'"
+            ERRS=$(grep -E ' ERROR ' "$LOG" \
+              | grep -vE 'Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed' \
+              | grep -cE ' ERROR ' || true)
+            if [ "$ERRS" -gt 0 ]; then
+              echo "ERROR: found $ERRS unexpected attestor ERROR line(s) in '$LOG':"
+              grep -E ' ERROR ' "$LOG" \
+                | grep -vE 'Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed' \
+                | head -20
+              FAILED=1
+            fi
+          done
+          exit $FAILED
+
       - name: Upload checkpoints.csv
         if: always()
         uses: actions/upload-artifact@v7
