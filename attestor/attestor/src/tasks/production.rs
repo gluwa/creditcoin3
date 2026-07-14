@@ -325,6 +325,15 @@ async fn handle_one(
         CcEvent::TargetSampleSizeChanged(_, target) => {
             tracing::info!(target, "📏 new target sample size");
             shared.pool_send.note_target_sample_size_change(target);
+            // Keep the health p2p-isolation axis in step with the live quorum — it was armed
+            // once at startup from the then-current target. Without this, a target dropping to
+            // a quorum of 1 leaves a correctly-peerless sole attestor flagged `Isolated`
+            // (restart loop: a fresh pod won't conjure peers), and a target growing past 1
+            // after a single-attestor start leaves isolation detection permanently disarmed.
+            // `set_p2p_expected` is idempotent and re-stamps the peerless clock on the
+            // disarm→arm transition, so re-arming gets a fresh grace window.
+            let quorum = attestor_primitives::calculate_threshold(target) as usize;
+            shared.health.set_p2p_expected(quorum > 1);
         }
 
         // 3b] new max catchup (block-count bound per continuity proof). Keep the off-chain view
