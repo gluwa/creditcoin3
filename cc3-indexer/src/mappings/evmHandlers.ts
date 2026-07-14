@@ -77,6 +77,15 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
 
     logger.info(`OutboxCreated: outbox=${address}, chainKey=${chainKey}, factory=${factoryId}`);
 
+    // Idempotency guard: reprocessing the same OutboxCreated log (reorg replay, reindex overlap)
+    // must not register a SECOND dynamic datasource for the same address — duplicate datasources
+    // make every subsequent MessagePublished on this Outbox fire its handler once per duplicate.
+    const existing = await OutboxContract.get(address);
+    if (existing) {
+        logger.warn(`OutboxCreated for already-registered outbox ${address} — skipping duplicate datasource`);
+        return;
+    }
+
     const outbox = OutboxContract.create({
         id: address,
         chainKey,
@@ -111,6 +120,16 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
 
     const [messageId, emitterAddress, requiresAck, payload] = event.args;
     logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitterAddress}, requiresAck=${requiresAck}`);
+
+    // Idempotency guard: a replayed MessagePublished (reorg replay, reindex overlap, duplicate
+    // datasource) must not reset a message that handleMessageAcknowledged already marked
+    // acknowledged — the publish fields are immutable per messageId, so there is nothing to
+    // update either. Skip instead of overwriting.
+    const existing = await OutboxMessage.get(messageId);
+    if (existing) {
+        logger.warn(`MessagePublished replay for already-indexed message ${messageId} — keeping existing record`);
+        return;
+    }
 
     // Keyed by messageId so handleMessageAcknowledged can load-and-update the same record.
     // outboxId references the OutboxContract created by handleOutboxCreated (same lowercased address).

@@ -104,6 +104,9 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: gluwa/usc-message-relayer
+          # Enforce the pin the comment above promises — without an explicit ref, checkout
+          # builds whatever the remote's default branch happens to be at run time.
+          ref: main
           path: usc-message-relayer
 
       - name: Rust cache (usc-message-relayer)
