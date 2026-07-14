@@ -117,12 +117,16 @@ impl Attestor {
         }
 
         // ONE cc3 client, shared everywhere.
-        let cc3_raw = cc_client::Client::new(
-            self.config.stream.url_cc3.as_ref().as_ref(),
-            secret_str.as_str(),
-        )
-        .await
-        .map_err(Error::Init)?;
+        let cc3_raw = tokio::select! {
+            _ = token.cancelled() => {
+                tracing::info!("🔌 shutdown during startup (cc3 client)");
+                return Ok(());
+            }
+            result = cc_client::Client::new(
+                self.config.stream.url_cc3.as_ref().as_ref(),
+                secret_str.as_str(),
+            ) => result.map_err(Error::Init)?,
+        };
         let cc3 = Arc::new(cc3_raw);
 
         // -------------------------* liveness endpoint (early) *------------------------------- //
@@ -164,9 +168,15 @@ impl Attestor {
         // a breaking Attestation pallet change.
         startup::reconcile_metadata(&cc3).await?;
 
-        let eth = eth::Client::new(self.config.stream.url_eth.as_ref().as_ref(), None)
-            .await
-            .map_err(Error::Init)?;
+        let eth = tokio::select! {
+            _ = token.cancelled() => {
+                tracing::info!("🔌 shutdown during startup (eth client)");
+                return Ok(());
+            }
+            result = eth::Client::new(self.config.stream.url_eth.as_ref().as_ref(), None) => {
+                result.map_err(Error::Init)?
+            }
+        };
 
         // ----------------------------------* chain config *----------------------------------- //
 
@@ -249,6 +259,7 @@ impl Attestor {
             .map_err(|_| Error::MissingTargetSampleSize(chain_key))?;
         let quorum = NonZero::new(attestor_primitives::calculate_threshold(target) as usize)
             .expect("quorum > 0");
+        health.set_p2p_expected(quorum.get() > 1);
 
         // On-chain `MaxCatchup` (block-count bound per continuity proof). The runtime rejects
         // zero at `set_max_catchup`, so the fallback only guards a default-free chain state.
@@ -487,8 +498,33 @@ impl Attestor {
             }
         }
 
-        // Drain remaining tasks.
-        while let Some(joined) = set.join_next().await {
+        // Give cooperative cancellation a bounded window. A task stuck in a non-cancellable
+        // dependency must not hold the process past the pod's termination grace period.
+        const SHUTDOWN_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+        let drained = tokio::time::timeout(SHUTDOWN_DRAIN_TIMEOUT, async {
+            let mut joined_tasks = Vec::new();
+            while let Some(joined) = set.join_next().await {
+                joined_tasks.push(joined);
+            }
+            joined_tasks
+        })
+        .await;
+
+        let joined_tasks = match drained {
+            Ok(joined_tasks) => joined_tasks,
+            Err(_) => {
+                tracing::error!(
+                    timeout_secs = SHUTDOWN_DRAIN_TIMEOUT.as_secs(),
+                    remaining = set.len(),
+                    "⏰ shutdown drain timed out — aborting remaining tasks"
+                );
+                set.abort_all();
+                while set.join_next().await.is_some() {}
+                Vec::new()
+            }
+        };
+
+        for joined in joined_tasks {
             match joined {
                 Ok(Ok(name)) => tracing::info!(task = name, "🟢 task exited cleanly"),
                 Ok(Err(err)) => {

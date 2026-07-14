@@ -304,7 +304,14 @@ impl Client {
     pub async fn new(url: impl Into<String> + Clone, key: &str) -> anyhow::Result<Self> {
         let signer = signer::CC3Signer::new(key)?;
         let url: String = url.into();
-        let inner = Self::build_inner(&url).await?;
+        let inner = tokio::time::timeout(CONNECT_TIMEOUT, Self::build_inner(&url))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "initial cc3 dial timed out after {}s",
+                    CONNECT_TIMEOUT.as_secs()
+                )
+            })??;
 
         Ok(Self {
             signer,

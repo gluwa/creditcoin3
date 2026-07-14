@@ -159,9 +159,10 @@ async fn handle_quorum(
             shared
                 .pool_send
                 .note_target_sample_size_change(target_sample_size);
-            // `Permit` is `Copy` with no Drop side effect; explicitly discard it (it's
-            // `#[must_use]`) without `mark_valid`/`mark_invalid` so the fork stays in the pool.
-            let _ = permit;
+            // If stale/unverifiable votes still make the raw fork meet the raised target, prevent
+            // `recv()` from immediately yielding it again. The votes remain intact and the fork
+            // is reconsidered after a new vote or active-set refresh.
+            pool_rx.defer(permit);
             return Ok(());
         }
         Err(ValidationError::External(e)) => return Err(e),
@@ -196,7 +197,7 @@ async fn handle_submission_result(
     submission: Submission,
 ) {
     let Submission { height, outcome } = submission;
-    let unresolved = matches!(outcome, Outcome::Unresolved);
+    let unlock_if_unfinalized = should_unlock_if_unfinalized(&outcome);
     match outcome {
         Outcome::Eligible {
             result: Ok(events), ..
@@ -280,11 +281,11 @@ async fn handle_submission_result(
     // Wait briefly for this height to finalize on chain before pulling the next stash.
     wait_finalized(shared, height).await;
 
-    // Unresolved outcome (timeout, txpool rejection, chilled skip, rpc failure): if the height
-    // *still* hasn't finalized after the bounded wait, clear the local validation lock. Leaving
-    // it set would reject every future vote at this height, blocking same-height retries until
-    // an unrelated recovery path happened to clear it.
-    if unresolved {
+    // Unresolved/invalid outcome (timeout, txpool rejection, chilled skip, rpc failure): if the
+    // height *still* hasn't finalized after the bounded wait, clear the local validation lock.
+    // Leaving it set would reject every future vote at this height, blocking same-height retries
+    // until an unrelated recovery path happened to clear it.
+    if unlock_if_unfinalized {
         let finalized = shared
             .latest_finalized_rx
             .borrow()
@@ -676,6 +677,19 @@ enum Outcome {
     Unresolved,
 }
 
+fn should_unlock_if_unfinalized(outcome: &Outcome) -> bool {
+    matches!(
+        outcome,
+        Outcome::Unresolved
+            | Outcome::Eligible {
+                result: Err(subxt::Error::Transaction(
+                    subxt::error::TransactionError::Invalid(_)
+                )),
+                ..
+            }
+    )
+}
+
 fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHandle<Submission> {
     tokio::spawn(async move {
         let height = agg.height;
@@ -974,7 +988,7 @@ async fn wait_finalized(shared: &Arc<Shared>, height: Height) {
 mod tests {
     use attestor_primitives::Digest;
 
-    use super::validate_proof_chain;
+    use super::{should_unlock_if_unfinalized, validate_proof_chain, Outcome};
     use crate::proof_cache::CachedProof;
 
     fn cached(prev: Option<Digest>) -> CachedProof {
@@ -988,6 +1002,19 @@ mod tests {
             ),
             continuity_proof: Default::default(),
         }
+    }
+
+    #[test]
+    fn invalid_transaction_unlocks_if_competing_finalization_never_arrives() {
+        let outcome = Outcome::Eligible {
+            result: Err(subxt::Error::Transaction(
+                subxt::error::TransactionError::Invalid("stale transaction".into()),
+            )),
+            votes: Vec::new(),
+        };
+        assert!(should_unlock_if_unfinalized(&outcome));
+        assert!(should_unlock_if_unfinalized(&Outcome::Unresolved));
+        assert!(!should_unlock_if_unfinalized(&Outcome::Finalized));
     }
 
     #[test]

@@ -15,7 +15,7 @@
 //! `cc_client::Client::reconnect`, which timestamps each attempt and counts each success; we
 //! read both here.
 //!
-//! Two independent axes decide liveness:
+//! Three independent axes decide liveness:
 //!
 //!   1. **cc3 progress** — a cc3 finalized batch was handled recently, or reconnects are being
 //!      attempted *and failing* (outage ride-out). Catches a fully wedged production loop.
@@ -27,9 +27,14 @@
 //!      everyone) does not trip it — correctly, since a restart would not help. It is armed only
 //!      after `STALL_DEADLINE` of continuous eligibility, so boot, election warm-up, and
 //!      chill→re-elect transitions get a generous grace window.
+//!   3. **p2p connectivity** — when quorum requires peers and the network is visibly finalizing
+//!      attestations, this process must not remain connectionless for a full liveness window.
+//!      The network-progress condition prevents a network-wide p2p outage from causing every pod
+//!      to restart together.
 //!
 //!   healthy  ⇔  not faulted
 //!             ∧ not stalled (axis 2)
+//!             ∧ not isolated (axis 3)
 //!             ∧ ( recent cc3 progress
 //!               ∨ recently attempted reconnects that are failing )
 //!
@@ -85,6 +90,14 @@ pub struct Health {
     /// Axis 2 is inert while false — a chilled / not-elected attestor legitimately produces
     /// nothing.
     attest_expected: AtomicBool,
+    /// Whether quorum requires another attestor. Single-attestor development committees do not
+    /// need a p2p connection and must not trip the isolation axis.
+    p2p_expected: AtomicBool,
+    /// Distinct connected peers, maintained from first-connection/last-disconnection swarm
+    /// events. Used only for liveness; Prometheus keeps its own gauge for observability.
+    connected_peers: AtomicU64,
+    /// Unix-millis when the peer count most recently fell to zero. Reset when a peer connects.
+    peerless_since_ms: AtomicU64,
     /// Unix-millis of the most recent transition of `attest_expected`. Axis 2 arms only after
     /// `STALL_DEADLINE_MS` of continuous eligibility, so re-election after a long chill doesn't
     /// trip on the ancient local-production timestamp.
@@ -118,6 +131,9 @@ pub enum Liveness {
     /// [`STALL_DEADLINE_MS`] while the network keeps finalizing attestations — the source-chain
     /// pipeline is stalled. Restart-worthy: a fresh boot rebuilds the eth streams.
     Stalled,
+    /// This eligible attestor requires peers, the network is still finalizing attestations, but
+    /// this process has had no p2p connections for a full liveness window.
+    Isolated,
 }
 
 impl Liveness {
@@ -125,7 +141,7 @@ impl Liveness {
     pub fn is_alive(self) -> bool {
         !matches!(
             self,
-            Liveness::Faulted | Liveness::Wedged | Liveness::Stalled
+            Liveness::Faulted | Liveness::Wedged | Liveness::Stalled | Liveness::Isolated
         )
     }
 }
@@ -139,6 +155,7 @@ impl std::fmt::Display for Liveness {
             Liveness::Faulted => "faulted",
             Liveness::Wedged => "wedged",
             Liveness::Stalled => "stalled",
+            Liveness::Isolated => "isolated",
         };
         f.write_str(s)
     }
@@ -155,6 +172,9 @@ impl Health {
             // construction time this attestor is eligible. Production keeps it current on every
             // election / chill / kick event.
             attest_expected: AtomicBool::new(true),
+            p2p_expected: AtomicBool::new(false),
+            connected_peers: AtomicU64::new(0),
+            peerless_since_ms: AtomicU64::new(now),
             attest_expected_since_ms: AtomicU64::new(now),
             reconnect_success_baseline: AtomicU64::new(0),
             faulted: AtomicBool::new(false),
@@ -172,6 +192,9 @@ impl Health {
         self.last_chain_attested_ms.store(now, Ordering::Relaxed);
         self.last_local_attested_ms.store(now, Ordering::Relaxed);
         self.attest_expected_since_ms.store(now, Ordering::Relaxed);
+        if self.connected_peers.load(Ordering::Relaxed) == 0 {
+            self.peerless_since_ms.store(now, Ordering::Relaxed);
+        }
         self.started.store(true, Ordering::Relaxed);
     }
 
@@ -212,7 +235,37 @@ impl Health {
     pub fn set_attest_expected(&self, expected: bool) {
         let was = self.attest_expected.swap(expected, Ordering::Relaxed);
         if was != expected {
-            self.attest_expected_since_ms
+            let now = now_unix_ms();
+            self.attest_expected_since_ms.store(now, Ordering::Relaxed);
+            if expected && self.connected_peers.load(Ordering::Relaxed) == 0 {
+                self.peerless_since_ms.store(now, Ordering::Relaxed);
+            }
+        }
+    }
+
+    pub fn set_p2p_expected(&self, expected: bool) {
+        let was = self.p2p_expected.swap(expected, Ordering::Relaxed);
+        if expected && !was && self.connected_peers.load(Ordering::Relaxed) == 0 {
+            self.peerless_since_ms
+                .store(now_unix_ms(), Ordering::Relaxed);
+        }
+    }
+
+    pub fn note_peer_connected(&self) {
+        if self.connected_peers.fetch_add(1, Ordering::Relaxed) == 0 {
+            self.peerless_since_ms.store(0, Ordering::Relaxed);
+        }
+    }
+
+    pub fn note_peer_disconnected(&self) {
+        let previous = self
+            .connected_peers
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |count| {
+                count.checked_sub(1)
+            })
+            .unwrap_or(0);
+        if previous == 1 {
+            self.peerless_since_ms
                 .store(now_unix_ms(), Ordering::Relaxed);
         }
     }
@@ -256,6 +309,17 @@ impl Health {
         let expected_since = self.attest_expected_since_ms.load(Ordering::Relaxed);
         let chain_attested = self.last_chain_attested_ms.load(Ordering::Relaxed);
         let local_attested = self.last_local_attested_ms.load(Ordering::Relaxed);
+        let p2p_expected = self.p2p_expected.load(Ordering::Relaxed);
+        let connected_peers = self.connected_peers.load(Ordering::Relaxed);
+        let peerless_since = self.peerless_since_ms.load(Ordering::Relaxed);
+        if expected
+            && p2p_expected
+            && connected_peers == 0
+            && now.saturating_sub(peerless_since) >= LIVENESS_DEADLINE_MS
+            && now.saturating_sub(chain_attested) < LIVENESS_DEADLINE_MS
+        {
+            return Liveness::Isolated;
+        }
         if expected
             && now.saturating_sub(expected_since) >= STALL_DEADLINE_MS
             && now.saturating_sub(chain_attested) < LIVENESS_DEADLINE_MS
@@ -306,6 +370,9 @@ mod tests {
             last_chain_attested_ms: AtomicU64::new(ts),
             last_local_attested_ms: AtomicU64::new(ts),
             attest_expected: AtomicBool::new(true),
+            p2p_expected: AtomicBool::new(false),
+            connected_peers: AtomicU64::new(0),
+            peerless_since_ms: AtomicU64::new(ts),
             attest_expected_since_ms: AtomicU64::new(ts),
             reconnect_success_baseline: AtomicU64::new(0),
             faulted: AtomicBool::new(false),
@@ -409,6 +476,22 @@ mod tests {
     }
 
     #[test]
+    fn prolonged_peerless_state_while_network_attests_is_isolated() {
+        let start = 1;
+        let h = health_at(start);
+        h.p2p_expected.store(true, Ordering::Relaxed);
+        let now = start + LIVENESS_DEADLINE_MS + 1;
+        h.last_progress_ms.store(now, Ordering::Relaxed);
+        h.last_chain_attested_ms.store(now, Ordering::Relaxed);
+        h.last_local_attested_ms.store(now, Ordering::Relaxed);
+
+        assert_eq!(h.observe(now, 0, 0), Liveness::Isolated);
+
+        h.note_peer_connected();
+        assert_eq!(h.observe(now, 0, 0), Liveness::Progressing);
+    }
+
+    #[test]
     fn stall_axis_inert_when_not_eligible() {
         let start = 0;
         let h = health_at(start);
@@ -469,5 +552,6 @@ mod tests {
         assert!(!Liveness::Faulted.is_alive());
         assert!(!Liveness::Wedged.is_alive());
         assert!(!Liveness::Stalled.is_alive());
+        assert!(!Liveness::Isolated.is_alive());
     }
 }
