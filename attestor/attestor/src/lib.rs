@@ -528,10 +528,16 @@ impl Attestor {
             match joined {
                 Ok(Ok(name)) => tracing::info!(task = name, "🟢 task exited cleanly"),
                 Ok(Err(err)) => {
-                    tracing::error!(%err, "⛔ task failed during shutdown");
-                    if result.is_ok() {
-                        result = Err(err);
-                    }
+                    // Not promoted into the process result. Tasks legitimately surface errors
+                    // on the way out of a cancellation-driven drain — most commonly
+                    // `with_retries` mapping the fired token to a synthetic RPC error that the
+                    // task then propagates with `?` — and promoting those turned every clean
+                    // SIGTERM into a nonzero exit. This costs nothing for real faults: a
+                    // shutdown *caused by* a task failure already carries that failure in
+                    // `result` (the promotion above only ever fired on the clean-signal path),
+                    // and panics during the drain are still promoted below — a panic is never
+                    // part of a clean exit.
+                    tracing::warn!(%err, "🌀 task errored during shutdown drain (expected when cancellation interrupts in-flight RPC)");
                 }
                 Err(join_err) => {
                     tracing::error!(%join_err, "⛔ task join error during shutdown");
