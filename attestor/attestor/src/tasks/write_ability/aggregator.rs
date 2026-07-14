@@ -88,6 +88,30 @@ impl VoteAggregator {
         newly_completed
     }
 
+    /// Drop signatures from signers that left the attestor set, across every tracked entry.
+    ///
+    /// Votes are only *admitted* while their signer is in the active set, but a hot-reload that
+    /// removes a signer must also retro-actively discount the votes it already contributed:
+    /// otherwise stale signatures keep inflating `signer_count`, and (combined with a lowered
+    /// threshold) a message could read "complete" with fewer *current* attestors than the
+    /// destination validator will accept. An entry that falls below the threshold is
+    /// un-completed (TTL restarted), mirroring the raised-quorum semantics in [`set_threshold`];
+    /// pruning can never newly complete an entry, so nothing is returned. Callers changing the
+    /// set size should follow with [`set_threshold`] to re-evaluate against the new quorum.
+    pub fn retain_signers(&mut self, keep: &HashSet<Address>, now: Instant) {
+        for entry in self.entries.values_mut() {
+            let before = entry.signers.len();
+            entry.signers.retain(|s| keep.contains(s));
+            if entry.signers.len() < before
+                && entry.completed
+                && entry.signers.len() < self.threshold
+            {
+                entry.completed = false;
+                entry.inserted_at = now;
+            }
+        }
+    }
+
     /// Number of distinct hashes currently tracked.
     #[must_use]
     pub fn tracked(&self) -> usize {
@@ -219,6 +243,43 @@ mod tests {
         agg.add_vote(h, addr(1), now);
         assert_eq!(agg.add_vote(h, addr(1), now), VoteOutcome::Duplicate);
         assert_eq!(agg.signer_count(&h), 1);
+    }
+
+    /// Hot-reload removing a signer must retro-actively discount its votes: stale signatures may
+    /// not keep counting toward completion, and a completed entry that falls below the threshold
+    /// re-opens so it can only re-fire once enough *current* attestors have signed.
+    #[test]
+    fn retain_signers_discounts_removed_and_reopens_completed() {
+        let mut agg = VoteAggregator::new(2, 100, Duration::from_secs(60));
+        let now = Instant::now();
+        let h = [9u8; 32];
+        agg.note_indexed(h, now);
+        agg.add_vote(h, addr(1), now);
+        assert_eq!(
+            agg.add_vote(h, addr(2), now),
+            VoteOutcome::Accepted {
+                reached_threshold: true
+            }
+        );
+
+        // Signer 2 leaves the set: its signature no longer counts and the entry re-opens.
+        let keep: HashSet<Address> = [addr(1), addr(3)].into_iter().collect();
+        agg.retain_signers(&keep, now);
+        assert_eq!(agg.signer_count(&h), 1);
+
+        // The threshold re-fires only once a *current* signer completes the quorum again.
+        assert_eq!(
+            agg.add_vote(h, addr(3), now),
+            VoteOutcome::Accepted {
+                reached_threshold: true
+            }
+        );
+
+        // Pruning signers NOT in an entry leaves it untouched (and never un-completes it):
+        // the still-complete entry does not re-fire on a later duplicate vote.
+        agg.retain_signers(&keep, now);
+        assert_eq!(agg.signer_count(&h), 2);
+        assert_eq!(agg.add_vote(h, addr(1), now), VoteOutcome::Duplicate);
     }
 
     #[test]
