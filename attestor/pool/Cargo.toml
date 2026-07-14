@@ -23,3 +23,7 @@ sp-core = { workspace = true }
 tracing = { workspace = true }
 # `Receiver::recv` uses `tokio::sync::Notify` — needs the `sync` feature, that's it.
 tokio = { workspace = true, features = ["sync"] }
+
+[dev-dependencies]
+# Async regression tests for the notify seams (`recv()` wake-ups) need a runtime + timeouts.
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
