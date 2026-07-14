@@ -720,6 +720,17 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         .attestation()
         .commit_attestation(agg.attestation_signed.into());
     const POOL_INVALID_TX: i32 = 1010;
+    // Txpool refused to *replace* an in-pool tx with the same nonce ("Priority is too low").
+    // That in-pool tx is almost always our own earlier commit_attestation still pending
+    // (subxt's default nonce comes from chain state, not the pool, so a resubmission reuses
+    // the pending tx's nonce with equal-or-lower priority). Resubmitting cannot succeed until
+    // that tx resolves — retrying here spins at wire speed against a healthy node.
+    const POOL_TOO_LOW_PRIORITY: i32 = 1014;
+    // Pace the generic rpc-error retry arm. `Client::reconnect` succeeds instantly against a
+    // healthy node (and a success resets its shared backoff), so without a pause a
+    // deterministic rejection that isn't specially classified above would loop
+    // submit → reconnect-ok → resubmit at ~50Hz until `submit_deadline`.
+    const RESUBMIT_PAUSE: std::time::Duration = std::time::Duration::from_secs(2);
 
     // Bound the submit-retry loop as a whole. Transient RPC errors ride out via reconnect
     // within this window; a *deterministic* rejection (metadata drift, a proxy refusing the
@@ -783,11 +794,30 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
                             );
                             return OutcomeInternal::Unresolved;
                         }
+                        if obj.code() == POOL_TOO_LOW_PRIORITY {
+                            // A same-nonce tx (ours, still pending) already occupies the pool
+                            // slot — see POOL_TOO_LOW_PRIORITY. Same shape as the 1010 race:
+                            // Unresolved lets the handler's bounded wait observe it landing,
+                            // and unlocks the height if it never does.
+                            tracing::info!(
+                                height,
+                                code = obj.code(),
+                                "🚦 same-nonce tx already pending in txpool — awaiting its resolution"
+                            );
+                            return OutcomeInternal::Unresolved;
+                        }
                     }
                 }
                 tracing::warn!(height, ?err, "submission rpc error");
                 if reconnect(shared).await.is_err() {
                     return OutcomeInternal::Unresolved;
+                }
+                // Pace the loop (see RESUBMIT_PAUSE): reconnect succeeding proves the RPC is
+                // healthy, which is exactly when an unclassified deterministic rejection would
+                // otherwise spin.
+                tokio::select! {
+                    _ = shared.token.cancelled() => return OutcomeInternal::Unresolved,
+                    () = tokio::time::sleep(RESUBMIT_PAUSE) => {}
                 }
                 // Cancellation during the retry loop: report Unresolved (mirrors the jitter
                 // path) rather than spinning through shutdown.
