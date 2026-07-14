@@ -243,6 +243,7 @@ jobs:
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           # https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure
 
+      # test if this download will work
       - name: Download 10k Anvil state
         run: |
           az storage blob download --auth-mode=login --account-name=snapshotexportaccount --container-name=usc-testing-data --name "anvil10k_blocks.json.xz" --file ./anvil10k_blocks.json.xz
