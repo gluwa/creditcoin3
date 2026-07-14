@@ -82,21 +82,49 @@ impl StreamCC3 {
         let cc3 = config.cc3;
         let backfill_min_interval = config.backfill_min_interval;
 
-        let mut finalized = cc3
-            .api()
-            .blocks()
-            .subscribe_finalized()
-            .await
-            .map_err(Error::Subxt)?;
-
-        // Seed `latest` from the first block. The stream macro takes over from there.
-        let first = finalized
-            .try_next()
-            .await
-            .map_err(Error::Subxt)?
-            .ok_or(Error::EndOfStream)?;
-        let mut latest = first.number() as u64;
-        let first_events = first.events().await.map_err(Error::Subxt)?;
+        // Initial subscription + first-block seed, under the same unbounded
+        // reconnect-and-re-subscribe policy as the steady-state repair loop below. A
+        // single-attempt initial subscribe made a boot-time WS blip construction-fatal — a
+        // pod-restart recovery for exactly the outage the stream already knows how to ride out
+        // in place (and a crash-loop under a persistently flappy RPC). Cancellation point is
+        // the sleep: callers race construction against the root token / the bounded shutdown
+        // drain, so an endless outage cannot pin shutdown.
+        let (finalized, mut latest, first_events) = {
+            let mut backoff = RESUBSCRIBE_BACKOFF_START;
+            loop {
+                let attempt = async {
+                    let mut finalized = cc3
+                        .api()
+                        .blocks()
+                        .subscribe_finalized()
+                        .await
+                        .map_err(Error::Subxt)?;
+                    // Seed from the first block. An immediately-ended stream or a failed
+                    // events fetch is the same transport blip as a failed subscribe — retry
+                    // it, don't die on it.
+                    let first = finalized
+                        .try_next()
+                        .await
+                        .map_err(Error::Subxt)?
+                        .ok_or(Error::EndOfStream)?;
+                    let latest = first.number() as u64;
+                    let events = first.events().await.map_err(Error::Subxt)?;
+                    Ok::<_, Error>((finalized, latest, events))
+                };
+                match attempt.await {
+                    Ok(seed) => break seed,
+                    Err(err) => {
+                        tracing::warn!(
+                            ?err,
+                            "🛜 initial cc3 finalized subscription failed — reconnecting + retrying"
+                        );
+                        let _ = cc3.reconnect().await;
+                        tokio::time::sleep(backoff).await;
+                        backoff = (backoff * 2).min(RESUBSCRIBE_BACKOFF_MAX);
+                    }
+                }
+            }
+        };
 
         let stream = async_stream::stream! {
             yield StreamEvents::new(latest as attestor_primitives::Height, first_events, &chain_keys);
