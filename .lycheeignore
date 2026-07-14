@@ -3,6 +3,7 @@ http://localhost(.*)
 ws|wss://(.*)
 bzz-raw://(.*)
 rpc\.(.*)\.creditcoin\.network/
+https://rpc/
 staticsitellvmhtml.z13.web.core.windows.net
 thedoctor0/zip-release@(.*)
 ludeeus/action-shellcheck@(.*)
