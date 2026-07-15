@@ -873,8 +873,22 @@ async fn handle_vote_msg(
         }
         VerifyResult::DivergentDigest => {
             tracing::warn!(digest = ?vote.digest, height = vote.height, "↯ divergent digest from peer");
-            // It might be a real fork on someone else's chain — let it propagate (Ignore = no
-            // reject) so other attestors can see it and detect a network split.
+            // We cannot verify this vote: its BLS signature is over the *signer's* local
+            // AttestationData at this height, which differs from ours (that's what makes the
+            // digest divergent), so we have no trustworthy bytes to check it against. `Ignore`
+            // (not `Reject`) because a genuine source-chain fork is not provable misbehavior —
+            // same stance as the `UnknownAttestor` arm below.
+            //
+            // NOTE: `Ignore` does NOT re-propagate the message (only `Accept` does, under
+            // gossipsub's `validate_messages()` — this dead-ends the vote here). That is
+            // deliberate: forwarding a payload we could not verify would relay unverified data
+            // (spam amplification) and let a peer get a forged divergent vote propagated in an
+            // honest attestor's name. It is also not admitted to the pool for the same reason —
+            // an unverifiable vote must not seed equivocation state that could frame its
+            // claimed signer. Legitimate fork votes still reach every node that shares the
+            // divergent digest (and can therefore verify + `Accept`+forward them): in the
+            // bootnode-meshed validator set the same-digest holders are mutually reachable
+            // without transiting a divergent-digest node, so quorum still forms on each side.
             Acceptance::Ignore
         }
         VerifyResult::BadSignature => {
