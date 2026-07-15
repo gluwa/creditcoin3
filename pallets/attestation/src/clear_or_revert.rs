@@ -158,11 +158,18 @@ impl<T: Config> Pallet<T> {
         // prevents us from looping and reading state until we max out the block's compute.
         let mut remaining_pivots = u32::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK * 2);
 
+        // `stop_height` is a raw block height, but `next_pivot`/`current_pivot` are
+        // bucket pivots (multiples of CHECKPOINT_BUCKET_SIZE). Compare like-for-like by
+        // normalizing the stop height to the pivot of the bucket that contains it,
+        // otherwise the loop bails immediately whenever `stop_height < CHECKPOINT_BUCKET_SIZE`
+        // and no post-revert checkpoints get pruned.
+        let stop_pivot = Self::compute_block_index_for(state.stop_height);
+
         while remaining_entries > 0 && remaining_pivots > 0 {
             let current_pivot = state.next_pivot;
 
-            // 1) If state.next_pivot > state.stop_height, then we are done clearing checkpoints.
-            if current_pivot > state.stop_height {
+            // 1) If current_pivot is past the bucket holding the last checkpoint, we are done.
+            if current_pivot > stop_pivot {
                 CheckpointPruningStates::<T>::remove(chain_key);
                 w = w.saturating_add(T::DbWeight::get().writes(1));
                 return w;
