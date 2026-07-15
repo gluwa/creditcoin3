@@ -56,8 +56,6 @@ pub const MAX_CATCHUP: std::num::NonZero<attestor_primitives::Height> =
 
 pub const MAX_CONCURRENT_RPC_CALLS: std::num::NonZeroUsize = std::num::NonZero::new(10).unwrap();
 
-pub const WORKER_COUNT: usize = 4;
-
 /// Minimum balance required for an attestor to operate.
 /// This is equivalent to 1 CTC.
 pub const MIN_BALANCE: u128 = 1_000_000_000_000_000_000;
