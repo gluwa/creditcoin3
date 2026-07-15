@@ -291,33 +291,63 @@ async fn handle_cc3_batch(
 /// and enables only if still current — so a chill/kick landing inside the warm-up window cancels
 /// the pending enable instead of racing it. `set_attest_expected` is set immediately in all cases
 /// (the stall axis re-arms with a full grace window that dwarfs the 30s warm-up).
+/// What an eligibility event should do, decided purely from the previous *target* and the new
+/// eligibility. Split out so the transition matrix is unit-testable without a full `Shared`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EligibilityAction {
+    /// Target unchanged — do nothing (crucially: no `eligibility_gen` bump, so a pending warm-up
+    /// survives unrelated `AttestorKicked` / peer-chill events that re-fire the handler).
+    NoOp,
+    /// Target went true→false — disable immediately.
+    DisableNow,
+    /// Target went false→true — warm up before enabling (peers need `POST_ELECTION_WARMUP` to
+    /// refresh their BLS stores; un-warmed first votes are dropped and never redelivered).
+    WarmUpEnable,
+}
+
+fn eligibility_action(prev_target: bool, new_eligible: bool) -> EligibilityAction {
+    match (prev_target, new_eligible) {
+        (a, b) if a == b => EligibilityAction::NoOp,
+        (_, true) => EligibilityAction::WarmUpEnable,
+        (_, false) => EligibilityAction::DisableNow,
+    }
+}
+
 fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
     use std::sync::atomic::Ordering;
-    let gen = shared
-        .eligibility_gen
-        .fetch_add(1, Ordering::SeqCst)
-        .wrapping_add(1);
-    shared.health.set_attest_expected(eligible);
-
-    if eligible && !*shared.can_attest_rx.borrow() {
-        tracing::info!("⏳ eligible — warming up before attesting (peers refreshing BLS stores)");
-        let shared = shared.clone();
-        tokio::spawn(async move {
-            tokio::select! {
-                _ = shared.token.cancelled() => {}
-                () = tokio::time::sleep(common::constants::POST_ELECTION_WARMUP) => {
-                    if shared.eligibility_gen.load(Ordering::SeqCst) == gen {
-                        let _ = shared.can_attest_tx.send(true);
-                        tracing::info!("☀️ warm-up complete — attesting");
-                    } else {
-                        tracing::info!("↩️ warm-up superseded by a later eligibility change — not enabling");
+    let prev_target = shared.attest_target.swap(eligible, Ordering::SeqCst);
+    match eligibility_action(prev_target, eligible) {
+        EligibilityAction::NoOp => {}
+        EligibilityAction::DisableNow => {
+            // Bump the generation so any pending warm-up sees a stale value and does not enable.
+            shared.eligibility_gen.fetch_add(1, Ordering::SeqCst);
+            shared.health.set_attest_expected(false);
+            let _ = shared.can_attest_tx.send(false);
+        }
+        EligibilityAction::WarmUpEnable => {
+            let gen = shared
+                .eligibility_gen
+                .fetch_add(1, Ordering::SeqCst)
+                .wrapping_add(1);
+            shared.health.set_attest_expected(true);
+            tracing::info!(
+                "⏳ eligible — warming up before attesting (peers refreshing BLS stores)"
+            );
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = shared.token.cancelled() => {}
+                    () = tokio::time::sleep(common::constants::POST_ELECTION_WARMUP) => {
+                        if shared.eligibility_gen.load(Ordering::SeqCst) == gen {
+                            let _ = shared.can_attest_tx.send(true);
+                            tracing::info!("☀️ warm-up complete — attesting");
+                        } else {
+                            tracing::info!("↩️ warm-up superseded by a later eligibility change — not enabling");
+                        }
                     }
                 }
-            }
-        });
-    } else {
-        // Disable now, or re-enable with no gap when we were already attesting.
-        let _ = shared.can_attest_tx.send(eligible);
+            });
+        }
     }
 }
 
@@ -582,5 +612,39 @@ async fn wait_for_block_attested(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{eligibility_action, EligibilityAction};
+
+    /// The full eligibility transition matrix. Regression pin for the warm-up logic: the bug that
+    /// motivated the target guard was unrelated `AttestorKicked` events (target unchanged) being
+    /// treated as transitions and cancelling a pending warm-up.
+    #[test]
+    fn eligibility_action_matrix() {
+        // Target unchanged → NoOp (no generation bump, so a pending warm-up survives).
+        assert_eq!(
+            eligibility_action(true, true),
+            EligibilityAction::NoOp,
+            "still-eligible (e.g. an unrelated kick) must not disturb a warm-up"
+        );
+        assert_eq!(
+            eligibility_action(false, false),
+            EligibilityAction::NoOp,
+            "still-ineligible must be inert"
+        );
+        // Genuine transitions.
+        assert_eq!(
+            eligibility_action(false, true),
+            EligibilityAction::WarmUpEnable,
+            "re-election must warm up before enabling"
+        );
+        assert_eq!(
+            eligibility_action(true, false),
+            EligibilityAction::DisableNow,
+            "chill/kick must disable immediately"
+        );
     }
 }

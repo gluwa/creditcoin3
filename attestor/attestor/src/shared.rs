@@ -64,9 +64,18 @@ pub struct Shared {
     /// (committee changes) and the p2p task must never block production on backpressure.
     pub peer_deactivated_tx: mpsc::UnboundedSender<attestor_primitives::AttestorId>,
 
-    /// Monotonic counter bumped on every eligibility transition (election / chill / kick). A
-    /// warm-up task spawned on a disabled→enabled transition captures the value and only enables
-    /// `can_attest` if it is still current at wake time — so a chill landing during the warm-up
+    /// The *desired* eligibility, updated synchronously on every eligibility event. Distinct from
+    /// `can_attest` (which lags by the warm-up on a disabled→enabled transition): a warm-up-pending
+    /// node has `attest_target == true` while `can_attest` is still false. `apply_eligibility` is a
+    /// no-op when the target is unchanged, so unrelated `AttestorKicked` / peer-chill events (which
+    /// leave local eligibility untouched but fire the handler) don't bump `eligibility_gen` and
+    /// cancel a pending warm-up. Initialized to match the boot `can_attest` value (`true`: the node
+    /// only starts after `wait_for_eligible` + startup warm-up).
+    pub attest_target: std::sync::atomic::AtomicBool,
+
+    /// Monotonic counter bumped on every genuine eligibility *transition* (via `apply_eligibility`).
+    /// A warm-up task spawned on a disabled→enabled transition captures the value and only enables
+    /// `can_attest` if it is still current at wake time — so a real chill landing during the warm-up
     /// window cancels the pending enable rather than racing it.
     pub eligibility_gen: AtomicU64,
 
