@@ -396,7 +396,7 @@ jobs:
           .github/wait-for-creditcoin.sh
 
       - name: Install JS Dependencies
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: 'yarn'
@@ -489,7 +489,7 @@ jobs:
       [self-hosted, "workflow-${{ github.run_id }}", "type-runtime-upgrade"]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Download creditcoin3-node from release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
@@ -523,7 +523,7 @@ jobs:
           .github/wait-for-creditcoin.sh
 
       - name: Install JS Dependencies
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: 'yarn'
