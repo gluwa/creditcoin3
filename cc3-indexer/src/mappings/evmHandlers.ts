@@ -86,6 +86,17 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         return;
     }
 
+    // Spin up a dynamic datasource that indexes this Outbox's messages. `{ address }` is spread
+    // into the 'Outbox' template's processor.options, binding it to this instance.
+    //
+    // Register the datasource BEFORE persisting the entity so the saved `OutboxContract` is a
+    // "fully processed" marker: the idempotency guard above trusts it to mean the datasource is
+    // already registered. If registration fails, we must NOT leave a saved entity behind —
+    // otherwise the retry sees it, returns early, and this Outbox's MessagePublished /
+    // MessageAcknowledged events are never indexed. With this ordering a failed registration
+    // leaves no entity, so the retry re-runs both steps cleanly.
+    await createOutboxDatasource({ address });
+
     const outbox = OutboxContract.create({
         id: address,
         chainKey,
@@ -95,10 +106,6 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         createdTxHash: event.transactionHash,
     });
     await outbox.save();
-
-    // Spin up a dynamic datasource that indexes this Outbox's messages. `{ address }` is spread
-    // into the 'Outbox' template's processor.options, binding it to this instance.
-    await createOutboxDatasource({ address });
 }
 
 export async function handleMessagePublished(event: FrontierEvmEvent<MessagePublishedArgs>): Promise<void> {
