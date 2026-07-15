@@ -1,8 +1,48 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { forElapsedBlocks } from '../utils';
+import { forElapsedBlocks, sleep } from '../utils';
 import { graphQLQuery } from './common';
+
+// Poll the indexer until the latest reversion for `chainKey` is fully applied
+// (status === 'complete'). Returns once settled or throws after the timeout so a
+// genuine indexer failure still surfaces as a test failure rather than a hang.
+async function waitForReversionComplete(chainKey: bigint, timeoutMs = 90_000, intervalMs = 2_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let lastStatus = '<none>';
+
+    while (Date.now() < deadline) {
+        const response = await graphQLQuery(
+            `query {
+                revertedAttestationChainTos(
+                    filter: { chainKey: { equalTo: "${chainKey}" }},
+                    last: 1
+                ) {
+                    nodes {
+                        status
+                    }
+                }
+            }`,
+        );
+
+        const node = response?.data?.revertedAttestationChainTos?.nodes?.[0];
+        if (node) {
+            lastStatus = node.status;
+            if (node.status === 'complete') {
+                return;
+            }
+            if (node.status === 'failed') {
+                throw new Error(`Indexer reported reversion status 'failed' for chainKey=${chainKey}`);
+            }
+        }
+
+        await sleep(intervalMs);
+    }
+
+    throw new Error(
+        `Timed out after ${timeoutMs}ms waiting for reversion to complete for chainKey=${chainKey} (last status: ${lastStatus})`,
+    );
+}
 
 describe('handleEventRevertedAttestationChainTo()', () => {
     let api: ApiPromise;
@@ -64,7 +104,12 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                 .sudo(api.tx.attestation.revertTo(chainKey, checkpointHeightToRevertTo))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
 
-            await forElapsedBlocks(api, { minBlocks: 5, maxRetries: 15 });
+            // A fixed block wait races the indexer: the assertions below query the
+            // indexer's GraphQL state, which is populated asynchronously by
+            // `handleEventRevertedAttestationChainTo`. Poll until that handler has
+            // finished applying the reversion (status === 'complete') so the reads
+            // are deterministic regardless of how quickly the indexer catches up.
+            await waitForReversionComplete(chainKey);
         }, 120_000);
 
         it('graphQL returns known RevertedAttestationChainTo entity', async () => {
