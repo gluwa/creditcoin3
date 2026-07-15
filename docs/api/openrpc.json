@@ -1,0 +1,4546 @@
+{
+  "openrpc": "1.3.2",
+  "info": {
+    "title": "Creditcoin3 Node JSON-RPC API",
+    "version": "1.0.0",
+    "description": "JSON-RPC methods exposed by the Creditcoin3 node. The node presents a hybrid interface: Ethereum-compatible EVM methods (via Frontier) alongside Substrate node/state methods, including the newer Substrate JSON-RPC spec-v2 API (chainHead/chainSpec/archive/transaction).\n\nEach method carries an `x-availability` extension:\n- `public`: callable on public endpoints (default `--rpc-methods=Auto`).\n- `unsafe-local-only`: advertised by `rpc_methods` but only callable over localhost.\n- `opt-in-ethapi`: only present when the node is started with `--ethapi debug,trace` (NOT exposed on mainnet).\n- `dev-sealing`: only present on dev nodes started with `--sealing` (NOT exposed on mainnet).\n\nThe public method set was verified against mainnet (`rpc_methods`).",
+    "license": {
+      "name": "Apache-2.0"
+    }
+  },
+  "servers": [
+    {
+      "name": "Creditcoin3 Mainnet",
+      "url": "https://mainnet3.creditcoin.network"
+    },
+    {
+      "name": "Creditcoin3 Mainnet (WebSocket)",
+      "url": "wss://mainnet3.creditcoin.network"
+    }
+  ],
+  "externalDocs": {
+    "description": "Creditcoin documentation",
+    "url": "https://docs.creditcoin.org/"
+  },
+  "methods": [
+    {
+      "name": "eth_accounts",
+      "summary": "Accounts owned by the client",
+      "params": [],
+      "result": {
+        "name": "accounts",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Address"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_blockNumber",
+      "summary": "Number of the most recent block",
+      "params": [],
+      "result": {
+        "name": "blockNumber",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_call",
+      "summary": "Execute a call without creating a transaction",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/TransactionRequest"
+          },
+          "required": true
+        },
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": false
+        },
+        {
+          "name": "stateOverride",
+          "schema": {
+            "type": "object"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "returnValue",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_chainId",
+      "summary": "EIP-155 chain id",
+      "params": [],
+      "result": {
+        "name": "chainId",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_coinbase",
+      "summary": "Client coinbase address",
+      "params": [],
+      "result": {
+        "name": "address",
+        "schema": {
+          "$ref": "#/components/schemas/Address"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_estimateGas",
+      "summary": "Estimate gas needed for a transaction",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/TransactionRequest"
+          },
+          "required": true
+        },
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "gas",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_feeHistory",
+      "summary": "Historical gas fee information",
+      "params": [
+        {
+          "name": "blockCount",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        },
+        {
+          "name": "newestBlock",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        },
+        {
+          "name": "rewardPercentiles",
+          "schema": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "feeHistory",
+        "schema": {
+          "$ref": "#/components/schemas/FeeHistoryResult"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_gasPrice",
+      "summary": "Current gas price",
+      "params": [],
+      "result": {
+        "name": "gasPrice",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getBalance",
+      "summary": "Balance of an address",
+      "params": [
+        {
+          "name": "address",
+          "schema": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "required": true
+        },
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "balance",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getBlockByHash",
+      "summary": "Block by hash",
+      "params": [
+        {
+          "name": "blockHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "hydratedTransactions",
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "block",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Block"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getBlockByNumber",
+      "summary": "Block by number",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        },
+        {
+          "name": "hydratedTransactions",
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "block",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Block"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getBlockReceipts",
+      "summary": "All transaction receipts for a block",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "receipts",
+        "schema": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/Receipt"
+              }
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getBlockTransactionCountByHash",
+      "summary": "Transaction count of a block by hash",
+      "params": [
+        {
+          "name": "blockHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "count",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Quantity"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getBlockTransactionCountByNumber",
+      "summary": "Transaction count of a block by number",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "count",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Quantity"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getCode",
+      "summary": "Code at an address",
+      "params": [
+        {
+          "name": "address",
+          "schema": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "required": true
+        },
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "code",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getFilterChanges",
+      "summary": "Poll a filter for changes",
+      "params": [
+        {
+          "name": "filterId",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "changes",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getFilterLogs",
+      "summary": "All logs matching a filter id",
+      "params": [
+        {
+          "name": "filterId",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "logs",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Log"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getLogs",
+      "summary": "Logs matching a filter object",
+      "params": [
+        {
+          "name": "filter",
+          "schema": {
+            "$ref": "#/components/schemas/Filter"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "logs",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Log"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getStorageAt",
+      "summary": "Storage at an address slot",
+      "params": [
+        {
+          "name": "address",
+          "schema": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "required": true
+        },
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        },
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "value",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getTransactionByBlockHashAndIndex",
+      "summary": "Transaction by block hash and index",
+      "params": [
+        {
+          "name": "blockHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "index",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "transaction",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Transaction"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getTransactionByBlockNumberAndIndex",
+      "summary": "Transaction by block number and index",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        },
+        {
+          "name": "index",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "transaction",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Transaction"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getTransactionByHash",
+      "summary": "Transaction by hash",
+      "params": [
+        {
+          "name": "transactionHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "transaction",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Transaction"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getTransactionCount",
+      "summary": "Number of transactions sent from an address (nonce)",
+      "params": [
+        {
+          "name": "address",
+          "schema": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "required": true
+        },
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "nonce",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getTransactionReceipt",
+      "summary": "Receipt of a transaction by hash",
+      "params": [
+        {
+          "name": "transactionHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "receipt",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Receipt"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getUncleByBlockHashAndIndex",
+      "summary": "Uncle by block hash and index",
+      "params": [
+        {
+          "name": "blockHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "index",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "uncle",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Block"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getUncleByBlockNumberAndIndex",
+      "summary": "Uncle by block number and index",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        },
+        {
+          "name": "index",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "uncle",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Block"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getUncleCountByBlockHash",
+      "summary": "Uncle count by block hash",
+      "params": [
+        {
+          "name": "blockHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "count",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Quantity"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getUncleCountByBlockNumber",
+      "summary": "Uncle count by block number",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "count",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Quantity"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_getWork",
+      "summary": "Proof-of-work not used; returns an error on PoS chains",
+      "params": [],
+      "result": {
+        "name": "work",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_hashrate",
+      "summary": "Number of hashes per second (always 0)",
+      "params": [],
+      "result": {
+        "name": "hashrate",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_maxPriorityFeePerGas",
+      "summary": "Suggested priority fee per gas",
+      "params": [],
+      "result": {
+        "name": "fee",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_mining",
+      "summary": "Whether the client is mining (always false)",
+      "params": [],
+      "result": {
+        "name": "mining",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_newBlockFilter",
+      "summary": "Create a filter for new blocks",
+      "params": [],
+      "result": {
+        "name": "filterId",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_newFilter",
+      "summary": "Create a log filter",
+      "params": [
+        {
+          "name": "filter",
+          "schema": {
+            "$ref": "#/components/schemas/Filter"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "filterId",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_newPendingTransactionFilter",
+      "summary": "Create a filter for new pending transactions",
+      "params": [],
+      "result": {
+        "name": "filterId",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_protocolVersion",
+      "summary": "Ethereum protocol version",
+      "params": [],
+      "result": {
+        "name": "version",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_sendRawTransaction",
+      "summary": "Submit a signed transaction",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "transactionHash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_sendTransaction",
+      "summary": "Sign and submit a transaction (requires an unlocked local account)",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/TransactionRequest"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "transactionHash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "eth_submitHashrate",
+      "summary": "Submit mining hashrate (no-op)",
+      "params": [
+        {
+          "name": "hashrate",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        },
+        {
+          "name": "id",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "accepted",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_submitWork",
+      "summary": "Submit a proof-of-work solution (no-op)",
+      "params": [
+        {
+          "name": "nonce",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "powHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "mixDigest",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "valid",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_subscribe",
+      "summary": "Subscribe to events (newHeads, logs, newPendingTransactions, syncing)",
+      "params": [
+        {
+          "name": "kind",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "params",
+          "schema": {
+            "type": "object"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "eth_syncing",
+      "summary": "Sync status of the node",
+      "params": [],
+      "result": {
+        "name": "syncing",
+        "schema": {
+          "$ref": "#/components/schemas/SyncingStatus"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_uninstallFilter",
+      "summary": "Remove a filter",
+      "params": [
+        {
+          "name": "filterId",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "removed",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "eth_unsubscribe",
+      "summary": "Cancel a subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "net_listening",
+      "summary": "Whether the client is listening for connections",
+      "params": [],
+      "result": {
+        "name": "listening",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "net_peerCount",
+      "summary": "Number of connected peers",
+      "params": [],
+      "result": {
+        "name": "peerCount",
+        "schema": {
+          "$ref": "#/components/schemas/Quantity"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "net_version",
+      "summary": "Network id",
+      "params": [],
+      "result": {
+        "name": "networkId",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "web3_clientVersion",
+      "summary": "Client version string",
+      "params": [],
+      "result": {
+        "name": "clientVersion",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "web3_sha3",
+      "summary": "Keccak-256 of the given data",
+      "params": [
+        {
+          "name": "data",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "hash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "txpool_content",
+      "summary": "Transactions currently pending / queued",
+      "params": [],
+      "result": {
+        "name": "content",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "txpool_inspect",
+      "summary": "Textual summary of pending / queued transactions",
+      "params": [],
+      "result": {
+        "name": "inspect",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "txpool_status",
+      "summary": "Counts of pending and queued transactions",
+      "params": [],
+      "result": {
+        "name": "status",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "pending": {
+              "$ref": "#/components/schemas/Quantity"
+            },
+            "queued": {
+              "$ref": "#/components/schemas/Quantity"
+            }
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_accountNextIndex",
+      "summary": "Next nonce for an account (incl. pool)",
+      "params": [
+        {
+          "name": "account",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "index",
+        "schema": {
+          "type": "integer"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "account_nextIndex",
+      "summary": "Alias of system_accountNextIndex",
+      "params": [
+        {
+          "name": "account",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "index",
+        "schema": {
+          "type": "integer"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_addLogFilter",
+      "summary": "Add a log filter directive",
+      "params": [
+        {
+          "name": "directives",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_addReservedPeer",
+      "summary": "Add a reserved peer",
+      "params": [
+        {
+          "name": "peer",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_chain",
+      "summary": "Chain name",
+      "params": [],
+      "result": {
+        "name": "chain",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_chainType",
+      "summary": "Chain type",
+      "params": [],
+      "result": {
+        "name": "chainType",
+        "schema": {
+          "$ref": "#/components/schemas/ChainType"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_dryRun",
+      "summary": "Dry-run an extrinsic against the current best block",
+      "params": [
+        {
+          "name": "extrinsic",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_dryRunAt",
+      "summary": "Dry-run an extrinsic at a given block",
+      "params": [
+        {
+          "name": "extrinsic",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_health",
+      "summary": "Node health",
+      "params": [],
+      "result": {
+        "name": "health",
+        "schema": {
+          "$ref": "#/components/schemas/Health"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_localListenAddresses",
+      "summary": "Libp2p listen addresses",
+      "params": [],
+      "result": {
+        "name": "addresses",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_localPeerId",
+      "summary": "Base58 libp2p peer id",
+      "params": [],
+      "result": {
+        "name": "peerId",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_name",
+      "summary": "Node implementation name",
+      "params": [],
+      "result": {
+        "name": "name",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_nodeRoles",
+      "summary": "Roles the node is running as",
+      "params": [],
+      "result": {
+        "name": "roles",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_peers",
+      "summary": "Currently connected peers",
+      "params": [],
+      "result": {
+        "name": "peers",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/PeerInfo"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_properties",
+      "summary": "Chain-specific properties",
+      "params": [],
+      "result": {
+        "name": "properties",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_removeReservedPeer",
+      "summary": "Remove a reserved peer",
+      "params": [
+        {
+          "name": "peerId",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_reservedPeers",
+      "summary": "List reserved peers",
+      "params": [],
+      "result": {
+        "name": "peers",
+        "schema": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_resetLogFilter",
+      "summary": "Reset the log filter to defaults",
+      "params": [],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_syncState",
+      "summary": "Current sync state (starting/current/highest block)",
+      "params": [],
+      "result": {
+        "name": "syncState",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "system_unstable_networkState",
+      "summary": "Detailed network state",
+      "params": [],
+      "result": {
+        "name": "networkState",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "system_version",
+      "summary": "Node implementation version",
+      "params": [],
+      "result": {
+        "name": "version",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chain_getBlock",
+      "summary": "Get a block by hash (or best)",
+      "params": [
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "block",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/SignedBlock"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chain_getBlockHash",
+      "summary": "Get a block hash by number (or best)",
+      "params": [
+        {
+          "name": "blockNumber",
+          "schema": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Quantity"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "blockHash",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Hash32"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chain_getHead",
+      "summary": "Alias of chain_getBlockHash",
+      "params": [
+        {
+          "name": "blockNumber",
+          "schema": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "blockHash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chain_getFinalizedHead",
+      "summary": "Hash of the last finalized block",
+      "params": [],
+      "result": {
+        "name": "blockHash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chain_getFinalisedHead",
+      "summary": "Alias of chain_getFinalizedHead",
+      "params": [],
+      "result": {
+        "name": "blockHash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chain_getHeader",
+      "summary": "Get a block header by hash (or best)",
+      "params": [
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "header",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Header"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chain_getRuntimeVersion",
+      "summary": "Runtime version (deprecated: use state_getRuntimeVersion)",
+      "params": [
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "runtimeVersion",
+        "schema": {
+          "$ref": "#/components/schemas/RuntimeVersion"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "deprecated": true
+    },
+    {
+      "name": "chain_subscribeAllHeads",
+      "summary": "Subscribe to all block headers",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_subscribeNewHead",
+      "summary": "Subscribe to new best block headers",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_subscribeNewHeads",
+      "summary": "Subscribe to new best block headers",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_subscribeFinalizedHeads",
+      "summary": "Subscribe to finalized block headers",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_subscribeFinalisedHeads",
+      "summary": "Subscribe to finalized block headers",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_subscribeRuntimeVersion",
+      "summary": "Subscribe to runtime version changes",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_unsubscribeAllHeads",
+      "summary": "Cancel a chain subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_unsubscribeNewHead",
+      "summary": "Cancel a chain subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_unsubscribeNewHeads",
+      "summary": "Cancel a chain subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_unsubscribeFinalizedHeads",
+      "summary": "Cancel a chain subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_unsubscribeFinalisedHeads",
+      "summary": "Cancel a chain subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chain_unsubscribeRuntimeVersion",
+      "summary": "Cancel a chain subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "subscribe_newHead",
+      "summary": "Alias: subscribe to new best block headers",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "unsubscribe_newHead",
+      "summary": "Alias: cancel a new-head subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "state_call",
+      "summary": "Call a runtime API method",
+      "params": [
+        {
+          "name": "method",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "data",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_callAt",
+      "summary": "Alias of state_call",
+      "params": [
+        {
+          "name": "method",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "data",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getChildReadProof",
+      "summary": "Read proof for child-trie keys",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "keys",
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageKey"
+            }
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "proof",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getKeys",
+      "summary": "Storage keys under a prefix (deprecated: use state_getKeysPaged)",
+      "params": [
+        {
+          "name": "prefix",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "keys",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/StorageKey"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "deprecated": true
+    },
+    {
+      "name": "state_getKeysPaged",
+      "summary": "Paged storage keys under a prefix",
+      "params": [
+        {
+          "name": "prefix",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "count",
+          "schema": {
+            "type": "integer"
+          },
+          "required": true
+        },
+        {
+          "name": "startKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "keys",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/StorageKey"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getKeysPagedAt",
+      "summary": "Alias of state_getKeysPaged",
+      "params": [
+        {
+          "name": "prefix",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "count",
+          "schema": {
+            "type": "integer"
+          },
+          "required": true
+        },
+        {
+          "name": "startKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "keys",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/StorageKey"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getMetadata",
+      "summary": "Runtime metadata",
+      "params": [
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "metadata",
+        "schema": {
+          "$ref": "#/components/schemas/Metadata"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getPairs",
+      "summary": "All key/value pairs under a prefix",
+      "params": [
+        {
+          "name": "prefix",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "pairs",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "state_getReadProof",
+      "summary": "Read proof for storage keys",
+      "params": [
+        {
+          "name": "keys",
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageKey"
+            }
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "proof",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getRuntimeVersion",
+      "summary": "Runtime version at a block",
+      "params": [
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "runtimeVersion",
+        "schema": {
+          "$ref": "#/components/schemas/RuntimeVersion"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getStorage",
+      "summary": "Storage value for a key",
+      "params": [
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "value",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/StorageData"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getStorageAt",
+      "summary": "Alias of state_getStorage",
+      "params": [
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "value",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/StorageData"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getStorageHash",
+      "summary": "Hash of a storage value",
+      "params": [
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "hash",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Hash32"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getStorageHashAt",
+      "summary": "Alias of state_getStorageHash",
+      "params": [
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "hash",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Hash32"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getStorageSize",
+      "summary": "Size of a storage value in bytes",
+      "params": [
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "size",
+        "schema": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_getStorageSizeAt",
+      "summary": "Alias of state_getStorageSize",
+      "params": [
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "size",
+        "schema": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_queryStorage",
+      "summary": "Query storage change sets over a block range",
+      "params": [
+        {
+          "name": "keys",
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageKey"
+            }
+          },
+          "required": true
+        },
+        {
+          "name": "fromBlock",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "toBlock",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "changes",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "state_queryStorageAt",
+      "summary": "Query storage values at a block",
+      "params": [
+        {
+          "name": "keys",
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageKey"
+            }
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "changes",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "state_traceBlock",
+      "summary": "Trace storage access of a block",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "targets",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        },
+        {
+          "name": "storageKeys",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        },
+        {
+          "name": "methods",
+          "schema": {
+            "type": "string"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "trace",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "state_subscribeRuntimeVersion",
+      "summary": "Subscribe to runtime version changes",
+      "params": [
+        {
+          "name": "keys",
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageKey"
+            }
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "state_subscribeStorage",
+      "summary": "Subscribe to storage changes for given keys",
+      "params": [
+        {
+          "name": "keys",
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageKey"
+            }
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "state_unsubscribeRuntimeVersion",
+      "summary": "Cancel a state subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "state_unsubscribeStorage",
+      "summary": "Cancel a state subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "childstate_getKeys",
+      "summary": "Child storage keys under a prefix",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "prefix",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "keys",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/StorageKey"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "childstate_getKeysPaged",
+      "summary": "Paged child storage keys under a prefix",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "prefix",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "count",
+          "schema": {
+            "type": "integer"
+          },
+          "required": true
+        },
+        {
+          "name": "startKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "keys",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/StorageKey"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "childstate_getKeysPagedAt",
+      "summary": "Alias of childstate_getKeysPaged",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "prefix",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "count",
+          "schema": {
+            "type": "integer"
+          },
+          "required": true
+        },
+        {
+          "name": "startKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "keys",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/StorageKey"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "childstate_getStorage",
+      "summary": "Child storage value",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "value",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/StorageData"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "childstate_getStorageEntries",
+      "summary": "Multiple child storage values",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "keys",
+          "schema": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StorageKey"
+            }
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "values",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "childstate_getStorageHash",
+      "summary": "Hash of a child storage value",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "hash",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Hash32"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "childstate_getStorageSize",
+      "summary": "Size of a child storage value",
+      "params": [
+        {
+          "name": "childStorageKey",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "size",
+        "schema": {
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "author_hasKey",
+      "summary": "Whether a key is in the keystore",
+      "params": [
+        {
+          "name": "publicKey",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "keyType",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "hasKey",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "author_hasSessionKeys",
+      "summary": "Whether the keystore has the given session keys",
+      "params": [
+        {
+          "name": "sessionKeys",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "hasKeys",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "author_insertKey",
+      "summary": "Insert a key into the keystore",
+      "params": [
+        {
+          "name": "keyType",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "suri",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "publicKey",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "author_pendingExtrinsics",
+      "summary": "Extrinsics currently in the transaction pool",
+      "params": [],
+      "result": {
+        "name": "extrinsics",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Data"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "author_removeExtrinsic",
+      "summary": "Remove extrinsics from the pool",
+      "params": [
+        {
+          "name": "bytesOrHash",
+          "schema": {
+            "type": "array"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "removed",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Hash32"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "author_rotateKeys",
+      "summary": "Generate new session keys and insert them into the keystore",
+      "params": [],
+      "result": {
+        "name": "sessionKeys",
+        "schema": {
+          "$ref": "#/components/schemas/Data"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "author_submitAndWatchExtrinsic",
+      "summary": "Submit an extrinsic and watch its status",
+      "params": [
+        {
+          "name": "extrinsic",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "author_submitExtrinsic",
+      "summary": "Submit a signed extrinsic",
+      "params": [
+        {
+          "name": "extrinsic",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "hash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "author_unwatchExtrinsic",
+      "summary": "Stop watching an extrinsic",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "offchain_localStorageGet",
+      "summary": "Read from node off-chain storage",
+      "params": [
+        {
+          "name": "kind",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "value",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Data"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "offchain_localStorageSet",
+      "summary": "Write to node off-chain storage",
+      "params": [
+        {
+          "name": "kind",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "key",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "value",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "payment_queryInfo",
+      "summary": "Fee and weight information for an extrinsic",
+      "params": [
+        {
+          "name": "extrinsic",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "info",
+        "schema": {
+          "$ref": "#/components/schemas/RuntimeDispatchInfo"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "payment_queryFeeDetails",
+      "summary": "Detailed fee breakdown for an extrinsic",
+      "params": [
+        {
+          "name": "extrinsic",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        },
+        {
+          "name": "at",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "feeDetails",
+        "schema": {
+          "$ref": "#/components/schemas/FeeDetails"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "babe_epochAuthorship",
+      "summary": "Slots this node can author in the current epoch",
+      "params": [],
+      "result": {
+        "name": "authorship",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "unsafe-local-only"
+    },
+    {
+      "name": "grandpa_roundState",
+      "summary": "State of the current GRANDPA round",
+      "params": [],
+      "result": {
+        "name": "roundState",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "grandpa_proveFinality",
+      "summary": "Prove finality for a block number",
+      "params": [
+        {
+          "name": "blockNumber",
+          "schema": {
+            "type": "integer"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "proof",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Data"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "grandpa_subscribeJustifications",
+      "summary": "Subscribe to GRANDPA justifications",
+      "params": [],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "grandpa_unsubscribeJustifications",
+      "summary": "Cancel a justifications subscription",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "cancelled",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "sync_state_genSyncSpec",
+      "summary": "Generate a chain spec with a light-sync checkpoint",
+      "params": [
+        {
+          "name": "raw",
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "chainSpec",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "rpc_methods",
+      "summary": "List all RPC methods exposed by this node",
+      "params": [],
+      "result": {
+        "name": "methods",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "methods": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_follow",
+      "summary": "Follow the chain head (pins reported blocks)",
+      "params": [
+        {
+          "name": "withRuntime",
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "chainHead_v1_body",
+      "summary": "Retrieve the body of a pinned block",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        },
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "operationId",
+        "schema": {
+          "$ref": "#/components/schemas/OperationId"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_call",
+      "summary": "Call a runtime API against a pinned block",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        },
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "function",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "callParameters",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "operationId",
+        "schema": {
+          "$ref": "#/components/schemas/OperationId"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_continue",
+      "summary": "Resume a paused operation",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        },
+        {
+          "name": "operationId",
+          "schema": {
+            "$ref": "#/components/schemas/OperationId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_header",
+      "summary": "Header of a pinned block",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        },
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "header",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Data"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_stopOperation",
+      "summary": "Stop an in-progress operation",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        },
+        {
+          "name": "operationId",
+          "schema": {
+            "$ref": "#/components/schemas/OperationId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_storage",
+      "summary": "Query storage of a pinned block",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        },
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "items",
+          "schema": {
+            "type": "array"
+          },
+          "required": true
+        },
+        {
+          "name": "childTrie",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "operationId",
+        "schema": {
+          "$ref": "#/components/schemas/OperationId"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_unfollow",
+      "summary": "Stop following the chain head",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainHead_v1_unpin",
+      "summary": "Unpin one or more blocks",
+      "params": [
+        {
+          "name": "followSubscription",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        },
+        {
+          "name": "hashOrHashes",
+          "schema": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Hash32"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Hash32"
+                }
+              }
+            ]
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainSpec_v1_chainName",
+      "summary": "Chain name",
+      "params": [],
+      "result": {
+        "name": "chainName",
+        "schema": {
+          "type": "string"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainSpec_v1_genesisHash",
+      "summary": "Genesis block hash",
+      "params": [],
+      "result": {
+        "name": "genesisHash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "chainSpec_v1_properties",
+      "summary": "Chain-specific properties",
+      "params": [],
+      "result": {
+        "name": "properties",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "archive_unstable_body",
+      "summary": "Body of a block by hash",
+      "params": [
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "body",
+        "schema": {
+          "oneOf": [
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/Data"
+              }
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "archive_unstable_call",
+      "summary": "Call a runtime API at a block",
+      "params": [
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "function",
+          "schema": {
+            "type": "string"
+          },
+          "required": true
+        },
+        {
+          "name": "callParameters",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "archive_unstable_finalizedHeight",
+      "summary": "Height of the latest finalized block",
+      "params": [],
+      "result": {
+        "name": "height",
+        "schema": {
+          "type": "integer"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "archive_unstable_genesisHash",
+      "summary": "Genesis block hash",
+      "params": [],
+      "result": {
+        "name": "genesisHash",
+        "schema": {
+          "$ref": "#/components/schemas/Hash32"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "archive_unstable_hashByHeight",
+      "summary": "Block hash(es) at a given height",
+      "params": [
+        {
+          "name": "height",
+          "schema": {
+            "type": "integer"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "hashes",
+        "schema": {
+          "type": "array",
+          "items": {
+            "$ref": "#/components/schemas/Hash32"
+          }
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "archive_unstable_header",
+      "summary": "Header of a block by hash",
+      "params": [
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "header",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/Data"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "archive_unstable_storage",
+      "summary": "Query storage at a block",
+      "params": [
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "items",
+          "schema": {
+            "type": "array"
+          },
+          "required": true
+        },
+        {
+          "name": "childTrie",
+          "schema": {
+            "$ref": "#/components/schemas/StorageKey"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "transaction_v1_broadcast",
+      "summary": "Broadcast a transaction to the network",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "operationId",
+        "schema": {
+          "oneOf": [
+            {
+              "$ref": "#/components/schemas/OperationId"
+            },
+            {
+              "$ref": "#/components/schemas/Null"
+            }
+          ]
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "transaction_v1_stop",
+      "summary": "Stop broadcasting a transaction",
+      "params": [
+        {
+          "name": "operationId",
+          "schema": {
+            "$ref": "#/components/schemas/OperationId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "public"
+    },
+    {
+      "name": "transactionWatch_v1_submitAndWatch",
+      "summary": "Submit a transaction and watch its lifecycle",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "subscriptionId",
+        "schema": {
+          "$ref": "#/components/schemas/SubscriptionId"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "transactionWatch_v1_unwatch",
+      "summary": "Stop watching a transaction",
+      "params": [
+        {
+          "name": "subscriptionId",
+          "schema": {
+            "$ref": "#/components/schemas/SubscriptionId"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "result",
+        "schema": {
+          "$ref": "#/components/schemas/Null"
+        },
+        "required": true
+      },
+      "x-availability": "public",
+      "x-pubsub": true
+    },
+    {
+      "name": "debug_traceTransaction",
+      "summary": "Replay a transaction and return an execution trace",
+      "params": [
+        {
+          "name": "transactionHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "params",
+          "schema": {
+            "type": "object"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "trace",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "opt-in-ethapi"
+    },
+    {
+      "name": "debug_traceBlockByNumber",
+      "summary": "Trace all transactions in a block by number",
+      "params": [
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        },
+        {
+          "name": "params",
+          "schema": {
+            "type": "object"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "traces",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "opt-in-ethapi"
+    },
+    {
+      "name": "debug_traceBlockByHash",
+      "summary": "Trace all transactions in a block by hash",
+      "params": [
+        {
+          "name": "blockHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "params",
+          "schema": {
+            "type": "object"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "traces",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "opt-in-ethapi"
+    },
+    {
+      "name": "debug_traceCall",
+      "summary": "Trace an eth_call without broadcasting",
+      "params": [
+        {
+          "name": "transaction",
+          "schema": {
+            "$ref": "#/components/schemas/TransactionRequest"
+          },
+          "required": true
+        },
+        {
+          "name": "block",
+          "schema": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "required": true
+        },
+        {
+          "name": "params",
+          "schema": {
+            "type": "object"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "trace",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "opt-in-ethapi"
+    },
+    {
+      "name": "trace_filter",
+      "summary": "Return traces matching a filter (Parity/OpenEthereum trace_filter)",
+      "params": [
+        {
+          "name": "filter",
+          "schema": {
+            "type": "object"
+          },
+          "required": true
+        }
+      ],
+      "result": {
+        "name": "traces",
+        "schema": {
+          "type": "array"
+        },
+        "required": true
+      },
+      "x-availability": "opt-in-ethapi"
+    },
+    {
+      "name": "engine_createBlock",
+      "summary": "Instruct the node to author a block (manual seal)",
+      "params": [
+        {
+          "name": "createEmpty",
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "name": "finalize",
+          "schema": {
+            "type": "boolean"
+          },
+          "required": true
+        },
+        {
+          "name": "parentHash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "created",
+        "schema": {
+          "type": "object"
+        },
+        "required": true
+      },
+      "x-availability": "dev-sealing"
+    },
+    {
+      "name": "engine_finalizeBlock",
+      "summary": "Finalize a block (manual seal)",
+      "params": [
+        {
+          "name": "hash",
+          "schema": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "required": true
+        },
+        {
+          "name": "justification",
+          "schema": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "required": false
+        }
+      ],
+      "result": {
+        "name": "finalized",
+        "schema": {
+          "type": "boolean"
+        },
+        "required": true
+      },
+      "x-availability": "dev-sealing"
+    }
+  ],
+  "components": {
+    "schemas": {
+      "Quantity": {
+        "title": "hex-encoded unsigned integer",
+        "type": "string",
+        "pattern": "^0x([1-9a-f]+[0-9a-f]*|0)$"
+      },
+      "Data": {
+        "title": "hex-encoded byte string",
+        "type": "string",
+        "pattern": "^0x[0-9a-f]*$"
+      },
+      "Bytes32": {
+        "title": "32 byte hex value",
+        "type": "string",
+        "pattern": "^0x[0-9a-f]{64}$"
+      },
+      "Address": {
+        "title": "20 byte EVM address",
+        "type": "string",
+        "pattern": "^0x[0-9a-f]{40}$"
+      },
+      "Hash32": {
+        "title": "32 byte hash",
+        "type": "string",
+        "pattern": "^0x[0-9a-f]{64}$"
+      },
+      "BlockNumberOrTag": {
+        "title": "block number or tag",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "earliest",
+              "finalized",
+              "safe",
+              "latest",
+              "pending"
+            ]
+          }
+        ]
+      },
+      "StorageKey": {
+        "title": "hex-encoded storage key",
+        "type": "string",
+        "pattern": "^0x[0-9a-f]*$"
+      },
+      "StorageData": {
+        "title": "hex-encoded storage value",
+        "type": "string",
+        "pattern": "^0x[0-9a-f]*$"
+      },
+      "SubscriptionId": {
+        "title": "subscription id",
+        "type": "string"
+      },
+      "OperationId": {
+        "title": "operation id",
+        "type": "string"
+      },
+      "TransactionRequest": {
+        "title": "transaction call object",
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "to": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "gas": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "gasPrice": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "maxFeePerGas": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "maxPriorityFeePerGas": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "value": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "input": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "nonce": {
+            "$ref": "#/components/schemas/Quantity"
+          }
+        }
+      },
+      "Filter": {
+        "title": "log filter",
+        "type": "object",
+        "properties": {
+          "fromBlock": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "toBlock": {
+            "$ref": "#/components/schemas/BlockNumberOrTag"
+          },
+          "address": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Address"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Address"
+                }
+              }
+            ]
+          },
+          "topics": {
+            "type": "array"
+          },
+          "blockHash": {
+            "$ref": "#/components/schemas/Hash32"
+          }
+        }
+      },
+      "Log": {
+        "title": "event log",
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          },
+          "logIndex": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "transactionIndex": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "transactionHash": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "blockHash": {
+            "$ref": "#/components/schemas/Hash32"
+          },
+          "blockNumber": {
+            "$ref": "#/components/schemas/Quantity"
+          },
+          "address": {
+            "$ref": "#/components/schemas/Address"
+          },
+          "data": {
+            "$ref": "#/components/schemas/Data"
+          },
+          "topics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Bytes32"
+            }
+          }
+        }
+      },
+      "Block": {
+        "title": "block object",
+        "type": "object"
+      },
+      "Transaction": {
+        "title": "transaction object",
+        "type": "object"
+      },
+      "Receipt": {
+        "title": "transaction receipt",
+        "type": "object"
+      },
+      "SyncingStatus": {
+        "title": "syncing status",
+        "oneOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "object"
+          }
+        ]
+      },
+      "FeeHistoryResult": {
+        "title": "fee history",
+        "type": "object"
+      },
+      "Health": {
+        "title": "node health",
+        "type": "object",
+        "properties": {
+          "peers": {
+            "type": "integer"
+          },
+          "isSyncing": {
+            "type": "boolean"
+          },
+          "shouldHavePeers": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RuntimeVersion": {
+        "title": "runtime version",
+        "type": "object"
+      },
+      "Header": {
+        "title": "block header",
+        "type": "object"
+      },
+      "SignedBlock": {
+        "title": "signed block",
+        "type": "object"
+      },
+      "PeerInfo": {
+        "title": "peer info",
+        "type": "object"
+      },
+      "RuntimeDispatchInfo": {
+        "title": "dispatch info",
+        "type": "object",
+        "properties": {
+          "weight": {
+            "type": "object"
+          },
+          "class": {
+            "type": "string"
+          },
+          "partialFee": {
+            "type": "string"
+          }
+        }
+      },
+      "FeeDetails": {
+        "title": "fee details",
+        "type": "object"
+      },
+      "ChainType": {
+        "title": "chain type",
+        "oneOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "object"
+          }
+        ]
+      },
+      "Metadata": {
+        "title": "SCALE-encoded runtime metadata (hex)",
+        "type": "string"
+      },
+      "Null": {
+        "title": "null",
+        "type": "null"
+      }
+    }
+  }
+}

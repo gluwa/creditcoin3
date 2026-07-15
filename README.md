@@ -16,6 +16,7 @@ Creditcoin is a Substrate based layer 1 blockchain with full EVM support. Users 
 - [Creditcoin Gitbook](https://docs.creditcoin.org/): A comprehensive resource describing the core systems of the Creditcoin chain, 1st party on-chain services, and Universal Smart Contracts
 - [USC Examples Repository](https://github.com/gluwa/usc-testnet-bridge-examples): A series of examples to lead builders through constructing and deploying their first Universal Smart Contracts
 - [USC SDK](https://github.com/gluwa/cc-next-query-builder): Tools which make it easy to interact with all the components of the USC protocol.
+- [JSON-RPC API Reference (OpenRPC)](https://playground.open-rpc.org/?url=https://raw.githubusercontent.com/gluwa/creditcoin3/usc-dev/docs/api/openrpc.json): An OpenRPC specification listing all JSON-RPC endpoints exposed by the node (Ethereum/EVM, Substrate, and spec-v2). The raw document lives at [`docs/api/openrpc.json`](docs/api/openrpc.json).
 
 ## Major components
 
