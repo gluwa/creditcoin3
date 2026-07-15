@@ -150,11 +150,23 @@ pub async fn run(
 
     // ----------------------------------* main loop *----------------------------------------- //
 
+    // Dedicated receiver for waking the loop on an eligibility toggle. `can_attest` gates the
+    // `stream_attestation` arm below, and the flip to `true` now happens asynchronously (the
+    // post-election warm-up task) — without a `changed()` arm the loop would keep the arm
+    // disabled until some unrelated cc3 batch happened to wake it and re-read the flag. Separate
+    // from the `borrow()` read below so its seen-version tracking is independent.
+    let mut eligibility_rx = shared.can_attest_rx.clone();
+
     loop {
         let can_attest = *shared.can_attest_rx.borrow();
         tokio::select! {
             biased;
             _ = shared.token.cancelled() => return Ok(()),
+
+            // Wake on an eligibility toggle so the guarded arm is (dis/re-)enabled promptly.
+            // `changed()` only errors once every sender is dropped — impossible while we hold
+            // `shared` (which owns `can_attest_tx`) — so a plain wake-and-re-loop is enough.
+            _ = eligibility_rx.changed() => {}
 
             maybe_batch = events.next() => {
                 // The cc3 stream only ends on a *permanent* backfill error (state pruned beyond
