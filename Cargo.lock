@@ -1531,36 +1531,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
-name = "attestation_pool"
-version = "3.129.0"
-dependencies = [
- "assert_matches",
- "attestor-primitives",
- "bls-signatures",
- "builder",
- "cc-client",
- "common",
- "futures 0.3.31",
- "parking_lot 0.12.3",
- "pretty_assertions",
- "rstest 0.26.1",
- "sp-core",
- "stream",
- "tokio",
- "tokio-test",
- "tracing",
-]
-
-[[package]]
 name = "attestor"
 version = "3.129.0"
 dependencies = [
- "alloy",
  "anyhow",
- "arc-swap",
- "assert_matches",
- "attestation_pool",
  "attestor-primitives",
+ "attestor_pool",
  "axum",
  "bip39",
  "bls-signatures",
@@ -1574,24 +1550,22 @@ dependencies = [
  "libp2p 0.56.0",
  "metrics",
  "parity-scale-codec",
+ "parking_lot 0.12.3",
  "rand 0.9.0",
- "rstest 0.26.1",
  "serde",
  "serde_yaml",
  "sp-core",
- "sp-io",
  "stream",
  "subxt",
  "supported-chains-primitives",
  "tokio",
- "tokio-test",
  "tokio-tungstenite 0.26.2",
+ "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
  "url",
  "usc-abi-encoding",
- "user",
  "zeroize",
 ]
 
@@ -1615,11 +1589,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "attestor_pool"
+version = "3.129.0"
+dependencies = [
+ "attestor-primitives",
+ "bls-signatures",
+ "builder",
+ "cc-client",
+ "common",
+ "parity-scale-codec",
+ "parking_lot 0.12.3",
+ "sp-core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "attestor_zombienet"
 version = "3.129.0"
 dependencies = [
  "anyhow",
- "arc-swap",
  "attestor-primitives",
  "bip39",
  "cc-client",
@@ -2234,16 +2223,16 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "attestor-primitives",
+ "serde",
  "sp-core",
  "subxt",
  "subxt-signer",
  "supported-chains-primitives",
  "thiserror 1.0.69",
  "tokio",
- "tokio-retry",
  "tracing",
  "usc-abi-encoding",
- "vrf",
+ "user",
 ]
 
 [[package]]
@@ -3284,7 +3273,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8d162beedaa69905488a8da94f5ac3edb4dd4788b732fadb7bd120b2625c1976"
 dependencies = [
  "data-encoding",
- "syn 2.0.111",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -3464,12 +3453,6 @@ dependencies = [
  "syn 2.0.111",
  "unicode-xid",
 ]
-
-[[package]]
-name = "diff"
-version = "0.1.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 
 [[package]]
 name = "difflib"
@@ -8017,7 +8000,6 @@ dependencies = [
 name = "metrics"
 version = "3.129.0"
 dependencies = [
- "attestation_pool",
  "attestor-primitives",
  "builder",
  "cc-client",
@@ -10335,16 +10317,6 @@ checksum = "72dd2d6d381dfb73a193c7fca536518d7caee39fc8503f74e7dc0be0531b425c"
 dependencies = [
  "predicates-core",
  "termtree",
-]
-
-[[package]]
-name = "pretty_assertions"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ae130e2f271fbc2ac3a40fb1d07180839cdbbe443c7a27e1e3c13c5cac0116d"
-dependencies = [
- "diff",
- "yansi",
 ]
 
 [[package]]
@@ -14915,7 +14887,7 @@ dependencies = [
 name = "stream_cc3"
 version = "3.129.0"
 dependencies = [
- "arc-swap",
+ "anyhow",
  "async-stream",
  "attestor-primitives",
  "builder",
@@ -16465,23 +16437,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
-name = "vrf"
-version = "3.129.0"
-dependencies = [
- "anyhow",
- "attestor-primitives",
- "env_logger 0.11.8",
- "log",
- "parity-scale-codec",
- "randomness-primitives",
- "schnorrkel",
- "serde",
- "sp-consensus-babe",
- "sp-core",
- "thiserror 1.0.69",
-]
-
-[[package]]
 name = "w3f-bls"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -17880,12 +17835,6 @@ dependencies = [
  "static_assertions",
  "web-time",
 ]
-
-[[package]]
-name = "yansi"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
 
 [[package]]
 name = "yap"

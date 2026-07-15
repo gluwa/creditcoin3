@@ -202,8 +202,13 @@ jobs:
         with:
           shared-key: build-creditcoin-node
 
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2.82.7
+        with:
+          tool: cargo-machete@0.9.1
+
       - name: Execute cargo machete
-        uses: bnjbvr/cargo-machete@main
+        run: cargo machete
 
   cargo-test:
     runs-on: ubuntu-26.04
