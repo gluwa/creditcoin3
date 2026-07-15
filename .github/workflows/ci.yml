@@ -463,11 +463,12 @@ jobs:
           fi
 
           ALICE_PID=$(cat /var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid)
-          # Graceful shutdown first: let the node release its RPC socket and RocksDB
-          # lock on ./alice-data before we restart on the same port/base-path. A bare
-          # SIGKILL leaves the socket in TIME_WAIT and the db LOCK held, so the restart
-          # can fail to rebind 9944 and the wait loop below spins silently. TERM + wait,
-          # then KILL as a fallback if it refuses to exit.
+          # Graceful TERM + wait first so the node releases its RPC socket and RocksDB
+          # lock on ./alice-data cleanly; KILL only as a fallback. Then wait until port
+          # 9944 is actually released before restarting on the same port/base-path. A
+          # bare SIGKILL + immediate restart could hit the old socket still bound
+          # (TIME_WAIT / not yet torn down), so the new node fails to rebind 9944 and
+          # wait-for-creditcoin.sh below spins its silent ~42min loop.
           kill -TERM "$ALICE_PID" 2>/dev/null || true
           for _ in $(seq 1 30); do
             if ! kill -0 "$ALICE_PID" 2>/dev/null; then
@@ -478,6 +479,16 @@ jobs:
           if kill -0 "$ALICE_PID" 2>/dev/null; then
             echo "creditcoin3-node did not exit on TERM — sending KILL" >&2
             kill -KILL "$ALICE_PID" 2>/dev/null || true
+          fi
+          for _ in $(seq 1 30); do
+            if ! ss -ltn 'sport = :9944' | grep -q ':9944'; then
+              break
+            fi
+            sleep 1
+          done
+          if ss -ltn 'sport = :9944' | grep -q ':9944'; then
+            echo "Port 9944 still bound after stopping old creditcoin3-node" >&2
+            exit 1
           fi
 
           ./target/release/creditcoin3-node \
@@ -515,9 +526,10 @@ jobs:
           fi
 
           ANVIL_PID=$(cat /var/tmp/integration-test-attestor-network/anvil1.pid)
-          # Graceful shutdown first so anvil dumps its state and frees port 8141, then
-          # KILL as a fallback and continue — a stuck TERM must not fail the recovery
-          # test outright (the dumped-state check below still guards correctness).
+          # Anvil must shut down gracefully (TERM) so it dumps its state to
+          # anvil1-restart.json — the restart reloads that state, and the dumped-state
+          # check below hard-fails without it. So: TERM + wait for the dump, then KILL
+          # as a fallback, then wait for port 8141 to be released before restarting.
           kill -TERM "$ANVIL_PID" 2>/dev/null || true
           for _ in $(seq 1 30); do
             if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
@@ -528,6 +540,16 @@ jobs:
           if kill -0 "$ANVIL_PID" 2>/dev/null; then
             echo "Anvil did not exit on TERM — sending KILL" >&2
             kill -KILL "$ANVIL_PID" 2>/dev/null || true
+          fi
+          for _ in $(seq 1 30); do
+            if ! ss -ltn 'sport = :8141' | grep -q ':8141'; then
+              break
+            fi
+            sleep 1
+          done
+          if ss -ltn 'sport = :8141' | grep -q ':8141'; then
+            echo "Port 8141 still bound after killing old anvil" >&2
+            exit 1
           fi
           if [ ! -s /var/tmp/integration-test-attestor-network/anvil1-restart.json ]; then
             echo "Anvil did not dump restart state" >&2
