@@ -32,7 +32,44 @@ mod tests;
 /// Precompile exposing source chain info to the evm.
 pub struct ChainInfoPrecompile<Runtime>(PhantomData<Runtime>);
 
-const BUCKET_SEARCH_ATTEMPTS: u32 = 5; // Number of attempts to search through checkpoint buckets
+/// Defensive hard cap on how many items a single `Attestations::iter_prefix` scan will pull.
+///
+/// The scans below are already priced correctly (each item charges `GAS_STORAGE_LOOKUP`), so an
+/// oversized store self-limits by exhausting gas. This cap is a belt-and-suspenders guard so the
+/// iterator can never run unbounded even if gas accounting is ever changed or bypassed; it is set
+/// far above any realistic per-chain attestation count, so normal-sized stores are unaffected.
+const MAX_ATTESTATION_SCAN_ITEMS: u64 = 100_000;
+
+/// Compute how many checkpoint buckets to walk to cover a search span of `span_blocks` blocks.
+///
+/// Bounding the walk by the *real* search span (rather than a fixed constant) is what fixes the
+/// sparse-checkpoint false negative: a valid checkpoint far from the target is always reachable,
+/// no matter how far it sits from the target. The result is `ceil(span_blocks /
+/// CHECKPOINT_BUCKET_SIZE) + 1` (the `+1` covers the partial bucket at each end).
+///
+/// The caller is responsible for passing the span that matches the walk *direction*:
+/// - a downward walk (toward genesis) spans from `target_height` down to block 0, i.e.
+///   `span_blocks = target_height`;
+/// - an upward walk (toward the chain tip) spans from `target_height` up to the last checkpoint,
+///   i.e. `span_blocks = last_checkpoint_height - target_height`.
+///
+/// Using `abs_diff(target_height, last_checkpoint_height)` for a *downward* walk is wrong: when the
+/// last checkpoint sits just above the target the distance is tiny, yet the nearest checkpoint
+/// below the target can be many buckets away, so the walk would stop early and false-negative.
+///
+/// There is deliberately **no** fixed upper clamp: an arbitrary ceiling (the previous `4096`)
+/// re-introduces the exact false-negative this fixes for high block heights (a target above
+/// `4096 * CHECKPOINT_BUCKET_SIZE` would stop short of genesis). The loop is instead bounded by
+/// gas — every bucket iteration charges `GAS_STORAGE_LOOKUP`, so a pathologically deep walk
+/// exhausts gas and *reverts* (an honest failure) rather than silently returning "not attested".
+/// The `u32::MAX` saturation only guards the loop counter's type; gas is the real bound.
+fn bucket_search_attempts(span_blocks: u64) -> u32 {
+    // ceil(span_blocks / CHECKPOINT_BUCKET_SIZE) + 1
+    let buckets = span_blocks
+        .div_ceil(CHECKPOINT_BUCKET_SIZE)
+        .saturating_add(1);
+    buckets.try_into().unwrap_or(u32::MAX)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct ChainInfo {
@@ -242,7 +279,7 @@ where
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
         // We first check if the latest checkpoint height is higher or equal to the target height.
-        if matches!(maybe_last_checkpoint_height, Some(height) if height >= target_height) {
+        if maybe_last_checkpoint_height.is_some_and(|height| height >= target_height) {
             // If it is search through the checkpoints to find the highest attested height below the target.
             // We search through the bucket of the block corresponding to target_height - 1 for any checkpoints.
             let mut block_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(
@@ -251,8 +288,12 @@ where
 
             let mut maybe_highest = None;
 
-            // We limit the number of bucket searches to avoid excessive computation.
-            for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+            // This walks *downward* from `target_height - 1` toward block 0, so the span is
+            // `target_height` (a checkpoint below the target can sit anywhere down to genesis,
+            // independent of where the last checkpoint is). The loop is bounded by gas
+            // (each bucket charges `GAS_STORAGE_LOOKUP`), not an artificial attempt ceiling.
+            let attempts = bucket_search_attempts(target_height);
+            for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
                 let mut items_processed = 0_u64;
@@ -313,6 +354,9 @@ where
 
             // If the target height is lower than the last checkpoint height, we first search through the attestations directly.
             let highest = if let Some(highest) = Attestations::<Runtime>::iter_prefix(chain_key)
+                // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                 .inspect(|_| {
                     items_processed += 1;
                 })
@@ -375,7 +419,9 @@ where
             LastCheckpoint::<Runtime>::get(chain_key).map(|cp| cp.block_number);
 
         // We first check if the latest checkpoint height is higher to the target height.
-        if matches!(maybe_last_checkpoint_height, Some(height) if height > target_height) {
+        if let Some(last_checkpoint_height) =
+            maybe_last_checkpoint_height.filter(|height| *height > target_height)
+        {
             // If it is search through the checkpoints to find the lowest attested height above the target.
 
             // We search through the bucket of the block corresponding to target_height for any checkpoints.
@@ -384,8 +430,13 @@ where
 
             let mut maybe_lowest = None;
 
-            // We limit the number of bucket searches to avoid excessive computation.
-            for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+            // This walks *upward* from `target_height` toward the chain tip; the highest reachable
+            // checkpoint is the last checkpoint, so the span is `last_checkpoint_height -
+            // target_height`. This branch only runs when `last_checkpoint_height > target_height`.
+            // Bounded by gas per bucket, not an artificial attempt ceiling.
+            let attempts =
+                bucket_search_attempts(last_checkpoint_height.saturating_sub(target_height));
+            for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
                 let mut items_processed = 0_u64;
@@ -441,6 +492,9 @@ where
 
             // Otherwise if the latest checkpoint is below or at the target height, we search through the attestations directly.
             let lowest = Attestations::<Runtime>::iter_prefix(chain_key)
+                // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                 .inspect(|_| {
                     items_processed += 1;
                 })
@@ -482,6 +536,9 @@ where
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
@@ -501,8 +558,11 @@ where
 
                 let mut found_prev_checkpoint = false;
 
-                // We limit the number of bucket searches to avoid excessive computation.
-                for _ in 0..BUCKET_SEARCH_ATTEMPTS {
+                // This walks *downward* from `target_height - 1` toward block 0 (same direction as
+                // `find_highest_attested_before`), so the span is `target_height`, not the
+                // distance to the last checkpoint. Bounded by gas per bucket, not a fixed ceiling.
+                let attempts = bucket_search_attempts(target_height);
+                for _ in 0..attempts {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
                     let mut items_processed = 0_u64;
@@ -538,6 +598,9 @@ where
                 let mut items_processed = 0_u64;
 
                 let found_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
@@ -555,6 +618,9 @@ where
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
@@ -567,6 +633,9 @@ where
 
                 // We check through the attestations for any attestation above (or at) the target height.
                 let found_prev_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
+                    // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
+                    // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
+                    .take(MAX_ATTESTATION_SCAN_ITEMS as usize)
                     .inspect(|_| {
                         items_processed += 1;
                     })
