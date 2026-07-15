@@ -117,15 +117,16 @@ describe('handleEventRevertedAttestationChainTo()', () => {
             );
 
             expect(response.data.checkpoints.nodes).toBeTruthy();
+            // Assert the specific pre-revert checkpoint that existed above the revert
+            // height was removed. We intentionally do NOT assert that *every* remaining
+            // checkpoint is <= checkpointHeight: the chain keeps attesting after the
+            // revert, so new legitimate checkpoints above the revert height are indexed
+            // shortly afterwards and would race this assertion.
             expect(
                 response.data.checkpoints.nodes.some(
                     (node: { blockNumber: string }) => BigInt(node.blockNumber) === laterCheckpointHeight,
                 ),
             ).toEqual(false);
-
-            for (const node of response.data.checkpoints.nodes) {
-                expect(BigInt(node.blockNumber)).toBeLessThanOrEqual(checkpointHeightToRevertTo);
-            }
         });
 
         it('removes attestations above checkpointHeight', async () => {
@@ -145,10 +146,16 @@ describe('handleEventRevertedAttestationChainTo()', () => {
             );
 
             expect(response.data.attestations.nodes).toBeTruthy();
-
-            for (const node of response.data.attestations.nodes) {
-                expect(BigInt(node.headerNumber)).toBeLessThanOrEqual(checkpointHeightToRevertTo);
-            }
+            // Assert the specific attestation that existed above the revert height
+            // (at `laterCheckpointHeight`) was removed. We intentionally do NOT assert
+            // that every remaining attestation is <= checkpointHeight: post-revert the
+            // chain keeps attesting, so new legitimate attestations above the revert
+            // height get indexed and would race a blanket assertion.
+            expect(
+                response.data.attestations.nodes.some(
+                    (node: { headerNumber: string }) => BigInt(node.headerNumber) === laterCheckpointHeight,
+                ),
+            ).toEqual(false);
         });
 
         it('updates AttestationChainData to the reverted checkpoint', async () => {
