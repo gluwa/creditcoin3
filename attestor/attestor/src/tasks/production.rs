@@ -405,13 +405,19 @@ async fn handle_one(
         CcEvent::AttestorsElected(_, attestors) => {
             tracing::info!("⏰ new attestor set");
             let eligible = attestors.contains(&shared.account_id);
-            apply_eligibility(shared, eligible);
+            // Refresh our own committee view (BLS store + pool allow-set) BEFORE arming the
+            // warm-up. `apply_eligibility`'s warm-up timer is what gates `can_attest` true, and
+            // it must start from a current local view — otherwise a slow/retrying BLS fetch
+            // could let the timer fire while we still verify against the previous committee,
+            // dropping newly-elected peers' votes as UnknownAttestor (unrecoverable: gossipsub
+            // marks them seen).
             shared
                 .bls_store
                 .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
                 .await
                 .map_err(Error::Rpc)?;
             shared.pool_send.note_attestors_elected(attestors);
+            apply_eligibility(shared, eligible);
         }
 
         CcEvent::AttestorActivated(_, who) => {
@@ -446,13 +452,15 @@ async fn handle_one(
             // event itself: `staking::Kicked` carries no chain scope, so trusting the event
             // could wrongly chill us on an unrelated kick — the authoritative active set can't.
             let eligible = attestors.contains(&shared.account_id);
-            apply_eligibility(shared, eligible);
+            // Refresh the committee view before arming the warm-up — see the AttestorsElected
+            // handler above for why `apply_eligibility` must run after the BLS/pool refresh.
             shared
                 .bls_store
                 .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
                 .await
                 .map_err(Error::Rpc)?;
             shared.pool_send.note_attestors_elected(attestors);
+            apply_eligibility(shared, eligible);
 
             // Nudge the p2p task to evict this attestor's peer from the routing table / drop the
             // connection. Sent *after* the `bls_store` refresh above so the p2p task's active-set
