@@ -41,8 +41,8 @@
         "@types/jest": "29.5.14",
         "@types/prompts": "^2.4.8",
         "@types/validator": "13.15.2",
-        "@typescript-eslint/eslint-plugin": "8.62.0",
-        "@typescript-eslint/parser": "8.62.0",
+        "@typescript-eslint/eslint-plugin": "8.64.0",
+        "@typescript-eslint/parser": "8.64.0",
         "axios": "1.18.1",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
@@ -54,7 +54,7 @@
         "ts-jest": "29.4.1",
         "ts-node": "^10.9.1",
         "tsconfig-paths": "^4.2.0",
-        "typescript": "5.9.2",
+        "typescript": "7.0.2",
         "validator": "13.15.22"
     },
     "dependencies": {
