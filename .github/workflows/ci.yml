@@ -383,19 +383,6 @@ jobs:
           yarn install --immutable
           yarn test:attestation
 
-      - name: Run ExportCheckpoints.js
-        if: always()
-        working-directory: ./attestor/scripts
-        run: |
-          npm ci
-
-          node ExportCheckpoints.js
-
-          mv checkpoints_2.csv checkpoints.csv.from_alice
-        env:
-          SOURCE_CHAIN: "ws://127.0.0.1:9944"
-          CHAIN_KEY_ON_SOURCE: 2
-
       - name: Start creditcoin3-node - Dave - stand alone chain
         if: always()
         env:
@@ -413,6 +400,19 @@ jobs:
         if: always()
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9977'
+
+      - name: Run ExportCheckpoints.js
+        if: always()
+        working-directory: ./attestor/scripts
+        run: |
+          npm ci
+
+          node ExportCheckpoints.js
+
+          mv checkpoints_2.csv checkpoints.csv.from_alice
+        env:
+          SOURCE_CHAIN: "ws://127.0.0.1:9944"
+          CHAIN_KEY_ON_SOURCE: 2
 
       - name: Run ImportCheckpoints.js
         if: always()
@@ -434,9 +434,22 @@ jobs:
 
           cp checkpoints_2.csv checkpoints.csv.from_dave
 
-          # both files should match b/c they represent the same data
-          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave | colordiff
-          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave
+          # The source chain keeps producing checkpoints between the two exports,
+          # so from_dave may legitimately contain NEW checkpoints beyond the last
+          # block present in from_alice. Only fail if a checkpoint that exists in
+          # the original source file (from_alice) disagrees with, or is missing
+          # from, the re-exported file (from_dave). Extra trailing checkpoints in
+          # from_dave are expected and must not trip the diff.
+          #
+          # Restrict from_dave to just the block numbers present in from_alice,
+          # then diff. Both files are sorted ascending by block_number.
+          cut -d, -f1 checkpoints.csv.from_alice | sort > from_alice.blocks
+          awk -F, 'NR==FNR { keep[$1]=1; next } ($1 in keep)' \
+            from_alice.blocks checkpoints.csv.from_dave > checkpoints.csv.from_dave.overlap
+
+          # both files should match on the overlapping (original) checkpoints
+          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave.overlap | colordiff || true
+          diff -u checkpoints.csv.from_alice checkpoints.csv.from_dave.overlap
         env:
           SOURCE_CHAIN: "ws://127.0.0.1:9977"
           CHAIN_KEY_ON_SOURCE: 2
