@@ -54,9 +54,10 @@ pub enum Error {
     ),
     NoMaturityDelayForStrategy(supported_chains_primitives::MaturityStrategy),
 
-    /// Attestation interval / sample size missing.
+    /// Attestation interval / sample size / max-catchup fetch failed at startup.
     MissingAttestationInterval(attestor_primitives::ChainKey),
     MissingTargetSampleSize(attestor_primitives::ChainKey),
+    MissingMaxCatchup(attestor_primitives::ChainKey),
 
     /// The runtime returned a last-attestation digest that doesn't resolve to a stored
     /// attestation — inconsistent on-chain state we can't recover from locally.
@@ -97,6 +98,9 @@ impl std::fmt::Display for Error {
             }
             Self::MissingTargetSampleSize(k) => {
                 write!(f, "missing target sample size for chain {k}")
+            }
+            Self::MissingMaxCatchup(k) => {
+                write!(f, "failed to fetch max catchup for chain {k}")
             }
             Self::DigestNotFound(k, digest) => {
                 write!(

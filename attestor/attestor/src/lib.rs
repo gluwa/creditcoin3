@@ -269,15 +269,19 @@ impl Attestor {
             .expect("quorum > 0");
         health.set_p2p_expected(quorum.get() > 1);
 
-        // On-chain `MaxCatchup` (block-count bound per continuity proof). The runtime rejects
-        // zero at `set_max_catchup`, so the fallback only guards a default-free chain state.
-        let max_catchup = cc3
-            .max_catchup(chain_key)
-            .await
-            .map(u64::from)
-            .ok()
-            .and_then(NonZero::new)
-            .unwrap_or(common::constants::MAX_CATCHUP);
+        // On-chain `MaxCatchup` (block-count bound per continuity proof). `Client::max_catchup`
+        // uses `fetch_or_default`, so an `Ok` is always the effective runtime value — a transport
+        // failure is the *only* `Err`, and must fail the boot (like `target_sample_size` above)
+        // rather than silently substitute a default that would leave the pool / p2p / proof
+        // windows permanently wrong until a `MaxCatchupChanged` event that may never arrive. The
+        // `NonZero` fallback then only guards a chain whose runtime default is genuinely zero (the
+        // runtime rejects zero at `set_max_catchup`, so this is the default-free case).
+        let max_catchup = NonZero::new(u64::from(
+            cc3.max_catchup(chain_key)
+                .await
+                .map_err(|_| Error::MissingMaxCatchup(chain_key))?,
+        ))
+        .unwrap_or(common::constants::MAX_CATCHUP);
 
         tracing::info!(
             quorum = %quorum,
