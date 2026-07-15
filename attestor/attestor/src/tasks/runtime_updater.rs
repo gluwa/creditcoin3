@@ -77,7 +77,15 @@ pub async fn run(shared: Arc<Shared>) -> Result<(), Error> {
         // upgrade on the live one. We poll `connection_id()` below and rebind when it changes.
         let bound_conn = shared.cc3.connection_id();
 
-        let mut stream = match updater.runtime_updates().await {
+        // Race the subscription setup against cancellation: `runtime_updates()` can block on a
+        // half-open connection until jsonrpsee's request timeout (~60s), and without this arm a
+        // SIGTERM arriving during a rebind would sit through the whole shutdown drain until the
+        // `abort_all()` backstop, burning most of the pod termination grace period.
+        let subscription = tokio::select! {
+            _ = shared.token.cancelled() => return Ok(()),
+            s = updater.runtime_updates() => s,
+        };
+        let mut stream = match subscription {
             Ok(s) => s,
             Err(err) => {
                 tracing::warn!(

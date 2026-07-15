@@ -313,8 +313,14 @@ impl Config {
             None => match &config_file.attestor.secret {
                 Some(s) => attestor::secret::AttestorSecret::from_str(s)
                     .map_err(|e| anyhow::anyhow!("invalid attestor secret in config file: {e}"))?,
-                None => attestor::secret::AttestorSecret::Mnemonic(
-                    bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret"),
+                // Fail fast rather than fall back to a throwaway random identity. A random
+                // identity is never in the elected set and its BLS key is never registered, so
+                // the node would boot, sit in `Health::Starting` reporting healthy, and attest
+                // nothing forever — a silent no-op that no probe catches. A production deploy
+                // that forgot the secret must crash loudly, not pretend to work.
+                None => anyhow::bail!(
+                    "no attestor secret configured — set --secret / ATTESTOR_SECRET or the \
+                     `attestor.secret` config field (a random identity would silently never attest)"
                 ),
             },
         };
@@ -479,8 +485,10 @@ async fn main() -> anyhow::Result<()> {
             )
         });
 
+    // `max_level_hint()` is `None` for some filter directives; treat "no hint" as not-debug
+    // rather than panicking the process at startup before logging is even initialized.
     let is_max_level_debug =
-        filter_env.max_level_hint().unwrap() == tracing::level_filters::LevelFilter::DEBUG;
+        filter_env.max_level_hint() == Some(tracing::level_filters::LevelFilter::DEBUG);
     let fmt = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_file(is_max_level_debug)
