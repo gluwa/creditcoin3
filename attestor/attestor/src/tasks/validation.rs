@@ -30,6 +30,8 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
     // Height of the in-flight submission. Used to filter duplicate-height quorums the pool
     // may surface while we're mid-submit (otherwise we'd stash twice for the same height).
     let mut in_flight_height: Option<Height> = None;
+    // Per-height re-injection budget for the unlock path (see `take_reinject_budget`).
+    let mut reinject_budget: Option<(Height, u8)> = None;
 
     loop {
         // Compose an OptionFuture so we only poll the submission handle when one is in flight.
@@ -49,6 +51,7 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
                     &pool_rx,
                     &mut in_flight,
                     &mut in_flight_height,
+                    &mut reinject_budget,
                     submission,
                 ).await;
             }
@@ -210,10 +213,19 @@ async fn handle_submission_result(
     pool_rx: &Receiver,
     in_flight: &mut Option<tokio::task::JoinHandle<Submission>>,
     in_flight_height: &mut Option<Height>,
+    reinject_budget: &mut Option<(Height, u8)>,
     submission: Submission,
 ) {
-    let Submission { height, outcome } = submission;
+    let Submission {
+        height,
+        outcome,
+        votes,
+    } = submission;
     let unlock_if_unfinalized = should_unlock_if_unfinalized(&outcome);
+    // Set whenever we clear the validation lock for `height` below. Drives the held-vote
+    // re-injection at the end: `mark_valid` deleted this height's fork at submit time, so an
+    // unlocked height needs its votes back to reform the quorum (gossip won't redeliver them).
+    let mut unlocked = false;
     match outcome {
         Outcome::Eligible {
             result: Ok(events), ..
@@ -227,7 +239,6 @@ async fn handle_submission_result(
         }
         Outcome::Eligible {
             result: Err(subxt::Error::Runtime(subxt::error::DispatchError::Module(err))),
-            votes,
         } => match err.as_root_error::<cc_client::cc3::Error>() {
             Ok(cc_client::cc3::Error::Attestation(
                 cc_client::cc3::attestation::Error::AttestationExists,
@@ -240,27 +251,29 @@ async fn handle_submission_result(
                 // The preemptive threshold check in `aggregate_and_validate` normally catches
                 // this before submission. Reaching here means the chain's `target_sample_size`
                 // flipped *between* our fetch and the runtime's verification (≤1-block race).
-                // Unlock the height so a future quorum can form from gossiped votes; do not
-                // re-inject (the votes we held are already gone, and gossip will repopulate).
-                let _ = votes;
+                // Unlock the height so a future quorum can form; the held votes are re-injected
+                // below (a raised target then defers them until enough peer votes accumulate).
                 tracing::warn!(
                     height,
                     "🔁 MajorityNotReached at runtime — chain-race window; unlocking height"
                 );
                 shared.pool_send.note_majority_not_reached(height);
+                unlocked = true;
             }
             _ => {
                 // A real runtime rejection (e.g. a continuity-proof error). Our extrinsic did
                 // not land, so unlock the height: leaving `locally_validated_height` set would
-                // reject all future votes there until some unrelated recovery. A genuinely bad
-                // fork gets re-validated and tombstoned (`mark_invalid`) on the retry, so this
-                // can't loop.
+                // reject all future votes there until some unrelated recovery. Re-injecting the
+                // held votes lets a genuinely bad fork be re-validated and tombstoned
+                // (`mark_invalid`) on the retry; the per-height re-injection budget bounds the
+                // retries if the local check can't see why the runtime rejects it.
                 tracing::warn!(
                     height,
                     ?err,
                     "⛔ runtime rejected submission — unlocking height"
                 );
                 shared.pool_send.note_majority_not_reached(height);
+                unlocked = true;
             }
         },
         Outcome::Eligible {
@@ -278,10 +291,12 @@ async fn handle_submission_result(
         Outcome::Eligible {
             result: Err(err), ..
         } => {
-            // RPC/transport failure: the extrinsic didn't land. Unlock the height so a future
-            // quorum can retry rather than stay stuck behind the validation lock.
+            // RPC/transport failure: the extrinsic didn't land. Unlock the height and re-inject
+            // the held votes below so we can retry our own valid quorum rather than stay stuck
+            // behind the validation lock waiting on peer-driven recovery.
             tracing::warn!(height, ?err, "⛔ submission rpc error — unlocking height");
             shared.pool_send.note_majority_not_reached(height);
+            unlocked = true;
         }
         Outcome::Finalized => {
             tracing::info!(height, "✅ finalized externally");
@@ -313,6 +328,25 @@ async fn handle_submission_result(
                 "🔓 height not finalized after unresolved submission — unlocking"
             );
             shared.pool_send.note_majority_not_reached(height);
+            unlocked = true;
+        }
+    }
+
+    // Re-inject the held votes for any height we just unlocked. `mark_valid` deleted this fork
+    // when we started submitting, and gossipsub will not redeliver already-seen votes while
+    // production emits each height only once — so without this the pool typically cannot reform
+    // the quorum and the height stalls until an unrelated recovery. The per-height budget bounds
+    // retries so a fork the runtime persistently rejects (but local validation accepts) can't
+    // spin forever; once exhausted we fall back to peer-driven / catch-up recovery. Skipped when
+    // the height already finalized (nothing left to reform) or budget is spent.
+    if unlocked {
+        let finalized = shared
+            .latest_finalized_rx
+            .borrow()
+            .map(|info| info.height >= height)
+            .unwrap_or(false);
+        if !finalized && take_reinject_budget(reinject_budget, height) {
+            reinject_votes(shared, height, &votes);
         }
     }
 
@@ -679,14 +713,18 @@ fn validate_proof_chain(
 struct Submission {
     height: Height,
     outcome: Outcome,
+    /// The vote set we submitted with, kept for *every* outcome so the handler can re-inject
+    /// them into the pool on any unlock path. `mark_valid` at submit time `split_off`s (deletes)
+    /// the fork at this height, and gossipsub will not redeliver already-seen votes while
+    /// production emits each height only once — so without re-injection an unlocked height often
+    /// cannot reform its quorum locally and stalls until an unrelated recovery.
+    votes: Vec<Vote>,
 }
 
 enum Outcome {
-    /// We submitted. `result` is what the runtime returned. `votes` is the vote set we
-    /// submitted with — kept so we can re-inject them on `MajorityNotReached`.
+    /// We submitted. `result` is what the runtime returned.
     Eligible {
         result: Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>,
-        votes: Vec<Vote>,
     },
     /// The height was *observed finalized* on chain (via the shared finalized watch) — the
     /// pipeline can safely move on, whatever happened to our own extrinsic.
@@ -696,6 +734,51 @@ enum Outcome {
     /// the height if it still hasn't finalized after the bounded wait, so future votes and
     /// quorums aren't rejected forever behind a stale validation lock.
     Unresolved,
+}
+
+/// Max times the submitter will re-inject a single height's held votes after an unlock before
+/// giving up and falling back to peer-driven / catch-up recovery. Bounds the retry loop for a
+/// fork that passes local validation but is persistently rejected by the runtime (e.g. a
+/// continuity error the local proof check does not catch).
+const MAX_REINJECTS_PER_HEIGHT: u8 = 3;
+
+/// Consume one unit of a height's re-injection budget. Returns `true` while budget remains.
+/// Single-slot by design: heights advance monotonically, so a new height resets the budget and
+/// a persistently-failing height decrements until exhausted — O(1), no map to prune.
+fn take_reinject_budget(state: &mut Option<(Height, u8)>, height: Height) -> bool {
+    match state {
+        Some((h, remaining)) if *h == height => {
+            if *remaining == 0 {
+                false
+            } else {
+                *remaining -= 1;
+                true
+            }
+        }
+        _ => {
+            *state = Some((height, MAX_REINJECTS_PER_HEIGHT - 1));
+            true
+        }
+    }
+}
+
+/// Push a submission's held votes back into the pool after an unlock. Goes through the normal
+/// `Sender::send` path, so the active-set check, height-admissibility window (its lower bound
+/// just dropped when the lock cleared), and `invalid` tombstones all still apply — a tombstoned
+/// (bad) fork's votes are rejected here rather than re-forming the quorum we already lost.
+fn reinject_votes(shared: &Arc<Shared>, height: Height, votes: &[Vote]) {
+    let mut accepted = 0usize;
+    for vote in votes {
+        if let Some(Ok(())) = shared.pool_send.send(vote.clone()) {
+            accepted += 1;
+        }
+    }
+    tracing::info!(
+        height,
+        accepted,
+        held = votes.len(),
+        "♻️ re-injected held votes after unlock so the pool can reform the quorum"
+    );
 }
 
 fn should_unlock_if_unfinalized(outcome: &Outcome) -> bool {
@@ -714,20 +797,24 @@ fn should_unlock_if_unfinalized(outcome: &Outcome) -> bool {
 fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHandle<Submission> {
     tokio::spawn(async move {
         let height = agg.height;
-        // Stash a copy of the votes — submit_one moves `agg`, but we need them in `Outcome`
-        // so MajorityNotReached recovery can re-inject.
+        // Stash a copy of the votes — submit_one moves `agg`, but we need them in `Submission`
+        // so the handler can re-inject on any unlock path.
         let votes = agg.votes.clone();
         let outcome = match submit_one(&shared, agg).await {
-            OutcomeInternal::Eligible(result) => Outcome::Eligible { result, votes },
+            OutcomeInternal::Eligible(result) => Outcome::Eligible { result },
             OutcomeInternal::Finalized => Outcome::Finalized,
             OutcomeInternal::Unresolved => Outcome::Unresolved,
         };
-        Submission { height, outcome }
+        Submission {
+            height,
+            outcome,
+            votes,
+        }
     })
 }
 
-/// The submit_one helper's local return type — same variants as `Outcome` minus the `votes`
-/// field, which is added at the spawn site.
+/// The submit_one helper's local return type — same variants as `Outcome`. The held `votes` are
+/// attached to `Submission` (not `Outcome`) at the spawn site.
 enum OutcomeInternal {
     Eligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
     Finalized,
@@ -1009,7 +1096,10 @@ async fn wait_finalized(shared: &Arc<Shared>, height: Height) {
 mod tests {
     use attestor_primitives::Digest;
 
-    use super::{should_unlock_if_unfinalized, validate_proof_chain, Outcome};
+    use super::{
+        should_unlock_if_unfinalized, take_reinject_budget, validate_proof_chain, Outcome,
+        MAX_REINJECTS_PER_HEIGHT,
+    };
     use crate::proof_cache::CachedProof;
 
     fn cached(prev: Option<Digest>) -> CachedProof {
@@ -1031,11 +1121,42 @@ mod tests {
             result: Err(subxt::Error::Transaction(
                 subxt::error::TransactionError::Invalid("stale transaction".into()),
             )),
-            votes: Vec::new(),
         };
         assert!(should_unlock_if_unfinalized(&outcome));
         assert!(should_unlock_if_unfinalized(&Outcome::Unresolved));
         assert!(!should_unlock_if_unfinalized(&Outcome::Finalized));
+    }
+
+    #[test]
+    fn reinject_budget_bounds_retries_per_height_and_resets_on_advance() {
+        const _: () = assert!(MAX_REINJECTS_PER_HEIGHT >= 1);
+        let mut state = None;
+
+        // A single persistently-failing height gets exactly MAX_REINJECTS_PER_HEIGHT grants,
+        // then is refused — so a fork the runtime keeps rejecting can't spin forever.
+        for i in 0..MAX_REINJECTS_PER_HEIGHT {
+            assert!(
+                take_reinject_budget(&mut state, 100),
+                "grant {i} should be allowed"
+            );
+        }
+        assert!(
+            !take_reinject_budget(&mut state, 100),
+            "budget for height 100 must be exhausted"
+        );
+        assert!(
+            !take_reinject_budget(&mut state, 100),
+            "still exhausted on repeat"
+        );
+
+        // Advancing to a new height resets the budget (heights advance monotonically, so the
+        // old counter is irrelevant once the chain moves on).
+        assert!(take_reinject_budget(&mut state, 101));
+        // ...and the fresh height gets its full allotment too.
+        for _ in 1..MAX_REINJECTS_PER_HEIGHT {
+            assert!(take_reinject_budget(&mut state, 101));
+        }
+        assert!(!take_reinject_budget(&mut state, 101));
     }
 
     #[test]
