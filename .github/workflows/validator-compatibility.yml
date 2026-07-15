@@ -40,12 +40,6 @@ permissions: read-all
 
 env:
   # Inclusive lower bound. Only releases >= this version are tested.
-  #
-  # TODO(attestor-v2 release): bump to the first published `-mainnet` release that contains the
-  # attestor v2 / Attestation-pallet changes once it exists. Until then this matrix includes
-  # pre-v2 releases that cannot follow the v2 chain, so the job is EXPECTED to report FAIL.
-  # Bumping earlier does not help — every currently-published release is pre-v2, so no existing
-  # floor makes the matrix green; only a v2 release does.
   MIN_VERSION: "3.55.0"
   # Which release channel to pull historical validators from.
   RELEASE_SUFFIX: "mainnet"
