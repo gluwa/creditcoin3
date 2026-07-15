@@ -56,6 +56,13 @@ pub const MAX_CATCHUP: std::num::NonZero<attestor_primitives::Height> =
 
 pub const MAX_CONCURRENT_RPC_CALLS: std::num::NonZeroUsize = std::num::NonZero::new(10).unwrap();
 
+/// Upper bound on the on-chain attestor committee, mirroring the runtime's
+/// `Attestation::MaxAttestors`. The p2p pending-vote buffer sizes its per-height cap from this so
+/// it can hold one early (pre-local-data) vote per possible attestor and never drop one that is
+/// later needed to reach quorum — a dropped vote is `Ignore`d under gossipsub Strict validation,
+/// which marks it seen and never redelivers it. Keep in sync with the runtime constant.
+pub const MAX_ATTESTORS: usize = 100;
+
 /// Minimum balance required for an attestor to operate.
 /// This is equivalent to 1 CTC.
 pub const MIN_BALANCE: u128 = 1_000_000_000_000_000_000;

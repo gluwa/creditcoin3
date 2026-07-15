@@ -160,9 +160,16 @@ pub async fn run(
     // Keyed by attestor within each height so a peer flooding garbage votes that *claim* active
     // attestor identities can occupy at most one slot per claimed attestor — it can no longer
     // push legitimate early votes out of a shared per-height queue (one-vote-per-attestor holds
-    // even before BLS verification is possible). A per-height cap on distinct attestors remains
-    // as a backstop; spillover is dropped (gossipsub heartbeats will retransmit anyway).
-    const MAX_PENDING_PER_HEIGHT: usize = 32;
+    // even before BLS verification is possible).
+    //
+    // The per-height cap must cover the *whole* committee: a lagging node can receive every peer's
+    // vote for a height before it produces local data, and quorum for a full committee is well
+    // above any smaller cap. Spillover is dropped with `Acceptance::Ignore`, and under gossipsub
+    // Strict validation an `Ignore`d message stays in the seen-cache and is *never* redelivered —
+    // so a dropped vote is lost to this node permanently and the height can miss quorum. Sizing
+    // from `MAX_ATTESTORS` (the runtime committee bound) guarantees we never drop a distinct
+    // attestor's early vote, while the per-attestor keying still bounds memory to the committee.
+    const MAX_PENDING_PER_HEIGHT: usize = common::constants::MAX_ATTESTORS;
     let mut pending_votes: PendingVotes = std::collections::HashMap::new();
 
     // Modern libp2p ping no longer tears down a connection on repeated failures; we do it
