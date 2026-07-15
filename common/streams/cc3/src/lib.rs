@@ -33,6 +33,17 @@ const RESUBSCRIBE_BACKOFF_START: std::time::Duration = std::time::Duration::from
 /// over. 100ms = ~10 fetches/sec is the default; tune via [`ConfigBuilder::with_backfill_min_interval`].
 const DEFAULT_BACKFILL_MIN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
 
+/// Hard cap on the parent-walk backfill gap. The walk buffers every `(height, events)` in the
+/// `backfill` Vec before draining, so a very large — but still *servable* — gap (a long outage
+/// recovering on an archive / large-pruning node, where the state is not pruned so
+/// [`is_permanent_backfill_error`] never trips) would materialize the whole gap at once and can
+/// OOM the pod mid-recovery. When the gap exceeds this, the stream ends instead: the consumer
+/// treats that as fatal and restarts, re-seeding from the current head with no backfill
+/// (accepting the skip). That is consistency-equivalent to the pruned-state re-seed the stream
+/// already relies on — just controlled, rather than an OOM kill. ~10k blocks comfortably covers a
+/// realistic reconnect/outage while keeping the buffer bounded.
+const MAX_BACKFILL_BLOCKS: u64 = 10_000;
+
 /// Whether a block/events fetch failed *permanently* for the block being asked about: the node
 /// has pruned the state (or never had the block) and no amount of reconnecting brings it back —
 /// only an archive node could answer. This happens when an outage outlasts the node's pruning
@@ -144,6 +155,21 @@ impl StreamCC3 {
                             // yielded this height or older.
                             tracing::debug!(n, latest, "🛜 non-advancing block, skipping");
                             continue;
+                        }
+
+                        // Bound the in-memory backfill. The walk below buffers the entire gap in
+                        // `backfill` before draining, so a huge (but servable) gap could OOM the
+                        // pod mid-recovery. Bail before fetching anything: end the stream like the
+                        // permanent-pruned path so a restart re-seeds from the current head with no
+                        // backfill (`n > latest` here, so `gap` never underflows).
+                        let gap = n - latest - 1;
+                        if gap > MAX_BACKFILL_BLOCKS {
+                            tracing::error!(
+                                n, latest, gap, cap = MAX_BACKFILL_BLOCKS,
+                                "🧱 cc3 backfill gap exceeds cap — ending the cc3 stream; \
+                                 a restart re-seeds from the current head with no backfill"
+                            );
+                            return;
                         }
 
                         // Walk parents until we close the gap to `latest`. Accumulate
