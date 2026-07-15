@@ -332,24 +332,6 @@ async fn handle_submission_result(
         }
     }
 
-    // Re-inject the held votes for any height we just unlocked. `mark_valid` deleted this fork
-    // when we started submitting, and gossipsub will not redeliver already-seen votes while
-    // production emits each height only once — so without this the pool typically cannot reform
-    // the quorum and the height stalls until an unrelated recovery. The per-height budget bounds
-    // retries so a fork the runtime persistently rejects (but local validation accepts) can't
-    // spin forever; once exhausted we fall back to peer-driven / catch-up recovery. Skipped when
-    // the height already finalized (nothing left to reform) or budget is spent.
-    if unlocked {
-        let finalized = shared
-            .latest_finalized_rx
-            .borrow()
-            .map(|info| info.height >= height)
-            .unwrap_or(false);
-        if !finalized && take_reinject_budget(reinject_budget, height) {
-            reinject_votes(shared, height, &votes);
-        }
-    }
-
     // Stashed quorums were validated against the threshold / active set *at stash time*; either
     // may have changed while the previous submission was in flight. Revalidate before
     // submitting — a stale aggregate is guaranteed to be rejected at runtime level
@@ -376,6 +358,32 @@ async fn handle_submission_result(
                 );
                 shared.pool_send.note_majority_not_reached(stash_height);
             }
+        }
+    }
+
+    // Re-inject the held votes for a height whose submission failed. `mark_valid` deleted this
+    // fork when we started submitting, and gossipsub will not redeliver already-seen votes while
+    // production emits each height only once — so without this the pool typically cannot reform
+    // the quorum and the height stalls until an unrelated recovery.
+    //
+    // Deliberately *after* the stash drain: when a higher quorum H₂ was stashed via
+    // `mark_for_later` while H was in flight, the lock sits at H₂ and `note_majority_not_reached(H)`
+    // above was a no-op — re-injecting H here would hit the admissibility window (lower bound H₂)
+    // and be dropped. The drain loop unlocks a stale H₂ first, so by now the lock reflects reality:
+    // `Sender::send`'s own admissibility check then reforms H if it is genuinely open, or rejects
+    // the votes when a higher in-flight stash already subsumes H via catch-up (nothing to reform).
+    //
+    // The per-height budget bounds retries so a fork the runtime persistently rejects (but local
+    // validation accepts) can't spin forever; once exhausted we fall back to peer-driven /
+    // catch-up recovery. Skipped when the height already finalized (nothing left to reform).
+    if unlocked {
+        let finalized = shared
+            .latest_finalized_rx
+            .borrow()
+            .map(|info| info.height >= height)
+            .unwrap_or(false);
+        if !finalized && take_reinject_budget(reinject_budget, height) {
+            reinject_votes(shared, height, &votes);
         }
     }
 }
