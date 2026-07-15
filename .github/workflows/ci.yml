@@ -685,24 +685,33 @@ jobs:
       - name: Check attestor logs for errors
         if: always()
         run: |
-          # Gate on tracing-format ` ERROR ` lines from the attestors (check-logs-for-error.sh
-          # greps the node-log `ERROR:` shape, which never matches tracing output). Runs BEFORE
-          # the SIGTERM/TERM teardown steps so shutdown noise can't leak in. Connection /
-          # reconnect / subscription errors are allowlisted: the outage-recovery scenarios above
+          # Gate on ERROR lines from the *attestor* JSON logs. The zombienet orchestrator
+          # discards each child attestor's stdout (`Stdio::null`) and the attestors write
+          # their tracing to `./logs/attestor-<name>.json.<date>` via the JSON layer — so the
+          # old `zombienet-*.log` grep only saw the orchestrator's own output and never the
+          # attestor task failures / submission errors it claimed to cover. JSON records level
+          # as `"level":"ERROR"`, not the ` ERROR ` fmt shape. Runs BEFORE the SIGTERM/TERM
+          # teardown steps so shutdown noise can't leak in. Connection / reconnect /
+          # subscription errors are allowlisted: the outage-recovery scenarios above
           # deliberately kill the CC3 node and Anvil, and riding those out loudly is the
           # designed behavior — the gate is for everything else (task failures, submission
           # errors, invalid event mappings).
+          ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed'
+          shopt -s nullglob
+          LOGS=(./logs/attestor-*.json.*)
+          if [ "${#LOGS[@]}" -eq 0 ]; then
+            echo "ERROR: no attestor JSON logs found under ./logs — the error gate would be a no-op" >&2
+            exit 1
+          fi
           FAILED=0
-          for LOG in /var/tmp/integration-test-attestor-network/zombienet-*.log; do
+          for LOG in "${LOGS[@]}"; do
             echo "INFO: inspecting '$LOG'"
-            ERRS=$(grep -E ' ERROR ' "$LOG" \
-              | grep -vE 'Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed' \
-              | grep -cE ' ERROR ' || true)
+            UNEXPECTED=$(grep -E '"level":"ERROR"' "$LOG" \
+              | grep -vE "$ALLOWLIST" || true)
+            ERRS=$(printf '%s' "$UNEXPECTED" | grep -c '"level":"ERROR"' || true)
             if [ "$ERRS" -gt 0 ]; then
               echo "ERROR: found $ERRS unexpected attestor ERROR line(s) in '$LOG':"
-              grep -E ' ERROR ' "$LOG" \
-                | grep -vE 'Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed' \
-                | head -20
+              printf '%s\n' "$UNEXPECTED" | head -20
               FAILED=1
             fi
           done
