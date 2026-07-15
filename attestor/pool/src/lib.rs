@@ -416,9 +416,20 @@ impl Sender {
 
     /// The on-chain `MaxCatchup` (in blocks) changed — adjust the vote-admission window.
     pub fn note_max_catchup_change(&self, max_catchup: NonZero<Height>) {
-        let mut guard = self.inner.pool.lock();
-        if let State::Open(pool) = &mut *guard {
-            pool.validate_quorum.max_catchup = max_catchup;
+        let mutated = {
+            let mut guard = self.inner.pool.lock();
+            if let State::Open(pool) = &mut *guard {
+                pool.validate_quorum.max_catchup = max_catchup;
+                true
+            } else {
+                false
+            }
+        };
+        if mutated {
+            // Widening the catch-up window can make a fork admissible that wasn't before; mirror
+            // every other state-mutating seam and wake a parked receiver to re-peek rather than
+            // relying on the next incoming vote to do it.
+            self.inner.notify.notify_one();
         }
     }
 
