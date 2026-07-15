@@ -381,6 +381,7 @@ impl Attestor {
             gossip_tx,
             peer_deactivated_tx,
 
+            attest_target: std::sync::atomic::AtomicBool::new(true),
             eligibility_gen: std::sync::atomic::AtomicU64::new(0),
             can_attest_tx,
             can_attest_rx,
