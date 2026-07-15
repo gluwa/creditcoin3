@@ -126,7 +126,9 @@ pub async fn run(
         // shutdown was requested while waiting; exit cleanly like every other task does on
         // cancellation instead of surfacing a spurious startup failure to the supervisor.
         tracing::info!(genesis, "⏲️ waiting for genesis attestation to finalize");
-        let Some(info) = wait_for_block_attested(&shared, &mut events, genesis).await? else {
+        let Some(info) =
+            wait_for_block_attested(&shared, &mut events, &mut stream_attestation, genesis).await?
+        else {
             tracing::info!("🔌 shutdown while waiting for genesis attestation");
             return Ok(());
         };
@@ -587,10 +589,17 @@ async fn handle_one(
 async fn wait_for_block_attested(
     shared: &Arc<Shared>,
     events: &mut stream::cc3::StreamCC3,
+    stream_attestation: &mut stream::attestation::StreamAttestation,
     target: attestor_primitives::Height,
 ) -> Result<Option<AttestationInfo>, Error> {
     use cc_client::attestation::CcEvent;
     use futures::{StreamExt as _, TryStreamExt as _};
+
+    // Scratch finalized cursor for `handle_one`. Only its `BlockAttested` / reversion arms
+    // read or write `latest_cc3`, and we never route those through it here — every event we do
+    // route (elections, chill/kick, config changes) leaves it untouched. The caller keeps the
+    // authoritative `latest_cc3` from this function's return value.
+    let mut scratch = AttestationInfo::default();
 
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
@@ -608,8 +617,12 @@ async fn wait_for_block_attested(
                 // on a slow chain) — batches are still arriving, so we're alive, not wedged.
                 shared.health.note_progress();
                 while let Some(event) = batch.try_next().await? {
-                    if let CcEvent::BlockAttested(att) = event {
-                        if att.header_number >= target {
+                    match event {
+                        // The genesis terminator: the first BlockAttested at/above the genesis
+                        // height carries the runtime-committed digest the caller needs. Return it
+                        // and let the caller run the finalization bookkeeping (it does more than
+                        // `handle_one`'s BlockAttested arm — pool floor, proof cache, watchdog).
+                        CcEvent::BlockAttested(att) if att.header_number >= target => {
                             tracing::info!(
                                 height = att.header_number,
                                 digest = ?att.digest,
@@ -619,6 +632,17 @@ async fn wait_for_block_attested(
                                 height: att.header_number,
                                 digest: att.digest,
                             }));
+                        }
+                        // A sub-genesis BlockAttested shouldn't occur; ignore it rather than feed
+                        // a below-genesis finalization into `handle_one`.
+                        CcEvent::BlockAttested(_) => {}
+                        // Every other event (committee election, chill/kick, target-sample-size /
+                        // max-catchup / interval changes) must still be applied while we wait —
+                        // dropping them left `bls_store`, pool membership, and threshold config
+                        // stale until a later duplicate event. Route them through the same handler
+                        // the steady-state loop uses.
+                        other => {
+                            handle_one(shared, stream_attestation, &mut scratch, other).await?;
                         }
                     }
                 }
