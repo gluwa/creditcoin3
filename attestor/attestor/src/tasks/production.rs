@@ -33,9 +33,14 @@ pub async fn run(
 
     // ----------------------------------* eth streams *--------------------------------------- //
 
+    // CPU-bound merkleization parallelism (see `roots::Config::max_parallelism`). Reserve a
+    // single core for the rest of the shared tokio runtime — the other tasks are I/O-bound and
+    // mostly idle, so one core of headroom is plenty. The old `WORKER_COUNT + 1` reservation
+    // was a v1 artifact (v2 spawns no OS worker threads); it saturated to 1 on every ≤4-CPU pod,
+    // needlessly single-threading deep root rebuilds after an outage or revert.
     let max_parallelism = std::thread::available_parallelism()
         .ok()
-        .and_then(|n| n.get().checked_sub(common::constants::WORKER_COUNT + 1))
+        .and_then(|n| n.get().checked_sub(1))
         .and_then(NonZero::new)
         .unwrap_or(NonZero::<usize>::MIN);
 
