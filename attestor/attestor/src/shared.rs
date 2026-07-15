@@ -16,6 +16,7 @@
 //!   `token.cancelled()` instead of bespoke `Notify` / `Interrupt::Stop` plumbing.
 
 use std::num::NonZero;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, watch};
@@ -62,6 +63,12 @@ pub struct Shared {
     /// already up to date when it re-evaluates the peer. Unbounded because these events are rare
     /// (committee changes) and the p2p task must never block production on backpressure.
     pub peer_deactivated_tx: mpsc::UnboundedSender<attestor_primitives::AttestorId>,
+
+    /// Monotonic counter bumped on every eligibility transition (election / chill / kick). A
+    /// warm-up task spawned on a disabled→enabled transition captures the value and only enables
+    /// `can_attest` if it is still current at wake time — so a chill landing during the warm-up
+    /// window cancels the pending enable rather than racing it.
+    pub eligibility_gen: AtomicU64,
 
     pub can_attest_tx: watch::Sender<bool>,
     pub can_attest_rx: watch::Receiver<bool>,

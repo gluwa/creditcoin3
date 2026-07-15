@@ -276,6 +276,51 @@ async fn handle_cc3_batch(
     Ok(())
 }
 
+/// Apply an eligibility transition (from an election / chill / kick) to `can_attest` and the
+/// health stall axis.
+///
+/// Enabling *from a disabled state* is warmed up: we hold `can_attest` false for
+/// [`POST_ELECTION_WARMUP`] before flipping it true, so peers have time to process the same
+/// `AttestorsElected` event and refresh their BLS stores. Otherwise our first post-reactivation
+/// votes reach peers that can't yet verify them and are rejected — and gossipsub marks rejected
+/// messages seen and never redelivers them, so those votes are lost permanently. This mirrors
+/// the startup election paths in `startup::wait_for_eligible`.
+///
+/// Disabling, or re-electing while already enabled (we were never off, so peers already know us),
+/// applies immediately. Every call bumps `eligibility_gen`; the warm-up task captures its value
+/// and enables only if still current — so a chill/kick landing inside the warm-up window cancels
+/// the pending enable instead of racing it. `set_attest_expected` is set immediately in all cases
+/// (the stall axis re-arms with a full grace window that dwarfs the 30s warm-up).
+fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
+    use std::sync::atomic::Ordering;
+    let gen = shared
+        .eligibility_gen
+        .fetch_add(1, Ordering::SeqCst)
+        .wrapping_add(1);
+    shared.health.set_attest_expected(eligible);
+
+    if eligible && !*shared.can_attest_rx.borrow() {
+        tracing::info!("⏳ eligible — warming up before attesting (peers refreshing BLS stores)");
+        let shared = shared.clone();
+        tokio::spawn(async move {
+            tokio::select! {
+                _ = shared.token.cancelled() => {}
+                () = tokio::time::sleep(common::constants::POST_ELECTION_WARMUP) => {
+                    if shared.eligibility_gen.load(Ordering::SeqCst) == gen {
+                        let _ = shared.can_attest_tx.send(true);
+                        tracing::info!("☀️ warm-up complete — attesting");
+                    } else {
+                        tracing::info!("↩️ warm-up superseded by a later eligibility change — not enabling");
+                    }
+                }
+            }
+        });
+    } else {
+        // Disable now, or re-enable with no gap when we were already attesting.
+        let _ = shared.can_attest_tx.send(eligible);
+    }
+}
+
 async fn handle_one(
     shared: &Arc<Shared>,
     stream_attestation: &mut stream::attestation::StreamAttestation,
@@ -360,10 +405,7 @@ async fn handle_one(
         CcEvent::AttestorsElected(_, attestors) => {
             tracing::info!("⏰ new attestor set");
             let eligible = attestors.contains(&shared.account_id);
-            // can_attest toggle wakes any watcher (production select, validation submit gate).
-            let _ = shared.can_attest_tx.send(eligible);
-            // Watchdog: the stall axis only applies while we're expected to produce.
-            shared.health.set_attest_expected(eligible);
+            apply_eligibility(shared, eligible);
             shared
                 .bls_store
                 .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
@@ -404,9 +446,7 @@ async fn handle_one(
             // event itself: `staking::Kicked` carries no chain scope, so trusting the event
             // could wrongly chill us on an unrelated kick — the authoritative active set can't.
             let eligible = attestors.contains(&shared.account_id);
-            let _ = shared.can_attest_tx.send(eligible);
-            // Watchdog: the stall axis only applies while we're expected to produce.
-            shared.health.set_attest_expected(eligible);
+            apply_eligibility(shared, eligible);
             shared
                 .bls_store
                 .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
