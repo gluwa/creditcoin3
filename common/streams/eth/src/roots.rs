@@ -249,25 +249,39 @@ impl stream_util::ChainData<stream_util::RootInfo> for StreamRoots {
     }
 }
 
-async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::OrderedBlock, Error>> {
+async fn stream_rpc(
+    mut config: Config,
+) -> stream_util::BoxedStream<Result<eth::OrderedBlock, Error>> {
     use futures::StreamExt as _;
 
-    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+    // Initial subscribe, repairing the client between attempts. This runs from `new()` and from
+    // `reset()` (whose backup config's client may have died since construction), and as the
+    // second layer under `StreamRoots::reconnect`. `eth::Client` is a value clone — a dead
+    // connection inside it never self-heals — so a loop that only re-`subscribe()`s can spin on
+    // a dead client forever, pinning production until the watchdog restarts the pod. The
+    // repaired client stays in `config`, so the block fetches in the stream body use it too.
+    // First attempt goes straight to `subscribe()` so a healthy construction pays no extra dial.
+    let mut delays = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
         .max_delay(std::time::Duration::from_millis(5_000))
         .map(tokio_retry::strategy::jitter);
-
-    let reconnect = || {
-        let client = config.client.clone();
-        async move {
-            let mut stream_headers = client.subscribe().await.map_err(Error::Client)?;
-            let next = stream_headers.next().await.ok_or(Error::StreamEnd)?.number;
-
-            Ok::<_, Error>((stream_headers, next))
+    let (stream_headers, next) = loop {
+        match config.client.subscribe().await.map_err(Error::Client) {
+            Ok(mut stream_headers) => match stream_headers.next().await {
+                Some(header) => break (stream_headers, header.number),
+                None => tracing::warn!("Eth header stream ended before yielding — retrying"),
+            },
+            Err(err) => {
+                tracing::warn!(?err, "Eth subscribe failed — repairing client and retrying");
+            }
         }
+        if let Err(err) = config.client.reconnect().await {
+            tracing::warn!(?err, "Eth client reconnect failed");
+        }
+        let delay = delays
+            .next()
+            .unwrap_or(std::time::Duration::from_millis(5_000));
+        tokio::time::sleep(delay).await;
     };
-
-    let retry = tokio_retry::Retry::spawn(strategy, reconnect);
-    let (stream_headers, next) = retry.await.expect("Unbounded retry cannot error");
 
     let mut stream_n = futures::stream::iter(config.start_height..=next)
         .chain(

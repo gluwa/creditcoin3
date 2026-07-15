@@ -3188,6 +3188,7 @@ export default {
             'EmptyCheckpointPatch',
             'CheckpointSuffixWipeTooLarge',
             'TooManyAttestationsForForwardPatchClear',
+            'OversizedContinuityProof',
         ],
     },
     /**

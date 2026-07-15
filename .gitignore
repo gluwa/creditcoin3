@@ -71,3 +71,6 @@ bridge-usage-example/lib/*
 ./config.json
 primitives/data/*
 prover/artifacts/*
+
+# Editor / IDE local settings (Claude Code, etc.)
+.claude/

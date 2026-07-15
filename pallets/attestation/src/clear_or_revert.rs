@@ -27,8 +27,13 @@ impl<T: Config> Pallet<T> {
         let retention_duration = AttestationRetentionDuration::<T>::get(chain_key);
         let checkpoint_interval = AttestationCheckpointInterval::<T>::get(chain_key);
 
-        // Clearing attestations. We should never have more than 2 checkpoints - 1 + retention_duration worth of attestations.
-        let max_attestations_to_remove = checkpoint_interval * 2 - 1 + retention_duration;
+        // Clearing attestations. Steady state holds `2 * checkpoint_interval - 1 +
+        // retention_duration` attestations, but during the narrow window of a checkpoint cycle
+        // (a full checkpointing queue that hasn't been drained yet) the count can briefly reach
+        // `2 * checkpoint_interval + retention_duration`. Bound the clear to that peak —
+        // otherwise an emergency reversion attempted inside the window leaves a `clear_prefix`
+        // cursor and the transactional revert aborts with `TooManyAttestations`.
+        let max_attestations_to_remove = checkpoint_interval * 2 + retention_duration;
 
         let maybe_cursor =
             Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None)
@@ -237,10 +242,11 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
         MaxInvulnerables::<T>::remove(chain_key);
 
-        // Clearing attestations
+        // Clearing attestations (same peak-state bound as `do_revert_to`: a full checkpointing
+        // queue mid-cycle can briefly hold `2 * checkpoint_interval + retention_duration`).
         let retention_duration = AttestationRetentionDuration::<T>::get(chain_key);
         let max_attestations_to_remove =
-            AttestationCheckpointInterval::<T>::get(chain_key) * 2 - 1 + retention_duration;
+            AttestationCheckpointInterval::<T>::get(chain_key) * 2 + retention_duration;
         // Can dispense with result, since limit is equal to maximum storage size
         _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
 
