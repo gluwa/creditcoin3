@@ -45,7 +45,7 @@
         "source-map-support": "^0.5.21",
         "ts-node": "^10.9.1",
         "tsconfig-paths": "^4.2.0",
-        "typescript": "^7.0.2"
+        "typescript": "5.9.2"
     },
     "resolutions": {
         "ipfs-unixfs": "6.0.6"
