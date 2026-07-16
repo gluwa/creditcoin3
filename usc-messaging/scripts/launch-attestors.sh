@@ -190,9 +190,16 @@ In a SEPARATE terminal, launch the relayer with that flag, e.g.:
     --signer-key "\$DESTINATION_CHAIN_PRIVATE_KEY" \\
     --attestor-set $SET
 
-Note: config.yaml was updated after the attestors started, so it takes effect on the next restart;
-this run already works because each attestor publishes its own vote and the relayer aggregates them
-using --attestor-set above.
+⚠️  IN-MESH AGGREGATION NOTE: this launcher uses random per-attestor seeds (no --well-known-keys),
+so each attestor's EVM signer address is only known after it boots — config.yaml's static
+'write_ability.attestors' is therefore rewritten AFTER startup and, because static sets are not
+hot-reloaded, the already-running attestors keep the pre-boot (placeholder) set for this run. They
+still each gossip their own vote and the relayer reaches quorum via --attestor-set above (delivery
+works), but attestor-side in-mesh quorum aggregation is against the stale set until restart.
+For correct in-mesh aggregation without a restart, run the attestors in OnChainValidator mode:
+set 'write_ability.validator_address' to the EOAValidator this script syncs (VOTE_VALIDATOR_ADDR)
+instead of a static 'attestors' list — the on-chain set watcher then converges every node's active
+set to the synced attestors within one poll interval. (Static-list demos remain fine for delivery.)
 
 🧟 Attestors are running. The zombienet keeps this terminal (Ctrl-C to stop everything), but it
 prints little after startup: each attestor writes its own logs (block attestation + write-ability
