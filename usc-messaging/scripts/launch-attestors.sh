@@ -110,6 +110,7 @@ for (( i=0; i<N; i++ )); do
       cleanup
       exit 1
     fi
+    # shellcheck disable=SC2012  # ls -t picks the newest rotated log; filenames are controlled
     f="$(ls -t "$LOGS_DIR"/attestor-zombie-"$i".json.* 2>/dev/null | head -1 || true)"
     if [[ -n "$f" ]]; then
       # The "message-vote signer ready" line carries the attestor's derived EVM vote address.
@@ -117,7 +118,7 @@ for (( i=0; i<N; i++ )); do
     fi
     [[ -z "$addr" ]] && sleep 2
   done
-  ADDRS[$i]="$addr"
+  ADDRS[i]="$addr"
   echo "  zombie-$i → $addr"
 done
 
@@ -125,6 +126,7 @@ done
 SET="$(IFS=,; echo "${ADDRS[*]}")"
 
 # Rewrite the `write_ability.attestors` list in config.yaml (preserving everything else).
+# shellcheck disable=SC2016  # single-quoted on purpose: this is a JS program, args come via argv
 node -e '
   const fs = require("fs");
   const [path, set] = process.argv.slice(1);
