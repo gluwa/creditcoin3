@@ -115,6 +115,22 @@ impl Config {
                     .to_string(),
             );
         }
+        // Guard against a fat-fingered depth (e.g. an extra few zeros). It is only the fallback
+        // bound now that we sign the finalized head (P1-2), but an absurd value would make the
+        // fallback path saturate to block 0 and silently never sign — a liveness footgun validate()
+        // should catch loudly at boot rather than let the attestor come up mute.
+        if self.block_confirmation_depth > MAX_BLOCK_CONFIRMATION_DEPTH {
+            return Err(format!(
+                "block_confirmation_depth {} is implausibly large (> {}) — likely a typo; the \
+                 attestor would silently never sign",
+                self.block_confirmation_depth, MAX_BLOCK_CONFIRMATION_DEPTH
+            ));
+        }
+        validate_rpc_url("cc3_eth_rpc_url", self.cc3_eth_rpc_url.as_ref())?;
+        validate_rpc_url(
+            "destination_eth_rpc_url",
+            self.destination_eth_rpc_url.as_ref(),
+        )?;
         if self.vote_ttl.is_zero() {
             return Err("vote_ttl must be > 0".to_string());
         }
@@ -159,6 +175,28 @@ impl Config {
 /// Three blocks matches the usual time-to-finality on Creditcoin.
 pub const DEFAULT_BLOCK_CONFIRMATION_DEPTH: u64 = 3;
 
+/// Sanity ceiling for `block_confirmation_depth` (audit P2-7). Far above any plausible finality
+/// depth, so a value beyond it is almost certainly a typo that would make the fallback path saturate
+/// to block 0 and silently never sign.
+pub const MAX_BLOCK_CONFIRMATION_DEPTH: u64 = 100_000;
+
+/// Reject an RPC URL whose scheme the EVM/substrate clients can't dial (audit P2-7). Accepts only
+/// `http(s)` / `ws(s)`; `None` is accepted here (presence is enforced separately per attestor-set
+/// mode). Catches a fat-fingered `htto://…` / `file://…` at boot instead of at first RPC call.
+fn validate_rpc_url(field: &str, url: Option<&url::Url>) -> Result<(), String> {
+    if let Some(u) = url {
+        match u.scheme() {
+            "http" | "https" | "ws" | "wss" => {}
+            other => {
+                return Err(format!(
+                    "{field} has unsupported URL scheme '{other}' (expected http/https/ws/wss)"
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Default anti-abuse bound on distinct tracked messages per chain key.
 pub const DEFAULT_MAX_TRACKED_MESSAGES: usize = 10_000;
 
@@ -200,6 +238,27 @@ mod tests {
     fn rejects_zero_confirmation_depth() {
         let mut c = enabled_base();
         c.block_confirmation_depth = 0;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_implausibly_large_confirmation_depth() {
+        let mut c = enabled_base();
+        c.block_confirmation_depth = MAX_BLOCK_CONFIRMATION_DEPTH + 1;
+        assert!(c.validate().is_err());
+        // The ceiling itself is accepted.
+        c.block_confirmation_depth = MAX_BLOCK_CONFIRMATION_DEPTH;
+        assert!(c.validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_unsupported_rpc_url_scheme() {
+        let mut c = enabled_base();
+        c.cc3_eth_rpc_url = Some("ftp://localhost:9944".parse().unwrap());
+        assert!(c.validate().is_err());
+        // A destination URL with a bad scheme is caught too.
+        let mut c = enabled_base();
+        c.destination_eth_rpc_url = Some("file:///etc/passwd".parse().unwrap());
         assert!(c.validate().is_err());
     }
 
