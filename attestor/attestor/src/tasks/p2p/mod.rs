@@ -12,6 +12,7 @@ pub mod behavior;
 pub mod protocols;
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use parity_scale_codec::{DecodeAll, Encode};
 use tokio::sync::mpsc;
@@ -237,6 +238,9 @@ pub async fn run(
     // the on-chain attestor id is sr25519, so this binding cannot be derived — it must be learned.
     let mut peers_by_attestor: Vec<(AttestorId, libp2p::PeerId)> = Vec::new();
 
+    // Per-peer + global rate limit for inbound reobservation requests (audit P1-4).
+    let mut reobs_admission = ReobsAdmission::new(Instant::now());
+
     let mut local_produced_rx = shared.local_produced_rx.clone();
     let mut latest_finalized_rx = shared.latest_finalized_rx.clone();
 
@@ -342,6 +346,7 @@ pub async fn run(
                     &mut dial_failures,
                     &boot_peers,
                     &mut peers_by_attestor,
+                    &mut reobs_admission,
                     event,
                 ).await;
                 // Recompute the mesh hint after *every* event rather than inside selected event
@@ -412,6 +417,88 @@ fn drain_pending_votes(
     ready
 }
 
+// Reobservation-request admission control (audit P1-4). Reobservation is *unauthenticated* pull
+// traffic; without a cap a peer rotating unique message-ids/heights could make every attestor
+// re-fetch + re-propagate endlessly. Token-bucket rate-limit BOTH per relaying peer and globally
+// *before* forwarding/propagating, so an over-limit flood is dropped (Ignore) rather than amplified
+// across the mesh. Generous, since a legitimate relayer only asks when a message stalls.
+const REOBS_GLOBAL_CAPACITY: f64 = 20.0;
+const REOBS_GLOBAL_REFILL_PER_SEC: f64 = 5.0;
+const REOBS_PER_PEER_CAPACITY: f64 = 5.0;
+const REOBS_PER_PEER_REFILL_PER_SEC: f64 = 1.0;
+const REOBS_MAX_TRACKED_PEERS: usize = 1024;
+
+/// Monotonic-clock token bucket. Not thread-safe; the swarm loop owns it single-threaded.
+#[derive(Clone, Copy)]
+struct TokenBucket {
+    tokens: f64,
+    capacity: f64,
+    refill_per_sec: f64,
+    last: Instant,
+}
+
+impl TokenBucket {
+    fn new(capacity: f64, refill_per_sec: f64, now: Instant) -> Self {
+        Self {
+            tokens: capacity,
+            capacity,
+            refill_per_sec,
+            last: now,
+        }
+    }
+
+    fn try_take(&mut self, now: Instant) -> bool {
+        let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
+        self.tokens = (self.tokens + elapsed * self.refill_per_sec).min(self.capacity);
+        self.last = now;
+        if self.tokens >= 1.0 {
+            self.tokens -= 1.0;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+/// Global + per-peer reobservation admission. `admit` charges the per-peer bucket first (one peer
+/// can't drain the global allowance) then the global bucket; both must have a token.
+struct ReobsAdmission {
+    global: TokenBucket,
+    per_peer: std::collections::HashMap<libp2p::PeerId, TokenBucket>,
+    order: std::collections::VecDeque<libp2p::PeerId>,
+}
+
+impl ReobsAdmission {
+    fn new(now: Instant) -> Self {
+        Self {
+            global: TokenBucket::new(REOBS_GLOBAL_CAPACITY, REOBS_GLOBAL_REFILL_PER_SEC, now),
+            per_peer: std::collections::HashMap::new(),
+            order: std::collections::VecDeque::new(),
+        }
+    }
+
+    fn admit(&mut self, source: libp2p::PeerId, now: Instant) -> bool {
+        if !self.per_peer.contains_key(&source) {
+            while self.per_peer.len() >= REOBS_MAX_TRACKED_PEERS {
+                let Some(old) = self.order.pop_front() else {
+                    break;
+                };
+                self.per_peer.remove(&old);
+            }
+            self.per_peer.insert(
+                source,
+                TokenBucket::new(REOBS_PER_PEER_CAPACITY, REOBS_PER_PEER_REFILL_PER_SEC, now),
+            );
+            self.order.push_back(source);
+        }
+        // unwrap: just ensured the entry exists.
+        if !self.per_peer.get_mut(&source).unwrap().try_take(now) {
+            return false;
+        }
+        self.global.try_take(now)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_swarm(
     shared: &Arc<Shared>,
@@ -424,6 +511,7 @@ async fn handle_swarm(
     dial_failures: &mut std::collections::HashMap<libp2p::PeerId, u32>,
     boot_peers: &std::collections::HashSet<libp2p::PeerId>,
     peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    reobs_admission: &mut ReobsAdmission,
     event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
 ) {
     use behavior::P2PBehaviorEvent;
@@ -517,7 +605,12 @@ async fn handle_swarm(
             let decision = if is_message_vote {
                 handle_message_vote(shared, &message.data)
             } else if is_reobs {
-                handle_reobservation_request(shared, &message.data)
+                handle_reobservation_request(
+                    shared,
+                    &message.data,
+                    reobs_admission,
+                    propagation_source,
+                )
             } else {
                 let (acceptance, learned) = handle_vote_msg(
                     shared,
@@ -976,11 +1069,19 @@ fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub:
 fn handle_reobservation_request(
     shared: &Arc<Shared>,
     bytes: &[u8],
+    admission: &mut ReobsAdmission,
+    source: libp2p::PeerId,
 ) -> libp2p::gossipsub::MessageAcceptance {
     use libp2p::gossipsub::MessageAcceptance;
     let Some(state) = &shared.message_votes else {
         return MessageAcceptance::Ignore;
     };
+    // Rate-limit before doing (or propagating) any work: an over-limit reobservation flood is
+    // dropped with `Ignore` so it is not amplified across the mesh (audit P1-4).
+    if !admission.admit(source, Instant::now()) {
+        tracing::debug!(%source, "🚦 reobservation rate limit exceeded — dropping, not propagating");
+        return MessageAcceptance::Ignore;
+    }
     let request = match ReobservationRequest::decode_bytes(bytes) {
         Ok(r) => r,
         Err(err) => {
@@ -1297,8 +1398,29 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
 
 #[cfg(test)]
 mod tests {
-    use super::{deny_decision, drain_pending_votes, is_bufferable, PendingVotes};
+    use super::{
+        deny_decision, drain_pending_votes, is_bufferable, PendingVotes, ReobsAdmission,
+        REOBS_PER_PEER_CAPACITY,
+    };
     use attestor_primitives::AttestorId;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn reobs_admission_enforces_per_peer_and_refills() {
+        let t0 = Instant::now();
+        let mut a = ReobsAdmission::new(t0);
+        let p = libp2p::PeerId::random();
+        // Per-peer capacity is exhausted, then denied at the same instant…
+        for i in 0..REOBS_PER_PEER_CAPACITY as usize {
+            assert!(a.admit(p, t0), "request {i} within per-peer capacity");
+        }
+        assert!(!a.admit(p, t0), "over per-peer capacity");
+        // …a different peer has its own bucket (shares only the global allowance)…
+        let q = libp2p::PeerId::random();
+        assert!(a.admit(q, t0));
+        // …and the per-peer bucket refills over time (1 token/sec).
+        assert!(a.admit(p, t0 + Duration::from_secs(1)));
+    }
 
     fn att(n: u8) -> AttestorId {
         AttestorId::from_public([n; 32])
