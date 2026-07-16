@@ -115,6 +115,8 @@ updates:
       - "/docs/smart-contract-development/with-ethers.js"
       - "/scripts"
       - "/scripts/changelog-warnings"
+      - "/usc-messaging"
+      - "/usc-messaging/contracts"
     groups:
       prod-dependencies:
         dependency-type: "production"
