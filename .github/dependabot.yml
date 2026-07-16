@@ -64,6 +64,7 @@ updates:
       - "/common/prometheus"
       - "/common/indexer-client"
       - "/common/builder"
+      - "/common/write-ability"
       - "/common/streams/eth"
       - "/common/streams/cc3"
       - "/common/streams/attestation"
