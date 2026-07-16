@@ -218,9 +218,7 @@ export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Prom
         id: address,
         chainKey: BigInt(chainKey.toString()),
         registeredAt: blockNumber,
-        registeredTimestamp: event.block.timestamp
-            ? BigInt(event.block.timestamp.getTime())
-            : BigInt(0),
+        registeredTimestamp: event.block.timestamp ? BigInt(event.block.timestamp.getTime()) : BigInt(0),
     });
     await factory.save();
 }

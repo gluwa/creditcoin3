@@ -28,8 +28,10 @@ ENV_FILE="$SCRIPT_DIR/../.env"
 
 # Load .env so CHAIN_KEY / ETH_URL / the EOAValidator-sync vars can be derived from it.
 if [[ -f "$ENV_FILE" ]]; then
+  set -a
   # shellcheck disable=SC1090
-  set -a; source "$ENV_FILE"; set +a
+  source "$ENV_FILE"
+  set +a
 fi
 
 N="${1:-3}"

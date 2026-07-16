@@ -5,9 +5,11 @@ fs_permissions = [
 ]
 libs = ["lib"]
 out = "out"
+remappings = [
+    "@gluwa/usc-contracts/=node_modules/@gluwa/usc-contracts/contracts/",
+]
 solc = "0.8.24"
 src = "src"
-remappings = ["@gluwa/usc-contracts/=node_modules/@gluwa/usc-contracts/contracts/"]
 
 [profile.default.fmt]
 line_length = 100

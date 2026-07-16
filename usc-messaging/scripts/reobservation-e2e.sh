@@ -51,12 +51,12 @@ done
 echo "=== 1. start chains ==="
 anvil --block-time 2 --chain-id 31337 --port 8545 >"$LOGS/anvil.log" 2>&1 &
 RUST_LOG=info "$REL/creditcoin3-node" --dev --tmp >"$LOGS/cc3-node.log" 2>&1 &
-cd "$REPO"
+cd "$REPO" || exit 1
 .github/wait-for-ethereum.sh 'http://127.0.0.1:8545' || exit 1
 .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944' || exit 1
 
 echo "=== 2. deploy USC contracts ==="
-cd "$USC"
+cd "$USC" || exit 1
 npm install >"$LOGS/npm.log" 2>&1
 # deploy.ts needs @gluwa/usc-contracts artifacts in contracts/node_modules
 (cd contracts && npm ci) >>"$LOGS/npm.log" 2>&1
