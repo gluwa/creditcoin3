@@ -32,7 +32,8 @@ const EVM_V1_DECODER_LIB =
 // `src/` copy. Same reasoning as EVM_V1_DECODER_LIB: the path stays inside the Foundry project root
 // so forge's source id resolves cleanly. Note the package file is `AcknowledgementValidator.sol`
 // (British spelling) while the contract it declares is `AcknowledgmentValidator`.
-const USC_WRITE_ABILITY = "node_modules/@gluwa/usc-contracts/contracts/write-ability";
+const USC_WRITE_ABILITY =
+  "node_modules/@gluwa/usc-contracts/contracts/write-ability";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -40,6 +41,17 @@ function requireEnv(name: string): string {
     throw new Error(`Missing ${name}`);
   }
   return value;
+}
+
+// Mask 32-byte hex secrets (private keys) anywhere in a rendered string. forge/cast take the key
+// as `--private-key <hex>` on argv, so a failed command's args — and any tool output that echoes
+// them — would otherwise leak the deployer key into error messages and CI logs (audit P2-4). A
+// 64-hex run is a private key; 40-hex addresses and RPC URLs are left intact.
+// NOTE: this does not hide the key from OS process listings (`ps`) while forge/cast run — argv
+// exposure needs keystore/KMS-backed signing, the audit's larger P2-4 remediation. This demo
+// deploy script is not the production signing path.
+function redactSecrets(s: string): string {
+  return s.replace(/0x[0-9a-fA-F]{64}/g, "0x<redacted>");
 }
 
 function runCommand(cmd: string, args: string[], cwd: string): string {
@@ -54,7 +66,9 @@ function runCommand(cmd: string, args: string[], cwd: string): string {
     const stdout = err?.stdout ? String(err.stdout) : "";
     const stderr = err?.stderr ? String(err.stderr) : "";
     const combined = [stdout, stderr].filter(Boolean).join("\n");
-    throw new Error(`Command failed: ${cmd} ${args.join(" ")}\n${combined}`);
+    throw new Error(
+      redactSecrets(`Command failed: ${cmd} ${args.join(" ")}\n${combined}`),
+    );
   }
 }
 
@@ -66,7 +80,10 @@ function parseDeployedAddress(output: string, label: string): string {
   return match[1];
 }
 
-function deployToDestination(contractSpec: string, constructorArgs: string[] = []): string {
+function deployToDestination(
+  contractSpec: string,
+  constructorArgs: string[] = [],
+): string {
   const rpcUrl = requireEnv("DESTINATION_CHAIN_RPC_URL");
   const privateKey = requireEnv("DESTINATION_CHAIN_PRIVATE_KEY");
 
@@ -78,11 +95,9 @@ function deployToDestination(contractSpec: string, constructorArgs: string[] = [
     privateKey,
     "--broadcast",
     contractSpec,
-    ...(
-      constructorArgs.length > 0
-        ? ["--constructor-args", ...constructorArgs]
-        : []
-    ),
+    ...(constructorArgs.length > 0
+      ? ["--constructor-args", ...constructorArgs]
+      : []),
   ];
 
   const output = runCommand("forge", args, CONTRACTS_DIR);
@@ -108,11 +123,9 @@ function deployToSource(
     // Pre-linked libraries (`<sourceId>:<Lib>:<address>`) must precede the contract spec.
     ...libraries.flatMap((lib) => ["--libraries", lib]),
     contractSpec,
-    ...(
-      constructorArgs.length > 0
-        ? ["--constructor-args", ...constructorArgs]
-        : []
-    ),
+    ...(constructorArgs.length > 0
+      ? ["--constructor-args", ...constructorArgs]
+      : []),
   ];
 
   const output = runCommand("forge", args, CONTRACTS_DIR);
@@ -125,7 +138,16 @@ function castSendSource(to: string, sig: string, args: string[]): void {
   const privateKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
   const output = runCommand(
     "cast",
-    ["send", to, sig, ...args, "--rpc-url", rpcUrl, "--private-key", privateKey],
+    [
+      "send",
+      to,
+      sig,
+      ...args,
+      "--rpc-url",
+      rpcUrl,
+      "--private-key",
+      privateKey,
+    ],
     CONTRACTS_DIR,
   );
   process.stderr.write(output);
@@ -161,7 +183,9 @@ async function registerOutboxFactory(
   // Note: `??` only falls back on undefined/null, but these env vars are commonly present-but-empty
   // (`CREDITCOIN_SUBSTRATE_WS_URL=""` in .env.example), so treat blank as unset.
   const configuredWs = process.env.CREDITCOIN_SUBSTRATE_WS_URL?.trim();
-  const wsUrl = configuredWs ? configuredWs : toWs(requireEnv("CREDITCOIN_RPC_URL"));
+  const wsUrl = configuredWs
+    ? configuredWs
+    : toWs(requireEnv("CREDITCOIN_RPC_URL"));
   const sudoSuri = process.env.CREDITCOIN_SUDO_SURI?.trim() || "//Alice";
 
   const api = await ApiPromise.create({
@@ -175,11 +199,15 @@ async function registerOutboxFactory(
 
     await new Promise<void>((resolve, reject) => {
       api.tx.sudo
-        .sudo(api.tx.supportedChains.setOutboxFactoryAddr(chainKey, factoryAddr))
+        .sudo(
+          api.tx.supportedChains.setOutboxFactoryAddr(chainKey, factoryAddr),
+        )
         .signAndSend(sudo, ({ status, dispatchError }) => {
           if (dispatchError) {
             reject(
-              new Error(`setOutboxFactoryAddr failed: ${dispatchError.toString()}`),
+              new Error(
+                `setOutboxFactoryAddr failed: ${dispatchError.toString()}`,
+              ),
             );
           } else if (status.isInBlock || status.isFinalized) {
             resolve();
@@ -332,14 +360,17 @@ async function main(): Promise<void> {
   // destination deployer is the validator admin). threshold = 2/3 + 1, minAttestorCount = 1.
   const validatorAdmin = getDestinationDeployerAddress();
   const initialAttestors = readInitialAttestors();
-  const validator = deployToDestination(`${USC_WRITE_ABILITY}/EOAValidator.sol:EOAValidator`, [
-    validatorAdmin,
-    `[${initialAttestors.join(",")}]`,
-    "1", // minAttestorCount
-    "2", // thresholdNumerator
-    "3", // thresholdDenominator
-    "1", // thresholdAddition
-  ]);
+  const validator = deployToDestination(
+    `${USC_WRITE_ABILITY}/EOAValidator.sol:EOAValidator`,
+    [
+      validatorAdmin,
+      `[${initialAttestors.join(",")}]`,
+      "1", // minAttestorCount
+      "2", // thresholdNumerator
+      "3", // thresholdDenominator
+      "1", // thresholdAddition
+    ],
+  );
   const destination = deployToDestination(
     "src/TestDestination.sol:TestDestination",
   );
@@ -360,7 +391,9 @@ async function main(): Promise<void> {
   updateEnvVar("DAPP_CONTRACT_ADDR", dapp);
   updateEnvVar("DESTINATION_CHAIN_ID", destinationChainId);
 
-  console.log(`EOAValidator: ${validator} (admin ${validatorAdmin}, ${initialAttestors.length} seed attestors)`);
+  console.log(
+    `EOAValidator: ${validator} (admin ${validatorAdmin}, ${initialAttestors.length} seed attestors)`,
+  );
   console.log(`SimpleInbox: ${inbox}`);
   console.log(`OutboxFactory: ${outboxFactory}`);
   console.log(`SimpleOutbox (via factory): ${outbox}`);
@@ -372,6 +405,9 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error(err);
+  // Redact any private key that made it into the error before it reaches stdout / CI logs.
+  const rendered =
+    err instanceof Error ? (err.stack ?? err.message) : String(err);
+  console.error(redactSecrets(rendered));
   process.exit(1);
 });
