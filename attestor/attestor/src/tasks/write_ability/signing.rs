@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 const EVM_SIGNER_DOMAIN: &[u8] = b"usc/write-ability/evm-signer/v1";
 
 /// Holds the attestor's EVM message-vote signing key.
+#[derive(Clone)]
 pub struct MessageSigner {
     signer: PrivateKeySigner,
     address: Address,
