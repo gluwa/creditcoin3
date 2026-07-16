@@ -172,7 +172,7 @@ jobs:
           export PATH="$HOME/.foundry/bin:$PATH"
           bash usc-messaging/scripts/launch-attestors.sh 3 >"$LOGS/zombienet.log" 2>&1 &
           echo "Waiting for attestors to resolve the Outbox and the validator set to sync…"
-          for i in $(seq 1 90); do
+          for _ in $(seq 1 90); do
             if grep -q 'Attestor set ready' "$LOGS/zombienet.log"; then
               echo "✅ attestors ready"; grep -E 'zombie-[0-9] →|EOAValidator attestor set updated' "$LOGS/zombienet.log" || true
               exit 0
@@ -195,7 +195,7 @@ jobs:
             --eth-rpc-url http://localhost:8545 \
             --bind-host 127.0.0.1 \
             --bind-port 3100 >"$LOGS/proof-gen.log" 2>&1 &
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             grep -q 'Server listening on' "$LOGS/proof-gen.log" && { echo "✅ proof-gen online"; exit 0; }
             sleep 2
           done
@@ -221,7 +221,7 @@ jobs:
             --ack-proof-gen-url http://127.0.0.1:3100 \
             --ack-validator-address "$ACK_VALIDATOR_ADDR" \
             --ack-signer-key "$CREDITCOIN_CHAIN_PRIVATE_KEY" >"$LOGS/relayer.log" 2>&1 &
-          for i in $(seq 1 20); do
+          for _ in $(seq 1 20); do
             grep -q 'libp2p subscriber online' "$LOGS/relayer.log" && { echo "✅ relayer online"; exit 0; }
             sleep 2
           done
@@ -238,7 +238,7 @@ jobs:
         run: |
           export PATH="$HOME/.foundry/bin:$PATH"
           set -a; source .env; set +a
-          for i in $(seq 1 40); do
+          for _ in $(seq 1 40); do
             CNT="$(cast call "$DESTINATION_CONTRACT_ADDR" 'messageCount()(uint256)' --rpc-url http://127.0.0.1:8545 2>/dev/null || echo 0)"
             if [ "${CNT:-0}" -ge 1 ]; then
               echo "✅ message delivered — TestDestination.messageCount=$CNT"
@@ -266,7 +266,7 @@ jobs:
           # Ack lands ~90s after delivery (waits for the destination block to be attested on CC3,
           # then proof-gen serves the proof and the relayer submits it). Outbox.messages returns
           # (address emitter, bool acknowledged, bytes32 payloadHash) — line 2 is `acknowledged`.
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             ACK="$(cast call "$OUTBOX_ADDR" 'messages(bytes32)(address,bool,bytes32)' "$MSG_ID" \
               --rpc-url http://127.0.0.1:9944 2>/dev/null | sed -n '2p')"
             if [ "$ACK" = "true" ]; then
