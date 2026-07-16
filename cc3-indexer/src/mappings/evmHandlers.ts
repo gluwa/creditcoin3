@@ -1,6 +1,21 @@
 import { FrontierEvmEvent } from '@subql/frontier-evm-processor';
-import { OutboxContract, OutboxMessage, TransactionVerified } from '../types';
+import { OutboxContract, OutboxFactory, OutboxMessage, TransactionVerified } from '../types';
 import { createOutboxDatasource } from '../types';
+
+// Upper bound on how many distinct Outbox datasources we will spin up for a single write-ability
+// chain key. A legitimate deployment has one Outbox per chain key (a handful across redeploys); a
+// large count means a counterfeit contract is emitting `OutboxCreated` to make us register
+// unbounded dynamic datasources (audit P2-1 — datasource-creation DoS). The cap bounds that blast
+// radius without breaking the intentional discover-before-registration flow (see datasources.ts).
+const MAX_OUTBOXES_PER_CHAIN_KEY = 32;
+
+// Encode a u64 write-ability chain key as its bytes32 form: `bytes32(uint256(chainKey))`, i.e. the
+// 8 big-endian bytes right-aligned in a 32-byte word (matches `chain_key_to_bytes32` in the shared
+// `common/write-ability` crate). Used to reconcile an `OutboxFactory.chainKey` (stored as the u64)
+// with the bytes32 chain key carried by `OutboxCreated`.
+function u64ChainKeyToBytes32(value: bigint): string {
+    return '0x' + value.toString(16).padStart(64, '0');
+}
 
 // Event signature for Native Query Verifier precompile
 // TransactionVerified(uint64 indexed chainKey, uint64 indexed height, uint64 transactionIndex)
@@ -70,7 +85,8 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         return;
     }
 
-    const [chainKey, outboxAddress] = event.args;
+    const [chainKeyRaw, outboxAddress] = event.args;
+    const chainKey = chainKeyRaw.toLowerCase();
     const address = outboxAddress.toLowerCase();
     // event.address is the factory that emitted OutboxCreated.
     const factoryId = event.address ? event.address.toLowerCase() : undefined;
@@ -83,6 +99,33 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
     const existing = await OutboxContract.get(address);
     if (existing) {
         logger.warn(`OutboxCreated for already-registered outbox ${address} — skipping duplicate datasource`);
+        return;
+    }
+
+    // P2-10 — factory authentication. Discovery watches `OutboxCreated` chain-wide by topic (a
+    // factory creates Outboxes *before* it is registered via `OutboxFactoryRegistered`), so we
+    // cannot hard-require a registered emitter. But when the emitting factory IS already registered,
+    // its recorded (u64) chain key must match the bytes32 chain key in this event — a registered
+    // factory emitting for a foreign chain key is a spoof/misconfiguration, so drop it.
+    if (factoryId) {
+        const factory = await OutboxFactory.get(factoryId);
+        if (factory && u64ChainKeyToBytes32(factory.chainKey) !== chainKey) {
+            logger.warn(
+                `OutboxCreated from factory ${factoryId} for chainKey ${chainKey} does not match its ` +
+                    `registered chainKey ${factory.chainKey.toString()} — skipping (possible spoof)`,
+            );
+            return;
+        }
+    }
+
+    // P2-1 — datasource-creation DoS cap. Bound the number of dynamic datasources per chain key so a
+    // counterfeit contract spamming `OutboxCreated` cannot make us register unbounded datasources.
+    const forChainKey = await OutboxContract.getByChainKey(chainKey, { limit: MAX_OUTBOXES_PER_CHAIN_KEY + 1 });
+    if (forChainKey.length >= MAX_OUTBOXES_PER_CHAIN_KEY) {
+        logger.warn(
+            `OutboxCreated for ${address}: chainKey ${chainKey} already has ${forChainKey.length} Outbox ` +
+                `datasources (cap ${MAX_OUTBOXES_PER_CHAIN_KEY}) — skipping to bound datasource-creation DoS`,
+        );
         return;
     }
 
