@@ -1,3 +1,8 @@
+// ⚠️ DEMO / NON-PRODUCTION. This worker's delivery bookkeeping (`markDelivered`) is in-memory and
+// NOT crash-durable: updates can be lost across downtime, retry exhaustion, or SIGTERM, and there is
+// no durable cursor or classified-retry handling. It exists to drive the write-ability demo/e2e, not
+// to run a production destination dApp. A production consumer needs a durable cursor/outbox,
+// classified retries, and graceful retry draining (see audit P3-3).
 import "dotenv/config";
 import { ethers } from "ethers";
 import { listenDestinationContract } from "./listeners.js";
