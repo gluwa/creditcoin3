@@ -104,9 +104,19 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     // 5. Index it via the real listener poll (real eth_getLogs + decode + hash).
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);
     let mut last_seen = before;
-    listener::poll_once(&provider, &resolved, 0, &mut last_seen, &tx)
-        .await
-        .expect("poll_once");
+    // Anvil has no GRANDPA finality, so drive the listener with the deterministic depth policy
+    // (depth 0 = index up to tip) rather than the finalized-head policy used in production.
+    let mut finality = listener::FinalityTracker::new(std::time::Instant::now());
+    listener::poll_once(
+        &provider,
+        &resolved,
+        &listener::FinalityPolicy::Depth(0),
+        &mut finality,
+        &mut last_seen,
+        &tx,
+    )
+    .await
+    .expect("poll_once");
     let indexed = rx
         .try_recv()
         .expect("listener indexed the MessagePublished");
