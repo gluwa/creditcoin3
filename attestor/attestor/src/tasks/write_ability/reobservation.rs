@@ -135,11 +135,23 @@ impl ReobsRateLimiter {
     }
 }
 
-/// Whether `block_height` is final enough to re-sign, mirroring the exact trust envelope the Outbox
-/// listener signs under ([`super::listener::pick_to_block`], audit P1-2): a block is trusted once it
-/// is EITHER GRANDPA-finalized (`<= finalized`) OR buried under the governed probabilistic depth
-/// (`+ confirmation_depth <= tip`). Pure so the gate is unit-testable without an RPC, and so it
-/// can't silently drift from the listener's boundary.
+/// Whether `block_height` is final enough to re-sign (audit P1-2).
+///
+/// Safety-first, and deliberately STRICTER than the listener's time-varying envelope. When the chain
+/// exposes a GRANDPA-finalized head we accept **only** `block_height <= finalized` — we do NOT fall
+/// back to the probabilistic `tip - confirmation_depth` bound while a finalized head exists, even a
+/// stale one. Reobservation is stateless: unlike the listener (which tracks a 600s stall via
+/// [`super::listener::FinalityTracker`] before it signs the depth bound), a single reobservation call
+/// cannot distinguish a genuine finality *stall* from routine finality *lag*. Since reobservation
+/// requests are unauthenticated, accepting the depth bound during ordinary lag would let an attacker
+/// extract a vote over a still-reorg-able block whenever finality lag transiently exceeds
+/// `confirmation_depth` (default 3) — re-opening P1-2 via the pull path. The cost of strictness is
+/// that a >600s finality stall makes reobservation temporarily unavailable (a liveness gap the
+/// relayer tolerates by re-requesting), which is the right trade for a signing path.
+///
+/// The depth bound is used only when there is **no** finalized head at all (`None` — the tag is
+/// unsupported or errored), mirroring the listener's own no-finality fallback. Pure so the gate is
+/// unit-testable without an RPC.
 fn reobs_final_enough(
     finalized: Option<u64>,
     tip: u64,
@@ -147,8 +159,8 @@ fn reobs_final_enough(
     confirmation_depth: u64,
 ) -> bool {
     match finalized {
-        Some(f) if block_height <= f => true,
-        _ => block_height.saturating_add(confirmation_depth) <= tip,
+        Some(f) => block_height <= f,
+        None => block_height.saturating_add(confirmation_depth) <= tip,
     }
 }
 
@@ -164,20 +176,13 @@ pub async fn reobserve<P: Provider>(
 ) -> Result<Option<IndexedMessage>> {
     let requested_id = B256::from(request.message_id);
 
-    // Finality gate — must accept exactly the trust envelope the listener signs under (P1-2), or
-    // reobservation can't recover the same votes. A reobservation re-signs the exact vote the
-    // listener would have produced, so it must not re-sign a message that isn't final yet: an
-    // unauthenticated request could otherwise get us to sign a still-reorg-able publish, and quorum
-    // signatures over a never-finalized message would satisfy the destination Inbox.
-    //
-    // The listener trusts a block once it is EITHER GRANDPA-finalized (`<= finalized head`, the
-    // deterministic Creditcoin bound) OR buried under the governed probabilistic depth
-    // (`+ confirmation_depth <= tip`, its fallback when the `finalized` tag is missing or finality
-    // has stalled). Mirror that union here: gating on the finalized head alone would reject a block
-    // the listener already signed via its depth fallback during a finality stall, stranding the
-    // relayer's recovery of that message's votes. Both arms are within the operator's finality
-    // safety bar (a not-yet-final request still falls through to `Ok(None)`); reobservation targets
-    // stalled *old* messages, and the relayer re-requests on its own cadence anyway.
+    // Finality gate (audit P1-2) — a reobservation re-signs the exact vote the listener would have
+    // produced, so it must never re-sign a message that isn't final: an unauthenticated request could
+    // otherwise get us to sign a still-reorg-able publish, and quorum signatures over a
+    // never-finalized message would satisfy the destination Inbox. We gate STRICTLY on the
+    // GRANDPA-finalized head when it is available and only fall back to the probabilistic depth bound
+    // when there is no finalized head at all — see [`reobs_final_enough`] for why this is
+    // deliberately stricter than the listener's stall-aware envelope.
     let finalized = match provider
         .get_block_by_number(BlockNumberOrTag::Finalized, BlockTransactionsKind::Hashes)
         .await
@@ -186,12 +191,10 @@ pub async fn reobserve<P: Provider>(
         _ => None,
     };
     let final_enough = match finalized {
-        // Hot path: at or below the finalized head — deterministically final, no tip fetch needed.
-        Some(f) if request.block_height <= f => true,
-        // Above the finalized head (or no finalized tag): accept only if buried under the governed
-        // probabilistic depth — the SAME fallback bound the listener signs under when finality
-        // stalls or the tag is unavailable.
-        _ => {
+        // Deterministic finality available: accept only at/below the finalized head, no tip fetch.
+        Some(f) => request.block_height <= f,
+        // No finalized head at all: mirror the listener's no-finality fallback (probabilistic depth).
+        None => {
             let tip = provider
                 .get_block_number()
                 .await
@@ -228,9 +231,11 @@ pub async fn reobserve<P: Provider>(
     for log in logs {
         // Verify the log came from the transaction the request named (audit P3-1). The `tx_hash`
         // field previously rode along unchecked; enforce it so the re-signed vote is bound to the
-        // exact emission the requester referenced. Safe now that we only act on finalized blocks —
-        // a finalized transaction's hash is stable. (`message_id` + Outbox + block already pin the
-        // message; this closes the "field implies a correlation the code doesn't perform" gap.)
+        // exact emission the requester referenced. Well-defined because the finality gate above only
+        // let us past for a block that is either GRANDPA-finalized or (absent a finalized head)
+        // depth-buried, so the transaction hash at this block is stable. (`message_id` + Outbox +
+        // block already pin the message; this closes the "field implies a correlation the code
+        // doesn't perform" gap.)
         if log.transaction_hash != Some(requested_tx) {
             continue;
         }
@@ -269,28 +274,27 @@ mod tests {
 
     #[test]
     fn final_enough_accepts_at_or_below_finalized_head() {
-        // Deterministic-finality hot path: tip is irrelevant when block <= finalized.
+        // Deterministic-finality path: tip is irrelevant when block <= finalized.
         assert!(reobs_final_enough(Some(100), 100, 100, 5));
         assert!(reobs_final_enough(Some(100), 100, 99, 5));
     }
 
     #[test]
-    fn final_enough_rejects_above_finalized_when_not_yet_deep() {
-        // Above the finalized head and NOT yet buried by depth → not final enough.
-        assert!(!reobs_final_enough(Some(100), 103, 101, 5));
+    fn final_enough_rejects_above_finalized_even_when_depth_buried() {
+        // P1-2 (safety): with a finalized head available we NEVER accept a block above it, even one
+        // buried under `confirmation_depth`. Reobservation is stateless and cannot tell a genuine
+        // stall from routine finality lag, so accepting the depth bound here would let an
+        // unauthenticated request extract a vote over a still-reorg-able block during ordinary lag.
+        // block 105, tip 120, depth 5 → 105+5 <= 120 would pass a probabilistic gate, but finalized
+        // is 100, so we reject.
+        assert!(!reobs_final_enough(Some(100), 120, 105, 5));
+        // Just one block above the finalized head is already rejected.
+        assert!(!reobs_final_enough(Some(100), 1_000, 101, 5));
     }
 
     #[test]
-    fn final_enough_accepts_above_finalized_via_depth_fallback() {
-        // Finality stalled at 100 but the listener kept signing via `tip - depth`; a reobservation
-        // of a block above the stalled head must be recoverable once it is depth-buried (audit
-        // P1-2: the two gates must share the same trust envelope). block 105, tip 120, depth 5 →
-        // 105 + 5 <= 120.
-        assert!(reobs_final_enough(Some(100), 120, 105, 5));
-    }
-
-    #[test]
-    fn final_enough_uses_depth_when_no_finalized_tag() {
+    fn final_enough_uses_depth_only_when_no_finalized_tag() {
+        // No finalized head at all → mirror the listener's no-finality fallback (probabilistic depth).
         assert!(reobs_final_enough(None, 120, 115, 5));
         assert!(!reobs_final_enough(None, 120, 116, 5));
     }
