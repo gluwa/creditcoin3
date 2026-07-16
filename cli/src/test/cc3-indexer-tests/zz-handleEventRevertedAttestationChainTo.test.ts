@@ -126,6 +126,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                             chainKey
                             checkpointHeight
                             digest
+                            status
                         }
                     }
                 }`,
@@ -142,6 +143,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                 expect(node.chainKey).toEqual(chainKey.toString());
                 expect(BigInt(node.checkpointHeight)).toEqual(checkpointHeightToRevertTo);
                 expect(node.digest).toEqual(checkpointDigestToRevertTo);
+                expect(node.status).toEqual('complete');
             }
         });
 
