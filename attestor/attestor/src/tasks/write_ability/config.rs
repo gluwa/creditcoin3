@@ -96,6 +96,65 @@ impl Default for Config {
     }
 }
 
+impl Config {
+    /// Reject a startup configuration that would silently weaken safety or prevent quorum (audit
+    /// P2-7): a zero confirmation depth (signing at the chain tip), zero vote TTL / tracked-message
+    /// cap, or a zero / empty / duplicated attestor set. Only enforced when `enabled` — a disabled
+    /// config is always valid. Returns a human-readable reason so the boot fails loudly rather than
+    /// coming up subtly mis-secured.
+    pub fn validate(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
+        if self.cc3_eth_rpc_url.is_none() {
+            return Err("message attestation enabled but no Creditcoin EVM RPC URL".to_string());
+        }
+        if self.block_confirmation_depth == 0 {
+            return Err(
+                "block_confirmation_depth must be > 0 — signing at the chain tip is unsafe"
+                    .to_string(),
+            );
+        }
+        if self.vote_ttl.is_zero() {
+            return Err("vote_ttl must be > 0".to_string());
+        }
+        if self.max_tracked_messages == 0 {
+            return Err("max_tracked_messages must be > 0".to_string());
+        }
+        match &self.attestor_set {
+            AttestorSet::Static(addrs) => {
+                if addrs.is_empty() {
+                    return Err(
+                        "message attestation enabled but the static attestor_set is empty"
+                            .to_string(),
+                    );
+                }
+                if addrs.contains(&Address::ZERO) {
+                    return Err("static attestor_set contains the zero address".to_string());
+                }
+                let mut seen = std::collections::HashSet::with_capacity(addrs.len());
+                if let Some(dup) = addrs.iter().find(|a| !seen.insert(**a)) {
+                    return Err(format!(
+                        "static attestor_set contains a duplicate address: {dup}"
+                    ));
+                }
+            }
+            AttestorSet::OnChainValidator(validator) => {
+                if *validator == Address::ZERO {
+                    return Err("OnChainValidator address is the zero address".to_string());
+                }
+                if self.destination_eth_rpc_url.is_none() {
+                    return Err(
+                        "OnChainValidator attestor set configured but no destination EVM RPC URL"
+                            .to_string(),
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Default confirmation depth below the EVM tip before a `MessagePublished` log is signed.
 /// Three blocks matches the usual time-to-finality on Creditcoin.
 pub const DEFAULT_BLOCK_CONFIRMATION_DEPTH: u64 = 3;
@@ -105,3 +164,78 @@ pub const DEFAULT_MAX_TRACKED_MESSAGES: usize = 10_000;
 
 /// Default TTL for incomplete vote aggregates.
 pub const DEFAULT_VOTE_TTL: Duration = Duration::from_secs(3600);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::address;
+
+    fn enabled_base() -> Config {
+        Config {
+            enabled: true,
+            cc3_eth_rpc_url: Some("ws://localhost:9944".parse().unwrap()),
+            destination_eth_rpc_url: Some("ws://localhost:8545".parse().unwrap()),
+            write_ability_chain_key: 2,
+            block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
+            start_block: None,
+            max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
+            vote_ttl: DEFAULT_VOTE_TTL,
+            attestor_set: AttestorSet::Static(vec![address!(
+                "000000000000000000000000000000000000000a"
+            )]),
+        }
+    }
+
+    #[test]
+    fn disabled_config_is_always_valid() {
+        assert!(Config::disabled().validate().is_ok());
+    }
+
+    #[test]
+    fn valid_enabled_config_passes() {
+        assert!(enabled_base().validate().is_ok());
+    }
+
+    #[test]
+    fn rejects_zero_confirmation_depth() {
+        let mut c = enabled_base();
+        c.block_confirmation_depth = 0;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_zero_vote_ttl_and_cap() {
+        let mut c = enabled_base();
+        c.vote_ttl = Duration::ZERO;
+        assert!(c.validate().is_err());
+        let mut c = enabled_base();
+        c.max_tracked_messages = 0;
+        assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_empty_zero_and_duplicate_static_set() {
+        let mut c = enabled_base();
+        c.attestor_set = AttestorSet::Static(vec![]);
+        assert!(c.validate().is_err(), "empty");
+
+        c.attestor_set = AttestorSet::Static(vec![Address::ZERO]);
+        assert!(c.validate().is_err(), "zero address");
+
+        let a = address!("000000000000000000000000000000000000000a");
+        c.attestor_set = AttestorSet::Static(vec![a, a]);
+        assert!(c.validate().is_err(), "duplicate");
+    }
+
+    #[test]
+    fn rejects_zero_validator_and_missing_dest_rpc() {
+        let mut c = enabled_base();
+        c.attestor_set = AttestorSet::OnChainValidator(Address::ZERO);
+        assert!(c.validate().is_err(), "zero validator");
+
+        c.attestor_set =
+            AttestorSet::OnChainValidator(address!("000000000000000000000000000000000000000b"));
+        c.destination_eth_rpc_url = None;
+        assert!(c.validate().is_err(), "missing dest rpc");
+    }
+}
