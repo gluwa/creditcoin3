@@ -56,10 +56,10 @@ concurrency:
 permissions: read-all
 
 env:
-  # Inclusive lower bound.  Only mainnet releases >= this version that also
-  # include an attestor-binaries-* asset are tested.  Versions older than
-  # 3.128.0 are incompatible (subxt metadata mismatch) and are excluded.
-  MIN_VERSION: "3.128.0"
+  # Inclusive lower bound. Only mainnet releases >= this version that also
+  # include an attestor-binaries-* asset are tested. Versions older than
+  # 3.130.0 are incompatible (attestor v1) and are excluded.
+  MIN_VERSION: "3.130.0"
   RELEASE_SUFFIX: "mainnet"
   # Well-known dev node-key for the SUT node (Alice). Deterministic so the
   # node's peer id is stable across runs; nothing bootstraps off it now that
@@ -135,6 +135,8 @@ jobs:
   # but this workflow does not use it -- see the note in the run job.)
   # ---------------------------------------------------------------------------
   build-sut:
+    needs:
+      - discover-versions
     uses: ./.github/workflows/build-native.yml
     with:
       # fast-runtime shortens BABE epoch + block time so the chain progresses
