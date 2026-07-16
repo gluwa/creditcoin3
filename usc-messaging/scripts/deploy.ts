@@ -43,15 +43,51 @@ function requireEnv(name: string): string {
   return value;
 }
 
-// Mask 32-byte hex secrets (private keys) anywhere in a rendered string. forge/cast take the key
-// as `--private-key <hex>` on argv, so a failed command's args — and any tool output that echoes
-// them — would otherwise leak the deployer key into error messages and CI logs (audit P2-4). A
-// 64-hex run is a private key; 40-hex addresses and RPC URLs are left intact.
-// NOTE: this does not hide the key from OS process listings (`ps`) while forge/cast run — argv
-// exposure needs keystore/KMS-backed signing, the audit's larger P2-4 remediation. This demo
-// deploy script is not the production signing path.
+// Names of environment variables that hold secrets. Their *values* are masked by exact match (see
+// `redactSecrets`) so a leak is caught regardless of how the value is formatted in the output —
+// 0x-prefixed or not, quoted inside JSON, or embedded in an RPC URL.
+const SECRET_ENV_VARS = [
+  "DESTINATION_CHAIN_PRIVATE_KEY",
+  "CREDITCOIN_CHAIN_PRIVATE_KEY",
+  "CREDITCOIN_SUDO_SURI",
+];
+
+// Collect the concrete secret values from the environment, plus the 0x-toggled variant of each hex
+// key, so both `--private-key aabb…` (foundry accepts no `0x`) and `--private-key 0xaabb…` are
+// masked. Short values (e.g. the well-known `//Alice` dev SURI) are skipped to avoid masking noise.
+function secretValues(): string[] {
+  const vals = new Set<string>();
+  for (const name of SECRET_ENV_VARS) {
+    const v = process.env[name]?.trim();
+    if (!v || v.length < 16) continue;
+    vals.add(v);
+    vals.add(v.startsWith("0x") ? v.slice(2) : `0x${v}`);
+  }
+  return [...vals];
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Mask secrets anywhere in a rendered string before it reaches an error message or CI log (audit
+// P2-4). forge/cast take the key as `--private-key <hex>` on argv, so a failed command's args — and
+// any tool output that echoes them — would otherwise leak the deployer key. Three layers:
+//   1. exact-value match of every configured secret (catches unprefixed keys, JSON-embedded keys,
+//      and secrets that appear inside a URL);
+//   2. any 0x-prefixed 32-byte hex run (defense-in-depth for keys not sourced from the env list);
+//   3. basic-auth credentials in URLs (`//user:pass@host` → `//user:<redacted>@host`).
+// NOTE: this does not hide the key from OS process listings (`ps`) while forge/cast run, nor an API
+// key embedded in an RPC URL *path* (`/v2/<key>`) — both need keystore/KMS-backed signing, the
+// audit's larger P2-4 remediation. This demo deploy script is not the production signing path.
 function redactSecrets(s: string): string {
-  return s.replace(/0x[0-9a-fA-F]{64}/g, "0x<redacted>");
+  let out = s;
+  for (const secret of secretValues()) {
+    out = out.replace(new RegExp(escapeRegExp(secret), "g"), "<redacted>");
+  }
+  out = out.replace(/0x[0-9a-fA-F]{64}/g, "0x<redacted>");
+  out = out.replace(/(\/\/[^/@\s:]+:)[^/@\s]+@/g, "$1<redacted>@");
+  return out;
 }
 
 function runCommand(cmd: string, args: string[], cwd: string): string {
