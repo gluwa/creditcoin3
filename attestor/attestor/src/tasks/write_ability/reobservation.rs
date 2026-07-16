@@ -200,7 +200,16 @@ pub async fn reobserve<P: Provider>(
         )
     })?;
 
+    let requested_tx = B256::from(request.tx_hash);
     for log in logs {
+        // Verify the log came from the transaction the request named (audit P3-1). The `tx_hash`
+        // field previously rode along unchecked; enforce it so the re-signed vote is bound to the
+        // exact emission the requester referenced. Safe now that we only act on finalized blocks —
+        // a finalized transaction's hash is stable. (`message_id` + Outbox + block already pin the
+        // message; this closes the "field implies a correlation the code doesn't perform" gap.)
+        if log.transaction_hash != Some(requested_tx) {
+            continue;
+        }
         let Ok(decoded) = IOutbox::MessagePublished::decode_log(&log.inner, true) else {
             continue;
         };
