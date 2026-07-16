@@ -39,8 +39,9 @@ pub async fn watch(
 ) {
     tracing::info!(%validator, "🛂 attestor-set watcher online");
 
-    // `interval` fires immediately on the first tick — but `build_state` already resolved the set at
-    // startup, so the first tick typically observes no change.
+    // `interval` fires immediately on the first tick, which is what performs the *initial* population:
+    // `build_state` starts the OnChainValidator set empty (to avoid blocking core startup on the
+    // destination RPC), so this first tick reads the real set and swaps it in.
     let mut tick = tokio::time::interval(Duration::from_secs(ATTESTOR_SET_POLL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
