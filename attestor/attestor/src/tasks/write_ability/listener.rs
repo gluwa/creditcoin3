@@ -44,6 +44,14 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 /// that a dead provider does not strand quorum indefinitely.
 const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
 
+/// Max block span per `eth_getLogs` request. The scan window can grow large — e.g. a long
+/// Outbox-resolve wait leaves a wide gap between `last_seen` and the finalized tip on first poll —
+/// and a single `eth_getLogs` over an unbounded span exceeds most RPC providers' range limits,
+/// failing every poll until the failure budget restarts the task (which re-seeds from a fresh head
+/// and permanently skips the unscanned span). Chunk the scan into ranges of this size instead; 2000
+/// blocks is comfortably within the common provider caps (Alchemy/Infra allow ≥2k per query).
+const MAX_LOG_BLOCK_RANGE: u64 = 2000;
+
 /// A finalized `MessagePublished` the attestor should vote on.
 #[derive(Clone, Debug)]
 pub struct IndexedMessage {
@@ -151,8 +159,31 @@ pub async fn poll_once<P: Provider>(
     if to_block <= *last_seen {
         return Ok(());
     }
-    let from_block = *last_seen + 1;
 
+    // Chunk the scan into bounded block ranges (see `MAX_LOG_BLOCK_RANGE`). `last_seen` is
+    // advanced after each *successful* chunk so progress is durable: a failure part-way through a
+    // wide gap keeps everything already scanned, and a retry/restart resumes from there rather than
+    // re-attempting (or skipping) the whole span.
+    let mut from_block = *last_seen + 1;
+    while from_block <= to_block {
+        let chunk_to = to_block.min(from_block + MAX_LOG_BLOCK_RANGE - 1);
+        scan_range(provider, resolved, from_block, chunk_to, tx).await?;
+        *last_seen = chunk_to;
+        from_block = chunk_to + 1;
+    }
+    Ok(())
+}
+
+/// Fetch + index `MessagePublished` logs in the inclusive block range `[from_block, to_block]`.
+/// Returns `Err` (without the caller advancing `last_seen`) on an RPC failure or an ABI-mismatch
+/// decode error, so the exact range is retried rather than stepped over.
+async fn scan_range<P: Provider>(
+    provider: &P,
+    resolved: &ResolvedOutbox,
+    from_block: u64,
+    to_block: u64,
+    tx: &mpsc::Sender<IndexedMessage>,
+) -> Result<()> {
     let filter = Filter::new()
         .address(resolved.address)
         .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
@@ -208,6 +239,5 @@ pub async fn poll_once<P: Provider>(
         }
     }
 
-    *last_seen = to_block;
     Ok(())
 }
