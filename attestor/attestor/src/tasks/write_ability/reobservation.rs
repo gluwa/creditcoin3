@@ -24,7 +24,8 @@ use std::time::{Duration, Instant};
 
 use alloy::primitives::B256;
 use alloy::providers::Provider;
-use alloy::rpc::types::Filter;
+use alloy::rpc::types::eth::BlockNumberOrTag;
+use alloy::rpc::types::{BlockTransactionsKind, Filter};
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
@@ -46,6 +47,11 @@ pub const REOBS_MIN_INTERVAL: Duration = Duration::from_secs(30);
 /// hold it below quorum indefinitely.
 pub const REOBS_FAILURE_INTERVAL: Duration = Duration::from_secs(3);
 pub const REOBS_MAX_TRACKED_IDS: usize = 10_000;
+
+/// Per-request wall-clock deadline for the tip + `eth_getLogs` re-fetch. A black-holed RPC must not
+/// let a single reobservation hang the responder; on timeout the request is dropped (the relayer
+/// re-requests on its own cadence). Matches the listener's `POLL_TIMEOUT`.
+pub const REOBS_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Per-`message_id` cooldown tracker for reobservation requests. Synchronous and clock-injected so
 /// it unit-tests without a network or real time.
@@ -147,16 +153,34 @@ pub async fn reobserve<P: Provider>(
     // away, quorum signatures over a never-finalized message would still satisfy the destination
     // Inbox. A not-yet-final request is simply ignored (`Ok(None)`); legitimate reobservation
     // targets are stalled *old* messages, and the relayer re-requests on its own cadence anyway.
-    let tip = provider
-        .get_block_number()
+    // Finality gate — the SAME boundary the listener signs under (P1-2). A reobservation re-signs
+    // the exact vote the listener would have produced, so it must not re-sign a message that isn't
+    // final yet: an unauthenticated request could otherwise get us to sign a still-reorg-able
+    // publish. Prefer the GRANDPA-finalized head (Creditcoin L1 is deterministic); fall back to
+    // `tip - confirmation_depth` only if the `finalized` tag is unavailable, matching the listener.
+    let finalized = match provider
+        .get_block_by_number(BlockNumberOrTag::Finalized, BlockTransactionsKind::Hashes)
         .await
-        .context("reobservation tip fetch failed")?;
-    if request.block_height.saturating_add(confirmation_depth) > tip {
+    {
+        Ok(Some(b)) => Some(b.header.number),
+        _ => None,
+    };
+    let final_enough = match finalized {
+        Some(f) => request.block_height <= f,
+        None => {
+            let tip = provider
+                .get_block_number()
+                .await
+                .context("reobservation tip fetch failed")?;
+            request.block_height.saturating_add(confirmation_depth) <= tip
+        }
+    };
+    if !final_enough {
         tracing::warn!(
             block = request.block_height,
-            tip,
+            ?finalized,
             confirmation_depth,
-            "🔎 reobservation request targets a not-yet-final block — ignoring"
+            "🔎 reobservation request targets a not-yet-finalized block — ignoring"
         );
         return Ok(None);
     }

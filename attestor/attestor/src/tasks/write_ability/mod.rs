@@ -219,7 +219,7 @@ pub async fn run(
     shared: Arc<Shared>,
     cfg: Config,
     seed: Zeroizing<[u8; 32]>,
-    mut reobs_rx: mpsc::Receiver<ReobservationRequest>,
+    reobs_rx: mpsc::Receiver<ReobservationRequest>,
 ) -> Result<(), Error> {
     let Some(state) = shared.message_votes.clone() else {
         tracing::info!("📭 message attestation disabled — parking write-ability task");
@@ -343,10 +343,26 @@ pub async fn run(
         .await
     });
 
-    // Cooldown so a spammed/forged reobservation topic can't make us re-scan the chain in a loop.
-    let mut reobs_limiter = reobservation::ReobsRateLimiter::new(reobservation::REOBS_MIN_INTERVAL);
-    // Flipped off if the reobservation sender is ever dropped, so we stop polling a closed channel.
-    let mut reobs_open = true;
+    // Reobservation runs in its OWN task, NOT inline in this loop (audit P1-4): its tip + eth_getLogs
+    // RPCs (deadline-bounded, serial) must not be able to stall vote production / message ingestion
+    // if the shared provider black-holes. The bounded `reobs_rx` channel already drops excess, so a
+    // flood is bounded to serial, deadline-capped work here.
+    let reobs_worker = {
+        let provider = provider.clone();
+        let state = state.clone();
+        let shared = shared.clone();
+        let signer = signer.clone();
+        tokio::spawn(run_reobservation_worker(
+            provider,
+            resolved,
+            state,
+            shared,
+            signer,
+            our_address,
+            confirmation_depth,
+            reobs_rx,
+        ))
+    };
 
     let chain_key = shared.chain_key;
     loop {
@@ -375,24 +391,60 @@ pub async fn run(
                 };
                 produce_vote(&state, &shared.metrics, &signer, our_address, chain_key, indexed);
             }
-            maybe = reobs_rx.recv(), if reobs_open => {
-                let Some(request) = maybe else {
-                    reobs_open = false;
-                    continue;
-                };
-                handle_reobservation(
-                    &provider, &resolved, &state, &shared.metrics, &signer, our_address, chain_key,
-                    confirmation_depth, &mut reobs_limiter, request,
-                ).await;
-            }
         }
     }
 
     listener.abort();
+    reobs_worker.abort();
     if let Some(w) = set_watcher {
         w.abort();
     }
     Ok(())
+}
+
+/// Reobservation responder, run as its own task (audit P1-4). Consumes verified-on-request pull
+/// requests off `reobs_rx`, re-fetches + re-signs one at a time under a wall-clock deadline, so a
+/// slow/black-holed RPC can never stall the main write-ability loop (vote production + ingestion).
+/// The bounded `reobs_rx` channel drops excess at the p2p ingest, so a flood is naturally bounded to
+/// serial, deadline-capped work here.
+#[allow(clippy::too_many_arguments)]
+async fn run_reobservation_worker<P: alloy::providers::Provider>(
+    provider: P,
+    resolved: resolver::ResolvedOutbox,
+    state: Arc<MessageVoteState>,
+    shared: Arc<Shared>,
+    signer: signing::MessageSigner,
+    our_address: Address,
+    confirmation_depth: u64,
+    mut reobs_rx: mpsc::Receiver<ReobservationRequest>,
+) {
+    // Per-`message_id` cooldown so a spammed/forged request can't make us re-scan the chain in a loop.
+    let mut limiter = reobservation::ReobsRateLimiter::new(reobservation::REOBS_MIN_INTERVAL);
+    let chain_key = shared.chain_key;
+    loop {
+        tokio::select! {
+            () = shared.token.cancelled() => return,
+            maybe = reobs_rx.recv() => {
+                let Some(request) = maybe else {
+                    tracing::debug!("reobservation channel closed — worker exiting");
+                    return;
+                };
+                let handle = handle_reobservation(
+                    &provider, &resolved, &state, &shared.metrics, &signer, our_address, chain_key,
+                    confirmation_depth, &mut limiter, request,
+                );
+                if tokio::time::timeout(reobservation::REOBS_RPC_TIMEOUT, handle)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!(
+                        "reobservation re-fetch exceeded {:?} — RPC unresponsive; dropping this request",
+                        reobservation::REOBS_RPC_TIMEOUT
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Sign our vote for a freshly indexed message, count it locally (chain-seen + our own signature),
