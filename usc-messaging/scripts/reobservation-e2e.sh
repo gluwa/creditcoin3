@@ -34,6 +34,7 @@ CKPT="$USC/relayer-checkpoints.json"
 LOGS=/tmp/reobs-e2e
 mkdir -p "$LOGS"
 
+# shellcheck disable=SC2329  # invoked indirectly via `trap cleanup EXIT` below
 cleanup() {
   echo "--- tearing down ---"
   killall -TERM message-relayer attestor_zombienet attestor creditcoin3-node anvil 2>/dev/null
@@ -62,7 +63,10 @@ npm install >"$LOGS/npm.log" 2>&1
 (cd contracts && npm ci) >>"$LOGS/npm.log" 2>&1
 cp .env.example .env
 npx tsx scripts/deploy.ts >"$LOGS/deploy.log" 2>&1 || { echo "❌ deploy failed"; tail -20 "$LOGS/deploy.log"; exit 1; }
-set -a; source .env; set +a
+set -a
+# shellcheck disable=SC1091  # .env is generated at runtime by deploy.ts; not resolvable statically
+source .env
+set +a
 
 echo "=== 3. launch attestors (no relayer yet) ==="
 ( bash "$REPO/usc-messaging/scripts/launch-attestors.sh" 3 >"$LOGS/zombienet.log" 2>&1 ) &
