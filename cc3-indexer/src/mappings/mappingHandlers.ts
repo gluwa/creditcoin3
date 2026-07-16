@@ -214,6 +214,16 @@ export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Prom
 
     logger.info(`OutboxFactoryRegistered: factory=${address}, chainKey=${chainKey.toString()} at block ${blockNumber}`);
 
+    // Idempotency guard: `set_outbox_factory_addr` emits `OutboxFactoryRegistered` on every update,
+    // and a reorg replay / reindex overlap re-delivers the same log. Recording the first
+    // registration is enough (the entity only backs display + `OutboxContract.factory` resolution),
+    // so skip if we already have it rather than re-`create`/`save` a duplicate id.
+    const existing = await OutboxFactory.get(address);
+    if (existing) {
+        logger.warn(`OutboxFactoryRegistered for already-recorded factory ${address} — skipping`);
+        return;
+    }
+
     const factory = OutboxFactory.create({
         id: address,
         chainKey: BigInt(chainKey.toString()),
