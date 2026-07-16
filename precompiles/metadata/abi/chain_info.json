@@ -304,6 +304,42 @@
         "type": "uint64"
       }
     ],
+    "name": "get_core_fee",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "token",
+            "type": "address"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct CoreFeeResult",
+        "name": "result",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      }
+    ],
     "name": "get_latest_attestation_height_and_hash",
     "outputs": [
       {
@@ -379,6 +415,37 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      }
+    ],
+    "name": "get_outbox_factory_address",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "factoryAddr",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct OutboxFactoryResult",
+        "name": "result",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "get_supported_chains",
     "outputs": [
@@ -432,73 +499,6 @@
         "internalType": "bool",
         "name": "isAttested",
         "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint64",
-        "name": "chainKey",
-        "type": "uint64"
-      }
-    ],
-    "name": "get_outbox_factory_address",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "address",
-            "name": "factoryAddr",
-            "type": "address"
-          },
-          {
-            "internalType": "bool",
-            "name": "exists",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct OutboxFactoryResult",
-        "name": "result",
-        "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint64",
-        "name": "chainKey",
-        "type": "uint64"
-      }
-    ],
-    "name": "get_core_fee",
-    "outputs": [
-      {
-        "components": [
-          {
-            "internalType": "address",
-            "name": "token",
-            "type": "address"
-          },
-          {
-            "internalType": "uint256",
-            "name": "amount",
-            "type": "uint256"
-          },
-          {
-            "internalType": "bool",
-            "name": "exists",
-            "type": "bool"
-          }
-        ],
-        "internalType": "struct CoreFeeResult",
-        "name": "result",
-        "type": "tuple"
       }
     ],
     "stateMutability": "view",
