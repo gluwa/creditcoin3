@@ -96,10 +96,10 @@ jobs:
           path: target/release
 
       # The relayer lives in its own repository (public) since the extraction — build it from
-      # source here so the e2e still exercises attestor + relayer together. Pinned to `main`;
-      # cross-repo protocol drift is caught by the shared write-ability golden vectors on both
-      # sides. (Alternative once image publishing is wired: docker cp the binary out of
-      # gluwa/usc-message-relayer:main.)
+      # source here so the e2e still exercises attestor + relayer together. Pinned to a full commit
+      # SHA (see the `ref:` below) so the e2e is reproducible; cross-repo protocol drift is caught by
+      # the shared write-ability golden vectors on both sides. (Alternative once image publishing is
+      # wired: docker cp the binary out of a SHA-tagged gluwa/usc-message-relayer image.)
       - name: Check out usc-message-relayer
         uses: actions/checkout@v6
         with:
