@@ -104,9 +104,11 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: gluwa/usc-message-relayer
-          # Enforce the pin the comment above promises — without an explicit ref, checkout
-          # builds whatever the remote's default branch happens to be at run time.
-          ref: main
+          # Pin a full commit SHA (not a branch) so this creditcoin3 commit always builds against
+          # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
+          # could pass or fail as the relayer's default branch moved). Bump this deliberately when
+          # a relayer change needs to be exercised here.
+          ref: b5c71a3499a699d4e1ac180b85f420d6c7883aeb # usc-message-relayer main @ 2026-07-14 (#21)
           path: usc-message-relayer
 
       - name: Rust cache (usc-message-relayer)
