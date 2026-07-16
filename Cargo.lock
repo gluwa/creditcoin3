@@ -18192,7 +18192,7 @@ dependencies = [
 
 [[package]]
 name = "write-ability"
-version = "3.130.0"
+version = "3.131.0"
 dependencies = [
  "alloy",
  "parity-scale-codec",
