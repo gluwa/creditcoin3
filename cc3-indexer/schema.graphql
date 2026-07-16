@@ -528,6 +528,20 @@ type OutboxFactory @entity {
     registeredTimestamp: BigInt!
 }
 
+type OutboxDatasourceCount @entity {
+    """
+    Number of UNAUTHENTICATED Outbox datasources registered per bytes32 chain key (audit P2-1).
+    Keyed by the chain key so it is read by id via `.get()`, which — unlike `getByField` — resolves
+    against the same-block store cache; this lets the datasource-creation cap hold even when many
+    `OutboxCreated` events for one chain key land in a single block. Datasources created by a
+    registered, chain-key-matching factory are trusted and are neither counted nor capped here.
+    """
+    # bytes32 write-ability chain key (lowercase hex)
+    id: ID!
+    # Count of unauthenticated Outbox datasources registered for this chain key
+    count: Int!
+}
+
 type OutboxContract @entity {
     """
     An Outbox instance discovered on-chain via its factory's OutboxCreated event. Each discovery

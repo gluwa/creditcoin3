@@ -1,12 +1,13 @@
 import { FrontierEvmEvent } from '@subql/frontier-evm-processor';
-import { OutboxContract, OutboxFactory, OutboxMessage, TransactionVerified } from '../types';
+import { OutboxContract, OutboxDatasourceCount, OutboxFactory, OutboxMessage, TransactionVerified } from '../types';
 import { createOutboxDatasource } from '../types';
 
-// Upper bound on how many distinct Outbox datasources we will spin up for a single write-ability
-// chain key. A legitimate deployment has one Outbox per chain key (a handful across redeploys); a
-// large count means a counterfeit contract is emitting `OutboxCreated` to make us register
-// unbounded dynamic datasources (audit P2-1 — datasource-creation DoS). The cap bounds that blast
-// radius without breaking the intentional discover-before-registration flow (see datasources.ts).
+// Upper bound on how many UNAUTHENTICATED Outbox datasources we will spin up for a single
+// write-ability chain key. A legitimate deployment has one Outbox per chain key (a handful across
+// redeploys); a large count means a counterfeit contract is emitting `OutboxCreated` to make us
+// register unbounded dynamic datasources (audit P2-1 — datasource-creation DoS). Datasources from a
+// registered, chain-key-matching factory are trusted and exempt. The cap bounds the blast radius
+// without breaking the intentional discover-before-registration flow (see datasources.ts).
 const MAX_OUTBOXES_PER_CHAIN_KEY = 32;
 
 // Encode a u64 write-ability chain key as its bytes32 form: `bytes32(uint256(chainKey))`, i.e. the
@@ -102,31 +103,48 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         return;
     }
 
-    // P2-10 — factory authentication. Discovery watches `OutboxCreated` chain-wide by topic (a
-    // factory creates Outboxes *before* it is registered via `OutboxFactoryRegistered`), so we
-    // cannot hard-require a registered emitter. But when the emitting factory IS already registered,
-    // its recorded (u64) chain key must match the bytes32 chain key in this event — a registered
-    // factory emitting for a foreign chain key is a spoof/misconfiguration, so drop it.
+    // P2-10 — factory correspondence. Discovery watches `OutboxCreated` chain-wide by topic (a
+    // factory creates Outboxes *before* it is registered via `OutboxFactoryRegistered`), so we can
+    // never hard-require a registered emitter — a counterfeit emitter is simply never a registered
+    // OutboxFactory. `authenticated` is therefore a best-effort trust signal, not a gate: it is true
+    // only when the emitter IS a registered factory AND (one of) its registered chain key(s) matches
+    // the event's bytes32 chain key. NOTE: one factory address may legitimately serve multiple chain
+    // keys (the pallet maps chain_key -> factory), and `OutboxFactory` records only the first, so a
+    // mismatch is logged but is NOT treated as fatal — dropping the Outbox here would strand a
+    // legitimate multi-key factory's messages (a liveness bug worse than the ~zero authentication
+    // this check buys). The trust signal only relaxes the DoS cap below.
+    let authenticated = false;
     if (factoryId) {
         const factory = await OutboxFactory.get(factoryId);
-        if (factory && u64ChainKeyToBytes32(factory.chainKey) !== chainKey) {
-            logger.warn(
-                `OutboxCreated from factory ${factoryId} for chainKey ${chainKey} does not match its ` +
-                    `registered chainKey ${factory.chainKey.toString()} — skipping (possible spoof)`,
-            );
-            return;
+        if (factory) {
+            if (u64ChainKeyToBytes32(factory.chainKey) === chainKey) {
+                authenticated = true;
+            } else {
+                logger.warn(
+                    `OutboxCreated from registered factory ${factoryId} for chainKey ${chainKey} does not ` +
+                        `match its recorded chainKey ${factory.chainKey.toString()} — indexing anyway ` +
+                        `(a factory may serve multiple chain keys), but not exempting it from the DoS cap`,
+                );
+            }
         }
     }
 
-    // P2-1 — datasource-creation DoS cap. Bound the number of dynamic datasources per chain key so a
-    // counterfeit contract spamming `OutboxCreated` cannot make us register unbounded datasources.
-    const forChainKey = await OutboxContract.getByChainKey(chainKey, { limit: MAX_OUTBOXES_PER_CHAIN_KEY + 1 });
-    if (forChainKey.length >= MAX_OUTBOXES_PER_CHAIN_KEY) {
-        logger.warn(
-            `OutboxCreated for ${address}: chainKey ${chainKey} already has ${forChainKey.length} Outbox ` +
-                `datasources (cap ${MAX_OUTBOXES_PER_CHAIN_KEY}) — skipping to bound datasource-creation DoS`,
-        );
-        return;
+    // P2-1 — datasource-creation DoS cap. Bound the number of UNAUTHENTICATED dynamic datasources per
+    // chain key so a counterfeit contract spamming `OutboxCreated` cannot make us register unbounded
+    // datasources. The count is a by-id entity (keyed by chain key) so `.get()` sees same-block
+    // buffered writes — a `getByField` count would miss datasources created earlier in the same block
+    // and let a single-transaction flood bypass the cap entirely. Trusted (authenticated) factories
+    // are neither counted nor capped, so a legitimate factory is never blocked by counterfeit rows.
+    if (!authenticated) {
+        const counter = await OutboxDatasourceCount.get(chainKey);
+        const current = counter?.count ?? 0;
+        if (current >= MAX_OUTBOXES_PER_CHAIN_KEY) {
+            logger.warn(
+                `OutboxCreated for ${address}: chainKey ${chainKey} already has ${current} unauthenticated ` +
+                    `Outbox datasources (cap ${MAX_OUTBOXES_PER_CHAIN_KEY}) — skipping to bound datasource-creation DoS`,
+            );
+            return;
+        }
     }
 
     // Persist the parent OutboxContract entity BEFORE spinning up the dynamic datasource. A dynamic
@@ -152,6 +170,14 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         createdTxHash: event.transactionHash,
     });
     await outbox.save();
+
+    // Charge the per-chain-key DoS counter for unauthenticated datasources only (see the cap above).
+    // Read-modify-write by id so multiple OutboxCreated in one block increment correctly (by-id gets
+    // see same-block buffered writes).
+    if (!authenticated) {
+        const counter = await OutboxDatasourceCount.get(chainKey);
+        await OutboxDatasourceCount.create({ id: chainKey, count: (counter?.count ?? 0) + 1 }).save();
+    }
 
     await createOutboxDatasource({ address });
 }
