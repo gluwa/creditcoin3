@@ -435,7 +435,7 @@ impl Config {
             chain_key,
             &cc3_url_raw,
             &eth_url_raw,
-        );
+        )?;
 
         Ok(Config {
             name,
@@ -466,7 +466,7 @@ impl Config {
         chain_key: attestor_primitives::ChainKey,
         cc3_url: &url::Url,
         eth_url: &url::Url,
-    ) -> attestor::tasks::write_ability::Config {
+    ) -> anyhow::Result<attestor::tasks::write_ability::Config> {
         use attestor::tasks::write_ability::{config, AttestorSet, Config as WaConfig};
 
         let enabled = matches.get_flag("writeability") || file.enabled;
@@ -476,7 +476,7 @@ impl Config {
             None => AttestorSet::Static(file.attestors),
         };
 
-        WaConfig {
+        let cfg = WaConfig {
             enabled,
             cc3_eth_rpc_url: Some(cc3_url.clone()),
             // The destination chain (where the Inbox + EOAValidator live) is the same chain this
@@ -495,7 +495,14 @@ impl Config {
                 .vote_ttl_secs
                 .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
             attestor_set,
-        }
+        };
+
+        // Fail the boot on a config that would silently weaken safety or prevent quorum, rather
+        // than coming up subtly mis-secured (audit P2-7).
+        cfg.validate()
+            .map_err(|e| anyhow::anyhow!("invalid write_ability config: {e}"))?;
+
+        Ok(cfg)
     }
 }
 
