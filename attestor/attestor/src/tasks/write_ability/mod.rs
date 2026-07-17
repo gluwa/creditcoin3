@@ -104,6 +104,21 @@ pub async fn build_state(
     if !cfg.enabled {
         return None;
     }
+    // Fail-closed runtime-compatibility gate (audit P2-9). The write-ability chain state
+    // (`WriteAbilityConfigs`, the `SupportedChainsApi` v2 methods) only exists on a
+    // write-ability-capable runtime. Against a pre-write-ability (v1) runtime the on-chain reads
+    // return nothing and the attestor would otherwise silently fall back to a locally-derived chain
+    // key — which may diverge from on-chain governance. Refuse to enable message attestation loudly
+    // instead, so a runtime/attestor version skew is an operator-visible error, not a silent
+    // mis-signing. (The attestor's other duties are unaffected — only this task disables.)
+    if !cc3.supports_write_ability() {
+        tracing::error!(
+            "❌ message attestation is enabled but the connected Creditcoin runtime does not \
+             support write-ability (SupportedChainsApi < v2 / no WriteAbilityConfigs) — refusing \
+             to enable message attestation. Upgrade the runtime or disable message attestation."
+        );
+        return None;
+    }
     let destination_chain_key = resolve_destination_chain_key(cfg, cc3).await?;
     let active_set = resolve_active_set(cfg).await?;
     let threshold = attestor_primitives::calculate_threshold(active_set.len() as u32) as usize;
