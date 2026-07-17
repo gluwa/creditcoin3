@@ -511,6 +511,22 @@ impl Client {
         Ok(result.map(Into::into))
     }
 
+    /// Whether the *live* runtime supports write-ability (audit P2-9). The write-ability methods
+    /// were added to `SupportedChainsApi` in its v2 revision; a pre-write-ability (v1) runtime
+    /// exposes the trait without them. We detect this via the live metadata's presence of the
+    /// `write_ability_config` runtime-API method — equivalent to `api_version >= 2`, but read from
+    /// metadata (subxt does not surface the numeric API version). Callers use this to refuse to
+    /// enable message attestation against an incompatible runtime instead of silently falling back
+    /// to a locally-derived chain key that may diverge from on-chain governance.
+    #[must_use]
+    pub fn supports_write_ability(&self) -> bool {
+        let metadata = self.api().metadata();
+        let Some(api) = metadata.runtime_api_trait_by_name("SupportedChainsApi") else {
+            return false;
+        };
+        api.method_by_name("write_ability_config").is_some()
+    }
+
     pub async fn get_write_ability_config(
         &self,
         chain_key: ChainKey,
