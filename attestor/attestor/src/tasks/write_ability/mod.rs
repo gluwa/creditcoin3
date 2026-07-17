@@ -150,28 +150,28 @@ pub async fn build_state(
 }
 
 /// Register this attestor's write-ability EVM message-vote address on-chain (audit P2-8),
-/// idempotently and best-effort.
+/// idempotently and fully best-effort. Returns `true` once the address is confirmed on-chain (or was
+/// already), `false` on any failure this attempt (so a caller can retry).
 ///
-/// Derives the EVM signing key from `seed`, proves possession over the pallet's registration digest
-/// (`cc3.evm_registration_digest`), and submits `set_attestor_evm_address` — but only when the
-/// on-chain value is missing or differs from ours, so a restart is a no-op. `chain_key` is the
-/// attestation chain key the attestor is registered under (the pallet keys the EVM address the same
-/// way). Failures are logged, never fatal: the attestor keeps attesting, and the destination
-/// `EOAValidator` set simply omits it until a later registration succeeds. Requires the attestor to
-/// already be registered on-chain (the pallet rejects a non-attestor), so call it after `attest`.
+/// Proves possession over the pallet's registration digest (`cc3.evm_registration_digest`) with the
+/// attestor's EVM `signer` and submits `set_attestor_evm_address` only when the on-chain value is
+/// missing or differs — so a restart is a no-op. `chain_key` is the attestation chain key the
+/// attestor is registered under (the pallet keys the EVM address the same way). **Never fatal**:
+/// every failure (including sign) is logged and returned as `false`; the attestor keeps attesting and
+/// the destination `EOAValidator` set omits it until a later attempt succeeds. Requires the attestor
+/// to already be registered on-chain (the pallet rejects a non-attestor), so call it after `attest`.
 pub async fn register_evm_address(
     cc3: &cc_client::Client,
-    seed: &[u8; 32],
+    signer: &signing::MessageSigner,
     chain_key: attestor_primitives::ChainKey,
-) -> Result<(), Error> {
-    let signer = signing::MessageSigner::from_seed(seed).map_err(Error::WriteAbility)?;
+) -> bool {
     let address = signer.address();
     let ours = sp_core::H160::from_slice(address.as_slice());
 
     match cc3.attestor_evm_address(chain_key).await {
         Ok(Some(existing)) if existing == ours => {
-            tracing::info!(evm_address = %address, "🔗 write-ability EVM address already registered on-chain — skipping");
-            return Ok(());
+            tracing::debug!(evm_address = %address, "🔗 write-ability EVM address already registered on-chain");
+            return true;
         }
         Ok(_) => {}
         Err(err) => {
@@ -180,23 +180,28 @@ pub async fn register_evm_address(
     }
 
     let digest = cc3.evm_registration_digest(chain_key);
-    let proof = signer
-        .sign(&B256::from(digest))
-        .map_err(Error::WriteAbility)?;
+    let proof = match signer.sign(&B256::from(digest)) {
+        Ok(p) => p,
+        Err(err) => {
+            tracing::error!(%err, "could not sign EVM registration digest — cannot register");
+            return false;
+        }
+    };
 
     match cc3.set_attestor_evm_address(chain_key, ours, proof).await {
         Ok(()) => {
             tracing::info!(evm_address = %address, "🔗 registered write-ability EVM address on-chain");
+            true
         }
         Err(err) => {
-            tracing::error!(
+            tracing::warn!(
                 %err,
                 evm_address = %address,
-                "failed to register write-ability EVM address on-chain — the destination EOAValidator set will omit this attestor until registration succeeds"
+                "failed to register write-ability EVM address on-chain — will retry; the destination EOAValidator set omits this attestor until it succeeds"
             );
+            false
         }
     }
-    Ok(())
 }
 
 /// Read the on-chain `WriteAbilityConfigs` entry for this `chain_key` and derive the effective

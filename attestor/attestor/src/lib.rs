@@ -394,9 +394,17 @@ impl Attestor {
         // only then), publish this attestor's EVM message-vote address on-chain so the destination
         // EOAValidator set can be built from it (audit P2-8). Best-effort and idempotent; the attestor
         // is already registered/attesting by now (see `register_bls` above), which the pallet requires.
+        // Non-fatal — a transient failure here is retried by the set-update proposer's poll (for
+        // OnChainValidator routes) rather than blocking startup or leaving the node silently omitted.
         if message_votes.is_some() {
-            tasks::write_ability::register_evm_address(&cc3, &write_ability_seed, chain_key)
-                .await?;
+            match tasks::write_ability::signing::MessageSigner::from_seed(&write_ability_seed) {
+                Ok(signer) => {
+                    tasks::write_ability::register_evm_address(&cc3, &signer, chain_key).await;
+                }
+                Err(err) => {
+                    tracing::error!(%err, "could not derive EVM signer for on-chain registration");
+                }
+            }
         }
 
         let shared = Arc::new(Shared {
