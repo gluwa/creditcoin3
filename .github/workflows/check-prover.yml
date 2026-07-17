@@ -211,7 +211,7 @@ jobs:
 
           # Pick one txHash discovered by prover-check (files are written as
           # <PROOF_DIR>/<headerNumber>/<txHash>.txt).
-          TX_FILE=$(find "$PROOF_DIR" -type f -name '*.txt' | head -n 1)
+          TX_FILE=$(find "$PROOF_DIR" -type f -name '*.txt' -print -quit)
           if [ -z "$TX_FILE" ]; then
             echo "No proof files found in $PROOF_DIR; nothing to submit"; exit 1
           fi
