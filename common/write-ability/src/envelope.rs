@@ -78,6 +78,44 @@ impl ReobservationRequest {
     }
 }
 
+/// Vote an attestor gossips on [`attestor_set_update_topic`](crate::protocol::attestor_set_update_topic)
+/// proposing a new destination `EOAValidator` attestor set (write-ability P2-8).
+///
+/// Each attestor signs the update digest
+/// ([`attestor_set_update_digest`](crate::hash::attestor_set_update_digest)) over the canonical
+/// (sorted) `new_attestors`, the destination `chain_id`, and the current `attestor_set_update_nonce`.
+/// The relayer snoops the topic, collects a threshold of these, and submits `submitAttestorSetUpdate`
+/// on-chain. `new_attestors` and `nonce` are carried so the relayer can reconstruct the exact digest
+/// and calldata; `chain_id` is not carried (the relayer knows its own destination chain).
+#[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
+pub struct SetUpdateVote {
+    /// USC chain_key this vote is scoped to. Must match the gossipsub topic prefix.
+    pub chain_key: u64,
+    /// Proposed attestor set as 20-byte EVM addresses, in **canonical (ascending) order** — the
+    /// exact order hashed into the digest and submitted on-chain.
+    pub new_attestors: Vec<[u8; 20]>,
+    /// The `EOAValidator.attestorSetUpdateNonce` this vote was signed against (big-endian `U256`).
+    pub nonce: [u8; 32],
+    /// EVM address recovered from `signature` (published so the relayer can pre-filter against the
+    /// current set before paying for `ecrecover`).
+    pub signer: [u8; 20],
+    /// 65-byte ECDSA signature (`r || s || v`) over the update digest.
+    pub signature: [u8; 65],
+}
+
+impl SetUpdateVote {
+    /// Decode an incoming gossipsub payload (canonical SCALE, trailing bytes rejected).
+    pub fn decode_bytes(bytes: &[u8]) -> Result<Self, parity_scale_codec::Error> {
+        Self::decode_all(&mut &bytes[..])
+    }
+
+    /// Encode for publishing / fixtures.
+    #[must_use]
+    pub fn encode_bytes(&self) -> Vec<u8> {
+        self.encode()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

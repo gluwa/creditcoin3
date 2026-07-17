@@ -27,6 +27,7 @@ pub mod ingest;
 pub mod listener;
 pub mod reobservation;
 pub mod resolver;
+pub mod set_update;
 pub mod signing;
 
 use std::collections::HashSet;
