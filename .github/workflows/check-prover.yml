@@ -77,6 +77,12 @@ jobs:
           NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
           echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
 
+      - name: DEBUG - Print runner IP address
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
       - name: Execute prover-check.ts on checkpoint boundaries
         working-directory: ./cli
         env:
