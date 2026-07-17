@@ -41,7 +41,6 @@ name: Attestor Compatibility
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "attestor/**"
       - "pallets/attestation/**"
