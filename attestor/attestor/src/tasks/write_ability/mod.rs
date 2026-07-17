@@ -141,6 +141,56 @@ pub async fn build_state(
     Some((state, publish_rx, reobs_rx))
 }
 
+/// Register this attestor's write-ability EVM message-vote address on-chain (audit P2-8),
+/// idempotently and best-effort.
+///
+/// Derives the EVM signing key from `seed`, proves possession over the pallet's registration digest
+/// (`cc3.evm_registration_digest`), and submits `set_attestor_evm_address` — but only when the
+/// on-chain value is missing or differs from ours, so a restart is a no-op. `chain_key` is the
+/// attestation chain key the attestor is registered under (the pallet keys the EVM address the same
+/// way). Failures are logged, never fatal: the attestor keeps attesting, and the destination
+/// `EOAValidator` set simply omits it until a later registration succeeds. Requires the attestor to
+/// already be registered on-chain (the pallet rejects a non-attestor), so call it after `attest`.
+pub async fn register_evm_address(
+    cc3: &cc_client::Client,
+    seed: &[u8; 32],
+    chain_key: attestor_primitives::ChainKey,
+) -> Result<(), Error> {
+    let signer = signing::MessageSigner::from_seed(seed).map_err(Error::WriteAbility)?;
+    let address = signer.address();
+    let ours = sp_core::H160::from_slice(address.as_slice());
+
+    match cc3.attestor_evm_address(chain_key).await {
+        Ok(Some(existing)) if existing == ours => {
+            tracing::info!(evm_address = %address, "🔗 write-ability EVM address already registered on-chain — skipping");
+            return Ok(());
+        }
+        Ok(_) => {}
+        Err(err) => {
+            tracing::warn!(%err, "could not read the on-chain EVM address registration; will attempt to (re)register");
+        }
+    }
+
+    let digest = cc3.evm_registration_digest(chain_key);
+    let proof = signer
+        .sign(&B256::from(digest))
+        .map_err(Error::WriteAbility)?;
+
+    match cc3.set_attestor_evm_address(chain_key, ours, proof).await {
+        Ok(()) => {
+            tracing::info!(evm_address = %address, "🔗 registered write-ability EVM address on-chain");
+        }
+        Err(err) => {
+            tracing::error!(
+                %err,
+                evm_address = %address,
+                "failed to register write-ability EVM address on-chain — the destination EOAValidator set will omit this attestor until registration succeeds"
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Read the on-chain `WriteAbilityConfigs` entry for this `chain_key` and derive the effective
 /// `bytes32` write-ability chain key. Returns `None` when governance has explicitly disabled
 /// message attestation for the chain (an entry exists with `message_attestation_enabled == false`).

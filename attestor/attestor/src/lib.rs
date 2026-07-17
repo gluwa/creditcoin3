@@ -387,6 +387,15 @@ impl Attestor {
                 ),
             };
 
+        // When write-ability is enabled (and the runtime supports it — `build_state` returns `Some`
+        // only then), publish this attestor's EVM message-vote address on-chain so the destination
+        // EOAValidator set can be built from it (audit P2-8). Best-effort and idempotent; the attestor
+        // is already registered/attesting by now (see `register_bls` above), which the pallet requires.
+        if message_votes.is_some() {
+            tasks::write_ability::register_evm_address(&cc3, &write_ability_seed, chain_key)
+                .await?;
+        }
+
         let shared = Arc::new(Shared {
             name: self.config.name.clone(),
             chain_key,
