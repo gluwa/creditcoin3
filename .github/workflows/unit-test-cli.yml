@@ -3,7 +3,6 @@ name: unit-test-cli
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "cli/yarn.lock"
       - "cli/src/commands/**"
