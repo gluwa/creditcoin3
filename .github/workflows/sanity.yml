@@ -3,7 +3,6 @@ name: sanity
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
   workflow_dispatch:
 
 concurrency:

@@ -3,7 +3,6 @@ name: chainspec
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "runtime/**"
       - "chainspecs/**"

@@ -14,7 +14,6 @@ name: "CodeQL"
 
 "on":
   pull_request:
-    branches: [usc-dev]
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}

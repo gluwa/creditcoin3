@@ -3,7 +3,6 @@ name: proof-gen-api-server
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "proof-gen-api-server/**"
       - "common/eth/**"

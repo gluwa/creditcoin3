@@ -4,7 +4,6 @@ name: typescript-checks
 # Controls when the action will run.
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - '**.ts'
       - '**.js'
