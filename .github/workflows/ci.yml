@@ -203,11 +203,6 @@ jobs:
     secrets: inherit
 
   integration-test-attestator-network:
-    # b/c of azure/login
-    environment: snapshot
-    permissions:
-      id-token: write
-      contents: read
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
@@ -235,17 +230,9 @@ jobs:
             --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
 
-      - name: Azure Login with OIDC
-        uses: azure/login@v3
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          # https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-azure
-
       - name: Download 10k Anvil state
         run: |
-          az storage blob download --auth-mode=login --account-name=snapshotexportaccount --container-name=usc-testing-data --name "anvil10k_blocks.json.xz" --file ./anvil10k_blocks.json.xz
+          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks.json.xz"
           ls -lh
 
           unxz anvil10k_blocks.json.xz
