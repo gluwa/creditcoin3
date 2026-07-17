@@ -153,12 +153,6 @@ pub async fn run_proposer(
     let mut tick = tokio::time::interval(Duration::from_secs(SET_UPDATE_POLL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
-    // Whether this attestor's own EVM address is confirmed registered on-chain. The startup
-    // registration in `lib.rs` is best-effort and one-shot; retry here each cycle until it lands so a
-    // transient RPC blip at startup can't silently omit us from the destination validator set forever
-    // (review P2-8 #2). Idempotent — `register_evm_address` no-ops once confirmed.
-    let mut self_registered = false;
-
     loop {
         tokio::select! {
             () = token.cancelled() => {
@@ -166,10 +160,15 @@ pub async fn run_proposer(
                 return;
             }
             _ = tick.tick() => {
-                if !self_registered {
-                    self_registered =
-                        super::register_evm_address(&cc3, &signer, chain_key).await;
-                }
+                // Ensure this attestor's own EVM address is registered on-chain, every cycle. The
+                // startup registration in `lib.rs` is best-effort and one-shot; re-checking here
+                // recovers not only from a transient startup RPC blip (review P2-8 #2) but also from
+                // the mapping later disappearing while the process runs — e.g. a chain-removal purge
+                // (bugbot: don't latch on first success). Idempotent and cheap: `register_evm_address`
+                // reads the on-chain value first and only submits an extrinsic when it is missing or
+                // stale, so a steady state is a single storage read per cycle.
+                super::register_evm_address(&cc3, &signer, chain_key).await;
+
                 match propose_once(&cc3, chain_key, &dest_rpc_url, validator, &signer).await {
                     Ok(Some(vote)) => {
                         // Bounded `try_send`: if the publish channel is full the vote is dropped and
