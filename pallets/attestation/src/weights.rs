@@ -393,6 +393,15 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
+	/// Conservative placeholder pending benchmark regeneration by the CI weight bot: one
+	/// secp256k1 `ecrecover` + a keccak plus reads of `Attestors`/`AttestorEvmAddress`/
+	/// `EvmAddressOwner` and two writes.
+	fn set_attestor_evm_address() -> Weight {
+		Weight::from_parts(120_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 3799))
+			.saturating_add(T::DbWeight::get().reads(3))
+			.saturating_add(T::DbWeight::get().writes(2))
+	}
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::ActiveAttestors` (r:1 w:1)

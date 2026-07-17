@@ -15,6 +15,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, Pays},
     BoundedVec,
 };
+use sp_core::Pair as _;
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
@@ -9017,6 +9018,260 @@ mod set_target_sample_size_supported_chain_and_drain {
             assert_eq!(PendingMaxCatchup::<Test>::iter().count(), 0);
         });
     }
+}
+
+// --- Write-ability attestor EVM address self-registration (audit P2-8 groundwork) -----------------
+
+/// Produce a `(proof, address)` pair for the write-ability EVM registration: sign `digest` with a
+/// deterministic secp256k1 key derived from `seed` and recover the address the pallet will see.
+fn evm_registration_proof(seed: u8, digest: &[u8; 32]) -> ([u8; 65], sp_core::H160) {
+    let pair = sp_core::ecdsa::Pair::from_seed(&[seed; 32]);
+    let proof: [u8; 65] = pair.sign_prehashed(digest).0;
+    let address = Attestation::recover_evm_address(&proof, digest)
+        .expect("a real signature must recover to an address");
+    (proof, address)
+}
+
+#[test]
+fn set_attestor_evm_address_registers_and_indexes() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        let digest = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_1);
+        let (proof, address) = evm_registration_proof(7, &digest);
+
+        assert_ok!(Attestation::set_attestor_evm_address(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            address,
+            proof
+        ));
+
+        assert_eq!(
+            AttestorEvmAddress::<Test>::get(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            Some(address)
+        );
+        assert_eq!(
+            EvmAddressOwner::<Test>::get(SUPPORTED_CHAIN_KEY, address),
+            Some(ATTESTOR_1)
+        );
+        System::assert_has_event(
+            crate::Event::AttestorEvmAddressRegistered(SUPPORTED_CHAIN_KEY, ATTESTOR_1, address)
+                .into(),
+        );
+    })
+}
+
+#[test]
+fn set_attestor_evm_address_rejects_wrong_claimed_address() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        let digest = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_1);
+        let (proof, address) = evm_registration_proof(7, &digest);
+
+        // Tamper the claimed address so it no longer matches the recovered signer.
+        let mut wrong = address;
+        wrong.0[0] ^= 0xff;
+        assert_noop!(
+            Attestation::set_attestor_evm_address(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                wrong,
+                proof
+            ),
+            Error::<Test>::InvalidEvmProofOfPossession
+        );
+    })
+}
+
+#[test]
+fn set_attestor_evm_address_rejects_proof_bound_to_other_chain() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        // Sign the digest for a DIFFERENT chain key; the address is the key's true address, but the
+        // proof will recover to a different address when checked against this chain's digest.
+        let other_digest = Attestation::evm_registration_digest(999, &ATTESTOR_1);
+        let (proof, address) = evm_registration_proof(7, &other_digest);
+
+        assert_noop!(
+            Attestation::set_attestor_evm_address(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                address,
+                proof
+            ),
+            Error::<Test>::InvalidEvmProofOfPossession
+        );
+    })
+}
+
+#[test]
+fn set_attestor_evm_address_rejects_non_attestor() {
+    ExtBuilder.build_and_execute(|| {
+        // ATTESTOR_1 is never registered.
+        let digest = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_1);
+        let (proof, address) = evm_registration_proof(7, &digest);
+        assert_noop!(
+            Attestation::set_attestor_evm_address(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                address,
+                proof
+            ),
+            Error::<Test>::AddressNotAttestor
+        );
+    })
+}
+
+#[test]
+fn set_attestor_evm_address_rejects_zero_address() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert_noop!(
+            Attestation::set_attestor_evm_address(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                sp_core::H160::zero(),
+                [0u8; 65]
+            ),
+            Error::<Test>::ZeroEvmAddress
+        );
+    })
+}
+
+#[test]
+fn set_attestor_evm_address_rejects_duplicate_across_attestors() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_2),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_2
+        ));
+
+        // Both attestors present a proof from the SAME EVM key (seed 7) — each over its own digest,
+        // both recovering to the same address. The first claims it; the second is rejected.
+        let digest1 = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_1);
+        let (proof1, address) = evm_registration_proof(7, &digest1);
+        assert_ok!(Attestation::set_attestor_evm_address(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            address,
+            proof1
+        ));
+
+        let digest2 = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_2);
+        let (proof2, address2) = evm_registration_proof(7, &digest2);
+        assert_eq!(
+            address2, address,
+            "same key must recover to the same address"
+        );
+        assert_noop!(
+            Attestation::set_attestor_evm_address(
+                RuntimeOrigin::signed(ATTESTOR_2),
+                SUPPORTED_CHAIN_KEY,
+                address2,
+                proof2
+            ),
+            Error::<Test>::EvmAddressAlreadyRegistered
+        );
+    })
+}
+
+#[test]
+fn set_attestor_evm_address_rotation_clears_old_owner() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        let digest = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_1);
+        let (proof_x, addr_x) = evm_registration_proof(7, &digest);
+        let (proof_y, addr_y) = evm_registration_proof(8, &digest);
+        assert_ne!(addr_x, addr_y);
+
+        assert_ok!(Attestation::set_attestor_evm_address(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            addr_x,
+            proof_x
+        ));
+        // Rotate to a new address.
+        assert_ok!(Attestation::set_attestor_evm_address(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            addr_y,
+            proof_y
+        ));
+
+        assert_eq!(
+            AttestorEvmAddress::<Test>::get(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            Some(addr_y)
+        );
+        assert_eq!(
+            EvmAddressOwner::<Test>::get(SUPPORTED_CHAIN_KEY, addr_x),
+            None
+        );
+        assert_eq!(
+            EvmAddressOwner::<Test>::get(SUPPORTED_CHAIN_KEY, addr_y),
+            Some(ATTESTOR_1)
+        );
+    })
+}
+
+#[test]
+fn unregister_attestor_clears_evm_address() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        let digest = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_1);
+        let (proof, address) = evm_registration_proof(7, &digest);
+        assert_ok!(Attestation::set_attestor_evm_address(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            address,
+            proof
+        ));
+
+        assert_ok!(Attestation::unregister_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        assert_eq!(
+            AttestorEvmAddress::<Test>::get(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            None
+        );
+        assert_eq!(
+            EvmAddressOwner::<Test>::get(SUPPORTED_CHAIN_KEY, address),
+            None
+        );
+    })
 }
 
 /// `register_chain` ⇒ `on_register_chain` must reject zero-valued attestation parameters that
