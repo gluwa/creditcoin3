@@ -80,7 +80,7 @@ jobs:
       - name: Execute prover-check.ts on checkpoint boundaries
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: '3600'
+          GO_BACK_BLOCKS: '360'
           SLEEP_TIME: '500'
         run: |
           node dist/scripts/prover-check.js \
@@ -91,7 +91,7 @@ jobs:
         working-directory: ./cli
         env:
           # LAST_SOURCE_BLOCK: '1000000'
-          GO_BACK_BLOCKS: '4000'
+          GO_BACK_BLOCKS: '400'
           STEP_THROUGH_BLOCKS: '7'
           SLEEP_TIME: '500'
         run: |
