@@ -5182,6 +5182,51 @@ fn on_supported_chain_removed_cleans_up_storage_and_chills_attestors() {
     })
 }
 
+#[test]
+fn on_supported_chain_removed_clears_evm_address_maps() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        let digest = Attestation::evm_registration_digest(SUPPORTED_CHAIN_KEY, &ATTESTOR_1);
+        let (proof, address) = evm_registration_proof(7, &digest);
+        assert_ok!(Attestation::set_attestor_evm_address(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            address,
+            proof
+        ));
+        // Populated before removal (the attestor stays registered — only the chain goes away).
+        assert!(AttestorEvmAddress::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(EvmAddressOwner::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            address
+        ));
+
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            true
+        ));
+
+        // Both maps' prefixes for the removed chain must be gone (mirrors BlsKeyOwner), so a
+        // re-added chain reusing this EVM key isn't blocked by a stale uniqueness entry.
+        assert_eq!(
+            AttestorEvmAddress::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            0
+        );
+        assert_eq!(
+            EvmAddressOwner::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            0
+        );
+    })
+}
+
 // Repeated calls to clear_prefix within the same block do not stack. For this reason
 // we need to commit storage overlays to backend storage between calls to clear_prefix.
 // In doing so, we simulate the committing of changes at the end of a block.
