@@ -368,6 +368,7 @@ pub async fn run(
                     &mut swarm,
                     mv_topic.as_ref(),
                     reobs_topic.as_ref(),
+                    set_update_topic.as_ref(),
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
@@ -533,6 +534,7 @@ async fn handle_swarm(
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     mv_topic: Option<&libp2p::gossipsub::IdentTopic>,
     reobs_topic: Option<&libp2p::gossipsub::IdentTopic>,
+    set_update_topic: Option<&libp2p::gossipsub::IdentTopic>,
     pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
@@ -630,6 +632,7 @@ async fn handle_swarm(
             // message attestation is enabled.
             let is_message_vote = mv_topic.is_some_and(|t| message.topic == t.hash());
             let is_reobs = reobs_topic.is_some_and(|t| message.topic == t.hash());
+            let is_set_update = set_update_topic.is_some_and(|t| message.topic == t.hash());
             let decision = if is_message_vote {
                 handle_message_vote(shared, &message.data)
             } else if is_reobs {
@@ -639,6 +642,14 @@ async fn handle_swarm(
                     reobs_admission,
                     propagation_source,
                 )
+            } else if is_set_update {
+                // We subscribe to the attestor-set-update topic only to publish our proposer's own
+                // votes and keep the mesh propagating them — attestors do NOT aggregate set-update
+                // votes (the relayer does). Accept inbound frames so gossipsub keeps relaying, but
+                // take no action. Crucially, do not fall through to the block-attestation `Vote`
+                // decoder below: a SetUpdateVote SCALE payload would fail to decode and be Rejected,
+                // applying gossipsub penalties to peers relaying legitimate set-update votes (bugbot).
+                libp2p::gossipsub::MessageAcceptance::Accept
             } else {
                 let (acceptance, learned) = handle_vote_msg(
                     shared,
