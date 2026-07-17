@@ -377,13 +377,16 @@ impl Attestor {
         // share the aggregator + active set. `mv_publish_rx` is the channel the p2p task drains to
         // publish our outgoing votes; a dummy (immediately-closed) receiver stands in when disabled
         // and is never polled (the p2p arm is guarded on `message_votes.is_some()`).
-        let (message_votes, mv_publish_rx, wa_reobs_rx) =
+        let (message_votes, mv_publish_rx, wa_reobs_rx, wa_set_update_rx) =
             match tasks::write_ability::build_state(&self.config.write_ability, &cc3).await {
-                Some((state, publish_rx, reobs_rx)) => (Some(state), publish_rx, reobs_rx),
+                Some((state, publish_rx, reobs_rx, set_update_rx)) => {
+                    (Some(state), publish_rx, reobs_rx, set_update_rx)
+                }
                 None => (
                     None,
                     mpsc::channel::<write_ability::envelope::MessageVote>(1).1,
                     mpsc::channel::<write_ability::envelope::ReobservationRequest>(1).1,
+                    mpsc::channel::<write_ability::envelope::SetUpdateVote>(1).1,
                 ),
             };
 
@@ -461,9 +464,16 @@ impl Attestor {
                 .with_chain_key(chain_key)
                 .build();
             set.spawn(async move {
-                tasks::p2p::run(shared, cfg, gossip_rx, peer_deactivated_rx, mv_publish_rx)
-                    .await
-                    .map(|_| "p2p")
+                tasks::p2p::run(
+                    shared,
+                    cfg,
+                    gossip_rx,
+                    peer_deactivated_rx,
+                    mv_publish_rx,
+                    wa_set_update_rx,
+                )
+                .await
+                .map(|_| "p2p")
             });
         }
 
@@ -497,8 +507,9 @@ impl Attestor {
         {
             let shared = shared.clone();
             let wa_cfg = self.config.write_ability;
+            let cc3 = cc3.clone();
             set.spawn(async move {
-                tasks::write_ability::run(shared, wa_cfg, write_ability_seed, wa_reobs_rx)
+                tasks::write_ability::run(shared, wa_cfg, write_ability_seed, wa_reobs_rx, cc3)
                     .await
                     .map(|_| "write_ability")
             });

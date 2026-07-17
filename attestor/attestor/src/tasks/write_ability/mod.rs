@@ -41,7 +41,7 @@ use parking_lot::{Mutex, RwLock};
 use tokio::sync::mpsc;
 use zeroize::Zeroizing;
 
-use write_ability::envelope::{MessageVote, ReobservationRequest};
+use write_ability::envelope::{MessageVote, ReobservationRequest, SetUpdateVote};
 use write_ability::protocol::chain_key_to_bytes32;
 
 use crate::error::Error;
@@ -73,6 +73,9 @@ pub struct MessageVoteState {
     pub active_set: RwLock<HashSet<Address>>,
     /// Outgoing votes we produced, handed to the p2p task to publish on the message-vote topic.
     pub publish_tx: mpsc::Sender<MessageVote>,
+    /// Outgoing attestor-set-update votes (P2-8), handed to the p2p task to publish on the
+    /// set-update topic. Set by [`build_state`]; drained by the p2p task.
+    pub set_update_publish_tx: mpsc::Sender<SetUpdateVote>,
     /// Incoming reobservation requests the p2p task decoded off the reobservation topic, handed to
     /// the write-ability task to verify + re-sign. `try_send` from the swarm loop (best effort:
     /// shedding a request under a full buffer just means that stall recovers on the next request).
@@ -101,6 +104,7 @@ pub async fn build_state(
     Arc<MessageVoteState>,
     mpsc::Receiver<MessageVote>,
     mpsc::Receiver<ReobservationRequest>,
+    mpsc::Receiver<SetUpdateVote>,
 )> {
     if !cfg.enabled {
         return None;
@@ -127,10 +131,13 @@ pub async fn build_state(
         aggregator::VoteAggregator::new(threshold, cfg.max_tracked_messages, cfg.vote_ttl);
     let (publish_tx, publish_rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
     let (reobs_tx, reobs_rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
+    let (set_update_publish_tx, set_update_publish_rx) =
+        mpsc::channel(common::constants::CAPACITY_CHANNEL);
     let state = Arc::new(MessageVoteState {
         aggregator: Mutex::new(aggregator),
         active_set: RwLock::new(active_set),
         publish_tx,
+        set_update_publish_tx,
         reobs_tx,
         destination_chain_key,
     });
@@ -139,7 +146,7 @@ pub async fn build_state(
         threshold,
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
-    Some((state, publish_rx, reobs_rx))
+    Some((state, publish_rx, reobs_rx, set_update_publish_rx))
 }
 
 /// Register this attestor's write-ability EVM message-vote address on-chain (audit P2-8),
@@ -286,6 +293,7 @@ pub async fn run(
     cfg: Config,
     seed: Zeroizing<[u8; 32]>,
     reobs_rx: mpsc::Receiver<ReobservationRequest>,
+    cc3: Arc<cc_client::Client>,
 ) -> Result<(), Error> {
     let Some(state) = shared.message_votes.clone() else {
         tracing::info!("📭 message attestation disabled — parking write-ability task");
@@ -312,6 +320,31 @@ pub async fn run(
                 "OnChainValidator set but no destination_eth_rpc_url — attestor set will not hot-reload"
             );
             None
+        }
+        _ => None,
+    };
+
+    // Attestor-set-update proposer (P2-8): gossips a signed vote when the elected set (from the
+    // on-chain EVM-address registry) diverges from the destination validator's set, for the relayer
+    // to submit. Like `set_watcher` it is Outbox-independent, only meaningful for an OnChainValidator
+    // set, and derives its own EVM signer from `seed`.
+    let set_update_proposer = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
+        (AttestorSet::OnChainValidator(validator), Some(url)) => {
+            match signing::MessageSigner::from_seed(&seed) {
+                Ok(proposer_signer) => Some(tokio::spawn(set_update::run_proposer(
+                    cc3.clone(),
+                    cfg.write_ability_chain_key,
+                    url.to_string(),
+                    *validator,
+                    proposer_signer,
+                    state.set_update_publish_tx.clone(),
+                    shared.token.clone(),
+                ))),
+                Err(err) => {
+                    tracing::error!(%err, "could not derive EVM signer for set-update proposer — disabling it");
+                    None
+                }
+            }
         }
         _ => None,
     };
@@ -453,6 +486,9 @@ pub async fn run(
                     if let Some(w) = &set_watcher {
                         w.abort();
                     }
+                    if let Some(p) = &set_update_proposer {
+                        p.abort();
+                    }
                     return Err(Error::WriteAbility(err));
                 };
                 produce_vote(&state, &shared.metrics, &signer, our_address, chain_key, indexed);
@@ -464,6 +500,9 @@ pub async fn run(
     reobs_worker.abort();
     if let Some(w) = set_watcher {
         w.abort();
+    }
+    if let Some(p) = set_update_proposer {
+        p.abort();
     }
     Ok(())
 }
