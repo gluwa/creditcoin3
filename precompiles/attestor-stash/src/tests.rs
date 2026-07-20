@@ -530,11 +530,115 @@ fn get_ledger_after_register_returns_staked_amount() {
                 .prepare_test(alice, Precompile, PCall::get_ledger { stash: alice_h256 })
                 .execute_returns(LedgerInfo {
                     exists: true,
+                    stash: alice_h256,
                     total_staked: MIN_BOND,
                     active: MIN_BOND,
                     unlocking_chunks: 0,
                     withdrawable: 0,
                 });
+        });
+}
+
+#[test]
+fn get_ledger_by_address_returns_same_as_get_ledger() {
+    use precompile_utils::solidity::codec::Address;
+
+    let alice: H160 = Alice.into();
+    let alice_h256: H256 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            // No ledger yet — both entries should return the default `LedgerInfo`.
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_ledger_by_address {
+                        addr: Address(alice),
+                    },
+                )
+                .execute_returns(LedgerInfo::default());
+
+            // Register so a ledger exists.
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            // `getLedgerByAddress(address)` must return exactly the same `LedgerInfo` as
+            // `getLedger(bytes32)` does for the corresponding hashed AccountId. This is the
+            // whole point of the new entry: EVM consumers shouldn't have to know about the
+            // AddressMapping translation to read their own ledger.
+            let expected = LedgerInfo {
+                exists: true,
+                stash: alice_h256,
+                total_staked: MIN_BOND,
+                active: MIN_BOND,
+                unlocking_chunks: 0,
+                withdrawable: 0,
+            };
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::get_ledger { stash: alice_h256 })
+                .execute_returns(expected.clone());
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_ledger_by_address {
+                        addr: Address(alice),
+                    },
+                )
+                .execute_returns(expected);
+        });
+}
+
+#[test]
+fn get_caller_ledger_uses_msg_sender() {
+    let alice: H160 = Alice.into();
+    let bob: H160 = Bob.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            // Bob never registered, so `getCallerLedger()` from Bob must return the default.
+            // Alice did register, so `getCallerLedger()` from Alice must return her ledger.
+            // This is the load-bearing assertion: the entry resolves the *caller's* address
+            // through AddressMapping rather than reading some other account's ledger.
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            let alice_h256: H256 = Alice.into();
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::get_caller_ledger {})
+                .execute_returns(LedgerInfo {
+                    exists: true,
+                    stash: alice_h256,
+                    total_staked: MIN_BOND,
+                    active: MIN_BOND,
+                    unlocking_chunks: 0,
+                    withdrawable: 0,
+                });
+
+            precompiles()
+                .prepare_test(bob, Precompile, PCall::get_caller_ledger {})
+                .execute_returns(LedgerInfo::default());
         });
 }
 

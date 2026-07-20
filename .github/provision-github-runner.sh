@@ -5,14 +5,17 @@ set -eo pipefail
 mkdir actions-runner
 pushd actions-runner || exit 1
 
-curl -L https://github.com/actions/runner/releases/download/v2.329.0/actions-runner-linux-x64-2.329.0.tar.gz > runner.tar.gz
+curl -L https://github.com/actions/runner/releases/download/v2.335.1/actions-runner-linux-x64-2.335.1.tar.gz > runner.tar.gz
 
 tar xzf ./runner.tar.gz
 sudo ./bin/installdependencies.sh
 # for 3rd party dependencies and building the code
 sudo apt install curl gnupg -y
-curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo apt-key add -
-echo "deb https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
+# apt-key is removed in Ubuntu 26.04, so use the signed-by keyring pattern instead.
+sudo install -m 0755 -d /etc/apt/keyrings
+curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | sudo gpg --dearmor -o /etc/apt/keyrings/yarn.gpg
+sudo chmod a+r /etc/apt/keyrings/yarn.gpg
+echo "deb [signed-by=/etc/apt/keyrings/yarn.gpg] https://dl.yarnpkg.com/debian/ stable main" | sudo tee /etc/apt/sources.list.d/yarn.list
 sudo apt-get update
 sudo apt install -y build-essential clang curl gcc git-lfs jq \
     libpq-dev libssl-dev pipx pkg-config protobuf-compiler \

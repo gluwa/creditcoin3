@@ -20,24 +20,60 @@ jobs:
   docker-build:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           lfs: true
 
       - name: Build ${{ github.repository }} docker image
         run: |
-          docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" .
+          docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" --sbom=true --provenance=mode=max .
           docker images
 
       - name: Build ${{ github.repository }}:indexer-for-${{ inputs.version-string }} docker image
         run: |
-          tar --create --dereference --exclude-from=.dockerignore --exclude-from=cc3-indexer/.dockerignore . | docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ inputs.version-string }} -
+          tar --create --dereference --exclude-from=.dockerignore --exclude-from=cc3-indexer/.dockerignore . | docker build -f cc3-indexer/Dockerfile -t ${{ github.repository }}:indexer-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max -
           docker images
 
       - name: Build ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} docker image
         run: |
-          docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} .
+          docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max .
           docker images
+
+      # DO-2217: informational only — never fails the build (continue-on-error backs up exit-code:false
+      # in case the action itself errors, e.g. on an empty dockerhub-user during PR runs). See DO-2104
+      # for the org-wide compliance initiative. Runs unconditionally: local CVE scanning needs no
+      # DockerHub credentials — only org-policy evaluation does, and dockerhub-user/password are empty
+      # (not missing) on PR runs since docker-build doesn't inherit secrets there, which the action
+      # treats as "skip login, scan locally".
+      - name: Docker Scout - CVE scan (${{ github.repository }})
+        continue-on-error: true
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ github.repository }}:${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          exit-code: false
+
+      - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
+        continue-on-error: true
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ github.repository }}:indexer-for-${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          exit-code: false
+
+      - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
+        continue-on-error: true
+        uses: docker/scout-action@v1
+        with:
+          command: cves
+          image: local://${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
+          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          exit-code: false
 
       - name: Export docker image into a file
         run: |

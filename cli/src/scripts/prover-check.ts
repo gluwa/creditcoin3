@@ -39,8 +39,23 @@ function writeToDisk(dirPath: string, proofData: any) {
 
 async function getProofForBlock(apiUrl: string, chainKey: number, blockNumber: bigint) {
     const url = `${apiUrl}/api/v1/proof/${chainKey}/${blockNumber}/0`;
-    // NOTE: throws an exception in case of errors
-    return axios.get(url);
+    try {
+        // NOTE: throws an exception in case of errors
+        return await axios.get(url);
+    } catch (error) {
+        // The prover returns HTTP 422 with code 'EmptyBlockTxProof' for blocks
+        // that contain no transactions; there is no tx proof to verify, so we
+        // treat this as a skip rather than a hard failure. Any other error is
+        // re-thrown so genuine problems still surface and fail the run.
+        if (
+            axios.isAxiosError(error) &&
+            error.response?.status === 422 &&
+            error.response?.data?.code === 'EmptyBlockTxProof'
+        ) {
+            return null;
+        }
+        throw error;
+    }
 }
 
 const fetchCheckpoints = (
@@ -163,6 +178,10 @@ async function main(
         console.log(`... get proof for source chain block ${blockNumber}`);
         await sleep(sleepTime); // rate-limit
         const response = await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
+        if (response === null) {
+            console.log('    ... skipping verification. Empty block, no tx proof available');
+            continue;
+        }
         const proofData = response.data as proofProvider.ContinuityResponse;
         if (proofData.txBytes === undefined) {
             console.log('    ... skipping verification. No transactions in block');

@@ -177,6 +177,51 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "getCallerLedger",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "stash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint128",
+            "name": "totalStaked",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "active",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint32",
+            "name": "unlockingChunks",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint128",
+            "name": "withdrawable",
+            "type": "uint128"
+          }
+        ],
+        "internalType": "struct LedgerInfo",
+        "name": "info",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "bytes32",
@@ -192,6 +237,62 @@
             "internalType": "bool",
             "name": "exists",
             "type": "bool"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "stash",
+            "type": "bytes32"
+          },
+          {
+            "internalType": "uint128",
+            "name": "totalStaked",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "active",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint32",
+            "name": "unlockingChunks",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint128",
+            "name": "withdrawable",
+            "type": "uint128"
+          }
+        ],
+        "internalType": "struct LedgerInfo",
+        "name": "info",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "addr",
+        "type": "address"
+      }
+    ],
+    "name": "getLedgerByAddress",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          },
+          {
+            "internalType": "bytes32",
+            "name": "stash",
+            "type": "bytes32"
           },
           {
             "internalType": "uint128",

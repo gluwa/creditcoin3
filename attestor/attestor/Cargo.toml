@@ -1,9 +1,8 @@
 [package]
-name = "attestor"
-
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
+name = "attestor"
 publish.workspace = true
 repository.workspace = true
 version.workspace = true
@@ -17,36 +16,32 @@ name = "attestor"
 path = "./src/main.rs"
 
 [dependencies]
-# Attestor
-attestation_pool = { path = "../pool" }
+attestor_pool = { path = "../pool" }
 common = { path = "../common" }
 metrics = { path = "../metrics" }
 
-# Ethereum
-alloy = { workspace = true, features = ["full"] }
-eth = { workspace = true, default-features = true }
-
-# Creditcoin
+# Substrate / CC
 attestor-primitives = { workspace = true }
 bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
 bls-signatures = { workspace = true }
 builder = { workspace = true }
 cc-client = { workspace = true }
+parity-scale-codec = { workspace = true }
+sp-core = { workspace = true }
 stream = { workspace = true }
+subxt = { workspace = true }
 supported-chains-primitives = { workspace = true }
 usc-abi-encoding = { workspace = true }
 
-# Substrate
-parity-scale-codec = { workspace = true }
-sp-core = { workspace = true }
-sp-io = { workspace = true }
-subxt = { workspace = true }
+# Ethereum
+eth = { workspace = true, default-features = true }
 
 # Async & Parallelism
-arc-swap = { workspace = true }
 futures = { workspace = true }
-tokio = { workspace = true, features = ["signal"] }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tokio-tungstenite = { workspace = true, features = ["url"] }
+tokio-util = "0.7"
 
 # P2P
 libp2p = { workspace = true, features = [
@@ -65,7 +60,8 @@ libp2p = { workspace = true, features = [
     "gossipsub",
 ] }
 
-# Parsing
+# Parsing / Config
+anyhow = { workspace = true }
 clap = { workspace = true, features = ["cargo"] }
 hex = { workspace = true }
 serde = { workspace = true }
@@ -80,15 +76,6 @@ tracing-subscriber = { workspace = true, features = ["json"] }
 # Api
 axum = { workspace = true }
 
-# Errors
-anyhow = { workspace = true }
-
-# other
+# Misc
 rand = { workspace = true, features = ["std_rng"] }
-user = { workspace = true }
 zeroize = { workspace = true }
-
-[dev-dependencies]
-assert_matches = { workspace = true }
-rstest = { workspace = true }
-tokio-test = { workspace = true }

@@ -41,7 +41,7 @@ on the target chain.
 EX:
 ```sh
 MNEMONIC="//Alice"
-SOURCE_CHAIN="wss://rpc.ccnext-devnet.creditcoin.network"
+SOURCE_CHAIN="wss://rpc.cc3-devnet.creditcoin.network"
 DESTINATION_CHAIN="ws://127.0.0.1:9944"
 CHAIN_KEY_ON_SOURCE=2
 CHAIN_KEY_ON_DESTINATION=2

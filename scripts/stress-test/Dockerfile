@@ -1,4 +1,4 @@
-FROM denoland/deno:2.8.2
+FROM denoland/deno:2.9.0@sha256:8d24854de78a79c56e74b49aa4c5996c60e1fe3730efba8fbdd2692c582e6e29
 
 ENV DENO_DIR=/deno-dir
 

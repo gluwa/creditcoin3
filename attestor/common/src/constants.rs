@@ -22,6 +22,15 @@ pub const ATTESTATION_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// General delay used to retry network connections.
 pub const RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// Warmup pause after observing our own election before attestation tasks start.
+///
+/// Peers process the same `AttestorsElected` event on their own schedule: they must refresh
+/// their BLS key store and admit our peer id before our gossip verifies. Starting to produce
+/// and broadcast immediately gets those first votes rejected as `UnknownAttestor` (and, with
+/// peer scoring active, penalizes us for them). Two CC3 block times (~15 s each in production)
+/// gives the committee a comfortable window to catch up.
+pub const POST_ELECTION_WARMUP: std::time::Duration = std::time::Duration::from_secs(30);
+
 /// Default P2P port for libp2p networking.
 ///
 /// This port is used when no explicit P2P port is configured via CLI args, environment variables,
@@ -47,7 +56,12 @@ pub const MAX_CATCHUP: std::num::NonZero<attestor_primitives::Height> =
 
 pub const MAX_CONCURRENT_RPC_CALLS: std::num::NonZeroUsize = std::num::NonZero::new(10).unwrap();
 
-pub const WORKER_COUNT: usize = 4;
+/// Upper bound on the on-chain attestor committee, mirroring the runtime's
+/// `Attestation::MaxAttestors`. The p2p pending-vote buffer sizes its per-height cap from this so
+/// it can hold one early (pre-local-data) vote per possible attestor and never drop one that is
+/// later needed to reach quorum — a dropped vote is `Ignore`d under gossipsub Strict validation,
+/// which marks it seen and never redelivers it. Keep in sync with the runtime constant.
+pub const MAX_ATTESTORS: usize = 100;
 
 /// Minimum balance required for an attestor to operate.
 /// This is equivalent to 1 CTC.

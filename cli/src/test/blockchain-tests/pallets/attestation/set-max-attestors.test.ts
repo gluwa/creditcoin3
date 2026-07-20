@@ -19,8 +19,10 @@ describe('SetMaxAttestors', (): void => {
         const nonce = await api.rpc.system.accountNextIndex(root.address);
         return new Promise((resolve, reject): void => {
             // note: using chain Anvil2 b/c this may lead to side effects in other test scenarios
+            // Value must stay at/under the runtime `MaxAttestationNodes` ceiling (100); the
+            // pallet now rejects `set_max_attestors` above it with `InvalidMaxAttestors`.
             const unsubscribe = api.tx.sudo
-                .sudo(api.tx.attestation.setMaxAttestors(chain_Anvil2_Key, 444))
+                .sudo(api.tx.attestation.setMaxAttestors(chain_Anvil2_Key, 50))
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })

@@ -5,7 +5,7 @@ use bls_signatures::{aggregate, key::Serialize, PrivateKey};
 use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
-use frame_support::traits::OriginTrait;
+use frame_support::traits::{Get, OriginTrait};
 use sp_core::H256;
 use sp_runtime::traits::Bounded;
 use sp_std::{ops::RangeInclusive, vec::Vec};
@@ -125,6 +125,11 @@ mod benchmarks {
 
     pub const MAX_SPAN: u32 = 500; // continuity blocks: 10–500 for realistic weight scaling
     const MAX_ATTESTORS: u32 = 100;
+    // Upper bound for the `commit_attestation` `m` parameter. The registration loop is
+    // inclusive (`0..=m`), so it registers `m + 1` attestors; bounding `m` at
+    // `MAX_ATTESTORS - 1` keeps the worst case at exactly `MAX_ATTESTORS`, which is the
+    // `set_max_attestors` / `MaxAttestationNodes` ceiling.
+    const MAX_ATTESTORS_PARAM: u32 = MAX_ATTESTORS - 1;
 
     #[benchmark]
     fn set_chain_attestation_interval() {
@@ -317,19 +322,24 @@ mod benchmarks {
 
     #[benchmark]
     fn commit_attestation(
-        s: Linear<10, MAX_SPAN>,     // continuity length (#headers), 10–500 blocks
-        m: Linear<1, MAX_ATTESTORS>, // number of attestors
+        s: Linear<10, MAX_SPAN>, // continuity length (#headers), 10–500 blocks
+        m: Linear<1, MAX_ATTESTORS_PARAM>, // number of attestors (registers m+1; see const)
     ) {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
 
         log::info!("Benchmark parameters: s = {s}, m = {m}");
 
-        // Ensure pallet limits allow `m` attestors
+        // Ensure pallet limits allow `m` attestors. `set_max_attestors` rejects values above
+        // the runtime ceiling `MaxAttestationNodes`, and the benchmark `m` parameter already
+        // ranges in `1..=MAX_ATTESTORS` which matches the ceiling, so the per-chain cap is set
+        // to exactly the runtime maximum here. (Pre-existing mock attestors are no longer a
+        // concern because the prior `MAX_ATTESTORS + 5` slop now exceeds the runtime ceiling
+        // and would trip the new `InvalidMaxAttestors` guard.)
         assert_ok!(Attestation::<T>::set_max_attestors(
             root_origin.clone(),
             DEV_CHAIN_KEY,
-            MAX_ATTESTORS + 5 // Leave extra room in case of pre-existing attestors from mock
+            T::MaxAttestationNodes::get()
         ));
 
         // Set checkpoint interval to 10 (production-realistic: checkpoint every 100 blocks
@@ -344,7 +354,13 @@ mod benchmarks {
         // Set target sample to one
         TargetSampleSize::<T>::set(DEV_CHAIN_KEY, 1);
 
-        // Creating attestor to attest
+        // Creating attestor to attest. The loop is inclusive (`0..=m`) so it registers
+        // `m + 1` attestors. `m` ranges `1..=MAX_ATTESTORS - 1` (see the benchmark signature),
+        // so the worst case registers exactly `MAX_ATTESTORS` attestors — matching the
+        // `set_max_attestors(MaxAttestationNodes)` cap set above. (Before the cap was enforced
+        // the loop went up to `MAX_ATTESTORS + 1` and relied on a `+5` slack in the old
+        // `set_max_attestors` call; that slack now exceeds the runtime ceiling and is
+        // rejected, so the upper bound moved onto `m` instead.)
         let mut attestors: Vec<Attestor<T>> = Vec::new();
         for j in 0..=m {
             let stash_id = create_funded_user_with_balance::<T>("stash", j);

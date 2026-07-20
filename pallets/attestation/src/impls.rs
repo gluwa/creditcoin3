@@ -20,7 +20,7 @@ use attestor_primitives::{
 };
 use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
-use randomness_primitives::{OnRandomnessUpdate, Randomness};
+use randomness_primitives::{OnRandomnessUpdate, OnRandomnessUpdateWeight, Randomness};
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
@@ -647,6 +647,11 @@ impl<T: Config> Pallet<T> {
     /// All attestors with `Active` status will be selected
     /// Attestors with `Waiting` status will be selected based on the election policy
     /// Attestors with `Leaving` status become `Idle` and are not selected (deferred voluntary chill)
+    ///
+    /// `_randomness` is the per-epoch babe entropy supplied by `pallet-randomness`. Selection is
+    /// deterministic today so it is unused, but the parameter is kept wired through: it is the
+    /// entropy input for the future stake-weighted sortition in RFC-0174 (see the `pallet-randomness`
+    /// crate docs).
     pub fn do_start_election(epoch: u64, _randomness: Randomness) -> DispatchResult {
         let supported_chains = T::SupportedChains::supported_chains();
 
@@ -940,6 +945,16 @@ impl<T: Config> Pallet<T> {
         ensure!(
             T::SupportedChains::is_chain_supported(chain_key),
             Error::<T>::ChainNotSupported
+        );
+
+        // Reject over-long attestor lists before the expensive BLS aggregation/verification.
+        // `attestation.attestors` is an unbounded `Vec` on the wire, but dispatch weight is
+        // bounded by the per-chain `MaxAttestors`, and the list is iterated and stored. An
+        // attestor count above the ceiling is both a weight under-accounting and a storage-bloat
+        // vector, so it is a hard error here (and mirrored in txpool prevalidation).
+        ensure!(
+            Self::attestors_within_bound(chain_key, attestation),
+            Error::<T>::TooManyAttestors
         );
 
         if Self::check_duplicate(attestation) {
@@ -1510,20 +1525,53 @@ impl<T: Config> Pallet<T> {
 }
 // helper functions for checking inherent data
 impl<T: Config> Pallet<T> {
+    /// Whether `attestation.attestors.len()` is within the per-chain `MaxAttestors` ceiling.
+    ///
+    /// Shared by the on-chain `validate_attestation` path and the txpool prevalidation extension
+    /// so both reject over-long attestor lists identically, before any fee is charged.
+    pub(crate) fn attestors_within_bound(
+        chain_key: ChainKey,
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+    ) -> bool {
+        attestation.attestors.len() as u32 <= MaxAttestors::<T>::get(chain_key)
+    }
+
     pub(crate) fn check_duplicate(attestation: &SignedAttestation<T::Hash, T::AccountId>) -> bool {
+        let chain_key = attestation.attestation.chain_key;
         let digest = attestation.digest();
-        if Attestations::<T>::get(attestation.attestation.chain_key, digest).is_some() {
+        if Attestations::<T>::get(chain_key, digest).is_some() {
             log::debug!("Attestation with digest: {digest:?} is duplicate");
             return true;
         }
 
-        // Get last checkpoint
-        if let Some(checkpoint) = LastCheckpoint::<T>::get(attestation.attestation.chain_key) {
-            if attestation.header_number() <= checkpoint.block_number {
+        let header_number = attestation.header_number();
+
+        // Enforce a strictly monotonic per-chain attestation height. `LastDigest` tracks the
+        // highest accepted attestation height for the chain and only ever advances forward
+        // (see `do_commit_attestation`). Rejecting any `header_number` that is not strictly
+        // above it stops a quorum from submitting a *different* digest for a height it already
+        // attested, or resubmitting any earlier height, which would otherwise create competing
+        // historical attestations the proof-gen / cc-client paths then have to reconcile.
+        //
+        // Because the txpool prevalidation extension (`PrevalidateAttestationCommit`) and the
+        // on-chain `validate_attestation` path both route through this helper, the monotonic
+        // guard is enforced identically at admission time and at dispatch.
+        if let Some((last_height, _)) = LastDigest::<T>::get(chain_key) {
+            if header_number <= last_height {
                 log::debug!(
-                    "Attestation with block number: {:?} is duplicate",
-                    attestation.header_number()
+                    "Attestation height {header_number:?} is not above last accepted height \
+                     {last_height:?}; rejecting as non-monotonic"
                 );
+                return true;
+            }
+        }
+
+        // `LastCheckpoint` stays as a lower bound / defense in depth: it covers the case where
+        // `LastDigest` is reset (e.g. on chain removal) ahead of `LastCheckpoint` and would
+        // otherwise let a replay below the last checkpoint through.
+        if let Some(checkpoint) = LastCheckpoint::<T>::get(chain_key) {
+            if header_number <= checkpoint.block_number {
+                log::debug!("Attestation with block number: {header_number:?} is duplicate");
                 return true;
             }
         }
@@ -1618,5 +1666,18 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
         // We also apply attestation interval updates, if any, at epoch boundaries.
         // Change attestation intervals and emit events
         Self::apply_interval_updates();
+    }
+}
+
+impl<T: Config> OnRandomnessUpdateWeight for Pallet<T> {
+    fn on_new_epoch_randomness_weight() -> Weight {
+        // `on_new_epoch_randomness` runs the same work as `force_election`
+        // (`do_start_election`) followed by `force_apply_updates`
+        // (`apply_interval_updates`). Charge for both so `pallet-randomness`'s
+        // epoch-change `on_initialize` accounts for the listener cost instead of
+        // under-weighting it (the randomness benchmark deliberately excludes the
+        // listener, so this is the only place that cost is charged).
+        <T as Config>::WeightInfo::force_election()
+            .saturating_add(<T as Config>::WeightInfo::force_apply_updates())
     }
 }

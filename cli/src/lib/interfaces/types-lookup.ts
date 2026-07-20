@@ -1557,10 +1557,7 @@ declare module '@polkadot/types/lookup' {
         readonly isDuplicateOffenceReport: boolean;
         readonly isInvalidConfiguration: boolean;
         readonly type:
-            | 'InvalidEquivocationProof'
-            | 'InvalidKeyOwnershipProof'
-            | 'DuplicateOffenceReport'
-            | 'InvalidConfiguration';
+            'InvalidEquivocationProof' | 'InvalidKeyOwnershipProof' | 'DuplicateOffenceReport' | 'InvalidConfiguration';
     }
 
     /** @name PalletTimestampCall (152) */
@@ -3191,13 +3188,7 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isClearPrime: boolean;
         readonly type:
-            | 'AddMember'
-            | 'RemoveMember'
-            | 'SwapMember'
-            | 'ResetMembers'
-            | 'ChangeKey'
-            | 'SetPrime'
-            | 'ClearPrime';
+            'AddMember' | 'RemoveMember' | 'SwapMember' | 'ResetMembers' | 'ChangeKey' | 'SetPrime' | 'ClearPrime';
     }
 
     /** @name PalletSudoError (334) */
@@ -3339,12 +3330,7 @@ declare module '@polkadot/types/lookup' {
         readonly isAlreadyHead: boolean;
         readonly isCallNotAllowed: boolean;
         readonly type:
-            | 'NotController'
-            | 'AlreadyQueued'
-            | 'NotFullyBonded'
-            | 'NotQueued'
-            | 'AlreadyHead'
-            | 'CallNotAllowed';
+            'NotController' | 'AlreadyQueued' | 'NotFullyBonded' | 'NotQueued' | 'AlreadyHead' | 'CallNotAllowed';
     }
 
     /** @name PalletNominationPoolsPoolMember (364) */
@@ -3692,6 +3678,8 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidAttestationsPerCheckpoint: boolean;
         readonly isInvalidMaxCatchup: boolean;
         readonly isInvalidTargetSampleSize: boolean;
+        readonly isInvalidMaxAttestors: boolean;
+        readonly isTooManyAttestors: boolean;
         readonly isAttestationFoundWhileImporting: boolean;
         readonly isInvalidAttestationBlockNumber: boolean;
         readonly isInvalidAttestorFound: boolean;
@@ -3724,6 +3712,7 @@ declare module '@polkadot/types/lookup' {
         readonly isEmptyCheckpointPatch: boolean;
         readonly isCheckpointSuffixWipeTooLarge: boolean;
         readonly isTooManyAttestationsForForwardPatchClear: boolean;
+        readonly isOversizedContinuityProof: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -3756,6 +3745,8 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidAttestationsPerCheckpoint'
             | 'InvalidMaxCatchup'
             | 'InvalidTargetSampleSize'
+            | 'InvalidMaxAttestors'
+            | 'TooManyAttestors'
             | 'AttestationFoundWhileImporting'
             | 'InvalidAttestationBlockNumber'
             | 'InvalidAttestorFound'
@@ -3787,7 +3778,8 @@ declare module '@polkadot/types/lookup' {
             | 'CheckpointMaintenanceInProgress'
             | 'EmptyCheckpointPatch'
             | 'CheckpointSuffixWipeTooLarge'
-            | 'TooManyAttestationsForForwardPatchClear';
+            | 'TooManyAttestationsForForwardPatchClear'
+            | 'OversizedContinuityProof';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (421) */

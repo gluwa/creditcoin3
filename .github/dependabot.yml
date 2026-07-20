@@ -61,7 +61,6 @@ updates:
       - "/common/eth"
       - "/common/merkle"
       - "/common/utils"
-      - "/common/vrf"
       - "/common/prometheus"
       - "/common/indexer-client"
       - "/common/builder"

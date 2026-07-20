@@ -29,7 +29,7 @@ permissions: read-all
 jobs:
   execute-command:
     name: ${{ matrix.command }} / ${{ matrix.directory }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         directory:
@@ -38,7 +38,7 @@ jobs:
         command: [lint, typecheck, check-format]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -68,21 +68,21 @@ jobs:
 
   deno-checks:
     name: ${{ matrix.command }} / ${{ matrix.directory }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       matrix:
         directory: [scripts/stress-test, scripts/usc-audit-automation]
         command: [lint, check, fmt-check]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Extract Deno version from Dockerfile
         id: deno_version
         working-directory: ${{ matrix.directory }}
         run: |
           # Extract version from "FROM denoland/deno:X.Y.Z" line
-          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | tr -d '[:space:]')
+          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | sed 's/@sha256:.*//' | tr -d '[:space:]')
           if [ -z "$VERSION" ]; then
             echo "Error: Could not extract Deno version from Dockerfile"
             exit 1

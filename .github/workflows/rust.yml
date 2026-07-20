@@ -17,12 +17,18 @@ concurrency:
 
 permissions: read-all
 
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+env:
+  CXXFLAGS: "-include cstdint"
+
 jobs:
   cargo-audit:
     if: github.base_ref == 'usc-dev'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -64,9 +70,9 @@ jobs:
           fi
 
   cargo-fmt:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Configure rustc version
         run: |
@@ -95,12 +101,12 @@ jobs:
           taplo format --check
 
   cargo-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -140,9 +146,9 @@ jobs:
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
   cargo-clippy:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -178,9 +184,9 @@ jobs:
           args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
 
   cargo-machete:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Configure rustc version
         run: |
@@ -196,15 +202,20 @@ jobs:
         with:
           shared-key: build-creditcoin-node
 
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@v2.82.7
+        with:
+          tool: cargo-machete@0.9.1
+
       - name: Execute cargo machete
-        uses: bnjbvr/cargo-machete@main
+        run: cargo machete
 
   cargo-test:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -232,7 +243,7 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.81.8
+        uses: taiki-e/install-action@v2.82.7
         with:
           tool: cargo-llvm-cov@0.6.24
 

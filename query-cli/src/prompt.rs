@@ -19,7 +19,8 @@ pub(crate) fn prompt(args: PromptArgs) -> Result<PromptOutput> {
     // Prompt the user for block height and transaction hash
     let (tx_height, tx_hash) = prompt_for_height_and_hash(args.clone());
 
-    // For now we hardcode the only version we support
+    // Placeholder encoding; the interactive handler overrides this with the
+    // chain's configured `chain_encoding` fetched from CC3 before use.
     let encoding = EncodingVersion::V1;
 
     // Display the collected information

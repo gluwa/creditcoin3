@@ -1,6 +1,6 @@
 use anyhow::Result;
-use cc_client::{events::CcEvent, Client as CcClient};
-use futures::TryStreamExt;
+use cc_client::{attestation::CcEvent, Client as CcClient};
+use futures::{StreamExt, TryStreamExt};
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -51,7 +51,7 @@ pub async fn start_cc3_event_subscription(
         .with_cc3(cc3_client.clone())
         .with_chain_keys(chain_keys.iter().copied().collect::<Vec<_>>())
         .build();
-    let mut events = stream::cc3::StreamCC3::new(config).await?.try_flatten();
+    let mut events = stream::cc3::StreamCC3::new(config).await?.flatten();
 
     loop {
         match events.try_next().await {
@@ -157,6 +157,27 @@ async fn process_cc_event(
             service
                 .prune_attestations_at_or_below(*event_chain_key, block_number)
                 .await;
+
+            Ok(())
+        }
+        CcEvent::AttestationIntervalChanged(event_chain_key, new_interval) => {
+            if !service.serves_chain(*event_chain_key) {
+                return Ok(());
+            }
+            let interval_u64 = *new_interval;
+            info!(
+                "🔗 ⚙️  Attestation interval changed for chain {event_chain_key}: {} blocks",
+                interval_u64
+            );
+
+            // Only affects merkle-cache retention sizing; the continuity bracket math reads
+            // the live interval over RPC.
+            service.update_attestation_interval(*event_chain_key, interval_u64);
+
+            info!(
+                "🔗 ✅ Updated attestation interval for chain {event_chain_key} to {}",
+                interval_u64
+            );
 
             Ok(())
         }

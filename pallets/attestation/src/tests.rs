@@ -280,7 +280,8 @@ fn set_min_bond_requirement_should_succeed_when_signed_by_operator() {
 #[test]
 fn set_max_attestors_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
-        let max_attestors = 200;
+        // Stay at-or-below the mock runtime ceiling (`MaxAttestorsDefault = 100`).
+        let max_attestors = 50;
 
         assert_ok!(Attestation::set_max_attestors(
             RuntimeOrigin::root(),
@@ -300,13 +301,48 @@ fn set_max_attestors_should_update_storage_and_emit_event() {
 #[test]
 fn set_max_attestors_should_succeed_when_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
-        let max_attestors = 200;
+        let max_attestors = 50;
 
         assert_ok!(Attestation::set_max_attestors(
             RuntimeOrigin::signed(ALICE),
             SUPPORTED_CHAIN_KEY,
             max_attestors
         ));
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_zero() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 0),
+            Error::<Test>::InvalidMaxAttestors
+        );
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        // Mock runtime ceiling is `MaxAttestorsDefault = 100`. Anything above it must be
+        // rejected: the runtime ceiling backs the `BoundedVec` capacities used elsewhere
+        // and drives the `commit_attestation` weight benchmark, so silently storing a
+        // higher per-chain value would overflow those bounds or undercharge weight.
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 101),
+            Error::<Test>::InvalidMaxAttestors
+        );
+    })
+}
+
+#[test]
+fn set_max_attestors_rejects_unsupported_chain() {
+    ExtBuilder.build_and_execute(|| {
+        let unsupported_chain: ChainKey = 999;
+        assert_noop!(
+            Attestation::set_max_attestors(RuntimeOrigin::root(), unsupported_chain, 50),
+            Error::<Test>::ChainNotSupported
+        );
     })
 }
 
@@ -2432,6 +2468,114 @@ fn commit_attestation_should_error_on_invalid_continuity_proof_tail() {
             Attestation::commit_attestation(attestor.attestor_origin, attestation_2.clone()),
             Error::<Test>::InvalidAttestationContinuityProofTail
         );
+    })
+}
+
+/// Sets up an active attestor with a committed genesis attestation, so continuity checks for
+/// follow-up attestations run against a known finalized digest. Returns the attestor and the
+/// genesis digest.
+fn setup_attestor_with_genesis() -> (Attestor, Digest) {
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+    assert_ok!(Attestation::register_attestor(
+        attestor.stash.clone(),
+        SUPPORTED_CHAIN_KEY,
+        attestor.attestor_id,
+    ));
+    assert_ok!(Attestation::attest(
+        RuntimeOrigin::signed(attestor.attestor_id),
+        SUPPORTED_CHAIN_KEY,
+        attestor.public_key,
+        attestor.signature
+    ));
+
+    progress_to_block(5);
+
+    let genesis =
+        create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+    assert_ok!(Attestation::commit_attestation(
+        attestor.attestor_origin.clone(),
+        genesis.clone()
+    ));
+
+    let digest = genesis.digest();
+    (attestor, digest)
+}
+
+#[test]
+fn commit_attestation_should_error_on_oversized_continuity_proof() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis_digest) = setup_attestor_with_genesis();
+
+        // Tighten the catch-up window below the proof size we're about to submit. With the
+        // mock interval of 10, `max_roots = max(20, 10) = 20`.
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 20);
+
+        // A catch-up attestation at header 30 carries a 29-root proof (blocks 1..=29) — one
+        // root more than the window allows.
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            30,
+            Some(genesis_digest),
+            None,
+        );
+        assert_eq!(attestation.continuity_proof.len(), 29);
+
+        assert_err!(
+            Attestation::commit_attestation(attestor.attestor_origin, attestation),
+            Error::<Test>::OversizedContinuityProof
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_should_accept_continuity_proof_at_max_catchup_boundary() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis_digest) = setup_attestor_with_genesis();
+
+        // Exactly at the bound: a 29-root proof against `max_roots = max(29, 10) = 29` must
+        // pass the size gate and finalize.
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 29);
+
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            30,
+            Some(genesis_digest),
+            None,
+        );
+        assert_eq!(attestation.continuity_proof.len(), 29);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin,
+            attestation
+        ));
+    })
+}
+
+#[test]
+fn commit_attestation_should_accept_steady_state_proof_when_max_catchup_below_interval() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis_digest) = setup_attestor_with_genesis();
+
+        // `MaxCatchup` configured below the attestation interval (10): the `max(interval)`
+        // floor must keep steady-state proofs (`interval - 1` = 9 roots) admissible.
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            10,
+            Some(genesis_digest),
+            None,
+        );
+        assert_eq!(attestation.continuity_proof.len(), 9);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin,
+            attestation
+        ));
     })
 }
 
@@ -6277,6 +6421,84 @@ mod revert_to {
         })
     }
 
+    /// Regression test: during the narrow checkpoint-cycle window the chain can briefly retain
+    /// `2 * checkpoint_interval + retention_duration` attestations (one more checkpoint's worth
+    /// than steady state). `do_revert_to` must clear that peak in one go — with the previous
+    /// bound of `2 * checkpoint_interval - 1 + retention_duration`, `clear_prefix` left a cursor
+    /// and the transactional revert aborted with `TooManyAttestations`, delaying emergency reorg
+    /// recovery exactly when it was needed.
+    #[test]
+    fn revert_to_succeeds_at_peak_attestation_count() {
+        ExtBuilder.build_and_execute(|| {
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+
+            let revert_height: u64 = 1_500;
+            let checkpoint_interval =
+                AttestationCheckpointInterval::<Test>::get(SUPPORTED_CHAIN_KEY);
+            let retention_duration = AttestationRetentionDuration::<Test>::get(SUPPORTED_CHAIN_KEY);
+
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+            // Peak state: two full checkpoints' worth still queued plus the retention window.
+            let peak_attestations = (checkpoint_interval * 2 + retention_duration) as u64;
+
+            for i in 0..peak_attestations {
+                let a = create_signed_attestation(
+                    Vec::from([attestor.clone()]),
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10,
+                    None,
+                    None,
+                );
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+                if i == peak_attestations - 1 {
+                    LastDigest::<Test>::insert(
+                        SUPPORTED_CHAIN_KEY,
+                        (a.header_number(), a.digest()),
+                    );
+                }
+            }
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u64,
+                peak_attestations
+            );
+
+            // Revert target checkpoint + a LastCheckpoint so pruning state can be established.
+            let revert_digest =
+                H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                revert_height,
+                revert_digest,
+            );
+            let last_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+            let last_digest = H256::from(&sp_io::hashing::blake2_256(&last_height.to_be_bytes()));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                last_height,
+                last_digest,
+            );
+            LastCheckpoint::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_height,
+                    digest: last_digest,
+                },
+            );
+
+            // The peak-state clear must complete: no TooManyAttestations abort.
+            assert_ok!(Attestation::revert_to(
+                root_origin,
+                SUPPORTED_CHAIN_KEY,
+                revert_height
+            ));
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u64,
+                0
+            );
+        })
+    }
+
     #[test]
     fn revert_to_should_fail_for_invalid_revert_height() {
         ExtBuilder.build_and_execute(|| {
@@ -8939,6 +9161,102 @@ mod on_register_chain_rejects_zero {
                 AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
                 <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
             );
+        })
+    }
+}
+
+/// Tests for the monotonic-height guard (`check_duplicate`) and the attestor-count bound
+/// (`attestors_within_bound`) added by the audit hardening pass. These exercise the pure
+/// validation helpers directly (no BLS aggregation needed) since both the on-chain
+/// `validate_attestation` path and the txpool prevalidation extension route through them.
+mod audit_attestation_bounds {
+    use super::*;
+    use attestor_primitives::AttestationData as AttestationPrimitive;
+
+    /// Minimal `SignedAttestation` with `attestors.len() == n` and the given height. The
+    /// signature / continuity proof are irrelevant to `check_duplicate` and
+    /// `attestors_within_bound`, which never inspect them.
+    fn attestation_with(
+        chain_key: ChainKey,
+        header_number: u64,
+        n_attestors: usize,
+    ) -> SignedAttestation<H256, mock::AccountId> {
+        let attestation = AttestationPrimitive {
+            chain_key,
+            header_number,
+            header_hash: H256::zero(),
+            root: H256::zero(),
+            prev_digest: None,
+        };
+        SignedAttestation {
+            attestation,
+            signature: [0u8; core::mem::size_of::<BlsSignature>()],
+            attestors: (0..n_attestors as u64)
+                .map(|i| i as mock::AccountId)
+                .collect(),
+            continuity_proof: Default::default(),
+        }
+    }
+
+    #[test]
+    fn attestors_within_bound_respects_per_chain_max() {
+        ExtBuilder.build_and_execute(|| {
+            MaxAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, 3);
+
+            // At or below the ceiling => within bound.
+            assert!(Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 3)
+            ));
+            assert!(Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 1)
+            ));
+
+            // Above the ceiling => rejected.
+            assert!(!Attestation::attestors_within_bound(
+                SUPPORTED_CHAIN_KEY,
+                &attestation_with(SUPPORTED_CHAIN_KEY, 10, 4)
+            ));
+        })
+    }
+
+    #[test]
+    fn check_duplicate_rejects_non_monotonic_height() {
+        ExtBuilder.build_and_execute(|| {
+            // Last accepted attestation height for the chain is 100.
+            LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, (100u64, H256::zero()));
+
+            // Equal height => non-monotonic, rejected.
+            assert!(Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                100,
+                1
+            )));
+            // Lower height => rejected.
+            assert!(Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                99,
+                1
+            )));
+            // Strictly higher => accepted (not a duplicate).
+            assert!(!Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                101,
+                1
+            )));
+        })
+    }
+
+    #[test]
+    fn check_duplicate_first_attestation_allowed_when_no_last_digest() {
+        ExtBuilder.build_and_execute(|| {
+            // No LastDigest / LastCheckpoint set => any height is fresh.
+            assert!(!Attestation::check_duplicate(&attestation_with(
+                SUPPORTED_CHAIN_KEY,
+                1,
+                1
+            )));
         })
     }
 }
