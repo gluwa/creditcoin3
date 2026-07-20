@@ -5,8 +5,9 @@ use serde::Serialize;
 use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::rpc::RpcClient, config::DefaultExtrinsicParamsBuilder, error::RpcError,
-    ext::jsonrpsee::core::client::Error as JsonRpseeError,
+    backend::legacy::LegacyRpcMethods, backend::rpc::RpcClient,
+    config::DefaultExtrinsicParamsBuilder, error::RpcError,
+    ext::jsonrpsee::core::client::Error as JsonRpseeError, ext::subxt_rpcs::client::RpcParams,
     ext::subxt_rpcs::Error as SubxtRpcsError, OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
@@ -108,6 +109,16 @@ impl From<subxt::Error> for Error {
         } else {
             Self::SubxtError(err)
         }
+    }
+}
+
+/// subxt 0.44 split the RPC-client error out of `subxt::Error` into its own
+/// `subxt_rpcs::Error` type (see [`is_transient_rpcs`]). Raw `RpcClient` calls (dialing,
+/// `request`/`subscribe`) surface this type directly rather than wrapped in `subxt::Error`, so
+/// route it through the same `subxt::Error::Rpc` classifier for a single source of truth.
+impl From<SubxtRpcsError> for Error {
+    fn from(err: SubxtRpcsError) -> Self {
+        subxt::Error::Rpc(RpcError::ClientError(err)).into()
     }
 }
 
@@ -1077,13 +1088,8 @@ impl Client {
                 Ok(())
             }
             Err(e) => {
-                if let subxt::Error::Rpc(e) = e {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::RpcError(e))
-                } else {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::FailedToSubmit)
-                }
+                error!("Error submitting attestation: {:?}", e);
+                Err(e.into())
             }
         }
     }
@@ -1427,7 +1433,6 @@ impl From<CcChainEncodingVersion> for usc_abi_encoding::common::EncodingVersion 
 mod transient_classifier_tests {
     use super::{is_transient_subxt, JsonRpseeError};
     use subxt::error::RpcError;
-    use subxt::ext::subxt_rpcs::UserError;
 
     #[test]
     fn request_timeout_is_transient() {
@@ -1550,7 +1555,7 @@ mod tests {
         // Transient server messages must still classify as transient through this new path.
         let make = |msg: &str| {
             subxt::Error::Rpc(RpcError::ClientError(subxt::ext::subxt_rpcs::Error::User(
-                UserError {
+                subxt::ext::subxt_rpcs::UserError {
                     code: -32000,
                     message: msg.to_owned(),
                     data: None,
