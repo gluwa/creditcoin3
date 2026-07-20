@@ -366,8 +366,7 @@ impl StreamEvents {
         // Collect so the boxed stream is `'static` (extract_events borrows `events`).
         let extracted: Vec<_> = cc_client::Client::extract_events(chain_keys, &events).collect();
 
-        let stream =
-            Box::pin(futures::stream::iter(extracted).map_err(|err| Error::Subxt(err.into())));
+        let stream = Box::pin(futures::stream::iter(extracted).map_err(Error::Subxt));
 
         Self {
             block_number,

@@ -150,42 +150,73 @@ pub fn is_transient(err: &cc_client::Error) -> bool {
 fn is_transient_rpc(rpc_err: &subxt::error::RpcError) -> bool {
     use subxt::error::RpcError;
     match rpc_err {
-        RpcError::DisconnectedWillReconnect(_) | RpcError::SubscriptionDropped => true,
+        RpcError::SubscriptionDropped => true,
+        // subxt 0.44 moved the RPC-client error variants (`DisconnectedWillReconnect`, the
+        // boxed client error) out of `RpcError` and into `subxt_rpcs::Error`, reached via
+        // `RpcError::ClientError`.
+        RpcError::ClientError(rpcs_err) => is_transient_rpcs(rpcs_err),
+        _ => false,
+    }
+}
+
+fn is_transient_rpcs(err: &subxt::ext::subxt_rpcs::Error) -> bool {
+    use subxt::ext::subxt_rpcs::Error as SubxtRpcsError;
+    match err {
+        SubxtRpcsError::DisconnectedWillReconnect(_) => true,
+        // Server returned a structured JSON-RPC error object; classify by message text.
+        SubxtRpcsError::User(user_error) => is_transient_message(&user_error.message),
         // jsonrpsee transport errors live behind a dyn Error here; we sniff the printed form
         // since jsonrpsee doesn't expose a stable type to match against from subxt's surface.
         // Keywords cover the canonical transport-layer signals plus server-side transient
         // messages that gateways/load-balancers typically emit at shutdown or overload —
         // these arrive as `JsonRpseeError::Call(_)` (a *structured* JSON-RPC error rather
         // than a transport drop) and would otherwise be misclassified as permanent.
-        RpcError::ClientError(boxed) => {
-            let s = boxed.to_string().to_ascii_lowercase();
-            s.contains("transport")
-                || s.contains("connection")
-                || s.contains("disconnected")
-                || s.contains("closed")
-                || s.contains("restart required") // jsonrpsee `RestartNeeded` Display
-                // jsonrpsee 0.24 surfaces a *clean* WS close (the server hung up between our
-                // request and its response) as `Error::Custom("Error reason could not be found.
-                // This is a bug. Please open an issue.")`. It reads like a permanent bug but is
-                // really a transport drop — the same one PR #1034 had to special-case for v1.
-                // Without this it classifies permanent → `with_retries` gives up → fail-fast →
-                // pod restart, defeating the unbounded ride-out policy above.
-                || s.contains("error reason could not be found")
-                // jsonrpsee's `TransportReceiver dropped` on the same clean-close path; caught
-                // incidentally by "transport" above but matched explicitly so it can't regress.
-                || s.contains("transportreceiver dropped")
-                || s.contains("timeout")
-                || s.contains("deadline_exceeded")
-                || s.contains("unavailable")        // 503 / generic::unavailable
-                || s.contains("going down")          // gateway graceful-shutdown banner
-                || s.contains("shutdown")            // common server lifecycle term
-                || s.contains("shutting")            // "shutting down"
-                || s.contains("rate limit")          // 429 from fronting LB
-                || s.contains("too many requests")
+        SubxtRpcsError::Client(boxed) => {
+            if let Some(jr) = boxed.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>() {
+                use subxt::ext::jsonrpsee::core::client::Error as JsonRpseeError;
+                return match jr {
+                    JsonRpseeError::Transport(_)
+                    | JsonRpseeError::RestartNeeded(_)
+                    | JsonRpseeError::RequestTimeout => true,
+                    JsonRpseeError::Custom(msg) => is_transient_message(msg),
+                    _ => false,
+                };
+            }
+            // Reconnecting-RPC-client wraps errors in a second `subxt_rpcs::Error` layer; peel it.
+            if let Some(nested) = boxed.downcast_ref::<SubxtRpcsError>() {
+                return is_transient_rpcs(nested);
+            }
+            is_transient_message(&boxed.to_string())
         }
-        RpcError::RequestRejected(_) | RpcError::InsecureUrl(_) => false,
         _ => false,
     }
+}
+
+fn is_transient_message(msg: &str) -> bool {
+    let s = msg.to_ascii_lowercase();
+    s.contains("transport")
+        || s.contains("connection")
+        || s.contains("disconnected")
+        || s.contains("closed")
+        || s.contains("restart required") // jsonrpsee `RestartNeeded` Display
+        // jsonrpsee 0.24 surfaces a *clean* WS close (the server hung up between our
+        // request and its response) as `Error::Custom("Error reason could not be found.
+        // This is a bug. Please open an issue.")`. It reads like a permanent bug but is
+        // really a transport drop — the same one PR #1034 had to special-case for v1.
+        // Without this it classifies permanent → `with_retries` gives up → fail-fast →
+        // pod restart, defeating the unbounded ride-out policy above.
+        || s.contains("error reason could not be found")
+        // jsonrpsee's `TransportReceiver dropped` on the same clean-close path; caught
+        // incidentally by "transport" above but matched explicitly so it can't regress.
+        || s.contains("transportreceiver dropped")
+        || s.contains("timeout")
+        || s.contains("deadline_exceeded")
+        || s.contains("unavailable")        // 503 / generic::unavailable
+        || s.contains("going down")          // gateway graceful-shutdown banner
+        || s.contains("shutdown")            // common server lifecycle term
+        || s.contains("shutting")            // "shutting down"
+        || s.contains("rate limit")          // 429 from fronting LB
+        || s.contains("too many requests")
 }
 
 #[cfg(test)]
@@ -196,7 +227,7 @@ mod tests {
     /// Display output is all the classifier gets to see.
     fn client_error(msg: &str) -> cc_client::Error {
         cc_client::Error::from(subxt::Error::Rpc(subxt::error::RpcError::ClientError(
-            Box::new(std::io::Error::other(msg.to_owned())),
+            subxt::ext::subxt_rpcs::Error::Client(Box::new(std::io::Error::other(msg.to_owned()))),
         )))
     }
 
@@ -248,9 +279,10 @@ mod tests {
 
     #[test]
     fn structural_variants_classify_transient() {
-        let disconnected = cc_client::Error::from(subxt::Error::Rpc(
-            subxt::error::RpcError::DisconnectedWillReconnect("ws closed".into()),
-        ));
+        let disconnected =
+            cc_client::Error::from(subxt::Error::Rpc(subxt::error::RpcError::ClientError(
+                subxt::ext::subxt_rpcs::Error::DisconnectedWillReconnect("ws closed".into()),
+            )));
         assert!(is_transient(&disconnected));
 
         let dropped = cc_client::Error::from(subxt::Error::Rpc(
