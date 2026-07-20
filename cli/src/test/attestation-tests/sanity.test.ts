@@ -37,7 +37,7 @@ describe('BlockAttested events', (): void => {
 
         provider_Anvil1 = new WebSocketProvider(chain_Anvil1_Url);
         startBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
-    });
+    }, 60_000);
 
     afterAll(async () => {
         await api.disconnect();
