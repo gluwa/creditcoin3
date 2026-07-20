@@ -914,60 +914,60 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         {
             Ok(h) => break h,
             Err(err) => {
-                if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(boxed)) = &err {
-                    if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(obj)) =
-                        boxed.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
-                    {
-                        if obj.code() == POOL_INVALID_TX {
-                            // Substrate maps every txpool admission failure to JSON-RPC 1010 —
-                            // both the benign "another attestor won, your duplicate is invalid"
-                            // case and the dangerous "your signed extrinsic is structurally
-                            // bad" case (BadProof / BadSignature, typically from a stale
-                            // mortality anchor or runtime-version mismatch). The two demand
-                            // opposite reactions: skip-and-move-on vs. force-reconnect-so-the-
-                            // next-tx-uses-fresh-state. Disambiguate via the `data` field.
-                            let detail = obj
-                                .data()
-                                .map(|raw| raw.get().trim_matches('"').to_owned())
-                                .unwrap_or_default();
-                            let detail_lc = detail.to_ascii_lowercase();
-                            if detail_lc.contains("bad signature")
-                                || detail_lc.contains("badproof")
-                                || detail_lc.contains("bad proof")
-                            {
-                                tracing::warn!(
-                                    height,
-                                    code = obj.code(),
-                                    %detail,
-                                    "🩺 txpool flagged bad-sig — forcing reconnect"
-                                );
-                                let _ = reconnect(shared).await;
-                                return OutcomeInternal::Unresolved;
-                            }
-                            // Usually "another attestor won the race" — but that competing tx
-                            // hasn't finalized yet, so classify as Unresolved: if it does land,
-                            // the handler's bounded wait observes it; if not, the height is
-                            // unlocked for a retry instead of staying locked forever.
-                            tracing::info!(
+                if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(
+                    subxt::ext::subxt_rpcs::Error::User(obj),
+                )) = &err
+                {
+                    if obj.code == POOL_INVALID_TX {
+                        // Substrate maps every txpool admission failure to JSON-RPC 1010 —
+                        // both the benign "another attestor won, your duplicate is invalid"
+                        // case and the dangerous "your signed extrinsic is structurally
+                        // bad" case (BadProof / BadSignature, typically from a stale
+                        // mortality anchor or runtime-version mismatch). The two demand
+                        // opposite reactions: skip-and-move-on vs. force-reconnect-so-the-
+                        // next-tx-uses-fresh-state. Disambiguate via the `data` field.
+                        let detail = obj
+                            .data
+                            .as_ref()
+                            .map(|raw| raw.get().trim_matches('"').to_owned())
+                            .unwrap_or_default();
+                        let detail_lc = detail.to_ascii_lowercase();
+                        if detail_lc.contains("bad signature")
+                            || detail_lc.contains("badproof")
+                            || detail_lc.contains("bad proof")
+                        {
+                            tracing::warn!(
                                 height,
-                                code = obj.code(),
+                                code = obj.code,
                                 %detail,
-                                "🚫 prevalidation rejected"
+                                "🩺 txpool flagged bad-sig — forcing reconnect"
                             );
+                            let _ = reconnect(shared).await;
                             return OutcomeInternal::Unresolved;
                         }
-                        if obj.code() == POOL_TOO_LOW_PRIORITY {
-                            // A same-nonce tx (ours, still pending) already occupies the pool
-                            // slot — see POOL_TOO_LOW_PRIORITY. Same shape as the 1010 race:
-                            // Unresolved lets the handler's bounded wait observe it landing,
-                            // and unlocks the height if it never does.
-                            tracing::info!(
-                                height,
-                                code = obj.code(),
-                                "🚦 same-nonce tx already pending in txpool — awaiting its resolution"
-                            );
-                            return OutcomeInternal::Unresolved;
-                        }
+                        // Usually "another attestor won the race" — but that competing tx
+                        // hasn't finalized yet, so classify as Unresolved: if it does land,
+                        // the handler's bounded wait observes it; if not, the height is
+                        // unlocked for a retry instead of staying locked forever.
+                        tracing::info!(
+                            height,
+                            code = obj.code,
+                            %detail,
+                            "🚫 prevalidation rejected"
+                        );
+                        return OutcomeInternal::Unresolved;
+                    }
+                    if obj.code == POOL_TOO_LOW_PRIORITY {
+                        // A same-nonce tx (ours, still pending) already occupies the pool
+                        // slot — see POOL_TOO_LOW_PRIORITY. Same shape as the 1010 race:
+                        // Unresolved lets the handler's bounded wait observe it landing,
+                        // and unlocks the height if it never does.
+                        tracing::info!(
+                            height,
+                            code = obj.code,
+                            "🚦 same-nonce tx already pending in txpool — awaiting its resolution"
+                        );
+                        return OutcomeInternal::Unresolved;
                     }
                 }
                 tracing::warn!(height, ?err, "submission rpc error");
