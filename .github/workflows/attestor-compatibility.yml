@@ -521,10 +521,11 @@ jobs:
           # attestor, we glob attestor-zombie-*.json.* rather than hardcoding the
           # offset.
           # A compatible attestor produces at least one of these messages:
-          #   "Attestation submitted on-chain"   – this attestor submitted the tx
-          #   "Attestation submitted externally" – another attestor submitted; this one observed it
-          #   "An attestation has reached quorum" – quorum was reached (this attestor participated in P2P)
-          # All three indicate healthy operation; any of them confirms compatibility.
+          #   "produced local attestation" – this attestor built + cast its own vote
+          #   "gossiped vote"              – this attestor broadcast its vote over P2P
+          #   "quorum reached"             – quorum was reached (this attestor participated in P2P)
+          # Any of them confirms healthy operation / compatibility. Patterns
+          # must match the attestor's real log wording.
           while IFS= read -r TAG; do
             LOG_GLOB="${LOG_DIR}/zombienet-${TAG}/logs/attestor-zombie-*.json.*"
             # shellcheck disable=SC2086
@@ -534,7 +535,7 @@ jobs:
               continue
             fi
             # shellcheck disable=SC2086
-            if grep -ql "Attestation submitted\|reached quorum" ${LOG_GLOB}; then
+            if grep -qlE "produced local attestation|gossiped vote|quorum reached" ${LOG_GLOB}; then
               echo "OK: ${TAG} attestor participated in at least one attestation round"
             else
               echo "ERROR: ${TAG} attestor log has no attestation activity" >&2
