@@ -44,6 +44,33 @@ pub fn message_hash(
     keccak256(&encoded)
 }
 
+/// Compute the attestor-set-update digest exactly as the `EOAValidator` recomputes it:
+/// `keccak256(abi.encode(newAttestors, chainId, nonce))`.
+///
+/// `new_attestors` MUST be in the exact order the relayer will submit on-chain (the contract hashes
+/// that order), so every attestor and the relayer agree on a **canonical** ordering — see
+/// `canonical_attestor_order`. `chain_id` is the destination chain's `block.chainid`, and `nonce`
+/// is the validator's current `attestorSetUpdateNonce` (replay/rollback protection).
+#[must_use]
+pub fn attestor_set_update_digest(new_attestors: &[Address], chain_id: U256, nonce: U256) -> B256 {
+    // Same head-of-tuple encoding as `message_hash`: `abi_encode_params` on the tuple reproduces
+    // Solidity `abi.encode(address[], uint256, uint256)` byte-for-byte.
+    let encoded = (new_attestors.to_vec(), chain_id, nonce).abi_encode_params();
+    keccak256(&encoded)
+}
+
+/// Canonical ordering for the attestor-set-update array: ascending by 20-byte address. All attestors
+/// (and the relayer) must order `newAttestors` identically or their signatures cover different bytes
+/// and cannot be aggregated. Sorting by the raw address bytes is deterministic and needs no shared
+/// state. Returns a de-duplicated, sorted copy.
+#[must_use]
+pub fn canonical_attestor_order(addrs: &[Address]) -> Vec<Address> {
+    let mut out = addrs.to_vec();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -79,6 +106,47 @@ mod tests {
         let h1 = message_hash(m, e, d, 1, b"a");
         let h2 = message_hash(m, e, d, 1, b"b");
         assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn set_update_digest_is_deterministic_and_binds_nonce_and_chain() {
+        let addrs = [
+            address!("00000000000000000000000000000000000000aa"),
+            address!("00000000000000000000000000000000000000bb"),
+        ];
+        let base = attestor_set_update_digest(&addrs, U256::from(42u64), U256::from(7u64));
+        // Deterministic.
+        assert_eq!(
+            base,
+            attestor_set_update_digest(&addrs, U256::from(42u64), U256::from(7u64))
+        );
+        // Nonce-sensitive (rollback protection).
+        assert_ne!(
+            base,
+            attestor_set_update_digest(&addrs, U256::from(42u64), U256::from(8u64))
+        );
+        // Chain-id-sensitive (cross-chain isolation).
+        assert_ne!(
+            base,
+            attestor_set_update_digest(&addrs, U256::from(43u64), U256::from(7u64))
+        );
+        // Order-sensitive (why canonical ordering is mandatory).
+        let reversed = [addrs[1], addrs[0]];
+        assert_ne!(
+            base,
+            attestor_set_update_digest(&reversed, U256::from(42u64), U256::from(7u64))
+        );
+    }
+
+    #[test]
+    fn canonical_order_sorts_and_dedups() {
+        let a = address!("00000000000000000000000000000000000000aa");
+        let b = address!("00000000000000000000000000000000000000bb");
+        let c = address!("00000000000000000000000000000000000000cc");
+        let ordered = canonical_attestor_order(&[c, a, b, a]);
+        assert_eq!(ordered, vec![a, b, c]);
+        // Idempotent + order-independent: any permutation yields the same canonical vector.
+        assert_eq!(canonical_attestor_order(&[b, c, a]), ordered);
     }
 
     /// Differing creditcoin_chain_id must produce different hashes (replay protection).
