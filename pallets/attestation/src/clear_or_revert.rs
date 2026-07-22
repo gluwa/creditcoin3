@@ -229,6 +229,12 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         // prefix since the chain no longer exists.
         _ = BlsKeyOwner::<T>::clear_prefix(chain_key, u32::MAX, None);
 
+        // Write-ability EVM address maps are keyed by `(chain_key, _)` just like the BLS maps
+        // above; drop both prefixes so a re-added chain that reuses an EVM key isn't blocked or
+        // skewed by a stale `EvmAddressOwner` uniqueness entry.
+        _ = AttestorEvmAddress::<T>::clear_prefix(chain_key, u32::MAX, None);
+        _ = EvmAddressOwner::<T>::clear_prefix(chain_key, u32::MAX, None);
+
         Self::purge_retired_keys_by_stash_for_removed_chain(chain_key);
 
         // Can dispense with result, since limit is equal to maximum storage size
