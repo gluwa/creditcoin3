@@ -19,8 +19,10 @@ use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
 use attestor_primitives::AttestorId;
-use write_ability::envelope::{MessageVote, ReobservationRequest};
-use write_ability::protocol::{message_votes_topic, reobservation_topic};
+use write_ability::envelope::{MessageVote, ReobservationRequest, SetUpdateVote};
+use write_ability::protocol::{
+    attestor_set_update_topic, message_votes_topic, reobservation_topic,
+};
 
 use crate::error::Error;
 use crate::shared::Shared;
@@ -66,6 +68,7 @@ pub async fn run(
     mut gossip_rx: mpsc::UnboundedReceiver<Vote>,
     mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
     mut mv_publish_rx: mpsc::Receiver<MessageVote>,
+    mut set_update_publish_rx: mpsc::Receiver<SetUpdateVote>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
 
@@ -133,6 +136,22 @@ pub async fn run(
             .behaviour_mut()
             .gossipsub
             .subscribe(reobs_topic)
+            .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+    }
+
+    // Attestor-set-update votes (P2-8) ride the same swarm on their own topic. We only *publish*
+    // these (the proposer produces them; the relayer consumes them). Subscribing is required to
+    // publish/propagate. Gated on message attestation like the topics above.
+    let set_update_topic = shared.message_votes.is_some().then(|| {
+        let t = libp2p::gossipsub::IdentTopic::new(attestor_set_update_topic(chain_key));
+        tracing::info!(topic = %t, "📫 subscribing to attestor-set-update gossip");
+        t
+    });
+    if let Some(set_update_topic) = &set_update_topic {
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(set_update_topic)
             .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
     }
 
@@ -331,6 +350,15 @@ pub async fn run(
                 }
             }
 
+            // Outgoing — the proposer produced a signed attestor-set-update vote. Unlike message
+            // votes there is no retry queue: the proposer re-emits every poll while the set stays
+            // diverged, so a failed publish (e.g. no mesh peers yet) self-heals on the next cycle.
+            Some(vote) = set_update_publish_rx.recv(), if set_update_topic.is_some() => {
+                if let Some(set_update_topic) = &set_update_topic {
+                    try_publish_set_update_vote(&mut swarm, set_update_topic, &vote);
+                }
+            }
+
             // Incoming events from the swarm.
             event = swarm.select_next_some() => {
                 let could_broadcast = can_broadcast;
@@ -340,6 +368,7 @@ pub async fn run(
                     &mut swarm,
                     mv_topic.as_ref(),
                     reobs_topic.as_ref(),
+                    set_update_topic.as_ref(),
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
@@ -505,6 +534,7 @@ async fn handle_swarm(
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     mv_topic: Option<&libp2p::gossipsub::IdentTopic>,
     reobs_topic: Option<&libp2p::gossipsub::IdentTopic>,
+    set_update_topic: Option<&libp2p::gossipsub::IdentTopic>,
     pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
@@ -602,6 +632,7 @@ async fn handle_swarm(
             // message attestation is enabled.
             let is_message_vote = mv_topic.is_some_and(|t| message.topic == t.hash());
             let is_reobs = reobs_topic.is_some_and(|t| message.topic == t.hash());
+            let is_set_update = set_update_topic.is_some_and(|t| message.topic == t.hash());
             let decision = if is_message_vote {
                 handle_message_vote(shared, &message.data)
             } else if is_reobs {
@@ -611,6 +642,14 @@ async fn handle_swarm(
                     reobs_admission,
                     propagation_source,
                 )
+            } else if is_set_update {
+                // We subscribe to the attestor-set-update topic only to publish our proposer's own
+                // votes and keep the mesh propagating them — attestors do NOT aggregate set-update
+                // votes (the relayer does). Accept inbound frames so gossipsub keeps relaying, but
+                // take no action. Crucially, do not fall through to the block-attestation `Vote`
+                // decoder below: a SetUpdateVote SCALE payload would fail to decode and be Rejected,
+                // applying gossipsub penalties to peers relaying legitimate set-update votes (bugbot).
+                libp2p::gossipsub::MessageAcceptance::Accept
             } else {
                 let (acceptance, learned) = handle_vote_msg(
                     shared,
@@ -809,6 +848,36 @@ fn try_publish_message_vote(
                 "✉️ message-vote publish failed — queueing for retry",
             );
             false
+        }
+    }
+}
+
+/// Publish an attestor-set-update vote. No retry queue — the proposer re-emits while the set stays
+/// diverged, so a transient publish failure (typically no mesh peers yet) is recovered next cycle.
+fn try_publish_set_update_vote(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    vote: &SetUpdateVote,
+) {
+    match swarm
+        .behaviour_mut()
+        .gossipsub
+        .publish(topic.hash(), vote.encode_bytes())
+    {
+        Ok(_) => {
+            tracing::info!(
+                chain_key = vote.chain_key,
+                attestors = vote.new_attestors.len(),
+                "🗳️ gossiped attestor-set-update vote"
+            );
+        }
+        Err(libp2p::gossipsub::PublishError::Duplicate) => {}
+        Err(err) => {
+            tracing::warn!(
+                chain_key = vote.chain_key,
+                %err,
+                "🗳️ attestor-set-update publish failed — proposer will re-emit next cycle",
+            );
         }
     }
 }
