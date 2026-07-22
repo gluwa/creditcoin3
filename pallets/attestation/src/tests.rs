@@ -5224,6 +5224,23 @@ fn on_supported_chain_removed_clears_evm_address_maps() {
             EvmAddressOwner::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
             0
         );
+
+        // And a still-running proposer must NOT be able to re-fill the maps for the removed chain:
+        // the Idle `Attestors` row survives removal, but `set_attestor_evm_address` now rejects an
+        // unsupported chain (bugbot), so the cleared uniqueness entries can't be recreated.
+        assert_noop!(
+            Attestation::set_attestor_evm_address(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                address,
+                proof
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+        assert_eq!(
+            AttestorEvmAddress::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            0
+        );
     })
 }
 

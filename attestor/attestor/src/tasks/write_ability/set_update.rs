@@ -82,10 +82,11 @@ async fn propose_once(
     signer: &MessageSigner,
 ) -> Result<Option<SetUpdateVote>> {
     // Candidate = EVM addresses of the currently-elected attestors that have registered one.
-    let candidate: Vec<Address> = cc3
+    let (registered, active_count) = cc3
         .active_attestor_evm_addresses(chain_key)
         .await
-        .context("read elected attestors' EVM addresses")?
+        .context("read elected attestors' EVM addresses")?;
+    let candidate: Vec<Address> = registered
         .into_iter()
         .map(|h| Address::from_slice(h.as_bytes()))
         .collect();
@@ -93,6 +94,18 @@ async fn propose_once(
     if candidate.is_empty() {
         // No elected attestor has registered an EVM address yet — nothing to propose. (Proposing an
         // empty set would brick the validator.)
+        return Ok(None);
+    }
+    // Never propose a PARTIAL set: if some active attestors haven't registered an EVM address yet,
+    // the candidate is missing them, and getting it signed would shrink the destination validator to
+    // omit still-elected attestors (bugbot). Defer until every active attestor is registered — the
+    // proposer polls, and each unregistered node keeps retrying registration, so this converges.
+    if candidate.len() < active_count {
+        tracing::debug!(
+            registered = candidate.len(),
+            active = active_count,
+            "deferring set-update proposal — not all active attestors have registered an EVM address yet"
+        );
         return Ok(None);
     }
 
