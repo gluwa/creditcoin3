@@ -1141,6 +1141,8 @@ declare module '@polkadot/types/lookup' {
         readonly asAttestorActivated: ITuple<[u64, AccountId32, U8aFixed]>;
         readonly isAttestorChilled: boolean;
         readonly asAttestorChilled: ITuple<[u64, AccountId32]>;
+        readonly isAttestorEvmAddressRegistered: boolean;
+        readonly asAttestorEvmAddressRegistered: ITuple<[u64, AccountId32, H160]>;
         readonly isAttestorsElected: boolean;
         readonly asAttestorsElected: {
             readonly epoch: u64;
@@ -1204,6 +1206,7 @@ declare module '@polkadot/types/lookup' {
             | 'Withdrawn'
             | 'AttestorActivated'
             | 'AttestorChilled'
+            | 'AttestorEvmAddressRegistered'
             | 'AttestorsElected'
             | 'MinBondRequirementUpdated'
             | 'AttestationIntervalChanged'
@@ -3100,6 +3103,12 @@ declare module '@polkadot/types/lookup' {
             readonly wipeSuffix: bool;
             readonly checkpoints: Vec<AttestorPrimitivesAttestationCheckpoint>;
         } & Struct;
+        readonly isSetAttestorEvmAddress: boolean;
+        readonly asSetAttestorEvmAddress: {
+            readonly chainKey: u64;
+            readonly evmAddress: H160;
+            readonly proof: U8aFixed;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3125,7 +3134,8 @@ declare module '@polkadot/types/lookup' {
             | 'SetMaxCatchup'
             | 'ForceApplyUpdates'
             | 'RevertTo'
-            | 'ForwardPatchCheckpoints';
+            | 'ForwardPatchCheckpoints'
+            | 'SetAttestorEvmAddress';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (324) */
@@ -3661,7 +3671,7 @@ declare module '@polkadot/types/lookup' {
         readonly stash: AccountId32;
     }
 
-    /** @name PalletAttestationLedgerAttestorLedger (415) */
+    /** @name PalletAttestationLedgerAttestorLedger (416) */
     interface PalletAttestationLedgerAttestorLedger extends Struct {
         readonly stash: AccountId32;
         readonly totalStaked: Compact<u128>;
@@ -3669,19 +3679,19 @@ declare module '@polkadot/types/lookup' {
         readonly unlocking: Vec<PalletAttestationLedgerUnlockChunk>;
     }
 
-    /** @name PalletAttestationLedgerUnlockChunk (417) */
+    /** @name PalletAttestationLedgerUnlockChunk (418) */
     interface PalletAttestationLedgerUnlockChunk extends Struct {
         readonly value: Compact<u128>;
         readonly era: Compact<u32>;
     }
 
-    /** @name PalletAttestationClearOrRevertCheckpointPruningState (419) */
+    /** @name PalletAttestationClearOrRevertCheckpointPruningState (420) */
     interface PalletAttestationClearOrRevertCheckpointPruningState extends Struct {
         readonly stopHeight: u64;
         readonly nextPivot: u64;
     }
 
-    /** @name PalletAttestationError (420) */
+    /** @name PalletAttestationError (421) */
     interface PalletAttestationError extends Enum {
         readonly isAlreadyAttestor: boolean;
         readonly isAttestorListFull: boolean;
@@ -3723,6 +3733,9 @@ declare module '@polkadot/types/lookup' {
         readonly isAttestorWithInvalidPublicKey: boolean;
         readonly isMajorityNotReached: boolean;
         readonly isBlsKeyAlreadyRegistered: boolean;
+        readonly isInvalidEvmProofOfPossession: boolean;
+        readonly isEvmAddressAlreadyRegistered: boolean;
+        readonly isZeroEvmAddress: boolean;
         readonly isInsufficientUniqueSigners: boolean;
         readonly isRetiredAttestorPendingFull: boolean;
         readonly isAttestorAlreadyAuthorized: boolean;
@@ -3790,6 +3803,9 @@ declare module '@polkadot/types/lookup' {
             | 'AttestorWithInvalidPublicKey'
             | 'MajorityNotReached'
             | 'BlsKeyAlreadyRegistered'
+            | 'InvalidEvmProofOfPossession'
+            | 'EvmAddressAlreadyRegistered'
+            | 'ZeroEvmAddress'
             | 'InsufficientUniqueSigners'
             | 'RetiredAttestorPendingFull'
             | 'AttestorAlreadyAuthorized'
@@ -3818,7 +3834,7 @@ declare module '@polkadot/types/lookup' {
             | 'OversizedContinuityProof';
     }
 
-    /** @name SupportedChainsPrimitivesSupportedChain (421) */
+    /** @name SupportedChainsPrimitivesSupportedChain (422) */
     interface SupportedChainsPrimitivesSupportedChain extends Struct {
         readonly chainId: u64;
         readonly chainName: Bytes;
@@ -3826,19 +3842,19 @@ declare module '@polkadot/types/lookup' {
         readonly maturityStrategy: Text;
     }
 
-    /** @name SupportedChainsPrimitivesWriteAbilityConfig (423) */
+    /** @name SupportedChainsPrimitivesWriteAbilityConfig (424) */
     interface SupportedChainsPrimitivesWriteAbilityConfig extends Struct {
         readonly writeAbilityChainKey: U8aFixed;
         readonly messageAttestationEnabled: bool;
     }
 
-    /** @name SupportedChainsPrimitivesCoreFeeConfig (424) */
+    /** @name SupportedChainsPrimitivesCoreFeeConfig (425) */
     interface SupportedChainsPrimitivesCoreFeeConfig extends Struct {
         readonly token: Option<H160>;
         readonly amount: U256;
     }
 
-    /** @name PalletSupportedChainsError (425) */
+    /** @name PalletSupportedChainsError (426) */
     interface PalletSupportedChainsError extends Enum {
         readonly isChainAlreadyRegistered: boolean;
         readonly isChainNotSupported: boolean;
@@ -3857,10 +3873,10 @@ declare module '@polkadot/types/lookup' {
             | 'ZeroCoreFeeToken';
     }
 
-    /** @name PalletRandomnessError (430) */
+    /** @name PalletRandomnessError (431) */
     type PalletRandomnessError = Null;
 
-    /** @name PalletMembershipError (432) */
+    /** @name PalletMembershipError (433) */
     interface PalletMembershipError extends Enum {
         readonly isAlreadyMember: boolean;
         readonly isNotMember: boolean;
@@ -3868,42 +3884,42 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'AlreadyMember' | 'NotMember' | 'TooManyMembers';
     }
 
-    /** @name FrameSystemExtensionsCheckNonZeroSender (435) */
+    /** @name FrameSystemExtensionsCheckNonZeroSender (436) */
     type FrameSystemExtensionsCheckNonZeroSender = Null;
 
-    /** @name FrameSystemExtensionsCheckSpecVersion (436) */
+    /** @name FrameSystemExtensionsCheckSpecVersion (437) */
     type FrameSystemExtensionsCheckSpecVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckTxVersion (437) */
+    /** @name FrameSystemExtensionsCheckTxVersion (438) */
     type FrameSystemExtensionsCheckTxVersion = Null;
 
-    /** @name FrameSystemExtensionsCheckGenesis (438) */
+    /** @name FrameSystemExtensionsCheckGenesis (439) */
     type FrameSystemExtensionsCheckGenesis = Null;
 
-    /** @name FrameSystemExtensionsCheckNonce (441) */
+    /** @name FrameSystemExtensionsCheckNonce (442) */
     interface FrameSystemExtensionsCheckNonce extends Compact<u32> {}
 
-    /** @name FrameSystemExtensionsCheckWeight (442) */
+    /** @name FrameSystemExtensionsCheckWeight (443) */
     type FrameSystemExtensionsCheckWeight = Null;
 
-    /** @name PalletTransactionPaymentChargeTransactionPayment (443) */
+    /** @name PalletTransactionPaymentChargeTransactionPayment (444) */
     interface PalletTransactionPaymentChargeTransactionPayment extends Compact<u128> {}
 
-    /** @name FrameMetadataHashExtensionCheckMetadataHash (444) */
+    /** @name FrameMetadataHashExtensionCheckMetadataHash (445) */
     interface FrameMetadataHashExtensionCheckMetadataHash extends Struct {
         readonly mode: FrameMetadataHashExtensionMode;
     }
 
-    /** @name FrameMetadataHashExtensionMode (445) */
+    /** @name FrameMetadataHashExtensionMode (446) */
     interface FrameMetadataHashExtensionMode extends Enum {
         readonly isDisabled: boolean;
         readonly isEnabled: boolean;
         readonly type: 'Disabled' | 'Enabled';
     }
 
-    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (446) */
+    /** @name PalletAttestationExtensionsPrevalidateAttestationCommit (447) */
     type PalletAttestationExtensionsPrevalidateAttestationCommit = Null;
 
-    /** @name Creditcoin3RuntimeRuntime (448) */
+    /** @name Creditcoin3RuntimeRuntime (449) */
     type Creditcoin3RuntimeRuntime = Null;
 } // declare module
