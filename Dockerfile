@@ -1,5 +1,5 @@
 # hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
-FROM ubuntu:26.04@sha256:b7f48194d4d8b763a478a621cdc81c27be222ba2206ca3ca6bc42b49685f3d9e AS runtime-base
+FROM ubuntu:26.04@sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get upgrade -y && \
