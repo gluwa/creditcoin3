@@ -659,6 +659,37 @@ impl Client {
         Ok(checkpoint.map(|c| (c.block_number, Digest::from_slice(&c.digest.0))))
     }
 
+    /// EVM message-vote addresses of the currently-active attestors for `chain_key` — the set the
+    /// destination `EOAValidator` should hold (audit P2-8). Reads `ActiveAttestors` and joins each
+    /// against its `AttestorEvmAddress` registration, skipping any active attestor that has not
+    /// registered an EVM address yet. Order is unspecified; callers canonicalize before hashing.
+    pub async fn active_attestor_evm_addresses(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Vec<sp_core::H160>, Error> {
+        let storage = self.api().storage().at_latest().await?;
+
+        let active = storage
+            .fetch(&cc3::storage().attestation().active_attestors(chain_key))
+            .await?
+            .unwrap_or_default();
+
+        let mut out = Vec::with_capacity(active.len());
+        for attestor in active {
+            if let Some(addr) = storage
+                .fetch(
+                    &cc3::storage()
+                        .attestation()
+                        .attestor_evm_address(chain_key, attestor),
+                )
+                .await?
+            {
+                out.push(sp_core::H160(addr.0));
+            }
+        }
+        Ok(out)
+    }
+
     /// Check the clients membership in the attestor pallet
     pub async fn check_attestors_membership(&self, chain_key: u64) -> Result<bool, Error> {
         let storage_query = cc3::storage().attestation().active_attestors(chain_key);
@@ -859,6 +890,78 @@ impl Client {
             })?;
 
         utils::handle_tx(tx_progress, "Start Attesting").await
+    }
+
+    /// Read the write-ability EVM message-vote address this attestor has registered on-chain for
+    /// `chain_key` (audit P2-8), or `None` if it has not registered one yet. Used to make
+    /// registration idempotent so the attestor only submits `set_attestor_evm_address` when its
+    /// on-chain address is missing or stale.
+    pub async fn attestor_evm_address(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<sp_core::H160>, Error> {
+        let storage_query = cc3::storage()
+            .attestation()
+            .attestor_evm_address(chain_key, self.signer.account_id());
+
+        let result = self
+            .api()
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&storage_query)
+            .await?;
+
+        Ok(result.map(|addr| sp_core::H160(addr.0)))
+    }
+
+    /// The 32-byte digest this attestor must sign (raw, with its EVM key) to prove possession for
+    /// [`set_attestor_evm_address`](Self::set_attestor_evm_address). MUST stay byte-identical to
+    /// `pallet_attestation`'s `evm_registration_digest`:
+    /// `keccak256(DOMAIN ‖ chain_key.to_be_bytes() ‖ account_id)`, where `account_id` is this
+    /// attestor's 32-byte substrate account (SCALE-encoded `AccountId32` == its raw 32 bytes).
+    #[must_use]
+    pub fn evm_registration_digest(&self, chain_key: ChainKey) -> [u8; 32] {
+        // Keep in lock-step with `EVM_REGISTRATION_DOMAIN` in `pallets/attestation/src/impls.rs`.
+        const DOMAIN: &[u8] = b"usc/write-ability/evm-attestor-registration/v1";
+        let account = self.signer.account_id();
+        let mut preimage = Vec::with_capacity(DOMAIN.len() + 8 + 32);
+        preimage.extend_from_slice(DOMAIN);
+        preimage.extend_from_slice(&chain_key.to_be_bytes());
+        preimage.extend_from_slice(account.0.as_ref());
+        sp_core::keccak_256(&preimage)
+    }
+
+    /// Register (or rotate) this attestor's write-ability EVM message-vote signing address on-chain
+    /// (audit P2-8). `proof` is the 65-byte secp256k1 proof of possession the pallet verifies via
+    /// `ecrecover` against the domain-separated registration digest; see `set_attestor_evm_address`
+    /// in `pallet-attestation`.
+    pub async fn set_attestor_evm_address(
+        &self,
+        chain_key: ChainKey,
+        evm_address: sp_core::H160,
+        proof: [u8; 65],
+    ) -> Result<(), Error> {
+        let tx = cc3::tx().attestation().set_attestor_evm_address(
+            chain_key,
+            ::subxt::utils::H160(evm_address.0),
+            proof,
+        );
+
+        let tx_progress = self
+            .api()
+            .tx()
+            .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
+            .await
+            .map_err(|e| {
+                if utils::is_fee_error(&e) {
+                    Error::CallerCannotPayFees
+                } else {
+                    e.into()
+                }
+            })?;
+
+        utils::handle_tx(tx_progress, "Set Attestor EVM Address").await
     }
 
     #[must_use]

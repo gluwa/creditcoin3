@@ -25,6 +25,17 @@ pub fn reobservation_topic(chain_key: u64) -> String {
     format!("{chain_key}/reobservation-requests/v1")
 }
 
+/// Build the gossipsub topic attestors publish **attestor-set-update** votes on for a given USC
+/// `chain_key`. Every epoch, when the elected set (mapped to registered EVM addresses) differs from
+/// the destination `EOAValidator`'s current set, each attestor signs the update digest and gossips
+/// a [`SetUpdateVote`](crate::envelope::SetUpdateVote) here; the relayer aggregates a threshold and
+/// submits `submitAttestorSetUpdate` on-chain. Distinct from the message-vote and reobservation
+/// topics so a subscriber to one is not forced to receive the others.
+#[must_use]
+pub fn attestor_set_update_topic(chain_key: u64) -> String {
+    format!("{chain_key}/attestor-set-update/v1")
+}
+
 /// Canonical mapping of a Substrate `ChainKey` (`u64`) to the Solidity `bytes32` chain key passed
 /// to `IOutboxFactory.getOutbox` and bound into each `messageHash` (research §2.3).
 ///
@@ -51,6 +62,13 @@ mod tests {
         assert_eq!(reobservation_topic(42), "42/reobservation-requests/v1");
         // Must be a *different* topic from the vote topic for the same chain.
         assert_ne!(reobservation_topic(42), message_votes_topic(42));
+    }
+
+    #[test]
+    fn attestor_set_update_topic_matches_spec_and_is_distinct() {
+        assert_eq!(attestor_set_update_topic(42), "42/attestor-set-update/v1");
+        assert_ne!(attestor_set_update_topic(42), message_votes_topic(42));
+        assert_ne!(attestor_set_update_topic(42), reobservation_topic(42));
     }
 
     #[test]

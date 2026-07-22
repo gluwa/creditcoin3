@@ -50,6 +50,7 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use parity_scale_codec::FullCodec;
+    use sp_core::H160;
     use sp_staking::StakingInterface;
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
@@ -179,6 +180,7 @@ pub mod pallet {
         fn set_min_bond_requirement() -> Weight;
         fn chill() -> Weight;
         fn attest() -> Weight;
+        fn set_attestor_evm_address() -> Weight;
         fn withdraw_unbonded() -> Weight;
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
@@ -274,6 +276,39 @@ pub mod pallet {
         ChainKey,
         Blake2_128Concat,
         BlsPublicKey,
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    /// Write-ability message-vote signing address (EVM / secp256k1) an attestor registered for a
+    /// chain, proven via [`set_attestor_evm_address`](Pallet::set_attestor_evm_address). This is the
+    /// address the destination `EOAValidator` set is built from: peers cannot derive it (it is
+    /// secret-derived, domain-separated from the attestor's substrate/BLS keys), so the attestor
+    /// self-registers it with a proof of possession. Keyed like [`Attestors`] so the per-chain set
+    /// is a straight join with [`ActiveAttestors`]. `None`/absent means the attestor has not opted
+    /// into write-ability. Cleared on [`unregister_attestor`](Pallet::unregister_attestor).
+    #[pallet::storage]
+    pub type AttestorEvmAddress<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        H160,
+        OptionQuery,
+    >;
+
+    /// Reverse index of [`AttestorEvmAddress`] enforcing that no two attestors on the same chain
+    /// register the **same** EVM address — mirrors [`BlsKeyOwner`]. Without it, one write-ability
+    /// signing key could be claimed by multiple controllers and satisfy threshold-of-N on the
+    /// destination validator (`ecrecover` maps every vote to the one address).
+    #[pallet::storage]
+    pub type EvmAddressOwner<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        H160,
         T::AccountId,
         OptionQuery,
     >;
@@ -641,6 +676,9 @@ pub mod pallet {
         },
         AttestorActivated(ChainKey, T::AccountId, BlsPublicKey),
         AttestorChilled(ChainKey, T::AccountId),
+        /// An attestor registered (or rotated) its write-ability EVM message-vote signing address
+        /// for a chain: `(chain_key, attestor, evm_address)`.
+        AttestorEvmAddressRegistered(ChainKey, T::AccountId, H160),
         AttestorsElected {
             epoch: u64,
             chain_key: ChainKey,
@@ -785,6 +823,13 @@ pub mod pallet {
         /// on this chain (active or retired). BLS keys must be unique per chain so the
         /// aggregation quorum reflects independent signers.
         BlsKeyAlreadyRegistered,
+        /// The submitted EVM proof-of-possession did not recover to the claimed address over the
+        /// domain-separated registration digest (bad signature, wrong key, or wrong binding).
+        InvalidEvmProofOfPossession,
+        /// The EVM address is already registered to a different attestor on this chain.
+        EvmAddressAlreadyRegistered,
+        /// The claimed EVM address is the zero address.
+        ZeroEvmAddress,
         /// The attestation lists enough distinct controller accounts but they map to fewer
         /// distinct BLS public keys than the threshold. Without this check a single BLS
         /// signer could satisfy the threshold by being aliased under multiple controller
@@ -1430,6 +1475,75 @@ pub mod pallet {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
             Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
+
+            Ok(())
+        }
+
+        /// Register (or rotate) the caller's write-ability message-vote signing address for a chain.
+        ///
+        /// Opt-in: only attestors participating in USC write-ability need call this. The caller is
+        /// the **attestor** account (the one that holds the seed the EVM key is derived from, same
+        /// account that calls [`attest`](Self::attest)). Because the EVM address is secret-derived —
+        /// peers cannot compute it from public data — the attestor proves possession: `proof` is a
+        /// 65-byte `(r, s, v)` secp256k1 signature over the domain-separated digest
+        /// `keccak256(DOMAIN ‖ chain_key ‖ attestor_account)`. We `ecrecover` it and require the
+        /// recovered address to equal `evm_address`, which simultaneously proves key ownership and
+        /// binds the address to this attestor + chain (so it cannot be replayed to claim the address
+        /// under another identity or chain). Rejected if another attestor on this chain already
+        /// holds `evm_address` (mirrors BLS-key uniqueness). The registered address is what the
+        /// destination `EOAValidator` attestor set is built from.
+        #[pallet::call_index(30)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestor_evm_address())]
+        pub fn set_attestor_evm_address(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            evm_address: H160,
+            proof: [u8; 65],
+        ) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+
+            // Must be a registered attestor for this chain (the attestor account, as with `attest`).
+            ensure!(
+                Attestors::<T>::contains_key(chain_key, &who),
+                Error::<T>::AddressNotAttestor
+            );
+            ensure!(evm_address != H160::zero(), Error::<T>::ZeroEvmAddress);
+
+            // Proof of possession: recover the signer of `proof` over the registration digest and
+            // require it to match the claimed address. This binds the address to (chain_key, who).
+            let digest = Self::evm_registration_digest(chain_key, &who);
+            let recovered = Self::recover_evm_address(&proof, &digest)
+                .ok_or(Error::<T>::InvalidEvmProofOfPossession)?;
+            ensure!(
+                recovered == evm_address,
+                Error::<T>::InvalidEvmProofOfPossession
+            );
+
+            // Uniqueness per chain: reject an address already claimed by a *different* attestor.
+            // Re-asserting the same address for the same controller is idempotent (allows rotation
+            // back / re-registration).
+            match EvmAddressOwner::<T>::get(chain_key, evm_address) {
+                None => {}
+                Some(existing) if existing == who => {}
+                Some(_) => return Err(Error::<T>::EvmAddressAlreadyRegistered.into()),
+            }
+
+            // Rotation: release the caller's previous address claim (if any and different) before
+            // taking the new one, so the reverse index never leaks a stale owner.
+            if let Some(old) = AttestorEvmAddress::<T>::get(chain_key, &who) {
+                if old != evm_address {
+                    EvmAddressOwner::<T>::remove(chain_key, old);
+                }
+            }
+
+            AttestorEvmAddress::<T>::insert(chain_key, &who, evm_address);
+            EvmAddressOwner::<T>::insert(chain_key, evm_address, &who);
+
+            Self::deposit_event(Event::<T>::AttestorEvmAddressRegistered(
+                chain_key,
+                who,
+                evm_address,
+            ));
 
             Ok(())
         }
