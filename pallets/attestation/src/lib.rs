@@ -1502,6 +1502,14 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
+            // The chain must still be supported. Chain removal clears the EVM-address maps but leaves
+            // Idle `Attestors` rows behind, so without this a still-running proposer's periodic
+            // re-registration would rewrite `AttestorEvmAddress`/`EvmAddressOwner` and recreate the
+            // stale uniqueness entries the removal cleanup was meant to purge (bugbot).
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
             // Must be a registered attestor for this chain (the attestor account, as with `attest`).
             ensure!(
                 Attestors::<T>::contains_key(chain_key, &who),
