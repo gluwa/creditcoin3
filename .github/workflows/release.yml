@@ -206,7 +206,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Download binaries
         uses: actions/download-artifact@v8

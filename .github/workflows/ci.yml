@@ -154,7 +154,7 @@ jobs:
       - name: Install Node Dependencies
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
       - run: npm install --ignore-scripts -g @polkadot/metadata-cmp
 
       - name: Download creditcoin-node binary
@@ -344,7 +344,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: |
             attestor/scripts/package.json
@@ -815,7 +815,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
@@ -929,7 +929,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
@@ -1104,7 +1104,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: docs/smart-contract-development/with-hardhat/package-lock.json
 
@@ -1333,7 +1333,7 @@ jobs:
       - name: Setup Node.js environment
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: |
             cc3-indexer/yarn.lock
@@ -1554,7 +1554,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
@@ -1636,7 +1636,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
@@ -1865,7 +1865,7 @@ jobs:
       - name: Setup Node.js environment
         uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
 
