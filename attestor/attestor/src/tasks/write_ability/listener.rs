@@ -130,8 +130,13 @@ fn pick_to_block(
             }
             None => {
                 // Chain reports no finalized head (or the tag is unsupported / errored this poll).
+                // Sign the probabilistic bound, but NEVER regress below the last finalized head we
+                // already trusted: a transient `finalized`-read blip after a prior good read must not
+                // let `tip - depth` advance the scan past a head we know is final and re-sign
+                // not-yet-finalized logs (bugbot). `max(last_finalized)` mirrors the stall branch.
                 tracker.in_fallback = true;
                 tip.saturating_sub(fallback_depth)
+                    .max(tracker.last_finalized.unwrap_or(0))
             }
         },
     }
@@ -445,5 +450,19 @@ mod tests {
         let mut tr = tracker(t0);
         assert_eq!(pick_to_block(None, 100, &pol, &mut tr, t0), 95);
         assert!(tr.in_fallback);
+    }
+
+    #[test]
+    fn no_finalized_head_never_regresses_below_last_finalized() {
+        // A prior good read established finalized head 100; a later `finalized`-read blip (None) with
+        // `tip - depth` = 96 must NOT regress below 100 and re-sign not-yet-finalized logs (bugbot).
+        let t0 = Instant::now();
+        let pol = FinalityPolicy::Finalized { fallback_depth: 5 };
+        let mut tr = tracker(t0);
+        assert_eq!(pick_to_block(Some(100), 100, &pol, &mut tr, t0), 100);
+        // Blip: no finalized head, tip advanced to 101 → tip-depth = 96, but clamp holds it at 100.
+        assert_eq!(pick_to_block(None, 101, &pol, &mut tr, t0), 100);
+        // Once tip-depth climbs past the last finalized head, the depth bound applies normally.
+        assert_eq!(pick_to_block(None, 110, &pol, &mut tr, t0), 105);
     }
 }

@@ -476,21 +476,30 @@ impl TokenBucket {
         }
     }
 
-    fn try_take(&mut self, now: Instant) -> bool {
+    /// Accrue tokens for the time elapsed since the last touch (capped at capacity). Callers
+    /// `refill` + [`has_token`](Self::has_token) several buckets and only [`take`](Self::take) once
+    /// they know all will succeed — so a denial doesn't consume a token from any bucket.
+    fn refill(&mut self, now: Instant) {
         let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
         self.tokens = (self.tokens + elapsed * self.refill_per_sec).min(self.capacity);
         self.last = now;
-        if self.tokens >= 1.0 {
-            self.tokens -= 1.0;
-            true
-        } else {
-            false
-        }
+    }
+
+    fn has_token(&self) -> bool {
+        self.tokens >= 1.0
+    }
+
+    /// Consume one token. Caller must have checked [`has_token`](Self::has_token) after a
+    /// [`refill`](Self::refill).
+    fn take(&mut self) {
+        self.tokens -= 1.0;
     }
 }
 
-/// Global + per-peer reobservation admission. `admit` charges the per-peer bucket first (one peer
-/// can't drain the global allowance) then the global bucket; both must have a token.
+/// Global + per-peer reobservation admission. `admit` consumes a token from BOTH the per-peer and
+/// global buckets, but only when both have one — a denial charges neither. (A per-peer bucket keeps
+/// one peer from draining the global allowance; charging both atomically stops a global-pressure
+/// denial from burning an honest peer's local token and locking it out after capacity returns.)
 struct ReobsAdmission {
     global: TokenBucket,
     per_peer: std::collections::HashMap<libp2p::PeerId, TokenBucket>,
@@ -520,11 +529,18 @@ impl ReobsAdmission {
             );
             self.order.push_back(source);
         }
-        // unwrap: just ensured the entry exists.
-        if !self.per_peer.get_mut(&source).unwrap().try_take(now) {
-            return false;
+        // unwrap: just ensured the entry exists. Refill both, then consume from each only if BOTH
+        // have a token — so a global-pressure denial doesn't burn this peer's per-peer token.
+        let peer = self.per_peer.get_mut(&source).unwrap();
+        peer.refill(now);
+        self.global.refill(now);
+        if peer.has_token() && self.global.has_token() {
+            peer.take();
+            self.global.take();
+            true
+        } else {
+            false
         }
-        self.global.try_take(now)
     }
 }
 
