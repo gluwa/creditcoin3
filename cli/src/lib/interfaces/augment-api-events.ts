@@ -62,6 +62,11 @@ declare module '@polkadot/api-base/types/events' {
             AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32, U8aFixed]>;
             AttestorChilled: AugmentedEvent<ApiType, [u64, AccountId32]>;
             /**
+             * An attestor registered (or rotated) its write-ability EVM message-vote signing address
+             * for a chain: `(chain_key, attestor, evm_address)`.
+             **/
+            AttestorEvmAddressRegistered: AugmentedEvent<ApiType, [u64, AccountId32, H160]>;
+            /**
              * Emitted when an attestor is properly registered with the attestation system
              **/
             AttestorRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
