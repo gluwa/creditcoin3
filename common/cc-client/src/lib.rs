@@ -663,18 +663,23 @@ impl Client {
     /// destination `EOAValidator` should hold (audit P2-8). Reads `ActiveAttestors` and joins each
     /// against its `AttestorEvmAddress` registration, skipping any active attestor that has not
     /// registered an EVM address yet. Order is unspecified; callers canonicalize before hashing.
+    /// Returns `(evm_addresses, active_count)`: the registered EVM addresses of the currently-active
+    /// attestors for `chain_key`, plus the TOTAL number of active attestors. The caller compares the
+    /// two to detect a partial set — proposing a set-update while some active attestors are still
+    /// unregistered would shrink the destination validator and omit them (audit P2-8 / bugbot).
     pub async fn active_attestor_evm_addresses(
         &self,
         chain_key: ChainKey,
-    ) -> Result<Vec<sp_core::H160>, Error> {
+    ) -> Result<(Vec<sp_core::H160>, usize), Error> {
         let storage = self.api().storage().at_latest().await?;
 
         let active = storage
             .fetch(&cc3::storage().attestation().active_attestors(chain_key))
             .await?
             .unwrap_or_default();
+        let active_count = active.len();
 
-        let mut out = Vec::with_capacity(active.len());
+        let mut out = Vec::with_capacity(active_count);
         for attestor in active {
             if let Some(addr) = storage
                 .fetch(
@@ -687,7 +692,7 @@ impl Client {
                 out.push(sp_core::H160(addr.0));
             }
         }
-        Ok(out)
+        Ok((out, active_count))
     }
 
     /// Check the clients membership in the attestor pallet
