@@ -235,6 +235,29 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
             >;
+            /**
+             * Register (or rotate) the caller's write-ability message-vote signing address for a chain.
+             *
+             * Opt-in: only attestors participating in USC write-ability need call this. The caller is
+             * the **attestor** account (the one that holds the seed the EVM key is derived from, same
+             * account that calls [`attest`](Self::attest)). Because the EVM address is secret-derived —
+             * peers cannot compute it from public data — the attestor proves possession: `proof` is a
+             * 65-byte `(r, s, v)` secp256k1 signature over the domain-separated digest
+             * `keccak256(DOMAIN ‖ chain_key ‖ attestor_account)`. We `ecrecover` it and require the
+             * recovered address to equal `evm_address`, which simultaneously proves key ownership and
+             * binds the address to this attestor + chain (so it cannot be replayed to claim the address
+             * under another identity or chain). Rejected if another attestor on this chain already
+             * holds `evm_address` (mirrors BLS-key uniqueness). The registered address is what the
+             * destination `EOAValidator` attestor set is built from.
+             **/
+            setAttestorEvmAddress: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    evmAddress: H160 | string | Uint8Array,
+                    proof: U8aFixed | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, H160, U8aFixed]
+            >;
             setChainAttestationInterval: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,

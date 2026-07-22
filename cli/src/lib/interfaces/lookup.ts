@@ -912,6 +912,7 @@ export default {
             },
             AttestorActivated: '(u64,AccountId32,[u8;48])',
             AttestorChilled: '(u64,AccountId32)',
+            AttestorEvmAddressRegistered: '(u64,AccountId32,H160)',
             AttestorsElected: {
                 epoch: 'u64',
                 chainKey: 'u64',
@@ -2656,6 +2657,11 @@ export default {
                 wipeSuffix: 'bool',
                 checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
             },
+            set_attestor_evm_address: {
+                chainKey: 'u64',
+                evmAddress: 'H160',
+                proof: '[u8;65]',
+            },
         },
     },
     /**
@@ -3124,7 +3130,7 @@ export default {
         stash: 'AccountId32',
     },
     /**
-     * Lookup415: pallet_attestation::ledger::AttestorLedger<T>
+     * Lookup416: pallet_attestation::ledger::AttestorLedger<T>
      **/
     PalletAttestationLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3133,21 +3139,21 @@ export default {
         unlocking: 'Vec<PalletAttestationLedgerUnlockChunk>',
     },
     /**
-     * Lookup417: pallet_attestation::ledger::UnlockChunk<Balance>
+     * Lookup418: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup419: pallet_attestation::clear_or_revert::CheckpointPruningState
+     * Lookup420: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
     PalletAttestationClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
-     * Lookup420: pallet_attestation::pallet::Error<T>
+     * Lookup421: pallet_attestation::pallet::Error<T>
      **/
     PalletAttestationError: {
         _enum: [
@@ -3191,6 +3197,9 @@ export default {
             'AttestorWithInvalidPublicKey',
             'MajorityNotReached',
             'BlsKeyAlreadyRegistered',
+            'InvalidEvmProofOfPossession',
+            'EvmAddressAlreadyRegistered',
+            'ZeroEvmAddress',
             'InsufficientUniqueSigners',
             'RetiredAttestorPendingFull',
             'AttestorAlreadyAuthorized',
@@ -3220,7 +3229,7 @@ export default {
         ],
     },
     /**
-     * Lookup421: supported_chains_primitives::SupportedChain
+     * Lookup422: supported_chains_primitives::SupportedChain
      **/
     SupportedChainsPrimitivesSupportedChain: {
         chainId: 'u64',
@@ -3229,21 +3238,21 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup423: supported_chains_primitives::WriteAbilityConfig
+     * Lookup424: supported_chains_primitives::WriteAbilityConfig
      **/
     SupportedChainsPrimitivesWriteAbilityConfig: {
         writeAbilityChainKey: '[u8;32]',
         messageAttestationEnabled: 'bool',
     },
     /**
-     * Lookup424: supported_chains_primitives::CoreFeeConfig
+     * Lookup425: supported_chains_primitives::CoreFeeConfig
      **/
     SupportedChainsPrimitivesCoreFeeConfig: {
         token: 'Option<H160>',
         amount: 'U256',
     },
     /**
-     * Lookup425: pallet_supported_chains::pallet::Error<T>
+     * Lookup426: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
         _enum: [
@@ -3257,61 +3266,61 @@ export default {
         ],
     },
     /**
-     * Lookup430: pallet_randomness::pallet::Error<T>
+     * Lookup431: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup432: pallet_membership::pallet::Error<T, I>
+     * Lookup433: pallet_membership::pallet::Error<T, I>
      **/
     PalletMembershipError: {
         _enum: ['AlreadyMember', 'NotMember', 'TooManyMembers'],
     },
     /**
-     * Lookup435: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup436: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup436: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup437: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup437: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup438: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup438: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup439: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup441: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup442: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup442: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup443: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup443: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup444: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup444: frame_metadata_hash_extension::CheckMetadataHash<T>
+     * Lookup445: frame_metadata_hash_extension::CheckMetadataHash<T>
      **/
     FrameMetadataHashExtensionCheckMetadataHash: {
         mode: 'FrameMetadataHashExtensionMode',
     },
     /**
-     * Lookup445: frame_metadata_hash_extension::Mode
+     * Lookup446: frame_metadata_hash_extension::Mode
      **/
     FrameMetadataHashExtensionMode: {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup446: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
+     * Lookup447: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
      **/
     PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
     /**
-     * Lookup448: creditcoin3_runtime::Runtime
+     * Lookup449: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };
