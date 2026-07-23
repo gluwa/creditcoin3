@@ -189,13 +189,41 @@ jobs:
           file: ${{ needs.setup.outputs.artifact_name }}
           token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Download creditcoin-fork
-        uses: i3h/download-release-asset@v1
+      # Build creditcoin-fork from PR #16 (branch feat/preserve-staking)
+      # instead of downloading it from release artifacts. See
+      # https://github.com/gluwa/creditcoin-fork/pull/16
+      - name: Configure rustc version
+        run: |
+          # Use the same rustc version as creditcoin3-node (this repo's
+          # rust-toolchain.toml), so the fork is built with a matching toolchain.
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d ' ' | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
         with:
-          owner: gluwa
-          repo: creditcoin-fork
-          tag: latest
-          file: creditcoin-fork
+          toolchain: ${{ env.RUSTC_VERSION }}
+
+      # Build creditcoin-fork from PR #16 (branch feat/preserve-staking)
+      # instead of downloading it from release artifacts. See
+      # https://github.com/gluwa/creditcoin-fork/pull/16
+      #
+      # Clone into RUNNER_TEMP (outside GITHUB_WORKSPACE) rather than using
+      # actions/checkout with a path: the fork must live outside the creditcoin3
+      # git checkout, otherwise cargo treats it as a member of the creditcoin3
+      # workspace and the build fails. actions/checkout also refuses paths
+      # outside GITHUB_WORKSPACE, so a plain git clone is used here.
+      - name: Build creditcoin-fork (PR #16 / feat/preserve-staking)
+        env:
+          FORK_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          FORK_DIR="$RUNNER_TEMP/creditcoin-fork-src"
+          git clone --depth 1 --branch feat/preserve-staking \
+            "https://x-access-token:${FORK_TOKEN}@github.com/gluwa/creditcoin-fork.git" \
+            "$FORK_DIR"
+          cargo build --release --locked --bin creditcoin-fork \
+            --manifest-path "$FORK_DIR/Cargo.toml"
+          cp "$FORK_DIR/target/release/creditcoin-fork" "$GITHUB_WORKSPACE/creditcoin-fork"
 
       - name: Start local creditcoin3-node for ${{ needs.setup.outputs.target_chain }}
         run: |
