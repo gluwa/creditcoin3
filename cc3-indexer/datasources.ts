@@ -376,7 +376,7 @@ export const outboxTemplate: FrontierEvmTemplate = {
                 handler: 'handleMessagePublished',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['MessagePublished(bytes32,address,bool,bytes)'],
+                    topics: ['MessagePublished(bytes32,bytes32,bool,bytes)'],
                 },
             },
             {
