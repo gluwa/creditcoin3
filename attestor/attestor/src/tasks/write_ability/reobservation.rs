@@ -22,7 +22,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use alloy::primitives::B256;
+use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
 use alloy::rpc::types::{BlockTransactionsKind, Filter};
@@ -246,16 +246,19 @@ pub async fn reobserve<P: Provider>(
             continue;
         }
         let payload = decoded.data.payload.to_vec();
+        // `emitterAddress` is a `bytes32` with the 20-byte EVM address in the high bytes; recover
+        // the plain `Address` (the signed `messageHash` uses `address`). See the listener.
+        let emitter = Address::from_slice(&decoded.data.emitterAddress.as_slice()[..20]);
         let hash = message_hash(
             decoded.data.messageId,
-            decoded.data.emitterAddress,
+            emitter,
             resolved.destination_chain_key,
             resolved.creditcoin_chain_id,
             &payload,
         );
         return Ok(Some(IndexedMessage {
             message_id: decoded.data.messageId,
-            emitter: decoded.data.emitterAddress,
+            emitter,
             payload,
             message_hash: hash,
         }));
