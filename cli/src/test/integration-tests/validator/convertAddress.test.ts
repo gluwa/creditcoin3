@@ -1,4 +1,4 @@
-import { commandSync } from 'execa';
+import { execaSync, parseCommandString } from 'execa';
 import { describeIf } from '../../utils';
 import { ALICE_NODE_URL, BOB_NODE_URL, CLI_PATH } from '../helpers';
 import { initEthKeyringPair, initKeyringPair } from '../../../lib/account/keyring';
@@ -36,14 +36,17 @@ describeIf(
         });
 
         it('should NOT convert an invalid EVM address', () => {
-            const result = commandSync(`node ${CLI_PATH} convert-address --address 0x123`, { reject: false });
+            const result = execaSync('node', parseCommandString(`${CLI_PATH} convert-address --address 0x123`), {
+                reject: false,
+            });
 
             expect(result.stderr).toContain('Not a valid Substrate or EVM address.');
         }, 60000);
 
         it('should NOT convert an invalid Substrate address', () => {
-            const result = commandSync(
-                `node ${CLI_PATH} convert-address --address 5FQMKPxJuFBCeH7zQvw0xa>>!jXb1WeQxvf8`,
+            const result = execaSync(
+                'node',
+                parseCommandString(`${CLI_PATH} convert-address --address 5FQMKPxJuFBCeH7zQvw0xa>>!jXb1WeQxvf8`),
                 {
                     reject: false,
                 },
@@ -53,16 +56,18 @@ describeIf(
         }, 60000);
 
         it('should convert a known Substrate address to a known EVM address', () => {
-            const result = commandSync(
-                `node ${CLI_PATH} convert-address --address ${substrateAddress} --url ${ALICE_NODE_URL}`,
+            const result = execaSync(
+                'node',
+                parseCommandString(`${CLI_PATH} convert-address --address ${substrateAddress} --url ${ALICE_NODE_URL}`),
             );
 
             expect(result.stdout.toLowerCase()).toContain(expectedAssociatedEvmAddress.toLowerCase());
         }, 60000);
 
         it('should convert a known EVM address to a known Substrate address', () => {
-            const result = commandSync(
-                `node ${CLI_PATH} convert-address --address ${evmAddress} --url ${BOB_NODE_URL}`,
+            const result = execaSync(
+                'node',
+                parseCommandString(`${CLI_PATH} convert-address --address ${evmAddress} --url ${BOB_NODE_URL}`),
             );
 
             expect(result.stdout.toLowerCase()).toContain(expectedAssociatedSubtrateAddress.toLowerCase());

@@ -1,5 +1,4 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import timeDelta = require('time-delta');
+import timeDelta from 'time-delta';
 
 import { ApiPromise } from '@polkadot/api';
 import { BN } from '..';

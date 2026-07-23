@@ -3,7 +3,7 @@ import { WasmPrivateKey } from 'bls-signatures-bindings';
 import { BN, mnemonicGenerate } from '../../lib';
 import { initKeyringPair, CallerKeyring } from '../../lib/account/keyring';
 import { signSendAndWatchCcKeyring, TxStatus } from '../../lib/tx';
-import { commandSync } from 'execa';
+import { execaSync, parseCommandString } from 'execa';
 import { parseAmount } from '../../commands/options';
 import { KeyringPair } from '../../lib';
 import { substrateAddressToEvmAddress, evmAddressToSubstrateAddress } from '../../lib/evm/address';
@@ -101,7 +101,7 @@ export function CLIBuilder(env: any) {
     }
 
     function CLICmd(cmd: string) {
-        return commandSync(`node ${CLI_PATH} ${cmd} ${extraArgs}`, { env });
+        return execaSync('node', parseCommandString(`${CLI_PATH} ${cmd} ${extraArgs}`), { env });
     }
     return CLICmd;
 }

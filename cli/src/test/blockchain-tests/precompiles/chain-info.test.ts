@@ -11,8 +11,7 @@ import {
 } from '../pallets/supported-chains/consts';
 import { chainInfoAddress } from './consts';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/chain_info.json');
+import contractABIJSON from '../artifacts/chain_info.json' with { type: 'json' };
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 const supportedChainKey = chain_Anvil2_Key;

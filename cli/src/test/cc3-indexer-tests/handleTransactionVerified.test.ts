@@ -9,8 +9,7 @@ import { blockProverAddress } from '../blockchain-tests/precompiles/consts';
 import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import blockProverABIJSON = require('../blockchain-tests/artifacts/block_prover.json');
+import blockProverABIJSON from '../blockchain-tests/artifacts/block_prover.json' with { type: 'json' };
 const blockProverABI = blockProverABIJSON as unknown as ethers.InterfaceAbi;
 
 describe('handleTransactionVerified()', () => {

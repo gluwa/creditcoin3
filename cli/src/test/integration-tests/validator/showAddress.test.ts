@@ -1,4 +1,4 @@
-import { commandSync } from 'execa';
+import { execaSync, parseCommandString } from 'execa';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import { CLI_PATH, randomTestAccount, ALICE_NODE_URL, BOB_NODE_URL } from '../helpers';
 import { describeIf } from '../../utils';
@@ -16,7 +16,7 @@ describeIf(
 
                 const caller = randomTestAccount();
 
-                const result = commandSync(`node ${CLI_PATH} show-address ${nodeUrl}`, {
+                const result = execaSync('node', parseCommandString(`${CLI_PATH} show-address ${nodeUrl}`), {
                     env: {
                         CC_SECRET: caller.secret,
                     },

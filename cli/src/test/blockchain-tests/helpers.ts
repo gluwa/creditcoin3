@@ -1,6 +1,10 @@
 import { ethers } from 'ethers';
 import { readFile } from 'fs/promises';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ESM has no __dirname; derive the current directory from import.meta.url.
+const currentDir = path.dirname(fileURLToPath(import.meta.url));
 
 // matches artifacts/proof_example_erc20.json
 export const validQuery = {
@@ -52,7 +56,7 @@ export const deployContract = async (
 ): Promise<ethers.Contract> => {
     console.log(`deploying ${contractName}`);
 
-    const artifactsPath = path.resolve(__dirname, `./artifacts/${contractName}.json`);
+    const artifactsPath = path.resolve(currentDir, `./artifacts/${contractName}.json`);
 
     const contents = await readFile(artifactsPath);
     const metadata = JSON.parse(contents.toString());

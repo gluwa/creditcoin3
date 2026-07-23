@@ -5,8 +5,7 @@ import { mnemonicGenerate } from '@polkadot/util-crypto';
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { fundFromSudo } from '../../integration-tests/helpers';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/substrate_transfer.json');
+import contractABIJSON from '../artifacts/substrate_transfer.json' with { type: 'json' };
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 describe('Precompile: transfer_substrate()', (): void => {

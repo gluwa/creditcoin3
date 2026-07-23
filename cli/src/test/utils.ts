@@ -1,16 +1,8 @@
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import execa = require('execa');
+import os from 'os';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import fs = require('fs');
+import path from 'path';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import os = require('os');
-
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import path = require('path');
-
-import { commandSync } from 'execa';
+import { execa, execaSync, parseCommandString } from 'execa';
 
 import type { EventRecord, Balance, DispatchError } from '../lib';
 import { ApiPromise, expectNoEventError, expectNoDispatchError, newApi } from '../lib';
@@ -110,11 +102,11 @@ function runNode(name: string, extraArgs: string) {
     // warning: do NOT await, runs in background
     void execa(
         '../target/release/creditcoin3-node',
-        `--chain dev --validator --pruning archive ${extraArgs}`.split(' '),
+        parseCommandString(`--chain dev --validator --pruning archive ${extraArgs}`),
         {
             detached: true,
-            stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
-            stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
+            stdout: { file: `${logPrefix}.stdout` },
+            stderr: { file: `${logPrefix}.stderr` },
         },
     );
 }
@@ -140,7 +132,8 @@ export async function startAliceAndBob() {
 export function killCreditcoinNodes() {
     console.log('INFO: killing all creditcoin3-node processes');
 
-    commandSync(`killall -9 creditcoin3-node`);
+    const [command, ...args] = parseCommandString('killall -9 creditcoin3-node');
+    execaSync(command, args);
 }
 
 export async function expectIsFinalizing() {
