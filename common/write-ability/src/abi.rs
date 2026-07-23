@@ -96,7 +96,16 @@ sol! {
             view
             returns (bool);
 
-        event MessageDelivered(bytes32 indexed messageId);
+        /// Emitted when `deliverMessage`'s dApp callback succeeds. `processor` is the vote
+        /// validator that authorized delivery; `relayer` is the `msg.sender` that delivered.
+        /// Only `messageId` (topics[1]) is read; the two addresses are ignored. The 3-arg shape
+        /// must match `Inbox.MessageDelivered` exactly or the ack watcher's `SIGNATURE_HASH`
+        /// filter misses every delivery.
+        event MessageDelivered(
+            bytes32 indexed messageId,
+            address indexed processor,
+            address indexed relayer
+        );
         /// Emitted (on a **successful** `deliverMessage` tx) when the votes validated but the
         /// dApp's `receiveMessage` callback reverted — the message is stored for
         /// `retryPendingMessage`. Signature must match `SimpleInbox.MessagePending` exactly or
