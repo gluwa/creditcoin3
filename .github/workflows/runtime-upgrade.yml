@@ -197,17 +197,28 @@ jobs:
         with:
           repository: gluwa/creditcoin-fork
           ref: feat_usc
-          path: creditcoin-fork-src
+          # Check out outside the creditcoin3 workspace tree, otherwise cargo
+          # treats creditcoin-fork as a member of the creditcoin3 workspace.
+          path: ../creditcoin-fork-src
           token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
+      - name: Configure rustc version
+        run: |
+          # Use the same rustc version as creditcoin3-node (this repo's
+          # rust-toolchain.toml), so the fork is built with a matching toolchain.
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d ' ' | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
 
       - name: Build creditcoin-fork
-        working-directory: creditcoin-fork-src
+        working-directory: ../creditcoin-fork-src
         run: |
           cargo build --release --locked --bin creditcoin-fork
-          cp target/release/creditcoin-fork ../creditcoin-fork
+          cp target/release/creditcoin-fork "$GITHUB_WORKSPACE/creditcoin-fork"
 
       - name: Start local creditcoin3-node for ${{ needs.setup.outputs.target_chain }}
         run: |
