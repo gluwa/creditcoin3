@@ -51,6 +51,15 @@ sol! {
         /// plain `address` — only the `MessagePublished` event widens it to `bytes32`.
         function getMessage(bytes32 messageId) external view returns (OutboxMessage memory);
 
+        /// Whether `messageId` was published with `requiresAck = true`. `false` for an unknown id
+        /// (mapping default), so the ack submitter uses it as the existence-and-requires-ack gate
+        /// before checking `isAcknowledged`.
+        function messageRequiresAck(bytes32 messageId) external view returns (bool);
+
+        /// Whether `messageId` has already been acknowledged on the source Outbox. `false` for an
+        /// unknown id.
+        function isAcknowledged(bytes32 messageId) external view returns (bool);
+
         /// Reverts bubbled up through `AcknowledgmentValidator.submitAcknowledgment` when it calls
         /// `acknowledgeMessage` here. All three are permanent for a given delivery tx — the ack
         /// submitter classifies them as terminal (see the ack submitter in
