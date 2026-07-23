@@ -189,13 +189,25 @@ jobs:
           file: ${{ needs.setup.outputs.artifact_name }}
           token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
 
-      - name: Download creditcoin-fork
-        uses: i3h/download-release-asset@v1
+      # Build creditcoin-fork from PR #15 (branch feat_usc) instead of
+      # downloading it from release artifacts. See
+      # https://github.com/gluwa/creditcoin-fork/pull/15
+      - name: Checkout creditcoin-fork (PR #15 / feat_usc)
+        uses: actions/checkout@v7
         with:
-          owner: gluwa
-          repo: creditcoin-fork
-          tag: latest
-          file: creditcoin-fork
+          repository: gluwa/creditcoin-fork
+          ref: feat_usc
+          path: creditcoin-fork-src
+          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build creditcoin-fork
+        working-directory: creditcoin-fork-src
+        run: |
+          cargo build --release --locked --bin creditcoin-fork
+          cp target/release/creditcoin-fork ../creditcoin-fork
 
       - name: Start local creditcoin3-node for ${{ needs.setup.outputs.target_chain }}
         run: |
