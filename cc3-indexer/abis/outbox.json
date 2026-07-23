@@ -4,7 +4,7 @@
     "name": "MessagePublished",
     "inputs": [
       { "name": "messageId", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
-      { "name": "emitterAddress", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "emitterAddress", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
       { "name": "requiresAck", "type": "bool", "indexed": false, "internalType": "bool" },
       { "name": "payload", "type": "bytes", "indexed": false, "internalType": "bytes" }
     ],
