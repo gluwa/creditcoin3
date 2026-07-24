@@ -6,6 +6,8 @@
   "scripts": {
     "build": "tsc",
     "deploy": "tsx scripts/deploy.ts",
+    "quoter": "tsx src/quoter/index.ts",
+    "quoter:selftest": "tsx src/quoter/selftest.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
