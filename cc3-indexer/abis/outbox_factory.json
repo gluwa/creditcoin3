@@ -3,8 +3,11 @@
     "type": "event",
     "name": "OutboxCreated",
     "inputs": [
-      { "name": "chainKey", "type": "bytes32", "indexed": true, "internalType": "bytes32" },
-      { "name": "outboxAddress", "type": "address", "indexed": true, "internalType": "address" }
+      { "name": "outbox", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "chainKey", "type": "uint32", "indexed": true, "internalType": "uint32" },
+      { "name": "owner", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "validator", "type": "address", "indexed": false, "internalType": "address" },
+      { "name": "version", "type": "string", "indexed": false, "internalType": "string" }
     ],
     "anonymous": false
   }
