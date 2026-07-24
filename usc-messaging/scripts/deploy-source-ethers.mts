@@ -75,6 +75,17 @@ async function main() {
 
   const outbox = new ethers.Contract(outboxAddr, ART("write-ability/Outbox.sol", "Outbox").abi, wallet);
   await (await outbox.setTrustedForwarder(rcAddr, true)).wait();
+
+  // Acknowledgment round-trip: deploy the AcknowledgmentValidator for the destination chain key,
+  // make it the Outbox's validator (only it may call acknowledgeMessage), then point it at the
+  // Outbox. The relayer's ack submitter proves MessageDelivered on the destination and calls
+  // submitAcknowledgment here, which flips messages[id].acknowledged = true on the Outbox.
+  const ackValidator = await deploy("AcknowledgmentValidator",
+    ART("write-ability/AcknowledgementValidator.sol", "AcknowledgmentValidator"), [CHAIN_KEY, owner]);
+  const ackAddr = await ackValidator.getAddress();
+  await (await outbox.setValidator(ackAddr)).wait();
+  await (await (ackValidator as any).setOutbox(outboxAddr)).wait();
+  console.log("  ack: validator", ackAddr, "→ Outbox");
   await (await (quoter as any).addQuoter(QUOTER_EOA)).wait();
   await (await (quoter as any).setCoreFee(CHAIN_KEY, ethers.parseEther("1"))).wait();
   await (await (decoder as any).setTrustedInbox(DEST_CHAIN_ID, addrs.dest.inbox)).wait();
@@ -92,6 +103,7 @@ async function main() {
     attest: attestAddr, proofVerifier: await proof.getAddress(), deliveryDecoder: await decoder.getAddress(),
     twapReader: await twap.getAddress(), quoter: quoterAddr, factory: await factory.getAddress(),
     attestorVault: avAddr, outbox: outboxAddr, relayerFeeVault: fvAddr, relayerContract: rcAddr,
+    ackValidator: ackAddr,
     quoterEOA: QUOTER_EOA, coreFee: ethers.parseEther("1").toString(),
   };
   writeFileSync(OUT, JSON.stringify(addrs, null, 2));
