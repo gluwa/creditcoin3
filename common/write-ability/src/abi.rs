@@ -124,13 +124,17 @@ sol! {
     #[sol(rpc)]
     #[derive(Debug)]
     contract IOutboxFactory {
-        /// Resolve the per-destination Outbox instance for a USC chain key. The factory creates
-        /// one Outbox per `bytes32 chainKey`; attestors call this to discover the address to watch.
-        /// Returns `address(0)` when no outbox has been created for `chainKey` yet.
-        function getOutbox(bytes32 chainKey) external view returns (address);
-
-        /// @notice Emitted when a new outbox is created
-        event OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress);
+        /// Emitted by `deployOutbox` when the factory CREATE2-deploys an Outbox. The synced factory
+        /// has no `getOutbox` registry — attestors discover the Outbox for their chain by scanning
+        /// this event filtered on the indexed `chainKey`. `outbox` and `chainKey` are indexed
+        /// (topics[1] and topics[2]).
+        event OutboxCreated(
+            address indexed outbox,
+            uint32 indexed chainKey,
+            address indexed owner,
+            address validator,
+            string version
+        );
     }
 
     #[sol(rpc)]
