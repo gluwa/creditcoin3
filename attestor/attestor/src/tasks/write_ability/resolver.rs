@@ -63,11 +63,15 @@ pub async fn resolve<P: Provider>(
     provider: &P,
     cfg: &Config,
     destination_chain_key: B256,
+    scan_from: &mut u64,
 ) -> Result<Option<ResolvedOutbox>> {
     let chain_key = cfg.write_ability_chain_key;
 
     // The Outbox address is resolved entirely on-chain from chain_key — never configured.
-    let Some(address) = resolve_outbox_address(provider, chain_key, destination_chain_key).await?
+    // `scan_from` is the caller-owned discovery cursor: it advances past already-scanned blocks so
+    // repeated resolve retries don't re-scan the whole chain history (see `resolve_outbox_address`).
+    let Some(address) =
+        resolve_outbox_address(provider, chain_key, destination_chain_key, scan_from).await?
     else {
         return Ok(None);
     };
@@ -97,6 +101,7 @@ async fn resolve_outbox_address<P: Provider>(
     provider: &P,
     chain_key: ChainKey,
     _destination_chain_key: B256,
+    scan_from: &mut u64,
 ) -> Result<Option<Address>> {
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
@@ -117,17 +122,19 @@ async fn resolve_outbox_address<P: Provider>(
     //    `getOutbox` registry, so scan its `OutboxCreated` events (chainKey is an indexed uint32,
     //    topics[2]) and take the first match — a factory deploys one Outbox per chain key.
     //
-    //    Scan from genesis (eth_getLogs defaults `fromBlock` to *latest*, which would only ever see
-    //    an OutboxCreated mined in the current block), but in bounded windows: a single
+    //    Scan in bounded windows (eth_getLogs defaults `fromBlock` to *latest*, and a single
     //    genesis→tip request exceeds common RPC block-range limits on any non-trivial chain — the
-    //    same reason the listener chunks at `MAX_LOG_BLOCK_RANGE`.
+    //    same reason the listener chunks at `MAX_LOG_BLOCK_RANGE`). Resume from the caller-owned
+    //    `scan_from` cursor rather than genesis: the factory emits OutboxCreated exactly once, so
+    //    once a retry has scanned [..=tip] and found nothing, the next retry only needs the new
+    //    blocks — otherwise every 12s retry re-issues a full-history log storm across all attestors.
     let tip = provider
         .get_block_number()
         .await
         .context("read EVM tip for Outbox discovery scan")?;
     let sig = IOutboxFactory::OutboxCreated::SIGNATURE_HASH;
     let topic_chain_key = alloy::primitives::U256::from(chain_key);
-    let mut from = 0u64;
+    let mut from = *scan_from;
     while from <= tip {
         let chunk_to = tip.min(from + MAX_LOG_BLOCK_RANGE - 1);
         let filter = alloy::rpc::types::Filter::new()
@@ -149,6 +156,9 @@ async fn resolve_outbox_address<P: Provider>(
         }
         from = chunk_to + 1;
     }
+    // Scanned everything up to `tip` with no match — advance the cursor so the next retry resumes
+    // from here instead of re-scanning history. (`from` is now `tip + 1`, saturating at u64::MAX.)
+    *scan_from = from;
     tracing::warn!(%factory, chain_key, "factory has emitted no OutboxCreated for chain_key yet");
     Ok(None)
 }
