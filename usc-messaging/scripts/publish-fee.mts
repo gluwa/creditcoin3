@@ -1,6 +1,6 @@
 // Plain-ethers fee-publish: quote from the live quoter → approve → publishAndCollectRelayerFee.
 import { ethers } from "ethers";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const a = JSON.parse(readFileSync("/tmp/e2e-deploy.json", "utf8"));
 const s = a.source;
@@ -28,5 +28,8 @@ const now = BigInt((await provider.getBlock("latest"))!.timestamp);
 const rcpt = await (await rc.publishAndCollectRelayerFee(true, payload, body.signedQuote, ethers.parseEther("5"), now + 3600n)).wait();
 const iface = new ethers.Interface(["event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool requiresAck, bytes payload)"]);
 const evt = rcpt!.logs.map((l: any) => { try { return iface.parseLog(l); } catch { return null; } }).find((e: any) => e?.name === "MessagePublished");
-console.log("🎉 published:", evt!.args.messageId, "block", rcpt!.blockNumber);
+const messageId = evt!.args.messageId as string;
+// Persist for the ack + claimDelivery assertions (they key off the exact messageId).
+writeFileSync("/tmp/e2e-published.json", JSON.stringify({ messageId, block: rcpt!.blockNumber }, null, 2));
+console.log("🎉 published:", messageId, "block", rcpt!.blockNumber);
 process.exit(0);
