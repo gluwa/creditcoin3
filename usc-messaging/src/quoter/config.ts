@@ -99,9 +99,11 @@ export function loadConfig(): QuoterConfig {
       process.env.QUOTER_EST_DELIVERY_SECS ?? "120",
     ),
     priceBufferBps: BigInt(process.env.QUOTER_PRICE_BUFFER_BPS ?? "1000"),
-    sourceChainId: BigInt(process.env.QUOTER_SOURCE_CHAIN_ID ?? "42"),
+    sourceChainId: BigInt(process.env.QUOTER_SOURCE_CHAIN_ID || "42"),
+    // `||` (not `??`): an empty string from a copied .env.example must fall back to the zero
+    // address, else quote signing calls ethers.getAddress("") and throws a 500 on /quote.
     relayerContract:
-      process.env.QUOTER_RELAYER_CONTRACT ??
+      process.env.QUOTER_RELAYER_CONTRACT ||
       "0x0000000000000000000000000000000000000000",
     chains: loadChains(),
   };
