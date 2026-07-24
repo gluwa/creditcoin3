@@ -21,6 +21,7 @@
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
+use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
 use attestor_primitives::ChainKey;
@@ -91,7 +92,7 @@ pub async fn resolve<P: Provider>(
 async fn resolve_outbox_address<P: Provider>(
     provider: &P,
     chain_key: ChainKey,
-    destination_chain_key: B256,
+    _destination_chain_key: B256,
 ) -> Result<Option<Address>> {
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
@@ -108,17 +109,29 @@ async fn resolve_outbox_address<P: Provider>(
     }
     let factory = factory.factoryAddr;
 
-    // 2. The factory's Outbox for this chain key.
-    let outbox = IOutboxFactory::new(factory, provider)
-        .getOutbox(destination_chain_key)
-        .call()
+    // 2. Discover the factory's Outbox for this chain key. The synced CREATE2 factory has no
+    //    `getOutbox` registry, so scan its `OutboxCreated` events (chainKey is an indexed uint32,
+    //    topics[2]) and take the most recent match.
+    // Scan from genesis: eth_getLogs defaults `fromBlock` to *latest*, which would only ever see
+    // an OutboxCreated mined in the current block. Factories deploy each Outbox once, so a
+    // full-range scan is cheap (one indexed-topic match per chain key).
+    let filter = alloy::rpc::types::Filter::new()
+        .address(factory)
+        .event_signature(IOutboxFactory::OutboxCreated::SIGNATURE_HASH)
+        .topic2(alloy::primitives::U256::from(chain_key))
+        .from_block(0u64);
+    let logs = provider
+        .get_logs(&filter)
         .await
-        .with_context(|| format!("IOutboxFactory.getOutbox at {factory} reverted"))?
-        ._0;
-    if outbox.is_zero() {
-        tracing::warn!(%factory, chain_key, "factory has no Outbox for chain_key yet");
+        .with_context(|| format!("eth_getLogs OutboxCreated at factory {factory} failed"))?;
+    let Some(log) = logs.last() else {
+        tracing::warn!(%factory, chain_key, "factory has emitted no OutboxCreated for chain_key yet");
         return Ok(None);
-    }
-    tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain");
+    };
+    let outbox = IOutboxFactory::OutboxCreated::decode_log(&log.inner, true)
+        .context("decode OutboxCreated log")?
+        .data
+        .outbox;
+    tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain (OutboxCreated scan)");
     Ok(Some(outbox))
 }
