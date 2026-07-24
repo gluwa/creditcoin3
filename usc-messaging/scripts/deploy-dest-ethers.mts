@@ -2,9 +2,12 @@
 // Artifacts come from the usc-contracts hardhat build. Run with tsx (Node 22).
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
+// usc-contracts checkout: $USC_CONTRACTS_DIR, else the sibling of this repo (…/Projects/usc-contracts).
+const UC = process.env.USC_CONTRACTS_DIR ?? fileURLToPath(new URL("../../../usc-contracts", import.meta.url));
 const ART = (p: string, n: string) =>
-  JSON.parse(readFileSync(`/Users/dylan/Projects/usc-contracts/artifacts/contracts/${p}/${n}.json`, "utf8"));
+  JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 
 const OUT = "/tmp/e2e-deploy.json";
 const CHAIN_KEY = 2;

@@ -34,12 +34,12 @@ export function buildServer(cfg: QuoterConfig): express.Express {
     try {
       const body = req.body as QuoteRequestBody;
 
-      const chainId = Number(body.destinationChain);
-      const chain = cfg.chains.get(chainId);
+      const chainKey = Number(body.destinationChain);
+      const chain = cfg.chains.get(chainKey);
       if (!chain)
         return res
           .status(400)
-          .json({ error: `unsupported destinationChain ${chainId}` });
+          .json({ error: `unsupported destinationChain ${chainKey}` });
 
       if (!body.targetContract || !ethers.isAddress(body.targetContract))
         return res
@@ -74,7 +74,7 @@ export function buildServer(cfg: QuoterConfig): express.Express {
         relayPrice: fee.relayPrice,
         acknowledgmentPrice: fee.acknowledgmentPrice,
         gasLimit,
-        destinationChain: chainId,
+        destinationChain: chainKey,
         requiresAck,
         payloadHash,
         targetContract: ethers.getAddress(body.targetContract),
@@ -97,7 +97,7 @@ export function buildServer(cfg: QuoterConfig): express.Express {
           relayPrice: fee.relayPrice.toString(),
           acknowledgmentPrice: fee.acknowledgmentPrice.toString(),
           gasLimit: gasLimit.toString(),
-          destinationChain: chainId,
+          destinationChain: chainKey,
           requiresAck,
           payloadHash,
           targetContract: fields.targetContract,

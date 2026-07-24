@@ -8,8 +8,10 @@
 import "dotenv/config";
 
 export interface ChainConfig {
-  /** EVM chain id of the destination chain (matches Quote.destinationChain). */
-  chainId: number;
+  /** USC destination chain key — the value carried in `Quote.destinationChain` and used on-chain
+   *  for `getCoreFee(uint16(destinationChain))`. This is the USC key (e.g. 2 = local anvil,
+   *  3 = Sepolia), NOT the EVM chain id, so quotes match the on-chain coreFee table. */
+  chainKey: number;
   /** Static USD price of the destination native token, e.g. "3000" for ETH. */
   nativeUsd: string;
   /** Fallback destination gas price in gwei, used when no rpcUrl is set or the RPC read fails. */
@@ -52,7 +54,7 @@ function req(name: string): string {
 // coreFee expressed in whole ATTEST as `coreFeeAttest`).
 const DEFAULT_CHAINS: ChainConfig[] = [
   {
-    chainId: 31337, // local anvil ("Anvil1")
+    chainKey: 2, // local anvil ("Anvil1") — USC chain key 2
     nativeUsd: "3000",
     gasPriceGwei: "1",
     rpcUrl: process.env.DESTINATION_CHAIN_RPC_URL,
@@ -60,7 +62,7 @@ const DEFAULT_CHAINS: ChainConfig[] = [
     ackGas: 500_000n,
   },
   {
-    chainId: 11155111, // Sepolia
+    chainKey: 3, // Sepolia — USC chain key 3
     nativeUsd: "3000",
     gasPriceGwei: "5",
     rpcUrl: process.env.SEPOLIA_RPC_URL,
@@ -73,7 +75,8 @@ function loadChains(): Map<number, ChainConfig> {
   const raw = process.env.QUOTER_CHAINS;
   const list: ChainConfig[] = raw
     ? (JSON.parse(raw) as Array<Record<string, unknown>>).map((c) => ({
-        chainId: Number(c.chainId),
+        // Accept `chainKey` (preferred) or legacy `chainId` for the USC destination chain key.
+        chainKey: Number(c.chainKey ?? c.chainId),
         nativeUsd: String(c.nativeUsd),
         gasPriceGwei: String(c.gasPriceGwei ?? "1"),
         rpcUrl: c.rpcUrl ? String(c.rpcUrl) : undefined,
@@ -83,7 +86,7 @@ function loadChains(): Map<number, ChainConfig> {
         ackGas: BigInt(Number(c.ackGas ?? 500_000)),
       }))
     : DEFAULT_CHAINS;
-  return new Map(list.map((c) => [c.chainId, c]));
+  return new Map(list.map((c) => [c.chainKey, c]));
 }
 
 export function loadConfig(): QuoterConfig {

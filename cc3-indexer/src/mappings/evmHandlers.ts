@@ -66,7 +66,8 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
 
 // USC write-ability: dynamically-discovered Outbox contracts on Creditcoin L1.
 // OutboxFactory: OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress)
-type OutboxCreatedArgs = [string, string];
+// OutboxCreated(address indexed outbox, uint32 indexed chainKey, address indexed owner, address validator, string version)
+type OutboxCreatedArgs = [string, bigint, string, string, string];
 // Outbox: MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool requiresAck, bytes payload)
 // emitterAddress is a bytes32 (20-byte EVM address left-aligned in the high bytes).
 type MessagePublishedArgs = [string, string, boolean, string];
@@ -87,8 +88,10 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         return;
     }
 
-    const [chainKeyRaw, outboxAddress] = event.args;
-    const chainKey = chainKeyRaw.toLowerCase();
+    // Synced factory event: (outbox, chainKey:uint32, owner, validator, version). chainKey arrives
+    // as a number; normalize to the same bytes32 form the factory-correspondence check below uses.
+    const [outboxAddress, chainKeyRaw] = event.args;
+    const chainKey = u64ChainKeyToBytes32(BigInt(chainKeyRaw));
     const address = outboxAddress.toLowerCase();
     // event.address is the factory that emitted OutboxCreated.
     const factoryId = event.address ? event.address.toLowerCase() : undefined;
