@@ -158,8 +158,11 @@ jobs:
 
       - name: Build usc-contracts artifacts (fee stack)
         working-directory: ./usc-contracts
+        # `npm install` (not `npm ci`): usc-contracts' committed lockfile can lag its package.json
+        # at the pinned SHA (e.g. a missing @openzeppelin/contracts entry), which `npm ci` rejects.
+        # We only need the compiled artifacts, so tolerate the drift and resolve on the fly.
         run: |
-          npm ci
+          npm install
           npx hardhat compile
           echo "USC_CONTRACTS_DIR=$GITHUB_WORKSPACE/usc-contracts" >> "$GITHUB_ENV"
 
