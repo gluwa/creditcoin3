@@ -277,6 +277,7 @@ jobs:
             --inbox-address "$INBOX_ADDR" \
             --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
             --attestor-set "$ATTESTOR_SET" \
+            --p2p-port 9300 \
             --relayer-fee-vault-address "$RELAYER_FEE_VAULT_ADDR" \
             --ack-proof-gen-url http://127.0.0.1:3100 \
             --ack-validator-address "$ACK_VALIDATOR_ADDR" \
