@@ -24,6 +24,7 @@ use tokio_util::sync::CancellationToken;
 use write_ability::abi::IOutbox;
 use write_ability::hash::message_hash;
 
+use super::cursor::CursorStore;
 use super::resolver::ResolvedOutbox;
 
 /// Poll cadence for `eth_getLogs`.
@@ -153,25 +154,44 @@ pub struct IndexedMessage {
 }
 
 /// Watch the resolved Outbox until `token` fires. Sends each finalized message on `tx`.
+///
+/// `cursor` persists the scan position (`last_seen`) across restarts: on boot the persisted value
+/// is preferred over `start_block`/head so a restart resumes exactly where it left off, and after
+/// every poll that advances the scan the new position is saved.
 pub async fn watch<P: Provider>(
     provider: &P,
     resolved: ResolvedOutbox,
     block_confirmation_depth: u64,
     start_block: Option<u64>,
+    cursor: CursorStore,
     tx: mpsc::Sender<IndexedMessage>,
     token: CancellationToken,
 ) -> Result<()> {
-    let mut last_seen = if let Some(start) = start_block {
+    // Cursor precedence: a persisted position wins over `start_block`/head so a restart resumes
+    // rather than skipping down-time messages (default config) or replaying the whole history from
+    // `start_block`. To force a different start position, remove the cursor file.
+    let mut last_seen = if let Some(persisted) = cursor.load() {
+        tracing::info!(
+            last_seen = persisted,
+            "⏮️ resuming message-attestation scan from persisted Outbox cursor"
+        );
+        persisted
+    } else if let Some(start) = start_block {
         tracing::info!(
             start_block = start,
             "⏮️ no persisted Outbox cursor; starting message-attestation scan from configured block"
         );
         start.saturating_sub(1)
     } else {
-        provider
+        let head = provider
             .get_block_number()
             .await
-            .context("failed to read Creditcoin L1 chain head")?
+            .context("failed to read Creditcoin L1 chain head")?;
+        tracing::info!(
+            head,
+            "⏮️ no persisted Outbox cursor or start_block; scanning from current head (future messages only)"
+        );
+        head
     };
 
     let mut tick = tokio::time::interval(Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS));
@@ -201,6 +221,7 @@ pub async fn watch<P: Provider>(
                 return Ok(());
             }
             _ = tick.tick() => {
+                let prev_seen = last_seen;
                 // Bound each poll so a black-holed connection can't hang the loop indefinitely; a
                 // timeout counts as a failure just like an RPC error.
                 let outcome = match tokio::time::timeout(
@@ -214,6 +235,21 @@ pub async fn watch<P: Provider>(
                         "outbox poll exceeded {POLL_TIMEOUT:?} — RPC unresponsive"
                     )),
                 };
+
+                // Persist any forward progress this poll made — including a *partial* advance before
+                // an error mid-way through a chunked backfill (`poll_once` advances `last_seen` per
+                // successful chunk). At-least-once by design: re-scanning the in-flight range after a
+                // crash is harmless (downstream dedups), so we save whenever `last_seen` moved rather
+                // than gating on `Ok`. A persistence failure is logged but never fails the poll —
+                // losing the volume shouldn't take signing down; the next advance retries the write.
+                if last_seen != prev_seen {
+                    if let Err(err) = cursor.save(last_seen) {
+                        tracing::warn!(
+                            %err, last_seen,
+                            "failed to persist Outbox cursor; will retry on next advance"
+                        );
+                    }
+                }
 
                 match outcome {
                     Ok(()) => consecutive_failures = 0,

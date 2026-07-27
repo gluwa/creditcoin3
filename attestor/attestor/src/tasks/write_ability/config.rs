@@ -9,6 +9,7 @@
 //! precompile). Addresses are deliberately not configurable: supplying an address separately from
 //! the chain key is error prone, because the address might not correspond to that chain key.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use alloy::primitives::Address;
@@ -58,8 +59,18 @@ pub struct Config {
     pub block_confirmation_depth: u64,
 
     /// First Creditcoin L1 EVM block to scan on startup. When `None`, the listener starts at the
-    /// current head and only signs future messages.
+    /// current head and only signs future messages. Only consulted when there is no persisted scan
+    /// cursor yet (see [`state_dir`](Self::state_dir)); once a cursor exists it takes precedence, so
+    /// a restart resumes rather than replaying from `start_block`.
     pub start_block: Option<u64>,
+
+    /// Directory for durable write-ability state — currently the Outbox scan cursor (`last_seen`
+    /// block), persisted so a restart resumes exactly where it left off instead of skipping messages
+    /// published while down or re-signing the whole history. The boot verifies the directory is writable
+    /// (see [`super::cursor::ensure_writable`]) so a missing/read-only volume fails loudly rather
+    /// than silently degrading. Defaults to [`DEFAULT_STATE_DIR`]; must be a persistent volume for
+    /// the cursor to survive pod restarts.
+    pub state_dir: PathBuf,
 
     /// Hard cap on distinct tracked `message_hash` entries (anti-abuse — confluence §5.4).
     pub max_tracked_messages: usize,
@@ -83,6 +94,7 @@ impl Config {
             write_ability_chain_key: 0,
             block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
             start_block: None,
+            state_dir: PathBuf::from(DEFAULT_STATE_DIR),
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
             attestor_set: AttestorSet::default(),
@@ -171,6 +183,11 @@ impl Config {
     }
 }
 
+/// Default directory for durable write-ability state (the Outbox scan cursor). Matches the
+/// persistent volume the attestor StatefulSet mounts (`/data`), so production needs no explicit
+/// `state_dir`; local/dev runs override it in config.
+pub const DEFAULT_STATE_DIR: &str = "/data";
+
 /// Default confirmation depth below the EVM tip before a `MessagePublished` log is signed.
 /// Three blocks matches the usual time-to-finality on Creditcoin.
 pub const DEFAULT_BLOCK_CONFIRMATION_DEPTH: u64 = 3;
@@ -216,6 +233,7 @@ mod tests {
             write_ability_chain_key: 2,
             block_confirmation_depth: DEFAULT_BLOCK_CONFIRMATION_DEPTH,
             start_block: None,
+            state_dir: PathBuf::from(DEFAULT_STATE_DIR),
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
             attestor_set: AttestorSet::Static(vec![address!(
