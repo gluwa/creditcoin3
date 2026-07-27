@@ -108,7 +108,7 @@ jobs:
           # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
           # could pass or fail as the relayer's default branch moved). Bump this deliberately when
           # a relayer change needs to be exercised here.
-          ref: 4cd1b01dddcb7ef63c21cfe53fc10a08adbf0c31 # usc-message-relayer #25 (deliver at funded gasLimit) — bump to the merge SHA once #25 lands
+          ref: 9ffe2a29dfcaeccc6df4dc524d76c71955840cd4 # usc-message-relayer main @ #26 (funded-gas delivery + under-funding/timeout hardening)
           path: usc-message-relayer
 
       # Fee-integrated write-ability contracts. The plain-ethers deploy scripts read their compiled
