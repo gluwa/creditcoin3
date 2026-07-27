@@ -382,15 +382,15 @@ pub async fn run(
     // doing block attestation. (Polling is simpler and more robust than event subscription; picking
     // up a later Outbox *re-registration* mid-run remains a finer-grained TODO in resolver.rs.)
     let mut resolve_attempts: u64 = 0;
-    // Discovery cursor: advances past blocks already scanned for `OutboxCreated` so each retry only
-    // scans new blocks instead of re-scanning the whole chain history every interval.
-    let mut outbox_scan_from: u64 = 0;
+    // Discovery cursor: advances past confirmed blocks already scanned for `OutboxCreated` so each
+    // retry only scans new blocks instead of re-scanning the whole chain history every interval.
+    let mut outbox_cursor = resolver::OutboxDiscoveryCursor::default();
     let resolved = loop {
         match resolver::resolve(
             &provider,
             &cfg,
             state.destination_chain_key,
-            &mut outbox_scan_from,
+            &mut outbox_cursor,
         )
         .await
         {
