@@ -288,7 +288,6 @@ async fn execute_transfer_query(
         eth_rpc_url: Some(eth_rpc_url.to_string()),
         block_height: Some(block_height),
         txn_hash: Some(tx_hash.to_string()),
-        data_choice: Some(4), // Native transfer data choice (4 = NativeTokenTransferData)
         chain_key,
         send_tx,
     };

@@ -22,7 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          lfs: true
           fetch-depth: 0
 
       - name: Check if version.rs was modified
@@ -34,7 +33,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          lfs: true
           fetch-depth: 0
 
       - name: Check for changes in Proof-of-Stake EPOCH duration

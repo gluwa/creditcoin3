@@ -51,12 +51,6 @@ where
     ) -> EvmResult<bool> {
         handle.record_log_costs_manual(3, 32)?;
 
-        if handle.context().address != handle.code_address() {
-            return Err(revert(
-                "SubstrateTransfer: cannot be called with DELEGATECALL or CALLCODE",
-            ));
-        }
-
         // Build call with origin.
         {
             log::debug!("bytes: {destination:?}");

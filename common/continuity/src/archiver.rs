@@ -192,7 +192,21 @@ impl EthRpcProvider for ArchiverEthProvider {
         let mut blocks = Vec::with_capacity(roots.len());
         let mut prev_digest = lower_digest;
 
-        for (height, root) in roots {
+        // Validate that every returned entry sits at the expected height
+        // (block_number == start + i). The count check above only verifies the array
+        // length — the archiver could still return entries in a different order, with
+        // gaps, or with duplicates and the count would happen to line up if mirrored
+        // by extras elsewhere. EVM continuity proofs incorporate height-ordered roots
+        // into the digest chain, so an off-by-one or reordering silently corrupts the
+        // proof. Reject the whole response on any mismatch and let the caller decide
+        // whether to retry or fall back to the EVM RPC.
+        for (i, (height, root)) in roots.into_iter().enumerate() {
+            let expected_height = start + i as u64;
+            anyhow::ensure!(
+                height == expected_height,
+                "archiver returned out-of-order or off-by-one entry at index {i}: \
+                 expected block {expected_height}, got {height} (range {start}..={end})"
+            );
             let block = Block::new_from_prev_digest(height, root, prev_digest);
             prev_digest = block.digest();
             blocks.push(block);
@@ -216,6 +230,20 @@ impl EthRpcProvider for ArchiverEthProvider {
         self.eth_fallback
             .get_tx_hash_by_index(block_number, tx_index)
             .await
+    }
+
+    async fn get_block_tx_bytes_and_tx_hash(
+        &self,
+        block_number: u64,
+        tx_index: u64,
+    ) -> Result<(Vec<Vec<u8>>, Option<H256>)> {
+        self.eth_fallback
+            .get_block_tx_bytes_and_tx_hash(block_number, tx_index)
+            .await
+    }
+
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        self.eth_fallback.get_block_tx_data(block_number).await
     }
 
     async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {

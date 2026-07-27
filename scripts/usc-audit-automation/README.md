@@ -1,8 +1,7 @@
 # USC Audit Automation
 
 A Deno-based TypeScript tool that runs attestation sanity checks on USC
-(Creditcoin3) and reports to Slack or stdout. Matches the style of the
-[traffic-simulator](../traffic-simulator).
+(Creditcoin3) and reports to Slack or stdout.
 
 All configuration is loaded from a single JSON file. For CI, env overrides:
 `USC_NOTI_SLACK_BOT_TOKEN`, `USC_NOTI_SLACK_CHANNEL_ID`,
@@ -60,6 +59,9 @@ variables.
 - **uscWsUrl**, **graphqlUrl**: Required
 - **ethRpc**: Array of `{ chainId, chainKey?, url }`; `chainKey` optional
   (discovered from USC if omitted)
+- **balanceChecks**: Optional native/EVM account balance checks. Use
+  `type: "substrate"` for SS58 accounts queried through `uscWsUrl`; omit `type`
+  for EVM accounts queried through Blockscout/`eth_getBalance`.
 - **slackBotToken**, **slackChannelId**, **slackAlertGroup**: Optional; required
   only when not using `--no-slack`
 
@@ -81,7 +83,7 @@ directory, so it works regardless of current working directory.
 
 - `config-devnet.json` - Creditcoin3 Devnet
 - `config-testnet.json` - Creditcoin USC Testnet
-- `config-testnet-v1.json` - Creditcoin USC Testnet V1 (legacy, old release)
+- `config-mainnet.json` - Creditcoin3 Mainnet
 
 ## Development
 

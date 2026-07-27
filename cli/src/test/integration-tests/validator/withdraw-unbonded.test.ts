@@ -183,7 +183,7 @@ describe('withdraw-unbonded', () => {
                     },
                 );
             },
-            90_000,
+            60_000,
         );
 
         testIf(
@@ -205,7 +205,6 @@ describe('withdraw-unbonded', () => {
                     },
                 );
             },
-            90_000,
         );
 
         testIf(

@@ -11,6 +11,12 @@ pub trait SupportedChainsProvider {
 }
 
 pub trait OnRegisterChainProvider {
+    /// Called when a new chain is registered. Returns `Err(&'static str)` if the
+    /// implementation rejects the configuration (e.g. zero-valued attestation parameters
+    /// that would brick `commit_attestation` weight calculation). The caller is expected
+    /// to convert the error into `DispatchError` and propagate it — `DispatchError`
+    /// already implements `From<&'static str>`, so `?` works directly inside a
+    /// dispatchable.
     fn on_register_chain(
         chain_key: ChainKey,
         chain_id: ChainId,
@@ -22,5 +28,5 @@ pub trait OnRegisterChainProvider {
         max_invulnerables: Option<u32>,
         attestation_chain_genesis_block_number: Option<u64>,
         encoding: ChainEncodingVersion,
-    );
+    ) -> Result<(), &'static str>;
 }

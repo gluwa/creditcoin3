@@ -4,6 +4,7 @@
 
 import type { BuiltReport } from "./slack.ts";
 import type { AuditConfig } from "./config.ts";
+import { getNativeBalance } from "./usc.ts";
 
 export interface BalanceAccountConfig {
   address: string;
@@ -12,9 +13,13 @@ export interface BalanceAccountConfig {
 
 export interface BalanceNetworkConfig {
   name: string;
-  baseUrl: string;
+  type?: "evm" | "substrate";
+  baseUrl?: string;
   rpcUrl?: string;
   accounts: BalanceAccountConfig[];
+  tokenSymbol?: string;
+  tokenDecimals?: number;
+  customThreshold?: number;
 }
 
 const MAX_RETRIES = 3;
@@ -164,6 +169,21 @@ export async function fetchBalance(
   }
 }
 
+async function fetchConfiguredBalance(
+  net: BalanceNetworkConfig,
+  address: string,
+): Promise<bigint> {
+  if (net.type === "substrate") {
+    return await getNativeBalance(address);
+  }
+
+  if (!net.baseUrl) {
+    throw new Error("missing baseUrl");
+  }
+
+  return await fetchBalance(net.baseUrl, address, net.rpcUrl);
+}
+
 export async function runBalanceChecks(
   config: AuditConfig,
 ): Promise<BuiltReport> {
@@ -183,14 +203,8 @@ export async function runBalanceChecks(
   let hasLowBalances = false;
 
   for (const net of networks) {
+    const symbol = net.tokenSymbol ?? TOKEN_SYMBOL;
     lines.push(`Balances Details: ${net.name}`);
-
-    if (!net.baseUrl) {
-      hasErrors = true;
-      lines.push("❌ missing baseUrl");
-      lines.push("");
-      continue;
-    }
 
     if (!net.accounts?.length) {
       hasErrors = true;
@@ -203,26 +217,26 @@ export async function runBalanceChecks(
       const display = formatDisplay(account);
 
       try {
-        const bal = await fetchBalance(
-          net.baseUrl,
-          account.address,
-          net.rpcUrl,
-        );
-        const token = Number(bal) / 10 ** TOKEN_DECIMALS;
-        const isLow = bal < THRESHOLD_WEI;
+        const balance = await fetchConfiguredBalance(net, account.address);
+        const tokenDecimals = net.tokenDecimals ?? TOKEN_DECIMALS;
+        const tokenWithDecimals = Number(balance) / 10 ** tokenDecimals;
+        const threshold = net.customThreshold
+          ? BigInt(net.customThreshold) * (10n ** BigInt(tokenDecimals))
+          : THRESHOLD_WEI;
+        const isLow = balance < threshold;
 
         lines.push(
           `${isLow ? "❌" : "✅"} ${display}: ${
-            token.toFixed(6)
-          } ${TOKEN_SYMBOL}`,
+            tokenWithDecimals.toFixed(6)
+          } ${symbol}`,
         );
 
         if (isLow) {
           hasLowBalances = true;
           lowLines.push(
-            `- ${config.uscNetworkName}, \`${display}\`: ${
-              token.toFixed(6)
-            } ${TOKEN_SYMBOL}`,
+            `- ${net.name}, \`${display}\`: ${
+              tokenWithDecimals.toFixed(6)
+            } ${symbol}`,
           );
         }
       } catch (err) {
@@ -238,7 +252,6 @@ export async function runBalanceChecks(
 
   if (lowLines.length > 0) {
     lines.push("*Low balance alert*");
-    lines.push(`Threshold: ${THRESHOLD_CTC} ${TOKEN_SYMBOL}`);
     lines.push(...lowLines);
   }
 

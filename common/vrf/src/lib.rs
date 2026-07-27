@@ -13,7 +13,7 @@ use sp_core::{
 };
 use thiserror::Error;
 
-use attestor_primitives::AttestorId;
+use attestor_primitives::{AttestorId, ChainKey};
 use randomness_primitives::Randomness;
 
 #[derive(Decode, Encode, Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -63,17 +63,19 @@ pub enum Error {
 ///
 /// # Arguments
 ///
-/// * `epoch` - The current epoch for which the proof is being generated.
 /// * `working_set_size` - The size of the attestor set.
 /// * `target_sample_size` - The target sample size for the attestor set.
 /// * `randomness` - A source of randomness used in VRF.
 /// * `keys` - The SR25519 key pair of the attestor.
 /// * `attestor_id` - The ID of the attestor.
-/// * `source_block_height` - The block height used for generating the transcript.
+/// * `header_number` - The block height used for generating the transcript.
+/// * `epoch` - The current epoch for which the proof is being generated.
+/// * `chain_key` - The chain key used for generating the transcript.
 ///
 /// # Returns
 ///
 /// Returns a `ProofOfInclusion` if successful, or an `Error` if the attestor is not selected or there is an issue with the VRF process.
+#[allow(clippy::too_many_arguments)]
 pub fn make_proof_of_inclusion(
     working_set_size: u64,
     target_sample_size: u64,
@@ -82,9 +84,10 @@ pub fn make_proof_of_inclusion(
     attestor_id: &AttestorId,
     header_number: u64,
     epoch: u64,
+    chain_key: ChainKey,
 ) -> Result<ProofOfInclusion, Error> {
     // Create the transcript
-    let transcript = make_transcript(header_number, randomness, attestor_id);
+    let transcript = make_transcript(header_number, randomness, attestor_id, chain_key);
 
     // Create the random number
     let random = keys.make_bytes(VRF_CONTEXT, &transcript);
@@ -123,6 +126,8 @@ pub fn make_proof_of_inclusion(
 /// * `randomness` - A source of randomness used in VRF.
 /// * `proof_of_inclusion` - The proof of inclusion to verify.
 /// * `attestor_id` - The ID of the attestor.
+/// * `header_number` - The block height used for generating the transcript.
+/// * `chain_key` - The chain key used for generating the transcript.
 ///
 /// # Returns
 ///
@@ -134,8 +139,14 @@ pub fn verify_proof_of_inclusion(
     proof_of_inclusion: &ProofOfInclusion,
     attestor_id: &AttestorId,
     header_number: u64,
+    chain_key: ChainKey,
 ) -> Result<bool, Error> {
-    let vrf_input = VrfSignData::new(make_transcript(header_number, randomness, attestor_id));
+    let vrf_input = VrfSignData::new(make_transcript(
+        header_number,
+        randomness,
+        attestor_id,
+        chain_key,
+    ));
 
     let vrf_signature = VrfSignature {
         pre_output: VrfPreOutput(
@@ -193,6 +204,7 @@ fn make_transcript(
     header_number: u64,
     randomness: &Randomness,
     attestor_id: &AttestorId,
+    chain_key: ChainKey,
 ) -> VrfTranscript {
     VrfTranscript::new(
         b"attestation_engine",
@@ -200,6 +212,7 @@ fn make_transcript(
             (b"block_number", &header_number.encode()),
             (b"randomness", randomness.as_ref()),
             (b"id", &attestor_id.encode()),
+            (b"chain_key", &chain_key.encode()),
         ],
     )
 }
@@ -217,13 +230,11 @@ fn make_transcript(
 ///
 /// Returns the threshold value as a `u128`.
 fn calculate_threshold(target_sample_size: u128, working_size: u128) -> u128 {
-    if working_size <= 1 {
+    if working_size <= 1 || target_sample_size >= working_size {
         return MAX_U128;
     }
-    // Calculate the threshold
-    MAX_U128
-        .div_ceil(working_size)
-        .saturating_mul(target_sample_size)
+
+    (MAX_U128 / working_size).saturating_mul(target_sample_size)
 }
 
 #[cfg(test)]
@@ -243,6 +254,7 @@ mod tests {
         let attestor_id = AttestorId::from_public(keys.public().0);
         let header_number = 100;
         let epoch = 1;
+        let chain_key = 1u64;
 
         let proof_of_inclusion = make_proof_of_inclusion(
             working_set_size,
@@ -252,16 +264,18 @@ mod tests {
             &attestor_id,
             header_number,
             epoch,
+            chain_key,
         )
         .unwrap();
 
         assert!(verify_proof_of_inclusion(
-            threshold,
             working_set_size,
+            threshold,
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
-            header_number
+            header_number,
+            chain_key,
         )
         .unwrap());
     }
@@ -277,6 +291,7 @@ mod tests {
         let attestor_id = AttestorId::from_public(keys.public().0);
         let header_number = 100;
         let epoch = 1;
+        let chain_key = 1u64;
 
         let res = make_proof_of_inclusion(
             working_set_size,
@@ -286,6 +301,7 @@ mod tests {
             &attestor_id,
             header_number,
             epoch,
+            chain_key,
         );
 
         assert_eq!(res, Err(Error::NotSelected));
@@ -302,15 +318,17 @@ mod tests {
         let attestor_id = AttestorId::from_public(keys.public().0);
         let header_number = 100;
         let epoch = 1;
+        let chain_key = 1u64;
 
         let proof_of_inclusion = make_proof_of_inclusion(
-            threshold,
             working_set_size,
+            threshold,
             &randomness,
             &keys,
             &attestor_id,
             header_number,
             epoch,
+            chain_key,
         )
         .unwrap();
 
@@ -318,12 +336,13 @@ mod tests {
         let randomness = Randomness::from(H256::random());
 
         assert!(!verify_proof_of_inclusion(
-            threshold,
             working_set_size,
+            threshold,
             &randomness,
             &proof_of_inclusion,
             &attestor_id,
-            header_number
+            header_number,
+            chain_key,
         )
         .unwrap());
     }

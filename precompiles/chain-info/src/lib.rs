@@ -11,18 +11,18 @@ use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
 use pallet_attestation::{
-    AttestationChainGenesisBlockNumber, Attestations, CheckpointBuckets, Checkpoints,
-    LastCheckpoint, LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
+    AttestationChainGenesisBlockNumber, Attestations, CheckpointBuckets, LastCheckpoint,
+    LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
 use pallet_supported_chains::SupportedChains;
 use precompile_utils::{prelude::*, solidity::Codec};
 
 // Gas cost constants
-/// Cost of each storage read (matches cold SLOAD) in gas.
+/// Cost of each storage read (matches cold SLOAD) in gas. Also charged per item pulled from a
+/// storage-prefix iteration: each item is a full key+value trie read, so it must be priced as a
+/// cold lookup, otherwise a large prefix scan is charged far under its real DB cost.
 pub const GAS_STORAGE_LOOKUP: u64 = 2_600;
-/// Per item processed in iteration
-pub const GAS_PER_ITERATION_ITEM: u64 = 26;
 
 #[cfg(test)]
 mod mock;
@@ -88,6 +88,25 @@ pub struct BoundsCheckResult {
     pub is_attested: bool,
 }
 
+/// Probe `SupportedChains` for `chain_key`. Charges a single storage lookup and reverts the
+/// call if the chain isn't registered.
+///
+/// Why revert rather than return a zero default: most methods here have `exists: false` sentinels
+/// already used for "this height has no data yet" — a Solidity caller can't distinguish that
+/// from "the chain_key you passed is bogus" if both fall through to the default. Reverting
+/// surfaces the input error immediately (and refunds remaining gas, which is cheaper than
+/// burning the rest of the method's lookups against an unsupported key).
+fn ensure_chain_supported<Runtime: pallet_supported_chains::Config>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+) -> EvmResult<()> {
+    handle.record_cost(GAS_STORAGE_LOOKUP)?;
+    if !SupportedChains::<Runtime>::contains_key(chain_key) {
+        return Err(RevertReason::custom("chain not supported").into());
+    }
+    Ok(())
+}
+
 #[precompile_utils::precompile]
 impl<Runtime> ChainInfoPrecompile<Runtime>
 where
@@ -146,6 +165,8 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<u64> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         let height = AttestationChainGenesisBlockNumber::<Runtime>::get(chain_key);
 
         handle.record_db_read::<Runtime>(height.encoded_size())?;
@@ -159,6 +180,8 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         if let Some(last_digest) = LastDigest::<Runtime>::get(chain_key) {
             handle.record_db_read::<Runtime>(last_digest.encoded_size())?;
 
@@ -188,6 +211,8 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         if let Some(last_checkpoint) = LastCheckpoint::<Runtime>::get(chain_key) {
             handle.record_db_read::<Runtime>(last_checkpoint.encoded_size())?;
 
@@ -209,6 +234,8 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         let maybe_last_checkpoint_height =
@@ -230,31 +257,45 @@ where
 
                 let mut items_processed = 0_u64;
 
-                // We search the checkpoint bucket for the highest checkpoint below the target height.
-                maybe_highest =
+                // Collect this bucket's heights below the target, then probe them from
+                // highest downward. `CheckpointBuckets` is expected to mirror `Checkpoints`
+                // (writes are paired), but the prefix clears in `clear_or_revert.rs` advance
+                // the two maps' cursors independently during chain removal, so a bucket can
+                // transiently hold heights whose checkpoint was already cleared. Skip such
+                // orphans and keep probing *within* the bucket — only fall through to the
+                // next pivot once every height here is exhausted. Probing extremal-first with
+                // an early break keeps the common (no-desync) case at a single lookup.
+                let mut candidates: Vec<u64> =
                     CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
                         .inspect(|_| {
                             items_processed += 1;
                         })
                         .filter(|block_number| *block_number < target_height)
-                        .max_by_key(|block_number| *block_number)
-                        .map(|block_number| {
-                            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                        .collect();
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
-                            // At this point, we know the checkpoint exists. So we can safely unwrap.
-                            let digest =
-                                Checkpoints::<Runtime>::get(chain_key, block_number).unwrap();
+                // Highest first.
+                candidates.sort_unstable_by(|a, b| b.cmp(a));
 
-                            <EvmResult<HeightHashResult>>::Ok(HeightHashResult {
-                                height: block_number,
-                                hash: digest,
-                                is_attestation: false,
-                                exists: true,
-                            })
-                        })
-                        .transpose()?;
-
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                maybe_highest = None;
+                for block_number in candidates {
+                    // `checkpoint_if_stable` performs up to two storage reads —
+                    // `CheckpointPruningStates::get` followed by `Checkpoints::get` — so charge
+                    // both lookups unconditionally (matches `block-prover::get_checkpoint`).
+                    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+                    if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
+                        chain_key,
+                        block_number,
+                    ) {
+                        maybe_highest = Some(HeightHashResult {
+                            height: block_number,
+                            hash: digest,
+                            is_attestation: false,
+                            exists: true,
+                        });
+                        break;
+                    }
+                }
 
                 if maybe_highest.is_some() {
                     break;
@@ -285,24 +326,35 @@ where
                 }) {
                 highest
             } else if let Some(last_checkpoint_height) = maybe_last_checkpoint_height {
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                // `checkpoint_if_stable` does the `CheckpointPruningStates` guard read plus the
+                // `Checkpoints` read — charge both.
+                handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
-                // If we didn't find any attestations below the target height, we fall back to the last checkpoint.
-                let digest = Checkpoints::<Runtime>::get(chain_key, last_checkpoint_height)
-                    .unwrap_or_default();
-
-                HeightHashResult {
-                    height: last_checkpoint_height,
-                    hash: digest,
-                    is_attestation: false,
-                    exists: true,
+                // If we didn't find any attestations below the target height, we fall back to
+                // the last checkpoint. `checkpoint_if_stable` returns `None` when the height's
+                // pivot is still being drained post-revert; surface that as `exists: false`
+                // rather than `unwrap_or_default()`-ing to a zero digest with `exists: true`,
+                // which would advertise a stale-but-withheld digest as live data. Matches
+                // `get_checkpoint_for_height`'s behaviour for the same gated read.
+                if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
+                    chain_key,
+                    last_checkpoint_height,
+                ) {
+                    HeightHashResult {
+                        height: last_checkpoint_height,
+                        hash: digest,
+                        is_attestation: false,
+                        exists: true,
+                    }
+                } else {
+                    HeightHashResult::default()
                 }
             } else {
                 // If there are no attestations and no checkpoints, return default.
                 HeightHashResult::default()
             };
 
-            handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+            handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
             Ok(highest)
         }
@@ -315,6 +367,8 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<HeightHashResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         let maybe_last_checkpoint_height =
@@ -336,30 +390,39 @@ where
 
                 let mut items_processed = 0_u64;
 
-                // We search the checkpoint bucket for the lowest checkpoint above the target height.
-                maybe_lowest =
+                // See the matching note in `find_highest_attested_before`: probe within the
+                // bucket (lowest first) and skip orphans whose `Checkpoints` entry was already
+                // cleared, only falling through to the next pivot once this bucket is exhausted.
+                let mut candidates: Vec<u64> =
                     CheckpointBuckets::<Runtime>::iter_key_prefix((chain_key, block_pivot))
                         .inspect(|_| {
                             items_processed += 1;
                         })
                         .filter(|block_number| *block_number >= target_height)
-                        .min_by_key(|block_number| *block_number)
-                        .map(|block_number| {
-                            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                        .collect();
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
-                            // At this point, we know the checkpoint exists. So we can safely unwrap.
-                            let digest =
-                                Checkpoints::<Runtime>::get(chain_key, block_number).unwrap();
-                            <EvmResult<HeightHashResult>>::Ok(HeightHashResult {
-                                height: block_number,
-                                hash: digest,
-                                is_attestation: false,
-                                exists: true,
-                            })
-                        })
-                        .transpose()?;
+                // Lowest first.
+                candidates.sort_unstable();
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                maybe_lowest = None;
+                for block_number in candidates {
+                    // See the matching note in `find_highest_attested_before`: the helper does
+                    // up to two storage reads, so charge both lookups unconditionally.
+                    handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+                    if let Some(digest) = PalletAttestationPoc::<Runtime>::checkpoint_if_stable(
+                        chain_key,
+                        block_number,
+                    ) {
+                        maybe_lowest = Some(HeightHashResult {
+                            height: block_number,
+                            hash: digest,
+                            is_attestation: false,
+                            exists: true,
+                        });
+                        break;
+                    }
+                }
 
                 if maybe_lowest.is_some() {
                     break;
@@ -391,7 +454,7 @@ where
                 })
                 .unwrap_or_default();
 
-            handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+            handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
             Ok(lowest)
         }
@@ -404,6 +467,8 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<bool> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         let maybe_last_checkpoint_height =
@@ -422,7 +487,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() >= target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 // Since the last checkpoint is below the target height, if we found any attestation above (or at) the target height,
                 // we can be sure that target height is attested.
@@ -449,7 +514,7 @@ where
                             })
                             .any(|block_number| block_number <= target_height);
 
-                    handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                    handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                     if found_prev_checkpoint {
                         break;
@@ -478,7 +543,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() == target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 if found_attestation {
                     // If we found an attestation exactly at the target height, we can be sure that target height is attested.
@@ -495,7 +560,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() > target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
                 items_processed = 0_u64;
@@ -507,7 +572,7 @@ where
                     })
                     .any(|(_, attestation)| attestation.header_number() < target_height);
 
-                handle.record_cost(GAS_PER_ITERATION_ITEM * items_processed)?;
+                handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
                 (found_next_attestation, found_prev_attestation)
             }
@@ -523,6 +588,12 @@ where
         chain_key: ChainKey,
         target_height: u64,
     ) -> EvmResult<BoundsCheckResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
+        // `find_highest_attested_before` / `find_lowest_attested_after` each repeat the
+        // supported-chain check internally. For the supported path that's 2 extra lookups; for
+        // the unsupported path the revert above means they never run at all. Worth the small
+        // redundancy to keep the inner methods self-guarded when called externally.
         let prev_attestation =
             Self::find_highest_attested_before(handle, chain_key, target_height)?;
         let next_attestation = Self::find_lowest_attested_after(handle, chain_key, target_height)?;
@@ -547,6 +618,8 @@ where
         chain_key: ChainKey,
         digest: H256,
     ) -> EvmResult<HeightResult> {
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
+
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
         if let Some(attestation) = Attestations::<Runtime>::get(chain_key, digest) {
@@ -566,9 +639,15 @@ where
         chain_key: ChainKey,
         height: u64,
     ) -> EvmResult<HashResult> {
-        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+        ensure_chain_supported::<Runtime>(handle, chain_key)?;
 
-        if let Some(digest) = Checkpoints::<Runtime>::get(chain_key, height) {
+        // `checkpoint_if_stable` does the `CheckpointPruningStates` guard read plus the
+        // `Checkpoints` read — charge both (matches `block-prover::get_checkpoint`).
+        handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+
+        if let Some(digest) =
+            PalletAttestationPoc::<Runtime>::checkpoint_if_stable(chain_key, height)
+        {
             Ok(HashResult {
                 hash: digest,
                 exists: true,

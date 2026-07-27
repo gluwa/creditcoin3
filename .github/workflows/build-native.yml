@@ -30,8 +30,6 @@ name: Reusable workflow to build a native client
         required: false
         type: boolean
 
-permissions: read-all
-
 jobs:
   build-creditcoin-node:
     runs-on: ${{ fromJSON(inputs.runs-on) }}

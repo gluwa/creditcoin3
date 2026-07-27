@@ -123,7 +123,7 @@ fn properties() -> Properties {
 }
 
 const UNITS: Balance = 1_000_000_000_000_000_000;
-const EVM_CHAINID: u64 = 102030;
+const EVM_CHAINID: u64 = 102036;
 
 /// CC3 chainspec configurations
 pub fn devnet_config() -> Result<ChainSpec, String> {
@@ -421,7 +421,7 @@ fn devnet_genesis(
                     1,
                     "Ethereum".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    MATURITY_FIXED_DELAY_10.to_string(),
+                    MATURITY_EVM_SAFE.to_string(),
                 ),
                 // 2 Anvil network one
                 (
@@ -435,7 +435,7 @@ fn devnet_genesis(
                     11155111,
                     "Sepolia ethereum".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    MATURITY_FIXED_DELAY_10.to_string(),
+                    MATURITY_EVM_SAFE.to_string(),
                 ),
                 // 4. Anvil network two
                 (
@@ -457,7 +457,7 @@ fn devnet_genesis(
                     80002,
                     "Polygon amoy testnet".as_bytes().to_vec(),
                     ChainEncodingVersion::V1,
-                    MATURITY_FIXED_DELAY_10.to_string(),
+                    MATURITY_EVM_SAFE.to_string(),
                 ),
             ],
             _phantom: Default::default(),

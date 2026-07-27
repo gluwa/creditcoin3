@@ -41,7 +41,6 @@ pub struct NativeQueryParams {
     pub eth_rpc_url: Option<String>,
     pub block_height: Option<u64>,
     pub txn_hash: Option<String>,
-    pub data_choice: Option<u64>,
     pub chain_key: u64,
     pub send_tx: bool,
 }
@@ -77,9 +76,6 @@ pub enum Commands {
 
         #[arg(long)]
         txn_hash: Option<String>,
-
-        #[arg(long)]
-        data_choice: Option<u64>,
 
         /// Chain key for attestation (Creditcoin3 chain identifier)
         #[arg(long, default_value = "2")]
@@ -183,7 +179,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
             eth_rpc_url,
             block_height,
             txn_hash,
-            data_choice,
             chain_key,
             send_tx,
         } => {
@@ -196,7 +191,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     eth_rpc_url,
                     block_height,
                     txn_hash,
-                    data_choice,
                     chain_key,
                     send_tx,
                 };
@@ -384,7 +378,6 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
         eth_rpc_url: params.eth_rpc_url,
         block_height: params.block_height,
         txn_hash: params.txn_hash,
-        data_choice: params.data_choice,
     };
 
     let prompt_output = prompt_user(prompt_args).expect("Failed to prompt user");
@@ -523,7 +516,6 @@ pub struct PromptArgs {
     pub eth_rpc_url: Option<String>,
     pub block_height: Option<u64>,
     pub txn_hash: Option<String>,
-    pub data_choice: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -566,7 +558,6 @@ async fn handle_interactive_query(
         eth_rpc_url: None,
         block_height: None,
         txn_hash: None,
-        data_choice: None,
     };
     let prompt_output = prompt::prompt(prompt_args)?;
 
@@ -577,12 +568,6 @@ async fn handle_interactive_query(
         eth_rpc_url: Some(prompt_output.network.url()),
         block_height: Some(prompt_output.height),
         txn_hash: Some(prompt_output.tx_hash),
-        data_choice: Some(match prompt_output.selected_data {
-            prompt::SelectedData::All => 0,
-            prompt::SelectedData::RangeOfData => 1,
-            prompt::SelectedData::Erc20TransferData => 2,
-            prompt::SelectedData::NativeTokenTransferData => 3,
-        }),
         chain_key,
         send_tx,
     };
