@@ -18,6 +18,12 @@ concurrency:
 
 permissions: read-all
 
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+env:
+  CXXFLAGS: "-include cstdint"
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   deploy-runner-build-creditcoin-for-testing-benchmarks:
@@ -70,7 +76,7 @@ jobs:
     # checkov:skip=CKV2_GHA_1:We need this for weights auto-update
     permissions: write-all
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}

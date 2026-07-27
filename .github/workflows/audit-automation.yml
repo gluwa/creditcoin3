@@ -11,7 +11,7 @@ permissions: read-all
 
 jobs:
   usc-audit:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
 
     strategy:
       matrix:
@@ -24,14 +24,14 @@ jobs:
             slack_channel_id: C09BX3KSL3C
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Extract Deno version from Dockerfile
         id: deno_version
         working-directory: scripts/usc-audit-automation
         run: |
           # Extract version from "FROM denoland/deno:X.Y.Z" line
-          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | tr -d '[:space:]')
+          VERSION=$(grep "^FROM denoland/deno:" Dockerfile | sed 's/.*denoland\/deno://' | sed 's/@sha256:.*//' | tr -d '[:space:]')
           if [ -z "$VERSION" ]; then
             echo "Error: Could not extract Deno version from Dockerfile"
             exit 1

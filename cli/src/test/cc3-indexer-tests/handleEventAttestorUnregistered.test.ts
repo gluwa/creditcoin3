@@ -1,4 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
@@ -8,6 +9,7 @@ describe('handleEventAttestorUnregistered()', () => {
     let api: ApiPromise;
     let bob: KeyringPair;
     let attestor: any;
+    let startingBlock: bigint;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -63,6 +65,9 @@ describe('handleEventAttestorUnregistered()', () => {
             expect(foundMatch).toEqual(false);
 
             // NOTE: now remove it and observe GraphQL responses below
+            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
+            expect(startingBlock).toBeGreaterThan(0n);
+
             await api.tx.attestation
                 .unregisterAttestor(chain_Anvil2_Key, attestor.address)
                 .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
@@ -99,23 +104,20 @@ describe('handleEventAttestorUnregistered()', () => {
             expect(foundMatch).toEqual(true);
         });
 
-        it('graphQL returns known Attestor entity', async () => {
+        it('graphQL flags the unregistered Attestor entity as unregistered (status 4)', async () => {
+            // Unregistering purges the attestor from chain storage, but the indexer keeps the
+            // Attestors entity (so historical MapAttestationAttestor relations still resolve) and
+            // flags it with the indexer-only `unregistered` status (4). Consumers filter out
+            // status = 4 to match chain state.
             const response = await graphQLQuery(
-                `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } } }`,
+                `query { attestors(orderBy: LAST_UPDATE_BLOCK_NUMBER_ASC, last: 10, filter: {attestorId: {equalTo: "${attestor.address}"}}) { nodes { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } } }`,
             );
             expect(response.data.attestors.nodes).toBeTruthy();
-            expect(response.data.attestors.nodes.length).toBeGreaterThanOrEqual(1);
+            expect(response.data.attestors.nodes.length).toEqual(1);
 
-            let foundMatch = false;
-            for (const node of response.data.attestors.nodes) {
-                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(0n);
-
-                if (node.attestorId === attestor.address) {
-                    foundMatch = true;
-                    expect(node.status).toEqual(1); // State after unregistration is Idle
-                }
-            }
-            expect(foundMatch).toEqual(true);
+            const node = response.data.attestors.nodes[0];
+            expect(node.status).toEqual(4); // unregistered
+            expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(startingBlock);
         });
     });
 });

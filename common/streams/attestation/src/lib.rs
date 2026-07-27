@@ -136,7 +136,10 @@ impl StreamAttestation {
         self.max_catchup
     }
 
-    pub fn latest_tip(&self) -> attestor_primitives::Height {
+    /// Latest observed source-chain tip, aligned down to the attestation interval (the highest
+    /// producible attestation target). `0` until the tip stream has yielded at least once.
+    /// Exposed so callers can report source-chain lag without a second tip subscription.
+    pub fn tip(&self) -> attestor_primitives::Height {
         self.tip
     }
 
@@ -211,6 +214,33 @@ impl StreamAttestation {
         *self = self.reset(info).await;
     }
 
+    /// Lets the [`StreamAttestation`] know that the on-chain `MaxCatchup` (block-count bound per
+    /// continuity proof) has changed. Rebuilds the stream from the last finalized attestation so
+    /// the root cache and catch-up stop respect the new bound (mirrors
+    /// [`note_attestation_interval_change`]).
+    ///
+    /// [`note_attestation_interval_change`]: Self::note_attestation_interval_change
+    pub async fn note_max_catchup_change(
+        &mut self,
+        max_catchup_new: std::num::NonZero<attestor_primitives::Height>,
+    ) {
+        use stream_util::ChainData as _;
+
+        let next = stream_util::AttestationInfo {
+            height: self.attestation_prev.height + 1,
+            ..self.attestation_prev
+        };
+
+        let config = self
+            .config()
+            .with_stream_roots(self.stream_roots.reset(next).await)
+            .with_stream_tip(self.stream_tip.reset(next).await)
+            .with_max_catchup(max_catchup_new)
+            .build();
+
+        *self = Self::new(config)
+    }
+
     /// Generates an attestation with no previous digest.
     pub fn generate_attestation_genesis(
         &self,
@@ -267,7 +297,18 @@ impl StreamAttestation {
         );
 
         let continuity_proof = attestor_primitives::block::ContinuityProof::from_blocks(blocks);
-        let prev_digest = if self.attestation_interval.get() == 1 {
+        // `prev_digest` derives from the *shape of the continuity proof*, not the attestation
+        // interval:
+        //
+        // * Empty proof (the target directly follows the previous finalized attestation —
+        //   e.g. after an interval change, a reversion, or a restart from a non-aligned
+        //   height): the runtime's direct-link path requires `prev_digest` to equal the last
+        //   finalized digest. Deriving it from the (empty) proof would yield the proof's
+        //   default zero `lower_endpoint_digest`, which the runtime rejects for non-genesis
+        //   attestations.
+        // * Non-empty proof: the runtime reconstructs the digest chain over the proof roots and
+        //   requires `prev_digest` to equal the reconstructed head.
+        let prev_digest = if continuity_proof.is_empty() {
             Some(self.attestation_prev.digest)
         } else {
             Some(continuity_proof.compute_continuity_digest(block_first))

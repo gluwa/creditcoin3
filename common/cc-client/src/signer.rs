@@ -1,7 +1,6 @@
 use std::str::FromStr;
 
 use attestor_primitives::AttestorId;
-use sp_core::{sr25519, Pair};
 use subxt::utils::AccountId32;
 use subxt_signer::{
     sr25519::{Keypair, Signature},
@@ -11,14 +10,12 @@ use subxt_signer::{
 #[derive(Clone)]
 pub struct CC3Signer {
     pub(crate) signing_keypair: Keypair,
-    pub(crate) pair: sr25519::Pair,
 }
 
 impl CC3Signer {
     pub fn new(key: &str) -> anyhow::Result<Self> {
         Ok(Self {
             signing_keypair: Keypair::from_uri(&SecretUri::from_str(key)?)?,
-            pair: sr25519::Pair::from_string(key, None)?,
         })
     }
 

@@ -104,6 +104,13 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestorFound: AugmentedError<ApiType>;
             InvalidBlsPublicKey: AugmentedError<ApiType>;
             InvalidBlsSignature: AugmentedError<ApiType>;
+            /**
+             * Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
+             * ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
+             * `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
+             * would either overflow those bounds or undercharge weight.
+             **/
+            InvalidMaxAttestors: AugmentedError<ApiType>;
             InvalidMaxCatchup: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
@@ -130,6 +137,7 @@ declare module '@polkadot/api-base/types/errors' {
             NotPreAuthorizedToRegister: AugmentedError<ApiType>;
             NotStash: AugmentedError<ApiType>;
             NotYourAttestor: AugmentedError<ApiType>;
+            OversizedContinuityProof: AugmentedError<ApiType>;
             /**
              * Too many retired attestor key entries are queued for this stash
              **/
@@ -139,6 +147,13 @@ declare module '@polkadot/api-base/types/errors' {
              * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
+            /**
+             * A `commit_attestation` payload carried more attestor accounts than the per-chain
+             * `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
+             * is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
+             * and a storage-bloat vector. Rejected before any expensive BLS work.
+             **/
+            TooManyAttestors: AugmentedError<ApiType>;
             TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
             /**
              * Generic error

@@ -43,9 +43,9 @@ jobs:
             chainKey: 3
 
     name: CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v6
@@ -116,10 +116,120 @@ jobs:
           channel: "#noti-creditcoin-snapshots"
           message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! cc <@U028EMRHS3S>"
 
+  submit-verify-and-emit:
+    needs:
+      - check-for
+    # Two matrix jobs per network share one funded submitter key against the
+    # same CC3 RPC. Serialize same-network jobs so their real verifyAndEmit
+    # submissions don't race on the account nonce (cancel-in-progress: false
+    # queues the second job instead of killing the first). Different networks
+    # still run in parallel because they key on distinct creditcoinUrl values.
+    concurrency:
+      group: check-prover-submit-${{ matrix.creditcoinUrl }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # CC3 Devnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            chainKey: 1
+
+          # CC3 Devnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-devnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-devnet.creditcoin.network"
+            chainKey: 4
+
+          # CC3 Testnet, Sepolia Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            chainKey: 1
+
+          # CC3 Testnet, Ethereum Mainnet Full Archive
+          - creditcoinUrl: "wss://rpc.cc3-testnet.creditcoin.network/ws"
+            proverUrl: "https://prover.cc3-testnet.creditcoin.network"
+            chainKey: 3
+
+    name: Submit CK ${{ matrix.chainKey }} / ${{ matrix.proverUrl }}
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - run: npm install -g yarn
+
+      - name: Install scripts deps
+        working-directory: ./scripts
+        run: yarn install
+
+      - name: Discover testing ENV
+        id: test-env
+        run: |
+          NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
+          echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Download proofs for this network
+        uses: actions/download-artifact@v8
+        with:
+          path: /var/tmp/proofs
+          pattern: proofs-for-${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
+          merge-multiple: true
+
+      - name: Submit one verifyAndEmit tx
+        working-directory: ./scripts
+        env:
+          # Funded submitter keys, selected per network below.
+          DEVNET_BOB_EVM_PK: ${{ secrets.DEVNET_BOB_EVM_PK }}
+          TESTNET_BOB_EVM_PK: ${{ secrets.TESTNET_BOB_EVM_PK }}
+          CHAIN_NAME: ${{ steps.test-env.outputs.chain-name }}
+          PROVER_URL: ${{ matrix.proverUrl }}
+          CHAIN_KEY: ${{ matrix.chainKey }}
+          CC3_WSS_URL: ${{ matrix.creditcoinUrl }}
+          PROOF_DIR: /var/tmp/proofs
+        run: |
+          set -eo pipefail
+
+          # Select the funded key for this network.
+          case "$CHAIN_NAME" in
+            *devnet*)  PRIVATE_KEY="$DEVNET_BOB_EVM_PK" ;;
+            *testnet*) PRIVATE_KEY="$TESTNET_BOB_EVM_PK" ;;
+            *)         echo "No funded key mapped for chain '$CHAIN_NAME'"; exit 1 ;;
+          esac
+          if [ -z "$PRIVATE_KEY" ]; then
+            echo "Funded key secret is empty for chain '$CHAIN_NAME'"; exit 1
+          fi
+
+          # Derive the HTTPS CC3 RPC endpoint from the wss URL
+          # (wss://rpc.<chain>.creditcoin.network/ws -> https://rpc.<chain>.creditcoin.network).
+          CC3_HTTP_URL=$(echo "$CC3_WSS_URL" | sed 's#^wss://#https://#' | sed 's#/ws$##')
+
+          # Pick one txHash discovered by prover-check (files are written as
+          # <PROOF_DIR>/<headerNumber>/<txHash>.txt).
+          TX_FILE=$(find "$PROOF_DIR" -type f -name '*.txt' | head -n 1)
+          if [ -z "$TX_FILE" ]; then
+            echo "No proof files found in $PROOF_DIR; nothing to submit"; exit 1
+          fi
+          TX_HASH=$(basename "$TX_FILE" .txt)
+
+          echo "Submitting verifyAndEmit for CK=$CHAIN_KEY tx=$TX_HASH"
+          echo "  prover:  $PROVER_URL"
+          echo "  cc3 rpc: $CC3_HTTP_URL"
+
+          node SubmitProof.js "$CHAIN_KEY" "$TX_HASH" \
+            --private-key "$PRIVATE_KEY" \
+            --api-url "$PROVER_URL" \
+            --cc3-rpc-url "$CC3_HTTP_URL"
+
   compare-proofs-sepolia:
     needs:
       - check-for
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Setup
         run: |
@@ -177,7 +287,7 @@ jobs:
   compare-proofs-ethereum:
     needs:
       - check-for
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Setup
         run: |

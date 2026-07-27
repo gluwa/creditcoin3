@@ -1,0 +1,686 @@
+//! Production task — the chain state machine.
+//!
+//! **Sole owner** of:
+//!   - the CC3 finality event subscription (one, not three),
+//!   - the eth `StreamAttestation`,
+//!   - writes to `shared.can_attest_tx`, `shared.latest_finalized_tx`, `shared.proof_cache`,
+//!     and `shared.pool_send.note_*` chain-event hooks.
+//!
+//! On each freshly produced eth attestation it:
+//!   1. caches `(attestation_data, continuity_proof)` in `shared.proof_cache`,
+//!   2. signs a lightweight `Vote { chain_key, height, digest, attestor, sig_bls }`,
+//!   3. ships the vote into the local pool **and** into the gossip channel.
+//!
+//! Genesis is just the first production round — no out-of-band code path.
+
+use std::num::NonZero;
+use std::sync::Arc;
+
+use futures::{StreamExt as _, TryStreamExt as _};
+
+use cc_client::attestation::CcEvent;
+
+use crate::error::Error;
+use crate::shared::{AttestationInfo, Shared};
+
+pub async fn run(
+    shared: Arc<Shared>,
+    start_attestation: Option<AttestationInfo>,
+) -> Result<(), Error> {
+    let interval = shared.attestation_interval();
+    let start_height = shared.start_height;
+    let genesis = shared.genesis;
+
+    // ----------------------------------* eth streams *--------------------------------------- //
+
+    // CPU-bound merkleization parallelism (see `roots::Config::max_parallelism`). Reserve a
+    // single core for the rest of the shared tokio runtime — the other tasks are I/O-bound and
+    // mostly idle, so one core of headroom is plenty. The old `WORKER_COUNT + 1` reservation
+    // was a v1 artifact (v2 spawns no OS worker threads); it saturated to 1 on every ≤4-CPU pod,
+    // needlessly single-threading deep root rebuilds after an outage or revert.
+    let max_parallelism = std::thread::available_parallelism()
+        .ok()
+        .and_then(|n| n.get().checked_sub(1))
+        .and_then(NonZero::new)
+        .unwrap_or(NonZero::<usize>::MIN);
+
+    let roots_cfg = stream::eth::roots::ConfigBuilder::new()
+        .with_client(shared.eth.clone())
+        .with_start_height(start_height)
+        .with_finalization_lag(shared.maturity_delay)
+        .with_max_concurrency(common::constants::MAX_CONCURRENT_RPC_CALLS)
+        .with_max_parallelism(max_parallelism)
+        .with_encoding(shared.encoding)
+        .build();
+    let stream_roots = stream::eth::StreamRoots::new(roots_cfg).await;
+
+    let tip_cfg = stream::eth::tip::ConfigBuilder::new()
+        .with_client(shared.eth.clone())
+        .with_finalization_lag(shared.maturity_delay)
+        .with_start_height(start_height)
+        .build();
+    let stream_tip = stream::eth::StreamTip::new(tip_cfg).await;
+
+    use stream::util::ChainExt as _;
+    let attestation_cfg = stream::attestation::ConfigBuilder::new()
+        .with_signer(shared.signer.clone())
+        .with_chain_key(shared.chain_key)
+        .with_bls_key(shared.bls_key)
+        .with_stream_roots(stream_roots.boxed_data())
+        .with_stream_tip(stream_tip.boxed_data())
+        .with_attestation_interval(interval)
+        .with_attestation_prev(
+            start_attestation
+                .map(|i| stream::util::AttestationInfo {
+                    height: i.height,
+                    digest: i.digest,
+                })
+                .unwrap_or(stream::util::AttestationInfo {
+                    height: genesis,
+                    ..Default::default()
+                }),
+        )
+        .with_max_catchup(shared.max_catchup())
+        .build();
+    let mut stream_attestation = stream::attestation::StreamAttestation::new(attestation_cfg);
+
+    // ----------------------------------* cc3 stream *---------------------------------------- //
+    // Opened before the (optional) genesis step so we can wait for the genesis BlockAttested
+    // event on the same subscription we use in the main loop.
+
+    let cc3_cfg = stream::cc3::ConfigBuilder::new()
+        .with_cc3(shared.cc3.clone())
+        .with_chain_keys(vec![shared.chain_key])
+        .build();
+    let mut events = stream::cc3::StreamCC3::new(cc3_cfg)
+        .await
+        .map_err(Error::Init)?;
+
+    // ----------------------------------* genesis (if needed) *------------------------------- //
+    //
+    // When start_attestation is None this attestor is bootstrapping the attestation chain. We
+    // generate + ship the genesis vote, then wait for cc3 to emit BlockAttested(genesis_height)
+    // with the *real* digest. Only after seeing it do we tell `stream_attestation` and the
+    // shared finalized watch — otherwise the eth stream would build subsequent continuity
+    // proofs with a ZERO tail digest, and submissions would fail with
+    // InvalidAttestationContinuityProofTail at every subsequent height.
+
+    let mut latest_cc3 = if let Some(info) = start_attestation {
+        info
+    } else {
+        tracing::info!(genesis, "👶 generating genesis attestation");
+        let block = shared
+            .eth
+            .get_block(genesis, shared.encoding)
+            .await
+            .map_err(|e| Error::Init(anyhow::anyhow!("genesis block fetch: {e}")))?;
+        let root_info = stream::util::RootInfo {
+            height: genesis,
+            root: eth::simple_merkle_tree(&block).root(),
+            hash: attestor_primitives::Digest::from(*block.hash()),
+        };
+        let genesis_att = stream_attestation.generate_attestation_genesis(root_info);
+        emit_local(&shared, &genesis_att).await;
+
+        // Wait for the genesis BlockAttested on cc3 — we need the *real* digest. `None` means
+        // shutdown was requested while waiting; exit cleanly like every other task does on
+        // cancellation instead of surfacing a spurious startup failure to the supervisor.
+        tracing::info!(genesis, "⏲️ waiting for genesis attestation to finalize");
+        let Some(info) =
+            wait_for_block_attested(&shared, &mut events, &mut stream_attestation, genesis).await?
+        else {
+            tracing::info!("🔌 shutdown while waiting for genesis attestation");
+            return Ok(());
+        };
+        stream_attestation.note_attestation_finalization(stream::util::AttestationInfo {
+            height: info.height,
+            digest: info.digest,
+        });
+        // Tell the pool too (mirrors the steady-state `BlockAttested` handler) — otherwise the
+        // pool's on-chain finalized floor stays unset and stale genesis-fork votes linger until
+        // some later height happens to exceed the genesis cursor.
+        shared
+            .pool_send
+            .note_attestation_finalization(info.height, info.digest);
+        let _ = shared.latest_finalized_tx.send(Some(info));
+        shared.proof_cache.note_finalized(info.height);
+        shared.metrics.set_attestation_finalized(info.height);
+        // Watchdog: genesis finalizing is the first on-chain attestation observation.
+        shared.health.note_chain_attested();
+        info
+    };
+
+    // ----------------------------------* main loop *----------------------------------------- //
+
+    // Dedicated receiver for waking the loop on an eligibility toggle. `can_attest` gates the
+    // `stream_attestation` arm below, and the flip to `true` now happens asynchronously (the
+    // post-election warm-up task) — without a `changed()` arm the loop would keep the arm
+    // disabled until some unrelated cc3 batch happened to wake it and re-read the flag. Separate
+    // from the `borrow()` read below so its seen-version tracking is independent.
+    let mut eligibility_rx = shared.can_attest_rx.clone();
+
+    loop {
+        let can_attest = *shared.can_attest_rx.borrow();
+        tokio::select! {
+            biased;
+            _ = shared.token.cancelled() => return Ok(()),
+
+            // Wake on an eligibility toggle so the guarded arm is (dis/re-)enabled promptly.
+            // `changed()` only errors once every sender is dropped — impossible while we hold
+            // `shared` (which owns `can_attest_tx`) — so a plain wake-and-re-loop is enough.
+            _ = eligibility_rx.changed() => {}
+
+            maybe_batch = events.next() => {
+                // The cc3 stream only ends on a *permanent* backfill error (state pruned beyond
+                // recovery — see `is_permanent_backfill_error` in the stream). Fail fast so the
+                // supervisor restarts us: a fresh boot re-seeds from the current head with no
+                // backfill, which is the only way to get past pruned state. A `Some(batch) = …`
+                // pattern here would instead silently disable this arm and leave production
+                // half-alive on the eth side.
+                let Some(batch) = maybe_batch else {
+                    return Err(Error::Cc3Stream(stream::cc3::Error::EndOfStream));
+                };
+                tokio::select! {
+                    _ = shared.token.cancelled() => return Ok(()),
+                    result = handle_cc3_batch(
+                        &shared,
+                        &mut stream_attestation,
+                        &mut latest_cc3,
+                        batch,
+                    ) => result?,
+                }
+            }
+
+            Some(attestation) = stream_attestation.next(), if can_attest => {
+                emit_local(&shared, &attestation).await;
+                // Refresh the source-chain lag gauge with the tip the stream is tracking —
+                // the config-time seed would otherwise never be updated after startup and the
+                // gauge would drift into meaninglessness. Tip is 0 until the tip stream has
+                // yielded once (e.g. the genesis bootstrap path); skip rather than report a
+                // bogus positive lag.
+                let tip = stream_attestation.tip();
+                if tip > 0 {
+                    shared.metrics.update_attestation_lag_eth(
+                        attestation.header_number(),
+                        tip,
+                        shared.attestation_interval(),
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ------------------------------------ [ Emit local vote ] ------------------------------------- //
+
+/// Cache the proof, sign the lightweight vote, push to pool + gossip.
+async fn emit_local(shared: &Arc<Shared>, attestation: &common::types::Attestation) {
+    let height = attestation.header_number();
+    let digest = attestation.digest();
+    let now = std::time::Instant::now();
+
+    tracing::info!(
+        ?digest, height,
+        attestor = %attestation.attestor,
+        "📡 produced local attestation",
+    );
+
+    // Watchdog: our source-chain pipeline demonstrably produced (the stall axis' local side).
+    shared.health.note_local_attested();
+
+    // Cache the proof + AttestationData so future incoming votes at this height can be verified
+    // and so the validation task has the proof to submit later.
+    shared.proof_cache.insert(
+        attestation.attestation_data.clone(),
+        attestation.continuity_proof.clone(),
+    );
+
+    // Signal p2p so it can drain any votes it queued for this height pending local data.
+    let _ = shared.local_produced_tx.send(Some(height));
+
+    // Build the lightweight vote (no continuity proof on the wire).
+    let local_data = crate::vote::LocalAttestationData {
+        serialized: attestation.attestation_data.serialize(),
+        digest,
+    };
+    let vote = crate::vote::sign_vote(
+        &shared.bls_key,
+        shared.attestor_id.clone(),
+        shared.chain_key,
+        height,
+        &local_data,
+    );
+
+    // Local pool insertion. This succeeds for our own digest; if the pool rejects it we log and
+    // continue.
+    if let Some(Err(err)) = shared.pool_send.send(vote.clone()) {
+        err.log_error(digest);
+    }
+
+    // Send to gossip. The channel is unbounded so this never blocks production and never drops
+    // a signed vote (a vote dropped here would be lost to the whole network — p2p's retry queue
+    // only covers votes that reached it). The p2p task drains unconditionally, bounding memory
+    // by its processing rate. A closed channel means p2p has exited; the supervisor will act on
+    // that.
+    if shared.gossip_tx.send(vote).is_err() {
+        tracing::warn!(?digest, "📭 gossip channel closed");
+    }
+
+    // metrics
+    shared
+        .metrics
+        .update_attestation_handler_delay(now.elapsed());
+    shared.metrics.set_attestation_local(height);
+}
+
+// ----------------------------------- [ Handle CC3 events ] ------------------------------------ //
+
+async fn handle_cc3_batch(
+    shared: &Arc<Shared>,
+    stream_attestation: &mut stream::attestation::StreamAttestation,
+    latest_cc3: &mut AttestationInfo,
+    mut batch: stream::cc3::StreamEvents,
+) -> Result<(), Error> {
+    // Steady liveness pulse: a cc3 finalized batch arriving means the connection is live and the
+    // production loop is turning. The watchdog reads this to distinguish "alive" from "wedged".
+    shared.health.note_progress();
+    while let Some(event) = batch.try_next().await? {
+        handle_one(shared, stream_attestation, latest_cc3, event).await?;
+    }
+    Ok(())
+}
+
+/// Apply an eligibility transition (from an election / chill / kick) to `can_attest` and the
+/// health stall axis.
+///
+/// Enabling *from a disabled state* is warmed up: we hold `can_attest` false for
+/// [`POST_ELECTION_WARMUP`] before flipping it true, so peers have time to process the same
+/// `AttestorsElected` event and refresh their BLS stores. Otherwise our first post-reactivation
+/// votes reach peers that can't yet verify them and are rejected — and gossipsub marks rejected
+/// messages seen and never redelivers them, so those votes are lost permanently. This mirrors
+/// the startup election paths in `startup::wait_for_eligible`.
+///
+/// Disabling, or re-electing while already enabled (we were never off, so peers already know us),
+/// applies immediately. Every call bumps `eligibility_gen`; the warm-up task captures its value
+/// and enables only if still current — so a chill/kick landing inside the warm-up window cancels
+/// the pending enable instead of racing it. `set_attest_expected` is set immediately in all cases
+/// (the stall axis re-arms with a full grace window that dwarfs the 30s warm-up).
+/// What an eligibility event should do, decided purely from the previous *target* and the new
+/// eligibility. Split out so the transition matrix is unit-testable without a full `Shared`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EligibilityAction {
+    /// Target unchanged — do nothing (crucially: no `eligibility_gen` bump, so a pending warm-up
+    /// survives unrelated `AttestorKicked` / peer-chill events that re-fire the handler).
+    NoOp,
+    /// Target went true→false — disable immediately.
+    DisableNow,
+    /// Target went false→true — warm up before enabling (peers need `POST_ELECTION_WARMUP` to
+    /// refresh their BLS stores; un-warmed first votes are dropped and never redelivered).
+    WarmUpEnable,
+}
+
+fn eligibility_action(prev_target: bool, new_eligible: bool) -> EligibilityAction {
+    match (prev_target, new_eligible) {
+        (a, b) if a == b => EligibilityAction::NoOp,
+        (_, true) => EligibilityAction::WarmUpEnable,
+        (_, false) => EligibilityAction::DisableNow,
+    }
+}
+
+fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
+    use std::sync::atomic::Ordering;
+    let prev_target = shared.attest_target.swap(eligible, Ordering::SeqCst);
+    match eligibility_action(prev_target, eligible) {
+        EligibilityAction::NoOp => {}
+        EligibilityAction::DisableNow => {
+            // Bump the generation so any pending warm-up sees a stale value and does not enable.
+            shared.eligibility_gen.fetch_add(1, Ordering::SeqCst);
+            shared.health.set_attest_expected(false);
+            let _ = shared.can_attest_tx.send(false);
+        }
+        EligibilityAction::WarmUpEnable => {
+            let gen = shared
+                .eligibility_gen
+                .fetch_add(1, Ordering::SeqCst)
+                .wrapping_add(1);
+            shared.health.set_attest_expected(true);
+            tracing::info!(
+                "⏳ eligible — warming up before attesting (peers refreshing BLS stores)"
+            );
+            let shared = shared.clone();
+            tokio::spawn(async move {
+                tokio::select! {
+                    _ = shared.token.cancelled() => {}
+                    () = tokio::time::sleep(common::constants::POST_ELECTION_WARMUP) => {
+                        if shared.eligibility_gen.load(Ordering::SeqCst) == gen {
+                            let _ = shared.can_attest_tx.send(true);
+                            tracing::info!("☀️ warm-up complete — attesting");
+                        } else {
+                            tracing::info!("↩️ warm-up superseded by a later eligibility change — not enabling");
+                        }
+                    }
+                }
+            });
+        }
+    }
+}
+
+async fn handle_one(
+    shared: &Arc<Shared>,
+    stream_attestation: &mut stream::attestation::StreamAttestation,
+    latest_cc3: &mut AttestationInfo,
+    event: CcEvent,
+) -> Result<(), Error> {
+    match event {
+        // 1] new finalized attestation on cc3
+        CcEvent::BlockAttested(att) => {
+            let info = AttestationInfo {
+                height: att.header_number,
+                digest: att.digest,
+            };
+            if info.height > latest_cc3.height {
+                tracing::info!(height = info.height, digest = ?info.digest, "💾 cc3 finalized");
+                *latest_cc3 = info;
+                // 0. watchdog: the network is visibly finalizing attestations right now — an
+                //    eligible attestor that produces nothing against this backdrop is stalled.
+                shared.health.note_chain_attested();
+                // 1. nudge eth stream
+                stream_attestation.note_attestation_finalization(stream::util::AttestationInfo {
+                    height: info.height,
+                    digest: info.digest,
+                });
+                // 2. nudge pool
+                shared
+                    .pool_send
+                    .note_attestation_finalization(info.height, info.digest);
+                // 3. nudge proof cache
+                shared.proof_cache.note_finalized(info.height);
+                // 4. nudge watchers (validation task)
+                let _ = shared.latest_finalized_tx.send(Some(info));
+                // 5. metrics
+                shared.metrics.set_attestation_finalized(info.height);
+            }
+        }
+
+        // 2] new attestation interval
+        CcEvent::AttestationIntervalChanged(_, raw) => {
+            let Some(interval) = NonZero::new(raw) else {
+                return Ok(());
+            };
+            tracing::info!(interval = %interval, "🔢 new attestation interval");
+            *shared.interval_attestation.write() = interval;
+            stream_attestation
+                .note_attestation_interval_change(interval)
+                .await;
+            shared.pool_send.note_attestation_interval_change(interval);
+        }
+
+        // 3] new sample size
+        CcEvent::TargetSampleSizeChanged(_, target) => {
+            tracing::info!(target, "📏 new target sample size");
+            shared.pool_send.note_target_sample_size_change(target);
+            // Keep the health p2p-isolation axis in step with the live quorum — it was armed
+            // once at startup from the then-current target. Without this, a target dropping to
+            // a quorum of 1 leaves a correctly-peerless sole attestor flagged `Isolated`
+            // (restart loop: a fresh pod won't conjure peers), and a target growing past 1
+            // after a single-attestor start leaves isolation detection permanently disarmed.
+            // `set_p2p_expected` is idempotent and re-stamps the peerless clock on the
+            // disarm→arm transition, so re-arming gets a fresh grace window.
+            let quorum = attestor_primitives::calculate_threshold(target) as usize;
+            shared.health.set_p2p_expected(quorum > 1);
+        }
+
+        // 3b] new max catchup (block-count bound per continuity proof). Keep the off-chain view
+        // in sync with runtime policy: the eth stream's root cache / proof length, the pool's
+        // vote-admission window, and p2p pending-vote buffering all derive from this value.
+        CcEvent::MaxCatchupChanged(_, raw) => {
+            let Some(max_catchup) = NonZero::new(u64::from(raw)) else {
+                return Ok(());
+            };
+            tracing::info!(max_catchup = %max_catchup, "🔢 new max catchup");
+            *shared.max_catchup.write() = max_catchup;
+            stream_attestation
+                .note_max_catchup_change(max_catchup)
+                .await;
+            shared.pool_send.note_max_catchup_change(max_catchup);
+        }
+
+        // 4] attestor election
+        CcEvent::AttestorsElected(_, attestors) => {
+            tracing::info!("⏰ new attestor set");
+            let eligible = attestors.contains(&shared.account_id);
+            // Refresh our own committee view (BLS store + pool allow-set) BEFORE arming the
+            // warm-up. `apply_eligibility`'s warm-up timer is what gates `can_attest` true, and
+            // it must start from a current local view — otherwise a slow/retrying BLS fetch
+            // could let the timer fire while we still verify against the previous committee,
+            // dropping newly-elected peers' votes as UnknownAttestor (unrecoverable: gossipsub
+            // marks them seen).
+            shared
+                .bls_store
+                .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
+                .await
+                .map_err(Error::Rpc)?;
+            shared.pool_send.note_attestors_elected(attestors);
+            apply_eligibility(shared, eligible);
+        }
+
+        CcEvent::AttestorActivated(_, who) => {
+            if who == shared.account_id {
+                tracing::info!("🔋 activated");
+            }
+        }
+
+        // Chill / kick removes the attestor from `ActiveAttestors` on-chain immediately. Refresh
+        // BlsStore and the pool's allow-set on every chill/kick — not just for the local node —
+        // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
+        // Without this, pool pollution persists until the next `AttestorsElected` epoch.
+        CcEvent::AttestorChilled(_, who) | CcEvent::AttestorKicked(who) => {
+            let is_local = who == shared.account_id;
+            if is_local {
+                tracing::info!("🪫 local node deactivated/kicked");
+            } else {
+                tracing::info!(attestor = %who, "🪫 peer deactivated/kicked");
+            }
+            // `with_retries`, matching the election path: a transient RPC blip here must ride
+            // out with backoff, not bubble up and terminate the whole production task (the
+            // unscoped `staking::Kicked` event makes this handler fire more often than actual
+            // committee changes).
+            let chain_key = shared.chain_key;
+            let attestors =
+                crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+                    cc3.get_attestor_active_set(chain_key).await
+                })
+                .await
+                .map_err(Error::Rpc)?;
+            // Derive `can_attest` from the refreshed on-chain membership rather than from the
+            // event itself: `staking::Kicked` carries no chain scope, so trusting the event
+            // could wrongly chill us on an unrelated kick — the authoritative active set can't.
+            let eligible = attestors.contains(&shared.account_id);
+            // Refresh the committee view before arming the warm-up — see the AttestorsElected
+            // handler above for why `apply_eligibility` must run after the BLS/pool refresh.
+            shared
+                .bls_store
+                .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
+                .await
+                .map_err(Error::Rpc)?;
+            shared.pool_send.note_attestors_elected(attestors);
+            apply_eligibility(shared, eligible);
+
+            // Nudge the p2p task to evict this attestor's peer from the routing table / drop the
+            // connection. Sent *after* the `bls_store` refresh above so the p2p task's active-set
+            // view (which drives its deny decision) already reflects the removal. Skip the local
+            // node — there is no remote peer of our own to evict. A closed receiver (p2p task
+            // gone / shutting down) is not fatal here, so the send error is ignored.
+            if !is_local {
+                let _ = shared
+                    .peer_deactivated_tx
+                    .send(attestor_primitives::AttestorId::from_public(who.0));
+            }
+        }
+
+        CcEvent::AttestationChainGenesisBlockNumberSet(_, h) => {
+            tracing::info!(genesis = h, "🎬 attestation chain genesis set");
+        }
+
+        CcEvent::CheckpointReached(_, cp) => {
+            tracing::info!(height = cp.block_number, digest = ?cp.digest, "🛟 checkpoint");
+        }
+
+        CcEvent::CheckpointIntervalChanged(_, i) => {
+            tracing::info!(interval = i, "🔢 new checkpoint interval");
+        }
+
+        CcEvent::RandomnessChanged((epoch, _)) => {
+            tracing::info!(epoch, "🎲 new epoch");
+        }
+
+        CcEvent::RevertedAttestationChainTo(_, height, digest) => {
+            tracing::warn!(height, ?digest, "💥 attestation chain reversion");
+            let info = AttestationInfo { height, digest };
+            *latest_cc3 = info;
+            shared
+                .pool_send
+                .note_attestation_chain_reversion(height, digest);
+            shared.proof_cache.clear();
+            stream_attestation
+                .note_attestation_chain_reversion(stream::util::AttestationInfo { height, digest })
+                .await;
+            let _ = shared.latest_finalized_tx.send(Some(info));
+            // Roll local-production tracking back to the revert height too. Otherwise p2p keeps
+            // the pre-revert (higher) height as "locally produced", skewing its pending-vote
+            // pruning until production re-produces past the rollback.
+            let _ = shared.local_produced_tx.send(Some(height));
+
+            // Reset metrics so operator dashboards reflect the post-rollback state immediately
+            // rather than continuing to show stale local/finalized heights and a misleading lag.
+            // Without this, the gauges would only drift back to reality on the next emit_local
+            // / cc3 finalization, which can be several blocks away after a deep revert.
+            shared.metrics.set_attestation_finalized(height);
+            shared.metrics.set_attestation_local(height);
+            shared.metrics.update_attestation_lag_eth(
+                height,
+                height,
+                shared.attestation_interval(),
+            );
+            shared.metrics.update_attestation_lag_cc3(
+                height,
+                height,
+                shared.attestation_interval(),
+            );
+            // Re-arm the health stall axis: the rebuild from the revert height to the first
+            // post-revert emit_local can exceed the stall deadline while peers keep finalizing
+            // (uneven recovery), which is exactly axis 2's trigger shape — without this the pod
+            // gets restarted mid-catch-up and re-does the same rebuild.
+            shared.health.note_revert_recovery();
+        }
+    }
+
+    Ok(())
+}
+
+// --------------------------- [ Helper: wait for a BlockAttested event ] ----------------------- //
+//
+// Drains CC3 events on the production task's own subscription until BlockAttested(height ≥ N)
+// arrives. Returns the real `(height, digest)`, or `None` when shutdown was requested while
+// waiting (an intentional cancellation, not a failure). Used by the genesis bootstrap path to
+// learn the runtime-committed digest before initializing the eth attestation stream's
+// prev-digest.
+
+async fn wait_for_block_attested(
+    shared: &Arc<Shared>,
+    events: &mut stream::cc3::StreamCC3,
+    stream_attestation: &mut stream::attestation::StreamAttestation,
+    target: attestor_primitives::Height,
+) -> Result<Option<AttestationInfo>, Error> {
+    use cc_client::attestation::CcEvent;
+    use futures::{StreamExt as _, TryStreamExt as _};
+
+    // Scratch finalized cursor for `handle_one`. Only its `BlockAttested` / reversion arms
+    // read or write `latest_cc3`, and we never route those through it here — every event we do
+    // route (elections, chill/kick, config changes) leaves it untouched. The caller keeps the
+    // authoritative `latest_cc3` from this function's return value.
+    let mut scratch = AttestationInfo::default();
+
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+    loop {
+        tokio::select! {
+            _ = shared.token.cancelled() => return Ok(None),
+            _ = tick.tick() => {
+                tracing::info!(target, "⏲️ still waiting for genesis BlockAttested...");
+            }
+            maybe_batch = events.next() => {
+                // Stream end = permanent backfill error (see the main-loop arm) — fail fast.
+                let Some(mut batch) = maybe_batch else {
+                    return Err(Error::Cc3Stream(stream::cc3::Error::EndOfStream));
+                };
+                // Keep the watchdog fed during a slow genesis wait (can exceed the startup grace
+                // on a slow chain) — batches are still arriving, so we're alive, not wedged.
+                shared.health.note_progress();
+                while let Some(event) = batch.try_next().await? {
+                    match event {
+                        // The genesis terminator: the first BlockAttested at/above the genesis
+                        // height carries the runtime-committed digest the caller needs. Return it
+                        // and let the caller run the finalization bookkeeping (it does more than
+                        // `handle_one`'s BlockAttested arm — pool floor, proof cache, watchdog).
+                        CcEvent::BlockAttested(att) if att.header_number >= target => {
+                            tracing::info!(
+                                height = att.header_number,
+                                digest = ?att.digest,
+                                "✅ genesis attestation finalized on-chain"
+                            );
+                            return Ok(Some(AttestationInfo {
+                                height: att.header_number,
+                                digest: att.digest,
+                            }));
+                        }
+                        // A sub-genesis BlockAttested shouldn't occur; ignore it rather than feed
+                        // a below-genesis finalization into `handle_one`.
+                        CcEvent::BlockAttested(_) => {}
+                        // Every other event (committee election, chill/kick, target-sample-size /
+                        // max-catchup / interval changes) must still be applied while we wait —
+                        // dropping them left `bls_store`, pool membership, and threshold config
+                        // stale until a later duplicate event. Route them through the same handler
+                        // the steady-state loop uses.
+                        other => {
+                            handle_one(shared, stream_attestation, &mut scratch, other).await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{eligibility_action, EligibilityAction};
+
+    /// The full eligibility transition matrix. Regression pin for the warm-up logic: the bug that
+    /// motivated the target guard was unrelated `AttestorKicked` events (target unchanged) being
+    /// treated as transitions and cancelling a pending warm-up.
+    #[test]
+    fn eligibility_action_matrix() {
+        // Target unchanged → NoOp (no generation bump, so a pending warm-up survives).
+        assert_eq!(
+            eligibility_action(true, true),
+            EligibilityAction::NoOp,
+            "still-eligible (e.g. an unrelated kick) must not disturb a warm-up"
+        );
+        assert_eq!(
+            eligibility_action(false, false),
+            EligibilityAction::NoOp,
+            "still-ineligible must be inert"
+        );
+        // Genuine transitions.
+        assert_eq!(
+            eligibility_action(false, true),
+            EligibilityAction::WarmUpEnable,
+            "re-election must warm up before enabling"
+        );
+        assert_eq!(
+            eligibility_action(true, false),
+            EligibilityAction::DisableNow,
+            "chill/kick must disable immediately"
+        );
+    }
+}

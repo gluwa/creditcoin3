@@ -12,12 +12,12 @@ permissions: read-all
 
 jobs:
   setup:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Devnet ENV
         id: devnet-env
@@ -63,9 +63,9 @@ jobs:
   sanity:
     # note: github.{base_ref|head_ref} only available on pull requests
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           # checks out the branch of the PR, not in a detached state,
@@ -106,10 +106,10 @@ jobs:
           .github/check-for-broken-symlinks.sh
 
   rebase-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: github.base_ref == 'usc-dev'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -151,10 +151,10 @@ jobs:
           git merge-base "${{ env.BRANCH_NAME }}" origin/usc-testnet --all
 
   merge-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     if: github.base_ref == 'usc-dev'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
@@ -207,7 +207,7 @@ jobs:
           git log --merge
 
   target-branch-check:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - name: Check the target branch of this PR
         run: |

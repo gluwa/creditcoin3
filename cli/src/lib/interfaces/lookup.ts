@@ -3154,6 +3154,8 @@ export default {
             'InvalidAttestationsPerCheckpoint',
             'InvalidMaxCatchup',
             'InvalidTargetSampleSize',
+            'InvalidMaxAttestors',
+            'TooManyAttestors',
             'AttestationFoundWhileImporting',
             'InvalidAttestationBlockNumber',
             'InvalidAttestorFound',
@@ -3186,6 +3188,7 @@ export default {
             'EmptyCheckpointPatch',
             'CheckpointSuffixWipeTooLarge',
             'TooManyAttestationsForForwardPatchClear',
+            'OversizedContinuityProof',
         ],
     },
     /**

@@ -1,0 +1,643 @@
+---
+name: Attestor Compatibility
+
+# Spins up a dev CC3 network + Anvil Ethereum simulation where the SUT
+# (System-Under-Test) binary built from this PR / usc-dev branch runs as the
+# chain, and every published `-mainnet` release that ships an
+# `attestor-binaries-*` asset (first introduced in v3.125.0) has one attestor
+# started against that network.  We verify that historical attestors can still:
+#   1. register on-chain (call start_attesting successfully), and
+#   2. actively participate in attestation rounds.
+#
+# The goal is to catch cross-version incompatibilities introduced by changes
+# to the attestation pallet, the extrinsic ABI, or the P2P gossip format that
+# would prevent old attestors from working with the new runtime.
+#
+# HOW ERRORS / INCOMPATIBILITIES ARE DETECTED
+#   * The check-logs-for-error.sh script scans every log file (node, anvil,
+#     and all attestor JSON logs) for ERROR: lines.
+#   * Each historical attestor_zombienet subprocess is watched; a crashed
+#     process is treated as a hard failure.
+#   * After a soak period, activeAttestors(chain_key=2) is queried and must
+#     equal 3 (SUT) + N (historical).  A missing attestor means it failed to
+#     register or was evicted.
+#
+# HOW WE VERIFY EACH ATTESTOR MADE AN ATTESTATION
+#   * Each attestor writes JSON-structured logs to
+#     <zombienet-dir>/logs/attestor-zombie-0.json.<date-hour>.
+#     A healthy, compatible attestor produces at least one of:
+#       "Attestation submitted on-chain"
+#       "Attestation submitted externally"
+#       "An attestation has reached quorum"
+#     Any of these confirm it received, participated in, and observed a
+#     complete attestation round.
+#   * Additionally, a short Node.js snippet (run from cli/) connects to the
+#     chain via polkadot/api, reads attestation.activeAttestors(2) and all
+#     attestation.attestations(2, *) entries, and checks that every registered
+#     AccountId appears in at least one SignedAttestation.attestors list.
+#     (This on-chain check is a belt-and-suspenders complement to the log
+#     check; attestors that only observed a quorum might show up here even if
+#     they did not submit the final tx themselves.)
+
+"on":
+  pull_request:
+    branches: [main, usc-testnet, usc-dev]
+    paths:
+      - "attestor/**"
+      - "pallets/attestation/**"
+      - "node/**"
+      - "runtime/**"
+      - ".github/workflows/attestor-compatibility.yml"
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+env:
+  # Inclusive lower bound.  Only mainnet releases >= this version that also
+  # include an attestor-binaries-* asset are tested.  Versions older than
+  # 3.128.0 are incompatible (subxt metadata mismatch) and are excluded.
+  MIN_VERSION: "3.128.0"
+  RELEASE_SUFFIX: "mainnet"
+  # Well-known dev node-key for the SUT node (Alice). Deterministic so the
+  # node's peer id is stable across runs; nothing bootstraps off it now that
+  # Alice is the only CC3 node.
+  ALICE_NODE_KEY: "d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463"
+  # Number of SUT attestors started for chain-key 2.
+  SUT_ATTESTOR_COUNT: 3
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Discover historical mainnet releases that ship attestor-binaries-*.zip.
+  # ---------------------------------------------------------------------------
+  discover-versions:
+    runs-on: ubuntu-26.04
+    outputs:
+      versions: ${{ steps.collect.outputs.versions }}
+      count: ${{ steps.collect.outputs.count }}
+    steps:
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
+      - name: Collect eligible release tags
+        id: collect
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          OWNER_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          read -r min_major min_minor min_patch < <(echo "${MIN_VERSION}" | tr '.' ' ')
+          MIN_KEY=$(( min_major * 10000 + min_minor * 100 + min_patch ))
+
+          # Walk all release pages and collect mainnet tags >= MIN_VERSION.
+          ALL_TAGS=""
+          page=1
+          while :; do
+            PAGE_JSON=$(curl --silent --fail --header "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${OWNER_REPO}/releases?per_page=100&page=${page}")
+            PAGE_TAGS=$(echo "${PAGE_JSON}" | jq -r '.[].tag_name')
+            if [ -z "${PAGE_TAGS}" ]; then
+              break
+            fi
+            ALL_TAGS=$(printf '%s\n%s' "${ALL_TAGS}" "${PAGE_TAGS}")
+            page=$(( page + 1 ))
+          done
+
+          # Filter: correct suffix, version >= MIN_VERSION.
+          TAGS=$(echo "${ALL_TAGS}" \
+                 | sed '/^$/d' \
+                 | awk -F'[.-]' -v min="${MIN_KEY}" -v suffix="${RELEASE_SUFFIX}" \
+                     '$NF == suffix && ($1*10000+$2*100+$3) >= min' \
+                 | sort -V)
+
+          if [ -z "${TAGS}" ]; then
+            echo "ERROR: no '-${RELEASE_SUFFIX}' releases >= ${MIN_VERSION} found" >&2
+            exit 1
+          fi
+
+          echo "INFO: candidate release tags (attestor-binaries asset will be verified at download time):"
+          echo "${TAGS}"
+
+          VERSIONS_JSON=$(echo "${TAGS}" | jq -R . | jq -c -s .)
+          COUNT=$(echo "${TAGS}" | wc -l | tr -d ' ')
+
+          echo "versions=${VERSIONS_JSON}" >> "$GITHUB_OUTPUT"
+          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+
+  # ---------------------------------------------------------------------------
+  # Build the SUT binaries (creditcoin3-node + attestor + attestor_zombienet)
+  # from the current PR / usc-dev branch. (build-native also produces archiver,
+  # but this workflow does not use it -- see the note in the run job.)
+  # ---------------------------------------------------------------------------
+  build-sut:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      # fast-runtime shortens BABE epoch + block time so the chain progresses
+      # quickly and attestors complete registration / attestation rounds faster.
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: true
+      version-string: PR
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-26.04']"
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Provision a large self-hosted Linode runner for the compatibility job.
+  # ---------------------------------------------------------------------------
+  deploy-runner:
+    needs:
+      - discover-versions
+      - build-sut
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      # Shared CPU, Linode 64 GB, 16 vCPU -- same class as validator-compatibility.
+      LINODE_VM_SIZE: "g6-standard-16"
+      proxy_type: "attestor-compatibility"
+    secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Run the attestor compatibility network.
+  # ---------------------------------------------------------------------------
+  attestor-compatibility:
+    needs:
+      - discover-versions
+      - deploy-runner
+      - build-sut
+    runs-on:
+      [self-hosted, "workflow-${{ github.run_id }}", "type-attestor-compatibility"]
+    env:
+      VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
+      # LOG_DIR holds all per-process log files and per-zombienet subdirectories
+      # (each with their own logs/ subdir for per-attestor structured JSON logs).
+      LOG_DIR: /var/tmp/attestor-compatibility
+      DATA_DIR: /var/tmp/attestor-compatibility-data
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set-Up
+        run: |
+          sudo apt-get update
+          # firefox/tigervnc/mutter are installed for optional visual debugging
+          # of the local network from the self-hosted VM.
+          sudo apt-get install -y jq unzip firefox tigervnc-standalone-server mutter openbox
+          mkdir -p "${LOG_DIR}" "${DATA_DIR}"
+
+      - name: Download SUT binaries from current PR
+        uses: actions/download-artifact@v8
+        with:
+          name: binary-for-PR
+          path: sut
+
+      - name: Make SUT binaries executable
+        run: |
+          chmod a+x \
+            ./sut/creditcoin3-node \
+            ./sut/attestor \
+            ./sut/attestor_zombienet
+
+      - name: Download historical release attestor binaries
+        env:
+          GH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          OWNER_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p historical
+
+          # Track which versions actually have an attestor-binaries asset so the
+          # count used in later steps is accurate.
+          VALID_VERSIONS=""
+
+          for TAG in $(echo "${VERSIONS_JSON}" | jq -r '.[]'); do
+            ASSET_NAME="attestor-binaries-${TAG}-x86_64-unknown-linux-gnu.zip"
+            ASSET_ID=$(curl --silent --fail \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              "https://api.github.com/repos/${OWNER_REPO}/releases/tags/${TAG}" \
+              | jq -r ".assets[] | select(.name == \"${ASSET_NAME}\") | .id // empty")
+
+            if [ -z "${ASSET_ID}" ]; then
+              echo "WARN: ${TAG} has no ${ASSET_NAME} -- skipping"
+              continue
+            fi
+
+            echo "INFO: downloading ${ASSET_NAME}"
+            curl --silent --location --fail \
+              --header "Authorization: Bearer ${GH_TOKEN}" \
+              --header "Accept: application/octet-stream" \
+              "https://api.github.com/repos/${OWNER_REPO}/releases/assets/${ASSET_ID}" \
+              -o "historical/${TAG}.zip"
+
+            mkdir -p "historical/${TAG}"
+            unzip -o "historical/${TAG}.zip" -d "historical/${TAG}"
+            chmod a+x "historical/${TAG}/attestor"
+            echo -n "INFO: ${TAG} attestor -> "
+            "historical/${TAG}/attestor" --version || true
+
+            VALID_VERSIONS="${VALID_VERSIONS} ${TAG}"
+          done
+
+          if [ -z "${VALID_VERSIONS}" ]; then
+            echo "ERROR: no historical releases with attestor-binaries found" >&2
+            exit 1
+          fi
+
+          # Write the validated list to a file so subsequent steps can iterate it
+          # without re-running the discovery logic.
+          echo "${VALID_VERSIONS}" | tr ' ' '\n' | sed '/^$/d' > "${LOG_DIR}/historical-versions.txt"
+          HISTORICAL_COUNT=$(wc -l < "${LOG_DIR}/historical-versions.txt" | tr -d ' ')
+          echo "INFO: ${HISTORICAL_COUNT} historical attestor version(s) to test:"
+          cat "${LOG_DIR}/historical-versions.txt"
+          echo "${HISTORICAL_COUNT}" > "${LOG_DIR}/historical-count.txt"
+
+      - name: Install Foundry (for Anvil)
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Pinned to match ci.yml: v1.6.x changed the anvil --dump-state
+          # JSON format, which matters if a future run uses --load-state.
+          version: v1.5.1
+
+      - name: Start SUT CC3 node (Alice)
+        env:
+          RUST_LOG: info
+        run: |
+          set -euo pipefail
+          echo -n "INFO: SUT creditcoin3-node -> "
+          ./sut/creditcoin3-node --version
+
+          ./sut/creditcoin3-node \
+            --chain dev \
+            --validator --alice --pruning archive \
+            --node-key "${ALICE_NODE_KEY}" \
+            --port 30333 --rpc-port 9944 \
+            --base-path "${DATA_DIR}/alice-data" \
+            >"${LOG_DIR}/node-alice.log" 2>&1 &
+
+      - name: Wait for Alice CC3 node
+        run: |
+          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+
+      - name: Start Anvil (Ethereum simulation, chain-key 2)
+        run: |
+          # A fresh Anvil chain is sufficient for the compatibility test;
+          # we do not need the 10k-block snapshot (and therefore no Azure login).
+          ~/.foundry/bin/anvil \
+            --block-time 6 --chain-id 31337 --port 8141 \
+            >"${LOG_DIR}/anvil.log" 2>&1 &
+
+      - name: Wait for Anvil
+        run: |
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+
+      # NOTE: no archiver here. The attestor pulls source-chain data and builds
+      # its own continuity-proof merkle roots directly from --eth-url (via
+      # alloy); it has no archiver-url input and never consumes the archiver's
+      # HTTP API. The archiver's :8080 API is only used by the dedicated CLI
+      # archiver/attestation test suites (which this compatibility workflow does
+      # not run), so starting it here would be dead weight.
+
+      # CLI is built early because it is used to (a) generate per-version
+      # attestor mnemonics for --seeds-file, and (b) set on-chain identities +
+      # run the polkadot/api attestation checks later.
+      - name: Install CLI dependencies
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'yarn'
+          cache-dependency-path: cli/yarn.lock
+      - name: Build CLI
+        working-directory: cli
+        run: |
+          npm install -g yarn
+          yarn install --immutable
+          yarn build
+
+      - name: Generate per-version attestor seeds + identity map
+        working-directory: cli
+        run: |
+          set -euo pipefail
+          # One deterministic-per-run mnemonic per historical version. We control
+          # the key so we can later set an on-chain identity (display = version)
+          # on the exact account the attestor registers with, making each
+          # historical attestor identifiable by version in the Polkadot.js portal.
+          VERSIONS_CSV=$(paste -sd, "${LOG_DIR}/historical-versions.txt")
+          node dist/scripts/attestorCompatibility.js gen-seeds \
+            --versions "${VERSIONS_CSV}" \
+            --out-dir "${LOG_DIR}/seeds"
+
+      - name: Start SUT attestors (chain-key 2, n=3, offset=0)
+        run: |
+          set -euo pipefail
+
+          # Each zombienet run is launched from its own subdirectory so that the
+          # structured JSON logs it writes to ./logs/attestor-zombie-N.json.*
+          # are isolated per run and do not overwrite each other.
+          mkdir -p "${LOG_DIR}/zombienet-sut"
+
+          (cd "${LOG_DIR}/zombienet-sut" && \
+            "${GITHUB_WORKSPACE}/sut/attestor_zombienet" \
+              --number="${SUT_ATTESTOR_COUNT}" \
+              --offset=0 \
+              --chain-key=2 \
+              --bin="${GITHUB_WORKSPACE}/sut/attestor" \
+              --eth-url=ws://localhost:8141 \
+              --cc3-url=ws://localhost:9944 \
+              --funding-address='//Alice' \
+              --config="${GITHUB_WORKSPACE}/attestor/config.yaml" \
+              >"${LOG_DIR}/zombienet-sut.log" 2>&1) &
+          echo $! > "${LOG_DIR}/zombienet-sut.pid"
+
+      - name: Wait for SUT attestors to register
+        run: |
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 2
+
+      - name: Start historical attestors (one per release, chain-key 2)
+        run: |
+          set -euo pipefail
+
+          # Each historical attestor uses the SUT's attestor_zombienet with the
+          # historical `attestor` binary (--bin).  This tests whether the old
+          # on-chain interactions (start_attesting extrinsic, BLS registration,
+          # P2P gossip) are still compatible with the current runtime.
+          #
+          # Offsets begin at SUT_ATTESTOR_COUNT (3) so P2P and API ports never
+          # overlap: port = base_port + index + offset.
+          # Default port bases: P2P = 9000, API = 9100.
+          #   offset 0..2  → SUT attestors         (9000-9002 / 9100-9102)
+          #   offset 3..N  → historical attestors   (9003-900N / 9103-910N)
+          i=0
+          while IFS= read -r TAG; do
+            OFFSET=$(( SUT_ATTESTOR_COUNT + i ))
+            echo "INFO: starting historical attestor ${TAG} (offset=${OFFSET})"
+            mkdir -p "${LOG_DIR}/zombienet-${TAG}"
+
+            # --seeds-file supplies our known mnemonic for this attestor so we
+            # can set its on-chain identity afterwards (see set-identity step).
+            (cd "${LOG_DIR}/zombienet-${TAG}" && \
+              "${GITHUB_WORKSPACE}/sut/attestor_zombienet" \
+                --number=1 \
+                --offset="${OFFSET}" \
+                --chain-key=2 \
+                --bin="${GITHUB_WORKSPACE}/historical/${TAG}/attestor" \
+                --eth-url=ws://localhost:8141 \
+                --cc3-url=ws://localhost:9944 \
+                --funding-address='//Alice' \
+                --seeds-file="${LOG_DIR}/seeds/seeds-${TAG}.txt" \
+                --config="${GITHUB_WORKSPACE}/attestor/config.yaml" \
+                >"${LOG_DIR}/zombienet-${TAG}.log" 2>&1) &
+            echo $! > "${LOG_DIR}/zombienet-${TAG}.pid"
+
+            # Stagger starts to avoid concurrent funding nonce conflicts.
+            sleep 30
+            i=$(( i + 1 ))
+          done < "${LOG_DIR}/historical-versions.txt"
+
+      - name: Wait for all attestors to register
+        run: |
+          set -euo pipefail
+
+          HISTORICAL_COUNT=$(cat "${LOG_DIR}/historical-count.txt")
+          EXPECTED=$(( SUT_ATTESTOR_COUNT + HISTORICAL_COUNT ))
+          echo "INFO: expecting ${EXPECTED} total active attestors on chain-key 2"
+
+          # The pre-computed storage key covers attestation.activeAttestors(chain_key=2).
+          # Its value is a SCALE-encoded Vec<AccountId>; we decode the compact
+          # length prefix (handles all modes, not just single-byte < 64).
+          STORAGE_KEY="0x6310fed47319b658f9b8b2504e0d72ec605e795422de90908f14285054a6764bfc069c24352798859c017ce862813d3b0200000000000000"
+
+          # Decode a SCALE compact integer from the leading bytes of a hex string
+          # (no 0x prefix). Supports single (2-bit tag 00), two-byte (01) and
+          # four-byte (10) modes, which comfortably covers any realistic attestor
+          # count. Prints the decoded value.
+          decode_compact_len() {
+            local hex="$1"
+            local b0 mode
+            b0=$(printf '%d' "0x${hex:0:2}")
+            mode=$(( b0 & 3 ))
+            case "${mode}" in
+              0) echo $(( b0 >> 2 )) ;;
+              1)
+                # two-byte little-endian
+                local b1 val
+                b1=$(printf '%d' "0x${hex:2:2}")
+                val=$(( (b1 << 8) | b0 ))
+                echo $(( val >> 2 )) ;;
+              2)
+                # four-byte little-endian
+                local b1 b2 b3 val
+                b1=$(printf '%d' "0x${hex:2:2}")
+                b2=$(printf '%d' "0x${hex:4:2}")
+                b3=$(printf '%d' "0x${hex:6:2}")
+                val=$(( (b3 << 24) | (b2 << 16) | (b1 << 8) | b0 ))
+                echo $(( val >> 2 )) ;;
+              *)
+                # big-integer mode (tag 11) -- not expected for attestor counts.
+                echo 0 ;;
+            esac
+          }
+
+          COUNT=0
+          COUNTER=0
+          MAX_ATTEMPTS=40  # up to 20 min (40 × 30s)
+          while [ "${COUNTER}" -lt "${MAX_ATTEMPTS}" ]; do
+            HEX=$(curl --silent \
+              -H 'Content-Type: application/json' \
+              -d "{\"id\":\"1\",\"jsonrpc\":\"2.0\",\"method\":\"state_getStorage\",\"params\":[\"${STORAGE_KEY}\"]}" \
+              'http://127.0.0.1:9944' | jq -r '.result // empty')
+
+            if [ -n "${HEX}" ] && [ "${HEX}" != "null" ]; then
+              COUNT=$(decode_compact_len "${HEX#0x}")
+              echo "INFO: ${COUNTER} - registered attestors: ${COUNT} / ${EXPECTED}"
+              if [ "${COUNT}" -ge "${EXPECTED}" ]; then
+                echo "OK: all ${EXPECTED} attestors registered"
+                break
+              fi
+            else
+              echo "INFO: ${COUNTER} - no attestors registered yet"
+            fi
+
+            COUNTER=$(( COUNTER + 1 ))
+            sleep 30
+          done
+
+          if [ "${COUNT}" -lt "${EXPECTED}" ]; then
+            echo "ERROR: only ${COUNT} of ${EXPECTED} attestors registered after timeout" >&2
+            exit 1
+          fi
+
+      - name: Set on-chain identity (display = version) for each historical attestor
+        working-directory: cli
+        run: |
+          # Signs identity.setIdentity({ display: <version> }) from each
+          # historical attestor account (derived from the mnemonic we supplied
+          # via --seeds-file), so each is labelled by version in the
+          # Polkadot.js portal (Accounts -> the attestor address shows e.g.
+          # "3.128.0-mainnet").
+          node dist/scripts/attestorCompatibility.js set-identity \
+            --node-url ws://127.0.0.1:9944 \
+            --map "${LOG_DIR}/seeds/identity-map.tsv"
+
+      - name: Soak – wait for an attestation checkpoint to finalize
+        working-directory: cli
+        run: |
+          set -euo pipefail
+
+          # Wait for 5 finalized checkpoints on chain-key 2. A checkpoint is a
+          # full window of DefaultAttestationsPerCheckpoint (=10) attestations
+          # that were produced and agreed on. Soaking 5 checkpoints (rather than
+          # 1) guarantees the late-starting historical attestor — which has a
+          # ~10s startup delay before it can attest — is up and participating for
+          # many rounds, not just caught mid-ramp-up when the check runs.
+          #
+          # Cadence: Anvil block-time 6s * 10-block interval = ~60s/attestation,
+          # * 10 per checkpoint = ~10 min per checkpoint, so ~50 min for 5.
+          # The 60 min timeout leaves headroom for startup + jitter.
+          node dist/scripts/attestorCompatibility.js wait-checkpoints \
+            --node-url ws://127.0.0.1:9944 \
+            --chain-key 2 \
+            --target 5 \
+            --timeout-min 60
+
+      - name: Assert each historical attestor participated in at least one attestation round
+        run: |
+          set -euo pipefail
+
+          FAIL=0
+
+          # ----- Part 1: per-attestor log grep -----
+          # Each attestor writes structured JSON logs to
+          #   <zombienet-dir>/logs/attestor-zombie-<N>.json.<date-hour>
+          # where <N> is the attestor's index+offset (each historical release runs
+          # its single attestor with a distinct --offset >= 3, so the file is
+          # attestor-zombie-3.json.*, attestor-zombie-4.json.*, etc.). Since each
+          # release has its own zombienet-<TAG>/ subdir containing exactly one
+          # attestor, we glob attestor-zombie-*.json.* rather than hardcoding the
+          # offset.
+          # A compatible attestor produces at least one of these messages:
+          #   "Attestation submitted on-chain"   – this attestor submitted the tx
+          #   "Attestation submitted externally" – another attestor submitted; this one observed it
+          #   "An attestation has reached quorum" – quorum was reached (this attestor participated in P2P)
+          # All three indicate healthy operation; any of them confirms compatibility.
+          while IFS= read -r TAG; do
+            LOG_GLOB="${LOG_DIR}/zombienet-${TAG}/logs/attestor-zombie-*.json.*"
+            # shellcheck disable=SC2086
+            if ! ls ${LOG_GLOB} 1>/dev/null 2>&1; then
+              echo "ERROR: no attestor log found for ${TAG} (process may have crashed)" >&2
+              FAIL=1
+              continue
+            fi
+            # shellcheck disable=SC2086
+            if grep -ql "Attestation submitted\|reached quorum" ${LOG_GLOB}; then
+              echo "OK: ${TAG} attestor participated in at least one attestation round"
+            else
+              echo "ERROR: ${TAG} attestor log has no attestation activity" >&2
+              cat ${LOG_GLOB} | tail -40 >&2 || true
+              FAIL=1
+            fi
+          done < "${LOG_DIR}/historical-versions.txt"
+
+          if [ "${FAIL}" -ne 0 ]; then
+            echo "ERROR: one or more historical attestors did not participate" >&2
+            exit 1
+          fi
+          echo "DONE: all historical attestors confirmed active via logs"
+
+      - name: Assert all attestors appear in on-chain attestation records
+        working-directory: cli
+        run: |
+          # ----- Part 2: on-chain SignedAttestation.attestors check -----
+          # Reads attestation.activeAttestors(2) and all recent
+          # attestation.attestations(2, *) entries.  Verifies that every
+          # registered AccountId appears in at least one SignedAttestation.attestors
+          # list, confirming their BLS-signed contribution reached the chain.
+          #
+          # NOTE: if the quorum threshold is < 100% it is possible for some
+          # attestors to be "compatible" (healthy, participating in P2P gossip)
+          # yet not appear in every on-chain record.  We therefore check for
+          # "at least one appearance across all records" rather than
+          # "present in every record".
+          node dist/scripts/attestorCompatibility.js verify-attestations \
+            --node-url ws://127.0.0.1:9944 \
+            --chain-key 2
+
+      - name: Scan infra logs for errors (node + anvil)
+        if: always()
+        run: |
+          set -euo pipefail
+          # Only the SUT node and anvil logs are scanned with the shared error
+          # script. Attestor JSON logs are scanned separately below with an
+          # attestor-aware filter (see next step), because they legitimately
+          # contain transient ERROR lines that are not compatibility failures.
+          for LOG in "${LOG_DIR}/node-alice.log" "${LOG_DIR}/anvil.log"; do
+            [ -f "${LOG}" ] && .github/check-logs-for-error.sh "${LOG}"
+          done
+
+      - name: Scan attestor logs for fatal / incompatibility errors
+        if: always()
+        run: |
+          set -euo pipefail
+
+          # Attestor JSON logs contain some benign, transient ERROR lines that
+          # show up even on the current (SUT) attestors and therefore do NOT
+          # indicate a version incompatibility, e.g.:
+          #   "Invalid attestation continuity chain tail digest" (attestation
+          #    catch-up race; seen on healthy SUT attestors too)
+          # We ignore those and only fail on signals that mean an attestor could
+          # not actually work against the current runtime:
+          #   - "not compatible with the node"  (subxt metadata mismatch)
+          #   - "Metadata error"
+          #   - "Validation worker failure" / "Worker thread error"
+          #   - "panicked"
+          FATAL_PATTERN='not compatible with the node|Metadata error|Validation worker failure|Worker thread error|panicked'
+
+          FAIL=0
+          # shellcheck disable=SC2044
+          for LOG in $(find "${LOG_DIR}" -type f -name 'attestor-zombie-*.json.*'); do
+            if grep -Eq "${FATAL_PATTERN}" "${LOG}"; then
+              echo "FAIL: fatal/incompatibility error in ${LOG}" >&2
+              echo "======" >&2
+              grep -E "${FATAL_PATTERN}" "${LOG}" >&2
+              echo "======" >&2
+              FAIL=1
+            else
+              echo "PASS: no fatal errors in ${LOG}"
+            fi
+          done
+
+          if [ "${FAIL}" -ne 0 ]; then
+            echo "ERROR: one or more attestors hit a fatal/incompatibility error (see above)" >&2
+            exit 1
+          fi
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: attestor-compatibility-logs
+          path: ${{ env.LOG_DIR }}/
+
+      - name: Kill all processes
+        if: always()
+        continue-on-error: true
+        run: |
+          killall -9 creditcoin3-node attestor_zombienet attestor anvil || true
+
+  # ---------------------------------------------------------------------------
+  # Tear down the self-hosted runner.
+  # ---------------------------------------------------------------------------
+  remove-runner:
+    needs:
+      - deploy-runner
+      - attestor-compatibility
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy_type: "attestor-compatibility"
+    secrets: inherit

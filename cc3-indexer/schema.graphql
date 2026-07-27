@@ -126,7 +126,10 @@ type Attestors @entity {
 
     lastUpdateBlockNumber: BigInt!
     """
-    0 - Active, 1 - Idle, 2 - Waiting, 3 - Leaving (matches runtime AttestorStatus enum)
+    0 - Active, 1 - Idle, 2 - Waiting, 3 - Leaving (matches runtime AttestorStatus enum).
+    4 - Unregistered: indexer-only status set when the attestor is purged from chain storage on
+    unregister. The entity is retained (not deleted) so historical MapAttestationAttestor rows keep
+    a resolvable `attestor` relation; consumers should filter out status = 4 to match chain state.
     """
     status: Int! # this-is-expected
     blsPublicKey: String!

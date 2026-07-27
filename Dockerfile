@@ -1,5 +1,5 @@
 # hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
-FROM ubuntu:24.04 AS runtime-base
+FROM ubuntu:26.04@sha256:b7f48194d4d8b763a478a621cdc81c27be222ba2206ca3ca6bc42b49685f3d9e AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get upgrade -y && \
@@ -28,12 +28,17 @@ USER creditcoin
 
 
 FROM devel-base AS rust-builder
-ARG BUILD_ARGS=""
+ARG BUILD_ARGS="--features metadata-hash"
 USER 0
 RUN apt-get install -y --no-install-recommends \
     cmake pkg-config libssl-dev git build-essential clang libclang-dev protobuf-compiler
 USER creditcoin
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y
+
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+ENV CXXFLAGS="-include cstdint"
 
 COPY --chown=creditcoin:creditcoin . /creditcoin-node/
 # shellcheck source=/dev/null

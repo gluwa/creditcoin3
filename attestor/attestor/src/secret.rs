@@ -61,8 +61,7 @@ impl FromStr for AttestorSecret {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        if s.starts_with("0x") {
-            let hex = s.strip_prefix("0x").unwrap();
+        if let Some(hex) = s.strip_prefix("0x") {
             if hex.len() != 64 {
                 return Err(anyhow::anyhow!(
                     "invalid hex seed: expected 0x followed by 64 hex digits, got {} characters",
