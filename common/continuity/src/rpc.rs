@@ -39,12 +39,17 @@ const RECONNECT_MAX_ATTEMPTS: usize = 5;
 #[derive(Debug)]
 pub struct ReconnectingEthRpcProvider {
     client: RwLock<eth::Client>,
+    /// Source-chain block encoding, derived from CC3 supported-chain metadata at
+    /// startup. Used for all block fetching / continuity building so that a
+    /// per-chain or future encoding change is honoured instead of assuming V1.
+    encoding: EncodingVersion,
 }
 
 impl ReconnectingEthRpcProvider {
-    pub fn new(client: eth::Client) -> Self {
+    pub fn new(client: eth::Client, encoding: EncodingVersion) -> Self {
         Self {
             client: RwLock::new(client),
+            encoding,
         }
     }
 
@@ -63,6 +68,18 @@ impl ReconnectingEthRpcProvider {
             match call(client).await {
                 Ok(value) => return Ok(value),
                 Err(err) => {
+                    // A user-initiated shutdown (Ctrl+C / service stop) surfaces here as an
+                    // `anyhow::Error` carrying `user::Shutdown` (via `propagate_shutdown` in the
+                    // block-fetch closures). It is not a transport failure, so do not reconnect
+                    // or burn the remaining retry budget — return immediately so the service
+                    // exits promptly.
+                    if err.chain().any(|cause| cause.is::<user::Shutdown>()) {
+                        warn!(
+                            op,
+                            attempt, "ETH RPC call interrupted by shutdown; not retrying"
+                        );
+                        return Err(err);
+                    }
                     if eth::anyhow_chain_is_inconsistent_block_payload(&err) {
                         warn!(
                             op,
@@ -368,9 +385,10 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
         start: u64,
         end: u64,
     ) -> Result<Vec<Block>> {
+        let encoding = self.encoding;
         self.run("build_continuity_blocks", move |client| async move {
             ContinuityManager::new(start, end, &client)
-                .create(lower_digest, EncodingVersion::V1)
+                .create(lower_digest, encoding)
                 .await
                 .context("Failed to create continuity blocks")
         })
@@ -378,11 +396,15 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
     }
 
     async fn get_block_tx_bytes(&self, block_number: u64) -> Result<Vec<Vec<u8>>> {
+        let encoding = self.encoding;
         self.run("get_block_tx_bytes", move |client| async move {
             let ordered = client
-                .get_block(block_number, EncodingVersion::V1)
+                .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                // Propagate a user-initiated `Interrupt::Stop` as a typed `Shutdown` error
+                // (carried inside this `anyhow::Error`) instead of panicking, so Ctrl+C /
+                // service shutdown exits gracefully.
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block transactions")?;
 
             Ok(ordered.items().iter().map(|item| item.to_bytes()).collect())
@@ -391,11 +413,12 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
     }
 
     async fn get_tx_hash_by_index(&self, block_number: u64, tx_index: u64) -> Result<Option<H256>> {
+        let encoding = self.encoding;
         self.run("get_tx_hash_by_index", move |client| async move {
             let ordered = client
-                .get_block(block_number, EncodingVersion::V1)
+                .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block")?;
 
             Ok(ordered.items().get(tx_index as usize).map(|item| {
@@ -411,13 +434,14 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
         block_number: u64,
         tx_index: u64,
     ) -> Result<(Vec<Vec<u8>>, Option<H256>)> {
+        let encoding = self.encoding;
         self.run("get_block_tx_bytes_and_tx_hash", move |client| async move {
             // One block fetch yields both the ordered tx bytes and the tx hash at `tx_index`,
             // replacing the previous two separate `get_block` calls.
             let ordered = client
-                .get_block(block_number, EncodingVersion::V1)
+                .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block")?;
 
             let bytes = ordered.items().iter().map(|item| item.to_bytes()).collect();
@@ -431,11 +455,12 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
     }
 
     async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        let encoding = self.encoding;
         self.run("get_block_tx_data", move |client| async move {
             let ordered = client
-                .get_block(block_number, EncodingVersion::V1)
+                .get_block(block_number, encoding)
                 .await
-                .unwrap_interrupt("Not handling user interrupts yet")
+                .propagate_shutdown::<anyhow::Error>()
                 .context("Failed to fetch block")?;
 
             Ok(ordered

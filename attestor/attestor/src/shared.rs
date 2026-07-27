@@ -1,0 +1,127 @@
+//! Shared state — held by every task as `Arc<Shared>`.
+//!
+//! The single most important property of this struct vs. the v1 design: there is **one**
+//! `Arc<cc_client::Client>` here. Every task holds the same `Arc`, so when one task calls
+//! `cc3.reconnect()` the underlying `ArcSwap` swap is visible to every other task immediately.
+//! That's the fix for the reconnect-data-duplication bug.
+//!
+//! The other notable additions vs. v1 are:
+//!
+//! - `can_attest`: `watch::Sender<bool>` so toggle events actually wake consumers
+//!   (the legacy `Arc<AtomicBool>` couldn't).
+//! - `latest_finalized`: `watch::Sender<AttestationInfo>` so the validation task can
+//!   `wait_for(|info| info.height >= X)` instead of subscribing to a second CC3 stream.
+//! - `gossip_tx`: `mpsc::Sender<Vote>` (not broadcast) — one consumer (p2p), no fan-out.
+//! - `token`: a root `CancellationToken`. Tasks derive child tokens; `select!` on
+//!   `token.cancelled()` instead of bespoke `Notify` / `Interrupt::Stop` plumbing.
+
+use std::num::NonZero;
+use std::sync::atomic::AtomicU64;
+use std::sync::Arc;
+
+use tokio::sync::{mpsc, watch};
+use tokio_util::sync::CancellationToken;
+
+use attestor_primitives::{ChainKey, Digest, Height};
+
+use crate::bls::BlsStore;
+use crate::proof_cache::ProofCache;
+
+/// What every task needs.
+pub struct Shared {
+    pub name: String,
+    pub chain_key: ChainKey,
+    /// Source-chain block encoding from the CC3 supported-chain metadata. Every block fetch
+    /// (root stream, genesis bootstrap) must use this — hardcoding a version would silently
+    /// produce wrong roots/digests the moment the runtime registers a chain with a different
+    /// encoding.
+    pub encoding: usc_abi_encoding::common::EncodingVersion,
+    pub account_id: cc_client::AccountId32,
+    pub attestor_id: attestor_primitives::AttestorId,
+
+    pub signer: cc_client::signer::CC3Signer,
+    pub bls_key: bls_signatures::PrivateKey,
+
+    pub cc3: Arc<cc_client::Client>,
+    pub eth: eth::Client,
+
+    pub bls_store: Arc<BlsStore>,
+    pub metrics: metrics::Metrics,
+    pub health: crate::health::SharedHealth,
+
+    pub pool_send: attestor_pool::Sender,
+    /// Production → p2p channel for freshly signed local votes. Unbounded: a signed vote must
+    /// never be dropped at the producer (a vote lost here is lost to the whole network — the
+    /// p2p retry queue only covers votes that reached it), and production must never block on
+    /// p2p backpressure. The p2p task drains this unconditionally, so memory stays bounded by
+    /// its processing rate; a closed channel means p2p exited and the supervisor restarts us.
+    pub gossip_tx: mpsc::UnboundedSender<crate::vote::Vote>,
+
+    /// Signals the p2p task that an attestor was chilled/kicked on-chain, so it can evict that
+    /// attestor's libp2p peer (if known) from the routing table and drop the connection. Sent by
+    /// the production task *after* it refreshes `bls_store`, so the p2p task's active-set view is
+    /// already up to date when it re-evaluates the peer. Unbounded because these events are rare
+    /// (committee changes) and the p2p task must never block production on backpressure.
+    pub peer_deactivated_tx: mpsc::UnboundedSender<attestor_primitives::AttestorId>,
+
+    /// The *desired* eligibility, updated synchronously on every eligibility event. Distinct from
+    /// `can_attest` (which lags by the warm-up on a disabled→enabled transition): a warm-up-pending
+    /// node has `attest_target == true` while `can_attest` is still false. `apply_eligibility` is a
+    /// no-op when the target is unchanged, so unrelated `AttestorKicked` / peer-chill events (which
+    /// leave local eligibility untouched but fire the handler) don't bump `eligibility_gen` and
+    /// cancel a pending warm-up. Initialized to match the boot `can_attest` value (`true`: the node
+    /// only starts after `wait_for_eligible` + startup warm-up).
+    pub attest_target: std::sync::atomic::AtomicBool,
+
+    /// Monotonic counter bumped on every genuine eligibility *transition* (via `apply_eligibility`).
+    /// A warm-up task spawned on a disabled→enabled transition captures the value and only enables
+    /// `can_attest` if it is still current at wake time — so a real chill landing during the warm-up
+    /// window cancels the pending enable rather than racing it.
+    pub eligibility_gen: AtomicU64,
+
+    pub can_attest_tx: watch::Sender<bool>,
+    pub can_attest_rx: watch::Receiver<bool>,
+
+    /// Latest BlockAttested observed on cc3. `None` until the first BlockAttested event is
+    /// processed by the production task. Validation reads this to wait for a height to finalize
+    /// without subscribing to cc3 itself.
+    pub latest_finalized_tx: watch::Sender<Option<AttestationInfo>>,
+    pub latest_finalized_rx: watch::Receiver<Option<AttestationInfo>>,
+
+    /// Latest height for which production has cached local AttestationData. `None` until the
+    /// first local emit. The p2p task subscribes to this so it can drain any pending votes
+    /// (received from peers before we had local data) and retry verification.
+    pub local_produced_tx: watch::Sender<Option<Height>>,
+    pub local_produced_rx: watch::Receiver<Option<Height>>,
+
+    pub proof_cache: Arc<ProofCache>,
+
+    pub interval_attestation: parking_lot::RwLock<NonZero<Height>>,
+    /// On-chain `MaxCatchup` (block-count bound per continuity proof). Fetched at startup and
+    /// kept in sync by the production task via `MaxCatchupChanged` events.
+    pub max_catchup: parking_lot::RwLock<NonZero<Height>>,
+    pub maturity_delay: u64,
+    pub start_height: Height,
+    pub genesis: Height,
+
+    pub token: CancellationToken,
+}
+
+/// Stored in the `latest_finalized` watch channel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AttestationInfo {
+    pub height: Height,
+    pub digest: Digest,
+}
+
+impl Shared {
+    /// Cheap typed accessor.
+    pub fn attestation_interval(&self) -> NonZero<Height> {
+        *self.interval_attestation.read()
+    }
+
+    /// Cheap typed accessor.
+    pub fn max_catchup(&self) -> NonZero<Height> {
+        *self.max_catchup.read()
+    }
+}

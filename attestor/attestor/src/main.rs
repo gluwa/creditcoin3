@@ -313,8 +313,14 @@ impl Config {
             None => match &config_file.attestor.secret {
                 Some(s) => attestor::secret::AttestorSecret::from_str(s)
                     .map_err(|e| anyhow::anyhow!("invalid attestor secret in config file: {e}"))?,
-                None => attestor::secret::AttestorSecret::Mnemonic(
-                    bip39::Mnemonic::generate(12).expect("Failed to generate attestor secret"),
+                // Fail fast rather than fall back to a throwaway random identity. A random
+                // identity is never in the elected set and its BLS key is never registered, so
+                // the node would boot, sit in `Health::Starting` reporting healthy, and attest
+                // nothing forever — a silent no-op that no probe catches. A production deploy
+                // that forgot the secret must crash loudly, not pretend to work.
+                None => anyhow::bail!(
+                    "no attestor secret configured — set --secret / ATTESTOR_SECRET or the \
+                     `attestor.secret` config field (a random identity would silently never attest)"
                 ),
             },
         };
@@ -326,8 +332,8 @@ impl Config {
             .unwrap_or(common::constants::DEFAULT_API_PORT);
 
         let boot_nodes = matches
-            .get_one::<Vec<libp2p::Multiaddr>>("boot-nodes")
-            .cloned()
+            .get_many::<libp2p::Multiaddr>("boot-nodes")
+            .map(|vals| vals.cloned().collect::<Vec<_>>())
             .or(config_file.p2p.boot_nodes)
             .unwrap_or_default();
 
@@ -402,8 +408,58 @@ impl Config {
 
 // ---------------------------------------- [ Main loop ] -------------------------------------- //
 
-#[tokio::main(flavor = "current_thread")]
+/// Tracing filter that suppresses alloy's hourly `RPC::DEADLINE_EXCEEDED` close-frame ERROR.
+///
+/// The upstream ETH WS provider (Google Cloud RPC / Alchemy / similar) enforces a hard 1-hour
+/// session lifetime and emits `CloseFrame { reason: "...DEADLINE_EXCEEDED..." }` on expiry.
+/// Alloy reconnects internally within sub-second; the next attestation production fires on its
+/// normal cadence, so the ERROR line is pure dashboard noise. Other close-frame variants
+/// (e.g. `generic::unavailable` from a transient backend hiccup) stay visible — those *do*
+/// indicate something worth knowing about.
+#[derive(Clone, Copy)]
+struct SuppressAlloyDeadlineExceeded;
+
+impl<S> tracing_subscriber::layer::Filter<S> for SuppressAlloyDeadlineExceeded {
+    fn enabled(
+        &self,
+        _: &tracing::Metadata<'_>,
+        _: &tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        true
+    }
+
+    fn event_enabled(
+        &self,
+        event: &tracing::Event<'_>,
+        _: &tracing_subscriber::layer::Context<'_, S>,
+    ) -> bool {
+        if !event.metadata().target().starts_with("alloy_transport_ws") {
+            return true;
+        }
+        struct V {
+            matched: bool,
+        }
+        impl tracing::field::Visit for V {
+            fn record_debug(&mut self, _: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+                if !self.matched && format!("{value:?}").contains("DEADLINE_EXCEEDED") {
+                    self.matched = true;
+                }
+            }
+            fn record_str(&mut self, _: &tracing::field::Field, value: &str) {
+                if !self.matched && value.contains("DEADLINE_EXCEEDED") {
+                    self.matched = true;
+                }
+            }
+        }
+        let mut v = V { matched: false };
+        event.record(&mut v);
+        !v.matched
+    }
+}
+
+#[tokio::main()]
 async fn main() -> anyhow::Result<()> {
+    use tracing_subscriber::filter::FilterExt as _;
     use tracing_subscriber::layer::SubscriberExt as _;
     use tracing_subscriber::util::SubscriberInitExt as _;
     use tracing_subscriber::Layer as _;
@@ -419,7 +475,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| {
             tracing_subscriber::EnvFilter::new(
                 "attestor=info,\
-                attestation_pool=info,\
+                attestor_pool=info,\
                 stream_attestation=info,\
                 stream_eth=info,\
                 stream_cc3=info,\
@@ -429,14 +485,16 @@ async fn main() -> anyhow::Result<()> {
             )
         });
 
+    // `max_level_hint()` is `None` for some filter directives; treat "no hint" as not-debug
+    // rather than panicking the process at startup before logging is even initialized.
     let is_max_level_debug =
-        filter_env.max_level_hint().unwrap() == tracing::level_filters::LevelFilter::DEBUG;
+        filter_env.max_level_hint() == Some(tracing::level_filters::LevelFilter::DEBUG);
     let fmt = tracing_subscriber::fmt::layer()
         .with_target(true)
         .with_file(is_max_level_debug)
         .with_line_number(is_max_level_debug)
         .with_thread_ids(true)
-        .with_filter(filter_env);
+        .with_filter(filter_env.and(SuppressAlloyDeadlineExceeded));
 
     let args = Config::parse()?;
 
@@ -446,7 +504,7 @@ async fn main() -> anyhow::Result<()> {
         .with_default(tracing_subscriber::filter::LevelFilter::OFF)
         .with_target("attestor", tracing::Level::TRACE)
         .with_target("stream_attestation", tracing::Level::TRACE)
-        .with_target("attestation_pool", tracing::Level::TRACE)
+        .with_target("attestor_pool", tracing::Level::TRACE)
         .with_target("stream_eth", tracing::Level::TRACE)
         .with_target("stream_cc3", tracing::Level::TRACE)
         .with_target("cc_client", tracing::Level::TRACE)
@@ -462,7 +520,7 @@ async fn main() -> anyhow::Result<()> {
         .with_file(true)
         .with_line_number(true)
         .with_writer(appender)
-        .with_filter(filter_logs);
+        .with_filter(filter_logs.and(SuppressAlloyDeadlineExceeded));
 
     let _ = tracing_subscriber::registry()
         .with(fmt)
@@ -482,7 +540,7 @@ async fn main() -> anyhow::Result<()> {
                 .build(),
         )
         .with_p2p(
-            attestor::worker::p2p::ConfigBuilder::new()
+            attestor::tasks::p2p::ConfigBuilder::new()
                 .with_boot_nodes(args.boot_nodes)
                 .with_public_addr(args.public_addr)
                 .with_port(args.p2p_port)
@@ -494,7 +552,11 @@ async fn main() -> anyhow::Result<()> {
                 .with_start_height(args.start_height)
                 .build(),
         )
-        .with_api(attestor::worker::api::ConfigBuilder::new().with_port(args.api_port))
+        .with_api(
+            attestor::tasks::api::ConfigBuilder::new()
+                .with_port(args.api_port)
+                .build(),
+        )
         .build();
 
     // ----------------------------------------* Main loop *---------------------------------------

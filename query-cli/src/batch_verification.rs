@@ -8,7 +8,6 @@ use anyhow::{anyhow, Result};
 use attestor_primitives::block::{Block, ContinuityProof};
 
 use eth::Client;
-use usc_abi_encoding::common::EncodingVersion;
 use utils::block_item_traits::BlockItem;
 
 use crate::merkle;
@@ -328,7 +327,8 @@ pub async fn execute_batch_query(
 
     // Create Ethereum client
     let eth_client = Client::new(&eth_rpc_url, None).await?;
-    let encoding = EncodingVersion::V1;
+    // Source-chain block encoding from CC3 metadata, instead of assuming V1.
+    let encoding = crate::encoding::resolve_chain_encoding(&cc3_rpc_url, chain_key).await;
 
     // Create batch verifier with eth_rpc_url stored
     let config = BatchVerificationConfig {

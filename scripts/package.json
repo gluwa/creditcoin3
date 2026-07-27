@@ -12,14 +12,14 @@
         "typecheck": "echo"
     },
     "dependencies": {
-        "@gluwa/usc-sdk": "0.13.0",
+        "@gluwa/usc-sdk": "0.18.0",
         "@polkadot/api": "16.5.2",
-        "ethers": "^6.16.0"
+        "ethers": "^6.17.0"
     },
     "devDependencies": {
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
-        "prettier": "3.8.1"
+        "prettier": "3.9.4"
     },
     "engines": {
         "node": ">=18.0.0"

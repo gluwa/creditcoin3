@@ -12,6 +12,12 @@ pub struct Config {
 
     /// Maximum number of parallel block root merkleization (CPU-bound).
     pub max_parallelism: std::num::NonZeroUsize,
+
+    /// Source-chain block encoding. Derived from CC3 supported-chain metadata by
+    /// callers that know the chain; defaults to V1 (the only encoding today) so
+    /// existing builders keep working.
+    #[default(usc_abi_encoding::common::EncodingVersion::V1)]
+    pub encoding: usc_abi_encoding::common::EncodingVersion,
 }
 
 /// Ordered Eth root stream, backed by [`eth::Client`] under the hood.
@@ -97,6 +103,22 @@ impl StreamRoots {
                                         hash: attestor_primitives::Digest::from(*block.hash()),
                                     }
                                 });
+                            },
+                            Some(Err(err)) if err.is_shutdown() => {
+                                // User-initiated shutdown (Ctrl+C / service stop) propagated up
+                                // from the inner block stream. This is NOT a connection failure:
+                                // drain in-flight root computations and terminate the outer
+                                // stream cleanly instead of reconnecting.
+                                tracing::info!("Eth root stream shutting down on user interrupt");
+                                roots.abort_all();
+                                while !roots.is_empty() {
+                                    if let Some(Err(err)) = roots.join_next().await {
+                                        if err.is_panic() {
+                                            std::panic::resume_unwind(err.into_panic());
+                                        }
+                                    }
+                                }
+                                return;
                             },
                             Some(Err(err)) => {
                                 // Failed to retrieve source chain block, try and regenerate the
@@ -227,25 +249,39 @@ impl stream_util::ChainData<stream_util::RootInfo> for StreamRoots {
     }
 }
 
-async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::OrderedBlock, Error>> {
+async fn stream_rpc(
+    mut config: Config,
+) -> stream_util::BoxedStream<Result<eth::OrderedBlock, Error>> {
     use futures::StreamExt as _;
 
-    let strategy = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
+    // Initial subscribe, repairing the client between attempts. This runs from `new()` and from
+    // `reset()` (whose backup config's client may have died since construction), and as the
+    // second layer under `StreamRoots::reconnect`. `eth::Client` is a value clone — a dead
+    // connection inside it never self-heals — so a loop that only re-`subscribe()`s can spin on
+    // a dead client forever, pinning production until the watchdog restarts the pod. The
+    // repaired client stays in `config`, so the block fetches in the stream body use it too.
+    // First attempt goes straight to `subscribe()` so a healthy construction pays no extra dial.
+    let mut delays = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
         .max_delay(std::time::Duration::from_millis(5_000))
         .map(tokio_retry::strategy::jitter);
-
-    let reconnect = || {
-        let client = config.client.clone();
-        async move {
-            let mut stream_headers = client.subscribe().await.map_err(Error::Client)?;
-            let next = stream_headers.next().await.ok_or(Error::StreamEnd)?.number;
-
-            Ok::<_, Error>((stream_headers, next))
+    let (stream_headers, next) = loop {
+        match config.client.subscribe().await.map_err(Error::Client) {
+            Ok(mut stream_headers) => match stream_headers.next().await {
+                Some(header) => break (stream_headers, header.number),
+                None => tracing::warn!("Eth header stream ended before yielding — retrying"),
+            },
+            Err(err) => {
+                tracing::warn!(?err, "Eth subscribe failed — repairing client and retrying");
+            }
         }
+        if let Err(err) = config.client.reconnect().await {
+            tracing::warn!(?err, "Eth client reconnect failed");
+        }
+        let delay = delays
+            .next()
+            .unwrap_or(std::time::Duration::from_millis(5_000));
+        tokio::time::sleep(delay).await;
     };
-
-    let retry = tokio_retry::Retry::spawn(strategy, reconnect);
-    let (stream_headers, next) = retry.await.expect("Unbounded retry cannot error");
 
     let mut stream_n = futures::stream::iter(config.start_height..=next)
         .chain(
@@ -285,7 +321,14 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
                             {
                                 Ok(Ok(block)) => yield Ok(block),
                                 Ok(Err(Interrupt::Cont(err))) => yield Err(err),
-                                Ok(Err(Interrupt::Stop)) => break,
+                                // User-initiated shutdown: surface a typed `Shutdown` error and
+                                // terminate the stream. The outer `StreamRoots` layer recognizes
+                                // this and exits cleanly instead of treating the stream end as a
+                                // connection failure and reconnecting.
+                                Ok(Err(Interrupt::Stop)) => {
+                                    yield Err(Error::Shutdown);
+                                    return;
+                                }
                                 Err(err) => {
                                     if err.is_panic() {
                                         std::panic::resume_unwind(err.into_panic());
@@ -297,13 +340,14 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
 
                     let eth = config.client.clone();
                     let lag = config.finalization_lag;
+                    let encoding = config.encoding;
 
                     // Actual block fetching. No more than `max_concurrency` blocks may be
                     // fetched at once.
                     blocks.spawn(async move {
                         eth.get_block(
                             n - lag,
-                            usc_abi_encoding::common::EncodingVersion::V1
+                            encoding
                         )
                         .await
                         .map_interrupt(Error::Client)
@@ -315,7 +359,12 @@ async fn stream_rpc(config: Config) -> stream_util::BoxedStream<Result<eth::Orde
                     {
                         Ok(Ok(block)) => yield Ok(block),
                         Ok(Err(Interrupt::Cont(err))) => yield Err(err),
-                        Ok(Err(Interrupt::Stop)) => break,
+                        // User-initiated shutdown: surface a typed `Shutdown` error and terminate
+                        // the stream so the outer layer exits cleanly rather than reconnecting.
+                        Ok(Err(Interrupt::Stop)) => {
+                            yield Err(Error::Shutdown);
+                            return;
+                        }
                         Err(err) => {
                             if err.is_panic() {
                                 std::panic::resume_unwind(err.into_panic());

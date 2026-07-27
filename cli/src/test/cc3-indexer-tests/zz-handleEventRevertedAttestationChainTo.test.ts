@@ -64,8 +64,8 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                 .sudo(api.tx.attestation.revertTo(chainKey, checkpointHeightToRevertTo))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
 
-            await forElapsedBlocks(api, { minBlocks: 3 });
-        }, 60_000);
+            await forElapsedBlocks(api, { minBlocks: 5, maxRetries: 15 });
+        }, 120_000);
 
         it('graphQL returns known RevertedAttestationChainTo entity', async () => {
             const response = await graphQLQuery(

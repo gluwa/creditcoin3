@@ -138,6 +138,9 @@ impl Server {
             })?
             .ok_or_else(|| anyhow!("Failed to get supported chain for chain_key {chain_key}"))?;
         let supported_chain_id = supported_chain.chain_id;
+        // Source-chain block encoding from CC3 metadata, rather than assuming V1.
+        let chain_encoding =
+            usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
 
         let eth_fallback_urls: &[String] = &chain.eth_rpc_fallback_urls;
 
@@ -233,8 +236,9 @@ impl Server {
             );
         }
 
-        let reconnecting: continuity::rpc::SharedEthProvider =
-            Arc::new(continuity::rpc::ReconnectingEthRpcProvider::new(eth_client));
+        let reconnecting: continuity::rpc::SharedEthProvider = Arc::new(
+            continuity::rpc::ReconnectingEthRpcProvider::new(eth_client, chain_encoding),
+        );
 
         let eth_provider: continuity::rpc::SharedEthProvider =
             if let Some(ref archiver_url) = chain.archiver_url {

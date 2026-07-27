@@ -44,7 +44,36 @@ const RuntimeAttestorStatus = {
     idle: 1,
     waiting: 2,
     leaving: 3,
+    // Indexer-only status: the attestor has been unregistered and purged from chain storage
+    // (Attestors::<T>::remove). We keep the Attestors entity so historical MapAttestationAttestor
+    // rows can still resolve their non-nullable `attestor` relation, but flag it as unregistered so
+    // the GraphQL `attestors` list can filter it out to stay in sync with chain state.
+    unregistered: 4,
 } as const;
+
+/**
+ * Flush pending store writes to the database before performing deletions.
+ *
+ * SubQuery buffers entity `.save()` calls in an in-memory store cache and only
+ * persists them to the DB between blocks. Read APIs such as `getByFields` resolve
+ * against persisted data, so an entity created earlier *in the same block* is not
+ * visible to a subsequent delete query and would survive a deletion pass.
+ *
+ * This bites the attestation-revert path: when a `commitAttestation` and a
+ * `revertTo` land in the same block, the freshly-created attestation is not seen
+ * by `remove_attestations_above_height` and is never deleted. Flushing first makes
+ * the pending writes visible so the delete queries see (and remove) them.
+ *
+ * `flush()` lives on the store cache in `@subql/node` but is not declared on the
+ * public `@subql/types` `Store` interface, so it is accessed via a guarded cast
+ * and no-ops if unavailable (never breaks indexing).
+ */
+async function flushStore(): Promise<void> {
+    const maybeFlush = (store as unknown as { flush?: () => Promise<void> }).flush;
+    if (typeof maybeFlush === 'function') {
+        await maybeFlush.call(store);
+    }
+}
 
 export async function handleEventAttestorsElected(event: SubstrateEvent): Promise<void> {
     logger.info(`New Attestors Elected event found at block ${event.block.block.header.number.toString()}`);
@@ -198,6 +227,9 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     });
     await chainRemoved.save();
 
+    // Flush pending in-block writes so deletions below see same-block entities.
+    await flushStore();
+
     const supportedChain = await SupportedChain.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
     if (isEmpty(supportedChain)) {
         logger.error(`Supported Chains : ${chainKeyStr} not found in db for block number event: ${blockNumber}.`);
@@ -285,10 +317,14 @@ export async function handleEventAttestorUnregistered(event: SubstrateEvent): Pr
 
     const id = `${blockNumber}-${event.idx}`;
     const attestorEntity = await checkAndGetAttestor(id, attestor.toString(), chainKeyNumber);
+    // Unregistering an attestor purges it from storage on chain (Attestors::<T>::remove). We do NOT
+    // delete the Attestors entity, because historical MapAttestationAttestor rows reference it via a
+    // non-nullable `attestor: Attestors!` relation; deleting the row would leave those maps with an
+    // unresolvable foreign key. Instead we flag the attestor as `unregistered` so it can be filtered
+    // out of the GraphQL `attestors` list while preserving referential integrity. The unregistration
+    // history is also preserved separately in the AttestorUnregistered entity.
+    attestorEntity.status = RuntimeAttestorStatus.unregistered;
     attestorEntity.lastUpdateBlockNumber = blockNumber;
-    // Unregistering an attestor removes it from storage on chain, here we just set it to Idle status to keep history of the attestor in the db.
-    attestorEntity.status = RuntimeAttestorStatus.idle;
-
     await Promise.all([attestorUnregistered.save(), attestorEntity.save()]);
 }
 
@@ -1318,6 +1354,9 @@ export async function handleAuthorizedAttestorRemoved(event: SubstrateEvent): Pr
         attestorId: attestor.toString(),
     });
 
+    // Flush pending in-block writes so the deletion below sees same-block entities.
+    await flushStore();
+
     // Remove the authorized attestor entry
     const removeAuthorizedAttestor = AuthorizedAttestors.remove(`${chainKeyNumber.toString()}-${attestor.toString()}`);
 
@@ -1491,6 +1530,9 @@ function codecToBool(value: unknown): boolean {
 }
 
 async function remove_checkpoints_at_checkpoint_height(chainKey: bigint, checkpointHeight: bigint): Promise<void> {
+    // Flush pending in-block writes so the read below sees same-block entities.
+    await flushStore();
+
     const PAGE_SIZE = 100;
     const DELETE_BATCH_SIZE = 100;
     let offset = 0;
@@ -1527,6 +1569,9 @@ async function remove_checkpoints_at_checkpoint_height(chainKey: bigint, checkpo
 }
 
 async function remove_attestations_above_height(chainKey: bigint, revertHeight: bigint) {
+    // Flush pending in-block writes so the read below sees same-block entities.
+    await flushStore();
+
     // Max allowed reads in one call of getByFields is 100
     const PAGE_SIZE = 100;
     const DELETE_BATCH_SIZE = 100;
@@ -1571,6 +1616,9 @@ async function remove_attestations_above_height(chainKey: bigint, revertHeight: 
 }
 
 async function remove_checkpoints_above_height(chainKey: bigint, revertHeight: bigint) {
+    // Flush pending in-block writes so the read below sees same-block entities.
+    await flushStore();
+
     // Max allowed reads in one call of getByFields is 100
     const PAGE_SIZE = 100;
     const DELETE_BATCH_SIZE = 100;

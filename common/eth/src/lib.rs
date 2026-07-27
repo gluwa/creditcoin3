@@ -38,11 +38,6 @@ use utils::block_item_traits::BlockItem;
 
 pub use alloy::core::primitives::Address;
 
-#[cfg(feature = "block_cache")]
-pub mod block_cache;
-#[cfg(feature = "block_cache")]
-pub mod metrics;
-
 pub mod continuity;
 pub mod evm;
 pub mod mem_block_cache;
@@ -83,9 +78,6 @@ pub enum Error {
     FailedToGetBlockByHash(String),
     #[error("Failed to path rpc url {0}")]
     UrlParseError(#[from] url::ParseError),
-    #[cfg(feature = "block_cache")]
-    #[error("Redis error {0}")]
-    RedisError(#[from] redis::RedisError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
     UnsupportedUrl(String),
 }
@@ -149,7 +141,6 @@ pub fn anyhow_chain_inconsistent_block_number_hint(err: &anyhow::Error) -> Optio
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "block_cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct TxRx {
     tx: Transaction,
     rx: TransactionReceipt,
@@ -198,7 +189,6 @@ impl BlockItem for TxRx {
 }
 
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "block_cache", derive(serde::Serialize, serde::Deserialize))]
 pub struct OrderedBlock {
     chain_id: u64,
     number: u64,
@@ -404,8 +394,6 @@ pub struct Client {
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
-    #[cfg(feature = "block_cache")]
-    cache: Option<block_cache::Cache>,
     /// Optional in-process cache of finalized blocks (opt-in via [`Client::with_block_cache`]).
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
@@ -457,8 +445,6 @@ impl Client {
             rpc_provider,
             fallback_providers: Vec::new(),
             chain_id,
-            #[cfg(feature = "block_cache")]
-            cache: None,
             mem_cache: None,
         })
     }
@@ -500,8 +486,6 @@ impl Client {
             rpc_provider,
             fallback_providers,
             chain_id,
-            #[cfg(feature = "block_cache")]
-            cache: None,
             mem_cache: None,
         })
     }
@@ -814,7 +798,6 @@ impl Client {
         Ok((block, receipts))
     }
 
-    #[cfg(not(feature = "block_cache"))]
     pub async fn get_block(
         &self,
         number: u64,

@@ -30,19 +30,25 @@ name: Reusable workflow to build a native client
         required: false
         type: boolean
 
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+env:
+  CXXFLAGS: "-include cstdint"
+
 jobs:
   build-creditcoin-node:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
     steps:
       - name: Checkout code regularly
         if: ${{ ! inputs.use-new-metadata }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           lfs: ${{ inputs.git-lfs-checkout }}
 
       - name: Checkout code for typedefs update
         if: ${{ inputs.use-new-metadata }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           lfs: ${{ inputs.git-lfs-checkout }}
           repository: ${{ github.event.pull_request.head.repo.full_name }}
