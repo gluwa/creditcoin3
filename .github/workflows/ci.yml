@@ -184,8 +184,7 @@ jobs:
           path: |
             head-node.log
             release-node.log
-            # disabled until we have mainnet
-            # metadata-cmp-with-mainnet.txt
+            metadata-cmp-with-mainnet.txt
             metadata-cmp-with-testnet.txt
 
   rm-gh-runner-build-creditcoin-node-for-testing:
