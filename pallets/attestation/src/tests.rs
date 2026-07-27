@@ -8445,6 +8445,87 @@ mod prevalidate_attestation_commit_extension {
         })
     }
 
+    /// Regression test for ATTESTOR-V2-008: only *active attestors* get the shared
+    /// `(chain_key, digest)` `provides` tag.
+    ///
+    /// The tag is derived purely from public chain data, so anyone can predict the digest honest
+    /// attestors will produce next. Authorization is only checked in dispatch, so if prevalidation
+    /// handed the tag out unconditionally, any funded account could reserve — or, with higher
+    /// priority, evict — the single pool slot for that digest using a transaction guaranteed to
+    /// fail, repeatedly delaying attestation progress. Both submissions below name the *same*
+    /// digest; only the authorized one may claim the slot.
+    #[test]
+    fn prevalidate_tags_only_active_attestor_submissions() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            let epoch = 99u64;
+
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature,
+            ));
+            assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            let chain_key = attestation.chain_key();
+
+            assert!(
+                ActiveAttestors::<Test>::get(chain_key).contains(&attestor.attestor_id),
+                "precondition: signer must be an active attestor"
+            );
+            assert!(
+                !ActiveAttestors::<Test>::get(chain_key).contains(&ATTESTOR_2),
+                "precondition: the impersonator must NOT be an active attestor"
+            );
+
+            let call = RuntimeCall::Attestation(crate::Call::commit_attestation {
+                attestation: attestation.clone(),
+            });
+            let info = call.get_dispatch_info();
+
+            // The legitimate attestor claims the slot for this digest.
+            let authorized = PrevalidateAttestationCommit::<Test>::new()
+                .validate(&attestor.attestor_id, &call, &info, 0)
+                .expect("active attestor is admitted");
+            assert!(
+                !authorized.provides.is_empty(),
+                "an active attestor must still claim the dedup slot"
+            );
+
+            // A non-attestor submitting the *same* attestation is admitted (it pays its fee in
+            // dispatch) but must not be able to conflict with the submission above.
+            let unauthorized = PrevalidateAttestationCommit::<Test>::new()
+                .validate(&ATTESTOR_2, &call, &info, 0)
+                .expect("non-active signers are still admitted, to pay fees in dispatch");
+            assert!(
+                unauthorized.provides.is_empty(),
+                "an unauthorized submission must not claim the shared attestation slot"
+            );
+
+            // The two must not collide in the pool.
+            assert!(
+                authorized
+                    .provides
+                    .iter()
+                    .all(|tag| !unauthorized.provides.contains(tag)),
+                "unauthorized submissions must not preempt the legitimate attestation's slot"
+            );
+        })
+    }
+
     #[test]
     fn prevalidate_attestation_fails_duplicate() {
         ExtBuilder.build_and_execute(|| {
@@ -8576,6 +8657,13 @@ mod prevalidate_attestation_commit_extension {
             assert!(
                 res.is_ok(),
                 "Attestation from an invalid source must still be inserted into the mempool"
+            );
+
+            // ...but carries no `provides` tag, so it cannot occupy the pool slot a legitimate
+            // attestation for this digest would use (ATTESTOR-V2-008).
+            assert!(
+                res.expect("checked ok above").provides.is_empty(),
+                "an unauthorized submission must not be tagged with the shared attestation slot"
             );
 
             let res = Attestation::commit_attestation(
