@@ -37,15 +37,17 @@ pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
 /// the whole write-ability task (which shares this provider with the reobservation responder).
 const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Consecutive failed polls before the listener gives up and returns `Err`. The write-ability task
-/// harvests that error and propagates it to the supervisor, which restarts the pod — rebuilding the
-/// provider from scratch. This is the reconnect story for the write-ability EVM provider: unlike the
-/// block-attestation path (wrapped in the reconnecting `eth::Client`), this provider is a bare alloy
-/// connection whose pubsub service exits permanently after a single failed reconnect, so a routine
-/// RPC blip would otherwise silently kill message voting for the process lifetime (C1). At the 6s
-/// cadence this rides out ~1 minute of fast errors, or (with `POLL_TIMEOUT`) a few minutes of a
-/// black-holed endpoint, before restarting — long enough to absorb a transient blip, short enough
-/// that a dead provider does not strand quorum indefinitely.
+/// Consecutive *stalled* polls before the listener gives up and returns `Err`. Only a poll that
+/// errored **and** made no forward progress counts (see [`next_failure_count`]); a slow backfill
+/// that keeps advancing the scan resets the budget, so catching up across many polls never trips
+/// this. The write-ability task harvests the eventual error and propagates it to the supervisor,
+/// which restarts the pod — rebuilding the provider from scratch. This is the reconnect story for
+/// the write-ability EVM provider: unlike the block-attestation path (wrapped in the reconnecting
+/// `eth::Client`), this provider is a bare alloy connection whose pubsub service exits permanently
+/// after a single failed reconnect, so a routine RPC blip would otherwise silently kill message
+/// voting for the process lifetime (C1). At the 6s cadence this rides out ~1 minute of fast errors,
+/// or (with `POLL_TIMEOUT`) a few minutes of a black-holed endpoint, before restarting — long enough
+/// to absorb a transient blip, short enough that a dead provider does not strand quorum indefinitely.
 const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
 
 /// Max block span per `eth_getLogs` request. The scan window can grow large — e.g. a long
@@ -153,6 +155,21 @@ pub struct IndexedMessage {
     pub message_hash: B256,
 }
 
+/// Next value of the consecutive-poll-failure budget after one poll.
+///
+/// A poll that either completed (`poll_ok`) or advanced the scan (`made_progress`) resets the budget
+/// to zero; only a fully *stalled* poll — errored **and** zero forward progress — increments it.
+/// This is what stops a slow-but-progressing backfill (which legitimately spans several 30s polls)
+/// from tripping [`MAX_CONSECUTIVE_POLL_FAILURES`] and restarting the whole process, block
+/// attestation included. Pure so the rule is unit-testable without an RPC or timers.
+fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
+    if poll_ok || made_progress {
+        0
+    } else {
+        prev.saturating_add(1)
+    }
+}
+
 /// Watch the resolved Outbox until `token` fires. Sends each finalized message on `tx`.
 ///
 /// `cursor` persists the scan position (`last_seen`) across restarts: on boot the persisted value
@@ -232,17 +249,23 @@ pub async fn watch<P: Provider>(
                 {
                     Ok(result) => result,
                     Err(_) => Err(anyhow::anyhow!(
-                        "outbox poll exceeded {POLL_TIMEOUT:?} — RPC unresponsive"
+                        "outbox poll exceeded {POLL_TIMEOUT:?} — RPC unresponsive or doing lengthy catchup work"
                     )),
                 };
 
+                // Did the scan advance this poll? `poll_once` bumps `last_seen` after each
+                // successful chunk, so this is true even when the poll ultimately errored/timed out
+                // part-way through a wide backfill. Drives both cursor persistence and — crucially —
+                // the failure budget below.
+                let made_progress = last_seen != prev_seen;
+
                 // Persist any forward progress this poll made — including a *partial* advance before
-                // an error mid-way through a chunked backfill (`poll_once` advances `last_seen` per
-                // successful chunk). At-least-once by design: re-scanning the in-flight range after a
-                // crash is harmless (downstream dedups), so we save whenever `last_seen` moved rather
-                // than gating on `Ok`. A persistence failure is logged but never fails the poll —
-                // losing the volume shouldn't take signing down; the next advance retries the write.
-                if last_seen != prev_seen {
+                // an error mid-way through a chunked backfill. At-least-once by design: re-scanning
+                // the in-flight range after a crash is harmless (downstream dedups), so we save
+                // whenever `last_seen` moved rather than gating on `Ok`. A persistence failure is
+                // logged but never fails the poll — losing the volume shouldn't take signing down;
+                // the next advance retries the write.
+                if made_progress {
                     if let Err(err) = cursor.save(last_seen) {
                         tracing::warn!(
                             %err, last_seen,
@@ -251,18 +274,36 @@ pub async fn watch<P: Provider>(
                     }
                 }
 
+                // Progress-aware failure budget: a poll that either completed or *advanced the scan*
+                // resets the budget; only a fully stalled poll (errored AND zero forward progress)
+                // counts toward the restart threshold. A wide backfill (far-behind start_block, or a
+                // long Outbox-resolve wait) can legitimately span many chunks across several 30s
+                // polls — counting each of those progressing-but-unfinished polls as a failure would
+                // trip `MAX_CONSECUTIVE_POLL_FAILURES` and restart the whole process (taking block
+                // attestation down with it) even while it was catching up the entire time.
+                consecutive_failures =
+                    next_failure_count(consecutive_failures, outcome.is_ok(), made_progress);
                 match outcome {
-                    Ok(()) => consecutive_failures = 0,
+                    Ok(()) => {}
+                    // Errored but the scan advanced — a slow-but-progressing backfill, not a fault.
+                    // Budget already reset above; keep going.
+                    Err(err) if made_progress => {
+                        tracing::info!(
+                            last_seen, %err,
+                            "🐢 outbox backfill advanced but hit the poll deadline mid-scan; \
+                             continuing (not counted as a failure)"
+                        );
+                    }
+                    // Stalled poll (no progress): the budget was incremented above.
                     Err(err) => {
-                        consecutive_failures += 1;
-                        // Give up after a sustained failure run. Returning Err lets the
+                        // Give up after a sustained *stalled* run. Returning Err lets the
                         // write-ability task harvest it and restart the pod, which rebuilds this
                         // (non-self-healing) provider — the only reconnect path it has (C1).
                         if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
                             return Err(err).with_context(|| {
                                 format!(
-                                    "outbox poll failed {consecutive_failures} times in a row — \
-                                     RPC connection is likely dead; restarting to rebuild it"
+                                    "outbox poll stalled (no progress) {consecutive_failures} times \
+                                     in a row — RPC connection is likely dead; restarting to rebuild it"
                                 )
                             });
                         }
@@ -270,7 +311,7 @@ pub async fn watch<P: Provider>(
                             %err,
                             consecutive_failures,
                             max = MAX_CONSECUTIVE_POLL_FAILURES,
-                            "outbox poll iteration failed; will retry"
+                            "outbox poll stalled with no progress; will retry"
                         );
                     }
                 }
@@ -420,6 +461,43 @@ mod tests {
 
     fn tracker(t0: Instant) -> FinalityTracker {
         FinalityTracker::new(t0)
+    }
+
+    #[test]
+    fn ok_poll_resets_failure_budget() {
+        // A completed poll clears any accumulated stalls, with or without new blocks.
+        assert_eq!(next_failure_count(5, true, false), 0);
+        assert_eq!(next_failure_count(5, true, true), 0);
+    }
+
+    #[test]
+    fn progressing_backfill_never_counts_as_failure() {
+        // The core fix: an errored/timed-out poll that still advanced the scan resets the budget,
+        // so a slow backfill spanning many polls can't trip MAX_CONSECUTIVE_POLL_FAILURES.
+        let mut failures = 0;
+        for _ in 0..(MAX_CONSECUTIVE_POLL_FAILURES + 5) {
+            failures = next_failure_count(failures, false, true);
+            assert_eq!(failures, 0);
+        }
+    }
+
+    #[test]
+    fn stalled_polls_accumulate_to_the_limit() {
+        // Errored AND no progress is a real stall: it climbs until the restart threshold.
+        let mut failures = 0;
+        for expected in 1..=MAX_CONSECUTIVE_POLL_FAILURES {
+            failures = next_failure_count(failures, false, false);
+            assert_eq!(failures, expected);
+        }
+        assert!(failures >= MAX_CONSECUTIVE_POLL_FAILURES);
+    }
+
+    #[test]
+    fn one_progressing_poll_clears_a_stall_run() {
+        // A stall streak that later makes progress is forgiven — the budget resets rather than
+        // carrying prior stalls forward into an unrelated slow-but-advancing stretch.
+        let failures = next_failure_count(MAX_CONSECUTIVE_POLL_FAILURES - 1, false, true);
+        assert_eq!(failures, 0);
     }
 
     #[test]
