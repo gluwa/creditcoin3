@@ -67,6 +67,7 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["cargo"] }
 hex = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true, features = ["std"] }
 serde_yaml = { workspace = true }
 url = { workspace = true, features = ["serde"] }
 

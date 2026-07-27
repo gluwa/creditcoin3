@@ -23,6 +23,7 @@
 pub mod aggregator;
 pub mod attestor_set;
 pub mod config;
+pub mod cursor;
 pub mod ingest;
 pub mod listener;
 pub mod reobservation;
@@ -307,6 +308,12 @@ pub async fn run(
         return Ok(());
     };
 
+    // Durable storage is mandatory for a write-ability attestor. Verify the state directory is
+    // writable up front so a missing / read-only volume fails the boot loudly here, rather than
+    // silently degrading to no cursor persistence (the restart-loses-messages footgun) once the
+    // listener is running.
+    cursor::ensure_writable(&cfg.state_dir).map_err(Error::WriteAbility)?;
+
     // On-chain attestor-set hot-reload watcher (only when the set is sourced from the validator).
     // Runs independently of Outbox resolution — the set is unrelated to the Outbox — so it keeps the
     // active set in sync even while write-ability is idle waiting for the Outbox.
@@ -445,12 +452,22 @@ pub async fn run(
     let confirmation_depth = cfg.block_confirmation_depth;
     // Fall back to the pre-resolution head (not "now") so the resolve-wait window is covered.
     let scan_from = cfg.start_block.or(Some(head_before_resolve));
+    // Durable scan cursor: persist `last_seen` so a restart resumes exactly where it
+    // left off instead of skipping down-time messages / replaying history. Scoped to the resolved
+    // Outbox address so a re-registration doesn't resume against a stale one.
+    let cursor_store =
+        cursor::CursorStore::new(&cfg.state_dir, cfg.write_ability_chain_key, resolved.address);
+    tracing::info!(
+        path = %cursor_store.path().display(),
+        "🗂️ persisting Outbox scan cursor across restarts"
+    );
     let mut listener = tokio::spawn(async move {
         listener::watch(
             &listener_provider,
             resolved,
             confirmation_depth,
             scan_from,
+            cursor_store,
             tx,
             listener_token,
         )
