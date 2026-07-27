@@ -50,6 +50,18 @@ function req(name: string): string {
   return v;
 }
 
+/** The RelayerContract the quote signature binds to (verifyingContract). Must be a real, non-zero
+ *  address — a quote signed against the zero address is unusable and reverts at publish time. */
+function reqRelayerContract(): string {
+  const v = process.env.QUOTER_RELAYER_CONTRACT?.trim();
+  if (!v || /^0x0{40}$/i.test(v))
+    throw new Error(
+      "QUOTER_RELAYER_CONTRACT must be set to the deployed RelayerContract address " +
+        "(the quote's verifyingContract); refusing to sign quotes bound to the zero address",
+    );
+  return v;
+}
+
 // Static per-chain defaults. Override the whole set with QUOTER_CHAINS (JSON array of ChainConfig,
 // coreFee expressed in whole ATTEST as `coreFeeAttest`).
 const DEFAULT_CHAINS: ChainConfig[] = [
@@ -100,11 +112,11 @@ export function loadConfig(): QuoterConfig {
     ),
     priceBufferBps: BigInt(process.env.QUOTER_PRICE_BUFFER_BPS ?? "1000"),
     sourceChainId: BigInt(process.env.QUOTER_SOURCE_CHAIN_ID || "42"),
-    // `||` (not `??`): an empty string from a copied .env.example must fall back to the zero
-    // address, else quote signing calls ethers.getAddress("") and throws a 500 on /quote.
-    relayerContract:
-      process.env.QUOTER_RELAYER_CONTRACT ||
-      "0x0000000000000000000000000000000000000000",
+    // Fail loud at boot rather than signing quotes bound to the zero address: an empty
+    // QUOTER_RELAYER_CONTRACT (e.g. a copied .env.example) would otherwise mint valid-looking
+    // quotes whose verifyingContract can never match the real RelayerContract, so every
+    // publishAndCollectRelayerFee reverts UnauthorizedQuoter — a confusing, late failure.
+    relayerContract: reqRelayerContract(),
     chains: loadChains(),
   };
 }
