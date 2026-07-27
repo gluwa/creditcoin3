@@ -64,8 +64,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `457`
 		//  Estimated: `3922`
-		// Minimum execution time: 64_340_000 picoseconds.
-		Weight::from_parts(66_440_000, 0)
+		// Minimum execution time: 66_062_000 picoseconds.
+		Weight::from_parts(69_772_000, 0)
 			.saturating_add(Weight::from_parts(0, 3922))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(11))
@@ -128,8 +128,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `976`
 		//  Estimated: `4441`
-		// Minimum execution time: 141_329_000 picoseconds.
-		Weight::from_parts(145_000_000, 0)
+		// Minimum execution time: 145_714_000 picoseconds.
+		Weight::from_parts(150_114_000, 0)
 			.saturating_add(Weight::from_parts(0, 4441))
 			.saturating_add(T::DbWeight::get().reads(10))
 			.saturating_add(T::DbWeight::get().writes(23))
@@ -150,8 +150,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 26_440_000 picoseconds.
-		Weight::from_parts(27_020_000, 0)
+		// Minimum execution time: 27_170_000 picoseconds.
+		Weight::from_parts(31_242_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -172,8 +172,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 25_980_000 picoseconds.
-		Weight::from_parts(26_690_000, 0)
+		// Minimum execution time: 26_830_000 picoseconds.
+		Weight::from_parts(28_791_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -194,8 +194,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 27_980_000 picoseconds.
-		Weight::from_parts(28_930_000, 0)
+		// Minimum execution time: 28_331_000 picoseconds.
+		Weight::from_parts(31_180_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
