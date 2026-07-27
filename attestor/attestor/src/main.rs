@@ -96,8 +96,13 @@ struct ConfigFileWriteAbility {
     /// Confirmation depth below the EVM tip before signing a `MessagePublished` log. Defaults to
     /// 3 blocks (the usual time-to-finality on Creditcoin) when unset.
     block_confirmation_depth: Option<u64>,
-    /// First Creditcoin L1 EVM block to scan on startup. When unset, starts at current head.
+    /// First Creditcoin L1 EVM block to scan on startup. When unset, starts at current head. Only
+    /// used on a fresh start with no persisted cursor; once `state_dir` holds a cursor, it wins.
     start_block: Option<u64>,
+    /// Directory for durable write-ability state (the Outbox scan cursor). Defaults to
+    /// `DEFAULT_STATE_DIR` (`/data`, the mounted PVC) when unset. Must be a persistent, writable
+    /// volume — the boot fails if it isn't — so the cursor survives pod restarts.
+    state_dir: Option<std::path::PathBuf>,
     /// Anti-abuse cap on distinct tracked message hashes.
     max_tracked_messages: Option<usize>,
     /// TTL (seconds) for incomplete vote aggregates.
@@ -488,6 +493,9 @@ impl Config {
                 .block_confirmation_depth
                 .unwrap_or(config::DEFAULT_BLOCK_CONFIRMATION_DEPTH),
             start_block: file.start_block,
+            state_dir: file
+                .state_dir
+                .unwrap_or_else(|| config::DEFAULT_STATE_DIR.into()),
             max_tracked_messages: file
                 .max_tracked_messages
                 .unwrap_or(config::DEFAULT_MAX_TRACKED_MESSAGES),
