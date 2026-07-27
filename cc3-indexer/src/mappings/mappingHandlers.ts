@@ -37,7 +37,7 @@ import {
     RevertedAttestationChainTo,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
-import { getChainData } from './initStore';
+import { getChainData, fetchAttestationParams, chainDataId } from './initStore';
 
 const RuntimeAttestorStatus = {
     active: 0,
@@ -129,7 +129,7 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
     });
 
     const suportedChain = SupportedChain.create({
-        id: chainKeyNumber.toString(),
+        id: chainDataId(chainKeyNumber),
         at: blockNumber,
         chainKey: chainKeyNumber,
         chainName: hexDecodedChainName,
@@ -138,23 +138,28 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
         chainId: BigInt(chainId.toString()),
     });
 
-    // default to OpenToAny on registration, see pallet attestation for details
-    const defaultElectionPolicy = 'OpenToAny';
+    // Read the real attestation parameters from chain state instead of hardcoding them.
+    // `on_register_chain` writes target_sample_size / interval / max_attestors / etc. in the same
+    // extrinsic that emits this event, so they are already present at this block. Hardcoding them
+    // (previously targetSampleSize: 3, attestationInterval: 10, ...) made AttestationChainData
+    // wrong from registration AND, since this is an upsert on the same id, re-corrupted the row if
+    // the handler ever re-ran after a `TargetSampleSizeChanged` update.
+    const params = await fetchAttestationParams(chainKeyNumber);
 
     // Create attestation chain data
     const newChain = AttestationChainData.create({
-        id: chainKeyNumber.toString(),
+        id: chainDataId(chainKeyNumber),
         chainKey: chainKeyNumber,
         chainReward: BigInt(0),
-        attestationInterval: BigInt(10),
-        checkpointInterval: 10,
-        lastAttestedDigest: '',
+        attestationInterval: params.attestationInterval,
+        checkpointInterval: params.checkpointInterval,
+        lastAttestedDigest: params.lastAttestedDigest,
         lastAttestedHeaderNumber: BigInt(0),
         lastCheckpointHeaderNumber: BigInt(0),
-        maxSetSize: 100,
-        targetSampleSize: 3,
-        minBondRequirement: BigInt(100000000000000000000),
-        electionPolicy: defaultElectionPolicy,
+        maxSetSize: params.maxSetSize,
+        targetSampleSize: params.targetSampleSize,
+        minBondRequirement: params.minBondRequirement,
+        electionPolicy: params.electionPolicy,
     });
 
     logger.info(`New Supported Chain event created at block ${blockNumber}`);
@@ -421,6 +426,14 @@ export async function handleEventTargetSampleSizeChanged(event: SubstrateEvent):
     if (chainData) {
         chainData.targetSampleSize = newTargetSampleSizeNumber;
         await chainData?.save();
+    } else {
+        // Should never happen: a chain must be registered before its target sample size can be
+        // set. Log loudly rather than silently dropping the update (the original bug — the row
+        // kept its registration-time value while this event was recorded with the new value).
+        logger.error(
+            `TargetSampleSizeChanged at block ${blockNumber}: no AttestationChainData for chainKey=${chainKeyStr}; ` +
+                `targetSampleSize update to ${newTargetSampleSizeNumber} was dropped`,
+        );
     }
 
     await targetSampleSizeChanged.save();

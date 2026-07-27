@@ -18,7 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          lfs: true
           token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
       - name: Configure rustc version

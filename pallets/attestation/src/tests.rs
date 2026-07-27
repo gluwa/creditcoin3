@@ -2668,6 +2668,70 @@ fn commit_attestation_should_error_on_invalid_continuity_block() {
     })
 }
 
+// Regression: a continuity proof whose tail resolves to block 0 used to compute
+// `tail_block_number - 1`, underflowing (panic under overflow-checks). It must now be
+// rejected cleanly as an invalid tail.
+#[test]
+fn commit_attestation_should_reject_continuity_proof_tail_at_block_zero() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        // Commit the genesis attestation (header 0) so its digest is a known finalized tail.
+        let attestation_1 =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_1.clone()
+        ));
+
+        // Craft a proof with roots.len() == header_number, so
+        // start_block_number = header_number - roots.len() = 0. The tail links to the genesis
+        // attestation, so validation reaches the `tail_block_number - 1` site with tail == 0.
+        let header_number = 5u64;
+        let continuity_proof = construct_fragment(
+            Some(attestation_1.digest()),
+            RangeInclusive::new(1, header_number),
+        );
+        assert_eq!(continuity_proof.len() as u64, header_number);
+        assert_eq!(
+            continuity_proof.start_block_number(header_number),
+            0,
+            "tail block number must be 0 to exercise the underflow guard"
+        );
+
+        let start_block = continuity_proof.start_block_number(header_number);
+        let attestation = AttestationPrimitive {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            header_number,
+            header_hash: H256::random(),
+            root: H256::from([0; 32]),
+            prev_digest: Some(continuity_proof.compute_continuity_digest(start_block)),
+        };
+
+        let attestation_2 =
+            bls_sign_attestation(vec![attestor.clone()], attestation, continuity_proof);
+
+        assert_err!(
+            Attestation::commit_attestation(attestor.attestor_origin, attestation_2),
+            Error::<Test>::InvalidAttestationContinuityProofTail
+        );
+    })
+}
+
 #[test]
 fn commit_attestation_should_error_on_invalid_continuity_genesis_block() {
     ExtBuilder.build_and_execute(|| {
@@ -4602,6 +4666,156 @@ fn purge_retired_bls_does_not_remove_other_stash_bls_row_on_index_mismatch() {
         assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1)
             .iter()
             .any(|(k, id)| *k == SUPPORTED_CHAIN_KEY && *id == ATTESTOR_1));
+    });
+}
+
+/// A different stash must not be able to clear (and thereby prematurely release) the retired
+/// BLS-key protection another stash created by unregistering its controller. `register_attestor`
+/// accepts an arbitrary `attestor_id`, so this would otherwise be a cross-stash griefing primitive.
+#[test]
+fn register_attestor_cannot_clear_another_stashs_retired_bls_protection() {
+    ExtBuilder.build_and_execute(|| {
+        let a1 = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(a1.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key,
+            a1.signature
+        ));
+        assert_ok!(Attestation::chill(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+
+        // STASH_1 retired ATTESTOR_1: its BLS key is claimed and protected until unbond elapses.
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert_eq!(
+            BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, a1.public_key),
+            Some(ATTESTOR_1)
+        );
+
+        // A different stash registering the same controller must be rejected, leaving the
+        // retired protection (BLS row + key claim) intact.
+        assert_err!(
+            Attestation::register_attestor(
+                RuntimeOrigin::signed(STASH_2),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1,
+            ),
+            Error::<Test>::ControllerRetiredByAnotherStash
+        );
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert_eq!(
+            BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, a1.public_key),
+            Some(ATTESTOR_1)
+        );
+
+        // The owning stash may still re-register its own controller, clearing its own protection.
+        assert_ok!(Attestation::register_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1,
+        ));
+        assert!(!crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(!BlsKeyOwner::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key
+        ));
+    });
+}
+
+/// Companion to `register_attestor_cannot_clear_another_stashs_retired_bls_protection`: the
+/// protection is only meant to persist *until the retiring stash's unbond delay elapses*. Once
+/// STASH_1 has unbonded and withdrawn — purging its retired BLS row and releasing the key claim —
+/// a different stash must be able to register that same controller and reclaim the same BLS key.
+#[test]
+fn register_attestor_succeeds_after_another_stashs_unbond_delay_elapses() {
+    ExtBuilder.build_and_execute(|| {
+        let a1 = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(a1.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key,
+            a1.signature
+        ));
+        assert_ok!(Attestation::chill(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            a1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            a1.attestor_id
+        ));
+
+        // STASH_1 retired ATTESTOR_1: protection in place while the unbond delay is pending.
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert_eq!(
+            BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, a1.public_key),
+            Some(ATTESTOR_1)
+        );
+
+        // Advance past the bonding duration and let STASH_1 withdraw, purging the retired row and
+        // releasing the BLS-key claim.
+        progress_to_block(50);
+        assert_ok!(Attestation::withdraw_unbonded(a1.stash.clone()));
+
+        assert!(!crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert!(!BlsKeyOwner::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key
+        ));
+
+        // With the protection lapsed, a different stash can now register the same controller.
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_2),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1,
+        ));
+
+        // ...and reclaim the very same BLS key that STASH_1 had retired.
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(ATTESTOR_1),
+            SUPPORTED_CHAIN_KEY,
+            a1.public_key,
+            a1.signature
+        ));
+        assert_eq!(
+            BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, a1.public_key),
+            Some(ATTESTOR_1)
+        );
     });
 }
 
@@ -8528,6 +8742,203 @@ mod bls_key_uniqueness {
                 SUPPORTED_CHAIN_KEY,
                 &tampered
             ));
+        })
+    }
+}
+
+/// Regression: `set_target_sample_size` must reject unsupported chain_keys (like its peers
+/// `set_chain_attestation_interval` and `set_max_catchup`), and `apply_interval_updates` must
+/// `drain` pending entries so nothing leaks across epochs.
+mod set_target_sample_size_supported_chain_and_drain {
+    use super::*;
+    use frame_support::assert_noop;
+
+    const UNSUPPORTED_CHAIN_KEY: ChainKey = 999;
+
+    #[test]
+    fn set_target_sample_size_rejects_unsupported_chain_key() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::set_target_sample_size(
+                    RuntimeOrigin::root(),
+                    UNSUPPORTED_CHAIN_KEY,
+                    7
+                ),
+                Error::<Test>::ChainNotSupported
+            );
+            // And the pending entry didn't slip past the failed dispatch.
+            assert!(PendingTargetSampleSize::<Test>::get(UNSUPPORTED_CHAIN_KEY).is_none());
+        })
+    }
+
+    #[test]
+    fn apply_interval_updates_drains_all_pending_entries() {
+        ExtBuilder.build_and_execute(|| {
+            // Seed pending entries directly under multiple keys — bypassing the setter, which
+            // simulates what could happen historically before the chain-supported guard, or
+            // after a chain is removed but pending entries remain.
+            PendingAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 7);
+            PendingAttestationInterval::<Test>::insert(UNSUPPORTED_CHAIN_KEY, 9);
+
+            PendingTargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 3);
+            PendingTargetSampleSize::<Test>::insert(UNSUPPORTED_CHAIN_KEY, 5);
+
+            PendingMaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, 11);
+            PendingMaxCatchup::<Test>::insert(UNSUPPORTED_CHAIN_KEY, 13);
+
+            Attestation::apply_interval_updates();
+
+            // Every pending map drained — including entries for chain_keys not present in
+            // SupportedChains. Under the previous bounded-clear, the surplus entries leaked.
+            assert_eq!(PendingAttestationInterval::<Test>::iter().count(), 0);
+            assert_eq!(PendingTargetSampleSize::<Test>::iter().count(), 0);
+            assert_eq!(PendingMaxCatchup::<Test>::iter().count(), 0);
+        });
+    }
+}
+
+/// `register_chain` ⇒ `on_register_chain` must reject zero-valued attestation parameters that
+/// would otherwise brick `commit_attestation` weight calculation (division by zero in
+/// `proof_len / checkpoint_width`). Mirrors the per-setter `ensure! > 0` checks so registration
+/// can't slip a bad config past them.
+mod on_register_chain_rejects_zero {
+    use super::*;
+    use attestor_primitives::ChainEncodingVersion;
+    use frame_support::assert_noop;
+    use sp_runtime::DispatchError;
+
+    // The mock's `ExtBuilder` pre-registers one chain at key 1, so the chain key created by the
+    // helper `register()` lands at 2.
+    const CHAIN_KEY: u64 = 2;
+
+    // Registers a supported chain with the given attestation parameters, leaving the others as defaults if `None`.
+    fn register(
+        target_sample_size: Option<u32>,
+        chain_attestation_interval: Option<u64>,
+        attestation_checkpoint_interval: Option<u32>,
+    ) -> sp_runtime::DispatchResult {
+        // Distinct (chain_id, chain_name) per call so each test starts from a clean slot.
+        SupportedChains::register_chain(
+            RuntimeOrigin::root(),
+            9_999,
+            "ZeroParamReject".to_string(),
+            target_sample_size,
+            chain_attestation_interval,
+            attestation_checkpoint_interval,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        )
+    }
+
+    #[test]
+    fn target_sample_size_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(Some(0), None, None),
+                DispatchError::Other("InvalidTargetSampleSize")
+            );
+        })
+    }
+
+    #[test]
+    fn chain_attestation_interval_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, Some(0), None),
+                DispatchError::Other("InvalidAttestationInterval")
+            );
+        })
+    }
+
+    #[test]
+    fn attestation_checkpoint_interval_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, Some(0)),
+                DispatchError::Other("InvalidAttestationsPerCheckpoint")
+            );
+        })
+    }
+
+    #[test]
+    fn all_none_is_accepted_uses_defaults() {
+        ExtBuilder.build_and_execute(|| {
+            assert!(register(None, None, None).is_ok());
+
+            // `on_register_chain` writes the per-chain config directly (not via `Pending*` maps —
+            // those only carry operator updates between epoch boundaries). When every param is
+            // `None`, each entry must equal the runtime-config default.
+            assert_eq!(
+                TargetSampleSize::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultTargetSampleSize::get()
+            );
+            assert_eq!(
+                ChainAttestationInterval::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationInterval::get()
+            );
+            assert_eq!(
+                AttestationCheckpointInterval::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationsPerCheckpoint::get()
+            );
+            assert_eq!(
+                MaxAttestors::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                MaxInvulnerables::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
+            );
+        })
+    }
+
+    #[test]
+    fn all_positive_is_accepted() {
+        // Use distinct values per param so each storage entry can only match the one it was
+        // registered with (no accidental cross-pollination between e.g. `TargetSampleSize` and
+        // `ChainAttestationInterval`).
+        const TARGET_SAMPLE_SIZE: u32 = 3;
+        const CHAIN_ATTESTATION_INTERVAL: u64 = 10;
+        const ATTESTATION_CHECKPOINT_INTERVAL: u32 = 5;
+
+        ExtBuilder.build_and_execute(|| {
+            assert!(register(
+                Some(TARGET_SAMPLE_SIZE),
+                Some(CHAIN_ATTESTATION_INTERVAL),
+                Some(ATTESTATION_CHECKPOINT_INTERVAL)
+            )
+            .is_ok());
+
+            // Explicit `Some(_)` values land in storage verbatim for the three
+            // attestation-config params; the others are `None` here, so they should still pick
+            // up the runtime-config defaults.
+            assert_eq!(TargetSampleSize::<Test>::get(CHAIN_KEY), TARGET_SAMPLE_SIZE);
+            assert_eq!(
+                ChainAttestationInterval::<Test>::get(CHAIN_KEY),
+                CHAIN_ATTESTATION_INTERVAL
+            );
+            assert_eq!(
+                AttestationCheckpointInterval::<Test>::get(CHAIN_KEY),
+                ATTESTATION_CHECKPOINT_INTERVAL
+            );
+            assert_eq!(
+                MaxAttestors::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                MaxInvulnerables::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::MaxAttestationNodes::get()
+            );
+            assert_eq!(
+                AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
+                <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
+            );
         })
     }
 }

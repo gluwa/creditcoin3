@@ -227,6 +227,10 @@ pub mod pallet {
 
             ChainKeyValue::<T>::put(chain_key.checked_add(1).ok_or(Error::<T>::Arithmetic)?);
 
+            // Propagate registration-handler rejection. `DispatchError: From<&'static str>` lets
+            // `?` flow the error straight out of the extrinsic. Dispatchables are transactional
+            // by default in this FRAME version, so the chain-insert and key-bump writes above
+            // are rolled back when an Err lands here — no orphaned SupportedChains entry.
             T::ChainRegistrationHandler::on_register_chain(
                 chain_key,
                 chain_id,
@@ -238,7 +242,7 @@ pub mod pallet {
                 max_invulnerables,
                 attestation_chain_genesis_block_number,
                 encoding,
-            );
+            )?;
 
             Self::deposit_event(Event::ChainRegistered {
                 chain_key,

@@ -30,7 +30,7 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
 /// `RpcUnavailable` for everything else. Use
 /// [`map_eth_rpc_anyhow_to_service_error_with`] when the non-inconsistent fallback
 /// should be a different variant (e.g. `Internal`).
-fn map_eth_rpc_anyhow_to_service_error(
+pub(crate) fn map_eth_rpc_anyhow_to_service_error(
     err: AnyhowError,
     fallback_block_number: u64,
 ) -> ServiceError {
@@ -272,21 +272,23 @@ impl ContinuityService {
         let chain_key = chain.builder.config.chain_key;
         let merkle_start = Instant::now();
 
-        // Fetch tx bytes & validate index.
-        // Note: This uses Redis block caching if configured (via eth_client.get_block() -> block_cache.rs)
-        let tx_bytes = chain
+        // Fetch the tx bytes AND the tx hash at this index in a single block fetch (instead of
+        // two separate `get_block` round-trips), then validate the index.
+        let (tx_bytes, fetched_tx_hash) = chain
             .builder
-            .get_block_tx_bytes(header_number)
+            .get_block_tx_bytes_and_tx_hash(header_number, tx_index)
             .await
             .map_err(|e| map_eth_rpc_anyhow_to_service_error(e, header_number))?;
         if tx_bytes.is_empty() {
-            if tx_index != 0 {
-                return Err(ServiceError::TxIndexOutOfBounds {
-                    height: header_number,
-                    tx_index,
-                    len: 0,
-                });
-            }
+            // An empty block has no transactions, so there is nothing to build a transaction
+            // merkle proof for. We previously accepted `tx_index == 0` here and returned an
+            // empty `TransactionMerkleProof`, but the block-prover precompile rejects empty
+            // transaction bytes ("Transaction data cannot be empty"), so those proofs could
+            // never verify on-chain. Fail the API request explicitly instead of returning a
+            // payload that is guaranteed to fail downstream.
+            return Err(ServiceError::EmptyBlockTxProof {
+                height: header_number,
+            });
         } else if tx_index as usize >= tx_bytes.len() {
             return Err(ServiceError::TxIndexOutOfBounds {
                 height: header_number,
@@ -295,41 +297,37 @@ impl ContinuityService {
             });
         }
 
-        // Merkle proof creation and tx hash computation.
-        let tree = merkle::keccak_merkle_tree::KeccakMerkleTree::new(&tx_bytes);
-        let merkle_proof = if tx_bytes.is_empty() {
-            TransactionMerkleProof::new(tree.root(), vec![])
-        } else {
-            tree.generate_proof(tx_index as usize)
-                .map_err(|e| ServiceError::MerkleError {
-                    message: format!("{e:?}"),
-                })?
-        };
-        let merkle_root = tree.root();
+        // Build the merkle tree + inclusion proof on a blocking thread. For a block with many
+        // transactions this is O(n) keccak hashing; running it inline would stall the async
+        // worker (and every other future sharing it) under concurrent batch load. `tx_bytes` is
+        // moved in and handed back so we can still use it afterwards without cloning.
+        //
+        // Empty-block handling: the empty-block branch is gated by the EmptyBlockTxProof early
+        // return above, so `tx_bytes` is guaranteed non-empty here.
+        let (tx_bytes, proof_result, merkle_root) = tokio::task::spawn_blocking(move || {
+            let tree = merkle::keccak_merkle_tree::KeccakMerkleTree::new(&tx_bytes);
+            let root = tree.root();
+            let proof = tree.generate_proof(tx_index as usize);
+            (tx_bytes, proof, root)
+        })
+        .await
+        .map_err(|e| ServiceError::MerkleError {
+            message: format!("merkle task panicked: {e}"),
+        })?;
+        let merkle_proof = proof_result.map_err(|e| ServiceError::MerkleError {
+            message: format!("{e:?}"),
+        })?;
 
-        // Get the actual transaction hash from the block (not computed from ABI-encoded bytes)
-        // Ethereum transaction hashes are computed from RLP-encoded transactions, not ABI-encoded bytes
-        // Note: This also uses Redis block caching if configured
-        let tx_hash_opt = if tx_bytes.is_empty() {
-            None
-        } else {
-            chain
-                .builder
-                .get_tx_hash_by_index(header_number, tx_index)
-                .await
-                .map_err(|e| map_eth_rpc_anyhow_to_service_error(e, header_number))?
-        };
+        // The real transaction hash comes from the block fetch above (RLP-derived, not computed
+        // from the ABI-encoded bytes).
+        let tx_hash_opt = fetched_tx_hash;
 
         // Record merkle proof generation duration
         self.metrics
             .observe_merkle_generation(merkle_start.elapsed());
 
         // Build Proof items for DB Insert
-        let tx_bytes_for_cache = if tx_bytes.is_empty() {
-            None
-        } else {
-            Some(tx_bytes[tx_index as usize].clone())
-        };
+        let tx_bytes_for_cache = Some(tx_bytes[tx_index as usize].clone());
         Ok(MerkleProofItem {
             chain_key,
             header_number,

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
@@ -29,6 +30,14 @@ pub use services::errors::ErrorResponse;
 /// crate keep working unchanged. The eth-side helper redacts both `?query`
 /// strings *and* secret-looking path segments (Chainstack/Alchemy style).
 use eth::redact_url_query;
+
+/// Max finalized source blocks held in the per-chain in-process block cache. Sized to comfortably
+/// cover a continuity range (last checkpoint → query height) plus recent inclusion-proof blocks,
+/// while bounding memory (each entry is one block's txs+receipts).
+const BLOCK_CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(512) {
+    Some(n) => n,
+    None => panic!("512 is non-zero"),
+};
 
 pub struct Server {
     config: Config,
@@ -91,7 +100,6 @@ impl Server {
                 &config,
                 cc3_client.clone(),
                 chain,
-                prom_metrics.clone(),
                 &checkpoint_intervals,
                 &last_checkpoint_blocks,
             )
@@ -113,7 +121,6 @@ impl Server {
         global: &Config,
         cc3_client: CcClient,
         chain: &ChainConfig,
-        prom_metrics: Arc<ProofGenMetrics>,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
         last_checkpoint_blocks: &Arc<RwLock<HashMap<u64, u64>>>,
     ) -> Result<Arc<ContinuityBuilder>> {
@@ -134,42 +141,12 @@ impl Server {
 
         let eth_fallback_urls: &[String] = &chain.eth_rpc_fallback_urls;
 
-        let eth_client = if let Some(ref redis_url) = global.redis_url {
-            debug!(
-                chain_key,
-                redis_url = %redact_url_query(redis_url),
-                cluster_mode = global.redis_cluster_mode,
-                eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
-                eth_rpc_fallback_count = eth_fallback_urls.len(),
-                "🚀 [startup] connecting source chain ETH client with Redis block cache"
-            );
-            let block_cache_metrics = prom_metrics.block_cache_metrics();
-            let cache_config = eth::block_cache::BlockCacheConfig {
-                redis_url: redis_url.clone(),
-                redis_cluster_mode: global.redis_cluster_mode,
-                metrics: block_cache_metrics,
-            };
-            EthClient::new_with_cache_and_fallbacks(
-                &chain.eth_rpc_url,
-                eth_fallback_urls,
-                None,
-                cache_config,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "Ethereum/source RPC + Redis cache failed for chain_key={chain_key} (eth_rpc_url={}, fallback_count={}, redis={})",
-                    redact_url_query(&chain.eth_rpc_url),
-                    eth_fallback_urls.len(),
-                    redact_url_query(redis_url)
-                )
-            })?
-        } else {
+        let eth_client = {
             debug!(
                 chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
                 eth_rpc_fallback_count = eth_fallback_urls.len(),
-                "🚀 [startup] connecting source chain ETH client (no Redis)"
+                "🚀 [startup] connecting source chain ETH client"
             );
             EthClient::new_with_fallbacks(&chain.eth_rpc_url, eth_fallback_urls, None)
                 .await
@@ -180,6 +157,10 @@ impl Server {
                         eth_fallback_urls.len()
                     )
                 })?
+                // In-process cache of finalized source blocks. Overlapping continuity ranges and
+                // batched requests re-fetch the same low blocks every time; caching them removes
+                // the repeat RPC + merkle work. Finalized blocks are immutable, so no invalidation.
+                .with_block_cache(BLOCK_CACHE_CAPACITY)
         };
 
         let chain_id = eth_client.chain_id();
@@ -302,6 +283,7 @@ impl Server {
         let service = Arc::new(service);
 
         ProofGenMetrics::spawn_hardware_updater(self.prom_metrics.clone());
+        ContinuityService::spawn_merkle_backfill(service.clone());
 
         let allowed: std::collections::HashSet<u64> = self.config.chain_keys();
         let app = build_app(service.clone(), allowed, self.prom_metrics.clone());

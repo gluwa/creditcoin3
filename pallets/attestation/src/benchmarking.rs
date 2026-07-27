@@ -6,7 +6,6 @@ use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
-use parity_scale_codec::Encode;
 use sp_core::H256;
 use sp_runtime::traits::Bounded;
 use sp_std::{ops::RangeInclusive, vec::Vec};
@@ -39,10 +38,9 @@ pub fn create_funded_user_with_balance<T: Config>(string: &'static str, n: u32) 
 }
 
 impl<T: frame_system::Config> Attestor<T> {
-    pub fn new(stash: T::AccountId, attestor: T::AccountId) -> Self {
-        // Each attestor needs a distinct BLS key, otherwise registration fails
-        // with BlsKeyAlreadyRegistered.
-        let rng = sp_io::hashing::blake2_256(&attestor.encode());
+    pub fn new(stash: T::AccountId, attestor: T::AccountId, index: u32) -> Self {
+        let mut rng = H256::repeat_byte(123).0;
+        rng[0..4].copy_from_slice(&index.to_le_bytes());
         let private_key = PrivateKey::new(rng);
         let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
         let signature = private_key.sign(public_key).as_bytes()[..]
@@ -189,7 +187,7 @@ mod benchmarks {
         // Worst case: re-registration clears a retired BLS row + stash index from a prior unregister.
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
-        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
 
         Attestation::<T>::register_attestor(
             att.stash_origin.clone(),
@@ -228,7 +226,7 @@ mod benchmarks {
         // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
-        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
 
         Attestation::<T>::register_attestor(
             att.stash_origin.clone(),
@@ -351,7 +349,7 @@ mod benchmarks {
         for j in 0..=m {
             let stash_id = create_funded_user_with_balance::<T>("stash", j);
             let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
-            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), j);
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.stash_origin.clone(),
@@ -434,7 +432,7 @@ mod benchmarks {
         // Setup
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
-        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
@@ -458,7 +456,7 @@ mod benchmarks {
         // Setup
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
-        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
@@ -488,7 +486,7 @@ mod benchmarks {
         // Setup: match unregister path that queues retired BLS keys, then exercise purge in withdraw
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
-        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
 
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
@@ -605,7 +603,7 @@ mod benchmarks {
 
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
-        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
 
         Attestation::<T>::register_attestor(
             att.stash_origin.clone(),
@@ -634,7 +632,7 @@ mod benchmarks {
 
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
-        let att = Attestor::<T>::new(stash_id, attestor_id.clone());
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
 
         Attestation::<T>::register_attestor(
             att.stash_origin.clone(),
@@ -660,7 +658,7 @@ mod benchmarks {
             let stash_id = create_funded_user_with_balance::<T>("stash", j);
             let attestor_id: T::AccountId =
                 create_funded_user_with_balance::<T>("attestor", j + 100);
-            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone());
+            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), j);
 
             assert_ok!(Attestation::<T>::register_attestor(
                 attestor.stash_origin.clone(),
@@ -720,7 +718,7 @@ mod benchmarks {
         // 1) Pessimistic case for attestation cleanup:
         let attestations_to_remove = (checkpoint_interval * 2 - 1 + retention_duration) as u64;
 
-        let attestor = Attestor::new(stash_id, attestor_id);
+        let attestor = Attestor::new(stash_id, attestor_id, 0);
 
         for i in 0..attestations_to_remove {
             let a = create_signed_attestation::<T>(

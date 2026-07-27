@@ -57,7 +57,6 @@ where
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
-#[allow(deprecated)]
 pub fn new_partial<RuntimeApi, BIQ>(
     config: &Configuration,
     eth_config: &EthConfiguration,
@@ -394,14 +393,18 @@ where
         &config.chain_spec,
     );
 
-    let metrics = Net::register_notification_metrics(
-        config.prometheus_config.as_ref().map(|cfg| &cfg.registry),
-    );
+    // Register notification metrics ONCE against the Prometheus registry, then hand a
+    // clone to both the GRANDPA peers-set config and `build_network`. Registering twice
+    // against the same registry causes the second `register()` call to fail with
+    // AlreadyReg, which substrate's metrics wrapper swallows into a disabled metrics
+    // object — the network would then run without P2P notification metrics. The metrics
+    // type is `Clone`, so a single registration suffices for both consumers.
+    let notification_metrics = Net::register_notification_metrics(config.prometheus_registry());
 
     let (grandpa_protocol_config, grandpa_notification_service) =
         sc_consensus_grandpa::grandpa_peers_set_config::<_, Net>(
             grandpa_protocol_name.clone(),
-            metrics.clone(),
+            notification_metrics.clone(),
             Arc::clone(&peer_store_handle),
         );
 
@@ -418,7 +421,6 @@ where
         Some(WarpSyncConfig::WithProvider(warp_sync))
     };
 
-    let metrics = Net::register_notification_metrics(config.prometheus_registry());
     let (network, system_rpc_tx, tx_handler_controller, network_starter, sync_service) =
         sc_service::build_network(sc_service::BuildNetworkParams {
             config: &config,
@@ -430,7 +432,7 @@ where
             block_announce_validator_builder: None,
             warp_sync_config,
             block_relay: None,
-            metrics,
+            metrics: notification_metrics,
         })?;
 
     if config.offchain_worker.enabled {
@@ -533,9 +535,9 @@ where
             let next_slot = current.timestamp().as_millis() + slot_duration.as_millis();
             let timestamp = sp_timestamp::InherentDataProvider::new(next_slot.into());
             let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-                *timestamp,
-                slot_duration,
-            );
+				*timestamp,
+				slot_duration,
+			);
             let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
             Ok((slot, timestamp, dynamic_fee))
         };

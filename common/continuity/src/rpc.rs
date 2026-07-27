@@ -233,6 +233,32 @@ pub trait EthRpcProvider: Send + Sync {
     /// `Some(hash)` if the transaction exists, `None` if index is out of bounds.
     async fn get_tx_hash_by_index(&self, block_number: u64, tx_index: u64) -> Result<Option<H256>>;
 
+    /// Fetch a block's transaction bytes **and** the transaction hash at `tx_index` from a
+    /// single block fetch, instead of two separate `get_block` round-trips (one for the bytes,
+    /// one for the hash). Providers backed by a real RPC override this to fetch the block once;
+    /// the default falls back to the two separate calls for mocks / unoptimized providers.
+    async fn get_block_tx_bytes_and_tx_hash(
+        &self,
+        block_number: u64,
+        tx_index: u64,
+    ) -> Result<(Vec<Vec<u8>>, Option<H256>)> {
+        let bytes = self.get_block_tx_bytes(block_number).await?;
+        let hash = self.get_tx_hash_by_index(block_number, tx_index).await?;
+        Ok((bytes, hash))
+    }
+
+    /// Fetch all tx hashes and encoded tx bytes for a block in canonical order.
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        let bytes = self.get_block_tx_bytes(block_number).await?;
+        let mut txs = Vec::with_capacity(bytes.len());
+        for (idx, tx_bytes) in bytes.into_iter().enumerate() {
+            if let Some(tx_hash) = self.get_tx_hash_by_index(block_number, idx as u64).await? {
+                txs.push((tx_hash, tx_bytes));
+            }
+        }
+        Ok(txs)
+    }
+
     /// Resolve a transaction hash to its position.
     ///
     /// # Returns
@@ -376,6 +402,47 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
                 let hash_bytes = item.tx_hash().0;
                 H256::from_slice(&hash_bytes)
             }))
+        })
+        .await
+    }
+
+    async fn get_block_tx_bytes_and_tx_hash(
+        &self,
+        block_number: u64,
+        tx_index: u64,
+    ) -> Result<(Vec<Vec<u8>>, Option<H256>)> {
+        self.run("get_block_tx_bytes_and_tx_hash", move |client| async move {
+            // One block fetch yields both the ordered tx bytes and the tx hash at `tx_index`,
+            // replacing the previous two separate `get_block` calls.
+            let ordered = client
+                .get_block(block_number, EncodingVersion::V1)
+                .await
+                .unwrap_interrupt("Not handling user interrupts yet")
+                .context("Failed to fetch block")?;
+
+            let bytes = ordered.items().iter().map(|item| item.to_bytes()).collect();
+            let hash = ordered
+                .items()
+                .get(tx_index as usize)
+                .map(|item| H256::from_slice(&item.tx_hash().0));
+            Ok((bytes, hash))
+        })
+        .await
+    }
+
+    async fn get_block_tx_data(&self, block_number: u64) -> Result<Vec<(H256, Vec<u8>)>> {
+        self.run("get_block_tx_data", move |client| async move {
+            let ordered = client
+                .get_block(block_number, EncodingVersion::V1)
+                .await
+                .unwrap_interrupt("Not handling user interrupts yet")
+                .context("Failed to fetch block")?;
+
+            Ok(ordered
+                .items()
+                .iter()
+                .map(|item| (H256::from_slice(&item.tx_hash().0), item.to_bytes()))
+                .collect())
         })
         .await
     }

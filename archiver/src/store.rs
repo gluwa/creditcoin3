@@ -12,6 +12,22 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use sp_core::H256;
+use thiserror::Error;
+
+/// Errors returned by [`RootStore`] operations that callers may want to discriminate on.
+#[derive(Debug, Error)]
+pub enum StoreError {
+    /// `put_roots` saw an existing entry for `height` with a different root than the
+    /// incoming value. Indicates either a canonical replacement (reorg past finalization
+    /// lag) or an inconsistent upstream RPC — either way the operator needs to investigate
+    /// before continuing, so we surface this as a hard failure rather than overwriting.
+    #[error("reorg or inconsistency at block {height}: stored {stored:?}, incoming {incoming:?}")]
+    ReorgDetected {
+        height: u64,
+        stored: H256,
+        incoming: H256,
+    },
+}
 
 /// Soft cap for sled's page cache. The 0.34 default is ~1 GiB which is wildly
 /// oversized for a 40-byte-per-record workload; cap it so resident memory
@@ -81,7 +97,35 @@ impl RootStore {
     }
 
     /// Insert a batch of roots atomically.
+    ///
+    /// If a height in `roots` already has a *different* root stored under it, the whole
+    /// batch is rejected with [`ReorgDetected`]. Silently overwriting would mask reorgs
+    /// and RPC inconsistencies — EVM continuity proofs are keyed on these roots, so an
+    /// undetected canonical replacement at a given height would silently corrupt any
+    /// proof spanning that block. Idempotent re-insertion of the same root is allowed
+    /// (covers backfill replays).
     pub fn put_roots(&self, roots: &[(u64, H256)]) -> Result<()> {
+        // Reorg / inconsistency guard. Scan first; this is a cheap point-read per entry
+        // and means we never run the batch insert with a mixed-conflict payload.
+        let mut new_entries = 0_usize;
+        for (height, incoming) in roots {
+            match self.db.get(height.to_be_bytes())? {
+                Some(existing) => {
+                    let existing = parse_h256(&existing)?;
+                    anyhow::ensure!(
+                        existing == *incoming,
+                        StoreError::ReorgDetected {
+                            height: *height,
+                            stored: existing,
+                            incoming: *incoming,
+                        }
+                    );
+                    // Same root — idempotent replay, don't count as new.
+                }
+                None => new_entries += 1,
+            }
+        }
+
         let mut batch = sled::Batch::default();
         for (height, root) in roots {
             batch.insert(&height.to_be_bytes(), root.as_bytes());
@@ -89,12 +133,11 @@ impl RootStore {
         self.db
             .apply_batch(batch)
             .context("failed to apply batch insert")?;
-        // Assumes inserts are unique (no overwrites). For backfill over existing
-        // entries this may drift slightly, but that's acceptable for a status counter.
+        // Only count entries we actually added — idempotent replays must not double-count.
         let new_total = self
             .entry_count
-            .fetch_add(roots.len(), Ordering::AcqRel)
-            .saturating_add(roots.len());
+            .fetch_add(new_entries, Ordering::AcqRel)
+            .saturating_add(new_entries);
         // Persist the running count to the meta tree. This is best-effort: it
         // does not need to be atomic with the roots batch — if we crash between
         // the two writes the counter will simply drift by at most one batch on
@@ -136,17 +179,26 @@ impl RootStore {
 
     /// Find gaps in the stored block range.
     /// Returns a list of `(start, end)` inclusive ranges that are missing.
-    pub fn find_gaps(&self) -> Result<Vec<(u64, u64)>> {
+    ///
+    /// When `start_height` is `Some`, the range `start_height..first_stored_height - 1`
+    /// is also reported as a gap if the database begins at an intermediate height
+    /// (e.g. after restoring from a partial snapshot). Without it, `--backfill` could
+    /// never recover blocks below the first persisted entry because the gap-finder
+    /// used neighbour-pair comparison only and had no anchor on the low side.
+    pub fn find_gaps(&self, start_height: Option<u64>) -> Result<Vec<(u64, u64)>> {
         let mut gaps = Vec::new();
-        let mut expected: Option<u64> = None;
+        // `expected` seeded from `start_height` makes the pre-first-stored region act
+        // like any other neighbour-pair gap.
+        let mut expected: Option<u64> = start_height;
 
         for item in self.db.iter() {
             let (key, _) = item.context("failed to read from sled")?;
             let height = parse_height(&key)?;
 
-            match expected {
-                Some(exp) if height > exp => gaps.push((exp, height - 1)),
-                _ => {}
+            if let Some(exp) = expected {
+                if height > exp {
+                    gaps.push((exp, height - 1));
+                }
             }
             expected = Some(height + 1);
         }
@@ -264,5 +316,88 @@ mod tests {
         assert_eq!(reopened.count(), 5);
         // And persisted it for next time.
         assert!(reopened.meta.get(META_KEY_COUNT).unwrap().is_some());
+    }
+
+    #[test]
+    fn put_roots_rejects_conflicting_overwrite() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        let original = H256::from_slice(&[0xaa; 32]);
+        store.put_roots(&[(100, original)]).unwrap();
+
+        // Replaying the same root must succeed and stay idempotent.
+        store.put_roots(&[(100, original)]).unwrap();
+        assert_eq!(store.get_range(100, 100).unwrap(), vec![(100, original)]);
+
+        // A different root for the same height is a reorg / inconsistency signal —
+        // surface it instead of silently overwriting.
+        let conflicting = H256::from_slice(&[0xbb; 32]);
+        let err = store
+            .put_roots(&[(100, conflicting)])
+            .expect_err("conflicting overwrite must be rejected");
+        let downcast = err
+            .downcast_ref::<StoreError>()
+            .expect("StoreError variant");
+        assert!(matches!(
+            downcast,
+            StoreError::ReorgDetected { height: 100, .. }
+        ));
+
+        // Storage stays at the original root.
+        assert_eq!(store.get_range(100, 100).unwrap(), vec![(100, original)]);
+    }
+
+    #[test]
+    fn put_roots_idempotent_replay_does_not_double_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        let entries: Vec<(u64, H256)> = (0..5).map(|i| (i, H256::random())).collect();
+        store.put_roots(&entries).unwrap();
+        assert_eq!(store.count(), 5);
+
+        // Re-applying the same batch must not bump the counter (idempotent replay
+        // covers backfill / restart edge cases).
+        store.put_roots(&entries).unwrap();
+        assert_eq!(store.count(), 5);
+    }
+
+    #[test]
+    fn find_gaps_reports_pre_first_stored_gap() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        // DB begins at an intermediate height (mimicking a partial snapshot restore).
+        store
+            .put_roots(&[(50, H256::random()), (51, H256::random())])
+            .unwrap();
+
+        // Without an anchor, only neighbour-pair gaps are visible — the pre-first
+        // region is invisible.
+        let no_anchor = store.find_gaps(None).unwrap();
+        assert!(no_anchor.is_empty());
+
+        // With `start_height = 10`, the range 10..=49 should now be reported.
+        let with_anchor = store.find_gaps(Some(10)).unwrap();
+        assert_eq!(with_anchor, vec![(10, 49)]);
+    }
+
+    #[test]
+    fn find_gaps_mid_range_still_reported_with_anchor() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        store
+            .put_roots(&[
+                (10, H256::random()),
+                (11, H256::random()),
+                (15, H256::random()),
+                (20, H256::random()),
+            ])
+            .unwrap();
+
+        let gaps = store.find_gaps(Some(5)).unwrap();
+        assert_eq!(gaps, vec![(5, 9), (12, 14), (16, 19)]);
     }
 }

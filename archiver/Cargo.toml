@@ -22,11 +22,16 @@ dotenvy = "0.15"
 futures = { workspace = true }
 serde = { workspace = true, features = ["std", "derive"] }
 sled = { workspace = true }
+thiserror = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 tower-http = { workspace = true, features = ["trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 url = { workspace = true }
+
+# Creditcoin / USC dependencies
+cc-client = { workspace = true }
+supported-chains-primitives = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"
