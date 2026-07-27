@@ -119,6 +119,9 @@ jobs:
           repository: gluwa/usc-contracts
           ref: 7f5b64a501a354019d78714cfb293d934a1527c3 # sync/contracts-dev-694d6cc — bump deliberately
           path: usc-contracts
+          # usc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
+          # gets "Repository not found". Use the org bot PAT (same one build-native uses cross-repo).
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
       - name: Rust cache (usc-message-relayer)
         uses: Swatinem/rust-cache@v2
