@@ -253,7 +253,7 @@ impl Attestor {
             };
 
         let (genesis_height, start_attestation) =
-            startup::fetch_start_point(chain_key, &cc3).await?;
+            startup::fetch_start_point(chain_key, cc3.as_ref()).await?;
         let start_height = self
             .config
             .attestation
