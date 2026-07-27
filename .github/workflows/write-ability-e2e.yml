@@ -108,8 +108,17 @@ jobs:
           # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
           # could pass or fail as the relayer's default branch moved). Bump this deliberately when
           # a relayer change needs to be exercised here.
-          ref: b5c71a3499a699d4e1ac180b85f420d6c7883aeb # usc-message-relayer main @ 2026-07-14 (#21)
+          ref: 4cd1b01dddcb7ef63c21cfe53fc10a08adbf0c31 # usc-message-relayer #25 (deliver at funded gasLimit) — bump to the merge SHA once #25 lands
           path: usc-message-relayer
+
+      # Fee-integrated write-ability contracts. The plain-ethers deploy scripts read their compiled
+      # artifacts from here (via $USC_CONTRACTS_DIR); pinned to a full SHA so the e2e is reproducible.
+      - name: Check out usc-contracts (fee-integrated contracts)
+        uses: actions/checkout@v6
+        with:
+          repository: gluwa/usc-contracts
+          ref: 7f5b64a501a354019d78714cfb293d934a1527c3 # sync/contracts-dev-694d6cc — bump deliberately
+          path: usc-contracts
 
       - name: Rust cache (usc-message-relayer)
         uses: Swatinem/rust-cache@v2
@@ -140,11 +149,16 @@ jobs:
 
       - name: Install usc-messaging deps
         working-directory: ./usc-messaging
-        # deploy.ts drives `forge create` against artifacts in contracts/node_modules
-        # (@gluwa/usc-contracts), so the nested package needs its own install.
+        # The plain-ethers fee-stack scripts (deploy-*/publish-fee/claim-delivery) + quoter run via
+        # tsx and need ethers / @polkadot/api / express from usc-messaging's own package.
+        run: npm install
+
+      - name: Build usc-contracts artifacts (fee stack)
+        working-directory: ./usc-contracts
         run: |
-          npm install
-          (cd contracts && npm ci)
+          npm ci
+          npx hardhat compile
+          echo "USC_CONTRACTS_DIR=$GITHUB_WORKSPACE/usc-contracts" >> "$GITHUB_ENV"
 
       - name: Start anvil (destination chain)
         run: |
@@ -161,11 +175,50 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
-      - name: Deploy contracts (incl. EOAValidator) + register factory on-chain
+      - name: Deploy fee stack (dest + source incl. AcknowledgmentValidator) + register factory
+        working-directory: ./usc-messaging
+        # deploy-source-ethers.mts deploys the fee-integrated Outbox via the CREATE2 factory plus the
+        # quoter, vaults, RelayerContract and the AcknowledgmentValidator (wired as the Outbox
+        # validator); register-factory.mjs registers the factory in the CC runtime so the attestor's
+        # chain-info precompile resolves it. Addresses land in /tmp/e2e-deploy.json.
+        run: |
+          npx tsx scripts/deploy-dest-ethers.mts
+          npx tsx scripts/deploy-source-ethers.mts
+          node scripts/register-factory.mjs
+
+      - name: Write .env from deployed addresses
         working-directory: ./usc-messaging
         run: |
-          cp .env.example .env
-          npx tsx scripts/deploy.ts
+          J=/tmp/e2e-deploy.json
+          {
+            echo "DESTINATION_CHAIN_KEY=2"
+            echo "DESTINATION_CHAIN_WS_URL=ws://localhost:8545"
+            echo "DESTINATION_CHAIN_RPC_URL=http://localhost:8545"
+            echo "DESTINATION_CHAIN_PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+            echo "CREDITCOIN_RPC_URL=http://localhost:9944"
+            echo "CREDITCOIN_CHAIN_PRIVATE_KEY=0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b"
+            echo "VOTE_VALIDATOR_ADDR=$(jq -r .dest.voteValidator $J)"
+            echo "INBOX_ADDR=$(jq -r .dest.inbox $J)"
+            echo "OUTBOX_ADDR=$(jq -r .source.outbox $J)"
+            echo "ACK_VALIDATOR_ADDR=$(jq -r .source.ackValidator $J)"
+            echo "RELAYER_FEE_VAULT_ADDR=$(jq -r .source.relayerFeeVault $J)"
+            echo "DAPP_CONTRACT_ADDR=$(jq -r .dest.dapp $J)"
+          } > .env
+          cat .env
+
+      - name: Start quoter service (EIP-712 signed quotes)
+        working-directory: ./usc-messaging
+        run: |
+          RC="$(jq -r .source.relayerContract /tmp/e2e-deploy.json)"
+          QUOTER_PRIVATE_KEY=0x2a871d0798f97d79848a013d4936a73bf4cc922c825d33c1cf7073dff6d409c6 \
+          QUOTER_PORT=3010 QUOTER_SOURCE_CHAIN_ID=42 QUOTER_RELAYER_CONTRACT="$RC" \
+          QUOTER_CHAINS='[{"chainKey":2,"nativeUsd":"3000","gasPriceGwei":"1","coreFeeAttest":"1","ackGas":500000}]' \
+          npx tsx src/quoter/index.ts >"$LOGS/quoter.log" 2>&1 &
+          for _ in $(seq 1 20); do
+            curl -sf localhost:3010/health >/dev/null && { echo "✅ quoter online"; exit 0; }
+            sleep 1
+          done
+          echo "❌ quoter did not come online"; tail -20 "$LOGS/quoter.log"; exit 1
 
       - name: Launch attestor zombienet (discovers addresses, syncs EOAValidator set)
         run: |
@@ -218,6 +271,7 @@ jobs:
             --inbox-address "$INBOX_ADDR" \
             --signer-key 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
             --attestor-set "$ATTESTOR_SET" \
+            --relayer-fee-vault-address "$RELAYER_FEE_VAULT_ADDR" \
             --ack-proof-gen-url http://127.0.0.1:3100 \
             --ack-validator-address "$ACK_VALIDATOR_ADDR" \
             --ack-signer-key "$CREDITCOIN_CHAIN_PRIVATE_KEY" >"$LOGS/relayer.log" 2>&1 &
@@ -227,10 +281,13 @@ jobs:
           done
           echo "❌ relayer did not come online"; tail -40 "$LOGS/relayer.log"; exit 1
 
-      - name: Publish a cross-chain message
+      - name: Publish a fee'd cross-chain message (requiresAck)
         working-directory: ./usc-messaging
         run: |
-          timeout 180 npx tsx scripts/publish-message/publish-message.ts --requiresAck true >"$LOGS/publish.log" 2>&1 || true
+          # Quotes from the live quoter, approves ATTEST, calls
+          # RelayerContract.publishAndCollectRelayerFee, and records the messageId to
+          # /tmp/e2e-published.json for the ack + claim assertions.
+          timeout 180 npx tsx scripts/publish-fee.mts "ci-$GITHUB_RUN_ID" >"$LOGS/publish.log" 2>&1 || true
           tail -20 "$LOGS/publish.log" || true
 
       - name: Assert message was delivered on the destination chain
@@ -239,9 +296,9 @@ jobs:
           export PATH="$HOME/.foundry/bin:$PATH"
           set -a; source .env; set +a
           for _ in $(seq 1 40); do
-            CNT="$(cast call "$DESTINATION_CONTRACT_ADDR" 'messageCount()(uint256)' --rpc-url http://127.0.0.1:8545 2>/dev/null || echo 0)"
-            if [ "${CNT:-0}" -ge 1 ]; then
-              echo "✅ message delivered — TestDestination.messageCount=$CNT"
+            CNT="$(cast call "$DAPP_CONTRACT_ADDR" 'calls()(uint256)' --rpc-url http://127.0.0.1:8545 2>/dev/null || echo 0)"
+            if [ "${CNT:-0}" != "0" ]; then
+              echo "✅ message delivered — MockDestination.calls=$CNT"
               grep -E 'threshold reached|message delivered' "$LOGS/relayer.log" || true
               exit 0
             fi
@@ -256,21 +313,19 @@ jobs:
         run: |
           export PATH="$HOME/.foundry/bin:$PATH"
           set -a; source .env; set +a
-          # messageId is logged by publish-message.ts on MessageDispatched.
-          MSG_ID="$(grep -m1 'messageId:' "$LOGS/publish.log" | grep -oE '0x[0-9a-fA-F]{64}' | head -1)"
-          if [ -z "$MSG_ID" ]; then
-            echo "❌ could not extract messageId from publish log"; tail -40 "$LOGS/publish.log" || true
+          MSG_ID="$(jq -r .messageId /tmp/e2e-published.json)"
+          if [ -z "$MSG_ID" ] || [ "$MSG_ID" = "null" ]; then
+            echo "❌ no messageId in /tmp/e2e-published.json"; tail -40 "$LOGS/publish.log" || true
             exit 1
           fi
           echo "Asserting acknowledgment for messageId=$MSG_ID"
           # Ack lands ~90s after delivery (waits for the destination block to be attested on CC3,
-          # then proof-gen serves the proof and the relayer submits it). Outbox.messages returns
-          # (address emitter, bool acknowledged, bytes32 payloadHash) — line 2 is `acknowledged`.
+          # then proof-gen serves the proof and the relayer submits it to the AcknowledgmentValidator).
           for _ in $(seq 1 60); do
-            ACK="$(cast call "$OUTBOX_ADDR" 'messages(bytes32)(address,bool,bytes32)' "$MSG_ID" \
-              --rpc-url http://127.0.0.1:9944 2>/dev/null | sed -n '2p')"
+            ACK="$(cast call "$OUTBOX_ADDR" 'isAcknowledged(bytes32)(bool)' "$MSG_ID" \
+              --rpc-url http://127.0.0.1:9944 2>/dev/null || echo false)"
             if [ "$ACK" = "true" ]; then
-              echo "✅ message acknowledged — Outbox.messages($MSG_ID).acknowledged=true"
+              echo "✅ message acknowledged — Outbox.isAcknowledged($MSG_ID)=true"
               grep -E 'acknowledg|submitAcknowledgment|✅' "$LOGS/relayer.log" | tail -10 || true
               exit 0
             fi
@@ -280,6 +335,15 @@ jobs:
           echo "--- relayer log ---"; tail -80 "$LOGS/relayer.log" || true
           echo "--- proof-gen log ---"; tail -60 "$LOGS/proof-gen.log" || true
           exit 1
+
+      - name: Assert Level-2 claimDelivery relayer payout
+        working-directory: ./usc-messaging
+        run: |
+          # Fetches the destination delivery proof from proof-gen, builds the BlockProverTypes
+          # structs, calls RelayerFeeVault.claimDelivery from a gas-only claimant, and asserts the
+          # ATTEST payout (relayFee+tip) + relaySettled == true.
+          set -a; source .env; set +a
+          timeout 240 npx tsx scripts/claim-delivery.mts
 
       - name: Upload logs
         if: always()
