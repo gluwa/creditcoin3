@@ -16,6 +16,7 @@ name = "attestor"
 path = "./src/main.rs"
 
 [dependencies]
+async-trait = { workspace = true }
 attestor_pool = { path = "../pool" }
 common = { path = "../common" }
 metrics = { path = "../metrics" }

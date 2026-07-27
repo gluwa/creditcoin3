@@ -1535,6 +1535,7 @@ name = "attestor"
 version = "3.130.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "attestor-primitives",
  "attestor_pool",
  "axum",
