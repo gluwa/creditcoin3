@@ -330,16 +330,21 @@ async fn scan_range<P: Provider>(
         match IOutbox::MessagePublished::decode_log(&log.inner, true) {
             Ok(decoded) => {
                 let payload = decoded.data.payload.to_vec();
+                // `emitterAddress` is emitted as `bytes32` (cross-chain consistency); the 20-byte
+                // EVM address sits in the high bytes (`bytes32(bytes20(emitter))`). Recover it as an
+                // `Address` — the signed `messageHash` and `deliverMessage` both use `address`, so
+                // this must be the plain 20-byte value, not the padded word.
+                let emitter = Address::from_slice(&decoded.data.emitterAddress.as_slice()[..20]);
                 let hash = message_hash(
                     decoded.data.messageId,
-                    decoded.data.emitterAddress,
+                    emitter,
                     resolved.destination_chain_key,
                     resolved.creditcoin_chain_id,
                     &payload,
                 );
                 let indexed = IndexedMessage {
                     message_id: decoded.data.messageId,
-                    emitter: decoded.data.emitterAddress,
+                    emitter,
                     payload,
                     message_hash: hash,
                 };

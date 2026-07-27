@@ -66,8 +66,10 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
 
 // USC write-ability: dynamically-discovered Outbox contracts on Creditcoin L1.
 // OutboxFactory: OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress)
-type OutboxCreatedArgs = [string, string];
-// Outbox: MessagePublished(bytes32 indexed messageId, address indexed emitterAddress, bool requiresAck, bytes payload)
+// OutboxCreated(address indexed outbox, uint32 indexed chainKey, address indexed owner, address validator, string version)
+type OutboxCreatedArgs = [string, bigint, string, string, string];
+// Outbox: MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool requiresAck, bytes payload)
+// emitterAddress is a bytes32 (20-byte EVM address left-aligned in the high bytes).
 type MessagePublishedArgs = [string, string, boolean, string];
 // Outbox: MessageAcknowledged(bytes32 indexed messageId)
 type MessageAcknowledgedArgs = [string];
@@ -86,8 +88,10 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         return;
     }
 
-    const [chainKeyRaw, outboxAddress] = event.args;
-    const chainKey = chainKeyRaw.toLowerCase();
+    // Synced factory event: (outbox, chainKey:uint32, owner, validator, version). chainKey arrives
+    // as a number; normalize to the same bytes32 form the factory-correspondence check below uses.
+    const [outboxAddress, chainKeyRaw] = event.args;
+    const chainKey = u64ChainKeyToBytes32(BigInt(chainKeyRaw));
     const address = outboxAddress.toLowerCase();
     // event.address is the factory that emitted OutboxCreated.
     const factoryId = event.address ? event.address.toLowerCase() : undefined;
@@ -199,8 +203,13 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
         return;
     }
 
-    const [messageId, emitterAddress, requiresAck, payload] = event.args;
-    logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitterAddress}, requiresAck=${requiresAck}`);
+    const [messageIdRaw, emitterRaw, requiresAck, payload] = event.args;
+    const messageId = messageIdRaw;
+    // emitterAddress is now a bytes32 with the 20-byte EVM address in the high bytes
+    // (bytes32(bytes20(emitter))). Recover the plain address so stored/queried emitters stay
+    // 20-byte addresses, consistent with the rest of the schema.
+    const emitter = `0x${emitterRaw.slice(2, 42)}`.toLowerCase();
+    logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitter}, requiresAck=${requiresAck}`);
 
     // Idempotency guard: a replayed MessagePublished (reorg replay, reindex overlap, duplicate
     // datasource) must not reset a message that handleMessageAcknowledged already marked
@@ -217,7 +226,7 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     const message = OutboxMessage.create({
         id: messageId,
         outboxId: event.address.toLowerCase(),
-        emitter: emitterAddress,
+        emitter,
         requiresAck,
         payload,
         publishedAt: BigInt(event.blockNumber),

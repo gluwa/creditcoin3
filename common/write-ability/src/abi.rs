@@ -13,35 +13,52 @@
 use alloy::sol;
 
 sol! {
+    /// Stored message record returned by `Outbox.getMessage` (mirrors `OutboxTypes.Message`).
+    /// Field order/types must match the Solidity struct exactly for ABI decoding.
+    #[derive(Debug)]
+    struct OutboxMessage {
+        address emitter;
+        uint64 sequence;
+        uint64 timestamp;
+        bool requiresAck;
+        bool acknowledged;
+        bytes32 payloadHash;
+    }
+
     #[sol(rpc)]
     #[derive(Debug)]
     contract IOutbox {
         /// A new cross-chain message has been published to this outbox.
         ///
         /// `messageId` is the unique handle attestors and the inbox use to track delivery.
-        /// `emitterAddress` is the dApp that called `publishMessage`. `requiresAck` flags
-        /// whether the message must be acknowledged on-chain before it is considered complete.
-        /// `payload` is the opaque bytes the inbox will hand to the destination dApp's
-        /// `receiveMessage`.
+        /// `emitterAddress` is the dApp that called `publishMessage`, emitted as `bytes32` for
+        /// cross-chain consistency — the 20-byte EVM address occupies the **high** bytes
+        /// (`bytes32(bytes20(emitter))`), so recover it with `Address::from_slice(&value[..20])`.
+        /// `requiresAck` flags whether the message must be acknowledged on-chain before it is
+        /// considered complete. `payload` is the opaque bytes the inbox will hand to the
+        /// destination dApp's `receiveMessage`.
         event MessagePublished(
             bytes32 indexed messageId,
-            address indexed emitterAddress,
+            bytes32 indexed emitterAddress,
             bool requiresAck,
             bytes payload
         );
 
-        /// Whether `messageId` was published with `requiresAck = true`. Mirrors the public
-        /// `SimpleOutbox.messageRequiresAck` mapping; the ack submitter pre-checks this so bridge
-        /// traffic (`requiresAck = false`) skips the proof fetch entirely.
+        /// Stored message state. Mirrors `Outbox.getMessage`: reverts `MessageNotFound` for an
+        /// unknown id. `requiresAck` flags whether an ack is required (the ack submitter pre-checks
+        /// it so bridge traffic skips the proof fetch); `acknowledged` means the ack already landed
+        /// (a duplicate submit would revert `MessageAlreadyAcknowledged`). Note `emitter` here is a
+        /// plain `address` — only the `MessagePublished` event widens it to `bytes32`.
+        function getMessage(bytes32 messageId) external view returns (OutboxMessage memory);
+
+        /// Whether `messageId` was published with `requiresAck = true`. `false` for an unknown id
+        /// (mapping default), so the ack submitter uses it as the existence-and-requires-ack gate
+        /// before checking `isAcknowledged`.
         function messageRequiresAck(bytes32 messageId) external view returns (bool);
 
-        /// Stored message state. Mirrors the public `SimpleOutbox.messages` mapping getter:
-        /// `emitter == address(0)` means unknown message, `acknowledged` means the ack already
-        /// landed (a duplicate submit would revert `MessageAlreadyAcknowledged`).
-        function messages(bytes32 messageId)
-            external
-            view
-            returns (address emitter, bool acknowledged, bytes32 payloadHash);
+        /// Whether `messageId` has already been acknowledged on the source Outbox. `false` for an
+        /// unknown id.
+        function isAcknowledged(bytes32 messageId) external view returns (bool);
 
         /// Reverts bubbled up through `AcknowledgmentValidator.submitAcknowledgment` when it calls
         /// `acknowledgeMessage` here. All three are permanent for a given delivery tx — the ack
@@ -79,7 +96,16 @@ sol! {
             view
             returns (bool);
 
-        event MessageDelivered(bytes32 indexed messageId);
+        /// Emitted when `deliverMessage`'s dApp callback succeeds. `processor` is the vote
+        /// validator that authorized delivery; `relayer` is the `msg.sender` that delivered.
+        /// Only `messageId` (topics[1]) is read; the two addresses are ignored. The 3-arg shape
+        /// must match `Inbox.MessageDelivered` exactly or the ack watcher's `SIGNATURE_HASH`
+        /// filter misses every delivery.
+        event MessageDelivered(
+            bytes32 indexed messageId,
+            address indexed processor,
+            address indexed relayer
+        );
         /// Emitted (on a **successful** `deliverMessage` tx) when the votes validated but the
         /// dApp's `receiveMessage` callback reverted — the message is stored for
         /// `retryPendingMessage`. Signature must match `SimpleInbox.MessagePending` exactly or
@@ -98,13 +124,17 @@ sol! {
     #[sol(rpc)]
     #[derive(Debug)]
     contract IOutboxFactory {
-        /// Resolve the per-destination Outbox instance for a USC chain key. The factory creates
-        /// one Outbox per `bytes32 chainKey`; attestors call this to discover the address to watch.
-        /// Returns `address(0)` when no outbox has been created for `chainKey` yet.
-        function getOutbox(bytes32 chainKey) external view returns (address);
-
-        /// @notice Emitted when a new outbox is created
-        event OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress);
+        /// Emitted by `deployOutbox` when the factory CREATE2-deploys an Outbox. The synced factory
+        /// has no `getOutbox` registry — attestors discover the Outbox for their chain by scanning
+        /// this event filtered on the indexed `chainKey`. `outbox` and `chainKey` are indexed
+        /// (topics[1] and topics[2]).
+        event OutboxCreated(
+            address indexed outbox,
+            uint32 indexed chainKey,
+            address indexed owner,
+            address validator,
+            string version
+        );
     }
 
     #[sol(rpc)]

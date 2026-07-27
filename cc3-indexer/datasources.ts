@@ -352,7 +352,7 @@ export const outboxDiscoveryDatasource: FrontierEvmDatasource = {
                 handler: 'handleOutboxCreated',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['OutboxCreated(bytes32,address)'],
+                    topics: ['OutboxCreated(address,uint32,address,address,string)'],
                 },
             },
         ],
@@ -376,7 +376,7 @@ export const outboxTemplate: FrontierEvmTemplate = {
                 handler: 'handleMessagePublished',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['MessagePublished(bytes32,address,bool,bytes)'],
+                    topics: ['MessagePublished(bytes32,bytes32,bool,bytes)'],
                 },
             },
             {

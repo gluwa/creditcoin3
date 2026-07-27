@@ -21,6 +21,7 @@
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
+use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
 use attestor_primitives::ChainKey;
@@ -33,6 +34,10 @@ use super::config::Config;
 pub const CHAIN_INFO_PRECOMPILE: Address = Address::new([
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x0f, 0xd3,
 ]);
+
+/// Max block span per `eth_getLogs` request when scanning the factory for `OutboxCreated` — an
+/// unbounded genesis→tip span exceeds common RPC limits. Mirrors the listener's chunk size.
+const MAX_LOG_BLOCK_RANGE: u64 = 2000;
 
 /// The Outbox an attestor watches, plus the immutable inputs every `messageHash` on it binds.
 #[derive(Clone, Copy, Debug)]
@@ -58,11 +63,15 @@ pub async fn resolve<P: Provider>(
     provider: &P,
     cfg: &Config,
     destination_chain_key: B256,
+    scan_from: &mut u64,
 ) -> Result<Option<ResolvedOutbox>> {
     let chain_key = cfg.write_ability_chain_key;
 
     // The Outbox address is resolved entirely on-chain from chain_key — never configured.
-    let Some(address) = resolve_outbox_address(provider, chain_key, destination_chain_key).await?
+    // `scan_from` is the caller-owned discovery cursor: it advances past already-scanned blocks so
+    // repeated resolve retries don't re-scan the whole chain history (see `resolve_outbox_address`).
+    let Some(address) =
+        resolve_outbox_address(provider, chain_key, destination_chain_key, scan_from).await?
     else {
         return Ok(None);
     };
@@ -91,7 +100,8 @@ pub async fn resolve<P: Provider>(
 async fn resolve_outbox_address<P: Provider>(
     provider: &P,
     chain_key: ChainKey,
-    destination_chain_key: B256,
+    _destination_chain_key: B256,
+    scan_from: &mut u64,
 ) -> Result<Option<Address>> {
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
@@ -108,17 +118,47 @@ async fn resolve_outbox_address<P: Provider>(
     }
     let factory = factory.factoryAddr;
 
-    // 2. The factory's Outbox for this chain key.
-    let outbox = IOutboxFactory::new(factory, provider)
-        .getOutbox(destination_chain_key)
-        .call()
+    // 2. Discover the factory's Outbox for this chain key. The synced CREATE2 factory has no
+    //    `getOutbox` registry, so scan its `OutboxCreated` events (chainKey is an indexed uint32,
+    //    topics[2]) and take the first match — a factory deploys one Outbox per chain key.
+    //
+    //    Scan in bounded windows (eth_getLogs defaults `fromBlock` to *latest*, and a single
+    //    genesis→tip request exceeds common RPC block-range limits on any non-trivial chain — the
+    //    same reason the listener chunks at `MAX_LOG_BLOCK_RANGE`). Resume from the caller-owned
+    //    `scan_from` cursor rather than genesis: the factory emits OutboxCreated exactly once, so
+    //    once a retry has scanned [..=tip] and found nothing, the next retry only needs the new
+    //    blocks — otherwise every 12s retry re-issues a full-history log storm across all attestors.
+    let tip = provider
+        .get_block_number()
         .await
-        .with_context(|| format!("IOutboxFactory.getOutbox at {factory} reverted"))?
-        ._0;
-    if outbox.is_zero() {
-        tracing::warn!(%factory, chain_key, "factory has no Outbox for chain_key yet");
-        return Ok(None);
+        .context("read EVM tip for Outbox discovery scan")?;
+    let sig = IOutboxFactory::OutboxCreated::SIGNATURE_HASH;
+    let topic_chain_key = alloy::primitives::U256::from(chain_key);
+    let mut from = *scan_from;
+    while from <= tip {
+        let chunk_to = tip.min(from + MAX_LOG_BLOCK_RANGE - 1);
+        let filter = alloy::rpc::types::Filter::new()
+            .address(factory)
+            .event_signature(sig)
+            .topic2(topic_chain_key)
+            .from_block(from)
+            .to_block(chunk_to);
+        let logs = provider.get_logs(&filter).await.with_context(|| {
+            format!("eth_getLogs OutboxCreated at factory {factory} [{from}..={chunk_to}] failed")
+        })?;
+        if let Some(log) = logs.first() {
+            let outbox = IOutboxFactory::OutboxCreated::decode_log(&log.inner, true)
+                .context("decode OutboxCreated log")?
+                .data
+                .outbox;
+            tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain (OutboxCreated scan)");
+            return Ok(Some(outbox));
+        }
+        from = chunk_to + 1;
     }
-    tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain");
-    Ok(Some(outbox))
+    // Scanned everything up to `tip` with no match — advance the cursor so the next retry resumes
+    // from here instead of re-scanning history. (`from` is now `tip + 1`, saturating at u64::MAX.)
+    *scan_from = from;
+    tracing::warn!(%factory, chain_key, "factory has emitted no OutboxCreated for chain_key yet");
+    Ok(None)
 }
