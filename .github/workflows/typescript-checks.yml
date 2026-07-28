@@ -4,7 +4,6 @@ name: typescript-checks
 # Controls when the action will run.
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - '**.ts'
       - '**.js'
@@ -41,9 +40,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
       - run: npm install -g yarn
 
       - name: Install Solidity compiler

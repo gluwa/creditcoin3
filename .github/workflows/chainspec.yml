@@ -3,7 +3,6 @@ name: chainspec
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "runtime/**"
       - "chainspecs/**"
@@ -96,9 +95,9 @@ jobs:
           path: target/release
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn

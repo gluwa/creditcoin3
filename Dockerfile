@@ -1,26 +1,12 @@
 # hadolint global ignore=DL3008,DL3009,DL3013,DL3016,SC3046,DL4006,SC1091,SC2086
-FROM ubuntu:26.04@sha256:b7f48194d4d8b763a478a621cdc81c27be222ba2206ca3ca6bc42b49685f3d9e AS runtime-base
+FROM ubuntu:26.04@sha256:3131b4cc82a783df6c9df078f86e01819a13594b865c2cad47bd1bca2b7063bb AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
-ARG TARGETARCH
-ARG NODE_VERSION=20.20.2
-# NodeSource's apt key fetch (deb.nodesource.com) intermittently 403s from our
-# self-hosted Linode CI runners' shared IP pool. Install the official upstream
-# release directly instead, checksum-verified against nodejs.org's own SHASUMS256.txt.
 RUN apt-get update && \
     apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends ca-certificates curl xz-utils libdw1t64 libpq5 && \
+    apt-get install -y --no-install-recommends ca-certificates curl && \
     update-ca-certificates && \
-    case "${TARGETARCH}" in \
-      amd64) NODE_ARCH=x64;    NODE_SHA256=df770b2a6f130ed8627c9782c988fda9669fa23898329a61a871e32f965e007d ;; \
-      arm64) NODE_ARCH=arm64;  NODE_SHA256=73093db209e4e9e09dd7d15a47aeaab1b74833830df03efa5f942a1122c5fa71 ;; \
-      *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
-    esac && \
-    curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz && \
-    echo "${NODE_SHA256}  /tmp/node.tar.xz" | sha256sum -c - && \
-    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner && \
-    rm /tmp/node.tar.xz && \
-    node --version && \
-    npm --version && \
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y libdw1t64 libpq5 nodejs --no-install-recommends && \
     npm install -g yarn node-gyp
 # WARNING: devel dependencies should go into the devel-base image below
 
