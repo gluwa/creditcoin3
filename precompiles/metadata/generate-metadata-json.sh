@@ -2,18 +2,75 @@
 
 set -euo pipefail
 
-# Script to generate precompiles metadata JSON files for devnet and testnet
-# Usage: ./generate-metadata-json.sh
+# Script to generate precompiles metadata JSON files for devnet, testnet and (optionally) mainnet.
+#
+# Usage: ./generate-metadata-json.sh [--devnet|--no-devnet] [--testnet|--no-testnet] [--mainnet|--no-mainnet] [--all]
+#   Defaults: devnet=on, testnet=on, mainnet=off
+#   --all is shorthand for --devnet --testnet --mainnet
+#
+# Mainnet defaults to off because its metadata should only be refreshed once a change is actually
+# being promoted towards main (see the CI wiring in .github/workflows/sanity.yml, which passes
+# --mainnet only when github.base_ref == 'main'). Pass --mainnet explicitly to opt in locally.
+#
 # This script extracts precompile information from runtime/src/precompiles.rs
 # to ensure consistency and avoid manual mapping errors.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+generate_devnet=true
+generate_testnet=true
+generate_mainnet=false
+
+print_usage() {
+    cat <<'EOF'
+Usage: ./generate-metadata-json.sh [options]
+
+Options:
+  --devnet          Generate precompiles-creditcoin3-devnet.json    (default: on)
+  --no-devnet       Skip precompiles-creditcoin3-devnet.json
+  --testnet         Generate precompiles-creditcoin3-testnet.json   (default: on)
+  --no-testnet      Skip precompiles-creditcoin3-testnet.json
+  --mainnet         Generate precompiles-creditcoin3-mainnet.json   (default: off)
+  --no-mainnet      Skip precompiles-creditcoin3-mainnet.json
+  --all             Shorthand for --devnet --testnet --mainnet
+  -h, --help        Show this help message
+EOF
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --devnet) generate_devnet=true ;;
+        --no-devnet) generate_devnet=false ;;
+        --testnet) generate_testnet=true ;;
+        --no-testnet) generate_testnet=false ;;
+        --mainnet) generate_mainnet=true ;;
+        --no-mainnet) generate_mainnet=false ;;
+        --all)
+            generate_devnet=true
+            generate_testnet=true
+            generate_mainnet=true
+            ;;
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option '$1'" >&2
+            print_usage >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+if [ "$generate_devnet" = false ] && [ "$generate_testnet" = false ] && [ "$generate_mainnet" = false ]; then
+    echo "Error: at least one of --devnet, --testnet or --mainnet must be enabled" >&2
+    exit 1
+fi
+
 sol_directory="sol"
 abi_directory="abi"
-output_devnet="precompiles-creditcoin3-devnet.json"
-output_testnet="precompiles-creditcoin3-testnet.json"
 runtime_precompiles_file="../../runtime/src/precompiles.rs"
 
 # Function to convert decimal to hex address (H160 format)
@@ -236,8 +293,22 @@ for i in "${!entries[@]}"; do
 done
 json_array+="]"
 
-# Format and write to output files
-echo "$json_array" | jq '.' > "$output_devnet"
-echo "$json_array" | jq '.' > "$output_testnet"
+# Format and write to output files (only the ones that were requested)
+generated_files=()
 
-echo "Generated $output_devnet and $output_testnet successfully"
+if [ "$generate_devnet" = true ]; then
+    echo "$json_array" | jq '.' > "precompiles-creditcoin3-devnet.json"
+    generated_files+=("precompiles-creditcoin3-devnet.json")
+fi
+
+if [ "$generate_testnet" = true ]; then
+    echo "$json_array" | jq '.' > "precompiles-creditcoin3-testnet.json"
+    generated_files+=("precompiles-creditcoin3-testnet.json")
+fi
+
+if [ "$generate_mainnet" = true ]; then
+    echo "$json_array" | jq '.' > "precompiles-creditcoin3-mainnet.json"
+    generated_files+=("precompiles-creditcoin3-mainnet.json")
+fi
+
+printf 'Generated %s successfully\n' "$(IFS=', '; echo "${generated_files[*]}")"

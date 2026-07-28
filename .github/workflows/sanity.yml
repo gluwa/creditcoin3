@@ -118,12 +118,22 @@ jobs:
       - name: Check metadata JSON files are up to date
         working-directory: ./precompiles/metadata
         run: |
-          ./generate-metadata-json.sh
+          # Mainnet metadata is only regenerated/verified for PRs targeting main: that's the
+          # only time it's "right" to refresh it, since devnet/testnet move independently of
+          # mainnet the rest of the time.
+          generate_args=(--devnet --testnet)
+          files_to_check=(precompiles-creditcoin3-devnet.json precompiles-creditcoin3-testnet.json)
+          if [ "${{ github.base_ref }}" == "main" ]; then
+            generate_args+=(--mainnet)
+            files_to_check+=(precompiles-creditcoin3-mainnet.json)
+          fi
+
+          ./generate-metadata-json.sh "${generate_args[@]}"
           cd ../..
           # Check if metadata JSON files were modified
-          if [ -n "$(git status --short --untracked-files=no precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json)" ]; then
-            echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh' and commit the changes."
-            git diff precompiles/metadata/precompiles-creditcoin3-devnet.json precompiles/metadata/precompiles-creditcoin3-testnet.json
+          if [ -n "$(git status --short --untracked-files=no "${files_to_check[@]/#/precompiles/metadata/}")" ]; then
+            echo "ERROR: Metadata JSON files are out of date. Please run './generate-metadata-json.sh ${generate_args[*]}' and commit the changes."
+            git diff "${files_to_check[@]/#/precompiles/metadata/}"
             exit 1
           fi
 
