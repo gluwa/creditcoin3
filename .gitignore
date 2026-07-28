@@ -78,3 +78,6 @@ prover/artifacts/*
 
 # Editor / IDE local settings (Claude Code, etc.)
 .claude/
+
+# Local write-ability scan cursor (attestor state_dir; see attestor/config.yaml)
+.attestor-state/

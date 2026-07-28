@@ -113,6 +113,22 @@ write_ability:
   #
   # block_confirmation_depth: 3
 
+  # Directory for durable write-ability state — the Outbox scan cursor, so a restart
+  # resumes where it left off instead of skipping messages published while down.
+  #
+  # Set here because the default is `/data` (the persistent volume the attestor
+  # StatefulSet mounts in k8s), which cannot be created off-cluster: an unprivileged
+  # local process gets "Read-only file system" at the filesystem root, and the boot
+  # deliberately fails loudly when the state dir is not writable. In production leave
+  # this unset so it uses the mounted volume.
+  #
+  # Note for multi-attestor local runs (launch-attestors.sh): the cursor file is named
+  # per chain key (`outbox-cursor-<chain_key>.json`), not per attestor, so instances
+  # sharing this directory share one cursor. Harmless locally — the worst case is one
+  # attestor resuming from another's slightly older position and re-signing a few
+  # messages, which vote dedup absorbs.
+  state_dir: ".attestor-state"
+
   # Anti-abuse bounds.
   #
   # max_tracked_messages: 10000
