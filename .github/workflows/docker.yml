@@ -21,9 +21,24 @@ concurrency:
   cancel-in-progress: true
 
 # DO-2336/DO-2338: this workflow's ceiling applies to the called build-docker.yml job
-# too — narrowed from read-all to what's actually needed, plus pull-requests: write so
-# docker/scout-action's `write-comment` (defaults true, was silently no-op'ing) works.
-permissions: read-all
+# too. Narrowing to just contents:read caused a hard startup_failure (confirmed live,
+# some job here needs a broader read scope than that) — so this keeps every scope
+# read-all was already granting at "read", and only elevates pull-requests to "write"
+# so docker/scout-action's `write-comment` (defaults true, was silently no-op'ing under
+# read-all) actually works.
+permissions:
+  actions: read
+  attestations: read
+  checks: read
+  contents: read
+  deployments: read
+  discussions: read
+  issues: read
+  packages: read
+  pages: read
+  pull-requests: write
+  security-events: read
+  statuses: read
 
 jobs:
   docker-build:
