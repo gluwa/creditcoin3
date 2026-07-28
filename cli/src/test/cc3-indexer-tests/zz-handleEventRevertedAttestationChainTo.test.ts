@@ -1,17 +1,57 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { forElapsedBlocks } from '../utils';
+import { forElapsedBlocks, sleep } from '../utils';
 import { graphQLQuery } from './common';
+
+// Poll the indexer until the latest reversion for `chainKey` is fully applied
+// (status === 'complete'). Returns once settled or throws after the timeout so a
+// genuine indexer failure still surfaces as a test failure rather than a hang.
+async function waitForReversionComplete(chainKey: bigint, timeoutMs = 90_000, intervalMs = 2_000): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    let lastStatus = '<none>';
+
+    while (Date.now() < deadline) {
+        const response = await graphQLQuery(
+            `query {
+                revertedAttestationChainTos(
+                    filter: { chainKey: { equalTo: "${chainKey}" }},
+                    last: 1
+                ) {
+                    nodes {
+                        status
+                    }
+                }
+            }`,
+        );
+
+        const node = response?.data?.revertedAttestationChainTos?.nodes?.[0];
+        if (node) {
+            lastStatus = node.status;
+            if (node.status === 'complete') {
+                return;
+            }
+            if (node.status === 'failed') {
+                throw new Error(`Indexer reported reversion status 'failed' for chainKey=${chainKey}`);
+            }
+        }
+
+        await sleep(intervalMs);
+    }
+
+    throw new Error(
+        `Timed out after ${timeoutMs}ms waiting for reversion to complete for chainKey=${chainKey} (last status: ${lastStatus})`,
+    );
+}
 
 describe('handleEventRevertedAttestationChainTo()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
-    let startingBlock: bigint;
+    let blockBeforeRevert: bigint;
+    let timestampBeforeRevert: bigint;
 
     let checkpointHeightToRevertTo: bigint;
     let checkpointDigestToRevertTo: string;
-    let laterCheckpointHeight: bigint;
     const chainKey = BigInt(chain_Anvil3_Key);
 
     beforeAll(async () => {
@@ -46,9 +86,6 @@ describe('handleEventRevertedAttestationChainTo()', () => {
         // Revert to genesis checkpoint
         checkpointHeightToRevertTo = BigInt(0);
         checkpointDigestToRevertTo = checkpoints[0].digest;
-
-        // Save to check for removal later
-        laterCheckpointHeight = BigInt(checkpoints[1].blockNumber);
     }, 2_000_000); // Need timeout long enough to generate first non-genesis checkpoint
 
     afterAll(async () => {
@@ -57,14 +94,20 @@ describe('handleEventRevertedAttestationChainTo()', () => {
 
     describe('when the attestation chain is reverted to a checkpoint', () => {
         beforeAll(async () => {
-            startingBlock = BigInt((await getChainStatus(api)).bestNumber);
-            expect(startingBlock).toBeGreaterThan(0n);
+            blockBeforeRevert = BigInt((await getChainStatus(api)).bestNumber);
+            expect(blockBeforeRevert).toBeGreaterThan(0n);
+            timestampBeforeRevert = (await api.query.timestamp.now()).toBigInt();
 
             await api.tx.sudo
                 .sudo(api.tx.attestation.revertTo(chainKey, checkpointHeightToRevertTo))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
 
-            await forElapsedBlocks(api, { minBlocks: 5, maxRetries: 15 });
+            // A fixed block wait races the indexer: the assertions below query the
+            // indexer's GraphQL state, which is populated asynchronously by
+            // `handleEventRevertedAttestationChainTo`. Poll until that handler has
+            // finished applying the reversion (status === 'complete') so the reads
+            // are deterministic regardless of how quickly the indexer catches up.
+            await waitForReversionComplete(chainKey);
         }, 120_000);
 
         it('graphQL returns known RevertedAttestationChainTo entity', async () => {
@@ -81,6 +124,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                             chainKey
                             checkpointHeight
                             digest
+                            status
                         }
                     }
                 }`,
@@ -91,25 +135,35 @@ describe('handleEventRevertedAttestationChainTo()', () => {
 
             for (const node of response.data.revertedAttestationChainTos.nodes) {
                 expect(node.id).toBeTruthy();
-                expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(startingBlock);
+                expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(blockBeforeRevert);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(node.chainKey).toEqual(chainKey.toString());
                 expect(BigInt(node.checkpointHeight)).toEqual(checkpointHeightToRevertTo);
                 expect(node.digest).toEqual(checkpointDigestToRevertTo);
+                expect(node.status).toEqual('complete');
             }
         });
 
         it('removes checkpoints above checkpointHeight', async () => {
+            // Filter to checkpoints above the reverted-to height, then assert each
+            // one post-dates the reversion in both chain time and block height. A
+            // successful reversion removes every such row, so the loop asserts on
+            // an empty set; any survivor must have been (re)indexed after the revert.
             const response = await graphQLQuery(
                 `query {
                     checkpoints(
-                        filter: { chainKey: { equalTo: "${chainKey}" }},
+                        filter: {
+                            chainKey: { equalTo: "${chainKey}" },
+                            blockNumber: { greaterThan: "${checkpointHeightToRevertTo}" }
+                        },
                         orderBy: BLOCK_NUMBER_ASC
                     ) {
                         nodes {
                             id
                             blockNumber
+                            atBlockNumber
+                            timestamp
                             digest
                         }
                     }
@@ -117,27 +171,31 @@ describe('handleEventRevertedAttestationChainTo()', () => {
             );
 
             expect(response.data.checkpoints.nodes).toBeTruthy();
-            expect(
-                response.data.checkpoints.nodes.some(
-                    (node: { blockNumber: string }) => BigInt(node.blockNumber) === laterCheckpointHeight,
-                ),
-            ).toEqual(false);
 
             for (const node of response.data.checkpoints.nodes) {
-                expect(BigInt(node.blockNumber)).toBeLessThanOrEqual(checkpointHeightToRevertTo);
+                expect(BigInt(node.timestamp)).toBeGreaterThan(timestampBeforeRevert);
+                expect(BigInt(node.atBlockNumber)).toBeGreaterThan(blockBeforeRevert);
             }
         });
 
         it('removes attestations above checkpointHeight', async () => {
+            // Filter to attestations above the reverted-to height, then assert each
+            // one post-dates the reversion in chain time. A successful reversion
+            // removes every such row, so the loop asserts on an empty set; any
+            // survivor must have been (re)indexed after the revert.
             const response = await graphQLQuery(
                 `query {
                     attestations(
-                        filter: { chainKey: { equalTo: "${chainKey}" }},
+                        filter: {
+                            chainKey: { equalTo: "${chainKey}" },
+                            headerNumber: { greaterThan: "${checkpointHeightToRevertTo}" }
+                        },
                         orderBy: HEADER_NUMBER_ASC
                     ) {
                         nodes {
                             id
                             headerNumber
+                            timestamp
                             digest
                         }
                     }
@@ -147,7 +205,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
             expect(response.data.attestations.nodes).toBeTruthy();
 
             for (const node of response.data.attestations.nodes) {
-                expect(BigInt(node.headerNumber)).toBeLessThanOrEqual(checkpointHeightToRevertTo);
+                expect(BigInt(node.timestamp)).toBeGreaterThan(timestampBeforeRevert);
             }
         });
 

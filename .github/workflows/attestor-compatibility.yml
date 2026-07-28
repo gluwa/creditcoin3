@@ -41,7 +41,6 @@ name: Attestor Compatibility
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "attestor/**"
       - "pallets/attestation/**"
@@ -56,10 +55,10 @@ concurrency:
 permissions: read-all
 
 env:
-  # Inclusive lower bound.  Only mainnet releases >= this version that also
-  # include an attestor-binaries-* asset are tested.  Versions older than
-  # 3.128.0 are incompatible (subxt metadata mismatch) and are excluded.
-  MIN_VERSION: "3.128.0"
+  # Inclusive lower bound. Only mainnet releases >= this version that also
+  # include an attestor-binaries-* asset are tested. Versions older than
+  # 3.130.0 are incompatible (attestor v1) and are excluded.
+  MIN_VERSION: "3.130.0"
   RELEASE_SUFFIX: "mainnet"
   # Well-known dev node-key for the SUT node (Alice). Deterministic so the
   # node's peer id is stable across runs; nothing bootstraps off it now that
@@ -135,6 +134,8 @@ jobs:
   # but this workflow does not use it -- see the note in the run job.)
   # ---------------------------------------------------------------------------
   build-sut:
+    needs:
+      - discover-versions
     uses: ./.github/workflows/build-native.yml
     with:
       # fast-runtime shortens BABE epoch + block time so the chain progresses
@@ -306,9 +307,9 @@ jobs:
       # attestor mnemonics for --seeds-file, and (b) set on-chain identities +
       # run the polkadot/api attestation checks later.
       - name: Install CLI dependencies
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - name: Build CLI
@@ -520,10 +521,11 @@ jobs:
           # attestor, we glob attestor-zombie-*.json.* rather than hardcoding the
           # offset.
           # A compatible attestor produces at least one of these messages:
-          #   "Attestation submitted on-chain"   – this attestor submitted the tx
-          #   "Attestation submitted externally" – another attestor submitted; this one observed it
-          #   "An attestation has reached quorum" – quorum was reached (this attestor participated in P2P)
-          # All three indicate healthy operation; any of them confirms compatibility.
+          #   "produced local attestation" – this attestor built + cast its own vote
+          #   "gossiped vote"              – this attestor broadcast its vote over P2P
+          #   "quorum reached"             – quorum was reached (this attestor participated in P2P)
+          # Any of them confirms healthy operation / compatibility. Patterns
+          # must match the attestor's real log wording.
           while IFS= read -r TAG; do
             LOG_GLOB="${LOG_DIR}/zombienet-${TAG}/logs/attestor-zombie-*.json.*"
             # shellcheck disable=SC2086
@@ -533,7 +535,7 @@ jobs:
               continue
             fi
             # shellcheck disable=SC2086
-            if grep -ql "Attestation submitted\|reached quorum" ${LOG_GLOB}; then
+            if grep -qlE "produced local attestation|gossiped vote|quorum reached" ${LOG_GLOB}; then
               echo "OK: ${TAG} attestor participated in at least one attestation round"
             else
               echo "ERROR: ${TAG} attestor log has no attestation activity" >&2

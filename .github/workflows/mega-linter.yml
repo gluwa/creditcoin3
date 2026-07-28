@@ -5,7 +5,6 @@ name: MegaLinter
 
 "on":
   pull_request:
-    branches: [usc-dev]
   workflow_dispatch:
 
 permissions: read-all

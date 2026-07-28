@@ -25,7 +25,6 @@ name: Validator Compatibility
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "node/**"
       - "runtime/**"
@@ -174,7 +173,7 @@ jobs:
       # historical) starts from an identical genesis and can actually peer.
       RAW_CHAINSPEC: /var/tmp/validator-compatibility/dev-raw.json
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set-Up
         run: |
@@ -255,9 +254,9 @@ jobs:
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
       - name: Install CLI dependencies
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - name: Build CLI

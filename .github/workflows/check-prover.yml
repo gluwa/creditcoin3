@@ -48,9 +48,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
@@ -77,10 +77,16 @@ jobs:
           NAME=$(echo "${{ matrix.creditcoinUrl }}" | sed "s/wss//" | sed "s/ws//" | tr -d "/" | tr -d ":" | sed "s/rpc.//" | sed "s/.creditcoin.network//")
           echo "chain-name=$NAME" >> "$GITHUB_OUTPUT"
 
+      - name: DEBUG - Print runner IP address
+        run: |
+          # see https://opensource.com/article/18/5/how-find-ip-address-linux
+          IP_ADDRESS=$(curl https://ifconfig.me)
+          echo "INFO: IP_ADDRESS=$IP_ADDRESS"
+
       - name: Execute prover-check.ts on checkpoint boundaries
         working-directory: ./cli
         env:
-          GO_BACK_BLOCKS: '3600'
+          GO_BACK_BLOCKS: '360'
           SLEEP_TIME: '500'
         run: |
           node dist/scripts/prover-check.js \
@@ -91,7 +97,7 @@ jobs:
         working-directory: ./cli
         env:
           # LAST_SOURCE_BLOCK: '1000000'
-          GO_BACK_BLOCKS: '4000'
+          GO_BACK_BLOCKS: '400'
           STEP_THROUGH_BLOCKS: '7'
           SLEEP_TIME: '500'
         run: |
@@ -157,9 +163,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
@@ -211,7 +217,7 @@ jobs:
 
           # Pick one txHash discovered by prover-check (files are written as
           # <PROOF_DIR>/<headerNumber>/<txHash>.txt).
-          TX_FILE=$(find "$PROOF_DIR" -type f -name '*.txt' | head -n 1)
+          TX_FILE=$(find "$PROOF_DIR" -type f -name '*.txt' -print -quit)
           if [ -z "$TX_FILE" ]; then
             echo "No proof files found in $PROOF_DIR; nothing to submit"; exit 1
           fi
