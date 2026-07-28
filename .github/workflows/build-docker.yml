@@ -14,27 +14,11 @@ name: Reusable workflow to build docker image
         required: true
         type: string
 
-# DO-2336/DO-2338: docker/scout-action's `write-comment` defaults to true, but was
-# silently no-op'ing under read-all. GitHub Actions permission ceilings can't be
-# broadened at job level, only narrowed, so this needs pull-requests: write explicitly
-# (and in the calling docker.yml workflow too, since its own ceiling applies as well).
-# Narrowing to just contents:read caused a hard startup_failure (confirmed live) — this
-# keeps every scope read-all was already granting at "read", only elevating
-# pull-requests to "write".
-permissions:
-  actions: read
-  attestations: read
-  checks: read
-  contents: read
-  deployments: read
-  discussions: read
-  issues: read
-  packages: read
-  pages: read
-  pull-requests: write
-  repository-projects: read
-  security-events: read
-  statuses: read
+# DO-2336/DO-2338: a workflow-level granular permissions map here caused a hard
+# startup_failure every time (confirmed live across several attempts) — reverted to the
+# proven-working shorthand. pull-requests: write for docker/scout-action's PR comment is
+# instead granted via a job-level permissions override in the calling docker.yml.
+permissions: read-all
 
 jobs:
   docker-build:

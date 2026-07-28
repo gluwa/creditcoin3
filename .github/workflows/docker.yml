@@ -20,32 +20,23 @@ concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
 
-# DO-2336/DO-2338: this workflow's ceiling applies to the called build-docker.yml job
-# too. Narrowing to just contents:read caused a hard startup_failure (confirmed live,
-# some job here needs a broader read scope than that) — so this keeps every scope
-# read-all was already granting at "read", and only elevates pull-requests to "write"
-# so docker/scout-action's `write-comment` (defaults true, was silently no-op'ing under
-# read-all) actually works.
-permissions:
-  actions: read
-  attestations: read
-  checks: read
-  contents: read
-  deployments: read
-  discussions: read
-  issues: read
-  packages: read
-  pages: read
-  pull-requests: write
-  repository-projects: read
-  security-events: read
-  statuses: read
+# DO-2336/DO-2338: a workflow-level granular permissions map here caused a hard
+# startup_failure every time (confirmed live across several attempts, even ones
+# listing every scope read-all grants) — reverted to the proven-working shorthand.
+# pull-requests: write for docker/scout-action's PR comment is instead granted at the
+# docker-build job level below.
+permissions: read-all
 
 jobs:
   docker-build:
     needs:
       - deploy-runner-docker-build
     uses: ./.github/workflows/build-docker.yml
+    # DO-2336/DO-2338: job-level grant for docker/scout-action's PR comment, since a
+    # workflow-level granular permissions map caused a hard startup_failure (see above).
+    permissions:
+      contents: read
+      pull-requests: write
     with:
       build-options: "BUILD_ARGS="
       version-string: "latest"
