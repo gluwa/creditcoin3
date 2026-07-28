@@ -20,11 +20,12 @@ concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
 
-# DO-2336/DO-2338: a workflow-level granular permissions map here caused a hard
-# startup_failure every time (confirmed live across several attempts, even ones
-# listing every scope read-all grants) — reverted to the proven-working shorthand.
-# pull-requests: write for docker/scout-action's PR comment is instead granted at the
-# docker-build job level below.
+# DO-2336/DO-2338: any explicit narrower permissions declaration here (workflow-level
+# or job-level, 2 scopes or 13) caused a hard startup_failure every time, confirmed
+# live across several attempts, for reasons that weren't identified — reverted to the
+# proven-working shorthand. docker/scout-action's PR comment instead uses a dedicated
+# gluwa-bot PAT (secrets.GLUWA_BOT_PR) as its github-token, sidestepping the need for
+# GITHUB_TOKEN's own permissions to be elevated at all.
 permissions: read-all
 
 jobs:
@@ -32,11 +33,12 @@ jobs:
     needs:
       - deploy-runner-docker-build
     uses: ./.github/workflows/build-docker.yml
-    # DO-2336/DO-2338: job-level grant for docker/scout-action's PR comment, since a
-    # workflow-level granular permissions map caused a hard startup_failure (see above).
-    permissions:
-      contents: read
-      pull-requests: write
+    # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
+    # deliberately has no DOCKER_PUSH_USERNAME/PASSWORD (only release.yml, tag-triggered,
+    # does real pushes); inherit would leak those in and make "Push docker images"
+    # start firing on every ordinary PR/push build here.
+    secrets:
+      GLUWA_BOT_PR: ${{ secrets.GLUWA_BOT_PR }}
     with:
       build-options: "BUILD_ARGS="
       version-string: "latest"

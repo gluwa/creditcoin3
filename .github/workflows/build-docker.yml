@@ -13,11 +13,23 @@ name: Reusable workflow to build docker image
       runs-on:
         required: true
         type: string
+    secrets:
+      GLUWA_BOT_PR:
+        description: gluwa-bot PAT (pull-requests:write only) so Docker Scout can post PR comments — GITHUB_TOKEN's own permissions couldn't be elevated (see DO-2338)
+        required: false
+      # Pre-existing secrets this workflow already consumed before DO-2338 — now need
+      # explicit declaration since adding any `secrets:` block switches this workflow_call
+      # into strict mode. Empty/unset on PR-triggered docker.yml (which never inherits
+      # them, deliberately); populated on release.yml via secrets: inherit.
+      DOCKER_PUSH_USERNAME:
+        required: false
+      DOCKER_PUSH_PASSWORD:
+        required: false
 
 # DO-2336/DO-2338: a workflow-level granular permissions map here caused a hard
-# startup_failure every time (confirmed live across several attempts) — reverted to the
-# proven-working shorthand. pull-requests: write for docker/scout-action's PR comment is
-# instead granted via a job-level permissions override in the calling docker.yml.
+# startup_failure every time (confirmed live across several attempts, cause not
+# identified) — reverted to the proven-working shorthand. docker/scout-action's PR
+# comment instead uses the gluwa-bot PAT above as its own github-token.
 permissions: read-all
 
 jobs:
@@ -62,6 +74,9 @@ jobs:
           # behavior means the 3rd scan below silently overwrites the first two's
           # results in the same PR comment. keep-previous-comments preserves all 3.
           keep-previous-comments: true
+          # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
+          # couldn't be elevated without a hard startup_failure (see comment above).
+          github-token: ${{ secrets.GLUWA_BOT_PR }}
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
         continue-on-error: true
@@ -76,6 +91,9 @@ jobs:
           # behavior means the 3rd scan below silently overwrites the first two's
           # results in the same PR comment. keep-previous-comments preserves all 3.
           keep-previous-comments: true
+          # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
+          # couldn't be elevated without a hard startup_failure (see comment above).
+          github-token: ${{ secrets.GLUWA_BOT_PR }}
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
         continue-on-error: true
@@ -90,6 +108,9 @@ jobs:
           # behavior means the 3rd scan below silently overwrites the first two's
           # results in the same PR comment. keep-previous-comments preserves all 3.
           keep-previous-comments: true
+          # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
+          # couldn't be elevated without a hard startup_failure (see comment above).
+          github-token: ${{ secrets.GLUWA_BOT_PR }}
 
       - name: Export docker image into a file
         run: |
