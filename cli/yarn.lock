@@ -1441,16 +1441,16 @@
     "@polkadot/x-global" "13.5.9"
     tslib "^2.8.0"
 
-"@polkadot/x-fetch@^13.5.8":
-  version "13.5.8"
-  resolved "https://registry.yarnpkg.com/@polkadot/x-fetch/-/x-fetch-13.5.8.tgz#aeaccbcb8b3b4dfdbfc2f78d028d71e7da136f89"
-  integrity sha512-htNuY8zFw5vzNS2mFm9P22oBJg7Az8Xbg3fMmR/A6ZDhAfxfM6IbX9pPHkNJY2Wng3tysrY5VMOUMb1IIrSf3w==
+"@polkadot/x-fetch@13.5.9", "@polkadot/x-fetch@^13.5.8":
+  version "13.5.9"
+  resolved "https://registry.yarnpkg.com/@polkadot/x-fetch/-/x-fetch-13.5.9.tgz#396a5a884d13d26a04c61b6e43240ca69fd72190"
+  integrity sha512-urwXQZtT4yYROiRdJS6zHu18J/jCoAGpbgPIAjwdqjT11t9XIq4SjuPMxD19xBRhbYe9ocWV8i1KHuoMbZgKbA==
   dependencies:
-    "@polkadot/x-global" "13.5.8"
+    "@polkadot/x-global" "13.5.9"
     node-fetch "^3.3.2"
     tslib "^2.8.0"
 
-"@polkadot/x-global@13.5.8", "@polkadot/x-global@13.5.9", "@polkadot/x-global@^13.5.8":
+"@polkadot/x-global@13.5.9", "@polkadot/x-global@^13.5.8":
   version "13.5.9"
   resolved "https://registry.yarnpkg.com/@polkadot/x-global/-/x-global-13.5.9.tgz#22d680f036a879a5aef15963f96d71dd115927a3"
   integrity sha512-zSRWvELHd3Q+bFkkI1h2cWIqLo1ETm+MxkNXLec3lB56iyq/MjWBxfXnAFFYFayvlEVneo7CLHcp+YTFd9aVSA==
@@ -1481,12 +1481,12 @@
     "@polkadot/x-global" "13.5.9"
     tslib "^2.8.0"
 
-"@polkadot/x-ws@^13.5.8":
-  version "13.5.8"
-  resolved "https://registry.yarnpkg.com/@polkadot/x-ws/-/x-ws-13.5.8.tgz#6b39779783d32d7b8e1a26f3e70b68bec23a91a2"
-  integrity sha512-tEs69W3O7Y2lPGihOFWwSE91GkaMEAzJhkDouTfacBKwD6O2b1/Im97jBdxQBmi7kN3pAWGXXTk9sz8TCh30Ug==
+"@polkadot/x-ws@13.5.9", "@polkadot/x-ws@^13.5.8":
+  version "13.5.9"
+  resolved "https://registry.yarnpkg.com/@polkadot/x-ws/-/x-ws-13.5.9.tgz#796564254e64809619993e8ff77ad098b3b95023"
+  integrity sha512-NKVgvACTIvKT8CjaQu9d0dERkZsWIZngX/4NVSjc01WHmln4F4y/zyBdYn/Z2V0Zw28cISx+lB4qxRmqTe7gbg==
   dependencies:
-    "@polkadot/x-global" "13.5.8"
+    "@polkadot/x-global" "13.5.9"
     tslib "^2.8.0"
     ws "^8.18.0"
 
