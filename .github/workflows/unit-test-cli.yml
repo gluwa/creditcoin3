@@ -3,7 +3,6 @@ name: unit-test-cli
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "cli/yarn.lock"
       - "cli/src/commands/**"
@@ -25,9 +24,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'yarn'
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn

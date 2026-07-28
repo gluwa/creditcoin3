@@ -32,10 +32,25 @@ describe('Precompile: AttestorStash', (): void => {
     let provider: any;
     let alith: any;
     let api: ApiPromise;
-    let gasPrice: bigint;
     // PoV-heavy calls need an explicit gas limit; auto-estimate under-counts the
     // proof-size component (5 KB @ ratio 14.3 → ~72 K PoV gas alone).
-    const GAS_LIMIT = 300_000;
+    const GAS_LIMIT = 20_000_000;
+
+    // Build fee overrides for a state-changing tx. We use EIP-1559 fields rather
+    // than a pinned legacy `gasPrice`: pallet-base-fee lets the block base fee
+    // drift up as earlier blocks fill past the 50% ideal, and a legacy tx whose
+    // `gasPrice` sits below the current base fee is pool-accepted but never mined,
+    // so `tx.wait()` hangs until the jest timeout. `maxFeePerGas` is a ceiling
+    // (not the price paid), so the tx stays includable across base-fee drift while
+    // still only being charged base fee + tip. Fetched fresh at call time.
+    const feeOverrides = async () => {
+        const fee = await provider.getFeeData();
+        return {
+            maxFeePerGas: fee.maxFeePerGas ?? fee.gasPrice * 2n,
+            maxPriorityFeePerGas: fee.maxPriorityFeePerGas ?? 1_000_000_000n,
+            gasLimit: GAS_LIMIT,
+        };
+    };
 
     // Alith's derived Substrate account (via HashedAddressMapping<BlakeTwo256>).
     // This is the `stash` AccountId used by pallet-attestation when the precompile
@@ -73,10 +88,6 @@ describe('Precompile: AttestorStash', (): void => {
         await api.disconnect();
     });
 
-    beforeEach(async () => {
-        gasPrice = (await provider.getFeeData()).gasPrice;
-    });
-
     // -----------------------------------------------------------------------------
     // registerAttestor
     // -----------------------------------------------------------------------------
@@ -86,7 +97,7 @@ describe('Precompile: AttestorStash', (): void => {
         const before = await api.query.attestation.attestors(chainKey, attestorId);
         expect(before.isSome).toBe(false);
 
-        const tx = await contract.registerAttestor(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT });
+        const tx = await contract.registerAttestor(chainKey, attestorId, await feeOverrides());
         const receipt = await tx.wait();
         expect(receipt.status).toBe(1);
 
@@ -212,7 +223,7 @@ describe('Precompile: AttestorStash', (): void => {
     // -----------------------------------------------------------------------------
 
     test('unregisterAttestor succeeds, removes Attestors storage entry, and emits AttestorUnregistered', async () => {
-        const tx = await contract.unregisterAttestor(chainKey, attestorId, { gasPrice, gasLimit: GAS_LIMIT });
+        const tx = await contract.unregisterAttestor(chainKey, attestorId, await feeOverrides());
         const receipt = await tx.wait();
         expect(receipt.status).toBe(1);
 
@@ -229,7 +240,7 @@ describe('Precompile: AttestorStash', (): void => {
         expect(log.topics[1]).toBe(chainKeyTopic(chainKey));
         expect(log.topics[2]).toBe(attestorId.toLowerCase());
         expect(log.topics[3]).toBe(addressTopic(alith.address));
-    }, 60_000);
+    }, 120_000);
 
     test('unregisterAttestor a second time reverts (AddressNotAttestor)', async () => {
         await expect(contract.unregisterAttestor.staticCall(chainKey, attestorId)).rejects.toThrow(
@@ -253,12 +264,10 @@ describe('Precompile: AttestorStash', (): void => {
             const unbondingPeriod: number = api.consts.attestation.bondingDuration.toNumber();
             await waitEras(unbondingPeriod + 1, api);
 
-            // Refresh `gasPrice` now that several minutes have elapsed: the
-            // EIP-1559 base fee cached in `beforeEach` has drifted and submitting
-            // with the stale value yields "gas price less than block base fee".
-            gasPrice = (await provider.getFeeData()).gasPrice;
-
-            const tx = await contract.withdrawUnbonded({ gasPrice, gasLimit: GAS_LIMIT });
+            // `feeOverrides()` fetches fresh EIP-1559 fields at call time, so the
+            // several-minute wait above (during which the base fee drifts) is
+            // handled without a stale legacy `gasPrice`.
+            const tx = await contract.withdrawUnbonded(await feeOverrides());
             const receipt = await tx.wait();
             expect(receipt.status).toBe(1);
 
