@@ -36,9 +36,13 @@ jobs:
     # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
     # deliberately has no DOCKER_PUSH_USERNAME/PASSWORD (only release.yml, tag-triggered,
     # does real pushes); inherit would leak those in and make "Push docker images"
-    # start firing on every ordinary PR/push build here.
+    # start firing on every ordinary PR/push build here. DOCKERHUB_SCOUT_* is a separate
+    # read-only gluwabot token safe to expose to PR builds (which run untrusted PR
+    # content) — it lets Scout authenticate without granting any push capability.
     secrets:
       GLUWA_BOT_PR: ${{ secrets.GLUWA_BOT_PR }}
+      DOCKERHUB_SCOUT_USERNAME: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+      DOCKERHUB_SCOUT_TOKEN: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
     with:
       build-options: "BUILD_ARGS="
       version-string: "latest"

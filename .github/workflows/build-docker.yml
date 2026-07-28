@@ -17,6 +17,15 @@ name: Reusable workflow to build docker image
       GLUWA_BOT_PR:
         description: gluwa-bot PAT (pull-requests:write only) so Docker Scout can post PR comments — GITHUB_TOKEN's own permissions couldn't be elevated (see DO-2338)
         required: false
+      # gluwabot DockerHub token, read-only scope — lets Scout authenticate to the Scout
+      # backend even for a local:// image scan. Deliberately separate from
+      # DOCKER_PUSH_USERNAME/PASSWORD below: those are push-capable, and PR builds run
+      # untrusted Dockerfile/build-script content from the PR, so they must never see a
+      # credential that can push to the real image (see DO-2338).
+      DOCKERHUB_SCOUT_USERNAME:
+        required: false
+      DOCKERHUB_SCOUT_TOKEN:
+        required: false
       # Pre-existing secrets this workflow already consumed before DO-2338 — now need
       # explicit declaration since adding any `secrets:` block switches this workflow_call
       # into strict mode. Empty/unset on PR-triggered docker.yml (which never inherits
@@ -55,20 +64,22 @@ jobs:
           docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max .
           docker images
 
-      # DO-2217: informational only — never fails the build (continue-on-error backs up exit-code:false
-      # in case the action itself errors, e.g. on an empty dockerhub-user during PR runs). See DO-2104
-      # for the org-wide compliance initiative. Runs unconditionally: local CVE scanning needs no
-      # DockerHub credentials — only org-policy evaluation does, and dockerhub-user/password are empty
-      # (not missing) on PR runs since docker-build doesn't inherit secrets there, which the action
-      # treats as "skip login, scan locally".
+      # DO-2217/DO-2338: informational only — never fails the build (continue-on-error backs up
+      # exit-code:false in case the action itself errors). See DO-2104 for the org-wide compliance
+      # initiative. Despite scanning a local:// image, docker/scout-action still authenticates to the
+      # Scout backend and hard-fails ("no credential found") without a real DockerHub login — empty
+      # dockerhub-user/password does NOT mean "scan locally without auth", confirmed live on PR #1214
+      # where continue-on-error silently masked this for every PR build. Uses the read-only
+      # gluwabot/DOCKERHUB_SCOUT_TOKEN credential (never DOCKER_PUSH_*) since PR builds run untrusted
+      # Dockerfile/build-script content and must not see a push-capable credential.
       - name: Docker Scout - CVE scan (${{ github.repository }})
         continue-on-error: true
         uses: docker/scout-action@v1
         with:
           command: cves
           image: local://${{ github.repository }}:${{ inputs.version-string }}
-          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
           exit-code: false
           # DO-2336/DO-2338: without this, the action's default "one comment per job"
           # behavior means the 3rd scan below silently overwrites the first two's
@@ -84,8 +95,8 @@ jobs:
         with:
           command: cves
           image: local://${{ github.repository }}:indexer-for-${{ inputs.version-string }}
-          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
           exit-code: false
           # DO-2336/DO-2338: without this, the action's default "one comment per job"
           # behavior means the 3rd scan below silently overwrites the first two's
@@ -101,8 +112,8 @@ jobs:
         with:
           command: cves
           image: local://${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
-          dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
-          dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
           exit-code: false
           # DO-2336/DO-2338: without this, the action's default "one comment per job"
           # behavior means the 3rd scan below silently overwrites the first two's
