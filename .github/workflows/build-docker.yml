@@ -19,9 +19,7 @@ name: Reusable workflow to build docker image
 # broadened at job level, only narrowed, so this needs to grant pull-requests: write
 # explicitly (and in the calling docker.yml workflow too, since its own ceiling applies
 # as well). Narrowed the rest from read-all to just what checkout/artifacts need.
-permissions:
-  contents: read
-  pull-requests: write
+permissions: read-all
 
 jobs:
   docker-build:

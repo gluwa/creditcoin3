@@ -23,9 +23,7 @@ concurrency:
 # DO-2336/DO-2338: this workflow's ceiling applies to the called build-docker.yml job
 # too — narrowed from read-all to what's actually needed, plus pull-requests: write so
 # docker/scout-action's `write-comment` (defaults true, was silently no-op'ing) works.
-permissions:
-  contents: read
-  pull-requests: write
+permissions: read-all
 
 jobs:
   docker-build:
