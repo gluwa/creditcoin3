@@ -14,7 +14,14 @@ name: Reusable workflow to build docker image
         required: true
         type: string
 
-permissions: read-all
+# DO-2336/DO-2338: docker/scout-action's `write-comment` defaults to true, but was
+# silently no-op'ing under read-all — GitHub Actions permission ceilings can't be
+# broadened at job level, only narrowed, so this needs to grant pull-requests: write
+# explicitly (and in the calling docker.yml workflow too, since its own ceiling applies
+# as well). Narrowed the rest from read-all to just what checkout/artifacts need.
+permissions:
+  contents: read
+  pull-requests: write
 
 jobs:
   docker-build:
@@ -54,6 +61,10 @@ jobs:
           dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
           exit-code: false
+          # DO-2336/DO-2338: without this, the action's default "one comment per job"
+          # behavior means the 3rd scan below silently overwrites the first two's
+          # results in the same PR comment. keep-previous-comments preserves all 3.
+          keep-previous-comments: true
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
         continue-on-error: true
@@ -64,6 +75,10 @@ jobs:
           dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
           exit-code: false
+          # DO-2336/DO-2338: without this, the action's default "one comment per job"
+          # behavior means the 3rd scan below silently overwrites the first two's
+          # results in the same PR comment. keep-previous-comments preserves all 3.
+          keep-previous-comments: true
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
         continue-on-error: true
@@ -74,6 +89,10 @@ jobs:
           dockerhub-user: ${{ secrets.DOCKER_PUSH_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKER_PUSH_PASSWORD }}
           exit-code: false
+          # DO-2336/DO-2338: without this, the action's default "one comment per job"
+          # behavior means the 3rd scan below silently overwrites the first two's
+          # results in the same PR comment. keep-previous-comments preserves all 3.
+          keep-previous-comments: true
 
       - name: Export docker image into a file
         run: |
