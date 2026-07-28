@@ -2,7 +2,7 @@
 FROM ubuntu:26.04@sha256:b7f48194d4d8b763a478a621cdc81c27be222ba2206ca3ca6bc42b49685f3d9e AS runtime-base
 ENV DEBIAN_FRONTEND=noninteractive
 ARG TARGETARCH
-ARG NODE_VERSION=22.23.1
+ARG NODE_VERSION=20.20.2
 # NodeSource's apt key fetch (deb.nodesource.com) intermittently 403s from our
 # self-hosted Linode CI runners' shared IP pool. Install the official upstream
 # release directly instead, checksum-verified against nodejs.org's own SHASUMS256.txt.
@@ -11,8 +11,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends ca-certificates curl xz-utils libdw1t64 libpq5 && \
     update-ca-certificates && \
     case "${TARGETARCH}" in \
-      amd64) NODE_ARCH=x64;    NODE_SHA256=9749e988f437343b7fa832c69ded82a312e41a03116d766797ac14f6f9eee578 ;; \
-      arm64) NODE_ARCH=arm64;  NODE_SHA256=0294e8b915ab75f92c7513d2fcb830ae06e10684e6c603e99a87dbf8835389c1 ;; \
+      amd64) NODE_ARCH=x64;    NODE_SHA256=df770b2a6f130ed8627c9782c988fda9669fa23898329a61a871e32f965e007d ;; \
+      arm64) NODE_ARCH=arm64;  NODE_SHA256=73093db209e4e9e09dd7d15a47aeaab1b74833830df03efa5f942a1122c5fa71 ;; \
       *) echo "unsupported TARGETARCH: ${TARGETARCH}" >&2; exit 1 ;; \
     esac && \
     curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" -o /tmp/node.tar.xz && \
