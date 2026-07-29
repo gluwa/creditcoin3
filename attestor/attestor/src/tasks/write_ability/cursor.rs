@@ -149,7 +149,9 @@ impl CursorStore {
         // Temp file in the *same* dir so the final rename stays on one filesystem (cross-device
         // rename is not atomic and would `EXDEV`). Unique per-pid suffix avoids two writers racing on
         // a shared temp name.
-        let tmp = self.path.with_extension(format!("json.tmp.{}", std::process::id()));
+        let tmp = self
+            .path
+            .with_extension(format!("json.tmp.{}", std::process::id()));
         {
             use std::io::Write as _;
             let mut f = std::fs::File::create(&tmp)
@@ -159,9 +161,8 @@ impl CursorStore {
             // surface a renamed-but-empty file (rename orders the dir entry, not the data).
             f.sync_all().context("fsync temp cursor file")?;
         }
-        std::fs::rename(&tmp, &self.path).with_context(|| {
-            format!("rename {} -> {}", tmp.display(), self.path.display())
-        })?;
+        std::fs::rename(&tmp, &self.path)
+            .with_context(|| format!("rename {} -> {}", tmp.display(), self.path.display()))?;
         Ok(())
     }
 }

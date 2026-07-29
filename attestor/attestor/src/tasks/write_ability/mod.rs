@@ -455,8 +455,11 @@ pub async fn run(
     // Durable scan cursor: persist `last_seen` so a restart resumes exactly where it
     // left off instead of skipping down-time messages / replaying history. Scoped to the resolved
     // Outbox address so a re-registration doesn't resume against a stale one.
-    let cursor_store =
-        cursor::CursorStore::new(&cfg.state_dir, cfg.write_ability_chain_key, resolved.address);
+    let cursor_store = cursor::CursorStore::new(
+        &cfg.state_dir,
+        cfg.write_ability_chain_key,
+        resolved.address,
+    );
     tracing::info!(
         path = %cursor_store.path().display(),
         "🗂️ persisting Outbox scan cursor across restarts"
