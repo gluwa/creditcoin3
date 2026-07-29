@@ -44,6 +44,13 @@ const MAX_DIAL_FAILURES: u32 = 5;
 /// broadcast anyway.
 const MAX_RETRY_QUEUE: usize = 256;
 
+/// Upper bound on an inbound attestor-set-update frame we'll relay. A `SetUpdateVote` is a bounded
+/// attestor set (≤ [`common::constants::MAX_ATTESTORS`] 20-byte addresses) plus one 65-byte
+/// signature, a chain id and a nonce, under SCALE framing — comfortably below this. Larger frames
+/// on that topic are not real votes; we `Ignore` them (no propagation, no peer penalty) instead of
+/// amplifying. Well under gossipsub's 64 KiB default transmit cap.
+const MAX_SET_UPDATE_FRAME_BYTES: usize = common::constants::MAX_ATTESTORS * 20 + 1024;
+
 /// How often queued unpublished votes are retried while the queue is non-empty. Retries also
 /// fire immediately when gossip publishing first becomes possible again (mesh regained).
 const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
@@ -661,11 +668,18 @@ async fn handle_swarm(
             } else if is_set_update {
                 // We subscribe to the attestor-set-update topic only to publish our proposer's own
                 // votes and keep the mesh propagating them — attestors do NOT aggregate set-update
-                // votes (the relayer does). Accept inbound frames so gossipsub keeps relaying, but
-                // take no action. Crucially, do not fall through to the block-attestation `Vote`
-                // decoder below: a SetUpdateVote SCALE payload would fail to decode and be Rejected,
-                // applying gossipsub penalties to peers relaying legitimate set-update votes (bugbot).
-                libp2p::gossipsub::MessageAcceptance::Accept
+                // votes (the relayer does). We can't decode to tell a legitimate vote from garbage,
+                // so we must not `Reject`: that would penalize honest relayers of real set-update
+                // votes (a prior bugbot fix). But `Accept`ing *everything* lets a peer amplify spam
+                // at no reputation cost. Resolve both by bounding size: a SetUpdateVote is a small
+                // SCALE blob (a bounded attestor set + one signature + chain id + nonce), so anything
+                // past `MAX_SET_UPDATE_FRAME_BYTES` is not a real vote — `Ignore` it (no propagation,
+                // no peer penalty). Legitimately-sized frames still `Accept` and relay (bugbot).
+                if message.data.len() > MAX_SET_UPDATE_FRAME_BYTES {
+                    libp2p::gossipsub::MessageAcceptance::Ignore
+                } else {
+                    libp2p::gossipsub::MessageAcceptance::Accept
+                }
             } else {
                 let (acceptance, learned) = handle_vote_msg(
                     shared,
