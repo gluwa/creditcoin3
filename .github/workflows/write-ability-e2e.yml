@@ -294,7 +294,13 @@ jobs:
           # Quotes from the live quoter, approves ATTEST, calls
           # RelayerContract.publishAndCollectRelayerFee, and records the messageId to
           # /tmp/e2e-published.json for the ack + claim assertions.
-          timeout 180 npx tsx scripts/publish-fee.mts "ci-$GITHUB_RUN_ID" >"$LOGS/publish.log" 2>&1 || true
+          # Fail the step if publish fails, but still surface the log first — otherwise a failed
+          # publish only shows up later as a confusing delivery/ack timeout.
+          if ! timeout 180 npx tsx scripts/publish-fee.mts "ci-$GITHUB_RUN_ID" >"$LOGS/publish.log" 2>&1; then
+            echo "::error::publish-fee.mts failed"
+            tail -20 "$LOGS/publish.log" || true
+            exit 1
+          fi
           tail -20 "$LOGS/publish.log" || true
 
       - name: Assert message was delivered on the destination chain
