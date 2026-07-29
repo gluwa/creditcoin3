@@ -105,6 +105,7 @@ function runNode(name: string, extraArgs: string) {
         parseCommandString(`--chain dev --validator --pruning archive ${extraArgs}`),
         {
             detached: true,
+            reject: false,
             stdout: { file: `${logPrefix}.stdout` },
             stderr: { file: `${logPrefix}.stderr` },
         },
