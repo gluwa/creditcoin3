@@ -518,6 +518,11 @@ pub async fn run(
                         Ok(Err(err)) => err.context("outbox listener died"),
                         Err(join_err) => anyhow!("outbox listener panicked: {join_err}"),
                     };
+                    // Abort every sibling task before surfacing the error, including the
+                    // reobservation worker — dropping its `JoinHandle` here would only detach it,
+                    // leaving it running against the now-dead listener until the shared cancel
+                    // token eventually fires.
+                    reobs_worker.abort();
                     if let Some(w) = &set_watcher {
                         w.abort();
                     }
