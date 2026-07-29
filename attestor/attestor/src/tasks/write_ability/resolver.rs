@@ -21,6 +21,8 @@
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
+use alloy::rpc::types::eth::BlockNumberOrTag;
+use alloy::rpc::types::BlockTransactionsKind;
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
@@ -156,15 +158,27 @@ async fn resolve_outbox_address<P: Provider>(
     //    retry has scanned the confirmed range and found nothing, the next retry only needs the new
     //    blocks — otherwise every 12s retry re-issues a full-history log storm across all attestors.
     //
-    //    Bound the scan (and thus the cursor) at a CONFIRMED height — `tip - confirmation_depth`,
-    //    mirroring the listener, which never signs above that height. The cursor advances
-    //    permanently, so scanning past the *unconfirmed* tip would let a source reorg re-mine
-    //    OutboxCreated below the cursor and hide the Outbox for the whole process lifetime.
+    //    Bound the scan (and thus the cursor) at the FINALIZED head, mirroring the listener's
+    //    `FinalityPolicy::Finalized`: Creditcoin L1 has deterministic GRANDPA finality, so a
+    //    finalized block cannot reorg. Only fall back to `tip - confirmation_depth` when the
+    //    `finalized` tag is unavailable (node up but tag unsupported/errored), matching the
+    //    listener's depth fallback. The cursor advances permanently, so resolving OutboxCreated
+    //    from a still-reorgable block would let a reorg re-mine it below the cursor and hide the
+    //    Outbox for the whole process lifetime — the listener signs only up to the finalized head,
+    //    so discovery must not run ahead of it.
     let tip = provider
         .get_block_number()
         .await
         .context("read EVM tip for Outbox discovery scan")?;
-    let safe_tip = tip.saturating_sub(confirmation_depth);
+    let safe_tip = match provider
+        .get_block_by_number(BlockNumberOrTag::Finalized, BlockTransactionsKind::Hashes)
+        .await
+    {
+        Ok(Some(block)) => block.header.number,
+        // `finalized` tag unsupported/errored → depth fallback (same as the listener). The tip
+        // read above already covers a dead RPC, so a finalized-read failure is not fatal here.
+        Ok(None) | Err(_) => tip.saturating_sub(confirmation_depth),
+    };
     let sig = IOutboxFactory::OutboxCreated::SIGNATURE_HASH;
     let topic_chain_key = alloy::primitives::U256::from(chain_key);
     let mut from = cursor.from;

@@ -163,10 +163,12 @@ if [[ -n "${VOTE_VALIDATOR_ADDR:-}" ]]; then
         >/dev/null 2>&1; then
       echo "✅ EOAValidator attestor set updated to the live attestors"
     else
-      echo "⚠️  Could not update the EOAValidator set (is VOTE_VALIDATOR_ADDR an EOAValidator from deploy.ts, with this key as admin?). deliverMessage will revert until the set matches. Continuing." >&2
+      echo "❌ Could not update the EOAValidator set ($VOTE_VALIDATOR_ADDR): updateAttestorSet reverted or the RPC/admin key is wrong. The destination Inbox would then reject these attestors and delivery would fail — failing now instead of printing 'ready' and surfacing later as a confusing delivery timeout." >&2
+      exit 1
     fi
   else
-    echo "⚠️  cast not found on PATH; skipping EOAValidator set sync — run updateAttestorSet(address[]) manually." >&2
+    echo "❌ cast not found on PATH but VOTE_VALIDATOR_ADDR is set — cannot sync the on-chain EOAValidator set to the live attestors. Failing now rather than proceeding with an unsynced set." >&2
+    exit 1
   fi
 fi
 
