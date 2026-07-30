@@ -11,7 +11,7 @@
       "matchStrings": ["channel\\s*=\\s*\"(?<currentValue>[^\"]+)\""],
       "datasourceTemplate": "github-releases", "depNameTemplate": "rust-lang/rust", "versioningTemplate": "loose" },
     { "customType": "regex", "managerFilePatterns": ["/^Dockerfile$/"],
-      "matchStrings": ["setup_(?<currentValue>\\d+)\\.x"],
+      "matchStrings": ["ARG NODE_VERSION=(?<currentValue>[0-9.]+)"],
       "datasourceTemplate": "node-version", "depNameTemplate": "node" }
   ],
   "packageRules": [
