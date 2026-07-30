@@ -8,7 +8,7 @@ import { createOutboxDatasource } from '../types';
 // register unbounded dynamic datasources (audit P2-1 — datasource-creation DoS). Datasources from a
 // registered, chain-key-matching factory are trusted and exempt. The cap bounds the blast radius
 // without breaking the intentional discover-before-registration flow (see datasources.ts).
-const MAX_OUTBOXES_PER_CHAIN_KEY = 32;
+const MAX_OUTBOXES_PER_CHAIN_KEY = 32n;
 
 // Encode a u64 write-ability chain key as its bytes32 form: `bytes32(uint256(chainKey))`, i.e. the
 // 8 big-endian bytes right-aligned in a 32-byte word (matches `chain_key_to_bytes32` in the shared
@@ -141,7 +141,10 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
     // are neither counted nor capped, so a legitimate factory is never blocked by counterfeit rows.
     if (!authenticated) {
         const counter = await OutboxDatasourceCount.get(chainKey);
-        const current = counter?.count ?? 0;
+        // Explicit BigInt(): the entity field is BigInt! in schema.graphql, but `src/types` is
+        // generated (and gitignored), so this file is also linted against a stale/absent type.
+        // Converting keeps the comparison and the increment below unambiguously bigint either way.
+        const current = BigInt(counter?.count ?? 0);
         if (current >= MAX_OUTBOXES_PER_CHAIN_KEY) {
             logger.warn(
                 `OutboxCreated for ${address}: chainKey ${chainKey} already has ${current} unauthenticated ` +
@@ -180,7 +183,7 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
     // see same-block buffered writes).
     if (!authenticated) {
         const counter = await OutboxDatasourceCount.get(chainKey);
-        await OutboxDatasourceCount.create({ id: chainKey, count: (counter?.count ?? 0) + 1 }).save();
+        await OutboxDatasourceCount.create({ id: chainKey, count: BigInt(counter?.count ?? 0) + 1n }).save();
     }
 
     await createOutboxDatasource({ address });
