@@ -182,6 +182,14 @@ async fn resolve_outbox_address<P: Provider>(
     let sig = IOutboxFactory::OutboxCreated::SIGNATURE_HASH;
     let topic_chain_key = alloy::primitives::U256::from(chain_key);
     let mut from = cursor.from;
+    // Bind the *latest* OutboxCreated for this chain_key, not the first. The factory is
+    // permissionless, so it can emit more than one OutboxCreated for a chain_key (a redeploy, or a
+    // different `msg.sender`'s CREATE2 salt); returning the oldest could bind a superseded or
+    // squatting deployment, so scan the whole confirmed range and keep the most recent. `get_logs`
+    // returns ascending, so the last log of the last non-empty chunk is the newest. (Via the
+    // OutboxDeployer the registry is one-per-chain_key, so in practice there is exactly one — this
+    // just makes the ambiguous case deterministic rather than order-of-emission dependent.)
+    let mut latest: Option<alloy::primitives::Address> = None;
     while from <= safe_tip {
         let chunk_to = safe_tip.min(from + MAX_LOG_BLOCK_RANGE - 1);
         let filter = alloy::rpc::types::Filter::new()
@@ -193,21 +201,24 @@ async fn resolve_outbox_address<P: Provider>(
         let logs = provider.get_logs(&filter).await.with_context(|| {
             format!("eth_getLogs OutboxCreated at factory {factory} [{from}..={chunk_to}] failed")
         })?;
-        if let Some(log) = logs.first() {
-            let outbox = IOutboxFactory::OutboxCreated::decode_log(&log.inner, true)
-                .context("decode OutboxCreated log")?
-                .data
-                .outbox;
-            tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain (OutboxCreated scan)");
-            return Ok(Some(outbox));
+        if let Some(log) = logs.last() {
+            latest = Some(
+                IOutboxFactory::OutboxCreated::decode_log(&log.inner, true)
+                    .context("decode OutboxCreated log")?
+                    .data
+                    .outbox,
+            );
         }
         from = chunk_to + 1;
     }
-    // Scanned every confirmed block with no match — advance the cursor so the next retry resumes
-    // from here instead of re-scanning history. `from` is `safe_tip + 1` when the loop ran, or
-    // unchanged (`cursor.from`) if `safe_tip < cursor.from` (tip regressed / depth grew) — never
-    // regressing the cursor.
+    // Advance the cursor past the scanned range so the next retry resumes from here instead of
+    // re-scanning history. `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`)
+    // if `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
     cursor.from = from;
+    if let Some(outbox) = latest {
+        tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain (OutboxCreated scan)");
+        return Ok(Some(outbox));
+    }
     tracing::warn!(%factory, chain_key, "factory has emitted no OutboxCreated for chain_key yet");
     Ok(None)
 }
