@@ -300,7 +300,31 @@ fn register_chain_should_error_when_chain_key_index_exceeded() {
 fn remove_chain_works() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
-        let chain_key = 1;
+        let chain_key = SUPPORTED_CHAIN_KEY;
+
+        // Seed every piece of per-chain state so one test proves removal clears all of it (folds the
+        // former remove_chain_clears_write_ability_config / remove_chain_clears_core_fee tests and
+        // adds the OutboxFactories assertion).
+        assert_ok!(SupportedChain::set_write_ability_config(
+            RuntimeOrigin::root(),
+            chain_key,
+            [0x33u8; 32],
+            true,
+        ));
+        assert_ok!(SupportedChain::set_core_fee(
+            RuntimeOrigin::root(),
+            chain_key,
+            None,
+            U256::from(7u64),
+        ));
+        assert_ok!(SupportedChain::set_outbox_factory_addr(
+            RuntimeOrigin::root(),
+            chain_key,
+            H160::repeat_byte(0x55),
+        ));
+        assert!(WriteAbilityConfigs::<Test>::get(chain_key).is_some());
+        assert!(CoreFees::<Test>::get(chain_key).is_some());
+        assert!(OutboxFactories::<Test>::get(chain_key).is_some());
 
         // chain has already been added therefore index is now 2
         assert_eq!(SupportedChain::chain_key_value(), 2);
@@ -309,7 +333,12 @@ fn remove_chain_works() {
             chain_key,
             false
         ));
+
+        // The chain and every associated record are gone.
         assert_eq!(SupportedChains::<Test>::get(chain_key), None);
+        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
+        assert_eq!(CoreFees::<Test>::get(chain_key), None);
+        assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
 
         // internal index should not change
         assert_eq!(SupportedChain::chain_key_value(), 2);
@@ -656,47 +685,53 @@ fn set_outbox_factory_addr_should_error_when_zero_address() {
 
 #[test]
 fn set_write_ability_config_works() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
+    // Parametrized over both accepted origins: root and an Operators member.
+    for origin in [
+        RuntimeOrigin::root(),
+        RuntimeOrigin::signed(OPERATOR_ACCOUNT),
+    ] {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
 
-        let chain_key = 1;
-        let write_ability_chain_key = [0x22u8; 32];
+            let chain_key = SUPPORTED_CHAIN_KEY;
+            let write_ability_chain_key = [0x22u8; 32];
 
-        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
+            assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
 
-        assert_ok!(SupportedChain::set_write_ability_config(
-            RuntimeOrigin::root(),
-            chain_key,
-            write_ability_chain_key,
-            true,
-        ));
-
-        assert_eq!(
-            WriteAbilityConfigs::<Test>::get(chain_key),
-            Some(WriteAbilityConfig {
-                write_ability_chain_key,
-                message_attestation_enabled: true,
-            })
-        );
-
-        // Provider getter returns the stored config.
-        assert_eq!(
-            <SupportedChain as SupportedChainsProvider>::get_write_ability_config(chain_key),
-            Some(WriteAbilityConfig {
-                write_ability_chain_key,
-                message_attestation_enabled: true,
-            })
-        );
-
-        System::assert_last_event(
-            crate::Event::WriteAbilityConfigSet {
+            assert_ok!(SupportedChain::set_write_ability_config(
+                origin,
                 chain_key,
                 write_ability_chain_key,
-                message_attestation_enabled: true,
-            }
-            .into(),
-        );
-    });
+                true,
+            ));
+
+            assert_eq!(
+                WriteAbilityConfigs::<Test>::get(chain_key),
+                Some(WriteAbilityConfig {
+                    write_ability_chain_key,
+                    message_attestation_enabled: true,
+                })
+            );
+
+            // Provider getter returns the stored config.
+            assert_eq!(
+                <SupportedChain as SupportedChainsProvider>::get_write_ability_config(chain_key),
+                Some(WriteAbilityConfig {
+                    write_ability_chain_key,
+                    message_attestation_enabled: true,
+                })
+            );
+
+            System::assert_last_event(
+                crate::Event::WriteAbilityConfigSet {
+                    chain_key,
+                    write_ability_chain_key,
+                    message_attestation_enabled: true,
+                }
+                .into(),
+            );
+        });
+    }
 }
 
 #[test]
@@ -719,7 +754,7 @@ fn set_write_ability_config_should_error_when_not_signed() {
 #[test]
 fn set_write_ability_config_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
-        let chain_key = 1;
+        let chain_key = SUPPORTED_CHAIN_KEY;
 
         assert_noop!(
             SupportedChain::set_write_ability_config(
@@ -730,26 +765,15 @@ fn set_write_ability_config_should_error_when_not_signed_by_operator() {
             ),
             BadOrigin
         );
-
-        assert_ok!(SupportedChain::set_write_ability_config(
-            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
-            chain_key,
-            [0x22u8; 32],
-            true,
-        ));
-
-        assert_eq!(
-            WriteAbilityConfigs::<Test>::get(chain_key),
-            Some(WriteAbilityConfig {
-                write_ability_chain_key: [0x22u8; 32],
-                message_attestation_enabled: true,
-            })
-        );
+        // Operator-origin success is covered by set_write_ability_config_works (parametrized over
+        // root + operator); this test only rejects a non-operator signer.
     });
 }
 
 #[test]
 fn set_write_ability_config_should_error_when_chain_is_not_supported() {
+    // `new_test_ext()` seeds no chains (unlike `ExtBuilder`, which registers one at
+    // SUPPORTED_CHAIN_KEY), so this chain_key is deliberately unregistered here.
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
 
@@ -770,11 +794,14 @@ fn set_write_ability_config_should_error_when_chain_is_not_supported() {
 }
 
 #[test]
-fn set_write_ability_config_should_error_when_chain_key_is_zero() {
+fn set_write_ability_config_should_error_when_write_ability_key_is_zero() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let chain_key = 1;
+        // Chain is supported (ExtBuilder seeds it), so the guard that fires is the zero
+        // write-ability-key check — not ChainNotSupported. The zeroed argument is the
+        // write_ability_chain_key ([0u8; 32]), not the chain_key.
+        let chain_key = SUPPORTED_CHAIN_KEY;
 
         assert_noop!(
             SupportedChain::set_write_ability_config(
@@ -785,30 +812,6 @@ fn set_write_ability_config_should_error_when_chain_key_is_zero() {
             ),
             Error::<Test>::ZeroWriteAbilityChainKey
         );
-
-        assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
-    });
-}
-
-#[test]
-fn remove_chain_clears_write_ability_config() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-        let chain_key = 1;
-
-        assert_ok!(SupportedChain::set_write_ability_config(
-            RuntimeOrigin::root(),
-            chain_key,
-            [0x33u8; 32],
-            true,
-        ));
-        assert!(WriteAbilityConfigs::<Test>::get(chain_key).is_some());
-
-        assert_ok!(SupportedChain::remove_chain(
-            RuntimeOrigin::root(),
-            chain_key,
-            false
-        ));
 
         assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
     });
@@ -1018,29 +1021,5 @@ fn set_core_fee_should_error_when_token_is_zero_address() {
         );
 
         assert_eq!(CoreFees::<Test>::get(1), None);
-    });
-}
-
-#[test]
-fn remove_chain_clears_core_fee() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        let chain_key = 1;
-        assert_ok!(SupportedChain::set_core_fee(
-            RuntimeOrigin::root(),
-            chain_key,
-            None,
-            U256::from(7u64),
-        ));
-        assert!(CoreFees::<Test>::get(chain_key).is_some());
-
-        assert_ok!(SupportedChain::remove_chain(
-            RuntimeOrigin::root(),
-            chain_key,
-            true
-        ));
-
-        assert_eq!(CoreFees::<Test>::get(chain_key), None);
     });
 }
