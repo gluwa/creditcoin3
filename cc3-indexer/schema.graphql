@@ -539,7 +539,7 @@ type OutboxDatasourceCount @entity {
     # bytes32 write-ability chain key (lowercase hex)
     id: ID!
     # Count of unauthenticated Outbox datasources registered for this chain key
-    count: Int!
+    count: BigInt!
 }
 
 type OutboxContract @entity {
