@@ -125,6 +125,36 @@ fn get_outbox_factory_address_works() {
 }
 
 #[test]
+fn get_outbox_factory_address_returns_default_when_not_set() {
+    let alice: H160 = Alice.into();
+
+    let unknown_chain_key: u64 = 9999;
+
+    let expected_result = OutboxFactoryResult {
+        factory_addr: Address(H160::zero()),
+        exists: false,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Ensure chain does NOT exist (or at least no factory set)
+            assert!(!OutboxFactories::<Runtime>::contains_key(unknown_chain_key));
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_outbox_factory_address {
+                        chain_key: unknown_chain_key,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
 fn get_core_fee_works_native_and_erc20() {
     let alice: H160 = Alice.into();
 
@@ -255,36 +285,6 @@ fn get_chain_by_key_returns_default_data_with_unknown_chain_key() {
                     Precompile,
                     PCall::get_chain_by_key {
                         chain_key: unknown_supported_chain_key,
-                    },
-                )
-                .execute_returns(expected_result);
-        });
-}
-
-#[test]
-fn get_outbox_factory_address_returns_default_when_not_set() {
-    let alice: H160 = Alice.into();
-
-    let unknown_chain_key: u64 = 9999;
-
-    let expected_result = OutboxFactoryResult {
-        factory_addr: Address(H160::zero()),
-        exists: false,
-    };
-
-    ExtBuilder::default()
-        .with_balances(vec![(alice.into(), 300)])
-        .build()
-        .execute_with(|| {
-            // Ensure chain does NOT exist (or at least no factory set)
-            assert!(!OutboxFactories::<Runtime>::contains_key(unknown_chain_key));
-
-            precompiles()
-                .prepare_test(
-                    alice,
-                    Precompile,
-                    PCall::get_outbox_factory_address {
-                        chain_key: unknown_chain_key,
                     },
                 )
                 .execute_returns(expected_result);
