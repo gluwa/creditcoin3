@@ -405,10 +405,17 @@ pub async fn run(
             Ok(None) => {
                 resolve_attempts += 1;
                 if resolve_attempts % RESOLVE_ESCALATE_EVERY_ATTEMPTS == 0 {
-                    tracing::error!(
+                    // WARN, not ERROR: `Ok(None)` means nothing is registered on-chain yet, which is
+                    // a benign, expected state — per the retry loop above, the attestor keeps doing
+                    // block attestation and activates write-ability by itself once a factory/Outbox
+                    // appears. Whole environments (e.g. the attestor-network integration tests) never
+                    // configure write-ability at all, so escalating to ERROR reported "broken" for
+                    // "not configured" and tripped the CI attestor error gate. A resolve that is
+                    // actually *failing* is a different case and still escalates to ERROR below.
+                    tracing::warn!(
                         attempts = resolve_attempts,
                         elapsed_secs = resolve_attempts * OUTBOX_RESOLVE_RETRY_SECS,
-                        "⏳ Outbox still unresolved after prolonged retrying — verify the on-chain WriteAbilityConfigs entry and the runtime/attestor deploy ordering (chain-info `get_outbox_factory_address` selector)"
+                        "⏳ Outbox still unresolved after prolonged retrying — if this chain is meant to serve write-ability, verify the on-chain WriteAbilityConfigs entry and the runtime/attestor deploy ordering (chain-info `get_outbox_factory_address` selector)"
                     );
                 } else {
                     tracing::info!(
