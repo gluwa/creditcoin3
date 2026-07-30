@@ -26,6 +26,18 @@ module.exports = {
         project: 'tsconfig.json',
         sourceType: 'module',
     },
+    // The base tsconfig excludes src/test from the CommonJS build, so the CLI's
+    // test tree needs the ESM-aware test project for type-aware lint rules.
+    // Scoped as an override so consumers that symlink this config (cc3-indexer,
+    // docs/.../with-hardhat) keep using their own tsconfig.json.
+    overrides: [
+        {
+            files: ['src/test/**/*.ts'],
+            parserOptions: {
+                project: 'tsconfig.test.json',
+            },
+        },
+    ],
     plugins: [
         // "eslint-plugin-jsdoc",
         // "eslint-plugin-prefer-arrow",
@@ -59,18 +71,18 @@ module.exports = {
                 },
             },
         ],
-        "@typescript-eslint/naming-convention": [
-            "error",
+        '@typescript-eslint/naming-convention': [
+            'error',
             {
-              selector: "property",
-              format: ["strictCamelCase"],
-              filter: {
-                // allow CC_SECRET and EVM_SECRET
-                regex: "^(CC_SECRET|CC_PROXY_SECRET|EVM_SECRET|Address20)$",
-                match: false,
-              },
+                selector: 'property',
+                format: ['strictCamelCase'],
+                filter: {
+                    // allow CC_SECRET and EVM_SECRET
+                    regex: '^(CC_SECRET|CC_PROXY_SECRET|EVM_SECRET|Address20)$',
+                    match: false,
+                },
             },
-          ],
+        ],
         '@typescript-eslint/no-empty-function': 'error',
         '@typescript-eslint/no-empty-interface': 'error',
         '@typescript-eslint/no-explicit-any': 'off',
@@ -84,11 +96,11 @@ module.exports = {
             },
         ],
         '@typescript-eslint/no-unused-expressions': 'error',
-        "@typescript-eslint/no-unsafe-argument": "off",
-        "@typescript-eslint/no-unsafe-assignment": "off",
-        "@typescript-eslint/no-unsafe-call": "off",
-        "@typescript-eslint/no-unsafe-member-access": "off",
-        "@typescript-eslint/no-unsafe-return": "off",
+        '@typescript-eslint/no-unsafe-argument': 'off',
+        '@typescript-eslint/no-unsafe-assignment': 'off',
+        '@typescript-eslint/no-unsafe-call': 'off',
+        '@typescript-eslint/no-unsafe-member-access': 'off',
+        '@typescript-eslint/no-unsafe-return': 'off',
         '@typescript-eslint/no-use-before-define': 'off',
         '@typescript-eslint/no-var-requires': 'error',
         '@typescript-eslint/prefer-for-of': 'error',
@@ -98,8 +110,8 @@ module.exports = {
         '@typescript-eslint/restrict-template-expressions': [
             'error',
             {
-                allowAny: true
-            }
+                allowAny: true,
+            },
         ],
         '@typescript-eslint/semi': ['off', null],
         '@typescript-eslint/triple-slash-reference': [
@@ -163,13 +175,13 @@ module.exports = {
         'no-unsafe-finally': 'error',
         'no-unused-expressions': 'error',
         'no-unused-labels': 'error',
-        "@typescript-eslint/no-unused-vars": [
-            "warn",
+        '@typescript-eslint/no-unused-vars': [
+            'warn',
             {
-                "argsIgnorePattern": "^_",
-                "varsIgnorePattern": "^_",
-                "caughtErrorsIgnorePattern": "^_"
-            }
+                argsIgnorePattern: '^_',
+                varsIgnorePattern: '^_',
+                caughtErrorsIgnorePattern: '^_',
+            },
         ],
         'no-use-before-define': 'off',
         'no-var': 'error',

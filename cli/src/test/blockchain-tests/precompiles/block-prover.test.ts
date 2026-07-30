@@ -8,8 +8,7 @@ import { chain_Anvil1_Key, chain_Anvil1_Url } from '../pallets/supported-chains/
 import { blockProverAddress } from './consts';
 import { testIf } from '../../utils';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/block_prover.json');
+import contractABIJSON from '../artifacts/block_prover.json' with { type: 'json' };
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 describe('Precompile: block-prover', (): void => {

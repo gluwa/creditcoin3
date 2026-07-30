@@ -1,5 +1,23 @@
 {
-    "preset": "ts-jest",
+    "preset": "ts-jest/presets/default-esm",
     "testEnvironment": "node",
-    "testPathIgnorePatterns": ["/node_modules/", "/dist/"]
+    "extensionsToTreatAsEsm": [
+        ".ts"
+    ],
+    "testPathIgnorePatterns": [
+        "/node_modules/",
+        "/dist/"
+    ],
+    "transform": {
+        "^.+\\.tsx?$": [
+            "ts-jest",
+            {
+                "useESM": true,
+                "tsconfig": "tsconfig.test.json"
+            }
+        ]
+    },
+    "transformIgnorePatterns": [
+        "node_modules/(?!(execa|@sindresorhus/merge-streams|figures|get-stream|human-signals|is-plain-obj|is-stream|npm-run-path|path-key|pretty-ms|signal-exit|strip-final-newline|which-command|yoctocolors|unicorn-magic)/)"
+    ]
 }

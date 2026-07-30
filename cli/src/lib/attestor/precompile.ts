@@ -5,8 +5,7 @@ import { OptionValues } from 'commander';
 import { evmAddressToSubstrateAddress } from '../evm/address';
 import { getEvmUrl } from '../evm/rpc';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../../test/blockchain-tests/artifacts/attestor_stash.json');
+import contractABIJSON from '../../test/blockchain-tests/artifacts/attestor_stash.json';
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 export const ATTESTOR_STASH_ADDRESS = '0x0000000000000000000000000000000000000fd4';

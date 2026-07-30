@@ -9,8 +9,7 @@ import { chain_Anvil2_Key } from '../pallets/supported-chains/consts';
 import { attestorStashAddress } from './consts';
 import { testIf } from '../../utils';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import contractABIJSON = require('../artifacts/attestor_stash.json');
+import contractABIJSON from '../artifacts/attestor_stash.json' with { type: 'json' };
 const contractABI = contractABIJSON as unknown as ethers.InterfaceAbi;
 
 // Event signatures (must match pallet-evm-precompile-attestor-stash)
