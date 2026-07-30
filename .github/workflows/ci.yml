@@ -665,6 +665,15 @@ jobs:
       - name: Check archiver logs for errors
         if: always()
         run: |
+          # This test deliberately restarts the eth (anvil) WebSocket node to exercise recovery,
+          # so the archiver (an alloy WS consumer) logs "connection reset by peer" / "connection
+          # refused" as it drops and reconnects — benign, expected transport noise. Allowlist ONLY
+          # those two documented transport errors, and ONLY from alloy_transport_ws / alloy_pubsub,
+          # scoped to THIS step via ERROR_ALLOWLIST so the shared gate stays strict everywhere else
+          # (e.g. the archiver-testing job, which never restarts eth). Any other error from those
+          # crates still fails the gate; functional correctness is asserted separately (checkpoint
+          # compare).
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\))'
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
       - name: Check attestor logs for errors
