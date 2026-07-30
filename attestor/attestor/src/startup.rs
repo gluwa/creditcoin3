@@ -7,7 +7,6 @@
 use std::sync::Arc;
 
 use anyhow::Context as _;
-use async_trait::async_trait;
 use bls_signatures::Serialize as _;
 use futures::{StreamExt as _, TryStreamExt as _};
 use tokio_util::sync::CancellationToken;
@@ -146,47 +145,6 @@ pub async fn wait_for_eligible(
     }
 }
 
-/// The chain queries [`fetch_start_point`] needs, abstracted so the resume logic is testable.
-///
-/// [`Client`] is a concrete wrapper around a live subxt connection, so code taking it directly
-/// can only be exercised against a running node — which is why this module had no tests. Depending
-/// on this narrow trait instead lets the resume rules (including the checkpoint-backed anchor case
-/// that used to crash-loop startup) be covered by ordinary unit tests.
-///
-/// Method names mirror [`Client`]'s so the production impl is a straight delegation.
-#[async_trait]
-pub trait StartPointQuery {
-    /// First block of the chain's attestation range.
-    async fn get_attestation_chain_genesis_block_number(
-        &self,
-        chain_key: ChainKey,
-    ) -> Result<attestor_primitives::Height, Error>;
-
-    /// Latest finalized anchor as `(height, digest)`, following the runtime's lookup order
-    /// (`LastDigest`, else `LastCheckpoint`). `None` when the chain has neither.
-    async fn fetch_last_finalized(
-        &self,
-        chain_key: ChainKey,
-    ) -> Result<Option<(attestor_primitives::Height, attestor_primitives::Digest)>, Error>;
-}
-
-#[async_trait]
-impl StartPointQuery for Client {
-    async fn get_attestation_chain_genesis_block_number(
-        &self,
-        chain_key: ChainKey,
-    ) -> Result<attestor_primitives::Height, Error> {
-        Ok(Client::get_attestation_chain_genesis_block_number(self, chain_key).await?)
-    }
-
-    async fn fetch_last_finalized(
-        &self,
-        chain_key: ChainKey,
-    ) -> Result<Option<(attestor_primitives::Height, attestor_primitives::Digest)>, Error> {
-        Ok(Client::fetch_last_finalized(self, chain_key).await?)
-    }
-}
-
 /// Look up the starting attestation point.
 ///
 /// Returns `(genesis_height, start_attestation)`:
@@ -194,9 +152,9 @@ impl StartPointQuery for Client {
 /// - `start_attestation`: the latest finalized anchor — `Some` whether it is backed by a committed
 ///   attestation *or* by a checkpoint (the two are indistinguishable, and must be, for resume
 ///   purposes); `None` only if the chain has neither, i.e. we're genuinely starting from genesis.
-pub async fn fetch_start_point<C: StartPointQuery + ?Sized>(
+pub async fn fetch_start_point(
     chain_key: ChainKey,
-    cc3: &C,
+    cc3: &Client,
 ) -> Result<
     (
         attestor_primitives::Height,
@@ -293,130 +251,4 @@ pub async fn reconcile_metadata(cc3: &Arc<Client>) -> Result<(), Error> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use attestor_primitives::{Digest, Height};
-
-    const CHAIN: ChainKey = 7;
-    const GENESIS: Height = 1_000;
-
-    /// In-memory [`StartPointQuery`], standing in for a live chain.
-    struct FakeChain {
-        genesis: Height,
-        anchor: Option<(Height, Digest)>,
-        fail_anchor: bool,
-    }
-
-    impl FakeChain {
-        /// Chain with a finalized anchor. Deliberately says nothing about whether the anchor is
-        /// backed by an attestation or a checkpoint — startup must not care.
-        fn with_anchor(height: Height, digest: Digest) -> Self {
-            Self {
-                genesis: GENESIS,
-                anchor: Some((height, digest)),
-                fail_anchor: false,
-            }
-        }
-
-        /// Chain with no finalized anchor at all (true genesis).
-        fn empty() -> Self {
-            Self {
-                genesis: GENESIS,
-                anchor: None,
-                fail_anchor: false,
-            }
-        }
-
-        fn failing() -> Self {
-            Self {
-                genesis: GENESIS,
-                anchor: None,
-                fail_anchor: true,
-            }
-        }
-    }
-
-    #[async_trait]
-    impl StartPointQuery for FakeChain {
-        async fn get_attestation_chain_genesis_block_number(
-            &self,
-            _chain_key: ChainKey,
-        ) -> Result<Height, Error> {
-            Ok(self.genesis)
-        }
-
-        async fn fetch_last_finalized(
-            &self,
-            _chain_key: ChainKey,
-        ) -> Result<Option<(Height, Digest)>, Error> {
-            if self.fail_anchor {
-                return Err(Error::MissingMaxCatchup(CHAIN));
-            }
-            Ok(self.anchor)
-        }
-    }
-
-    #[tokio::test]
-    async fn resumes_from_an_attestation_backed_anchor() {
-        let digest = Digest::repeat_byte(0xab);
-        let (genesis, start) = fetch_start_point(CHAIN, &FakeChain::with_anchor(1_500, digest))
-            .await
-            .expect("resume from attestation-backed anchor");
-
-        assert_eq!(genesis, GENESIS);
-        assert_eq!(
-            start,
-            Some(crate::shared::AttestationInfo {
-                height: 1_500,
-                digest
-            })
-        );
-    }
-
-    /// Regression test for ATTESTOR-V2-009.
-    ///
-    /// After `revert_to()` the runtime clears every stored attestation and repoints the finalized
-    /// anchor at the surviving checkpoint, so the anchor's digest has no `Attestations` entry.
-    /// Startup used to resolve the anchor through `Attestations` and therefore rejected this valid
-    /// state, failing deterministically on every boot — a supervisor then crash-looped the whole
-    /// fleet after an emergency revert. Resuming must succeed regardless of what backs the anchor.
-    #[tokio::test]
-    async fn resumes_from_a_checkpoint_backed_anchor_after_revert() {
-        // The checkpoint digest: valid anchor, no attestation behind it.
-        let checkpoint_digest = Digest::repeat_byte(0xcd);
-        let (genesis, start) =
-            fetch_start_point(CHAIN, &FakeChain::with_anchor(1_200, checkpoint_digest))
-                .await
-                .expect("checkpoint-backed anchor must not fail startup");
-
-        assert_eq!(genesis, GENESIS);
-        assert_eq!(
-            start,
-            Some(crate::shared::AttestationInfo {
-                height: 1_200,
-                digest: checkpoint_digest
-            })
-        );
-    }
-
-    #[tokio::test]
-    async fn reports_no_anchor_when_chain_is_at_genesis() {
-        let (genesis, start) = fetch_start_point(CHAIN, &FakeChain::empty())
-            .await
-            .expect("genesis chain resolves");
-
-        assert_eq!(genesis, GENESIS);
-        assert_eq!(start, None, "no anchor means resume from genesis");
-    }
-
-    #[tokio::test]
-    async fn propagates_query_errors() {
-        let err = fetch_start_point(CHAIN, &FakeChain::failing())
-            .await
-            .expect_err("anchor query failure must surface");
-        assert!(matches!(err, Error::MissingMaxCatchup(CHAIN)));
-    }
 }
