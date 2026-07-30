@@ -15,6 +15,13 @@ type Block = frame_system::mocking::MockBlock<Test>;
 
 pub const OPERATOR_ACCOUNT: AccountId = 1;
 
+/// `ChainKey` of the single chain `ExtBuilder` seeds. The genesis builder assigns chain keys in
+/// `supported_chains` order starting at `GENESIS_CHAIN_KEY` (= 1), so the lone seeded chain
+/// (`chain_id` 200, "Ethereum") is reachable as chain key 1. Tests use this alias instead of a bare
+/// `1` so "this chain is supported" reads explicitly. `new_test_ext()` seeds no chains, so the same
+/// value is *unsupported* there — the two fixtures are not interchangeable.
+pub const SUPPORTED_CHAIN_KEY: u64 = 1;
+
 frame_support::construct_runtime!(
     pub enum Test
     {
