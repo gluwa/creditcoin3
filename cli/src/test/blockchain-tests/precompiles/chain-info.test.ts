@@ -148,6 +148,84 @@ describe('Precompile: ChainInfo', (): void => {
         expect(unknownResult[1]).toEqual(false);
     }, 30_000);
 
+    test('get_core_fee should return the fee configured through the pallet', async () => {
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        // Core-fee amounts are 18-decimal EVM values: the Outbox charges them as `msg.value`
+        // (native) or pulls them with `transferFrom` (ERC20), so they are wei-denominated.
+        const nativeAmount = '1000000000000000000';
+        const erc20Token = '0x2222222222222222222222222222222222222222';
+        const erc20Amount = '500000000000000000';
+
+        // Setup: store a native-denominated fee (token: None) through the pallet first.
+        let nonce = await api.rpc.system.accountNextIndex(root.address);
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setCoreFee(supportedChainKey, null, nativeAmount))
+            .signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        const nativeResult = await contract.get_core_fee(supportedChainKey, { gasPrice, gasLimit });
+
+        expect(nativeResult).toBeDefined();
+        expect(Array.isArray(nativeResult)).toBe(true);
+        expect(nativeResult.length).toBe(3);
+
+        expect(typeof nativeResult[0]).toBe('string'); // token
+        expect(typeof nativeResult[1]).toBe('bigint'); // amount
+        expect(nativeResult[1]).toEqual(BigInt(nativeAmount));
+        expect(typeof nativeResult[2]).toBe('boolean'); // exists
+        expect(nativeResult[2]).toEqual(true);
+        // NOTE: the `token` value returned for a native fee is deliberately left unasserted,
+        // see the TODO on the skipped test below.
+
+        // An ERC20-denominated fee - the planned attestcoin switch - surfaces the token address.
+        nonce = await api.rpc.system.accountNextIndex(root.address);
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setCoreFee(supportedChainKey, erc20Token, erc20Amount))
+            .signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        const erc20Result = await contract.get_core_fee(supportedChainKey, { gasPrice, gasLimit });
+
+        expect(erc20Result).toBeDefined();
+        expect(Array.isArray(erc20Result)).toBe(true);
+        expect(erc20Result.length).toBe(3);
+
+        expect(ethers.getAddress(erc20Result[0])).toEqual(ethers.getAddress(erc20Token)); // token
+        expect(erc20Result[1]).toEqual(BigInt(erc20Amount)); // amount
+        expect(erc20Result[2]).toEqual(true); // exists
+
+        // Leave the chain fee-free for the rest of the suite: a zero amount disables the fee.
+        nonce = await api.rpc.system.accountNextIndex(root.address);
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setCoreFee(supportedChainKey, null, 0))
+            .signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        const clearedResult = await contract.get_core_fee(supportedChainKey, { gasPrice, gasLimit });
+
+        expect(clearedResult[1]).toEqual(0n); // amount
+    }, 120_000);
+
+    // TODO(pending core-fee token-denomination decision): `set_core_fee` forbids
+    // `token == address(0)` and stores a native-CTC fee as `None`, yet `get_core_fee` returns
+    // address(0) for exactly that case - so today the only signal separating "a native fee is
+    // configured" from "this chain_key isn't supported at all" is the `exists` flag. The
+    // alternative under review is for `get_core_fee` to revert on an unsupported chain_key, the
+    // way `ensure_chain_supported` already does for the attestation getters, which would let
+    // address(0) mean unambiguously "native". Both candidates are compatible with everything the
+    // test above asserts, so neither is baked in here. Fill this in once the decision lands.
+    test.skip('get_core_fee behaviour for an unsupported chain key', () => {
+        // Candidate A (current): returns (address(0), 0, exists = false).
+        // Candidate B (proposed): reverts with "chain not supported".
+    });
+
     test('get_latest_attestation_height_and_hash should return data', async () => {
         const latestAttestationResult = await contract.get_latest_attestation_height_and_hash(supportedChainKey, {
             gasPrice,
