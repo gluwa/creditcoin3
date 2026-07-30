@@ -4,7 +4,15 @@
 
 ---
 
-Practical tips for PR review & merge:
+When merging this PR:
+
+- For PRs against `usc-dev` use the "Squash and merge" button
+- For PRs against `usc-testnet`/`main` use the "Create a merge commit" button
+- Hotfixes against `usc-testnet`/`main` should use the "Squash and merge" button
+
+---
+
+Practical tips for PR review:
 
 - [ ] All GitHub Actions report PASS
 - [ ] Newly added code/functions have unit tests
