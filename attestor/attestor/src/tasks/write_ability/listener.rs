@@ -50,6 +50,14 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 /// to absorb a transient blip, short enough that a dead provider does not strand quorum indefinitely.
 const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
 
+/// Blocks to rewind a *persisted* cursor by on resume. The cursor is saved once a poll's range has
+/// been handed to the signing pipeline, not once each vote is durably gossiped (see [`super::cursor`]),
+/// so a crash between the save and the gossip would otherwise leave the resumed cursor *past* votes
+/// that never left the process. Rewinding by this margin re-scans that window on boot; re-signing is
+/// harmless (the aggregator dedups by signer, the relayer dedups votes). Sized to comfortably cover
+/// one poll's in-flight range plus finality lag, while keeping the restart re-scan cheap.
+const CURSOR_RESUME_LOOKBACK_BLOCKS: u64 = 256;
+
 /// Max block span per `eth_getLogs` request. The scan window can grow large — e.g. a long
 /// Outbox-resolve wait leaves a wide gap between `last_seen` and the finalized tip on first poll —
 /// and a single `eth_getLogs` over an unbounded span exceeds most RPC providers' range limits,
@@ -188,11 +196,23 @@ pub async fn watch<P: Provider>(
     // rather than skipping down-time messages (default config) or replaying the whole history from
     // `start_block`. To force a different start position, remove the cursor file.
     let mut last_seen = if let Some(persisted) = cursor.load() {
+        // Read the live head to sanity-clamp the persisted position. A cursor *ahead* of the current
+        // head (chain rolled back / resynced to a shorter chain, or a file copied from another node)
+        // would otherwise leave `from_block = last_seen + 1 > tip` and silently scan nothing forever
+        // (bugbot: stale cursor stalls scanning). On a transient head-read failure, fall back to the
+        // persisted value unclamped rather than fail boot.
+        let head = provider.get_block_number().await.unwrap_or(persisted);
+        let clamped = persisted.min(head);
+        // Rewind by a bounded lookback so a crash between enqueuing a range's votes and gossiping them
+        // re-scans that window (at-least-once; downstream dedups). See CURSOR_RESUME_LOOKBACK_BLOCKS.
+        let resume = clamped.saturating_sub(CURSOR_RESUME_LOOKBACK_BLOCKS);
         tracing::info!(
-            last_seen = persisted,
-            "⏮️ resuming message-attestation scan from persisted Outbox cursor"
+            persisted,
+            head,
+            resume_from = resume + 1,
+            "⏮️ resuming message-attestation scan from persisted Outbox cursor (clamped to tip, rewound by lookback)"
         );
-        persisted
+        resume
     } else if let Some(start) = start_block {
         tracing::info!(
             start_block = start,

@@ -70,9 +70,17 @@ pub struct CursorStore {
 }
 
 impl CursorStore {
-    /// Cursor file for `chain_key`'s Outbox inside `dir`. The file name is chain-key-scoped so
-    /// several attestor instances that happen to share a data dir do not clobber each other's
-    /// cursors.
+    /// Cursor file for `chain_key`'s Outbox inside `dir`.
+    ///
+    /// **Invariant: each attestor instance must own its `dir`.** The file name is scoped only by
+    /// `chain_key`, so two attestors pointed at the *same* `dir` for the same chain write the same
+    /// file and clobber each other's `last_seen` — a faster peer's higher value could make a slower
+    /// peer skip messages on restart. Production gives every attestor its own persistent volume, so
+    /// they never share `dir`. Two safety nets bound the blast radius if the invariant is ever
+    /// violated: the `outbox`-mismatch guard in [`load`](Self::load) discards a cursor written
+    /// against a *different* Outbox, and the listener rewinds a resumed cursor by a lookback
+    /// (`CURSOR_RESUME_LOOKBACK_BLOCKS`) so a cursor left *ahead* re-scans that window rather than
+    /// skipping it (downstream dedups the re-signed votes).
     #[must_use]
     pub fn new(dir: &Path, chain_key: u64, outbox: Address) -> Self {
         Self {
