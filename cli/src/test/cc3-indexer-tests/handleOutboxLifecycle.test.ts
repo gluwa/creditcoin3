@@ -97,13 +97,9 @@ describe('Outbox lifecycle handlers', () => {
 
     describe('when a message is published on that outbox', () => {
         beforeAll(async () => {
-            const tx = await contract.getFunction('emitMessagePublished')(
-                messageId,
-                emitterBytes32,
-                true,
-                payload,
-                { gasLimit: 1_000_000 },
-            );
+            const tx = await contract.getFunction('emitMessagePublished')(messageId, emitterBytes32, true, payload, {
+                gasLimit: 1_000_000,
+            });
             await tx.wait();
 
             await forElapsedBlocks(api, { minBlocks: 3 });
