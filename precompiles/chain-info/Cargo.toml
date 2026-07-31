@@ -42,6 +42,9 @@ pallet-evm = { workspace = true, features = ["forbid-evm-reentrancy"] }
 derive_more = { workspace = true }
 env_logger = { workspace = true }
 frame-election-provider-support = { workspace = true }
+pallet-assets = { workspace = true, default-features = false, features = [
+    "std",
+] }
 pallet-babe = { workspace = true }
 pallet-session = { workspace = true }
 pallet-staking = { workspace = true }
@@ -80,6 +83,7 @@ std = [
     "pallet-supported-chains/std",
     "attestor-primitives/std",
     "pallet-attestation/std",
+    "pallet-assets/std",
     "pallet-babe/std",
     "sp-staking/std",
     "pallet-staking/std",

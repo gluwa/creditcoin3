@@ -1,6 +1,5 @@
 use super::*;
 use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
-use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
 use crate::Call;
 use attestor_primitives::{
@@ -517,12 +516,13 @@ fn register_attestor_without_sufficient_funds_should_fail() {
 #[test]
 fn register_attestor_without_sufficient_funds_should_fail_2() {
     ExtBuilder.build_and_execute(|| {
-        let free_balance = Attestation::get_free_balance(&STASH_3);
-        // 1_000_000_000_000_000_000_000 balance - 500 existential deposit
-        assert_eq!(free_balance, 999_999_999_999_999_999_500);
+        assert_eq!(
+            Attestation::get_free_balance(&STASH_3),
+            1_000_000_000_000_000_000_000
+        );
 
         // Set min bond
-        // Balance of Stash 3 is 1_000_000_000_000_000_000_000
+        // Stash 3 has 1_000_000_000_000_000_000_000 units of attest coin (see mock genesis).
         assert_ok!(Attestation::set_min_bond_requirement(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
@@ -536,10 +536,9 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
             att.attestor_id,
         ));
 
-        let free_balance = Attestation::get_free_balance(&STASH_3);
         assert_eq!(
-            free_balance + ONE_TENTH_CTC as u128,
-            399_999_999_999_999_999_500
+            Attestation::get_free_balance(&STASH_3),
+            400_000_000_000_000_000_000
         );
 
         // We should not be able to register another attestor because we don't have enough funds
@@ -635,6 +634,80 @@ fn registering_dergegistering_multiple_attestor_increases_decreases_locked_balan
         // get locked balance
         let locked_balance = Attestation::get_locked_balance(&STASH_3);
         assert_eq!(locked_balance, min_bond_requirement);
+    })
+}
+
+// Finding #17 regression: the bonding ledger is per-stash but a stash can back multiple
+// attestors. After an operator RAISES `MinBondRequirement`, removing one attestor must not
+// unlock so much collateral that the remaining still-registered attestor(s) drop below the
+// new aggregate requirement.
+#[test]
+fn unregistering_attestor_cannot_undercollateralize_remaining_after_min_bond_increase() {
+    ExtBuilder.build_and_execute(|| {
+        // STASH_3 backs two attestors at the default min bond.
+        let att1 = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att1.attestor_id,
+        ));
+        let att2 = Attestor::new(STASH_3, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            att2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att2.attestor_id,
+        ));
+
+        let min_bond = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+        // Two attestors => ledger.active == 2 * min_bond.
+        let ledger = Attestation::ledger(STASH_3).expect("stash is bonded");
+        assert_eq!(ledger.active, min_bond * 2);
+
+        // Operator raises the per-chain min bond to 1.5x. Now a single remaining attestor
+        // requires `new_min_bond` (= 1.5 * min_bond) collateral, but unregistering one
+        // attestor would try to unlock `new_min_bond`, leaving active = 2*min_bond -
+        // 1.5*min_bond = 0.5*min_bond, which is below the requirement for the survivor.
+        let new_min_bond = min_bond + min_bond / 2;
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            new_min_bond,
+        ));
+
+        // The reducing operation must be rejected: the aggregate solvency guard fires.
+        assert_noop!(
+            Attestation::unregister_attestor(att2.stash.clone(), SUPPORTED_CHAIN_KEY, ATTESTOR_2),
+            Error::<Test>::InsufficientRemainingBond
+        );
+
+        // Collateral is fully retained and both attestors remain registered.
+        let ledger = Attestation::ledger(STASH_3).expect("stash is still bonded");
+        assert_eq!(ledger.active, min_bond * 2);
+        assert!(ledger.unlocking.is_empty());
+        assert!(Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_1
+        ));
+        assert!(Attestation::attestor_is_registered(
+            SUPPORTED_CHAIN_KEY,
+            &ATTESTOR_2
+        ));
+
+        // Sanity: once the operator's requirement is back within what the stash can cover
+        // for the survivor, the same unregister succeeds (guard does not over-restrict).
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::signed(ALICE),
+            SUPPORTED_CHAIN_KEY,
+            min_bond,
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            att2.stash,
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_2
+        ));
+        // Survivor (ATTESTOR_1) stays fully collateralized at the current requirement.
+        let ledger = Attestation::ledger(STASH_3).expect("stash is still bonded");
+        assert!(ledger.active >= MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY));
     })
 }
 
@@ -1010,9 +1083,10 @@ fn stash_ledger_schould_increase_when_registering_multiple_attestors() {
         assert_eq!(ledger.stash, STASH_1);
         assert_eq!(ledger.total_staked, min_bond_requirement * 2);
 
-        let locks = Balances::locks(&STASH_1);
-        assert_eq!(locks.len(), 1);
-        assert_eq!(locks[0].amount, min_bond_requirement * 2);
+        assert_eq!(
+            Attestation::get_locked_balance(&STASH_1),
+            min_bond_requirement * 2
+        );
     })
 }
 
@@ -4303,12 +4377,10 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
         // The total staked amount should be equal to the min bond requirement
         assert_eq!(ledger.total_staked, min_bond_requirement);
 
-        // Get balance locks
-        let locks = Balances::locks(&STASH_1);
-        assert_eq!(locks.len(), 1);
-
-        let locked_balance = Attestation::get_locked_balance(&attestor.stash_id);
-        assert_eq!(locked_balance, min_bond_requirement);
+        assert_eq!(
+            Attestation::get_locked_balance(&attestor.stash_id),
+            min_bond_requirement
+        );
 
         // Progress to block 50
         progress_to_block(50);
@@ -4320,10 +4392,6 @@ fn removing_attestor_and_unbonding_staked_funds_work() {
         let ledger = Ledger::<Test>::get(STASH_1);
         // Ledger is nuked
         assert!(ledger.is_none());
-
-        // Get balance locks
-        let locks = Balances::locks(&STASH_1);
-        assert_eq!(locks.len(), 0);
 
         let locked_balance = Attestation::get_locked_balance(&attestor.stash_id);
         assert_eq!(locked_balance, 0);
@@ -4358,9 +4426,10 @@ fn withdrawing_unbonded_from_non_unregistered_attestors_fails() {
         // The total staked amount should be equal to the min bond requirement
         assert_eq!(ledger.total_staked, min_bond_requirement);
 
-        // Get balance locks
-        let locks = Balances::locks(&STASH_1);
-        assert_eq!(locks.len(), 1);
+        assert_eq!(
+            Attestation::get_locked_balance(&STASH_1),
+            min_bond_requirement
+        );
 
         // Progress to block 50
         progress_to_block(50);
@@ -4369,9 +4438,10 @@ fn withdrawing_unbonded_from_non_unregistered_attestors_fails() {
         // Should do nothing since the attestor is not unregistered
         assert_ok!(Attestation::withdraw_unbonded(attestor.stash));
 
-        // Get balance locks
-        let locks = Balances::locks(&STASH_1);
-        assert_eq!(locks.len(), 1);
+        assert_eq!(
+            Attestation::get_locked_balance(&STASH_1),
+            min_bond_requirement
+        );
 
         let ledger = Ledger::<Test>::get(STASH_1);
         assert!(ledger.is_some());
@@ -4420,9 +4490,10 @@ fn removing_attestor_and_withdrawing_fails_if_not_waited_long_enough() {
         // The total staked amount should be equal to the min bond requirement
         assert_eq!(ledger.total_staked, min_bond_requirement);
 
-        // Get balance locks
-        let locks = Balances::locks(&STASH_1);
-        assert_eq!(locks.len(), 1);
+        assert_eq!(
+            Attestation::get_locked_balance(&STASH_1),
+            min_bond_requirement
+        );
 
         // Progress to block 5
         progress_to_block(5);
