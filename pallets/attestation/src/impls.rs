@@ -679,6 +679,76 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Move surplus `active` bond into an unlocking chunk so `withdraw_unbonded` can return it.
+    ///
+    /// Inverse of [`Self::do_bond_extra`]. `active` may only be reduced down to the stash's
+    /// aggregate requirement across its still-registered attestors, never below, so this cannot
+    /// undercollateralize. With no attestors left the requirement is zero, so the whole remaining
+    /// bond is releasable and the dust sweep below lets `withdraw_unbonded` reap the stash.
+    ///
+    /// Without this path any `active` above the aggregate requirement was locked permanently:
+    /// `remove_attestor_and_emit_event` releases at most the *current* `MinBondRequirement` per
+    /// attestor, and `kill_stash` only fires once `active` is under the existential deposit. So
+    /// overshooting a `bond_extra` top-up, a later `MinBondRequirement` *decrease*, or topping up
+    /// while no attestor is registered each left an unreachable remainder in the bond pool.
+    pub(crate) fn do_unbond_surplus(stash: &T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
+        ensure!(!amount.is_zero(), Error::<T>::InsufficientBalance);
+
+        let mut ledger = Self::ledger(stash).ok_or(Error::<T>::NotStash)?;
+        ensure!(
+            ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
+            Error::<T>::NoMoreChunks,
+        );
+
+        let mut value = amount.min(ledger.active);
+        ensure!(!value.is_zero(), Error::<T>::InsufficientBalance);
+
+        ledger.active = ledger.active.saturating_sub(value);
+
+        // Avoid leaving a dust balance in the staking system (mirrors the unregister unbond path).
+        if ledger.active < existential_deposit::<T>() {
+            value = value.saturating_add(ledger.active);
+            ledger.active = Zero::zero();
+        }
+
+        // Checked *after* the dust sweep, because the sweep can pull `active` below the
+        // requirement even when the caller's requested amount would not have.
+        let required = Self::required_bond_for_stash(stash, None);
+        ensure!(
+            ledger.active >= required,
+            Error::<T>::InsufficientRemainingBond
+        );
+
+        // `total_staked` is unchanged — the value moves from `active` into `unlocking`, so
+        // `ledger.update()` sees a zero pool delta. The attest coin leaves the pool later, in
+        // `do_withdraw_unbonded`, once the chunk matures.
+        let purge_at_era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
+        if let Some(chunk) = ledger
+            .unlocking
+            .last_mut()
+            .filter(|chunk| chunk.era == purge_at_era)
+        {
+            chunk.value = chunk.value.defensive_saturating_add(value);
+        } else {
+            ledger
+                .unlocking
+                .try_push(UnlockChunk {
+                    value,
+                    era: purge_at_era,
+                })
+                .map_err(|_| Error::<T>::NoMoreChunks)?;
+        }
+
+        ledger.update()?;
+
+        Self::deposit_event(Event::<T>::Unbonded {
+            stash: stash.clone(),
+            amount: value,
+        });
+
+        Ok(())
+    }
+
     /// Bond the extra collateral that a further `register_attestor` on `chain_key` requires.
     ///
     /// Named distinctly from the `bond_extra` **dispatchable** (which takes an explicit amount);

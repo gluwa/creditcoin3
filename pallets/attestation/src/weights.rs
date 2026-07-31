@@ -751,4 +751,34 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(10))
 			.saturating_add(T::DbWeight::get().writes(8))
 	}
+	/// NOT BENCHMARK-GENERATED — hand-derived conservative placeholder for the `unbond_surplus`
+	/// dispatchable. Regenerate with `.github/bench.sh -p attestation -b` before release.
+	/// NOTE: `required_bond_for_stash` iterates `Attestors` across every supported chain, so the
+	/// real cost scales with the registry size; the generated weight will need a component for it.
+	/// Storage: `Attestation::Ledger` (r:1 w:1)
+	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::MinBondRequirement` (r:1 w:0)
+	/// Proof: `Attestation::MinBondRequirement` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::Attestors` (r:100 w:0)
+	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Staking::CurrentEra` (r:1 w:0)
+	/// Proof: `Staking::CurrentEra` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn unbond_surplus() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `4000`
+		//  Estimated: `20000`
+		// Minimum execution time: 150_000_000 picoseconds (conservative).
+		Weight::from_parts(200_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 20000))
+			.saturating_add(T::DbWeight::get().reads(107))
+			.saturating_add(T::DbWeight::get().writes(4))
+	}
 }

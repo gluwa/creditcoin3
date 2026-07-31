@@ -201,6 +201,7 @@ pub mod pallet {
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
         fn bond_extra() -> Weight;
+        fn unbond_surplus() -> Weight;
     }
 
     #[pallet::storage]
@@ -1468,6 +1469,28 @@ pub mod pallet {
             let stash = ensure_signed(origin)?;
 
             Self::do_bond_extra(&stash, amount)
+        }
+
+        /// Release bond above the caller's aggregate collateral requirement into an unlocking
+        /// chunk, withdrawable with `withdraw_unbonded` after `BondingDuration`.
+        ///
+        /// Inverse of [`Self::bond_extra`], and the only way to recover surplus `active` bond:
+        /// `unregister_attestor` releases at most the *current* `MinBondRequirement` per attestor,
+        /// and `withdraw_unbonded` only reaps a stash once `active` is under the existential
+        /// deposit. Without this call, an overshot `bond_extra`, a `MinBondRequirement` *decrease*,
+        /// or a top-up made while no attestor is registered would each strand the remainder in the
+        /// bond pool permanently.
+        ///
+        /// `amount` is capped at the caller's `active` bond, and the resulting `active` may not
+        /// fall below the sum of `MinBondRequirement` across the stash's still-registered
+        /// attestors (`InsufficientRemainingBond` otherwise). With no attestors registered that
+        /// sum is zero, so the full remaining bond can be released and the stash reaped.
+        #[pallet::call_index(31)]
+        #[pallet::weight(<T as Config>::WeightInfo::unbond_surplus())]
+        pub fn unbond_surplus(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
+            let stash = ensure_signed(origin)?;
+
+            Self::do_unbond_surplus(&stash, amount)
         }
     }
 

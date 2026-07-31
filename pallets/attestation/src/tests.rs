@@ -622,6 +622,140 @@ fn bond_extra_moves_liquid_balance_into_the_pool() {
     })
 }
 
+#[test]
+fn unbond_surplus_requires_ledger_and_rejects_zero() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::unbond_surplus(RuntimeOrigin::signed(STASH_3), 1),
+            Error::<Test>::NotStash
+        );
+
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        assert_noop!(
+            Attestation::unbond_surplus(att.stash, 0),
+            Error::<Test>::InsufficientBalance
+        );
+    })
+}
+
+#[test]
+fn unbond_surplus_cannot_drop_below_aggregate_requirement() {
+    ExtBuilder.build_and_execute(|| {
+        let min = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        let surplus = 40_000_000_000_000_000_000u128;
+        assert_ok!(Attestation::bond_extra(att.stash.clone(), surplus));
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, min + surplus);
+
+        // Releasing the surplus is fine; releasing a single unit more is not.
+        assert_noop!(
+            Attestation::unbond_surplus(att.stash.clone(), surplus + 1),
+            Error::<Test>::InsufficientRemainingBond
+        );
+        assert_ok!(Attestation::unbond_surplus(att.stash, surplus));
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, min);
+    })
+}
+
+/// Regression: `bond_extra` could strand funds permanently. `unregister_attestor` releases at most
+/// the *current* `MinBondRequirement` per attestor and `withdraw_unbonded` only reaps a stash once
+/// `active` is under the existential deposit, so an overshot top-up had no exit. `unbond_surplus`
+/// is the inverse path; here it recovers an overshoot and lets the stash be reaped.
+#[test]
+fn unbond_surplus_recovers_an_overshot_top_up_and_reaps_the_stash() {
+    ExtBuilder.build_and_execute(|| {
+        let min = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+        let liquid_at_start = Attestation::get_free_balance(&STASH_3);
+
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        // Wildly overshoot the top-up, then leave the attestor set entirely.
+        let overshoot = 500_000_000_000_000_000_000u128;
+        assert_ok!(Attestation::bond_extra(att.stash.clone(), overshoot));
+        assert_ok!(Attestation::unregister_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+
+        // `unregister_attestor` only unbonded `min` — the overshoot is stranded in `active`, with
+        // no attestor left to unregister and no path that would reach it.
+        let ledger = Attestation::ledger(STASH_3).unwrap();
+        assert_eq!(ledger.active, overshoot);
+        assert_eq!(ledger.total_staked, min + overshoot);
+        assert_eq!(
+            ledger.unlocking.iter().map(|c| c.value).sum::<u128>(),
+            min,
+            "unregister should have queued exactly the current min bond"
+        );
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), 0);
+
+        // With no attestors the requirement is zero, so the whole remainder is releasable.
+        assert_ok!(Attestation::unbond_surplus(att.stash.clone(), overshoot));
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, 0);
+
+        progress_to_block(50);
+        assert_ok!(Attestation::withdraw_unbonded(att.stash));
+
+        // Ledger reaped and every unit of attest coin is back on the stash.
+        assert!(Ledger::<Test>::get(STASH_3).is_none());
+        assert_eq!(Attestation::get_free_balance(&STASH_3), liquid_at_start);
+        assert_eq!(
+            Attestation::get_free_balance(&TestBondPoolAccount::get()),
+            0
+        );
+    })
+}
+
+/// A `MinBondRequirement` *decrease* also strands collateral: `unregister_attestor` then releases
+/// only the new, lower amount. This leak predates the `bond_extra` dispatchable.
+#[test]
+fn unbond_surplus_recovers_collateral_after_a_min_bond_decrease() {
+    ExtBuilder.build_and_execute(|| {
+        let min = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, min);
+
+        // Governance lowers the requirement to a tenth.
+        let lowered = min / 10;
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            lowered,
+        ));
+
+        // The stash is now over-collateralized by `min - lowered` against the current requirement.
+        assert_eq!(
+            Attestation::required_bond_for_stash(&STASH_3, None),
+            lowered
+        );
+        assert_ok!(Attestation::unbond_surplus(att.stash, min - lowered));
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, lowered);
+    })
+}
+
 /// Regression: raising `MinBondRequirement` after registration used to trap a multi-attestor
 /// stash. The aggregate solvency guard in `unregister_attestor` reads the *current* requirement,
 /// so neither attestor could exit, and the only way to add collateral was to register yet another
