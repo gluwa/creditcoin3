@@ -17,6 +17,22 @@ fi
 ERROR_ALLOWLIST="${ERROR_ALLOWLIST:-}"
 if [ -n "$ERROR_ALLOWLIST" ]; then
     echo "INFO: applying caller-supplied ERROR_ALLOWLIST: $ERROR_ALLOWLIST"
+
+    # Reject a malformed allowlist here, loudly, instead of letting it disable the gate.
+    # `grep -vE` with an invalid ERE exits >=1 having produced no output, and the filter below
+    # runs under `set +e`, so the whole log would filter down to nothing and every file would
+    # report "PASS" — a typo in the caller's regex would silently switch the gate off on a log
+    # full of real failures. grep exits 0 (matched) or 1 (no match) for a *valid* pattern and
+    # >=2 only on a usage/pattern error, so that is what we gate on. `set +e` around the probe
+    # because the no-match case is exit 1, which errexit would otherwise treat as fatal.
+    set +e
+    printf '' | grep -qE "$ERROR_ALLOWLIST"
+    allowlist_status=$?
+    set -e
+    if [ "$allowlist_status" -ge 2 ]; then
+        echo "ERROR: ERROR_ALLOWLIST is not a valid extended regular expression: $ERROR_ALLOWLIST"
+        exit 1
+    fi
 fi
 
 # Filter a log to its failing ERROR lines: drop known-benign node noise, then, when the caller
@@ -50,7 +66,10 @@ for LOG_FILE in $(find "$TARGET_FILE" -type f ); do
         echo "======"
         printf '%s\n' "$FILTERED"
         echo "======"
-        exit "$ERR_COUNT"
+        # Exit 1, not "$ERR_COUNT": exit statuses are taken mod 256, so a log with exactly 256
+        # (or 512, ...) matching lines exited 0 and the step passed while printing "FAIL". The
+        # count is already reported above; the status only needs to say "failed".
+        exit 1
     else
         echo "PASS: no errors found in $LOG_FILE"
     fi
