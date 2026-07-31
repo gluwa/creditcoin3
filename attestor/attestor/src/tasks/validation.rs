@@ -890,11 +890,16 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
         .attestation()
         .commit_attestation(agg.attestation_signed.into());
     const POOL_INVALID_TX: i32 = 1010;
-    // Txpool refused to *replace* an in-pool tx with the same nonce ("Priority is too low").
-    // That in-pool tx is almost always our own earlier commit_attestation still pending
-    // (subxt's default nonce comes from chain state, not the pool, so a resubmission reuses
-    // the pending tx's nonce with equal-or-lower priority). Resubmitting cannot succeed until
-    // that tx resolves — retrying here spins at wire speed against a healthy node.
+    // Txpool refused to admit our tx alongside an in-pool one ("Priority is too low"). That
+    // in-pool tx is normally a *peer's* commit_attestation for the same attestation, not ours:
+    // `PrevalidateAttestationCommit` tags every admitted commit with
+    // `provides = (chain_key, digest)` precisely so the pool keeps one submission per
+    // attestation and the every-attestor-submits race is deduplicated at admission. All copies
+    // carry the default priority 0, and replacement needs strictly-greater priority, so
+    // whichever attestor arrives first wins and the rest land here. Resubmitting cannot succeed
+    // while that tx is pending — retrying would spin at wire speed against a healthy node.
+    // Losing this race costs nothing: we are rejected before fees, and the winner's stored
+    // `SignedAttestation` credits every signer in `attestors`, including us.
     const POOL_TOO_LOW_PRIORITY: i32 = 1014;
     // Pace the generic rpc-error retry arm. `Client::reconnect` succeeds instantly against a
     // healthy node (and a success resets its shared backoff), so without a pause a
@@ -965,14 +970,14 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
                             return OutcomeInternal::Unresolved;
                         }
                         if obj.code() == POOL_TOO_LOW_PRIORITY {
-                            // A same-nonce tx (ours, still pending) already occupies the pool
-                            // slot — see POOL_TOO_LOW_PRIORITY. Same shape as the 1010 race:
-                            // Unresolved lets the handler's bounded wait observe it landing,
-                            // and unlocks the height if it never does.
+                            // A commit for this same `(chain_key, digest)` — normally a peer's,
+                            // see POOL_TOO_LOW_PRIORITY — already holds the pool slot. Same shape
+                            // as the 1010 race: Unresolved lets the handler's bounded wait
+                            // observe it landing, and unlocks the height if it never does.
                             tracing::info!(
                                 height,
                                 code = obj.code(),
-                                "🚦 same-nonce tx already pending in txpool — awaiting its resolution"
+                                "🚦 attestation already pending in txpool — lost the submit race, awaiting its resolution"
                             );
                             return OutcomeInternal::Unresolved;
                         }
