@@ -247,6 +247,10 @@ impl frame_system::Config for Runtime {
         // Write-ability storage migration (v0 -> v1: WriteAbilityConfigs / OutboxFactories).
         // Version-guarded, so it no-ops on chains where it already ran (e.g. usc-dev).
         pallet_supported_chains::migrations::MigrateV0ToV1<Runtime>,
+        // Write-ability storage migration (v1 -> v2: CoreFeeConfig loses its `token` field, so any
+        // legacy entry would mis-decode). Clears CoreFees, which is empty on every network today
+        // (no genesis field, write-ability undeployed). Version-guarded like the one above.
+        pallet_supported_chains::migrations::MigrateV1ToV2<Runtime>,
         // NOTE: all other historical migrations are intentionally NOT registered:
         // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
         //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2

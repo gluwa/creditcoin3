@@ -3281,16 +3281,16 @@ declare module '@polkadot/api-base/types/submittable' {
              * accounts in the Operators membership (or root) can call this extrinsic.
              *
              * The value is read live by the EVM through the chain-info precompile
-             * (`get_core_fee(uint64)`), so changes take effect on the next publish without any
-             * contract redeploys — including a later native→attestcoin denomination switch.
+             * (`get_core_fee(uint32)`), so changes take effect on the next publish without any
+             * contract redeploys. `amount` is attestcoin wei — see [`CoreFeeConfig`] for why the
+             * denomination is not configurable.
              **/
             setCoreFee: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
-                    token: Option<H160> | null | Uint8Array | H160 | string,
                     amount: U256 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
-                [u64, Option<H160>, U256]
+                [u64, U256]
             >;
             /**
              * Registers the outbox factory contract address for a supported chain. Only accounts in

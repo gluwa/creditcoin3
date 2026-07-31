@@ -314,7 +314,6 @@ fn remove_chain_works() {
         assert_ok!(SupportedChain::set_core_fee(
             RuntimeOrigin::root(),
             chain_key,
-            None,
             U256::from(7u64),
         ));
         assert_ok!(SupportedChain::set_outbox_factory_addr(
@@ -881,72 +880,54 @@ fn genesis_seeds_outbox_factories() {
 }
 
 #[test]
-fn set_core_fee_works_native() {
+fn set_core_fee_works() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let chain_key = 1;
-        let amount = U256::from(1_000_000_000_000_000_000u128); // 1 CTC
+        let chain_key = SUPPORTED_CHAIN_KEY;
+        let amount = U256::from(1_000_000_000_000_000_000u128); // 1 ATTEST
 
         assert_eq!(CoreFees::<Test>::get(chain_key), None);
 
-        // token: None = fee denominated in native CTC.
         assert_ok!(SupportedChain::set_core_fee(
             RuntimeOrigin::root(),
             chain_key,
-            None,
             amount,
         ));
 
         assert_eq!(
             CoreFees::<Test>::get(chain_key),
-            Some(CoreFeeConfig {
-                token: None,
-                amount
-            })
+            Some(CoreFeeConfig { amount })
         );
 
-        System::assert_last_event(
-            crate::Event::CoreFeeSet {
-                chain_key,
-                token: None,
-                amount,
-            }
-            .into(),
-        );
+        System::assert_last_event(crate::Event::CoreFeeSet { chain_key, amount }.into());
     });
 }
 
 #[test]
-fn set_core_fee_works_erc20_and_overwrites() {
+fn set_core_fee_overwrites() {
     ExtBuilder.build_and_execute(|| {
         System::set_block_number(1);
 
-        let chain_key = 1;
-        let token = H160::repeat_byte(0x22);
+        let chain_key = SUPPORTED_CHAIN_KEY;
         let amount = U256::from(5u64);
 
         assert_ok!(SupportedChain::set_core_fee(
             RuntimeOrigin::root(),
             chain_key,
-            None,
             U256::from(1u64),
         ));
-        // The planned native -> attestcoin denomination switch is exactly this overwrite: one
-        // governance call, no migration.
+        // A governance fee change is a single call with no migration — the Outbox reads the new
+        // value on its next publish.
         assert_ok!(SupportedChain::set_core_fee(
             RuntimeOrigin::root(),
             chain_key,
-            Some(token),
             amount,
         ));
 
         assert_eq!(
             CoreFees::<Test>::get(chain_key),
-            Some(CoreFeeConfig {
-                token: Some(token),
-                amount
-            })
+            Some(CoreFeeConfig { amount })
         );
     });
 }
@@ -955,7 +936,7 @@ fn set_core_fee_works_erc20_and_overwrites() {
 fn set_core_fee_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            SupportedChain::set_core_fee(RuntimeOrigin::none(), 1, None, U256::from(1u64)),
+            SupportedChain::set_core_fee(RuntimeOrigin::none(), 1, U256::from(1u64)),
             BadOrigin
         );
     });
@@ -964,27 +945,23 @@ fn set_core_fee_should_error_when_not_signed() {
 #[test]
 fn set_core_fee_should_error_when_not_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
-        let chain_key = 1;
+        let chain_key = SUPPORTED_CHAIN_KEY;
         let amount = U256::from(1u64);
 
         assert_noop!(
-            SupportedChain::set_core_fee(RuntimeOrigin::signed(2), chain_key, None, amount),
+            SupportedChain::set_core_fee(RuntimeOrigin::signed(2), chain_key, amount),
             BadOrigin
         );
 
         assert_ok!(SupportedChain::set_core_fee(
             RuntimeOrigin::signed(OPERATOR_ACCOUNT),
             chain_key,
-            None,
             amount,
         ));
 
         assert_eq!(
             CoreFees::<Test>::get(chain_key),
-            Some(CoreFeeConfig {
-                token: None,
-                amount
-            })
+            Some(CoreFeeConfig { amount })
         );
     });
 }
@@ -995,29 +972,8 @@ fn set_core_fee_should_error_when_chain_is_not_supported() {
         System::set_block_number(1);
 
         assert_noop!(
-            SupportedChain::set_core_fee(RuntimeOrigin::root(), 1, None, U256::from(1u64)),
+            SupportedChain::set_core_fee(RuntimeOrigin::root(), 1, U256::from(1u64)),
             Error::<Test>::ChainNotSupported
-        );
-
-        assert_eq!(CoreFees::<Test>::get(1), None);
-    });
-}
-
-#[test]
-fn set_core_fee_should_error_when_token_is_zero_address() {
-    ExtBuilder.build_and_execute(|| {
-        System::set_block_number(1);
-
-        // Some(zero) is always a misconfiguration: address(0) means "native" on the EVM side and
-        // must be expressed as None here — an Outbox transferFrom(address(0)) would be broken.
-        assert_noop!(
-            SupportedChain::set_core_fee(
-                RuntimeOrigin::root(),
-                1,
-                Some(H160::zero()),
-                U256::from(1u64),
-            ),
-            Error::<Test>::ZeroCoreFeeToken
         );
 
         assert_eq!(CoreFees::<Test>::get(1), None);

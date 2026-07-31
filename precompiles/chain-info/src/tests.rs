@@ -3,8 +3,8 @@ use crate::{
         Account::{Alice, Precompile},
         *,
     },
-    BoundsCheckResult, ChainInfo, ChainInfoResult, CoreFeeResult, CoreFees, HashResult,
-    HeightHashResult, HeightResult, OutboxFactories, OutboxFactoryResult,
+    BoundsCheckResult, ChainInfo, ChainInfoResult, CoreFees, HashResult, HeightHashResult,
+    HeightResult, OutboxFactories, OutboxFactoryResult,
 };
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
@@ -155,64 +155,46 @@ fn get_outbox_factory_address_returns_default_when_not_set() {
 }
 
 #[test]
-fn get_core_fee_works_native_and_erc20() {
+fn get_core_fee_returns_the_configured_amount() {
     let alice: H160 = Alice.into();
 
-    let amount = U256::from(1_000_000_000_000_000_000u128); // 1 CTC
+    let amount = U256::from(1_000_000_000_000_000_000u128); // 1 ATTEST
 
     ExtBuilder::default()
         .with_balances(vec![(alice.into(), 300)])
         .build()
         .execute_with(|| {
-            // Native-denominated fee (token: None) surfaces as address(0).
-            CoreFees::<Runtime>::insert(
-                SUPPORTED_CHAIN_KEY,
-                CoreFeeConfig {
-                    token: None,
-                    amount,
-                },
-            );
-            precompiles()
-                .prepare_test(
-                    alice,
-                    Precompile,
-                    PCall::get_core_fee {
-                        chain_key: SUPPORTED_CHAIN_KEY,
-                    },
-                )
-                .execute_returns(CoreFeeResult {
-                    token: Address(H160::zero()),
-                    amount,
-                    exists: true,
-                });
+            CoreFees::<Runtime>::insert(SUPPORTED_CHAIN_KEY, CoreFeeConfig { amount });
 
-            // ERC20-denominated fee (the planned attestcoin switch) surfaces the token address.
-            let token = H160::repeat_byte(0x22);
-            CoreFees::<Runtime>::insert(
-                SUPPORTED_CHAIN_KEY,
-                CoreFeeConfig {
-                    token: Some(token),
-                    amount,
-                },
-            );
             precompiles()
                 .prepare_test(
                     alice,
                     Precompile,
                     PCall::get_core_fee {
-                        chain_key: SUPPORTED_CHAIN_KEY,
+                        chain_key: SUPPORTED_CHAIN_KEY as u32,
                     },
                 )
-                .execute_returns(CoreFeeResult {
-                    token: Address(token),
-                    amount,
-                    exists: true,
-                });
+                .execute_returns(amount);
+
+            // A governance fee change is picked up on the next read — the whole point of the Outbox
+            // reading this live rather than holding its own copy.
+            let raised = U256::from(2_500_000_000_000_000_000u128);
+            CoreFees::<Runtime>::insert(SUPPORTED_CHAIN_KEY, CoreFeeConfig { amount: raised });
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_core_fee {
+                        chain_key: SUPPORTED_CHAIN_KEY as u32,
+                    },
+                )
+                .execute_returns(raised);
         });
 }
 
 #[test]
-fn get_core_fee_returns_default_when_not_set() {
+fn get_core_fee_returns_zero_when_not_set() {
     let alice: H160 = Alice.into();
 
     ExtBuilder::default()
@@ -221,20 +203,32 @@ fn get_core_fee_returns_default_when_not_set() {
         .execute_with(|| {
             assert!(!CoreFees::<Runtime>::contains_key(SUPPORTED_CHAIN_KEY));
 
+            // An unconfigured chain is indistinguishable from an explicit zero fee, by design: both
+            // mean "charge nothing", so the ABI carries no separate `exists` flag.
             precompiles()
                 .prepare_test(
                     alice,
                     Precompile,
                     PCall::get_core_fee {
-                        chain_key: SUPPORTED_CHAIN_KEY,
+                        chain_key: SUPPORTED_CHAIN_KEY as u32,
                     },
                 )
-                .execute_returns(CoreFeeResult {
-                    token: Address(H160::zero()),
-                    amount: U256::zero(),
-                    exists: false,
-                });
+                .execute_returns(U256::zero());
         });
+}
+
+/// The Solidity consumer (`ICoreFeeProvider` in usc-contracts, behind `IFeeRegistry`) declares
+/// `get_core_fee(uint32) returns (uint256)` and its FeeRegistry staticcalls that selector directly.
+/// A drift in the argument width or the return shape would change the selector and silently stop
+/// resolving, so pin it here.
+#[test]
+fn get_core_fee_selector_matches_the_solidity_consumer() {
+    assert_eq!(
+        PCall::get_core_fee_selectors(),
+        [0x5b023376],
+        "get_core_fee(uint32) selector must stay 0x5b023376 — it is hardcoded in \
+         usc-contracts ICoreFeeProvider"
+    );
 }
 
 #[test]
