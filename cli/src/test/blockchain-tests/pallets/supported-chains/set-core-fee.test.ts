@@ -26,15 +26,12 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetCoreFee', (): void => 
     // A chain key which is never registered, to exercise the ChainNotSupported guard
     const unsupportedChainKey = 42_732;
 
-    // Core-fee amounts are 18-decimal EVM values: the Outbox charges them as `msg.value` (native)
-    // or pulls them with `transferFrom` (ERC20), so they are wei-denominated, not microunits.
-    const oneCtc = '1000000000000000000';
-    const halfCtc = '500000000000000000';
-
-    // 20-byte ERC20 address on Creditcoin's EVM, standing in for the future attestcoin token.
-    // Repeated-nibble addresses keep `H160.toString()` comparisons free of checksum casing.
-    const erc20Token = '0x2222222222222222222222222222222222222222';
-    const zeroToken = '0x0000000000000000000000000000000000000000';
+    // The core fee is always denominated in attestcoin, so amounts are ATTEST wei. There is no
+    // token parameter: the Outbox pulls the fee with transferFrom on its configured ATTEST token
+    // and has no native-currency path, so a configurable denomination could only ever disagree with
+    // what is actually charged.
+    const oneAttest = '1000000000000000000';
+    const halfAttest = '500000000000000000';
 
     // Decodes the result of the call wrapped in `sudo.sudo`. The outer sudo extrinsic dispatches
     // successfully even when the wrapped call fails, so a failure is only visible through the
@@ -151,8 +148,8 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetCoreFee', (): void => 
         await api.disconnect();
     }, 30_000);
 
-    it('sets a core fee denominated in native CTC, fee is min 0.01 CTC', async (): Promise<void> => {
-        const { fee, events, error } = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, null, oneCtc));
+    it('sets a core fee, fee is min 0.01 CTC', async (): Promise<void> => {
+        const { fee, events, error } = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, oneAttest));
 
         expect(error).toBeUndefined();
         expect(fee).toBeGreaterThanOrEqual((global as any).CREDITCOIN_MINIMUM_TXN_FEE);
@@ -160,56 +157,42 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetCoreFee', (): void => 
         const stored = await api.query.supportedChains.coreFees(chainKey);
 
         expect(stored.isSome).toEqual(true);
-        // A native-CTC fee is stored as `token: None`; the extrinsic rejects the zero address
-        expect(stored.unwrap().token.isNone).toEqual(true);
-        expect(stored.unwrap().amount.toString()).toEqual(oneCtc);
+        expect(stored.unwrap().amount.toString()).toEqual(oneAttest);
 
         const emitted = coreFeeSetEvent(events);
 
         expect(emitted).toBeDefined();
         expect(emitted?.chainKey.toString()).toEqual(chainKey.toString());
-        expect(emitted?.token.isNone).toEqual(true);
-        expect(emitted?.amount.toString()).toEqual(oneCtc);
-    }, 30_000);
-
-    it('sets a core fee denominated in an ERC20', async (): Promise<void> => {
-        const { events, error } = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, erc20Token, halfCtc));
-
-        expect(error).toBeUndefined();
-
-        const stored = await api.query.supportedChains.coreFees(chainKey);
-
-        expect(stored.isSome).toEqual(true);
-        expect(stored.unwrap().token.isSome).toEqual(true);
-        expect(stored.unwrap().token.unwrap().toString()).toEqual(erc20Token);
-        expect(stored.unwrap().amount.toString()).toEqual(halfCtc);
-
-        const emitted = coreFeeSetEvent(events);
-
-        expect(emitted).toBeDefined();
-        expect(emitted?.chainKey.toString()).toEqual(chainKey.toString());
-        expect(emitted?.token.isSome).toEqual(true);
-        expect(emitted?.token.unwrap().toString()).toEqual(erc20Token);
-        expect(emitted?.amount.toString()).toEqual(halfCtc);
+        expect(emitted?.amount.toString()).toEqual(oneAttest);
     }, 30_000);
 
     it('overwrites an existing core fee, last write wins', async (): Promise<void> => {
-        const first = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, erc20Token, oneCtc));
+        const first = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, oneAttest));
 
         expect(first.error).toBeUndefined();
 
-        // Switching back to a native-denominated fee also has to flip `token` from Some to None,
-        // which is the governance switch the precompile is meant to serve without a redeploy.
-        const second = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, null, halfCtc));
+        const second = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, halfAttest));
 
         expect(second.error).toBeUndefined();
 
         const stored = await api.query.supportedChains.coreFees(chainKey);
 
         expect(stored.isSome).toEqual(true);
-        expect(stored.unwrap().token.isNone).toEqual(true);
-        expect(stored.unwrap().amount.toString()).toEqual(halfCtc);
+        expect(stored.unwrap().amount.toString()).toEqual(halfAttest);
     }, 60_000);
+
+    it('accepts a zero amount, which disables the fee', async (): Promise<void> => {
+        const { error } = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, 0));
+
+        expect(error).toBeUndefined();
+
+        // The entry is kept with a zero amount; the precompile reports 0, which the Outbox treats
+        // as "charge nothing" — the same outcome as no entry at all.
+        const stored = await api.query.supportedChains.coreFees(chainKey);
+
+        expect(stored.isSome).toEqual(true);
+        expect(stored.unwrap().amount.toString()).toEqual('0');
+    }, 30_000);
 
     it('is rejected for a non-operator origin', async (): Promise<void> => {
         // The Operators membership is empty on a dev chain, so every signed origin - even //Bob,
@@ -220,7 +203,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetCoreFee', (): void => 
 
         const failure = await new Promise<DispatchError>((resolve, reject): void => {
             const unsubscribe = api.tx.supportedChains
-                .setCoreFee(chainKey, erc20Token, oneCtc)
+                .setCoreFee(chainKey, oneAttest)
                 .signAndSend(bob, { nonce }, async ({ dispatchError, status }) => {
                     if (!dispatchError && !status.isInBlock) {
                         return;
@@ -249,16 +232,8 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'SetCoreFee', (): void => 
         expect(after.toHex()).toEqual(before.toHex());
     }, 30_000);
 
-    it('rejects a zero core-fee token address', async (): Promise<void> => {
-        // address(0) means "native currency" on the EVM side, which this config expresses as
-        // `token: None`, so a zero ERC20 address is always a misconfiguration.
-        const { error } = await submitSudo(api.tx.supportedChains.setCoreFee(chainKey, zeroToken, oneCtc));
-
-        expect(error).toEqual('ZeroCoreFeeToken');
-    }, 30_000);
-
     it('rejects an unsupported chain key', async (): Promise<void> => {
-        const { error } = await submitSudo(api.tx.supportedChains.setCoreFee(unsupportedChainKey, null, oneCtc));
+        const { error } = await submitSudo(api.tx.supportedChains.setCoreFee(unsupportedChainKey, oneAttest));
 
         expect(error).toEqual('ChainNotSupported');
 

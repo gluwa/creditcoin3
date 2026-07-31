@@ -34,17 +34,6 @@ struct OutboxFactoryResult {
 }
 
 /**
- * @dev get_core_fee result structure. `token == address(0)` denominates the fee in native CTC
- * (paid via msg.value); any other address is an ERC20 on this EVM (attestcoin, pulled via
- * transferFrom). `exists == false` (or a zero amount) means no fee is configured.
- */
-struct CoreFeeResult {
-    address token;
-    uint256 amount;
-    bool exists;
-}
-
-/**
  * @dev Height result structure
  */
 struct HeightResult {
@@ -114,10 +103,18 @@ interface ChainInfoContract {
      * @dev Get the USC write-ability core (protocol) fee for a given chainKey, charged by that
      * chain's Outbox on every publishMessage. Governance-set; read live so fee changes take
      * effect on the next publish without contract redeploys.
+     *
+     * The fee is always denominated in attestcoin — the Outbox pulls it with transferFrom and has
+     * no native-currency path — so there is deliberately no token field. An unconfigured chain
+     * returns 0, which means "charge nothing", same as an explicit zero amount.
+     *
+     * NOTE: chainKey is uint32 here, unlike the uint64 used elsewhere in this interface. It matches
+     * the chain-key width the USC contracts use, and ICoreFeeProvider in usc-contracts staticcalls
+     * this exact selector (0x5b023376) — do not widen it without changing that consumer.
      * @param chainKey The chain key for which to get the core fee
-     * @return result core fee (token + amount) if configured
+     * @return amount core fee in attestcoin wei, or 0 when no fee is configured
      */
-    function get_core_fee(uint64 chainKey) external view returns (CoreFeeResult memory result);
+    function get_core_fee(uint32 chainKey) external view returns (uint256 amount);
 
     /**
      * @dev Get attestation genesis height for a chain

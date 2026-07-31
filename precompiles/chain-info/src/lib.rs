@@ -63,18 +63,6 @@ pub struct OutboxFactoryResult {
     pub exists: bool,
 }
 
-/// USC write-ability core (protocol) fee for a chain, read live from pallet storage so the
-/// Outbox charges the current governance-set value on every `publishMessage` without redeploys.
-/// `token == address(0)` denominates the fee in native CTC (`msg.value`); any other address is an
-/// ERC20 on this EVM (attestcoin, pulled via `transferFrom`). `exists == false` (or a zero
-/// `amount`) means no fee is configured — the Outbox charges nothing.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
-pub struct CoreFeeResult {
-    pub token: Address,
-    pub amount: U256,
-    pub exists: bool,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct HeightResult {
     pub height: u64,
@@ -204,13 +192,32 @@ where
         }
     }
 
-    #[precompile::public("get_core_fee(uint64)")]
+    /// USC write-ability core (protocol) fee for `chain_key`, in **attestcoin wei**, read live from
+    /// pallet storage so the Outbox charges the current governance-set value on every
+    /// `publishMessage` without a redeploy. An unconfigured chain returns `0`, which the consumer
+    /// treats as "no fee" — the same outcome as an explicit zero amount, so no separate `exists`
+    /// flag is needed.
+    ///
+    /// # ABI contract
+    ///
+    /// This is consumed by `ICoreFeeProvider` in `usc-contracts` (behind `IFeeRegistry`, which the
+    /// Outbox depends on), which declares exactly:
+    ///
+    /// ```solidity
+    /// function get_core_fee(uint32 chainKey) external view returns (uint256);
+    /// ```
+    ///
+    /// so the signature — including the `uint32` argument width, which is narrower than the runtime's
+    /// [`ChainKey`] and is what the contracts use for chain keys — and the bare `uint256` return must
+    /// not drift: selector `0x5b023376`. There is deliberately no token field; see
+    /// [`CoreFeeConfig`](supported_chains_primitives::CoreFeeConfig) for why the denomination is
+    /// fixed to attestcoin.
+    #[precompile::public("get_core_fee(uint32)")]
     #[precompile::view]
-    fn get_core_fee(
-        handle: &mut impl PrecompileHandle,
-        chain_key: ChainKey,
-    ) -> EvmResult<CoreFeeResult> {
-        let maybe_fee = CoreFees::<Runtime>::get(chain_key);
+    fn get_core_fee(handle: &mut impl PrecompileHandle, chain_key: u32) -> EvmResult<U256> {
+        // Widening u32 -> ChainKey (u64) is lossless; the narrower argument exists only to match the
+        // Solidity consumer's chainKey type.
+        let maybe_fee = CoreFees::<Runtime>::get(ChainKey::from(chain_key));
 
         handle.record_db_read::<Runtime>(
             maybe_fee
@@ -219,21 +226,7 @@ where
                 .unwrap_or_default(),
         )?;
 
-        match maybe_fee {
-            Some(fee) => Ok(CoreFeeResult {
-                // `token: None` (native CTC) surfaces as address(0) — the conventional "native"
-                // sentinel on the EVM side. The extrinsic rejects Some(H160::zero()), so a zero
-                // token here always means native, never a broken ERC20 config.
-                token: Address(fee.token.unwrap_or_default()),
-                amount: fee.amount,
-                exists: true,
-            }),
-            None => Ok(CoreFeeResult {
-                token: Address(H160::zero()),
-                amount: U256::zero(),
-                exists: false,
-            }),
-        }
+        Ok(maybe_fee.map(|fee| fee.amount).unwrap_or_else(U256::zero))
     }
 
     #[precompile::public("get_attestation_genesis_height(uint64)")]
