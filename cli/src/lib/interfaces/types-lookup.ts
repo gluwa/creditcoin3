@@ -4105,6 +4105,8 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidAttestationsPerCheckpoint: boolean;
         readonly isInvalidMaxCatchup: boolean;
         readonly isInvalidTargetSampleSize: boolean;
+        readonly isInvalidMaxAttestors: boolean;
+        readonly isTooManyAttestors: boolean;
         readonly isAttestationFoundWhileImporting: boolean;
         readonly isInvalidAttestationBlockNumber: boolean;
         readonly isInvalidAttestorFound: boolean;
@@ -4131,12 +4133,14 @@ declare module '@polkadot/types/lookup' {
         readonly isNoSuchCheckpoint: boolean;
         readonly isLastCheckpointNotSet: boolean;
         readonly isTriedToRevertDuringOngoingReversion: boolean;
-        readonly isTooManyAttestationsForForwardPatchClear: boolean;
+        readonly isAttestorAlreadyIdle: boolean;
+        readonly isAttestorChillAlreadyScheduled: boolean;
         readonly isCheckpointMaintenanceInProgress: boolean;
         readonly isEmptyCheckpointPatch: boolean;
         readonly isCheckpointSuffixWipeTooLarge: boolean;
-        readonly isAttestorAlreadyIdle: boolean;
-        readonly isAttestorChillAlreadyScheduled: boolean;
+        readonly isTooManyAttestationsForForwardPatchClear: boolean;
+        readonly isOversizedContinuityProof: boolean;
+        readonly isInsufficientRemainingBond: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -4170,6 +4174,8 @@ declare module '@polkadot/types/lookup' {
             | 'InvalidAttestationsPerCheckpoint'
             | 'InvalidMaxCatchup'
             | 'InvalidTargetSampleSize'
+            | 'InvalidMaxAttestors'
+            | 'TooManyAttestors'
             | 'AttestationFoundWhileImporting'
             | 'InvalidAttestationBlockNumber'
             | 'InvalidAttestorFound'
@@ -4196,12 +4202,14 @@ declare module '@polkadot/types/lookup' {
             | 'NoSuchCheckpoint'
             | 'LastCheckpointNotSet'
             | 'TriedToRevertDuringOngoingReversion'
-            | 'TooManyAttestationsForForwardPatchClear'
+            | 'AttestorAlreadyIdle'
+            | 'AttestorChillAlreadyScheduled'
             | 'CheckpointMaintenanceInProgress'
             | 'EmptyCheckpointPatch'
             | 'CheckpointSuffixWipeTooLarge'
-            | 'AttestorAlreadyIdle'
-            | 'AttestorChillAlreadyScheduled';
+            | 'TooManyAttestationsForForwardPatchClear'
+            | 'OversizedContinuityProof'
+            | 'InsufficientRemainingBond';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (425) */
