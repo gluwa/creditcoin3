@@ -1,6 +1,8 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Usage: Run `bash abi-creator.sh` in the root of the metadata folder.
+
+set -euo pipefail
 
 sol_directory="sol"
 abi_directory="abi"
@@ -17,7 +19,10 @@ done
 for p in "$sol_directory"/*; do
     file=$(basename "$p")
     file_with_extension="${file%.*}.json"
+    out="$abi_directory/$file_with_extension"
     # Extract only the ABI from the combined JSON output
     solc "$sol_directory/$file" --combined-json abi --overwrite | \
-        jq '.contracts | to_entries[0].value.abi' > "$abi_directory/$file_with_extension"
+        jq '.contracts | to_entries[0].value.abi' > "$out"
+    # Fail the job if solc/jq left an empty or invalid file (otherwise jsonlint sees EOF).
+    jq -e 'type == "array"' "$out" >/dev/null
 done
