@@ -1745,7 +1745,7 @@ declare module '@polkadot/api-base/types/storage' {
             /**
              * Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
              * `publishMessage`. Read live by the EVM through the chain-info precompile
-             * (`get_core_fee(uint64)`), so a governance change takes effect on the next publish with no
+             * (`get_core_fee(uint32)`), so a governance change takes effect on the next publish with no
              * contract redeploys. No entry (or a zero amount) means no fee is charged.
              **/
             coreFees: AugmentedQuery<
