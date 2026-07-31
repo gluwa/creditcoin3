@@ -124,9 +124,15 @@ write_ability:
   #
   # Note for multi-attestor local runs (launch-attestors.sh): the cursor file is named
   # per chain key (`outbox-cursor-<chain_key>.json`), not per attestor, so instances
-  # sharing this directory share one cursor. Harmless locally — the worst case is one
-  # attestor resuming from another's slightly older position and re-signing a few
-  # messages, which vote dedup absorbs.
+  # sharing this directory share one cursor. Give each instance its own state_dir if you
+  # care about exact coverage. Sharing it cuts both ways, and the second direction is the
+  # one that matters:
+  #   - resuming from a *older* cursor re-signs a few messages — absorbed by vote dedup;
+  #   - resuming from a *newer* one (written by a faster peer) would skip messages.
+  # The listener bounds the second case by rewinding a resumed cursor by
+  # CURSOR_RESUME_LOOKBACK_BLOCKS before scanning, so a shared cursor re-scans that window
+  # instead of skipping it. Only a divergence wider than that lookback could still skip,
+  # which local runs do not reach. Production gives every attestor its own volume.
   state_dir: ".attestor-state"
 
   # Anti-abuse bounds.

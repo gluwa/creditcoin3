@@ -88,9 +88,12 @@ describe('Outbox lifecycle handlers', () => {
                 expect(BigInt(node.createdAt)).toBeGreaterThanOrEqual(startingBlock);
                 expect(BigInt(node.createdTimestamp)).toBeGreaterThan(0n);
                 expect(node.createdTxHash.startsWith('0x')).toEqual(true);
-                // The mock is not a registered OutboxFactory, so the emitter is not resolvable to
-                // one — this is the unauthenticated discovery path.
-                expect(node.factoryId).toBeFalsy();
+                // `factoryId` records whichever contract *emitted* OutboxCreated, unconditionally —
+                // it is not evidence that the emitter is a registered OutboxFactory (that is the
+                // separate `authenticated` trust signal, which only relaxes the DoS cap and is not
+                // persisted). The mock announces itself as the Outbox, so it is its own emitter and
+                // factoryId equals the id here.
+                expect(node.factoryId).toEqual(outboxAddress);
             }
         });
     });

@@ -426,12 +426,18 @@ pub async fn run(
             }
             Err(err) => {
                 resolve_attempts += 1;
+                // `{:#}` (alternate Display), not `%err`: these errors are built with
+                // `anyhow::Context`, whose plain Display prints ONLY the outermost context. Logging
+                // it that way reduced every failure to the bare phrase "…get_outbox_factory_address()
+                // reverted" and threw away the RPC/decode error underneath, which is why the message
+                // below could only *guess* at the cause. The alternate form prints the whole chain.
+                let err = format!("{err:#}");
                 if resolve_attempts % RESOLVE_ESCALATE_EVERY_ATTEMPTS == 0 {
                     tracing::error!(
                         %err,
                         attempts = resolve_attempts,
                         elapsed_secs = resolve_attempts * OUTBOX_RESOLVE_RETRY_SECS,
-                        "Outbox resolution still failing after prolonged retrying — likely a misconfiguration (RPC or chain-info selector mismatch); will keep retrying"
+                        "Outbox resolution still failing after prolonged retrying — the error chain above names the actual cause (RPC transport, revert, or chain-info selector mismatch); will keep retrying"
                     );
                 } else {
                     tracing::warn!(%err, retry_secs = OUTBOX_RESOLVE_RETRY_SECS, "Outbox resolution failed — will retry");
