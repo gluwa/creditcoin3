@@ -38,7 +38,7 @@ pub mod pallet {
     };
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -128,7 +128,7 @@ pub mod pallet {
 
     /// Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
     /// `publishMessage`. Read live by the EVM through the chain-info precompile
-    /// (`get_core_fee(uint64)`), so a governance change takes effect on the next publish with no
+    /// (`get_core_fee(uint32)`), so a governance change takes effect on the next publish with no
     /// contract redeploys. No entry (or a zero amount) means no fee is charged.
     #[pallet::storage]
     #[pallet::getter(fn core_fee)]
@@ -245,11 +245,9 @@ pub mod pallet {
         },
 
         /// The USC write-ability core (protocol) fee for a supported chain has been set.
-        /// `token: None` means the fee is denominated in native CTC; `Some(address)` an ERC20
-        /// (attestcoin). A zero `amount` disables the fee.
+        /// `amount` is attestcoin wei; a zero `amount` disables the fee.
         CoreFeeSet {
             chain_key: ChainKey,
-            token: Option<H160>,
             amount: sp_core::U256,
         },
     }
@@ -276,11 +274,6 @@ pub mod pallet {
         /// The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
         /// zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
         ZeroWriteAbilityChainKey,
-
-        /// The core-fee token is `Some(H160::zero())`. On the EVM side the zero address means
-        /// "native currency", which this config expresses as `None` — a zero ERC20 address is
-        /// always a misconfiguration and would make the Outbox `transferFrom` the zero address.
-        ZeroCoreFeeToken,
     }
 
     #[pallet::call]
@@ -480,14 +473,14 @@ pub mod pallet {
         /// accounts in the Operators membership (or root) can call this extrinsic.
         ///
         /// The value is read live by the EVM through the chain-info precompile
-        /// (`get_core_fee(uint64)`), so changes take effect on the next publish without any
-        /// contract redeploys — including a later native→attestcoin denomination switch.
+        /// (`get_core_fee(uint32)`), so changes take effect on the next publish without any
+        /// contract redeploys. `amount` is attestcoin wei — see [`CoreFeeConfig`] for why the
+        /// denomination is not configurable.
         #[pallet::call_index(4)]
         #[pallet::weight(T::WeightInfo::set_core_fee())]
         pub fn set_core_fee(
             origin: OriginFor<T>,
             chain_key: ChainKey,
-            token: Option<H160>,
             amount: sp_core::U256,
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
@@ -496,15 +489,10 @@ pub mod pallet {
                 SupportedChains::<T>::contains_key(chain_key),
                 Error::<T>::ChainNotSupported
             );
-            ensure!(token != Some(H160::zero()), Error::<T>::ZeroCoreFeeToken);
 
-            CoreFees::<T>::insert(chain_key, CoreFeeConfig { token, amount });
+            CoreFees::<T>::insert(chain_key, CoreFeeConfig { amount });
 
-            Self::deposit_event(Event::CoreFeeSet {
-                chain_key,
-                token,
-                amount,
-            });
+            Self::deposit_event(Event::CoreFeeSet { chain_key, amount });
 
             Ok(())
         }

@@ -44,13 +44,15 @@ pub struct WriteAbilityConfig {
 /// Outbox redeploy, no precompile change.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode, TypeInfo)]
 pub struct CoreFeeConfig {
-    /// Fee token: `None` = the chain's native currency (CTC, paid via `msg.value`);
-    /// `Some(address)` = an ERC20 on Creditcoin's EVM (attestcoin, pulled via `transferFrom`).
-    /// `Some(H160::zero())` is rejected at the extrinsic — the zero address means "native" on the
-    /// EVM side and must map to `None` here, never to an ERC20.
-    pub token: Option<sp_core::H160>,
-    /// Fee amount in the token's smallest units (wei for native CTC). Zero disables the fee while
-    /// keeping the entry (equivalent to no entry at all).
+    /// Fee amount in attestcoin wei.
+    ///
+    /// The core fee is **always denominated in attestcoin** — the Outbox pulls it with
+    /// `transferFrom` on its configured ATTEST token and has no native-currency (`msg.value`) path
+    /// at all. There is deliberately no token field: a configurable one could only ever disagree
+    /// with what the Outbox actually charges, and the contracts read this value through
+    /// `IFeeRegistry`/`ICoreFeeProvider`, which is amount-only by design.
+    ///
+    /// Zero disables the fee while keeping the entry (equivalent to no entry at all).
     pub amount: sp_core::U256,
 }
 
