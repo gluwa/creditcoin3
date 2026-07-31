@@ -671,12 +671,18 @@ jobs:
           #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub; and
           #   * stream_eth's reconnect path, which logs "Eth connection error" wrapping the same
           #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)".
-          # Allowlist ONLY those two documented OS errors, and ONLY from those known reconnect
+          # Killing anvil mid-connection also surfaces one step *above* the socket layer: when the
+          # peer vanishes without sending a WS close frame, tungstenite reports the protocol error
+          # "Connection reset without closing handshake" instead of a raw os error, and
+          # alloy_transport_ws logs it as "WS connection error". Same benign restart, different
+          # layer — so it is enumerated here too rather than left to fail the gate intermittently
+          # (which layer wins is a race between anvil's exit and the read syscall).
+          # Allowlist ONLY these three documented errors, and ONLY from those known reconnect
           # sources, scoped to THIS step via ERROR_ALLOWLIST so the shared gate stays strict
           # everywhere else (e.g. the archiver-testing job, which never restarts eth). Any other
           # error from those sources still fails the gate; functional correctness is asserted
           # separately (checkpoint compare).
-          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\))'
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
       - name: Check attestor logs for errors
