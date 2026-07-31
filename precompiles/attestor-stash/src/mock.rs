@@ -5,7 +5,7 @@ use frame_election_provider_support::{
     onchain, SequentialPhragmen,
 };
 use frame_support::pallet_prelude::ConstU32;
-use frame_support::traits::{ConstU64, KeyOwnerProofSystem};
+use frame_support::traits::{AsEnsureOriginWithArg, ConstU128, ConstU64, KeyOwnerProofSystem};
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
 use pallet_babe::AuthorityId;
 use pallet_evm::{
@@ -201,6 +201,34 @@ impl pallet_balances::Config for Runtime {
     type RuntimeFreezeReason = RuntimeFreezeReason;
 }
 
+impl pallet_assets::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type Balance = Balance;
+    type AssetId = u32;
+    type AssetIdParameter = u32;
+    type Currency = Balances;
+    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
+    type AssetDeposit = ConstU128<0>;
+    type MetadataDepositBase = ConstU128<0>;
+    type MetadataDepositPerByte = ConstU128<0>;
+    type ApprovalDeposit = ConstU128<0>;
+    type StringLimit = ConstU32<50>;
+    type AssetAccountDeposit = ConstU128<0>;
+    type RemoveItemsLimit = ConstU32<1000>;
+    type Freezer = ();
+    type Extra = ();
+    type WeightInfo = ();
+    type CallbackHandle = ();
+}
+
+pub struct AttestationBondPoolAccount;
+impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
+    fn get() -> AccountId {
+        Account::Bogus
+    }
+}
+
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
 
 pub type Precompiles<R> = PrecompileSetBuilder<
@@ -281,7 +309,10 @@ impl pallet_attestation::Config for Runtime {
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
-    type Currency = Balances;
+    type NativeCurrency = Balances;
+    type BondFungibles = Assets;
+    type BondAssetId = ConstU32<1>;
+    type BondPoolAccount = AttestationBondPoolAccount;
     type CurrencyBalance = Balance;
     type MaxUnlockingChunks = MaxUnlockingChunks;
     type BondingDuration = BondingDuration;
@@ -292,6 +323,7 @@ impl pallet_attestation::Config for Runtime {
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
     type OperatorsOrigin = frame_system::EnsureRoot<AccountId>;
+    type CommittedAttestationHook = pallet_attestation::NoopCommittedAttestationObserver;
 }
 
 parameter_types! {
@@ -414,6 +446,7 @@ construct_runtime!(
     pub enum Runtime {
         System: frame_system,
         Balances: pallet_balances,
+        Assets: pallet_assets,
         Evm: pallet_evm,
         Timestamp: pallet_timestamp,
         SupportedChains: pallet_supported_chains,
@@ -445,11 +478,39 @@ impl ExtBuilder {
             .build_storage()
             .expect("Frame system builds valid default genesis config");
 
+        // Endow the bond-pool account with native balance so it has a `provider`
+        // and can hold non-sufficient asset balances (`pallet-assets` requires a
+        // provider for the destination of a transfer of a non-sufficient asset).
+        let mut native_balances = self.balances.clone();
+        let bond_pool: AccountId =
+            <AttestationBondPoolAccount as frame_support::traits::Get<AccountId>>::get();
+        if !native_balances.iter().any(|(who, _)| who == &bond_pool) {
+            native_balances.push((bond_pool, 1));
+        }
         pallet_balances::GenesisConfig::<Runtime> {
-            balances: self.balances,
+            balances: native_balances,
         }
         .assimilate_storage(&mut t)
         .expect("Pallet balances storage can be assimilated");
+
+        // Mirror native balances into attest-coin asset (id=1) so the bond check
+        // (now backed by `pallet-assets`) passes for accounts endowed via
+        // `with_balances`. Asset owner/admin is `Alice` (arbitrary, only needed
+        // to satisfy genesis); accounts list provides the per-account balance.
+        let asset_accounts: Vec<(u32, AccountId, Balance)> = self
+            .balances
+            .iter()
+            .cloned()
+            .map(|(who, amount)| (1u32, who, amount))
+            .collect();
+        pallet_assets::GenesisConfig::<Runtime> {
+            assets: vec![(1u32, Account::Alice, false, 1)],
+            metadata: vec![(1u32, b"AC".to_vec(), b"AC".to_vec(), 18)],
+            accounts: asset_accounts,
+            next_asset_id: Some(2),
+        }
+        .assimilate_storage(&mut t)
+        .expect("Pallet assets storage can be assimilated");
 
         let chains = pallet_supported_chains::GenesisConfig::<Runtime> {
             supported_chains: vec![(
