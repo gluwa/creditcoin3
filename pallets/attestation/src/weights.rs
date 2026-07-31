@@ -723,4 +723,32 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(749))
 			.saturating_add(T::DbWeight::get().writes(1244))
 	}
+	/// NOT BENCHMARK-GENERATED — hand-derived conservative placeholder for the `bond_extra`
+	/// dispatchable. Regenerate with `.github/bench.sh -p attestation -b` before release.
+	/// Storage: `Attestation::Ledger` (r:1 w:1)
+	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Assets::Asset` (r:1 w:1)
+	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
+	/// Storage: `Assets::Account` (r:2 w:2)
+	/// Proof: `Assets::Account` (`max_values`: None, `max_size`: Some(134), added: 2609, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:2 w:2)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn bond_extra() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `1200`
+		//  Estimated: `8000`
+		// Minimum execution time: 90_000_000 picoseconds (conservative).
+		Weight::from_parts(120_000_000, 0)
+			.saturating_add(Weight::from_parts(0, 8000))
+			.saturating_add(T::DbWeight::get().reads(10))
+			.saturating_add(T::DbWeight::get().writes(8))
+	}
 }

@@ -551,6 +551,133 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
 }
 
 #[test]
+fn bond_extra_requires_an_existing_ledger() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::bond_extra(RuntimeOrigin::signed(STASH_3), 1),
+            Error::<Test>::NotStash
+        );
+    })
+}
+
+#[test]
+fn bond_extra_rejects_zero_and_more_than_liquid_balance() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        assert_noop!(
+            Attestation::bond_extra(att.stash.clone(), 0),
+            Error::<Test>::InsufficientBalance
+        );
+
+        let liquid = Attestation::get_free_balance(&STASH_3);
+        assert_noop!(
+            Attestation::bond_extra(att.stash, liquid + 1),
+            Error::<Test>::InsufficientBalance
+        );
+    })
+}
+
+#[test]
+fn bond_extra_moves_liquid_balance_into_the_pool() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        let before = Attestation::ledger(STASH_3).unwrap();
+        let liquid_before = Attestation::get_free_balance(&STASH_3);
+        let pool_before = Attestation::get_free_balance(&TestBondPoolAccount::get());
+
+        let extra = 25_000_000_000_000_000_000u128; // 25 units
+        assert_ok!(Attestation::bond_extra(att.stash, extra));
+
+        let after = Attestation::ledger(STASH_3).unwrap();
+        assert_eq!(after.total_staked, before.total_staked + extra);
+        assert_eq!(after.active, before.active + extra);
+        assert_eq!(
+            Attestation::get_free_balance(&STASH_3),
+            liquid_before - extra
+        );
+        assert_eq!(
+            Attestation::get_free_balance(&TestBondPoolAccount::get()),
+            pool_before + extra
+        );
+
+        System::assert_has_event(
+            crate::Event::Bonded {
+                stash: STASH_3,
+                amount: extra,
+            }
+            .into(),
+        );
+    })
+}
+
+/// Regression: raising `MinBondRequirement` after registration used to trap a multi-attestor
+/// stash. The aggregate solvency guard in `unregister_attestor` reads the *current* requirement,
+/// so neither attestor could exit, and the only way to add collateral was to register yet another
+/// attestor — which raises the requirement by at least as much as it adds. The `bond_extra`
+/// dispatchable is the escape hatch.
+#[test]
+fn bond_extra_lets_a_stash_escape_a_min_bond_raise() {
+    ExtBuilder.build_and_execute(|| {
+        let min = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+
+        let att1 = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att1.attestor_id,
+        ));
+        let att2 = Attestor::new(STASH_3, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            att2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att2.attestor_id,
+        ));
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, min * 2);
+
+        // Governance raises the per-chain requirement after both registrations.
+        let raised = min * 3;
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            raised,
+        ));
+
+        // Unregistering either attestor would leave the other undercollateralized.
+        assert_noop!(
+            Attestation::unregister_attestor(
+                att1.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att1.attestor_id
+            ),
+            Error::<Test>::InsufficientRemainingBond
+        );
+
+        // Top up to the raised aggregate, then the exit goes through.
+        assert_ok!(Attestation::bond_extra(
+            att1.stash.clone(),
+            raised * 2 - min * 2
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            att1.stash,
+            SUPPORTED_CHAIN_KEY,
+            att1.attestor_id
+        ));
+    })
+}
+
+#[test]
 fn registering_multiple_attestor_increases_locked_balance() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_3, ATTESTOR_1);

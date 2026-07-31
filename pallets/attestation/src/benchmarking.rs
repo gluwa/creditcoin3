@@ -534,6 +534,29 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn bond_extra() {
+        // A registered stash tops up its bond without registering another attestor.
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id,
+        ));
+
+        let amount: BalanceOf<T> = BalanceOf::<T>::from(1_000_000_000_000_000_000u128); // 1 unit
+        let signed_origin = attestor.stash_origin;
+
+        #[extrinsic_call]
+        _(
+            signed_origin as <T as frame_system::Config>::RuntimeOrigin,
+            amount,
+        )
+    }
+
+    #[benchmark]
     fn import_checkpoints() {
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let mock_checkpoints: Vec<AttestationCheckpoint> = (0..100u8)

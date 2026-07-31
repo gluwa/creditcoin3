@@ -30,6 +30,60 @@ export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amou
     return api.tx.utility.batchAll(txs);
 }
 
+/** `pallet-assets` id used as attest coin (`ATTEST_COIN_ASSET_ID` in the runtime). */
+export const ATTEST_COIN_ASSET_ID = 1;
+
+/**
+ * Mint attest coin to `to`.
+ *
+ * `pallet_assets::mint` requires the asset's **issuer** origin, and there is no root mint, so the
+ * call is dispatched as the on-chain issuer via `sudo.sudoAs`. The issuer is read from chain rather
+ * than hard-coded so this keeps working across the `EnsureAttestCoinAssetRoles` migration (genesis
+ * sets all four roles to the attest-coin precompile account; the migration moves owner/freezer to
+ * sudo and leaves issuer/admin on the precompile).
+ */
+export async function mintAttestCoin(api: ApiPromise, sudoSigner: KeyringPair, to: string, amount: BN | string) {
+    const details = await api.query.assets.asset(ATTEST_COIN_ASSET_ID);
+    if (details.isNone) {
+        throw new Error(`attest coin asset ${ATTEST_COIN_ASSET_ID} does not exist on chain`);
+    }
+    const issuer = details.unwrap().issuer.toString();
+
+    const mint = api.tx.assets.mint(ATTEST_COIN_ASSET_ID, to, amount.toString());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudoAs(issuer, mint), api, sudoKeyring);
+    if (result.status !== TxStatus.ok) {
+        throw new Error(`failed to mint attest coin to ${to}: ${JSON.stringify(result)}`);
+    }
+}
+
+/** Liquid (unbonded) attest-coin balance of `address`. */
+export async function attestCoinBalance(api: ApiPromise, address: string): Promise<bigint> {
+    const account = await api.query.assets.account(ATTEST_COIN_ASSET_ID, address);
+    return account.isNone ? 0n : BigInt(account.unwrap().balance.toString());
+}
+
+/**
+ * Set a chain's `MinBondRequirement` via sudo and return the value it had before, so callers can
+ * restore it. `MinBondRequirement` is chain-wide mutable state shared by every suite running
+ * against the same node, so callers must restore it in `afterAll`.
+ */
+export async function setMinBondRequirement(
+    api: ApiPromise,
+    sudoSigner: KeyringPair,
+    chainKey: number,
+    amount: BN | string,
+): Promise<string> {
+    const previous = (await api.query.attestation.minBondRequirement(chainKey)).toString();
+    const call = api.tx.attestation.setMinBondRequirement(chainKey, amount.toString());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudo(call), api, sudoKeyring);
+    if (result.status !== TxStatus.ok) {
+        throw new Error(`failed to set minBondRequirement for chain ${chainKey}: ${JSON.stringify(result)}`);
+    }
+    return previous;
+}
+
 /**
  * Active staking era index used by `pallet_attestation` unlock / withdrawable math
  * (`T::Staking::current_era()`). Prefer this over `api.derive.session.info().currentEra`,

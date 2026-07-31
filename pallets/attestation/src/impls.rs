@@ -254,7 +254,7 @@ impl<T: Config> Pallet<T> {
                 });
             }
             Err(Error::<T>::AlreadyBonded) => {
-                Self::bond_extra(chain_key, &stash)?;
+                Self::bond_extra_for_registration(chain_key, &stash)?;
             }
             Err(e) => return Err(e.into()),
         }
@@ -642,22 +642,30 @@ impl<T: Config> Pallet<T> {
 
 /// NON-CALL FUNCTIONS ///
 impl<T: Config> Pallet<T> {
-    pub(super) fn bond_extra(chain_key: ChainKey, stash: &T::AccountId) -> DispatchResult {
-        let bond = Self::min_bond_requirement(chain_key);
+    /// Move exactly `amount` attest coin from `stash` into the bond pool and credit it to the
+    /// ledger's `total_staked` / `active`.
+    ///
+    /// An under-funded stash is rejected outright. The previous `bond.min(liquid)` clamp bonded
+    /// whatever was available and reported success, which let a second `register_attestor` on the
+    /// same stash raise the aggregate collateral requirement by a full `MinBondRequirement` while
+    /// crediting less than that — leaving the stash undercollateralized against the solvency guard
+    /// in `remove_attestor_and_emit_event`, which then refused to let it unwind.
+    pub(crate) fn do_bond_extra(stash: &T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
+        ensure!(!amount.is_zero(), Error::<T>::InsufficientBalance);
 
         let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
 
         let liquid = T::BondFungibles::balance(T::BondAssetId::get(), stash);
-        let extra = bond.min(liquid);
+        ensure!(liquid >= amount, Error::<T>::InsufficientBalance);
 
         // Update total staked and active amount
         ledger.total_staked = ledger
             .total_staked
-            .checked_add(&extra)
+            .checked_add(&amount)
             .ok_or(ArithmeticError::Overflow)?;
         ledger.active = ledger
             .active
-            .checked_add(&extra)
+            .checked_add(&amount)
             .ok_or(ArithmeticError::Overflow)?;
 
         // NOTE: ledger must be updated prior to calling `Self::weight_of`.
@@ -665,10 +673,27 @@ impl<T: Config> Pallet<T> {
 
         Self::deposit_event(Event::<T>::Bonded {
             stash: stash.clone(),
-            amount: extra,
+            amount,
         });
 
         Ok(())
+    }
+
+    /// Bond the extra collateral that a further `register_attestor` on `chain_key` requires.
+    ///
+    /// Named distinctly from the `bond_extra` **dispatchable** (which takes an explicit amount);
+    /// both funnel into [`Self::do_bond_extra`].
+    pub(super) fn bond_extra_for_registration(
+        chain_key: ChainKey,
+        stash: &T::AccountId,
+    ) -> DispatchResult {
+        let bond = Self::min_bond_requirement(chain_key);
+        if bond.is_zero() {
+            // Nothing to move. `do_bond_extra` rejects a zero amount so it cannot emit an empty
+            // `Bonded` event or take the pool-transfer path for a no-op.
+            return Ok(());
+        }
+        Self::do_bond_extra(stash, bond)
     }
 
     /// Remove all associated data of a stash account from the staking system.

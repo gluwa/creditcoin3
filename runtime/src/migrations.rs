@@ -183,8 +183,12 @@ struct MirrorAssetDetails {
 #[storage_alias]
 type AssetMap = StorageMap<AssetsPallet, Blake2_128Concat, u32, MirrorAssetDetails>;
 
+/// Reads `pallet_sudo::Key`, which is `StorageValue<_, T::AccountId, OptionQuery>`: the stored
+/// value is a **bare** `AccountId`, with `None` represented by absence of the key rather than by
+/// a SCALE `Option` prefix. Decoding as `Option<AccountId>` would read the account's first byte
+/// as the enum discriminant and always yield `None`.
 fn sudo_account() -> Option<AccountId> {
-    migration::get_storage_value::<Option<AccountId>>(b"Sudo", b"Key", &[]).flatten()
+    migration::get_storage_value::<AccountId>(b"Sudo", b"Key", &[])
 }
 
 fn dispatch_root(call: RuntimeCall) -> DispatchResult {

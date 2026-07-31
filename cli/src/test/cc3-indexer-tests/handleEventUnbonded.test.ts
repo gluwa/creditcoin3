@@ -1,32 +1,53 @@
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { newApi, ApiPromise, KeyringPair, BN } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
-import { randomFundedAccount } from '../integration-tests/helpers';
+import { randomFundedAccount, mintAttestCoin, setMinBondRequirement } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
+/**
+ * `Unbonded` carries the bond value and is only emitted for a non-zero bond, but
+ * `DefaultMinBondRequirement` is 0. So this suite mints attest coin to a dedicated stash and raises
+ * the chain's requirement for the lifetime of the suite (restored in `afterAll`).
+ */
+const TEST_BOND = new BN('100000000000000000000'); // 100 units
+
 describe('handleEventUnbonded()', () => {
     let api: ApiPromise;
-    let bob: KeyringPair;
+    let root: KeyringPair;
+    /** Dedicated stash so `stashId` matching is exact and no other suite's ledger interferes. */
+    let stash: any;
     let attestor: any;
     let startingBlock: bigint;
+    let previousMinBond: string | undefined;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
-        bob = (global as any).CREDITCOIN_CREATE_SIGNER('bob');
+        root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        stash = await randomFundedAccount(api, root);
         attestor = await randomFundedAccount(api, root);
+
+        // Bond collateral must exist before `register_attestor` moves it into the bond pool.
+        await mintAttestCoin(api, root, stash.address, TEST_BOND.muln(4));
+        previousMinBond = await setMinBondRequirement(api, root, chain_Anvil2_Key, TEST_BOND);
 
         // register here just so we can unregister a bit later
         await api.tx.attestation
             .registerAttestor(chain_Anvil2_Key, attestor.address)
-            .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
+            .signAndSend(stash.keyring, { nonce: await api.rpc.system.accountNextIndex(stash.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
-    }, 45_000);
+    }, 90_000);
 
     afterAll(async () => {
-        await api.disconnect();
+        try {
+            // `MinBondRequirement` is chain-wide state shared with every other suite on this node.
+            if (previousMinBond !== undefined) {
+                await setMinBondRequirement(api, root, chain_Anvil2_Key, previousMinBond);
+            }
+        } finally {
+            await api.disconnect();
+        }
     });
 
     describe('when new attestor is unregistered', () => {
@@ -36,7 +57,7 @@ describe('handleEventUnbonded()', () => {
             // NOTE: unregistering the attestor will also unbond
             await api.tx.attestation
                 .unregisterAttestor(chain_Anvil2_Key, attestor.address)
-                .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
+                .signAndSend(stash.keyring, { nonce: await api.rpc.system.accountNextIndex(stash.address) });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
@@ -45,24 +66,19 @@ describe('handleEventUnbonded()', () => {
                 `query { unbondeds (orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, amount, stashId, whoId, date, blockNumber }}}`,
             );
             expect(response.data.unbondeds.nodes).toBeTruthy();
-            // With DefaultMinBondRequirement=0 no Unbonded event is emitted (bond value is 0),
-            // so 0 nodes is acceptable.
-            expect(response.data.unbondeds.nodes.length).toBeGreaterThanOrEqual(0);
+            expect(response.data.unbondeds.nodes.length).toBeGreaterThanOrEqual(1);
 
             let foundMatch = false;
             for (const node of response.data.unbondeds.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThanOrEqual(0n);
+                expect(BigInt(node.amount)).toBeGreaterThan(0n);
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);
-                // WARNING: cannot match attestorId b/c this value isn't recorded
-                // best we can do is match stashId and look for record added in blocks
-                // *AFTER* this test has started
-                if (node.stashId === bob.address && BigInt(node.blockNumber) > startingBlock) {
+                // This suite owns `stash`, so a match is exact rather than best-effort.
+                if (node.stashId === stash.address && BigInt(node.blockNumber) > startingBlock) {
+                    expect(BigInt(node.amount)).toEqual(BigInt(TEST_BOND.toString()));
                     foundMatch = true;
                 }
-                // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
-                // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
@@ -79,10 +95,7 @@ describe('handleEventUnbonded()', () => {
                 expect(response2.data.unbonded.date).toEqual(node.date);
                 expect(response2.data.unbonded.blockNumber).toEqual(node.blockNumber);
             }
-            // Only require a match when there are nodes to match against
-            if (response.data.unbondeds.nodes.length > 0) {
-                expect(foundMatch).toEqual(true);
-            }
+            expect(foundMatch).toEqual(true);
         });
     });
 });

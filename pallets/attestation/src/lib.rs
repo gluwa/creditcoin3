@@ -200,6 +200,7 @@ pub mod pallet {
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
+        fn bond_extra() -> Weight;
     }
 
     #[pallet::storage]
@@ -1445,6 +1446,28 @@ pub mod pallet {
             Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
             Ok(())
+        }
+
+        /// Top up the caller's attestor bond by `amount` attest coin, without registering a new
+        /// attestor.
+        ///
+        /// Required to escape the following trap: `MinBondRequirement` is read at its *current*
+        /// value by the aggregate solvency guard in `unregister_attestor`, so raising a chain's
+        /// requirement after registration can leave a stash whose `active` no longer covers its
+        /// still-registered attestors. Before this call the only way to add collateral was to
+        /// register *another* attestor, which raises the aggregate requirement by at least as much
+        /// as it adds — so a multi-attestor stash could neither top up nor unregister, and its
+        /// pooled bond was locked permanently.
+        ///
+        /// Fails with `NotStash` if the caller has no ledger (nothing to top up — a stash with no
+        /// registered attestor exits via `withdraw_unbonded`) and with `InsufficientBalance` if the
+        /// caller's liquid attest-coin balance is below `amount`.
+        #[pallet::call_index(30)]
+        #[pallet::weight(<T as Config>::WeightInfo::bond_extra())]
+        pub fn bond_extra(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
+            let stash = ensure_signed(origin)?;
+
+            Self::do_bond_extra(&stash, amount)
         }
     }
 

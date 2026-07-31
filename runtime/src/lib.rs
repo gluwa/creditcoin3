@@ -38,8 +38,8 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        AsEnsureOriginWithArg, ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter,
-        KeyOwnerProofSystem, OnFinalize, OnTimestampSet,
+        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        OnTimestampSet,
     },
     weights::{
         constants::WEIGHT_REF_TIME_PER_MILLIS, constants::WEIGHT_REF_TIME_PER_NANOS,
@@ -402,20 +402,42 @@ impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
 
 pub type AssetsForceOrigin = frame_system::EnsureRoot<AccountId>;
 
+parameter_types! {
+    /// Reserved on `create`. Unreachable while [`pallet_assets::Config::CreateOrigin`] is
+    /// `EnsureNever` (the attest-coin asset is made at genesis or by `force_create`, neither of
+    /// which charges a deposit) — set to a real value so loosening `CreateOrigin` later cannot
+    /// silently enable free asset creation.
+    pub const AssetDeposit: Balance = deposit(1, 0);
+    /// `set_metadata` is owner-only (governance); `force_set_metadata` and genesis bypass deposits.
+    pub const AssetMetadataDepositBase: Balance = deposit(1, 68);
+    pub const AssetMetadataDepositPerByte: Balance = deposit(0, 1);
+    /// `approve_transfer` is callable by **any** signed account and reserves this from native
+    /// balance. It must stay non-zero: at zero, an account with no attest-coin can create
+    /// unbounded `Approvals` entries for arbitrary delegates for tx fees alone.
+    pub const AssetApprovalDeposit: Balance = 10 * CENTS;
+    /// Charged on permissionless `touch`. Not charged on the precompile mint path
+    /// (`pallet_assets::do_mint` creates accounts with no deposit and a consumer ref).
+    pub const AssetAccountDeposit: Balance = deposit(1, 18);
+}
+
 impl pallet_assets::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Balance = Balance;
     type AssetId = u32;
     type AssetIdParameter = u32;
     type Currency = Balances;
-    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+    // Attest coin (and any future asset) is provisioned by genesis or a root `force_create`; there
+    // is no use case for user-created assets. With every deposit necessarily 0 for the attest-coin
+    // flows, a signed `CreateOrigin` would let anyone bloat state with assets and metadata for tx
+    // fees alone.
+    type CreateOrigin = frame_system::EnsureNever<AccountId>;
     type ForceOrigin = AssetsForceOrigin;
-    type AssetDeposit = ConstU128<0>;
-    type MetadataDepositBase = ConstU128<0>;
-    type MetadataDepositPerByte = ConstU128<0>;
-    type ApprovalDeposit = ConstU128<0>;
+    type AssetDeposit = AssetDeposit;
+    type MetadataDepositBase = AssetMetadataDepositBase;
+    type MetadataDepositPerByte = AssetMetadataDepositPerByte;
+    type ApprovalDeposit = AssetApprovalDeposit;
     type StringLimit = ConstU32<50>;
-    type AssetAccountDeposit = ConstU128<0>;
+    type AssetAccountDeposit = AssetAccountDeposit;
     type RemoveItemsLimit = ConstU32<1000>;
     type Freezer = ();
     type Extra = ();
