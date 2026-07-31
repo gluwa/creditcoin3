@@ -302,7 +302,15 @@ async fn handle_submission_result(
             tracing::info!(height, "✅ finalized externally");
         }
         Outcome::Unresolved => {
-            tracing::warn!(
+            // Debug, not warn: every path that produces `Unresolved` already logs its own cause
+            // at the appropriate level (bad-sig, exhausted retry window and watch timeout all
+            // warn in `submit_one`; the benign txpool races log at info). Reaching here says
+            // nothing new, and the actionable case — the height *not* finalizing after the
+            // bounded wait below — has its own warn. Keeping this at warn made a self-healing
+            // race (a same-nonce tx of ours still pending, code 1014) light up Grafana on every
+            // attestation round; cf. the `TransactionError::Invalid` arm above, demoted for the
+            // same reason.
+            tracing::debug!(
                 height,
                 "❓ submission outcome unresolved — unlocking height unless it finalizes shortly"
             );
