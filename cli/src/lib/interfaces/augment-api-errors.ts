@@ -155,7 +155,13 @@ declare module '@polkadot/api-base/types/errors' {
             ChainNotSupported: AugmentedError<ApiType>;
             CheckpointCreationError: AugmentedError<ApiType>;
             CheckpointingQueueDrained: AugmentedError<ApiType>;
+            /**
+             * Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
+             **/
             CheckpointMaintenanceInProgress: AugmentedError<ApiType>;
+            /**
+             * More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
+             **/
             CheckpointSuffixWipeTooLarge: AugmentedError<ApiType>;
             CheckpointTargetNotFound: AugmentedError<ApiType>;
             CheckpointWidthIsZero: AugmentedError<ApiType>;
@@ -165,9 +171,19 @@ declare module '@polkadot/api-base/types/errors' {
              * stash's BLS-key claim, so the registration is rejected.
              **/
             ControllerRetiredByAnotherStash: AugmentedError<ApiType>;
+            /**
+             * Operator forward patch contained no checkpoints.
+             **/
             EmptyCheckpointPatch: AugmentedError<ApiType>;
             EmptyContinuityProof: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
+            /**
+             * Reducing this stash's active bond would leave its remaining still-registered
+             * attestors collectively undercollateralized relative to the current per-chain
+             * `MinBondRequirement`. Can occur after an operator raises `MinBondRequirement`
+             * for a chain that the stash still backs with one or more attestors.
+             **/
+            InsufficientRemainingBond: AugmentedError<ApiType>;
             /**
              * The attestation lists enough distinct controller accounts but they map to fewer
              * distinct BLS public keys than the threshold. Without this check a single BLS
@@ -231,6 +247,9 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             RetiredAttestorPendingFull: AugmentedError<ApiType>;
             TooManyAttestations: AugmentedError<ApiType>;
+            /**
+             * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+             **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
             /**
              * A `commit_attestation` payload carried more attestor accounts than the per-chain
