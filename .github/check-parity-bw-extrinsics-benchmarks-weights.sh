@@ -14,6 +14,8 @@ fi
 # prepare the value for use with grep -E
 FILES_WITH_EXTRINSICS=$(echo "$FILES_WITH_EXTRINSICS" | xargs)
 WHITELIST="MaxAttestorsDefault<T MaxInvulernablesDefault<T AttestationIntervalDefault<T DefaultAttestationsPerCheckpoint<T DefaultMinBondRequirement<T  TargetSampleSizeDefault<T DefaultAttestationRetentionDuration<T AttestationChainGenesisBlockNumberDefault<T MaxCatchupDefault<T"
+# `pallet-attest-coin-rewards`: helpers live next to `#[pallet::call]`; the script only greps `pub fn`, not dispatchables only.
+WHITELIST="$WHITELIST reward_commit_signers take_accrued_for_claim accrued_of erc20_token restore_accrued claim_signing_message claim_nonce_of commit_claim undo_claim_commit"
 
 # NOTE: $FILES_WITH_EXTRINSICS isn't quoted below because we want the shell
 # to split the words, i.e. tell grep to search only in specific files

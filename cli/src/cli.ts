@@ -20,6 +20,7 @@ import { makeProxyCommands } from './commands/proxy/commands';
 import { noInputOption, urlOption } from './commands/options';
 
 import { makeAttestorCommand } from './commands/attestor';
+import { makeAttestCoinCommand } from './commands/attestCoin';
 
 const program = new Command();
 
@@ -54,4 +55,5 @@ program.commands.forEach((cmd) => {
 program.addCommand(makeEvmCommand());
 program.addCommand(makeProxyCommands());
 program.addCommand(makeAttestorCommand());
+program.addCommand(makeAttestCoinCommand());
 program.parse(process.argv);

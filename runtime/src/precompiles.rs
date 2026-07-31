@@ -2,6 +2,7 @@
 //! Moonbeam [`precompile_utils::precompile_set`] pattern).
 
 use crate::Runtime;
+use pallet_evm_precompile_attest_coin::AttestCoinPrecompile;
 use pallet_evm_precompile_attestor_stash::AttestorStashPrecompile;
 use pallet_evm_precompile_block_prover::BlockProverPrecompile;
 use pallet_evm_precompile_bn128::{Bn128Add, Bn128Mul, Bn128Pairing};
@@ -39,6 +40,13 @@ type NonEthereumPrecompileChecks = (CallableByContract, CallableByPrecompile);
 // caller's side. If you narrow either tuple, decide deliberately whether delegated EOAs belong on
 // the permitted side of that filter.
 
+/// Attest-coin bridges through a configured ERC-20, so it must be allowed to make direct subcalls.
+type AttestCoinPrecompileChecks = (
+    CallableByContract,
+    CallableByPrecompile,
+    SubcallWithMaxNesting<0>,
+);
+
 /// Upper bound on the Creditcoin-precompile numeric address band (covers 4049–5050 today with room above).
 ///
 /// Addresses from `AddressU64<1>` through this exclusive band are routed through the tuple below;
@@ -61,6 +69,7 @@ type GluwaPrecompilesInner<R> = (
     PrecompileAt<AddressU64<4050>, BlockProverPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4051>, ChainInfoPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<4052>, AttestorStashPrecompile<R>, NonEthereumPrecompileChecks>,
+    PrecompileAt<AddressU64<4053>, AttestCoinPrecompile<R>, AttestCoinPrecompileChecks>,
     PrecompileAt<AddressU64<5049>, Sr25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
     PrecompileAt<AddressU64<5050>, Ed25519VerifierPrecompile<R>, NonEthereumPrecompileChecks>,
 );
@@ -78,4 +87,22 @@ pub type GluwaPrecompiles<R> = PrecompileSetBuilder<
 
 pub fn used_addresses() -> sp_std::vec::Vec<sp_core::H160> {
     GluwaPrecompiles::<Runtime>::used_addresses_h160().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use precompile_utils::precompile_set::PrecompileChecks;
+
+    #[test]
+    fn attest_coin_precompile_allows_direct_subcalls_only() {
+        assert_eq!(
+            <AttestCoinPrecompileChecks as PrecompileChecks>::allow_subcalls(),
+            Some(true)
+        );
+        assert_eq!(
+            <AttestCoinPrecompileChecks as PrecompileChecks>::recursion_limit(),
+            Some(Some(0))
+        );
+    }
 }

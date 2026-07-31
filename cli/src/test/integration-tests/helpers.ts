@@ -31,31 +31,59 @@ export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amou
     return api.tx.utility.batchAll(txs);
 }
 
-export async function waitEras(eras: number, api: ApiPromise) {
-    // Under `--sealing` an era is only as far away as the blocks we seal, so seal them
-    // instead of waiting ~150 s per era for something else to produce them.
-    const sealing = await isManualSealing(api);
-    if (sealing) {
-        // Callers often submit a change that applies at the next era and call this without
-        // waiting for inclusion. Include it before counting: if the first block sealed here
-        // were the era boundary, the era would turn in on_initialize before the change was
-        // set, and the caller would wait one era too few.
-        await sealBlock(api);
+/**
+ * Active staking era index used by `pallet_attestation` unlock / withdrawable math
+ * (`T::Staking::current_era()`). Prefer this over `api.derive.session.info().currentEra`,
+ * which does not always track the same value.
+ */
+export async function readActiveStakingEraIndex(api: ApiPromise): Promise<number> {
+    const opt = await api.query.staking.activeEra();
+    if (opt.isNone) {
+        return 0;
     }
-    let eraInfo = await api.derive.session.info();
-    let currentEra = eraInfo.currentEra.toNumber();
-    const targetEra = currentEra + eras;
+    return opt.unwrap().index.toNumber();
+}
+
+/**
+ * Block until `pallet-staking`'s active era index reaches `targetEra` (inclusive).
+ */
+export async function waitUntilStakingEra(api: ApiPromise, targetEra: number) {
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
+    const sealing = await isManualSealing(api);
+    let currentEra = await readActiveStakingEraIndex(api);
     while (currentEra < targetEra) {
-        console.log(`Waiting for era ${targetEra}, currently at ${currentEra}`);
+        console.log(`Waiting for staking era ${targetEra}, currently at ${currentEra}`);
         if (sealing) {
             await sealBlock(api);
         } else {
             await sleep(blockTime);
         }
-        eraInfo = await api.derive.session.info();
-        currentEra = eraInfo.currentEra.toNumber();
+        currentEra = await readActiveStakingEraIndex(api);
     }
+}
+
+/**
+ * Wait until `pallet-staking`'s active era index advances by `eras` from now.
+ */
+export async function waitEras(eras: number, api: ApiPromise) {
+    // Include pending changes before counting eras, even if the next block is an era boundary.
+    if (await isManualSealing(api)) {
+        await sealBlock(api);
+    }
+    const currentEra = await readActiveStakingEraIndex(api);
+    await waitUntilStakingEra(api, currentEra + eras);
+}
+
+/**
+ * Wait until attestor bond started unlocking at `unregisterEra` is withdrawable.
+ * Unlock chunks mature when `current_era >= unregisterEra + bondingDuration`; we wait
+ * one extra era (see attestor-stash precompile tests) for era-boundary safety.
+ */
+export async function waitForAttestorUnbonding(api: ApiPromise, unregisterEra: number, opts?: { extraEras?: number }) {
+    const bondingDuration = api.consts.attestation.bondingDuration.toNumber();
+    const extraEras = opts?.extraEras ?? 1;
+    const targetEra = unregisterEra + bondingDuration + extraEras;
+    await waitUntilStakingEra(api, targetEra);
 }
 
 export async function forceNewEra(api: ApiPromise) {

@@ -1,8 +1,27 @@
 import { forElapsedBlocks } from '../../utils';
-import { initAliceKeyring, randomFundedAccount, fundFromSudo, waitEras, ALICE_NODE_URL, CLIBuilder } from '../helpers';
+import {
+    initAliceKeyring,
+    randomFundedAccount,
+    fundFromSudo,
+    readActiveStakingEraIndex,
+    waitForAttestorUnbonding,
+    ALICE_NODE_URL,
+    CLIBuilder,
+} from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { chain_Anvil1_Key } from '../../blockchain-tests/pallets/supported-chains/consts';
 import { parseAmount } from '../../../commands/options';
+import { signSendAndWatchCcKeyring } from '../../../lib/tx';
+import { CallerKeyring } from '../../../lib/account/keyring';
+import { evmAddressToSubstrateAddress } from '../../../lib/evm/address';
+
+// pallet_attestation now denominates bonds in `attest-coin` (`pallet_assets` asset id 1)
+// instead of native CTC. Its issuer/admin is the attest-coin precompile account
+// (`HashedAddressMapping` of EVM `0x0...fd5`). For tests we use `sudo.sudoAs` to mint
+// directly as the precompile so the stash has enough attest-coin to register.
+const ATTEST_COIN_ASSET_ID = 1;
+const ATTEST_COIN_PRECOMPILE_EVM = '0x0000000000000000000000000000000000000fd5';
+const ATTEST_COIN_PRECOMPILE_ACCOUNT = evmAddressToSubstrateAddress(ATTEST_COIN_PRECOMPILE_EVM);
 
 // NOTE: The attestor-stash precompile uses the EVM `msg.sender` as the origin
 // of the dispatched pallet call. Proxy-signed attestor operations are not
@@ -13,16 +32,40 @@ describe('withdraw-unbonded', () => {
     let sudoSigner: KeyringPair;
     let attestor: any;
     let CLI: any;
+    let originalMinBondRequirement: string;
+    let unregisterEra: number;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
+        const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+
+        // Ensure unregister creates an unlocking chunk in CI/dev.
+        originalMinBondRequirement = (await api.query.attestation.minBondRequirement(chain_Anvil1_Key)).toString();
+        const minBondForTest = parseAmount('100').toString();
+        await signSendAndWatchCcKeyring(
+            api.tx.sudo.sudo(api.tx.attestation.setMinBondRequirement(chain_Anvil1_Key, minBondForTest)),
+            api,
+            sudoKeyring,
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
 
         // Create and fund the test account (sr25519 + EVM stash)
         caller = await randomFundedAccount(api, sudoSigner);
         await fundFromSudo(api, caller.evmStashAddress, parseAmount('1000'));
+        // Mint attest-coin to the EVM-mapped stash address so `register_attestor` (which now
+        // checks `BondFungibles::balance(BondAssetId=1)`, not native CTC) sees enough bond.
+        await signSendAndWatchCcKeyring(
+            api.tx.sudo.sudoAs(
+                ATTEST_COIN_PRECOMPILE_ACCOUNT,
+                api.tx.assets.mint(ATTEST_COIN_ASSET_ID, caller.evmStashAddress, minBondForTest),
+            ),
+            api,
+            sudoKeyring,
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
         CLI = CLIBuilder({ CC_SECRET: caller.secret });
 
         attestor = await randomFundedAccount(api, sudoSigner);
@@ -36,9 +79,21 @@ describe('withdraw-unbonded', () => {
         // after unregistering the unbonding period starts
         result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
+
+        unregisterEra = await readActiveStakingEraIndex(api);
+        const ledgerOpt: any = await api.query.attestation.ledger(caller.evmStashAddress);
+        expect(ledgerOpt.isSome).toBe(true);
+        expect(ledgerOpt.unwrap().unlocking.length).toBeGreaterThan(0);
     }, 150_000);
 
     afterAll(async () => {
+        const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+        await signSendAndWatchCcKeyring(
+            api.tx.sudo.sudo(api.tx.attestation.setMinBondRequirement(chain_Anvil1_Key, originalMinBondRequirement)),
+            api,
+            sudoKeyring,
+        );
+        await forElapsedBlocks(api, { minBlocks: 1 });
         await api.disconnect();
     }, 120_000);
 
@@ -60,9 +115,8 @@ describe('withdraw-unbonded', () => {
 
     describe('when funds have been unlocked', () => {
         beforeAll(async () => {
-            // wait for funds to be unlocked!
-            const unbondingPeriod: number = api.consts.attestation.bondingDuration.toNumber();
-            await waitEras(unbondingPeriod, api); // ~5 minutes
+            // Wait until the unlocking chunk from `unregisterEra` is withdrawable.
+            await waitForAttestorUnbonding(api, unregisterEra);
         }, 400_000);
 
         test('should succeed when funds have been unlocked', () => {
