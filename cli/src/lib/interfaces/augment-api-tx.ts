@@ -1059,6 +1059,26 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, AccountId32]
             >;
+            /**
+             * Top up the caller's attestor bond by `amount` attest coin, without registering a new
+             * attestor.
+             *
+             * Required to escape the following trap: `MinBondRequirement` is read at its *current*
+             * value by the aggregate solvency guard in `unregister_attestor`, so raising a chain's
+             * requirement after registration can leave a stash whose `active` no longer covers its
+             * still-registered attestors. Before this call the only way to add collateral was to
+             * register *another* attestor, which raises the aggregate requirement by at least as much
+             * as it adds — so a multi-attestor stash could neither top up nor unregister, and its
+             * pooled bond was locked permanently.
+             *
+             * Fails with `NotStash` if the caller has no ledger (nothing to top up — a stash with no
+             * registered attestor exits via `withdraw_unbonded`) and with `InsufficientBalance` if the
+             * caller's liquid attest-coin balance is below `amount`.
+             **/
+            bondExtra: AugmentedSubmittable<
+                (amount: u128 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u128]
+            >;
             chill: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -1253,6 +1273,26 @@ declare module '@polkadot/api-base/types/submittable' {
                     newTargetSampleSize: u32 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
+            >;
+            /**
+             * Release bond above the caller's aggregate collateral requirement into an unlocking
+             * chunk, withdrawable with `withdraw_unbonded` after `BondingDuration`.
+             *
+             * Inverse of [`Self::bond_extra`], and the only way to recover surplus `active` bond:
+             * `unregister_attestor` releases at most the *current* `MinBondRequirement` per attestor,
+             * and `withdraw_unbonded` only reaps a stash once `active` is under the existential
+             * deposit. Without this call, an overshot `bond_extra`, a `MinBondRequirement` *decrease*,
+             * or a top-up made while no attestor is registered would each strand the remainder in the
+             * bond pool permanently.
+             *
+             * `amount` is capped at the caller's `active` bond, and the resulting `active` may not
+             * fall below the sum of `MinBondRequirement` across the stash's still-registered
+             * attestors (`InsufficientRemainingBond` otherwise). With no attestors registered that
+             * sum is zero, so the full remaining bond can be released and the stash reaped.
+             **/
+            unbondSurplus: AugmentedSubmittable<
+                (amount: u128 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [u128]
             >;
             unregisterAttestor: AugmentedSubmittable<
                 (
