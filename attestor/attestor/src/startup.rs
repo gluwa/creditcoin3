@@ -149,11 +149,12 @@ pub async fn wait_for_eligible(
 ///
 /// Returns `(genesis_height, start_attestation)`:
 /// - `genesis_height`: the chain's attestation-genesis block (from runtime).
-/// - `start_attestation`: `Some` if there's a previously-finalized attestation or checkpoint on
-///   chain; `None` if we're genuinely starting from genesis.
+/// - `start_attestation`: the latest finalized anchor — `Some` whether it is backed by a committed
+///   attestation *or* by a checkpoint (the two are indistinguishable, and must be, for resume
+///   purposes); `None` only if the chain has neither, i.e. we're genuinely starting from genesis.
 pub async fn fetch_start_point(
     chain_key: ChainKey,
-    cc3: &Arc<Client>,
+    cc3: &Client,
 ) -> Result<
     (
         attestor_primitives::Height,
@@ -165,23 +166,30 @@ pub async fn fetch_start_point(
         .get_attestation_chain_genesis_block_number(chain_key)
         .await?;
 
-    let start = if let Some(last_digest) = cc3.fetch_last_digest(chain_key).await? {
-        let last = cc3
-            .get_attestation_by_digest(chain_key, last_digest)
-            .await?
-            .ok_or(Error::DigestNotFound(chain_key, last_digest))?;
-        Some(crate::shared::AttestationInfo {
-            height: last.header_number(),
-            digest: last.digest(),
-        })
-    } else {
-        cc3.get_last_checkpoint(chain_key)
-            .await?
-            .map(|cp| crate::shared::AttestationInfo {
-                height: cp.block_number,
-                digest: cp.digest,
-            })
-    };
+    // Resume from the finalized *anchor* — the `(height, digest)` pair the runtime reports —
+    // without resolving it back through `Attestations`.
+    //
+    // The anchor may be backed by either a committed attestation or a checkpoint, and
+    // `fetch_last_finalized` already mirrors the runtime's lookup order (`LastDigest`, else
+    // `LastCheckpoint`). Resolving it through `Attestations` was wrong for the checkpoint-backed
+    // case, which arises two ways:
+    //
+    //   * after `revert_to()`, which clears every stored attestation for the chain and repoints
+    //     *both* `LastCheckpoint` and `LastDigest` at the surviving checkpoint, so `LastDigest`
+    //     names a digest that has no `Attestations` entry; and
+    //   * on a checkpoint-only chain, where `LastDigest` is absent and the lookup falls back to
+    //     `LastCheckpoint` for the same reason.
+    //
+    // In both cases startup would look up a digest with no attestation entry, treat that valid
+    // state as impossible, and fail — deterministically, on every restart, so a supervisor would
+    // crash-loop the whole fleet until an operator intervened (ATTESTOR-V2-009).
+    //
+    // Taking the anchor as-is covers all four states uniformly: attestation-backed,
+    // checkpoint-backed after a revert, checkpoint-only, and no anchor at all (true genesis).
+    let start = cc3
+        .fetch_last_finalized(chain_key)
+        .await?
+        .map(|(height, digest)| crate::shared::AttestationInfo { height, digest });
 
     Ok((genesis, start))
 }
