@@ -68,7 +68,9 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
 // OutboxFactory: OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress)
 // OutboxCreated(address indexed outbox, uint32 indexed chainKey, address indexed owner, address validator, string version)
 type OutboxCreatedArgs = [string, bigint, string, string, string];
-// Outbox: MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool requiresAck, bytes payload)
+// Outbox: MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool canAck, bytes payload)
+// canAck (renamed from requiresAck in usc-contracts #23): acknowledgment is optional, requested by
+// a nonzero acknowledgmentPrice in the signed relayer quote — the flag only says an ack MAY land.
 // emitterAddress is a bytes32 (20-byte EVM address left-aligned in the high bytes).
 type MessagePublishedArgs = [string, string, boolean, string];
 // Outbox: MessageAcknowledged(bytes32 indexed messageId)
@@ -206,13 +208,13 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
         return;
     }
 
-    const [messageIdRaw, emitterRaw, requiresAck, payload] = event.args;
+    const [messageIdRaw, emitterRaw, canAck, payload] = event.args;
     const messageId = messageIdRaw;
     // emitterAddress is now a bytes32 with the 20-byte EVM address in the high bytes
     // (bytes32(bytes20(emitter))). Recover the plain address so stored/queried emitters stay
     // 20-byte addresses, consistent with the rest of the schema.
     const emitter = `0x${emitterRaw.slice(2, 42)}`.toLowerCase();
-    logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitter}, requiresAck=${requiresAck}`);
+    logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitter}, canAck=${canAck}`);
 
     // Idempotency guard: a replayed MessagePublished (reorg replay, reindex overlap, duplicate
     // datasource) must not reset a message that handleMessageAcknowledged already marked
@@ -230,7 +232,7 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
         id: messageId,
         outboxId: event.address.toLowerCase(),
         emitter,
-        requiresAck,
+        canAck,
         payload,
         publishedAt: BigInt(event.blockNumber),
         publishedTimestamp: eventTimestamp(event),
