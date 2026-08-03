@@ -6421,6 +6421,108 @@ mod revert_to {
         })
     }
 
+    /// Regression test for ATTESTOR-V2-009: after a revert the finalized anchor is *checkpoint*
+    /// backed — `last_digest()` names a digest that has no `Attestations` entry, because
+    /// `do_revert_to` clears every stored attestation and repoints `LastDigest` at the surviving
+    /// checkpoint.
+    ///
+    /// The attestor resumes from that anchor directly (`startup::fetch_start_point`) and must
+    /// **not** resolve it through `Attestations`. It used to, which made this perfectly valid
+    /// state look impossible: startup failed deterministically on every boot, so a supervisor
+    /// crash-looped the whole fleet after an emergency revert until an operator intervened.
+    /// If this invariant ever changes, that startup path needs review.
+    #[test]
+    fn revert_to_leaves_a_checkpoint_backed_anchor_with_no_attestation_entry() {
+        ExtBuilder.build_and_execute(|| {
+            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+            let revert_height: u64 = 1_500;
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+
+            // A few stored attestations, with `LastDigest` pointing at the newest — the ordinary
+            // attestation-backed anchor as it looks before a revert.
+            let mut newest = None;
+            for i in 0..3u64 {
+                let a = create_signed_attestation(
+                    Vec::from([attestor.clone()]),
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10,
+                    None,
+                    None,
+                );
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+                CheckpointingQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |q| {
+                    q.push_back(a.digest())
+                });
+                newest = Some(a);
+            }
+            let newest = newest.expect("seeded three attestations");
+            LastDigest::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                (newest.header_number(), newest.digest()),
+            );
+
+            // Revert target, plus a `LastCheckpoint` so `do_revert_to` can establish pruning state.
+            let revert_digest =
+                H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                revert_height,
+                revert_digest,
+            );
+            let last_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+            let last_cp_digest =
+                H256::from(&sp_io::hashing::blake2_256(&last_height.to_be_bytes()));
+            insert_checkpoint_and_bucket_entry::<Test>(
+                SUPPORTED_CHAIN_KEY,
+                last_height,
+                last_cp_digest,
+            );
+            LastCheckpoint::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_height,
+                    digest: last_cp_digest,
+                },
+            );
+
+            // Before the revert the anchor resolves through `Attestations`, as startup assumed.
+            assert_eq!(
+                Pallet::<Test>::last_digest(SUPPORTED_CHAIN_KEY),
+                Some(newest.digest())
+            );
+            assert!(Attestations::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                newest.digest()
+            ));
+
+            assert_ok!(Attestation::revert_to(
+                root_origin,
+                SUPPORTED_CHAIN_KEY,
+                revert_height
+            ));
+
+            // The anchor now names the revert checkpoint...
+            assert_eq!(
+                LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY),
+                Some((revert_height, revert_digest))
+            );
+            assert_eq!(
+                Pallet::<Test>::last_digest(SUPPORTED_CHAIN_KEY),
+                Some(revert_digest)
+            );
+            // ...and every attestation is gone, so that anchor is deliberately NOT resolvable
+            // through `Attestations`. This is the state that used to break attestor startup.
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                0
+            );
+            assert!(!Attestations::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                revert_digest
+            ));
+        })
+    }
+
     /// Regression test: during the narrow checkpoint-cycle window the chain can briefly retain
     /// `2 * checkpoint_interval + retention_duration` attestations (one more checkpoint's worth
     /// than steady state). `do_revert_to` must clear that peak in one go — with the previous
