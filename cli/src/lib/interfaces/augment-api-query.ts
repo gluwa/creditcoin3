@@ -226,6 +226,22 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             /**
+             * How many registered attestors a stash backs on a chain. Maintained in lock-step with
+             * [`Attestors`] (incremented on register, decremented on unregister; the entry is removed at
+             * zero).
+             *
+             * Exists so [`Pallet::required_bond_for_stash`] costs O(supported chains) rather than
+             * O(entire attestor registry). That aggregate is consulted by the permissionless
+             * [`Pallet::bond_extra`] / [`Pallet::unbond_surplus`] dispatchables, which need only a ledger
+             * to exist — without the index, any account with a ledger could force a full registry scan.
+             **/
+            attestorsByStash: AugmentedQuery<
+                ApiType,
+                (arg1: u64 | AnyNumber | Uint8Array, arg2: AccountId32 | string | Uint8Array) => Observable<u32>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
+            /**
              * Number of registered attestors per chain. Maintained incrementally in
              * [`Pallet::try_insert_attestor_and_emit_event`] and
              * [`Pallet::remove_attestor_and_emit_event`] so that
