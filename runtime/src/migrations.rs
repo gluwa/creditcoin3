@@ -199,11 +199,7 @@ fn dispatch_root(call: RuntimeCall) -> DispatchResult {
 
 /// Sets `issuer` + `admin` to `precompile` (required for the attest-coin precompile's `mint` /
 /// `burn`) and `owner` + `freezer` to `owner`.
-fn apply_roles(
-    precompile: &AccountId,
-    owner: &AccountId,
-    details: &MirrorAssetDetails,
-) -> Weight {
+fn apply_roles(precompile: &AccountId, owner: &AccountId, details: &MirrorAssetDetails) -> Weight {
     let is_frozen = details.status == MirrorAssetStatus::Frozen;
     let status = RuntimeCall::Assets(pallet_assets::Call::force_asset_status {
         id: ATTEST_COIN_ASSET_ID,
