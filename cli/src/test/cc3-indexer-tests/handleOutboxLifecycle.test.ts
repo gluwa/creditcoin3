@@ -115,7 +115,7 @@ describe('Outbox lifecycle handlers', () => {
                         filter: { id: { equalTo: "${messageId}" }},
                         last: 1,
                     ) { nodes {
-                        id, outboxId, emitter, requiresAck, payload,
+                        id, outboxId, emitter, canAck, payload,
                         publishedAt, publishedTimestamp, publishedTxHash, acknowledged
                     }}}`,
             );
@@ -128,7 +128,7 @@ describe('Outbox lifecycle handlers', () => {
                 expect(node.outboxId).toEqual(outboxAddress);
                 // The bytes32 emitter is unwrapped back to a plain 20-byte address.
                 expect(node.emitter).toEqual(emitterAddress);
-                expect(node.requiresAck).toEqual(true);
+                expect(node.canAck).toEqual(true);
                 expect(node.payload).toEqual(payload);
                 expect(BigInt(node.publishedAt)).toBeGreaterThanOrEqual(startingBlock);
                 expect(BigInt(node.publishedTimestamp)).toBeGreaterThan(0n);
