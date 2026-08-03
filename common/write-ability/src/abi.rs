@@ -1,9 +1,12 @@
-//! Solidity ABI bindings for the USC write-ability contracts.
+//! Solidity ABI bindings for the USC write-ability contracts, as consumed by the ATTESTOR.
 //!
-//! Shared by the attestor (which decodes `MessagePublished` from the Creditcoin Outbox) and the
-//! `message-relayer` (which additionally calls `Inbox.deliverMessage` / `validateVotes`). Keeping
-//! one definition here means both crates decode the *same* event signature and recompute the
-//! *same* `messageHash` — a mismatch would make every signature verify as invalid on-chain.
+//! The message-relayer was extracted to gluwa/usc-message-relayer and keeps its own (wider)
+//! mirror of these bindings; the cross-repo contract is that both decode the *same*
+//! `MessagePublished` signature and recompute the *same* `messageHash` (see `hash.rs` and its
+//! golden vectors) — a mismatch would make every signature verify as invalid on-chain. This copy
+//! deliberately binds only what the attestor calls; destination-chain surfaces (`IInbox`,
+//! `IAcknowledgmentValidator`, the proof envelopes) and Outbox view/error bindings the attestor
+//! never reads live in the relayer repo only.
 //!
 //! Inline `alloy::sol!` declarations are used while the production contracts are finalized — when
 //! they ship, switch each block to the JSON form (`#[sol(rpc)] interface X, "contracts/x.json"`)
@@ -13,18 +16,6 @@
 use alloy::sol;
 
 sol! {
-    /// Stored message record returned by `Outbox.getMessage` (mirrors `OutboxTypes.Message`).
-    /// Field order/types must match the Solidity struct exactly for ABI decoding.
-    #[derive(Debug)]
-    struct OutboxMessage {
-        address emitter;
-        uint64 sequence;
-        uint64 timestamp;
-        bool canAck;
-        bool acknowledged;
-        bytes32 payloadHash;
-    }
-
     #[sol(rpc)]
     #[derive(Debug)]
     contract IOutbox {
@@ -46,81 +37,6 @@ sol! {
             bytes payload
         );
 
-        /// Stored message state. Mirrors `Outbox.getMessage`: reverts `MessageNotFound` for an
-        /// unknown id. `canAck` flags whether an ack may be claimed (the ack submitter pre-checks
-        /// it so bridge traffic skips the proof fetch); `acknowledged` means the ack already landed
-        /// (a duplicate submit would revert `MessageAlreadyAcknowledged`). Note `emitter` here is a
-        /// plain `address` — only the `MessagePublished` event widens it to `bytes32`.
-        function getMessage(bytes32 messageId) external view returns (OutboxMessage memory);
-
-        /// Whether `messageId` was published with `canAck = true`. `false` for an unknown id
-        /// (mapping default), so the ack submitter uses it as the existence-and-requires-ack gate
-        /// before checking `isAcknowledged`.
-        function messageCanAck(bytes32 messageId) external view returns (bool);
-
-        /// Whether `messageId` has already been acknowledged on the source Outbox. `false` for an
-        /// unknown id.
-        function isAcknowledged(bytes32 messageId) external view returns (bool);
-
-        /// Reverts bubbled up through `AcknowledgmentValidator.submitAcknowledgment` when it calls
-        /// `acknowledgeMessage` here. All three are permanent for a given delivery tx — the ack
-        /// submitter classifies them as terminal (see the ack submitter in
-        /// the `gluwa/usc-message-relayer` repository).
-        error MessageDoesNotRequireAck(bytes32 messageId);
-        error MessageNotFound(bytes32 messageId);
-        error MessageAlreadyAcknowledged(bytes32 messageId);
-    }
-
-    #[sol(rpc)]
-    #[derive(Debug)]
-    contract IInbox {
-        /// Submit an aggregated set of attestor votes that prove `messageId` was finalized
-        /// on Creditcoin. Calldata is byte-identical to what attestors signed.
-        function deliverMessage(
-            bytes32 messageId,
-            address emitterAddress,
-            bytes calldata payload,
-            bytes calldata votes
-        ) external;
-
-        /// Retry a message previously left in the `MessagePending` state (e.g. dApp ran out
-        /// of gas during `receiveMessage`). Permissionless.
-        function retryPendingMessage(bytes32 messageId) external;
-
-        /// Whether `messageId` was validated but its `receiveMessage` callback failed, leaving it
-        /// retryable via `retryPendingMessage`. Mirrors `SimpleInbox.isPending`.
-        function isPending(bytes32 messageId) external view returns (bool);
-
-        /// Pure check used by the relayer to simulate before paying gas. Reverts if the votes
-        /// are malformed, below threshold, or signed by unauthorized signers.
-        function validateVotes(bytes32 messageHash, bytes calldata votes)
-            external
-            view
-            returns (bool);
-
-        /// Emitted when `deliverMessage`'s dApp callback succeeds. `processor` is the vote
-        /// validator that authorized delivery; `relayer` is the `msg.sender` that delivered.
-        /// Only `messageId` (topics[1]) is read; the two addresses are ignored. The 3-arg shape
-        /// must match `Inbox.MessageDelivered` exactly or the ack watcher's `SIGNATURE_HASH`
-        /// filter misses every delivery.
-        event MessageDelivered(
-            bytes32 indexed messageId,
-            address indexed processor,
-            address indexed relayer
-        );
-        /// Emitted (on a **successful** `deliverMessage` tx) when the votes validated but the
-        /// dApp's `receiveMessage` callback reverted — the message is stored for
-        /// `retryPendingMessage`. Signature must match `SimpleInbox.MessagePending` exactly or
-        /// receipt-log classification silently misses it.
-        event MessagePending(bytes32 indexed messageId, address indexed destinationContract);
-
-        /// Reverts emitted by the inbox when delivery fails or is redundant. Used to classify
-        /// transaction outcomes for metrics + retry logic. NOTE: the current `SimpleInbox` rejects
-        /// duplicates with `require(..., "Already validated")` (a string revert) — classifiers must
-        /// match that string as well as the custom-error selector kept for future inbox versions.
-        error MessageAlreadyValidated();
-        error InvalidVotes();
-        error VotesBelowThreshold();
     }
 
     #[sol(rpc)]
@@ -174,57 +90,4 @@ sol! {
         function submitAttestorSetUpdate(address[] memory newAttestors, bytes memory signatures) external;
     }
 
-    #[sol(rpc)]
-    #[derive(Debug)]
-    contract IAcknowledgmentValidator {
-        /// Trust-minimized acknowledgment entrypoint on the *source* (Creditcoin) chain. The relayer
-        /// proves — via the chain's native USC proving (block-prover precompile: merkle inclusion +
-        /// continuity) — that a `MessageDelivered` event was emitted in a finalized block on the
-        /// destination chain. This contract verifies the proof, decodes the delivered messageId(s),
-        /// and calls `Outbox.acknowledgeMessage`. Permissionless: the proof is self-validating.
-        ///
-        /// `height` is the destination block height; `encodedTransaction` is the prover `txBytes`
-        /// (encoded tx + receipt); the two proof structs mirror the block-prover precompile inputs.
-        function submitAcknowledgment(
-            uint64 height,
-            bytes calldata encodedTransaction,
-            MerkleProof calldata merkleProof,
-            ContinuityProof calldata continuityProof
-        ) external;
-
-        event Acknowledged(bytes32 indexed messageId);
-
-        /// Validator-local reverts (proof rejected before reaching the Outbox). Permanent for a
-        /// given proof, so the ack submitter treats them as terminal. Message-state errors
-        /// (`MessageDoesNotRequireAck` / `MessageNotFound` / `MessageAlreadyAcknowledged`) bubble
-        /// up from the Outbox — see [`IOutbox`].
-        error ProofVerificationFailed();
-        error NoMessageDeliveredLogs();
-        error MalformedMessageDeliveredLog();
-        error EncodedTransactionTooLarge(uint256 size, uint256 maxSize);
-        error UnsupportedTxType(uint8 txType);
-    }
-
-    /// One sibling along the merkle inclusion path. `isLeft` says whether the sibling is the
-    /// left-hand input when hashing up to the parent.
-    #[derive(Debug)]
-    struct MerkleProofEntry {
-        bytes32 hash;
-        bool isLeft;
-    }
-
-    /// Merkle inclusion proof of the transaction within its block's transaction trie.
-    #[derive(Debug)]
-    struct MerkleProof {
-        bytes32 root;
-        MerkleProofEntry[] siblings;
-    }
-
-    /// Continuity proof that the attestation chain finalized the destination block: the chain of
-    /// block-root digests from a known lower endpoint up to the proven height.
-    #[derive(Debug)]
-    struct ContinuityProof {
-        bytes32 lowerEndpointDigest;
-        bytes32[] roots;
-    }
 }
