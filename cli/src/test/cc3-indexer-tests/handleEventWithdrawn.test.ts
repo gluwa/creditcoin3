@@ -79,7 +79,11 @@ describe('handleEventWithdrawn()', () => {
 
             let foundMatch = false;
             for (const node of response.data.withdrawns.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThan(0n);
+                // Amount assertions are scoped to the owned-stash branch below, matching
+                // `handleEventBonded`. A loop-wide `amount > 0` happens to hold today only because
+                // `do_withdraw_unbonded` suppresses the event when nothing was released
+                // (`if new_total < old_total`). Do not rely on that here — it would break silently
+                // if that guard ever changes.
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);

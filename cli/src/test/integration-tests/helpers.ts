@@ -49,11 +49,26 @@ export async function mintAttestCoin(api: ApiPromise, sudoSigner: KeyringPair, t
     }
     const issuer = details.unwrap().issuer.toString();
 
+    const before = await attestCoinBalance(api, to);
+
     const mint = api.tx.assets.mint(ATTEST_COIN_ASSET_ID, to, amount.toString());
     const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
     const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudoAs(issuer, mint), api, sudoKeyring);
     if (result.status !== TxStatus.ok) {
         throw new Error(`failed to mint attest coin to ${to}: ${JSON.stringify(result)}`);
+    }
+
+    // `sudo.sudoAs` reports the OUTER extrinsic's status; a failing inner call still yields
+    // `TxStatus.ok` and surfaces its error only in the `SudoAsDone` event. Read the balance back so
+    // a failed mint fails here instead of resurfacing later as a confusing `InsufficientBalance`
+    // from `register_attestor`.
+    const after = await attestCoinBalance(api, to);
+    const minted = after - before;
+    if (minted < BigInt(amount.toString())) {
+        throw new Error(
+            `attest coin mint to ${to} did not take effect: balance moved ${before} -> ${after}, ` +
+                `expected at least +${amount.toString()} (inner sudoAs dispatch likely failed)`,
+        );
     }
 }
 
@@ -80,6 +95,16 @@ export async function setMinBondRequirement(
     const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudo(call), api, sudoKeyring);
     if (result.status !== TxStatus.ok) {
         throw new Error(`failed to set minBondRequirement for chain ${chainKey}: ${JSON.stringify(result)}`);
+    }
+
+    // `sudo.sudo` reports the OUTER extrinsic's status; a failing inner call still yields
+    // `TxStatus.ok` and surfaces its error only in the `Sudid` event. Read the value back.
+    const applied = (await api.query.attestation.minBondRequirement(chainKey)).toString();
+    if (applied !== amount.toString()) {
+        throw new Error(
+            `minBondRequirement for chain ${chainKey} did not take effect: read back ${applied}, ` +
+                `expected ${amount.toString()} (inner sudo dispatch likely failed)`,
+        );
     }
     return previous;
 }

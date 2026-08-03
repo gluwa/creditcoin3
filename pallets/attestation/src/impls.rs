@@ -216,6 +216,10 @@ impl<T: Config> Pallet<T> {
         AttestorsCount::<T>::mutate(chain_key, |count| {
             *count = count.saturating_add(1);
         });
+        // Keep the per-stash index in lock-step too — see `required_bond_for_stash`.
+        AttestorsByStash::<T>::mutate(chain_key, &stash, |count| {
+            *count = count.saturating_add(1);
+        });
 
         // Make sure the stash can pay for the registration
         let stash_balance = Self::get_free_balance(&stash);
@@ -383,6 +387,15 @@ impl<T: Config> Pallet<T> {
         // with the attestor removal above.
         AttestorsCount::<T>::mutate(chain_key, |count| {
             *count = count.saturating_sub(1);
+        });
+        // Mirror on the per-stash index, clearing the key at zero so it leaves no stale entries.
+        AttestorsByStash::<T>::mutate_exists(chain_key, &stash, |maybe_count| {
+            let remaining = maybe_count.unwrap_or(0).saturating_sub(1);
+            *maybe_count = if remaining == 0 {
+                None
+            } else {
+                Some(remaining)
+            };
         });
 
         Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
@@ -965,24 +978,32 @@ impl<T: Config> Pallet<T> {
     ///
     /// `exclude` lets a collateral-reducing path discount an attestor that is being removed
     /// in the same call but whose [`Attestors`] entry has not been deleted yet.
+    ///
+    /// Reads the per-stash [`AttestorsByStash`] index rather than scanning [`Attestors`], so the
+    /// cost is O(supported chains) — a small bounded set — instead of O(entire registry). That
+    /// matters because this is reachable from the permissionless [`Pallet::bond_extra`] and
+    /// [`Pallet::unbond_surplus`] dispatchables, which require only that a ledger exist.
+    ///
+    /// Precondition for `exclude`: callers must already have verified that the excluded attestor
+    /// belongs to `stash` (both current callers fetch the [`Attestors`] entry and check
+    /// `attestor.stash == stash` first), since the count is decremented unconditionally.
     pub(crate) fn required_bond_for_stash(
         stash: &T::AccountId,
         exclude: Option<(ChainKey, &T::AccountId)>,
     ) -> BalanceOf<T> {
         let mut required: BalanceOf<T> = Zero::zero();
         for chain_key in T::SupportedChains::supported_chains() {
-            let min_bond = Self::min_bond_requirement(chain_key);
-            for (attestor_id, attestor) in Attestors::<T>::iter_prefix(chain_key) {
-                if attestor.stash != *stash {
-                    continue;
+            let mut count = AttestorsByStash::<T>::get(chain_key, stash);
+            if let Some((ex_chain, _)) = exclude {
+                if ex_chain == chain_key {
+                    count = count.saturating_sub(1);
                 }
-                if let Some((ex_chain, ex_id)) = exclude {
-                    if ex_chain == chain_key && *ex_id == attestor_id {
-                        continue;
-                    }
-                }
-                required = required.saturating_add(min_bond);
             }
+            if count == 0 {
+                continue;
+            }
+            let min_bond = Self::min_bond_requirement(chain_key);
+            required = required.saturating_add(min_bond.saturating_mul(count.into()));
         }
         required
     }

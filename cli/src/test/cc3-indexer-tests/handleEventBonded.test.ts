@@ -64,7 +64,10 @@ describe('handleEventBonded()', () => {
 
             let foundMatch = false;
             for (const node of response.data.bondeds.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThan(0n);
+                // Only structural assertions loop-wide. `register_attestor`'s first-bond path emits
+                // `Bonded` unconditionally, so with `DefaultMinBondRequirement = 0` every other
+                // suite that registers an attestor contributes a `Bonded { amount: 0 }` row to this
+                // `last: 10` window. Amount assertions belong in the owned-stash branch only.
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);

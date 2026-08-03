@@ -622,6 +622,193 @@ fn bond_extra_moves_liquid_balance_into_the_pool() {
     })
 }
 
+/// `AttestorsByStash` must track `Attestors` exactly — `required_bond_for_stash` reads it instead
+/// of scanning the registry, so drift silently weakens the bond solvency guard.
+#[test]
+fn attestors_by_stash_index_tracks_register_and_unregister() {
+    ExtBuilder.build_and_execute(|| {
+        let min = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert_eq!(
+            AttestorsByStash::<Test>::get(SUPPORTED_CHAIN_KEY, STASH_3),
+            0
+        );
+
+        let att1 = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att1.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att1.attestor_id,
+        ));
+        assert_eq!(
+            AttestorsByStash::<Test>::get(SUPPORTED_CHAIN_KEY, STASH_3),
+            1
+        );
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), min);
+
+        let att2 = Attestor::new(STASH_3, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            att2.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att2.attestor_id,
+        ));
+        assert_eq!(
+            AttestorsByStash::<Test>::get(SUPPORTED_CHAIN_KEY, STASH_3),
+            2
+        );
+        assert_eq!(
+            Attestation::required_bond_for_stash(&STASH_3, None),
+            min * 2
+        );
+
+        // `exclude` discounts the attestor being removed in the same call.
+        assert_eq!(
+            Attestation::required_bond_for_stash(
+                &STASH_3,
+                Some((SUPPORTED_CHAIN_KEY, &att2.attestor_id))
+            ),
+            min
+        );
+
+        assert_ok!(Attestation::unregister_attestor(
+            att2.stash,
+            SUPPORTED_CHAIN_KEY,
+            att2.attestor_id
+        ));
+        assert_eq!(
+            AttestorsByStash::<Test>::get(SUPPORTED_CHAIN_KEY, STASH_3),
+            1
+        );
+
+        assert_ok!(Attestation::unregister_attestor(
+            att1.stash,
+            SUPPORTED_CHAIN_KEY,
+            att1.attestor_id
+        ));
+        // Cleared rather than left at zero, so no stale keys accumulate.
+        assert!(!AttestorsByStash::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            STASH_3
+        ));
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), 0);
+    })
+}
+
+/// One stash backing attestors on **different chain keys** is supported: `Ledger` is keyed by stash
+/// alone and shared across chains, so the second registration tops up the same ledger via
+/// `bond_extra_for_registration` using that chain's own `MinBondRequirement`. The aggregate
+/// requirement is therefore a per-chain-weighted sum, not `count * one_min_bond`.
+#[test]
+fn one_stash_can_back_attestors_on_different_chain_keys() {
+    use attestor_primitives::ChainEncodingVersion;
+
+    ExtBuilder.build_and_execute(|| {
+        // The mock pre-registers chain key 1; this lands at key 2.
+        const OTHER_CHAIN_KEY: ChainKey = 2;
+        assert_ok!(SupportedChains::register_chain(
+            RuntimeOrigin::root(),
+            9_999,
+            "SecondChain".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        ));
+
+        // Deliberately different requirements per chain, so a flat multiply would be wrong.
+        let min_a = 30_000_000_000_000_000_000u128;
+        let min_b = 70_000_000_000_000_000_000u128;
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            min_a,
+        ));
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            OTHER_CHAIN_KEY,
+            min_b,
+        ));
+
+        let att_a = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att_a.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att_a.attestor_id,
+        ));
+        let att_b = Attestor::new(STASH_3, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            att_b.stash.clone(),
+            OTHER_CHAIN_KEY,
+            att_b.attestor_id,
+        ));
+
+        // One shared ledger holding the sum of both chains' requirements.
+        let ledger = Attestation::ledger(STASH_3).unwrap();
+        assert_eq!(ledger.active, min_a + min_b);
+        assert_eq!(ledger.total_staked, min_a + min_b);
+
+        // Index is per (chain, stash).
+        assert_eq!(
+            AttestorsByStash::<Test>::get(SUPPORTED_CHAIN_KEY, STASH_3),
+            1
+        );
+        assert_eq!(AttestorsByStash::<Test>::get(OTHER_CHAIN_KEY, STASH_3), 1);
+        assert_eq!(
+            Attestation::required_bond_for_stash(&STASH_3, None),
+            min_a + min_b
+        );
+        // Excluding the chain-2 attestor leaves only chain 1's requirement.
+        assert_eq!(
+            Attestation::required_bond_for_stash(
+                &STASH_3,
+                Some((OTHER_CHAIN_KEY, &att_b.attestor_id))
+            ),
+            min_a
+        );
+
+        // Leaving chain 2 releases exactly that chain's bond and keeps chain 1 collateralized.
+        assert_ok!(Attestation::unregister_attestor(
+            att_b.stash,
+            OTHER_CHAIN_KEY,
+            att_b.attestor_id
+        ));
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, min_a);
+        assert!(!AttestorsByStash::<Test>::contains_key(
+            OTHER_CHAIN_KEY,
+            STASH_3
+        ));
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), min_a);
+    })
+}
+
+/// The index is per-stash, not per-chain: two stashes on the same chain must not see each other's
+/// attestors in their own requirement.
+#[test]
+fn attestors_by_stash_index_is_scoped_per_stash() {
+    ExtBuilder.build_and_execute(|| {
+        let min = MinBondRequirement::<Test>::get(SUPPORTED_CHAIN_KEY);
+
+        let att1 = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att1.stash,
+            SUPPORTED_CHAIN_KEY,
+            att1.attestor_id,
+        ));
+        let att2 = Attestor::new(STASH_3, ATTESTOR_2);
+        assert_ok!(Attestation::register_attestor(
+            att2.stash,
+            SUPPORTED_CHAIN_KEY,
+            att2.attestor_id,
+        ));
+
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_1, None), min);
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), min);
+    })
+}
+
 #[test]
 fn unbond_surplus_requires_ledger_and_rejects_zero() {
     ExtBuilder.build_and_execute(|| {

@@ -70,7 +70,11 @@ describe('handleEventUnbonded()', () => {
 
             let foundMatch = false;
             for (const node of response.data.unbondeds.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThan(0n);
+                // Amount assertions are scoped to the owned-stash branch below, matching
+                // `handleEventBonded`. A loop-wide `amount > 0` happens to hold today only because
+                // `remove_attestor_and_emit_event` suppresses the event at zero value
+                // (`if !value.is_zero()`), so other suites' zero-bond unregisters emit nothing. Do
+                // not rely on that here — it would break silently if that guard ever changes.
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);
