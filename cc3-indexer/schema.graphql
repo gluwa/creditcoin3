@@ -569,7 +569,7 @@ type OutboxMessage @entity {
     A USC write-ability cross-chain message published on a Creditcoin L1 Outbox.
     Keyed by the on-chain messageId so the MessageAcknowledged handler updates the
     same record: `acknowledged == true` means the ack (with its native delivery
-    proof) landed back on Creditcoin. Messages published with requiresAck == false
+    proof) landed back on Creditcoin. Messages published with canAck == false
     are never acknowledged on this chain — their delivery is confirmed only on the
     destination chain, which this indexer does not observe.
     """
@@ -582,7 +582,7 @@ type OutboxMessage @entity {
     # dApp (emitterAddress) that called publishMessage
     emitter: String! @index
     # Whether the message must be acknowledged on-chain before it is complete
-    requiresAck: Boolean! @index
+    canAck: Boolean! @index
     # Opaque payload bytes (hex) handed to the destination dApp's receiveMessage
     payload: String!
 
@@ -594,7 +594,7 @@ type OutboxMessage @entity {
     # Publish transaction hash
     publishedTxHash: String! @index
 
-    # --- acknowledgment (MessageAcknowledged; only for requiresAck == true) ---
+    # --- acknowledgment (MessageAcknowledged; only for canAck == true) ---
     # True once the ack landed on the Outbox
     acknowledged: Boolean! @index
     # Creditcoin L1 block number the ack landed at (null until acknowledged)
