@@ -59,10 +59,6 @@ pub enum Error {
     MissingTargetSampleSize(attestor_primitives::ChainKey),
     MissingMaxCatchup(attestor_primitives::ChainKey),
 
-    /// The runtime returned a last-attestation digest that doesn't resolve to a stored
-    /// attestation — inconsistent on-chain state we can't recover from locally.
-    DigestNotFound(attestor_primitives::ChainKey, attestor_primitives::Digest),
-
     /// Ctrl+C / SIGTERM arrived while we were still in the synchronous startup phase (waiting on
     /// RPC endpoints or election). Not a failure — `run` maps it to a clean exit.
     ShutdownDuringStartup,
@@ -101,12 +97,6 @@ impl std::fmt::Display for Error {
             }
             Self::MissingMaxCatchup(k) => {
                 write!(f, "failed to fetch max catchup for chain {k}")
-            }
-            Self::DigestNotFound(k, digest) => {
-                write!(
-                    f,
-                    "last digest {digest:?} for chain {k} does not resolve to an attestation"
-                )
             }
             Self::ShutdownDuringStartup => write!(f, "shutdown requested during startup"),
         }
