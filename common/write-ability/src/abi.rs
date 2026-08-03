@@ -20,7 +20,7 @@ sol! {
         address emitter;
         uint64 sequence;
         uint64 timestamp;
-        bool requiresAck;
+        bool canAck;
         bool acknowledged;
         bytes32 payloadHash;
     }
@@ -34,27 +34,29 @@ sol! {
         /// `emitterAddress` is the dApp that called `publishMessage`, emitted as `bytes32` for
         /// cross-chain consistency — the 20-byte EVM address occupies the **high** bytes
         /// (`bytes32(bytes20(emitter))`), so recover it with `Address::from_slice(&value[..20])`.
-        /// `requiresAck` flags whether the message must be acknowledged on-chain before it is
+        /// `canAck` flags whether the message may be acknowledged on-chain (usc-contracts #23
+        /// renamed it from `requiresAck`: the ack is optional, requested by a nonzero
+        /// acknowledgmentPrice in the relayer quote) before it is
         /// considered complete. `payload` is the opaque bytes the inbox will hand to the
         /// destination dApp's `receiveMessage`.
         event MessagePublished(
             bytes32 indexed messageId,
             bytes32 indexed emitterAddress,
-            bool requiresAck,
+            bool canAck,
             bytes payload
         );
 
         /// Stored message state. Mirrors `Outbox.getMessage`: reverts `MessageNotFound` for an
-        /// unknown id. `requiresAck` flags whether an ack is required (the ack submitter pre-checks
+        /// unknown id. `canAck` flags whether an ack may be claimed (the ack submitter pre-checks
         /// it so bridge traffic skips the proof fetch); `acknowledged` means the ack already landed
         /// (a duplicate submit would revert `MessageAlreadyAcknowledged`). Note `emitter` here is a
         /// plain `address` — only the `MessagePublished` event widens it to `bytes32`.
         function getMessage(bytes32 messageId) external view returns (OutboxMessage memory);
 
-        /// Whether `messageId` was published with `requiresAck = true`. `false` for an unknown id
+        /// Whether `messageId` was published with `canAck = true`. `false` for an unknown id
         /// (mapping default), so the ack submitter uses it as the existence-and-requires-ack gate
         /// before checking `isAcknowledged`.
-        function messageRequiresAck(bytes32 messageId) external view returns (bool);
+        function messageCanAck(bytes32 messageId) external view returns (bool);
 
         /// Whether `messageId` has already been acknowledged on the source Outbox. `false` for an
         /// unknown id.

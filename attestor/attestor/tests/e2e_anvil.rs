@@ -47,7 +47,7 @@ sol! {
         event MessagePublished(
             bytes32 indexed messageId,
             bytes32 indexed emitterAddress,
-            bool requiresAck,
+            bool canAck,
             bytes payload
         );
     }
