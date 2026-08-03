@@ -70,17 +70,25 @@ wired to that factory-created outbox.
 > is distinct from the **destination-chain vote validator** (contract 6 above), the `EOAValidator`
 > that gates `deliverMessage`.
 
-We have simplified the deployment of these contracts with a single script:
+> **⚠️ `scripts/deploy.ts` is a legacy PoC path — the Rust attestor will NOT discover its
+> factory.** It deploys the pre-#23 `SimpleOutboxFactory` from the published npm package
+> (`@gluwa/usc-contracts@0.1.2`), whose `OutboxCreated(bytes32,address)` event does not match the
+> CREATE2 factory signature (`OutboxCreated(address,uint32,address,address,string)`) that the
+> attestor and indexer scan for. Following it registers a factory that message attestation can
+> never resolve. Use the fee-integrated deploy scripts in this directory against a post-#23
+> `usc-contracts` checkout (the path `write-ability-e2e.yml` exercises); `deploy.ts` will be
+> rewritten once a post-#23 package is published.
+
+The legacy script, for reference:
 ```bash
 cd usc-messaging
 npx tsx scripts/deploy.ts
 ```
 
 After creating the outbox factory and outbox, the script also **registers the factory on-chain** by
-submitting `supportedChains.setOutboxFactoryAddr(chainKey, factoryAddress)` to Creditcoin. This is
-required so the real (Rust) attestor and relayer can resolve the outbox on-chain via the chain-info
-precompile (`outbox_factory_address` → factory → `getOutbox(chainKey)`); the previous dummy
-attestor/relayer skipped this. Notes:
+submitting `supportedChains.setOutboxFactoryAddr(chainKey, factoryAddress)` to Creditcoin — but see
+the warning above: with the legacy factory the attestor resolves the *factory* and then finds no
+compatible `OutboxCreated` events. Notes:
 
 - It is a **Substrate extrinsic** (not an EVM tx) and is operator-gated. On a `--dev` node the
   script submits it via **sudo** using `//Alice` (override with `CREDITCOIN_SUDO_SURI`). It connects
