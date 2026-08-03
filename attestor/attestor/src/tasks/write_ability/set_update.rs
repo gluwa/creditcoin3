@@ -37,6 +37,18 @@ use super::signing::MessageSigner;
 /// how long a diverged set goes un-proposed.
 const SET_UPDATE_POLL_SECS: u64 = 60;
 
+/// Whether enough of the active committee has registered an EVM address to safely propose the
+/// registered subset as the new validator set: `registered >= ⌊2·active/3⌋ + 1`, the same
+/// supermajority formula `EOAValidator` derives its signing threshold from. Below it, a proposal
+/// would shrink the destination validator far enough to hand control to a minority of the elected
+/// committee; at or above it, the registered subset already carries committee supermajority, and
+/// waiting for the stragglers would let a single never-registering attestor stall set sync forever
+/// (bugbot). Deterministic in on-chain state, so every attestor reaches the same verdict.
+#[must_use]
+pub fn enough_registered(registered: usize, active: usize) -> bool {
+    registered > (2 * active) / 3
+}
+
 /// Whether the destination validator's `current` set differs from our `candidate` set, compared as
 /// **sets** (order- and duplicate-insensitive) — the trigger to gossip an update. `candidate` is
 /// expected pre-canonicalized; the set comparison makes the decision robust regardless.
@@ -96,15 +108,17 @@ async fn propose_once(
         // empty set would brick the validator.)
         return Ok(None);
     }
-    // Never propose a PARTIAL set: if some active attestors haven't registered an EVM address yet,
-    // the candidate is missing them, and getting it signed would shrink the destination validator to
-    // omit still-elected attestors (bugbot). Defer until every active attestor is registered — the
-    // proposer polls, and each unregistered node keeps retrying registration, so this converges.
-    if candidate.len() < active_count {
+    // Don't propose a MINORITY set: while fewer than a committee supermajority have registered an
+    // EVM address, signing the registered subset would shrink the destination validator to omit
+    // still-elected attestors (bugbot #1). But don't wait for FULL registration either — an
+    // attestor that never enables write-ability would then stall set sync forever (bugbot #2).
+    // `enough_registered` is the balance point: propose once the registered subset itself carries
+    // committee supermajority; late registrants trigger a follow-up update when they appear.
+    if !enough_registered(candidate.len(), active_count) {
         tracing::debug!(
             registered = candidate.len(),
             active = active_count,
-            "deferring set-update proposal — not all active attestors have registered an EVM address yet"
+            "deferring set-update proposal — registered attestors below committee supermajority"
         );
         return Ok(None);
     }
@@ -206,6 +220,20 @@ mod tests {
     use super::super::signing::recover_signer;
     use super::*;
     use alloy::primitives::address;
+
+    #[test]
+    fn enough_registered_is_committee_supermajority() {
+        // threshold(N) = ⌊2N/3⌋ + 1, mirroring EOAValidator.
+        assert!(enough_registered(1, 1));
+        assert!(!enough_registered(1, 2));
+        assert!(enough_registered(2, 2));
+        assert!(!enough_registered(2, 3)); // 2-of-3 is not enough — threshold is 3
+        assert!(enough_registered(3, 3));
+        assert!(!enough_registered(2, 4));
+        assert!(enough_registered(3, 4)); // one never-registering attestor of 4 no longer stalls
+        assert!(!enough_registered(4, 7));
+        assert!(enough_registered(5, 7));
+    }
 
     #[test]
     fn set_needs_update_is_order_and_dup_insensitive() {
