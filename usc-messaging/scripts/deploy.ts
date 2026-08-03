@@ -1,5 +1,21 @@
 #!/usr/bin/env tsx
 
+// =====================================================================================
+// WARNING — LEGACY PoC DEPLOY PATH; the RUST ATTESTOR WILL NOT DISCOVER THIS FACTORY.
+//
+// This script deploys from the published @gluwa/usc-contracts npm package, whose latest
+// version (0.1.2) still ships the pre-#23 SimpleOutboxFactory (createOutbox/getOutbox,
+// 2-arg OutboxCreated(bytes32,address)). The attestor and indexer discover Outboxes by
+// scanning the CREATE2 factory's OutboxCreated(address,uint32,address,address,string) —
+// a different event signature — so registering this factory with the pallet leaves
+// message attestation permanently idle (the attestor logs "no Outbox factory/Outbox
+// registered on-chain yet" forever).
+//
+// Use the fee-integrated stack instead (what write-ability-e2e.yml runs): the deploy-*
+// scripts in this directory against a post-#23 usc-contracts checkout. This script gets
+// rewritten for the new stack once a post-#23 @gluwa/usc-contracts package is published.
+// =====================================================================================
+
 import "dotenv/config";
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
