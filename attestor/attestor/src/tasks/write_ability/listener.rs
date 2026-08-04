@@ -263,8 +263,22 @@ pub async fn watch<P: Provider>(
                 // Individual network calls inside `poll_once` are deadline-bounded. Do not wrap the
                 // whole poll: delivery to `tx` is intentionally allowed to wait for downstream
                 // capacity so a dense chunk is delivered exactly once before its cursor advances.
-                let outcome =
-                    poll_once(provider, &resolved, &policy, &mut finality, &mut last_seen, &tx).await;
+                //
+                // That wait is unbounded, though, and `poll_once` is awaited inside this arm's body
+                // rather than as a `select!` branch — so without racing the cancel token here, a
+                // consumer that is wedged but still holding the receiver would make the listener
+                // ignore shutdown entirely (the removed whole-poll timeout used to cap that at 30s).
+                // Abandoning a poll mid-drain is safe: the cursor only advances after a full chunk,
+                // and re-scanning a range on the next boot is the documented at-least-once contract.
+                let outcome = tokio::select! {
+                    () = token.cancelled() => {
+                        tracing::info!("🛑 Outbox listener exiting on cancel (mid-poll)");
+                        return Ok(());
+                    }
+                    outcome = poll_once(
+                        provider, &resolved, &policy, &mut finality, &mut last_seen, &tx,
+                    ) => outcome,
+                };
 
                 // Did the scan advance this poll? `poll_once` bumps `last_seen` after each
                 // successful chunk, so this is true even when the poll ultimately errored/timed out
