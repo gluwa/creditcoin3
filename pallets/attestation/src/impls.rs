@@ -216,10 +216,6 @@ impl<T: Config> Pallet<T> {
         AttestorsCount::<T>::mutate(chain_key, |count| {
             *count = count.saturating_add(1);
         });
-        // Keep the per-stash index in lock-step too — see `required_bond_for_stash`.
-        AttestorsByStash::<T>::mutate(chain_key, &stash, |count| {
-            *count = count.saturating_add(1);
-        });
 
         // Make sure the stash can pay for the registration
         let stash_balance = Self::get_free_balance(&stash);
@@ -313,12 +309,6 @@ impl<T: Config> Pallet<T> {
             // Decrease the active amount
             ledger.active -= value;
 
-            // Avoid there being a dust balance left in the staking system.
-            if ledger.active < existential_deposit::<T>() {
-                value += ledger.active;
-                ledger.active = Zero::zero();
-            }
-
             // Aggregate solvency guard. The ledger is per-stash but a stash can back
             // multiple attestors (across chains), so unlocking `bond.min(active)` for the
             // attestor being removed here must not leave the *remaining* still-registered
@@ -328,6 +318,20 @@ impl<T: Config> Pallet<T> {
             // is excluded from the requirement. Checked before any storage write so a
             // failure cleanly aborts the unbond.
             let required = Self::required_bond_for_stash(&stash, Some((chain_key, &attestor_id)));
+
+            // Avoid there being a dust balance left in the staking system — but only when no
+            // remaining attestor still needs it as collateral. Sweeping unconditionally would zero
+            // an `active` that satisfied `required`, turning a legitimate exit into a spurious
+            // `InsufficientRemainingBond` (the guard reads the *post*-sweep value, so it cannot
+            // tell dust-sweeping apart from real undercollateralization). Reachable only when
+            // `0 < required < ED`; at the attest-coin asset's `min_balance` of 1 this branch fires
+            // only once `active` is already zero, so the ordering is currently a no-op — but
+            // `min_balance` is mutable via root `force_asset_status`, so don't rely on that.
+            if required.is_zero() && ledger.active < existential_deposit::<T>() {
+                value += ledger.active;
+                ledger.active = Zero::zero();
+            }
+
             ensure!(
                 ledger.active >= required,
                 Error::<T>::InsufficientRemainingBond
@@ -387,15 +391,6 @@ impl<T: Config> Pallet<T> {
         // with the attestor removal above.
         AttestorsCount::<T>::mutate(chain_key, |count| {
             *count = count.saturating_sub(1);
-        });
-        // Mirror on the per-stash index, clearing the key at zero so it leaves no stale entries.
-        AttestorsByStash::<T>::mutate_exists(chain_key, &stash, |maybe_count| {
-            let remaining = maybe_count.unwrap_or(0).saturating_sub(1);
-            *maybe_count = if remaining == 0 {
-                None
-            } else {
-                Some(remaining)
-            };
         });
 
         Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
@@ -718,15 +713,18 @@ impl<T: Config> Pallet<T> {
 
         ledger.active = ledger.active.saturating_sub(value);
 
-        // Avoid leaving a dust balance in the staking system (mirrors the unregister unbond path).
-        if ledger.active < existential_deposit::<T>() {
+        let required = Self::required_bond_for_stash(stash, None);
+
+        // Dust sweep, mirroring the unregister unbond path: only when no remaining attestor needs
+        // the remainder as collateral. Sweeping unconditionally would both zero an `active` that
+        // satisfied `required` (a spurious `InsufficientRemainingBond`) and unbond *more* than the
+        // caller asked for, which is a worse surprise here than on the unregister path because
+        // `amount` is caller-specified.
+        if required.is_zero() && ledger.active < existential_deposit::<T>() {
             value = value.saturating_add(ledger.active);
             ledger.active = Zero::zero();
         }
 
-        // Checked *after* the dust sweep, because the sweep can pull `active` below the
-        // requirement even when the caller's requested amount would not have.
-        let required = Self::required_bond_for_stash(stash, None);
         ensure!(
             ledger.active >= required,
             Error::<T>::InsufficientRemainingBond
@@ -979,31 +977,31 @@ impl<T: Config> Pallet<T> {
     /// `exclude` lets a collateral-reducing path discount an attestor that is being removed
     /// in the same call but whose [`Attestors`] entry has not been deleted yet.
     ///
-    /// Reads the per-stash [`AttestorsByStash`] index rather than scanning [`Attestors`], so the
-    /// cost is O(supported chains) — a small bounded set — instead of O(entire registry). That
-    /// matters because this is reachable from the permissionless [`Pallet::bond_extra`] and
-    /// [`Pallet::unbond_surplus`] dispatchables, which require only that a ledger exist.
-    ///
-    /// Precondition for `exclude`: callers must already have verified that the excluded attestor
-    /// belongs to `stash` (both current callers fetch the [`Attestors`] entry and check
-    /// `attestor.stash == stash` first), since the count is decremented unconditionally.
+    /// Cost is O(supported chains x attestors-per-chain). Bounded, and deliberately left as a scan
+    /// rather than backed by a per-stash counter: `Attestors` is the single source of truth, so this
+    /// cannot disagree with it, whereas a derived index could drift and silently weaken the bond
+    /// solvency guard. `MaxAttestors` is capped at `Config::MaxAttestationNodes` (100), and the
+    /// runtime meters `proof_size` as `u64::MAX`, so the worst case is a fraction of a percent of one
+    /// block's ref_time — and it is charged to the caller via the dispatch weight. Callers are all
+    /// low-frequency (unregister / bond top-up), never block hooks or `commit_attestation`.
     pub(crate) fn required_bond_for_stash(
         stash: &T::AccountId,
         exclude: Option<(ChainKey, &T::AccountId)>,
     ) -> BalanceOf<T> {
         let mut required: BalanceOf<T> = Zero::zero();
         for chain_key in T::SupportedChains::supported_chains() {
-            let mut count = AttestorsByStash::<T>::get(chain_key, stash);
-            if let Some((ex_chain, _)) = exclude {
-                if ex_chain == chain_key {
-                    count = count.saturating_sub(1);
-                }
-            }
-            if count == 0 {
-                continue;
-            }
             let min_bond = Self::min_bond_requirement(chain_key);
-            required = required.saturating_add(min_bond.saturating_mul(count.into()));
+            for (attestor_id, attestor) in Attestors::<T>::iter_prefix(chain_key) {
+                if attestor.stash != *stash {
+                    continue;
+                }
+                if let Some((ex_chain, ex_id)) = exclude {
+                    if ex_chain == chain_key && *ex_id == attestor_id {
+                        continue;
+                    }
+                }
+                required = required.saturating_add(min_bond);
+            }
         }
         required
     }

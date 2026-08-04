@@ -18,7 +18,7 @@ use sp_runtime::AccountId32;
 use sp_runtime::TryRuntimeError;
 use sp_std::{collections::btree_map::BTreeMap, marker::PhantomData, vec::Vec};
 
-use crate::pallet::{Attestations, AttestorsByStash, AttestorsCount, Config, Pallet};
+use crate::pallet::{Attestations, AttestorsCount, Config, Pallet};
 use attestor_primitives::{
     block::ContinuityProof, AttestationData, BlsSignature, Digest, SignedAttestation,
 };
@@ -290,134 +290,6 @@ impl<T: Config> OnRuntimeUpgrade for MigrateAttestorsCountV1ToV2<T> {
         }
 
         log::info!("AttestorsCount post_upgrade: verified counts match Attestors storage");
-        Ok(())
-    }
-}
-
-/// Migration V2 -> V3: populate [`AttestorsByStash`] from existing [`crate::pallet::Attestors`]
-/// entries so [`crate::Pallet::required_bond_for_stash`] can read a per-stash count instead of
-/// scanning the whole registry.
-///
-/// Required rather than optional: [`AttestorsByStash`] is `ValueQuery`, so without the backfill an
-/// upgraded chain reads 0 for every already-registered attestor and the aggregate solvency guard in
-/// `unregister_attestor` / `unbond_surplus` silently becomes a no-op.
-/// `((chain_key, stash), attestor_count)` rows carried from `pre_upgrade` to `post_upgrade`.
-#[cfg(feature = "try-runtime")]
-type AttestorsByStashSnapshot<T> = Vec<(
-    (
-        attestor_primitives::ChainKey,
-        <T as frame_system::Config>::AccountId,
-    ),
-    u32,
-)>;
-
-pub struct MigrateAttestorsByStashV2ToV3<T>(PhantomData<T>);
-
-impl<T: Config> OnRuntimeUpgrade for MigrateAttestorsByStashV2ToV3<T> {
-    fn on_runtime_upgrade() -> Weight {
-        let on_chain = Pallet::<T>::on_chain_storage_version();
-        let target = StorageVersion::new(3);
-
-        if on_chain >= target {
-            log::info!(
-                "AttestorsByStash migration: already at v3 or above (on_chain={on_chain:?}), skipping"
-            );
-            return T::DbWeight::get().reads(1);
-        }
-
-        log::info!("AttestorsByStash migration: upgrading from {on_chain:?} to {target:?}");
-
-        let mut counts: BTreeMap<(attestor_primitives::ChainKey, T::AccountId), u32> =
-            BTreeMap::new();
-        let mut read_count = 0u64;
-        for (chain_key, _attestor_id, attestor) in crate::pallet::Attestors::<T>::iter() {
-            let entry = counts.entry((chain_key, attestor.stash)).or_insert(0u32);
-            *entry = entry.saturating_add(1);
-            read_count = read_count.saturating_add(1);
-        }
-
-        let write_count = counts.len() as u64;
-        for ((chain_key, stash), count) in counts {
-            AttestorsByStash::<T>::insert(chain_key, stash, count);
-        }
-
-        target.put::<Pallet<T>>();
-
-        log::info!(
-            "AttestorsByStash migration: wrote {write_count} (chain, stash) counter(s) after scanning {read_count} attestor entries"
-        );
-
-        T::DbWeight::get().reads_writes(read_count.saturating_add(1), write_count.saturating_add(1))
-    }
-
-    #[cfg(feature = "try-runtime")]
-    fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
-        let on_chain = Pallet::<T>::on_chain_storage_version();
-        let target = StorageVersion::new(3);
-
-        if on_chain >= target {
-            log::info!(
-                "AttestorsByStash pre_upgrade: already at v3 or above (on_chain={on_chain:?}), skipping"
-            );
-            return Ok((AttestorsByStashSnapshot::<T>::new(), false).encode());
-        }
-
-        let mut counts: BTreeMap<(attestor_primitives::ChainKey, T::AccountId), u32> =
-            BTreeMap::new();
-        for (chain_key, _attestor_id, attestor) in crate::pallet::Attestors::<T>::iter() {
-            let entry = counts.entry((chain_key, attestor.stash)).or_insert(0u32);
-            *entry = entry.saturating_add(1);
-        }
-
-        let encoded: AttestorsByStashSnapshot<T> = counts.into_iter().collect();
-        log::info!(
-            "AttestorsByStash pre_upgrade: expecting {} (chain, stash) counter(s)",
-            encoded.len()
-        );
-        Ok((encoded, true).encode())
-    }
-
-    #[cfg(feature = "try-runtime")]
-    fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
-        let (expected, should_run): (AttestorsByStashSnapshot<T>, bool) =
-            DecodeAll::decode_all(&mut &state[..])
-                .map_err(|_| "AttestorsByStash post_upgrade: failed to decode pre_upgrade state")?;
-
-        if !should_run {
-            log::info!("AttestorsByStash post_upgrade: migration was skipped, nothing to verify");
-            return Ok(());
-        }
-
-        ensure!(
-            Pallet::<T>::on_chain_storage_version() == Pallet::<T>::in_code_storage_version(),
-            "AttestorsByStash post_upgrade: storage version not updated"
-        );
-
-        for ((chain_key, stash), expected_count) in expected {
-            ensure!(
-                AttestorsByStash::<T>::get(chain_key, &stash) == expected_count,
-                "AttestorsByStash post_upgrade: per-stash counter mismatch"
-            );
-        }
-
-        // Cross-check the other direction: the per-stash counters must sum to the live per-chain
-        // total, so no attestor is missing from the index.
-        let mut live_totals: BTreeMap<attestor_primitives::ChainKey, u32> = BTreeMap::new();
-        for (chain_key, _attestor_id, _attestor) in crate::pallet::Attestors::<T>::iter() {
-            let entry = live_totals.entry(chain_key).or_insert(0u32);
-            *entry = entry.saturating_add(1);
-        }
-        for (chain_key, live) in live_totals {
-            let indexed: u32 = AttestorsByStash::<T>::iter_prefix(chain_key)
-                .map(|(_stash, count)| count)
-                .fold(0u32, |acc, c| acc.saturating_add(c));
-            ensure!(
-                indexed == live,
-                "AttestorsByStash post_upgrade: per-stash counters do not sum to Attestors prefix length"
-            );
-        }
-
-        log::info!("AttestorsByStash post_upgrade: verified index matches Attestors storage");
         Ok(())
     }
 }

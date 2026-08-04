@@ -253,10 +253,6 @@ impl frame_system::Config for Runtime {
         //   devnet/testnet/mainnet), so they can never run again.
         crate::migrations::EnsureAttestCoinAssetRoles<Runtime>,
         crate::migrations::MigrateLegacyNativeBonds<Runtime>,
-        // Backfills the `AttestorsByStash` index (pallet-attestation storage v2 -> v3). Must run:
-        // the index is `ValueQuery`, so without it every already-registered attestor reads 0 and
-        // the aggregate bond solvency guard silently becomes a no-op.
-        pallet_attestation::MigrateAttestorsByStashV2ToV3<Runtime>,
     );
     type PreInherents = ();
     type PostInherents = ();

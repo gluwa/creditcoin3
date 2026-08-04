@@ -5,10 +5,7 @@ mod extensions;
 
 pub use commit_observer::{CommittedAttestationObserver, NoopCommittedAttestationObserver};
 pub use extensions::PrevalidateAttestationCommit;
-pub use migrations::{
-    MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsByStashV2ToV3,
-    MigrateAttestorsCountV1ToV2,
-};
+pub use migrations::{MigrateAttestationContinuityProofV0ToV1, MigrateAttestorsCountV1ToV2};
 pub use pallet::*;
 
 #[allow(clippy::unnecessary_cast)]
@@ -228,25 +225,6 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn attestors_count)]
     pub type AttestorsCount<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
-
-    /// How many registered attestors a stash backs on a chain. Maintained in lock-step with
-    /// [`Attestors`] (incremented on register, decremented on unregister; the entry is removed at
-    /// zero).
-    ///
-    /// Exists so [`Pallet::required_bond_for_stash`] costs O(supported chains) rather than
-    /// O(entire attestor registry). That aggregate is consulted by the permissionless
-    /// [`Pallet::bond_extra`] / [`Pallet::unbond_surplus`] dispatchables, which need only a ledger
-    /// to exist — without the index, any account with a ledger could force a full registry scan.
-    #[pallet::storage]
-    pub type AttestorsByStash<T: Config> = StorageDoubleMap<
-        _,
-        Twox64Concat,
-        ChainKey,
-        Blake2_128Concat,
-        T::AccountId,
-        u32,
-        ValueQuery,
-    >;
 
     #[pallet::storage]
     #[pallet::getter(fn active_attestor_set)]
@@ -563,9 +541,7 @@ pub mod pallet {
     >;
 
     /// The in-code storage version.
-    // v3 adds the `AttestorsByStash` per-stash index (see
-    // `migrations::MigrateAttestorsByStashV2ToV3`).
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(3);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
