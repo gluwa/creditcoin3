@@ -123,7 +123,6 @@ fn properties() -> Properties {
 }
 
 const UNITS: Balance = 1_000_000_000_000_000_000;
-const EVM_CHAINID: u64 = 102030;
 
 /// CC3 chainspec configurations
 pub fn devnet_config() -> Result<ChainSpec, String> {
@@ -236,6 +235,9 @@ pub fn usc_development_config(_enable_manual_seal: Option<bool>) -> ChainSpec {
 pub fn usc_local_testnet_config() -> ChainSpec {
     let wasm_binary = WASM_BINARY.expect("WASM not available");
 
+    // Matches `uscTestnetSpec.json` EVM chain ID.
+    const USC_TESTNET_EVM_CHAIN_ID: u64 = 102036;
+
     const SUDO: &str = "5FTtKTjpLBeYxMFbrG3eMMpMQgj4uaQ2tsy3PZSemFDZTEZw";
     const VALIDATOR_SR25519: &str = "5HQZj4t8mJ7gn6a4Jbcsh6iEBQAZy348QZdDbGtmscSJiBKp";
     const VALIDATOR_ED25519: &str = "5CS8RgyWmk3JJpJGQ9PN3L4Wfbt5z28LW8JrGc1QboT1bZN6";
@@ -249,7 +251,7 @@ pub fn usc_local_testnet_config() -> ChainSpec {
         vec![sudo_account, validator.0.clone()],
         vec![],
         vec![validator],
-        EVM_CHAINID,
+        USC_TESTNET_EVM_CHAIN_ID,
         vec![AttestationChainConfiguration {
             chain_key: 1,
             attestation_interval: 10,
