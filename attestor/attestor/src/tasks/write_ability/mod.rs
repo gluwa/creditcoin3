@@ -33,7 +33,7 @@ pub mod signing;
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::{Provider, ProviderBuilder};
@@ -54,12 +54,23 @@ pub use config::{AttestorSet, Config};
 /// activation without a restart).
 const OUTBOX_RESOLVE_RETRY_SECS: u64 = 12;
 
+/// Wall-clock bound for one write-ability RPC attempt. Every long-lived loop catches this error and
+/// retries with a fresh attempt; startup-only calls surface it to the process supervisor so a
+/// black-holed socket can never leave the pod serving a permanently-green health endpoint.
+pub(super) const RPC_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// After this many consecutive failed resolves (~5 min at [`OUTBOX_RESOLVE_RETRY_SECS`]) the retry is
 /// probably no longer "waiting for on-chain registration" but a misconfiguration — most likely a
 /// deploy-ordering trap where the attestor was upgraded ahead of the runtime, so the renamed
 /// chain-info selector (`get_outbox_factory_address`) reverts and resolution can never succeed (S3).
 /// Escalate the log to error-level at each multiple so it is alertable instead of buried in warns.
 const RESOLVE_ESCALATE_EVERY_ATTEMPTS: u64 = (5 * 60) / OUTBOX_RESOLVE_RETRY_SECS;
+
+/// A responsive node may legitimately report that no Outbox exists yet (`Ok(None)`) forever, but
+/// repeated RPC errors against the same bare alloy provider mean the connection is no longer
+/// usable. Surface the failure so the process supervisor rebuilds the provider on restart instead
+/// of retrying the same dead socket indefinitely.
+const MAX_CONSECUTIVE_RESOLVE_FAILURES: u64 = 10;
 
 /// Message-vote state shared between this task (producer) and the p2p task (publisher + incoming
 /// validator). Lives on [`Shared`](crate::shared::Shared) as `Option`, set only when message
@@ -169,14 +180,22 @@ pub async fn register_evm_address(
     let address = signer.address();
     let ours = sp_core::H160::from_slice(address.as_slice());
 
-    match cc3.attestor_evm_address(chain_key).await {
-        Ok(Some(existing)) if existing == ours => {
+    let existing =
+        tokio::time::timeout(RPC_ATTEMPT_TIMEOUT, cc3.attestor_evm_address(chain_key)).await;
+    match existing {
+        Ok(Ok(Some(existing))) if existing == ours => {
             tracing::debug!(evm_address = %address, "🔗 write-ability EVM address already registered on-chain");
             return true;
         }
-        Ok(_) => {}
-        Err(err) => {
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => {
             tracing::warn!(%err, "could not read the on-chain EVM address registration; will attempt to (re)register");
+        }
+        Err(_) => {
+            tracing::warn!(
+                timeout_secs = RPC_ATTEMPT_TIMEOUT.as_secs(),
+                "timed out reading the on-chain EVM address registration; will attempt to (re)register"
+            );
         }
     }
 
@@ -189,16 +208,29 @@ pub async fn register_evm_address(
         }
     };
 
-    match cc3.set_attestor_evm_address(chain_key, ours, proof).await {
-        Ok(()) => {
+    match tokio::time::timeout(
+        RPC_ATTEMPT_TIMEOUT,
+        cc3.set_attestor_evm_address(chain_key, ours, proof),
+    )
+    .await
+    {
+        Ok(Ok(())) => {
             tracing::info!(evm_address = %address, "🔗 registered write-ability EVM address on-chain");
             true
         }
-        Err(err) => {
+        Ok(Err(err)) => {
             tracing::warn!(
                 %err,
                 evm_address = %address,
                 "failed to register write-ability EVM address on-chain — will retry; the destination EOAValidator set omits this attestor until it succeeds"
+            );
+            false
+        }
+        Err(_) => {
+            tracing::warn!(
+                evm_address = %address,
+                timeout_secs = RPC_ATTEMPT_TIMEOUT.as_secs(),
+                "timed out registering write-ability EVM address on-chain — will retry"
             );
             false
         }
@@ -211,8 +243,10 @@ pub async fn register_evm_address(
 async fn resolve_destination_chain_key(cfg: &Config, cc3: &cc_client::Client) -> Option<B256> {
     let chain_key = cfg.write_ability_chain_key;
     let local = chain_key_to_bytes32(chain_key);
-    match cc3.get_write_ability_config(chain_key).await {
-        Ok(Some(on_chain)) => {
+    let config =
+        tokio::time::timeout(RPC_ATTEMPT_TIMEOUT, cc3.get_write_ability_config(chain_key)).await;
+    match config {
+        Ok(Ok(Some(on_chain))) => {
             if !on_chain.message_attestation_enabled {
                 tracing::info!(
                     chain_key,
@@ -231,20 +265,28 @@ async fn resolve_destination_chain_key(cfg: &Config, cc3: &cc_client::Client) ->
             }
             Some(key)
         }
-        Ok(None) => {
+        Ok(Ok(None)) => {
             tracing::warn!(
                 chain_key,
                 "no on-chain WriteAbilityConfig registered for this chain — using the locally derived chain key"
             );
             Some(local)
         }
-        Err(err) => {
+        Ok(Err(err)) => {
             // Availability over strictness: a transient read failure must not disable a locally
             // configured attestor. Explicit governance "off" is only honored via Ok(Some(..)).
             tracing::warn!(
                 chain_key,
                 %err,
                 "failed to read on-chain WriteAbilityConfig — falling back to local config"
+            );
+            Some(local)
+        }
+        Err(_) => {
+            tracing::warn!(
+                chain_key,
+                timeout_secs = RPC_ATTEMPT_TIMEOUT.as_secs(),
+                "timed out reading on-chain WriteAbilityConfig — falling back to local config"
             );
             Some(local)
         }
@@ -317,7 +359,7 @@ pub async fn run(
     // On-chain attestor-set hot-reload watcher (only when the set is sourced from the validator).
     // Runs independently of Outbox resolution — the set is unrelated to the Outbox — so it keeps the
     // active set in sync even while write-ability is idle waiting for the Outbox.
-    let set_watcher = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
+    let mut set_watcher = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
         (AttestorSet::OnChainValidator(validator), Some(url)) => {
             Some(tokio::spawn(attestor_set::watch(
                 state.clone(),
@@ -340,7 +382,7 @@ pub async fn run(
     // on-chain EVM-address registry) diverges from the destination validator's set, for the relayer
     // to submit. Like `set_watcher` it is Outbox-independent, only meaningful for an OnChainValidator
     // set, and derives its own EVM signer from `seed`.
-    let set_update_proposer = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
+    let mut set_update_proposer = match (&cfg.attestor_set, cfg.destination_eth_rpc_url.as_ref()) {
         (AttestorSet::OnChainValidator(validator), Some(url)) => {
             match signing::MessageSigner::from_seed(&seed) {
                 Ok(proposer_signer) => Some(tokio::spawn(set_update::run_proposer(
@@ -366,10 +408,18 @@ pub async fn run(
             "cc3_eth_rpc_url is required when message attestation is on"
         ))
     })?;
-    let provider = ProviderBuilder::new()
-        .on_builtin(rpc.as_str())
-        .await
-        .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
+    let provider = tokio::time::timeout(
+        RPC_ATTEMPT_TIMEOUT,
+        ProviderBuilder::new().on_builtin(rpc.as_str()),
+    )
+    .await
+    .map_err(|_| {
+        Error::WriteAbility(anyhow!(
+            "connect Creditcoin L1 EVM RPC timed out after {:?}",
+            RPC_ATTEMPT_TIMEOUT
+        ))
+    })?
+    .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
 
     // Capture the chain head *before* the resolve loop. When no explicit `start_block` is
     // configured we scan from here, not from the head after resolution finishes — otherwise
@@ -378,10 +428,16 @@ pub async fn run(
     // signed or gossiped. Operators expecting a long activation wait should still set `start_block`
     // to bound the initial backfill range (no MessagePublished logs exist before Outbox creation,
     // so the effective scan is small in the common case).
-    let head_before_resolve = provider
-        .get_block_number()
-        .await
-        .map_err(|e| Error::WriteAbility(anyhow!("read Creditcoin L1 chain head: {e}")))?;
+    let head_before_resolve =
+        tokio::time::timeout(RPC_ATTEMPT_TIMEOUT, provider.get_block_number())
+            .await
+            .map_err(|_| {
+                Error::WriteAbility(anyhow!(
+                    "read Creditcoin L1 chain head timed out after {:?}",
+                    RPC_ATTEMPT_TIMEOUT
+                ))
+            })?
+            .map_err(|e| Error::WriteAbility(anyhow!("read Creditcoin L1 chain head: {e}")))?;
 
     // Resolve the Outbox, retrying until it's available rather than disabling for the whole run:
     // an attestor can be started before the factory/Outbox is registered on-chain and will activate
@@ -389,20 +445,52 @@ pub async fn run(
     // doing block attestation. (Polling is simpler and more robust than event subscription; picking
     // up a later Outbox *re-registration* mid-run remains a finer-grained TODO in resolver.rs.)
     let mut resolve_attempts: u64 = 0;
+    let mut consecutive_resolve_failures: u64 = 0;
     // Discovery cursor: advances past confirmed blocks already scanned for `OutboxCreated` so each
     // retry only scans new blocks instead of re-scanning the whole chain history every interval.
     let mut outbox_cursor = resolver::OutboxDiscoveryCursor::default();
     let resolved = loop {
-        match resolver::resolve(
-            &provider,
-            &cfg,
-            state.destination_chain_key,
-            &mut outbox_cursor,
-        )
-        .await
-        {
+        let attempt = tokio::select! {
+            attempt = tokio::time::timeout(
+                RPC_ATTEMPT_TIMEOUT,
+                resolver::resolve(
+                    &provider,
+                    &cfg,
+                    state.destination_chain_key,
+                    &mut outbox_cursor,
+                ),
+            ) => attempt.unwrap_or_else(|_| {
+                Err(anyhow!(
+                    "Outbox resolution RPC attempt timed out after {:?}",
+                    RPC_ATTEMPT_TIMEOUT
+                ))
+            }),
+            joined = wait_for_optional_child(&mut set_watcher) => {
+                if let Some(proposer) = &set_update_proposer {
+                    proposer.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("attestor-set watcher", joined)));
+            }
+            joined = wait_for_optional_child(&mut set_update_proposer) => {
+                if let Some(watcher) = &set_watcher {
+                    watcher.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("attestor-set-update proposer", joined)));
+            }
+            () = shared.token.cancelled() => {
+                if let Some(watcher) = &set_watcher {
+                    watcher.abort();
+                }
+                if let Some(proposer) = &set_update_proposer {
+                    proposer.abort();
+                }
+                return Ok(());
+            }
+        };
+        match attempt {
             Ok(Some(r)) => break r,
             Ok(None) => {
+                consecutive_resolve_failures = 0;
                 resolve_attempts += 1;
                 if resolve_attempts % RESOLVE_ESCALATE_EVERY_ATTEMPTS == 0 {
                     // WARN, not ERROR: `Ok(None)` means nothing is registered on-chain yet, which is
@@ -426,6 +514,12 @@ pub async fn run(
             }
             Err(err) => {
                 resolve_attempts += 1;
+                consecutive_resolve_failures += 1;
+                if consecutive_resolve_failures >= MAX_CONSECUTIVE_RESOLVE_FAILURES {
+                    return Err(Error::WriteAbility(err.context(format!(
+                        "Outbox resolution failed {consecutive_resolve_failures} consecutive times; restarting to rebuild the RPC provider"
+                    ))));
+                }
                 // `{:#}` (alternate Display), not `%err`: these errors are built with
                 // `anyhow::Context`, whose plain Display prints ONLY the outermost context. Logging
                 // it that way reduced every failure to the bare phrase "…get_outbox_factory_address()
@@ -445,7 +539,27 @@ pub async fn run(
             }
         }
         tokio::select! {
-            () = shared.token.cancelled() => return Ok(()),
+            () = shared.token.cancelled() => {
+                if let Some(watcher) = &set_watcher {
+                    watcher.abort();
+                }
+                if let Some(proposer) = &set_update_proposer {
+                    proposer.abort();
+                }
+                return Ok(());
+            }
+            joined = wait_for_optional_child(&mut set_watcher) => {
+                if let Some(proposer) = &set_update_proposer {
+                    proposer.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("attestor-set watcher", joined)));
+            }
+            joined = wait_for_optional_child(&mut set_update_proposer) => {
+                if let Some(watcher) = &set_watcher {
+                    watcher.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("attestor-set-update proposer", joined)));
+            }
             () = tokio::time::sleep(std::time::Duration::from_secs(OUTBOX_RESOLVE_RETRY_SECS)) => {}
         }
     };
@@ -494,7 +608,7 @@ pub async fn run(
     // RPCs (deadline-bounded, serial) must not be able to stall vote production / message ingestion
     // if the shared provider black-holes. The bounded `reobs_rx` channel already drops excess, so a
     // flood is bounded to serial, deadline-capped work here.
-    let reobs_worker = {
+    let mut reobs_worker = {
         let provider = provider.clone();
         let state = state.clone();
         let shared = shared.clone();
@@ -520,6 +634,41 @@ pub async fn run(
         // still picked promptly (graceful shutdown tolerates finishing one in-flight item first).
         tokio::select! {
             () = shared.token.cancelled() => break,
+            joined = wait_for_optional_child(&mut set_watcher) => {
+                if shared.token.is_cancelled() {
+                    break;
+                }
+                listener.abort();
+                reobs_worker.abort();
+                if let Some(p) = &set_update_proposer {
+                    p.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("attestor-set watcher", joined)));
+            }
+            joined = wait_for_optional_child(&mut set_update_proposer) => {
+                if shared.token.is_cancelled() {
+                    break;
+                }
+                listener.abort();
+                reobs_worker.abort();
+                if let Some(w) = &set_watcher {
+                    w.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("attestor-set-update proposer", joined)));
+            }
+            joined = &mut reobs_worker => {
+                if shared.token.is_cancelled() {
+                    break;
+                }
+                listener.abort();
+                if let Some(w) = &set_watcher {
+                    w.abort();
+                }
+                if let Some(p) = &set_update_proposer {
+                    p.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("reobservation worker", joined)));
+            }
             maybe = rx.recv() => {
                 let Some(indexed) = maybe else {
                     // On shutdown a closed channel is expected, not a fault: every cancel path in
@@ -564,6 +713,26 @@ pub async fn run(
         p.abort();
     }
     Ok(())
+}
+
+/// Await an optional child without making the select branch ready when that child is disabled.
+async fn wait_for_optional_child(
+    child: &mut Option<tokio::task::JoinHandle<()>>,
+) -> Result<(), tokio::task::JoinError> {
+    match child {
+        Some(child) => child.await,
+        None => std::future::pending().await,
+    }
+}
+
+fn child_exit_error(
+    name: &'static str,
+    joined: Result<(), tokio::task::JoinError>,
+) -> anyhow::Error {
+    match joined {
+        Ok(()) => anyhow!("{name} exited before shutdown was requested"),
+        Err(err) => anyhow!("{name} panicked or was cancelled unexpectedly: {err}"),
+    }
 }
 
 /// Reobservation responder, run as its own task (audit P1-4). Consumes verified-on-request pull

@@ -196,8 +196,13 @@ pub async fn run_proposer(
                 // stale, so a steady state is a single storage read per cycle.
                 super::register_evm_address(&cc3, &signer, chain_key).await;
 
-                match propose_once(&cc3, chain_key, &dest_rpc_url, validator, &signer).await {
-                    Ok(Some(vote)) => {
+                match tokio::time::timeout(
+                    super::RPC_ATTEMPT_TIMEOUT,
+                    propose_once(&cc3, chain_key, &dest_rpc_url, validator, &signer),
+                )
+                .await
+                {
+                    Ok(Ok(Some(vote))) => {
                         // Bounded `try_send`: if the publish channel is full the vote is dropped and
                         // re-proposed next tick (set changes persist until an update lands), so a
                         // backed-up publisher never blocks this loop.
@@ -205,9 +210,15 @@ pub async fn run_proposer(
                             tracing::warn!("set-update vote publish channel full — will re-propose next tick");
                         }
                     }
-                    Ok(None) => {}
-                    Err(err) => {
+                    Ok(Ok(None)) => {}
+                    Ok(Err(err)) => {
                         tracing::warn!(%err, "attestor-set-update proposal cycle failed; will retry");
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            timeout_secs = super::RPC_ATTEMPT_TIMEOUT.as_secs(),
+                            "attestor-set-update proposal cycle timed out; will retry"
+                        );
                     }
                 }
             }
