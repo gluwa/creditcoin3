@@ -38,7 +38,7 @@ use frame_support::weights::{constants::ParityDbWeight as RuntimeDbWeight, Weigh
 use frame_support::{
     construct_runtime, parameter_types,
     traits::{
-        ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
+        ConstU128, ConstU32, ConstU8, FindAuthor, InstanceFilter, KeyOwnerProofSystem, OnFinalize,
         OnTimestampSet,
     },
     weights::{
@@ -403,21 +403,21 @@ impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
 pub type AssetsForceOrigin = frame_system::EnsureRoot<AccountId>;
 
 parameter_types! {
-    /// Reserved on `create`. Unreachable while [`pallet_assets::Config::CreateOrigin`] is
-    /// `EnsureNever` (the attest-coin asset is made at genesis or by `force_create`, neither of
-    /// which charges a deposit) — set to a real value so loosening `CreateOrigin` later cannot
-    /// silently enable free asset creation.
-    pub const AssetDeposit: Balance = deposit(1, 0);
-    /// `set_metadata` is owner-only (governance); `force_set_metadata` and genesis bypass deposits.
-    pub const AssetMetadataDepositBase: Balance = deposit(1, 68);
-    pub const AssetMetadataDepositPerByte: Balance = deposit(0, 1);
-    /// `approve_transfer` is callable by **any** signed account and reserves this from native
-    /// balance. It must stay non-zero: at zero, an account with no attest-coin can create
-    /// unbounded `Approvals` entries for arbitrary delegates for tx fees alone.
+    /// The only deposit that needs a non-zero value here.
+    ///
+    /// `approve_transfer` is callable by **any** signed account, and `do_approve_transfer` reserves
+    /// this from *native* balance without checking that the caller holds any of the asset. Because
+    /// `Approvals` is keyed `(asset, owner, delegate)`, a single account can otherwise create
+    /// unbounded entries by varying `delegate` — which need not exist — for transaction fees alone.
+    ///
+    /// The rest stay at zero because `CreateOrigin = EnsureNever` makes them unreachable or
+    /// governance-only: `AssetDeposit` is charged by `create` only (`force_create` and genesis do
+    /// not), and the metadata deposits are charged by owner-only `set_metadata` (`force_set_metadata`
+    /// and genesis bypass them). `AssetAccountDeposit` is charged only by permissionless `touch`,
+    /// which costs a transaction per entry anyway; keeping it zero also means every attest-coin
+    /// account exists for the same reason (`ExistenceReason::Consumer`, as the precompile's
+    /// `do_mint` path creates them) rather than a mix of `Consumer` and `DepositHeld`.
     pub const AssetApprovalDeposit: Balance = 10 * CENTS;
-    /// Charged on permissionless `touch`. Not charged on the precompile mint path
-    /// (`pallet_assets::do_mint` creates accounts with no deposit and a consumer ref).
-    pub const AssetAccountDeposit: Balance = deposit(1, 18);
 }
 
 impl pallet_assets::Config for Runtime {
@@ -432,12 +432,12 @@ impl pallet_assets::Config for Runtime {
     // fees alone.
     type CreateOrigin = frame_system::EnsureNever<AccountId>;
     type ForceOrigin = AssetsForceOrigin;
-    type AssetDeposit = AssetDeposit;
-    type MetadataDepositBase = AssetMetadataDepositBase;
-    type MetadataDepositPerByte = AssetMetadataDepositPerByte;
+    type AssetDeposit = ConstU128<0>;
+    type MetadataDepositBase = ConstU128<0>;
+    type MetadataDepositPerByte = ConstU128<0>;
     type ApprovalDeposit = AssetApprovalDeposit;
     type StringLimit = ConstU32<50>;
-    type AssetAccountDeposit = AssetAccountDeposit;
+    type AssetAccountDeposit = ConstU128<0>;
     type RemoveItemsLimit = ConstU32<1000>;
     type Freezer = ();
     type Extra = ();
