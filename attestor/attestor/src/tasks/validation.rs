@@ -1025,12 +1025,22 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
     // node's txpool retains it independently of the watch. The nonce burns either way. The next
     // height's submission can race a still-in-mempool tx and surface as a `Future` (nonce gap)
     // or duplicate-nonce rejection on the next round; both paths self-recover via the
-    // `bad_signature`/reconnect arm in `submit_one`. Logged at WARN so the pattern is visible.
+    // `bad_signature`/reconnect arm in `submit_one`.
+    //
+    // Levels differ between the two non-`watch` arms because their meanings differ. Arm 2 is the
+    // expected outcome of losing the submit race — `PrevalidateAttestationCommit` tags commits
+    // with `provides = (chain_key, digest)` so exactly one attestor's submission per attestation
+    // is admitted, and the height finalizing from a peer's copy is the designed steady state. It
+    // resolves to `Outcome::Finalized`, which is deliberately excluded from
+    // `should_unlock_if_unfinalized` (no recovery is needed) and which the handler already
+    // reports as `✅ finalized externally` at INFO — so this line is mechanism detail and logs at
+    // DEBUG. Arm 3 keeps WARN: both upstream signals being stuck for `ATTESTATION_TIMEOUT` is
+    // genuinely anomalous.
     let watch = submit_handle.wait_for_finalized_success();
     tokio::select! {
         result = watch => OutcomeInternal::Eligible(result),
         () = await_block_attested(shared, height) => {
-            tracing::warn!(
+            tracing::debug!(
                 height,
                 "📡 height observed finalized externally — releasing watch (our submitted tx may still land; nonce burns either way)"
             );
