@@ -1,5 +1,6 @@
+import { U64 } from '@polkadot/types-codec';
 import { WebSocketProvider, ethers } from 'ethers';
-import { newApi, ApiPromise } from '../../lib';
+import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { deployContract } from '../blockchain-tests/helpers';
 import { forElapsedBlocks } from '../utils';
@@ -10,26 +11,36 @@ import { graphQLQuery } from './common';
 //   handleMessagePublished -> OutboxMessage
 //   handleMessageAcknowledged -> flips the same OutboxMessage to acknowledged
 //
-// The events come from MockWriteAbilityEmitter rather than the real fee stack: the indexer
-// discovers Outboxes by *topic* chain-wide (see `outboxDiscoveryDatasource` in
-// cc3-indexer/datasources.ts), so an unregistered emitter is precisely the unauthenticated
-// discovery path this covers. The mock announces itself as the Outbox, so the datasource created
-// from OutboxCreated is the one that then picks up its MessagePublished / MessageAcknowledged.
+// The events come from MockWriteAbilityEmitter, which announces itself as the Outbox, so the
+// datasource created from OutboxCreated is the one that then picks up its MessagePublished /
+// MessageAcknowledged.
+//
+// Discovery is fail-closed: `handleOutboxCreated` only accepts an `OutboxCreated` whose emitter is
+// the factory governance registered for that raw chain key. So the mock has to be registered as the
+// factory for a real chain key *before* it announces anything — registering a synthetic key would
+// leave nothing for the handler to match and the happy path would silently stop being covered. That
+// mirrors the deploy ordering the tooling uses (register the factory, then call deployOutbox).
 //
 // The three steps must land in this order and be indexed between each: the dynamic datasource only
 // exists once OutboxCreated has been processed, and the ack only updates an already-indexed message.
 describe('Outbox lifecycle handlers', () => {
     let api: ApiPromise;
     let provider: WebSocketProvider;
+    let root: KeyringPair;
+    let alith: ethers.Wallet;
     let contract: ethers.Contract;
     let outboxAddress: string;
     let startingBlock: bigint;
-
-    // uint32 chain key, unique per run so this test can never interact with another record's
-    // per-chain-key unauthenticated-datasource cap (audit P2-1).
-    const chainKey = Number(BigInt(Date.now()) % 4_000_000_000n);
+    // Assigned in beforeAll from the pallet's monotonic uniq-key counter, so it is a small integer
+    // that fits the `uint32 chainKey` the OutboxCreated event carries.
+    let chainKey: U64;
+    let chainKeyNumber: number;
     // The bytes32 form the handler stores: `bytes32(uint256(chainKey))`.
-    const chainKeyBytes32 = `0x${chainKey.toString(16).padStart(64, '0')}`;
+    let chainKeyBytes32: string;
+
+    const chainId = BigInt(Date.now());
+    const chainName = `Outbox Lifecycle Chain ${chainId}`;
+    const encoding = 'V1';
 
     const validator = '0x00000000000000000000000000000000000000ac';
     const version = '1.1';
@@ -44,9 +55,10 @@ describe('Outbox lifecycle handlers', () => {
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
+        root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
         const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
-        const alith = new ethers.Wallet(privateKey).connect(provider);
+        alith = new ethers.Wallet(privateKey).connect(provider);
 
         startingBlock = BigInt((await getChainStatus(api)).bestNumber);
         expect(startingBlock).toBeGreaterThan(0n);
@@ -54,16 +66,61 @@ describe('Outbox lifecycle handlers', () => {
         contract = await deployContract('MockWriteAbilityEmitter', [], alith);
         // The handler lowercases the announced address to key OutboxContract.
         outboxAddress = (await contract.getAddress()).toLowerCase();
-    }, 90_000);
+
+        // A real chain, so the uniq key exists on-chain and `setOutboxFactoryAddr` is accepted.
+        await api.tx.sudo
+            .sudo(
+                api.tx.supportedChains.registerChain(
+                    chainId,
+                    chainName,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    encoding,
+                    null,
+                ),
+            )
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        chainKey = (await api.query.supportedChains.chainIdAndNameToUniqKey(chainId, chainName)).unwrap();
+        expect(chainKey.toBigInt()).toBeGreaterThan(0n);
+        // The event field is a uint32; the pallet allocates keys from a monotonic counter, so this
+        // holds in practice. Assert it rather than truncate silently if that ever stops being true.
+        expect(chainKey.toBigInt()).toBeLessThan(4_294_967_296n);
+        chainKeyNumber = Number(chainKey.toBigInt());
+        chainKeyBytes32 = `0x${chainKey.toBigInt().toString(16).padStart(64, '0')}`;
+
+        // Register the mock as this chain key's Outbox factory, so its OutboxCreated is accepted.
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setOutboxFactoryAddr(chainKey, outboxAddress))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        const stored = await api.query.supportedChains.outboxFactories(chainKey);
+        expect(stored.isSome).toEqual(true);
+        expect(stored.unwrap().toString().toLowerCase()).toEqual(outboxAddress);
+
+        // The registration must be *indexed* before OutboxCreated is emitted — the handler reads
+        // OutboxFactoryRegistration, so emitting first would be rejected as unauthenticated.
+        await forElapsedBlocks(api, { minBlocks: 3 });
+    }, 180_000);
 
     afterAll(async () => {
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.removeChain(chainKey, true))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+
         await api.disconnect();
         await provider.destroy();
     });
 
     describe('when an outbox announces itself', () => {
         beforeAll(async () => {
-            const tx = await contract.getFunction('emitOutboxCreated')(chainKey, validator, version, {
+            const tx = await contract.getFunction('emitOutboxCreated')(chainKeyNumber, validator, version, {
                 gasLimit: 1_000_000,
             });
             await tx.wait();
@@ -88,11 +145,9 @@ describe('Outbox lifecycle handlers', () => {
                 expect(BigInt(node.createdAt)).toBeGreaterThanOrEqual(startingBlock);
                 expect(BigInt(node.createdTimestamp)).toBeGreaterThan(0n);
                 expect(node.createdTxHash.startsWith('0x')).toEqual(true);
-                // `factoryId` records whichever contract *emitted* OutboxCreated, unconditionally —
-                // it is not evidence that the emitter is a registered OutboxFactory (that is the
-                // separate `authenticated` trust signal, which only relaxes the DoS cap and is not
-                // persisted). The mock announces itself as the Outbox, so it is its own emitter and
-                // factoryId equals the id here.
+                // `factoryId` records the contract that emitted OutboxCreated, which discovery now
+                // requires to be the registered factory. The mock announces itself as the Outbox, so
+                // it is its own emitter and factoryId equals the id here.
                 expect(node.factoryId).toEqual(outboxAddress);
             }
         });
@@ -171,6 +226,51 @@ describe('Outbox lifecycle handlers', () => {
                 expect(BigInt(node.acknowledgedTimestamp)).toBeGreaterThan(0n);
                 expect(node.acknowledgedTxHash.startsWith('0x')).toEqual(true);
             }
+        });
+    });
+
+    // The negative half of the same rule, kept last so the ordered three-step lifecycle above stays
+    // contiguous. An emitter governance never registered must not be able to create an
+    // OutboxContract — and with it a persistent dynamic datasource — just by emitting a well-formed
+    // OutboxCreated. That is the DoS vector the fail-closed check exists for, so assert it directly
+    // rather than leave it implied by the happy path.
+    describe('when an unregistered contract announces itself for the same chain key', () => {
+        let impostorAddress: string;
+
+        beforeAll(async () => {
+            const impostor = await deployContract('MockWriteAbilityEmitter', [], alith);
+            impostorAddress = (await impostor.getAddress()).toLowerCase();
+            expect(impostorAddress).not.toEqual(outboxAddress);
+
+            const tx = await impostor.getFunction('emitOutboxCreated')(chainKeyNumber, validator, version, {
+                gasLimit: 1_000_000,
+            });
+            await tx.wait();
+
+            await forElapsedBlocks(api, { minBlocks: 3 });
+        }, 120_000);
+
+        it('graphQL returns no OutboxContract for the unregistered emitter', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    outboxContracts(
+                        filter: { id: { equalTo: "${impostorAddress}" }},
+                        last: 1,
+                    ) { nodes { id }}}`,
+            );
+            expect(response.data.outboxContracts.nodes).toEqual([]);
+        });
+
+        it('leaves the registered Outbox untouched', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    outboxContracts(
+                        filter: { id: { equalTo: "${outboxAddress}" }},
+                        last: 1,
+                    ) { nodes { id, factoryId }}}`,
+            );
+            expect(response.data.outboxContracts.nodes.length).toEqual(1);
+            expect(response.data.outboxContracts.nodes[0].factoryId).toEqual(outboxAddress);
         });
     });
 });
