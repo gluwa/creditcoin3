@@ -30,12 +30,12 @@ use super::resolver::ResolvedOutbox;
 /// Poll cadence for `eth_getLogs`.
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
 
-/// Per-poll RPC deadline. A healthy `eth_getLogs`/`eth_blockNumber` returns in well under this; the
-/// timeout exists so a *black-holed* connection (socket accepted but no response — the failure mode
-/// a bare alloy WS provider can silently enter after its one-shot reconnect gives up) surfaces as an
-/// error that counts toward the consecutive-failure budget instead of pending forever and wedging
-/// the whole write-ability task (which shares this provider with the reobservation responder).
-const POLL_TIMEOUT: Duration = Duration::from_secs(30);
+/// Per-RPC deadline. This deliberately wraps only network calls, never delivery into the bounded
+/// signing channel. A dense but valid log range may take longer than this to drain under
+/// backpressure; cancelling mid-drain would leave the block cursor before the chunk and replay the
+/// same prefix forever. Network calls still need a deadline so a black-holed provider cannot wedge
+/// the listener.
+const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Consecutive *stalled* polls before the listener gives up and returns `Err`. Only a poll that
 /// errored **and** made no forward progress counts (see [`next_failure_count`]); a slow backfill
@@ -46,7 +46,7 @@ const POLL_TIMEOUT: Duration = Duration::from_secs(30);
 /// `eth::Client`), this provider is a bare alloy connection whose pubsub service exits permanently
 /// after a single failed reconnect, so a routine RPC blip would otherwise silently kill message
 /// voting for the process lifetime (C1). At the 6s cadence this rides out ~1 minute of fast errors,
-/// or (with `POLL_TIMEOUT`) a few minutes of a black-holed endpoint, before restarting — long enough
+/// or (with `RPC_TIMEOUT`) a few minutes of a black-holed endpoint, before restarting — long enough
 /// to absorb a transient blip, short enough that a dead provider does not strand quorum indefinitely.
 const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
 
@@ -167,9 +167,10 @@ pub struct IndexedMessage {
 ///
 /// A poll that either completed (`poll_ok`) or advanced the scan (`made_progress`) resets the budget
 /// to zero; only a fully *stalled* poll — errored **and** zero forward progress — increments it.
-/// This is what stops a slow-but-progressing backfill (which legitimately spans several 30s polls)
-/// from tripping [`MAX_CONSECUTIVE_POLL_FAILURES`] and restarting the whole process, block
-/// attestation included. Pure so the rule is unit-testable without an RPC or timers.
+/// This is what stops a slow-but-progressing backfill (which may encounter a later RPC failure after
+/// advancing earlier chunks) from tripping [`MAX_CONSECUTIVE_POLL_FAILURES`] and restarting the
+/// whole process, block attestation included. Pure so the rule is unit-testable without an RPC or
+/// timers.
 fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
     if poll_ok || made_progress {
         0
@@ -259,19 +260,11 @@ pub async fn watch<P: Provider>(
             }
             _ = tick.tick() => {
                 let prev_seen = last_seen;
-                // Bound each poll so a black-holed connection can't hang the loop indefinitely; a
-                // timeout counts as a failure just like an RPC error.
-                let outcome = match tokio::time::timeout(
-                    POLL_TIMEOUT,
-                    poll_once(provider, &resolved, &policy, &mut finality, &mut last_seen, &tx),
-                )
-                .await
-                {
-                    Ok(result) => result,
-                    Err(_) => Err(anyhow::anyhow!(
-                        "outbox poll exceeded {POLL_TIMEOUT:?} — RPC unresponsive or doing lengthy catchup work"
-                    )),
-                };
+                // Individual network calls inside `poll_once` are deadline-bounded. Do not wrap the
+                // whole poll: delivery to `tx` is intentionally allowed to wait for downstream
+                // capacity so a dense chunk is delivered exactly once before its cursor advances.
+                let outcome =
+                    poll_once(provider, &resolved, &policy, &mut finality, &mut last_seen, &tx).await;
 
                 // Did the scan advance this poll? `poll_once` bumps `last_seen` after each
                 // successful chunk, so this is true even when the poll ultimately errored/timed out
@@ -297,8 +290,8 @@ pub async fn watch<P: Provider>(
                 // Progress-aware failure budget: a poll that either completed or *advanced the scan*
                 // resets the budget; only a fully stalled poll (errored AND zero forward progress)
                 // counts toward the restart threshold. A wide backfill (far-behind start_block, or a
-                // long Outbox-resolve wait) can legitimately span many chunks across several 30s
-                // polls — counting each of those progressing-but-unfinished polls as a failure would
+                // long Outbox-resolve wait) can legitimately advance several chunks before a later
+                // RPC fails — counting that progressing-but-unfinished poll as a failure would
                 // trip `MAX_CONSECUTIVE_POLL_FAILURES` and restart the whole process (taking block
                 // attestation down with it) even while it was catching up the entire time.
                 consecutive_failures =
@@ -310,7 +303,7 @@ pub async fn watch<P: Provider>(
                     Err(err) if made_progress => {
                         tracing::info!(
                             last_seen, %err,
-                            "🐢 outbox backfill advanced but hit the poll deadline mid-scan; \
+                            "🐢 outbox backfill advanced but hit an RPC failure mid-scan; \
                              continuing (not counted as a failure)"
                         );
                     }
@@ -351,21 +344,32 @@ pub async fn poll_once<P: Provider>(
     last_seen: &mut u64,
     tx: &mpsc::Sender<IndexedMessage>,
 ) -> Result<()> {
-    let tip = provider.get_block_number().await?;
+    let tip = tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number())
+        .await
+        .context("eth_blockNumber timed out")??;
 
     // Read the finalized head only when the policy uses it. A finalized-tag read failure (node up
     // but the tag is unsupported/errored) is treated as "finalized unavailable" → depth fallback,
     // rather than failing the whole poll — the tip read above already covers a dead RPC.
     let finalized = match policy {
         FinalityPolicy::Finalized { .. } => {
-            match provider
-                .get_block_by_number(BlockNumberOrTag::Finalized, BlockTransactionsKind::Hashes)
-                .await
+            match tokio::time::timeout(
+                RPC_TIMEOUT,
+                provider.get_block_by_number(
+                    BlockNumberOrTag::Finalized,
+                    BlockTransactionsKind::Hashes,
+                ),
+            )
+            .await
             {
-                Ok(Some(b)) => Some(b.header.number),
-                Ok(None) => None,
-                Err(err) => {
+                Ok(Ok(Some(b))) => Some(b.header.number),
+                Ok(Ok(None)) => None,
+                Ok(Err(err)) => {
                     tracing::warn!(%err, "finalized-head read failed; using depth fallback this poll");
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!("finalized-head read timed out; using depth fallback this poll");
                     None
                 }
             }
@@ -418,9 +422,9 @@ async fn scan_range<P: Provider>(
         .from_block(from_block)
         .to_block(to_block);
 
-    let logs = provider
-        .get_logs(&filter)
+    let logs = tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
         .await
+        .with_context(|| format!("eth_getLogs from {from_block} to {to_block} timed out"))?
         .with_context(|| format!("eth_getLogs from {from_block} to {to_block} failed"))?;
 
     for log in logs {
