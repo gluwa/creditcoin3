@@ -65,6 +65,15 @@ pub struct OutboxDiscoveryCursor {
     factory: Option<Address>,
 }
 
+impl OutboxDiscoveryCursor {
+    /// Block the scan has reached. The caller uses this to tell a resolve attempt that *failed after
+    /// advancing* from one that made no headway at all, so a chunked scan spanning several attempts
+    /// is not mistaken for a dead RPC.
+    pub(super) fn scanned_to(&self) -> u64 {
+        self.from
+    }
+}
+
 /// Resolve the Outbox for the configured write-ability chain key using `provider` (a Creditcoin L1
 /// EVM connection). `destination_chain_key` is the effective `bytes32` key (see
 /// [`super::MessageVoteState::destination_chain_key`]) used both to ask the factory for its Outbox

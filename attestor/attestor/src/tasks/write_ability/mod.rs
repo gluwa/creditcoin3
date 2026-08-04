@@ -450,6 +450,13 @@ pub async fn run(
     // retry only scans new blocks instead of re-scanning the whole chain history every interval.
     let mut outbox_cursor = resolver::OutboxDiscoveryCursor::default();
     let resolved = loop {
+        // Progress-aware failure budget, mirroring the listener's `next_failure_count`. Outbox
+        // discovery is a *chunked* log scan, so one attempt legitimately exceeds
+        // `RPC_ATTEMPT_TIMEOUT` on a long chain while still advancing the cursor each chunk.
+        // Counting those as failures would trip `MAX_CONSECUTIVE_RESOLVE_FAILURES` and restart —
+        // and `outbox_cursor` is in-memory, so the restart discards every chunk already scanned,
+        // making it a loop that never activates rather than a recovery.
+        let scanned_before = outbox_cursor.scanned_to();
         let attempt = tokio::select! {
             attempt = tokio::time::timeout(
                 RPC_ATTEMPT_TIMEOUT,
@@ -469,11 +476,22 @@ pub async fn run(
                 if let Some(proposer) = &set_update_proposer {
                     proposer.abort();
                 }
+                // On shutdown these children exit cleanly with `Ok(())` and race the cancel branch,
+                // so this arm winning must not turn an intentional stop into a task failure. The
+                // post-activation loop already guards the same way.
+                if shared.token.is_cancelled() {
+                    return Ok(());
+                }
                 return Err(Error::WriteAbility(child_exit_error("attestor-set watcher", joined)));
             }
             joined = wait_for_optional_child(&mut set_update_proposer) => {
                 if let Some(watcher) = &set_watcher {
                     watcher.abort();
+                }
+                // See the watcher arm: a clean child exit during shutdown must not be reported as a
+                // failure.
+                if shared.token.is_cancelled() {
+                    return Ok(());
                 }
                 return Err(Error::WriteAbility(child_exit_error("attestor-set-update proposer", joined)));
             }
@@ -514,7 +532,17 @@ pub async fn run(
             }
             Err(err) => {
                 resolve_attempts += 1;
-                consecutive_resolve_failures += 1;
+                if outbox_cursor.scanned_to() > scanned_before {
+                    // Advanced before failing: this is a wide scan in progress, not a dead endpoint.
+                    consecutive_resolve_failures = 0;
+                    tracing::info!(
+                        scanned_to = outbox_cursor.scanned_to(),
+                        error = %format!("{err:#}"),
+                        "🐢 Outbox discovery advanced but did not finish this attempt; continuing (not counted as a failure)"
+                    );
+                } else {
+                    consecutive_resolve_failures += 1;
+                }
                 if consecutive_resolve_failures >= MAX_CONSECUTIVE_RESOLVE_FAILURES {
                     return Err(Error::WriteAbility(err.context(format!(
                         "Outbox resolution failed {consecutive_resolve_failures} consecutive times; restarting to rebuild the RPC provider"
@@ -552,11 +580,22 @@ pub async fn run(
                 if let Some(proposer) = &set_update_proposer {
                     proposer.abort();
                 }
+                // On shutdown these children exit cleanly with `Ok(())` and race the cancel branch,
+                // so this arm winning must not turn an intentional stop into a task failure. The
+                // post-activation loop already guards the same way.
+                if shared.token.is_cancelled() {
+                    return Ok(());
+                }
                 return Err(Error::WriteAbility(child_exit_error("attestor-set watcher", joined)));
             }
             joined = wait_for_optional_child(&mut set_update_proposer) => {
                 if let Some(watcher) = &set_watcher {
                     watcher.abort();
+                }
+                // See the watcher arm: a clean child exit during shutdown must not be reported as a
+                // failure.
+                if shared.token.is_cancelled() {
+                    return Ok(());
                 }
                 return Err(Error::WriteAbility(child_exit_error("attestor-set-update proposer", joined)));
             }
