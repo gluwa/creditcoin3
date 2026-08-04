@@ -36,6 +36,7 @@ import {
     ForcedElection,
     RevertedAttestationChainTo,
     OutboxFactory,
+    OutboxFactoryRegistration,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, fetchAttestationParams, chainDataId } from './initStore';
@@ -199,9 +200,9 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
 
 // USC write-ability: an operator registered an OutboxFactory for a chain key
 // (supportedChains.OutboxFactoryRegistered { chain_key, outbox_factory_addr }). Recorded for
-// display / to resolve OutboxContract.factory. Discovery of Outboxes does NOT depend on this event
-// — see the chain-wide OutboxCreated watch in datasources.ts (the factory creates Outboxes before
-// it is registered here, so following this event would miss them).
+// display / to resolve OutboxContract.factory. The registration is also the authorization gate for
+// chain-wide OutboxCreated discovery: deployment must register the factory before creating an
+// Outbox, otherwise the event is intentionally rejected as unauthenticated.
 export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Promise<void> {
     const {
         event: {
@@ -214,23 +215,24 @@ export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Prom
 
     logger.info(`OutboxFactoryRegistered: factory=${address}, chainKey=${chainKey.toString()} at block ${blockNumber}`);
 
-    // Idempotency guard: `set_outbox_factory_addr` emits `OutboxFactoryRegistered` on every update,
-    // and a reorg replay / reindex overlap re-delivers the same log. Recording the first
-    // registration is enough (the entity only backs display + `OutboxContract.factory` resolution),
-    // so skip if we already have it rather than re-`create`/`save` a duplicate id.
+    // `OutboxFactory` is display-oriented and keyed by address. Keep the first chain key for an
+    // address, while the authoritative per-chain registration below is always upserted so rotations
+    // and a single factory serving several keys are represented exactly.
     const existing = await OutboxFactory.get(address);
-    if (existing) {
-        logger.warn(`OutboxFactoryRegistered for already-recorded factory ${address} — skipping`);
-        return;
-    }
-
-    const factory = OutboxFactory.create({
-        id: address,
-        chainKey: BigInt(chainKey.toString()),
+    const factory =
+        existing ??
+        OutboxFactory.create({
+            id: address,
+            chainKey: BigInt(chainKey.toString()),
+            registeredAt: blockNumber,
+            registeredTimestamp: event.block.timestamp ? BigInt(event.block.timestamp.getTime()) : BigInt(0),
+        });
+    const registration = OutboxFactoryRegistration.create({
+        id: chainKey.toString(),
+        factoryAddress: address,
         registeredAt: blockNumber,
-        registeredTimestamp: event.block.timestamp ? BigInt(event.block.timestamp.getTime()) : BigInt(0),
     });
-    await factory.save();
+    await Promise.all([factory.save(), registration.save()]);
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {
@@ -266,6 +268,14 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
 
     // Flush pending in-block writes so deletions below see same-block entities.
     await flushStore();
+
+    // `remove_chain` clears the runtime's OutboxFactories entry. Mirror that revocation in the
+    // indexer's authorization table before any later counterfeit/stale OutboxCreated event can use
+    // the former factory registration to create a persistent datasource.
+    const outboxFactoryRegistration = await OutboxFactoryRegistration.get(chainKeyStr);
+    if (outboxFactoryRegistration) {
+        await OutboxFactoryRegistration.remove(chainKeyStr);
+    }
 
     const supportedChain = await SupportedChain.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
     if (isEmpty(supportedChain)) {

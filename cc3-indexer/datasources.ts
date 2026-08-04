@@ -225,8 +225,9 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                 },
             },
             {
-                // USC write-ability: on-chain factory registration. The handler spins up a dynamic
-                // datasource for the registered factory (no address is configured anywhere).
+                // USC write-ability: on-chain factory registration. The handler records the
+                // governance authorization used to authenticate subsequent chain-wide
+                // OutboxCreated events (no address is configured anywhere).
                 kind: SubstrateHandlerKind.Event,
                 handler: 'handleOutboxFactoryRegistered',
                 filter: {
@@ -319,18 +320,15 @@ export const blockProverDatasource: FrontierEvmDatasource = {
 //     └─▶ createDynamicDatasource('Outbox', { address })   // watches each created Outbox
 //           └─ MessagePublished / MessageAcknowledged (EVM)
 //
-// Discovery watches `OutboxCreated` across all contracts by topic (no address), rather than
-// following the substrate OutboxFactoryRegistered event to the factory. This is deliberate: the
-// deploy flow calls the factory's `createOutbox` (emitting OutboxCreated) *before* it registers the
-// factory with the pallet, so a datasource that only started once the factory was registered would
-// miss the already-emitted OutboxCreated and index nothing. A chain-wide topic watch from block 1
-// is immune to that ordering. (The substrate OutboxFactoryRegistered handler still records the
-// OutboxFactory entity for display; it is no longer on the discovery path.)
+// Discovery watches `OutboxCreated` across all contracts by topic (no address), then the handler
+// authenticates the emitter against the governance registration for the event's chain key. Deploy
+// flows MUST register a factory before calling deployOutbox. This preserves address-free discovery
+// without allowing counterfeit contracts to create persistent dynamic datasources.
 //
 // createDynamicDatasource spreads its `args` into the 'Outbox' template's `processor.options` (see
 // @subql/node BlockchainService.updateDynamicDs), so `{ address }` binds each instance to its
-// Outbox while inheriting the template's abi + handlers. Only our OutboxFactory emits this exact
-// event signature, so the address-less filter yields only real Outbox creations.
+// Outbox while inheriting the template's abi + handlers. Event signatures are not authentication;
+// the mapping handler performs the registered-factory check before calling the constructor.
 
 type FrontierEvmTemplate = Omit<FrontierEvmDatasource, 'startBlock' | 'endBlock'> & { name: string };
 
