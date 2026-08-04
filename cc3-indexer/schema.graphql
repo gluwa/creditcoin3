@@ -515,8 +515,8 @@ type TransactionVerified @entity {
 type OutboxFactory @entity {
     """
     A USC write-ability OutboxFactory discovered on-chain via the substrate
-    `supportedChains.OutboxFactoryRegistered` event. Registering a factory triggers a dynamic
-    Frontier EVM datasource that watches it for OutboxCreated, so no factory address is configured.
+    `supportedChains.OutboxFactoryRegistered` event. The registration authenticates subsequent
+    chain-wide OutboxCreated events; no factory address is configured in the project manifest.
     """
     # Factory contract address (hex, lowercase)
     id: ID!
@@ -528,18 +528,18 @@ type OutboxFactory @entity {
     registeredTimestamp: BigInt!
 }
 
-type OutboxDatasourceCount @entity {
+type OutboxFactoryRegistration @entity {
     """
-    Number of UNAUTHENTICATED Outbox datasources registered per bytes32 chain key (audit P2-1).
-    Keyed by the chain key so it is read by id via `.get()`, which — unlike `getByField` — resolves
-    against the same-block store cache; this lets the datasource-creation cap hold even when many
-    `OutboxCreated` events for one chain key land in a single block. Datasources created by a
-    registered, chain-key-matching factory are trusted and are neither counted nor capped here.
+    Current governance-authorized OutboxFactory for one USC chain key. This separate mapping keeps
+    authentication exact when one factory serves multiple chain keys or governance rotates a key to
+    a new factory address.
     """
-    # bytes32 write-ability chain key (lowercase hex)
+    # USC chain key as a decimal string
     id: ID!
-    # Count of unauthenticated Outbox datasources registered for this chain key
-    count: BigInt!
+    # Governance-authorized factory contract address (hex, lowercase)
+    factoryAddress: String! @index
+    # Creditcoin L1 block at which this registration became authoritative
+    registeredAt: BigInt! @index
 }
 
 type OutboxContract @entity {
