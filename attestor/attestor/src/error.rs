@@ -70,13 +70,28 @@ pub enum Error {
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // The `anyhow`-wrapping variants honour the alternate flag: `{:#}` on an `anyhow::Error`
+        // prints its whole `Context` chain, plain `{}` prints only the outermost layer. Without
+        // forwarding the flag, a caller asking for the chain (`tracing::error!(err = format!("{e:#}"))`)
+        // silently got the one-line form, because a `write!(f, "{e}")` here formats the inner error
+        // with its own default flags regardless of ours (bugbot). Non-anyhow variants have no chain,
+        // so they are unaffected.
+        macro_rules! chained {
+            ($f:expr, $prefix:literal, $e:expr) => {
+                if $f.alternate() {
+                    write!($f, concat!($prefix, ": {:#}"), $e)
+                } else {
+                    write!($f, concat!($prefix, ": {}"), $e)
+                }
+            };
+        }
         match self {
-            Self::Init(e) => write!(f, "init: {e}"),
+            Self::Init(e) => chained!(f, "init", e),
             Self::Rpc(e) => write!(f, "rpc: {e}"),
             Self::Cc3Stream(e) => write!(f, "cc3 stream: {e}"),
             Self::Subxt(e) => write!(f, "subxt: {e}"),
-            Self::P2p(e) => write!(f, "p2p: {e}"),
-            Self::WriteAbility(e) => write!(f, "write-ability: {e}"),
+            Self::P2p(e) => chained!(f, "p2p", e),
+            Self::WriteAbility(e) => chained!(f, "write-ability", e),
             Self::Bls(e) => write!(f, "bls: {e}"),
             Self::Io(e) => write!(f, "io: {e}"),
             Self::TaskJoin(e) => write!(f, "task join: {e}"),
@@ -138,5 +153,38 @@ impl From<std::io::Error> for Error {
 impl From<tokio::task::JoinError> for Error {
     fn from(e: tokio::task::JoinError) -> Self {
         Self::TaskJoin(e)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Context as _;
+
+    /// `{:#}` on an `anyhow`-wrapping variant must reach the *cause*, not just the outermost
+    /// context. The supervisor logs task failures that way so an operator (and the CI error gate)
+    /// can tell a deliberate outage recovery from a real defect; a `Display` impl that formatted the
+    /// inner error with plain `{}` made that request silently a no-op.
+    #[test]
+    fn alternate_display_prints_the_anyhow_chain() {
+        let inner = anyhow::anyhow!("eth_getLogs from 100 to 200 failed")
+            .context("outbox poll stalled (no progress) 10 times in a row")
+            .context("outbox listener died");
+        let err = Error::WriteAbility(inner);
+
+        let alternate = format!("{err:#}");
+        assert!(alternate.starts_with("write-ability: outbox listener died"));
+        assert!(
+            alternate.contains("outbox poll stalled (no progress)"),
+            "the cause the CI gate keys on must survive: {alternate}"
+        );
+        assert!(
+            alternate.contains("eth_getLogs"),
+            "root cause missing: {alternate}"
+        );
+
+        // Plain Display stays one-line, so callers that want the short form are unaffected.
+        let plain = format!("{err}");
+        assert_eq!(plain, "write-ability: outbox listener died");
     }
 }
