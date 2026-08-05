@@ -569,7 +569,14 @@ impl Attestor {
                             // the remaining tasks.
                             tracing::warn!(%err, "🌀 task errored after shutdown was requested — cancellation noise");
                         } else {
-                            tracing::error!(%err, "⛔ task failed");
+                            // `{:#}` (alternate Display), not `%err`: these errors carry
+                            // `anyhow::Context` chains, whose plain Display prints ONLY the
+                            // outermost layer — so a listener stall surfaced as the bare phrase
+                            // "write-ability: outbox listener died" and threw away the cause that
+                            // names it (RPC stall vs. ABI decode failure vs. cursor IO). Printing
+                            // the chain is what lets an operator — and the CI error gate — tell a
+                            // deliberate outage recovery from a real defect.
+                            tracing::error!(err = format!("{err:#}"), "⛔ task failed");
                             result = Err(err);
                         }
                     }
