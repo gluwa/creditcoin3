@@ -522,10 +522,16 @@ pub async fn run(
             () = shared.token.cancelled() => break,
             maybe = rx.recv() => {
                 let Some(indexed) = maybe else {
-                    // The listener holds the only sender, so a closed channel means it exited.
-                    // Harvest its result and surface the underlying error to the supervisor —
-                    // otherwise it would only see a generic early-Ok exit and the failure reason
-                    // would be lost.
+                    // On shutdown a closed channel is expected, not a fault: every cancel path in
+                    // `watch` returns `Ok(())` and drops the sole sender, so this arm becomes ready
+                    // at the same time as the cancel branch above and `select!` picks between them
+                    // at random. Losing that race must not be reported as an abnormal exit.
+                    if shared.token.is_cancelled() {
+                        break;
+                    }
+                    // Otherwise the listener really did exit early. Harvest its result and surface
+                    // the underlying error to the supervisor — otherwise it would only see a generic
+                    // early-Ok exit and the failure reason would be lost.
                     let err = match (&mut listener).await {
                         Ok(Ok(())) => anyhow!("outbox listener exited without error or shutdown"),
                         Ok(Err(err)) => err.context("outbox listener died"),
