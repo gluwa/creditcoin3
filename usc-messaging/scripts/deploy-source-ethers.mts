@@ -1,6 +1,8 @@
 // Plain-ethers source-stack deploy (no hardhat runtime — it wedges on this RPC).
 // Reads compiled artifacts from usc-contracts/artifacts. Run with tsx (Node 22).
 import { ethers } from "ethers";
+import { ApiPromise, Keyring, WsProvider } from "@polkadot/api";
+import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +31,43 @@ async function deploy(name: string, art: any, args: any[] = []) {
   return c;
 }
 
+async function registerFactoryBeforeOutbox(factory: string) {
+  const ws = process.env.CREDITCOIN_SUBSTRATE_WS_URL ?? "ws://127.0.0.1:9944";
+  const api = await ApiPromise.create({ provider: new WsProvider(ws), noInitWarn: true });
+  try {
+    await api.isReady;
+    await cryptoWaitReady();
+    const sudo = new Keyring({ type: "sr25519" }).addFromUri("//Alice");
+    console.log(`  registering OutboxFactory ${factory} before Outbox creation…`);
+    await new Promise<void>((resolve, reject) => {
+      let unsubscribe: (() => void) | undefined;
+      void api.tx.sudo
+        .sudo(api.tx.supportedChains.setOutboxFactoryAddr(CHAIN_KEY, factory))
+        .signAndSend(sudo, ({ status, dispatchError }) => {
+          if (dispatchError) {
+            unsubscribe?.();
+            reject(new Error(dispatchError.toString()));
+          } else if (status.isInBlock || status.isFinalized) {
+            unsubscribe?.();
+            resolve();
+          }
+        })
+        .then((unsub) => {
+          unsubscribe = unsub;
+        })
+        .catch(reject);
+    });
+    const registered = await api.query.supportedChains.outboxFactories(CHAIN_KEY);
+    const registeredAddress = registered.isSome ? registered.unwrap().toString() : "none";
+    if (registeredAddress.toLowerCase() !== factory.toLowerCase()) {
+      throw new Error(`factory registration did not land: expected ${factory}, got ${registeredAddress}`);
+    }
+    console.log("  OutboxFactory governance registration confirmed on-chain");
+  } finally {
+    await api.disconnect();
+  }
+}
+
 async function main() {
   const addrs = JSON.parse(readFileSync(OUT, "utf8"));
   if (!addrs.dest?.inbox) throw new Error("need dest.inbox");
@@ -45,6 +84,8 @@ async function main() {
   await (await (twap as any).setWindow(60)).wait();
   await (await (twap as any).update(ethers.parseEther("1"))).wait();
   const factory = await deploy("OutboxFactory", ART("write-ability/deployer/OutboxFactory.sol", "OutboxFactory"));
+  // Indexer discovery is fail-closed: authenticate OutboxCreated against governance registration.
+  await registerFactoryBeforeOutbox(await factory.getAddress());
   const quoter = await deploy("USCRelayingQuoter", ART("write-ability/USCRelayingQuoter.sol", "USCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
 
   const attestAddr = await attest.getAddress();
