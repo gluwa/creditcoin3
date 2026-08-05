@@ -159,7 +159,6 @@ impl From<tokio::task::JoinError> for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use anyhow::Context as _;
 
     /// `{:#}` on an `anyhow`-wrapping variant must reach the *cause*, not just the outermost
     /// context. The supervisor logs task failures that way so an operator (and the CI error gate)
