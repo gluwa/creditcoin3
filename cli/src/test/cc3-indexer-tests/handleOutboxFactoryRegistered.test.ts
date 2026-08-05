@@ -5,9 +5,8 @@ import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
 
 // USC write-ability: `supportedChains.set_outbox_factory_addr` emits OutboxFactoryRegistered, which
-// the indexer records as an OutboxFactory entity (backs display + OutboxContract.factory
-// resolution). Outbox *discovery* deliberately does not depend on this event — see
-// handleOutboxLifecycle.test.ts for the chain-wide OutboxCreated watch.
+// the indexer records both as a display-oriented OutboxFactory and as the authoritative per-chain
+// OutboxFactoryRegistration used to authenticate chain-wide OutboxCreated discovery.
 describe('handleOutboxFactoryRegistered()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
@@ -95,6 +94,25 @@ describe('handleOutboxFactoryRegistered()', () => {
                 expect(BigInt(node.registeredTimestamp)).toBeGreaterThan(0n);
                 expect(BigInt(node.registeredTimestamp)).toBeLessThanOrEqual(BigInt(Date.now()));
             }
+        });
+
+        it('graphQL returns the exact per-chain factory authorization', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    outboxFactoryRegistrations(
+                        filter: { id: { equalTo: "${chainKey.toString()}" }},
+                        last: 1,
+                    ) { nodes { id, factoryAddress, registeredAt }}}`,
+            );
+            expect(response.data.outboxFactoryRegistrations.nodes).toEqual([
+                expect.objectContaining({
+                    id: chainKey.toString(),
+                    factoryAddress: outboxFactoryAddr,
+                }),
+            ]);
+            expect(BigInt(response.data.outboxFactoryRegistrations.nodes[0].registeredAt)).toBeGreaterThanOrEqual(
+                startingBlock,
+            );
         });
     });
 });

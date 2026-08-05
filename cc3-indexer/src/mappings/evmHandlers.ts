@@ -1,14 +1,14 @@
 import { FrontierEvmEvent } from '@subql/frontier-evm-processor';
-import { OutboxContract, OutboxDatasourceCount, OutboxFactory, OutboxMessage, TransactionVerified } from '../types';
-import { createOutboxDatasource } from '../types';
-
-// Upper bound on how many UNAUTHENTICATED Outbox datasources we will spin up for a single
-// write-ability chain key. A legitimate deployment has one Outbox per chain key (a handful across
-// redeploys); a large count means a counterfeit contract is emitting `OutboxCreated` to make us
-// register unbounded dynamic datasources (audit P2-1 — datasource-creation DoS). Datasources from a
-// registered, chain-key-matching factory are trusted and exempt. The cap bounds the blast radius
-// without breaking the intentional discover-before-registration flow (see datasources.ts).
-const MAX_OUTBOXES_PER_CHAIN_KEY = 32n;
+import {
+    OutboxContract,
+    OutboxFactoryRegistration,
+    OutboxMessage,
+    PendingOutbox,
+    QuarantinedMessage,
+    SupportedChain,
+    TransactionVerified,
+} from '../types';
+import { flushStore } from './storeUtils';
 
 // Encode a u64 write-ability chain key as its bytes32 form: `bytes32(uint256(chainKey))`, i.e. the
 // 8 big-endian bytes right-aligned in a 32-byte word (matches `chain_key_to_bytes32` in the shared
@@ -64,7 +64,8 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
     await verification.save();
 }
 
-// USC write-ability: dynamically-discovered Outbox contracts on Creditcoin L1.
+// USC write-ability: on-chain-discovered Outbox contracts on Creditcoin L1, authorized per event
+// against governance state (see datasources.ts for the discovery/authorization model).
 // OutboxFactory: OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress)
 // OutboxCreated(address indexed outbox, uint32 indexed chainKey, address indexed owner, address validator, string version)
 type OutboxCreatedArgs = [string, bigint, string, string, string];
@@ -80,6 +81,15 @@ function eventTimestamp(event: { blockTimestamp?: Date }): bigint {
     return event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now());
 }
 
+// Quarantine bounds. Both caps are deliberately small: in a correct deployment the quarantine only
+// bridges the gap between `deployOutbox` and its registration being indexed (a few blocks), so
+// anything approaching these numbers is counterfeit traffic. Rejected overflow is logged loudly —
+// a legitimate Outbox hitting the cap is an operator problem to surface, never silent truncation.
+// Both values double as `getByFields` limits, which SubQuery hard-caps at 100 — a larger cap makes
+// the lookup THROW at runtime, halting the indexer on the first quarantined message (seen in CI).
+export const MAX_PENDING_OUTBOXES_PER_CHAIN_KEY = 8;
+export const MAX_QUARANTINED_MESSAGES_PER_OUTBOX = 100;
+
 export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedArgs>): Promise<void> {
     if (!event.args) {
         logger.error(`No args found for OutboxCreated event at block ${event.blockNumber}`);
@@ -93,7 +103,8 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
     // Synced factory event: (outbox, chainKey:uint32, owner, validator, version). chainKey arrives
     // as a number; normalize to the same bytes32 form the factory-correspondence check below uses.
     const [outboxAddress, chainKeyRaw] = event.args;
-    const chainKey = u64ChainKeyToBytes32(BigInt(chainKeyRaw));
+    const chainKeyNumber = BigInt(chainKeyRaw);
+    const chainKey = u64ChainKeyToBytes32(chainKeyNumber);
     const address = outboxAddress.toLowerCase();
     // event.address is the factory that emitted OutboxCreated.
     const factoryId = event.address ? event.address.toLowerCase() : undefined;
@@ -101,94 +112,178 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
     logger.info(`OutboxCreated: outbox=${address}, chainKey=${chainKey}, factory=${factoryId}`);
 
     // Idempotency guard: reprocessing the same OutboxCreated log (reorg replay, reindex overlap)
-    // must not register a SECOND dynamic datasource for the same address — duplicate datasources
-    // make every subsequent MessagePublished on this Outbox fire its handler once per duplicate.
+    // must not disturb an already-admitted Outbox.
     const existing = await OutboxContract.get(address);
     if (existing) {
-        logger.warn(`OutboxCreated for already-registered outbox ${address} — skipping duplicate datasource`);
+        logger.warn(`OutboxCreated for already-admitted outbox ${address} — keeping existing record`);
         return;
     }
 
-    // P2-10 — factory correspondence. Discovery watches `OutboxCreated` chain-wide by topic (a
-    // factory creates Outboxes *before* it is registered via `OutboxFactoryRegistered`), so we can
-    // never hard-require a registered emitter — a counterfeit emitter is simply never a registered
-    // OutboxFactory. `authenticated` is therefore a best-effort trust signal, not a gate: it is true
-    // only when the emitter IS a registered factory AND (one of) its registered chain key(s) matches
-    // the event's bytes32 chain key. NOTE: one factory address may legitimately serve multiple chain
-    // keys (the pallet maps chain_key -> factory), and `OutboxFactory` records only the first, so a
-    // mismatch is logged but is NOT treated as fatal — dropping the Outbox here would strand a
-    // legitimate multi-key factory's messages (a liveness bug worse than the ~zero authentication
-    // this check buys). The trust signal only relaxes the DoS cap below.
-    let authenticated = false;
-    if (factoryId) {
-        const factory = await OutboxFactory.get(factoryId);
-        if (factory) {
-            if (u64ChainKeyToBytes32(factory.chainKey) === chainKey) {
-                authenticated = true;
-            } else {
-                logger.warn(
-                    `OutboxCreated from registered factory ${factoryId} for chainKey ${chainKey} does not ` +
-                        `match its recorded chainKey ${factory.chainKey.toString()} — indexing anyway ` +
-                        `(a factory may serve multiple chain keys), but not exempting it from the DoS cap`,
-                );
-            }
-        }
+    // An OutboxContract row is the authorization the chain-wide message handlers key on, so creating
+    // one requires the emitting factory to be the exact address governance registered for this raw
+    // USC chain key. `OutboxFactoryRegistration` is keyed by chain key, which also handles multi-key
+    // factories and rotations without relying on the display-oriented OutboxFactory row.
+    const registration = await OutboxFactoryRegistration.get(chainKeyNumber.toString());
+    if (factoryId && registration && registration.factoryAddress === factoryId) {
+        await admitOutbox({
+            address,
+            chainKeyBytes32: chainKey,
+            factoryAddress: factoryId,
+            createdAt: BigInt(event.blockNumber),
+            createdTimestamp: eventTimestamp(event),
+            createdTxHash: event.transactionHash,
+        });
+        return;
     }
 
-    // P2-1 — datasource-creation DoS cap. Bound the number of UNAUTHENTICATED dynamic datasources per
-    // chain key so a counterfeit contract spamming `OutboxCreated` cannot make us register unbounded
-    // datasources. The count is a by-id entity (keyed by chain key) so `.get()` sees same-block
-    // buffered writes — a `getByField` count would miss datasources created earlier in the same block
-    // and let a single-transaction flood bypass the cap entirely. Trusted (authenticated) factories
-    // are neither counted nor capped, so a legitimate factory is never blocked by counterfeit rows.
-    if (!authenticated) {
-        const counter = await OutboxDatasourceCount.get(chainKey);
-        // Explicit BigInt(): the entity field is BigInt! in schema.graphql, but `src/types` is
-        // generated (and gitignored), so this file is also linted against a stale/absent type.
-        // Converting keeps the comparison and the increment below unambiguously bigint either way.
-        const current = BigInt(counter?.count ?? 0);
-        if (current >= MAX_OUTBOXES_PER_CHAIN_KEY) {
-            logger.warn(
-                `OutboxCreated for ${address}: chainKey ${chainKey} already has ${current} unauthenticated ` +
-                    `Outbox datasources (cap ${MAX_OUTBOXES_PER_CHAIN_KEY}) — skipping to bound datasource-creation DoS`,
-            );
-            return;
-        }
+    // Fail-closed, but not fail-forever: the registration for this chain key may simply not be
+    // indexed yet (governance can authorize a factory AFTER it deployed its Outbox — observed live
+    // on usc-dev, where OutboxCreated landed ~200 blocks before OutboxFactoryRegistered). Quarantine
+    // the announcement so handleOutboxFactoryRegistered can promote it retroactively. Quarantine is
+    // bounded: only chain keys governance actually created can hold pending rows, and each key holds
+    // at most MAX_PENDING_OUTBOXES_PER_CHAIN_KEY of them.
+    if (!factoryId) {
+        logger.warn(`Rejecting OutboxCreated with no emitter address: outbox=${address}`);
+        return;
     }
-
-    // Persist the parent OutboxContract entity BEFORE spinning up the dynamic datasource. A dynamic
-    // datasource created mid-block handles the *same* block's later events, so a `MessagePublished`
-    // emitted in the same block as `OutboxCreated` would run its handler — which sets the required
-    // `outbox` relation — and must find the parent already staged in the store cache. Saving first
-    // guarantees that (both writes commit together in the block's transaction).
-    //
-    // Ordering note (reconciles three review passes on these lines): SubQuery buffers `.save()` into
-    // the per-block store transaction, so save-first does NOT strand the datasource on a partial
-    // failure — if `createOutboxDatasource` throws, the whole block rolls back (including this save)
-    // and the retry re-runs both cleanly. The residual duplicate-on-crash window is identical in
-    // either order (the datasource-metadata write is the only non-transactional step) and is a
-    // framework limitation, not an ordering bug; the `OutboxContract.get` guard above covers the
-    // common replay/reorg case. `{ address }` binds the template instance; SubQuery sets the
-    // datasource's start block to the current block automatically.
-    const outbox = OutboxContract.create({
+    if (await PendingOutbox.get(address)) {
+        logger.warn(`OutboxCreated replay for already-quarantined outbox ${address} — keeping existing record`);
+        return;
+    }
+    // Same-block writes are only visible to getByFields after a flush.
+    await flushStore();
+    const knownChain = await SupportedChain.getByFields([['chainKey', '=', chainKeyNumber]], { limit: 1 });
+    if (knownChain.length === 0) {
+        logger.warn(
+            `Rejecting OutboxCreated for unknown chain key: outbox=${address}, chainKey=${chainKeyNumber.toString()}, ` +
+                `emitter=${factoryId} (chain key was never registered — not quarantining)`,
+        );
+        return;
+    }
+    const pendingForKey = await PendingOutbox.getByFields([['chainKey', '=', chainKeyNumber]], {
+        limit: MAX_PENDING_OUTBOXES_PER_CHAIN_KEY,
+    });
+    if (pendingForKey.length >= MAX_PENDING_OUTBOXES_PER_CHAIN_KEY) {
+        logger.error(
+            `Pending-Outbox quarantine full for chain key ${chainKeyNumber.toString()} ` +
+                `(${MAX_PENDING_OUTBOXES_PER_CHAIN_KEY} rows) — dropping OutboxCreated for ${address}. ` +
+                `If this Outbox is legitimate, register its factory and reindex past this block.`,
+        );
+        return;
+    }
+    logger.info(
+        `Quarantining unauthenticated OutboxCreated: outbox=${address}, chainKey=${chainKeyNumber.toString()}, ` +
+            `emitter=${factoryId}, registered=${registration?.factoryAddress ?? 'none'}`,
+    );
+    await PendingOutbox.create({
         id: address,
-        chainKey,
-        factoryId,
+        chainKey: chainKeyNumber,
+        factoryAddress: factoryId,
+        chainKeyBytes32: chainKey,
         createdAt: BigInt(event.blockNumber),
         createdTimestamp: eventTimestamp(event),
         createdTxHash: event.transactionHash,
+    }).save();
+}
+
+/** Create the admitted OutboxContract row — shared by direct admission and quarantine promotion. */
+async function admitOutbox(outbox: {
+    address: string;
+    chainKeyBytes32: string;
+    factoryAddress: string;
+    createdAt: bigint;
+    createdTimestamp: bigint;
+    createdTxHash: string;
+}): Promise<void> {
+    await OutboxContract.create({
+        id: outbox.address,
+        chainKey: outbox.chainKeyBytes32,
+        factoryId: outbox.factoryAddress,
+        createdAt: outbox.createdAt,
+        createdTimestamp: outbox.createdTimestamp,
+        createdTxHash: outbox.createdTxHash,
+    }).save();
+}
+
+/**
+ * Backfill half of fail-closed discovery, called by `handleOutboxFactoryRegistered` right after it
+ * stores the registration: promote every quarantined Outbox this registration retroactively
+ * authorizes, along with the messages observed on it while it was pending. Non-matching pending rows
+ * for the key are left alone — a later rotation may authorize them.
+ */
+export async function promotePendingOutboxes(chainKey: bigint, factoryAddress: string): Promise<void> {
+    // The registration (and, same-block, possibly the pending rows) must be visible to getByFields.
+    await flushStore();
+    const pending = await PendingOutbox.getByFields([['chainKey', '=', chainKey]], {
+        limit: MAX_PENDING_OUTBOXES_PER_CHAIN_KEY,
     });
-    await outbox.save();
-
-    // Charge the per-chain-key DoS counter for unauthenticated datasources only (see the cap above).
-    // Read-modify-write by id so multiple OutboxCreated in one block increment correctly (by-id gets
-    // see same-block buffered writes).
-    if (!authenticated) {
-        const counter = await OutboxDatasourceCount.get(chainKey);
-        await OutboxDatasourceCount.create({ id: chainKey, count: BigInt(counter?.count ?? 0) + 1n }).save();
+    for (const p of pending) {
+        if (p.factoryAddress !== factoryAddress) {
+            continue;
+        }
+        logger.info(
+            `Promoting quarantined Outbox ${p.id} (chainKey=${chainKey.toString()}) — ` +
+                `its factory ${factoryAddress} is now governance-registered`,
+        );
+        if (!(await OutboxContract.get(p.id))) {
+            await admitOutbox({
+                address: p.id,
+                chainKeyBytes32: p.chainKeyBytes32,
+                factoryAddress,
+                createdAt: p.createdAt,
+                createdTimestamp: p.createdTimestamp,
+                createdTxHash: p.createdTxHash,
+            });
+        }
+        const messages = await QuarantinedMessage.getByFields([['outboxAddress', '=', p.id]], {
+            limit: MAX_QUARANTINED_MESSAGES_PER_OUTBOX,
+        });
+        for (const m of messages) {
+            if (!(await OutboxMessage.get(m.id))) {
+                await OutboxMessage.create({
+                    id: m.id,
+                    outboxId: p.id,
+                    emitter: m.emitter,
+                    canAck: m.canAck,
+                    payload: m.payload,
+                    publishedAt: m.publishedAt,
+                    publishedTimestamp: m.publishedTimestamp,
+                    publishedTxHash: m.publishedTxHash,
+                    acknowledged: m.acknowledged,
+                    acknowledgedAt: m.acknowledgedAt,
+                    acknowledgedTimestamp: m.acknowledgedTimestamp,
+                    acknowledgedTxHash: m.acknowledgedTxHash,
+                }).save();
+            }
+            await QuarantinedMessage.remove(m.id);
+        }
+        if (messages.length > 0) {
+            logger.info(`Backfilled ${messages.length} quarantined message(s) for promoted Outbox ${p.id}`);
+        }
+        await PendingOutbox.remove(p.id);
     }
+}
 
-    await createOutboxDatasource({ address });
+/**
+ * Drop every quarantined Outbox (and its quarantined messages) for a chain key governance removed —
+ * called by `handleSupportedChainRemoved` after it revokes the factory registration. Without a chain
+ * key there is nothing left that could ever authorize these rows.
+ */
+export async function purgePendingOutboxes(chainKey: bigint): Promise<void> {
+    await flushStore();
+    const pending = await PendingOutbox.getByFields([['chainKey', '=', chainKey]], {
+        limit: MAX_PENDING_OUTBOXES_PER_CHAIN_KEY,
+    });
+    for (const p of pending) {
+        const messages = await QuarantinedMessage.getByFields([['outboxAddress', '=', p.id]], {
+            limit: MAX_QUARANTINED_MESSAGES_PER_OUTBOX,
+        });
+        for (const m of messages) {
+            await QuarantinedMessage.remove(m.id);
+        }
+        await PendingOutbox.remove(p.id);
+        logger.info(`Purged quarantined Outbox ${p.id} (chain key ${chainKey.toString()} removed)`);
+    }
 }
 
 export async function handleMessagePublished(event: FrontierEvmEvent<MessagePublishedArgs>): Promise<void> {
@@ -214,12 +309,28 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     // (bytes32(bytes20(emitter))). Recover the plain address so stored/queried emitters stay
     // 20-byte addresses, consistent with the rest of the schema.
     const emitter = `0x${emitterRaw.slice(2, 42)}`.toLowerCase();
+    const outboxAddress = event.address.toLowerCase();
+
+    // Per-event authorization: this handler is chain-wide (no address filter), so the emitting
+    // contract decides the event's fate. An admitted Outbox indexes normally; one still in
+    // quarantine gets its message quarantined alongside it (promoted together later); anything
+    // else is an arbitrary contract emitting a look-alike event and is dropped without state.
+    const outbox = await OutboxContract.get(outboxAddress);
+    if (!outbox) {
+        const pending = await PendingOutbox.get(outboxAddress);
+        if (!pending) {
+            logger.debug(`Ignoring MessagePublished from ${outboxAddress} — not an admitted or pending Outbox`);
+            return;
+        }
+        await quarantineMessage(event, event.transactionHash, messageId, outboxAddress, emitter, canAck, payload);
+        return;
+    }
+
     logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitter}, canAck=${canAck}`);
 
-    // Idempotency guard: a replayed MessagePublished (reorg replay, reindex overlap, duplicate
-    // datasource) must not reset a message that handleMessageAcknowledged already marked
-    // acknowledged — the publish fields are immutable per messageId, so there is nothing to
-    // update either. Skip instead of overwriting.
+    // Idempotency guard: a replayed MessagePublished (reorg replay, reindex overlap) must not reset
+    // a message that handleMessageAcknowledged already marked acknowledged — the publish fields are
+    // immutable per messageId, so there is nothing to update either. Skip instead of overwriting.
     const existing = await OutboxMessage.get(messageId);
     if (existing) {
         logger.warn(`MessagePublished replay for already-indexed message ${messageId} — keeping existing record`);
@@ -230,7 +341,7 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     // outboxId references the OutboxContract created by handleOutboxCreated (same lowercased address).
     const message = OutboxMessage.create({
         id: messageId,
-        outboxId: event.address.toLowerCase(),
+        outboxId: outboxAddress,
         emitter,
         canAck,
         payload,
@@ -246,6 +357,51 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     await message.save();
 }
 
+/** Hold a message observed on a still-pending Outbox for promotion, bounded per Outbox. */
+async function quarantineMessage(
+    event: FrontierEvmEvent<MessagePublishedArgs>,
+    // Separate from `event` because the caller has already null-guarded it (TS can't carry that
+    // narrowing across the function boundary).
+    publishedTxHash: string,
+    messageId: string,
+    outboxAddress: string,
+    emitter: string,
+    canAck: boolean,
+    payload: string,
+): Promise<void> {
+    if (await QuarantinedMessage.get(messageId)) {
+        logger.warn(`MessagePublished replay for already-quarantined message ${messageId} — keeping existing record`);
+        return;
+    }
+    await flushStore();
+    const held = await QuarantinedMessage.getByFields([['outboxAddress', '=', outboxAddress]], {
+        limit: MAX_QUARANTINED_MESSAGES_PER_OUTBOX,
+    });
+    if (held.length >= MAX_QUARANTINED_MESSAGES_PER_OUTBOX) {
+        logger.error(
+            `Message quarantine full for pending Outbox ${outboxAddress} ` +
+                `(${MAX_QUARANTINED_MESSAGES_PER_OUTBOX} rows) — dropping message ${messageId}. ` +
+                `If this Outbox is legitimate, register its factory and reindex past this block.`,
+        );
+        return;
+    }
+    logger.info(`Quarantining MessagePublished ${messageId} from pending Outbox ${outboxAddress}`);
+    await QuarantinedMessage.create({
+        id: messageId,
+        outboxAddress,
+        emitter,
+        canAck,
+        payload,
+        publishedAt: BigInt(event.blockNumber),
+        publishedTimestamp: eventTimestamp(event),
+        publishedTxHash,
+        acknowledged: false,
+        acknowledgedAt: undefined,
+        acknowledgedTimestamp: undefined,
+        acknowledgedTxHash: undefined,
+    }).save();
+}
+
 export async function handleMessageAcknowledged(event: FrontierEvmEvent<MessageAcknowledgedArgs>): Promise<void> {
     if (!event.args) {
         logger.error(`No args found for MessageAcknowledged event at block ${event.blockNumber}`);
@@ -253,21 +409,55 @@ export async function handleMessageAcknowledged(event: FrontierEvmEvent<MessageA
     }
 
     const [messageId] = event.args;
-    logger.info(`MessageAcknowledged: messageId=${messageId}`);
+    if (!event.address) {
+        logger.error(`Contract address missing for MessageAcknowledged at block ${event.blockNumber}. Skipping.`);
+        return;
+    }
+    const outboxAddress = event.address.toLowerCase();
 
-    // The publish is always seen first when the Outbox is indexed from its creation block. If it is
-    // missing, the indexer's start block is after the publish — log and skip rather than fabricate a
-    // record with no publish metadata (the entity's publish fields are non-null by design).
+    // Per-event authorization, like handleMessagePublished: this handler is chain-wide, so an ack is
+    // only honored when it was emitted by the same contract that holds the message. Without this, any
+    // contract could emit MessageAcknowledged with a known messageId and flip a real message's state.
     const message = await OutboxMessage.get(messageId);
-    if (!message) {
-        logger.warn(`MessageAcknowledged for unindexed message ${messageId} (publish before start block?) — skipping`);
+    if (message) {
+        if (message.outboxId !== outboxAddress) {
+            logger.warn(
+                `Ignoring MessageAcknowledged for ${messageId} from ${outboxAddress} — ` +
+                    `the message belongs to Outbox ${message.outboxId}`,
+            );
+            return;
+        }
+        logger.info(`MessageAcknowledged: messageId=${messageId}`);
+        message.acknowledged = true;
+        message.acknowledgedAt = BigInt(event.blockNumber);
+        message.acknowledgedTimestamp = eventTimestamp(event);
+        message.acknowledgedTxHash = event.transactionHash ?? undefined;
+        await message.save();
         return;
     }
 
-    message.acknowledged = true;
-    message.acknowledgedAt = BigInt(event.blockNumber);
-    message.acknowledgedTimestamp = eventTimestamp(event);
-    message.acknowledgedTxHash = event.transactionHash ?? undefined;
+    // An ack can land while the message is still quarantined (Outbox not yet authorized). Record it
+    // on the quarantine row so promotion carries the full lifecycle, not just the publish.
+    const quarantined = await QuarantinedMessage.get(messageId);
+    if (quarantined) {
+        if (quarantined.outboxAddress !== outboxAddress) {
+            logger.warn(
+                `Ignoring MessageAcknowledged for quarantined ${messageId} from ${outboxAddress} — ` +
+                    `the message was observed on ${quarantined.outboxAddress}`,
+            );
+            return;
+        }
+        logger.info(`MessageAcknowledged (quarantined): messageId=${messageId}`);
+        quarantined.acknowledged = true;
+        quarantined.acknowledgedAt = BigInt(event.blockNumber);
+        quarantined.acknowledgedTimestamp = eventTimestamp(event);
+        quarantined.acknowledgedTxHash = event.transactionHash ?? undefined;
+        await quarantined.save();
+        return;
+    }
 
-    await message.save();
+    // The publish is always seen first when its Outbox is admitted or pending. If neither record
+    // exists, this is either an arbitrary contract emitting a look-alike event (drop silently-ish)
+    // or an Outbox that was never authorized at all.
+    logger.debug(`MessageAcknowledged for unknown message ${messageId} from ${outboxAddress} — skipping`);
 }
