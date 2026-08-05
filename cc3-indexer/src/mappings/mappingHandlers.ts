@@ -55,7 +55,6 @@ const RuntimeAttestorStatus = {
     unregistered: 4,
 } as const;
 
-
 export async function handleEventAttestorsElected(event: SubstrateEvent): Promise<void> {
     logger.info(`New Attestors Elected event found at block ${event.block.block.header.number.toString()}`);
 

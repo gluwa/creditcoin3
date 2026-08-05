@@ -317,9 +317,7 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     if (!outbox) {
         const pending = await PendingOutbox.get(outboxAddress);
         if (!pending) {
-            logger.debug(
-                `Ignoring MessagePublished from ${outboxAddress} — not an admitted or pending Outbox`,
-            );
+            logger.debug(`Ignoring MessagePublished from ${outboxAddress} — not an admitted or pending Outbox`);
             return;
         }
         await quarantineMessage(event, event.transactionHash, messageId, outboxAddress, emitter, canAck, payload);
