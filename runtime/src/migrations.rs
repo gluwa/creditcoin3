@@ -198,15 +198,24 @@ fn dispatch_root(call: RuntimeCall) -> DispatchResult {
 }
 
 /// Sets `issuer` + `admin` to `precompile` (required for the attest-coin precompile's `mint` /
-/// `burn`) and `owner` + `freezer` to `owner`.
-fn apply_roles(precompile: &AccountId, owner: &AccountId, details: &MirrorAssetDetails) -> Weight {
+/// `burn`), leaving `owner` and `freezer` to the caller.
+///
+/// `owner` and `freezer` are separate parameters because `force_asset_status` takes them separately:
+/// that lets the no-sudo path below preserve a split owner/freezer instead of collapsing both onto
+/// one account.
+fn apply_roles(
+    precompile: &AccountId,
+    owner: &AccountId,
+    freezer: &AccountId,
+    details: &MirrorAssetDetails,
+) -> Weight {
     let is_frozen = details.status == MirrorAssetStatus::Frozen;
     let status = RuntimeCall::Assets(pallet_assets::Call::force_asset_status {
         id: ATTEST_COIN_ASSET_ID,
         owner: NativeOrEvmAddressLookup::unlookup(owner.clone()),
         issuer: NativeOrEvmAddressLookup::unlookup(precompile.clone()),
         admin: NativeOrEvmAddressLookup::unlookup(precompile.clone()),
-        freezer: NativeOrEvmAddressLookup::unlookup(owner.clone()),
+        freezer: NativeOrEvmAddressLookup::unlookup(freezer.clone()),
         min_balance: details.min_balance,
         is_sufficient: details.is_sufficient,
         is_frozen,
@@ -222,7 +231,7 @@ fn apply_roles(precompile: &AccountId, owner: &AccountId, details: &MirrorAssetD
 
     log::info!(
         target: "runtime::migrations",
-        "EnsureAttestCoinAssetRoles: issuer+admin=precompile, owner+freezer={owner:?}"
+        "EnsureAttestCoinAssetRoles: issuer+admin=precompile, owner={owner:?}, freezer={freezer:?}"
     );
 
     <Runtime as frame_system::Config>::DbWeight::get().reads_writes(4, 4)
@@ -317,13 +326,13 @@ impl OnRuntimeUpgrade for MigrateLegacyNativeBonds<Runtime> {
 
 /// Sets attest-coin asset roles: issuer + admin = precompile; owner + freezer = sudo.
 ///
-/// If no sudo key is set (a chain that has run `Sudo::remove_key`), `owner` and `freezer` are left
-/// exactly as they are rather than being pointed at the precompile account. The precompile's
-/// account is not a keyed account, so assigning it `owner` would leave the owner-only calls
-/// (`set_team`, `set_metadata`, `transfer_ownership`) with no holder *and* make the idempotency
-/// check below pass forever, since `governance` would then equal the stored `owner`. Root
-/// `force_asset_status` remains the repair path either way; issuer/admin are still set because the
-/// precompile's `mint` / `burn` cannot work without them.
+/// If no sudo key is set (a chain that has run `Sudo::remove_key`), `owner` and `freezer` are each
+/// left exactly as they are — a split between them included — rather than being pointed at the
+/// precompile account. The precompile's account is not a keyed account, so assigning it `owner`
+/// would leave the owner-only calls (`set_team`, `set_metadata`, `transfer_ownership`) with no holder
+/// *and* make the idempotency check below pass forever, since the value compared against the stored
+/// `owner` would be the precompile too. Root `force_asset_status` remains the repair path either
+/// way; issuer/admin are still enforced because the precompile's `mint` / `burn` needs them.
 pub struct EnsureAttestCoinAssetRoles<T>(PhantomData<T>);
 
 impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
@@ -364,9 +373,11 @@ impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
         }
 
         // With no sudo key there is no governance account to install, so preserve whatever `owner`
-        // / `freezer` are today instead of inventing an unkeyed one.
-        let owner = match &sudo {
-            Some(sudo) => sudo.clone(),
+        // and `freezer` are today — including a split between them — instead of inventing an unkeyed
+        // one. `issuer`/`admin` are still enforced, since the precompile's `mint` / `burn` cannot
+        // work without them.
+        let (owner, freezer) = match &sudo {
+            Some(sudo) => (sudo.clone(), sudo.clone()),
             None => {
                 log::error!(
                     target: "runtime::migrations",
@@ -376,24 +387,14 @@ impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
                     details.owner,
                     details.freezer,
                 );
-                if details.owner != details.freezer {
-                    // `force_asset_status` writes both from one value, so it cannot preserve a
-                    // split owner/freezer. Enforcing issuer/admin would silently collapse them.
-                    log::error!(
-                        target: "runtime::migrations",
-                        "EnsureAttestCoinAssetRoles: owner != freezer and no sudo key; skipping \
-                         entirely to avoid overwriting one with the other"
-                    );
-                    return <Runtime as frame_system::Config>::DbWeight::get().reads(1);
-                }
-                details.owner.clone()
+                (details.owner.clone(), details.freezer.clone())
             }
         };
 
         if details.issuer == precompile
             && details.admin == precompile
             && details.owner == owner
-            && details.freezer == owner
+            && details.freezer == freezer
         {
             log::info!(
                 target: "runtime::migrations",
@@ -402,6 +403,6 @@ impl OnRuntimeUpgrade for EnsureAttestCoinAssetRoles<Runtime> {
             return <Runtime as frame_system::Config>::DbWeight::get().reads(1);
         }
 
-        apply_roles(&precompile, &owner, &details)
+        apply_roles(&precompile, &owner, &freezer, &details)
     }
 }

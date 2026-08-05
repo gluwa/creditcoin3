@@ -623,7 +623,17 @@ impl<T: Config> Pallet<T> {
         let new_total = ledger.total_staked;
 
         let ed = T::BondFungibles::minimum_balance(T::BondAssetId::get());
-        if ledger.unlocking.is_empty() && (ledger.active < ed || ledger.active.is_zero()) {
+        // A stash that still backs registered attestors must never be reaped, even when its `active`
+        // sits below the bond asset's `min_balance`. That state is legitimate: the dust sweep in the
+        // unbond paths deliberately leaves a sub-ED `active` alone when remaining attestors need it
+        // as collateral (see `remove_attestor_and_emit_event`), so reaping on the ED test alone
+        // destroys the ledger while `Attestors` entries survive — after which `unregister_attestor`
+        // fails `NotStash` and the stash can never unwind at all.
+        let required = Self::required_bond_for_stash(&stash, None);
+        if ledger.unlocking.is_empty()
+            && required.is_zero()
+            && (ledger.active < ed || ledger.active.is_zero())
+        {
             // This account must have called `unbond()` with some value that caused the active
             // portion to fall below existential deposit + will have no more unlocking chunks
             // left. We can now safely remove all staking-related information.

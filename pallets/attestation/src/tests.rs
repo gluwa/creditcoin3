@@ -691,6 +691,23 @@ fn dust_sweep_does_not_consume_collateral_needed_by_remaining_attestors() {
         assert_eq!(Attestation::ledger(STASH_3).unwrap().active, min);
         assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), min);
 
+        // `withdraw_unbonded` must not reap the stash either. The sub-ED `active` above is a
+        // legitimate state, so reaping on the ED test alone would delete the ledger while
+        // `att2` is still registered — leaving the stash unable to unwind (`unregister_attestor`
+        // would then fail `NotStash`).
+        progress_to_block(50);
+        assert_ok!(Attestation::withdraw_unbonded(att2.stash.clone()));
+        assert!(
+            Ledger::<Test>::get(STASH_3).is_some(),
+            "stash still backs a registered attestor and must not be reaped"
+        );
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, min);
+        assert_eq!(
+            Attestation::attestor_status(SUPPORTED_CHAIN_KEY, &att2.attestor_id),
+            Some(AttestorStatus::Idle)
+        );
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), min);
+
         // `unbond_surplus` must not sweep it away either, and must not unbond more than asked.
         assert_noop!(
             Attestation::unbond_surplus(att2.stash.clone(), min),

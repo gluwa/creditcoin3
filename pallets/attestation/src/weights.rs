@@ -724,7 +724,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().writes(1244))
 	}
 	/// NOT BENCHMARK-GENERATED — hand-derived conservative placeholder for the `bond_extra`
-	/// dispatchable. Regenerate with `.github/bench.sh -p attestation -b` before release.
+	/// dispatchable. The BENCHMARKS workflow only runs for pull requests targeting `main` /
+	/// `usc-testnet` / `usc-dev`, so it will not regenerate this while the work targets
+	/// `attest_coin`. Run `.github/bench.sh -p attestation -b` on reference hardware before release.
 	/// Storage: `Attestation::Ledger` (r:1 w:1)
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Assets::Asset` (r:1 w:1)
@@ -752,8 +754,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().writes(8))
 	}
 	/// NOT BENCHMARK-GENERATED — hand-derived conservative placeholder for the `unbond_surplus`
-	/// dispatchable. CI's BENCHMARKS workflow regenerates this (it triggers on `**weights.rs` /
-	/// `**benchmarking.rs` changes and commits `Auto-update pallet weights` back to the branch).
+	/// dispatchable, and it will stay that way on this branch. The BENCHMARKS workflow only runs for
+	/// pull requests targeting `main` / `usc-testnet` / `usc-dev`, so no run is scheduled while this
+	/// work targets `attest_coin`. Regenerate with `.github/bench.sh -p attestation -b` (reference
+	/// hardware — the surrounding numbers come from an AMD EPYC 7713) once `attest_coin` is PR'd to
+	/// `usc-dev`, or run it manually before release.
 	/// `required_bond_for_stash` scans `Attestors` per supported chain, bounded by
 	/// `Config::MaxAttestationNodes` (100) per chain. The reads below charge that worst case for a
 	/// handful of chains rather than pretending the lookup is O(1); the real generated weight should
