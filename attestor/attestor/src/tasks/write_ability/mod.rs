@@ -70,7 +70,12 @@ const RESOLVE_ESCALATE_EVERY_ATTEMPTS: u64 = (5 * 60) / OUTBOX_RESOLVE_RETRY_SEC
 /// repeated RPC errors against the same bare alloy provider mean the connection is no longer
 /// usable. Surface the failure so the process supervisor rebuilds the provider on restart instead
 /// of retrying the same dead socket indefinitely.
-const MAX_CONSECUTIVE_RESOLVE_FAILURES: u64 = 10;
+///
+/// Sized to ~5 minutes (matching [`RESOLVE_ESCALATE_EVERY_ATTEMPTS`]): a *planned* node restart —
+/// the CI outage-recovery scenarios bounce the CC3 node for a couple of minutes, and a devnet
+/// rollout looks the same — must ride out on retries, not exit the process. Only an outage long
+/// past any orchestrated restart indicates the provider itself is wedged.
+const MAX_CONSECUTIVE_RESOLVE_FAILURES: u64 = (5 * 60) / OUTBOX_RESOLVE_RETRY_SECS;
 
 /// Message-vote state shared between this task (producer) and the p2p task (publisher + incoming
 /// validator). Lives on [`Shared`](crate::shared::Shared) as `Option`, set only when message
