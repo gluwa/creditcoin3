@@ -85,8 +85,10 @@ function eventTimestamp(event: { blockTimestamp?: Date }): bigint {
 // bridges the gap between `deployOutbox` and its registration being indexed (a few blocks), so
 // anything approaching these numbers is counterfeit traffic. Rejected overflow is logged loudly —
 // a legitimate Outbox hitting the cap is an operator problem to surface, never silent truncation.
+// Both values double as `getByFields` limits, which SubQuery hard-caps at 100 — a larger cap makes
+// the lookup THROW at runtime, halting the indexer on the first quarantined message (seen in CI).
 export const MAX_PENDING_OUTBOXES_PER_CHAIN_KEY = 8;
-export const MAX_QUARANTINED_MESSAGES_PER_OUTBOX = 256;
+export const MAX_QUARANTINED_MESSAGES_PER_OUTBOX = 100;
 
 export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedArgs>): Promise<void> {
     if (!event.args) {
