@@ -63,6 +63,20 @@ pub struct OutboxDiscoveryCursor {
     from: u64,
     /// Factory the cursor was advanced against; a change resets `from` to 0.
     factory: Option<Address>,
+    /// Newest `OutboxCreated` address seen so far, carried across attempts. Progress and discovery
+    /// must advance together: `from` moves past each completed chunk, so keeping the match only in a
+    /// local would lose it whenever a *later* chunk failed — the next attempt would resume past the
+    /// event and report "no Outbox" forever (bugbot). Reset with `from` on a factory change.
+    found: Option<Address>,
+}
+
+impl OutboxDiscoveryCursor {
+    /// Block the scan has reached. The caller uses this to tell a resolve attempt that *failed after
+    /// advancing* from one that made no headway at all, so a chunked scan spanning several attempts
+    /// is not mistaken for a dead RPC.
+    pub(super) fn scanned_to(&self) -> u64 {
+        self.from
+    }
 }
 
 /// Resolve the Outbox for the configured write-ability chain key using `provider` (a Creditcoin L1
@@ -145,6 +159,7 @@ async fn resolve_outbox_address<P: Provider>(
     if cursor.factory != Some(factory) {
         cursor.factory = Some(factory);
         cursor.from = 0;
+        cursor.found = None;
     }
 
     // 2. Discover the factory's Outbox for this chain key. The synced CREATE2 factory has no
@@ -189,7 +204,6 @@ async fn resolve_outbox_address<P: Provider>(
     // returns ascending, so the last log of the last non-empty chunk is the newest. (Via the
     // OutboxDeployer the registry is one-per-chain_key, so in practice there is exactly one — this
     // just makes the ambiguous case deterministic rather than order-of-emission dependent.)
-    let mut latest: Option<alloy::primitives::Address> = None;
     while from <= safe_tip {
         let chunk_to = safe_tip.min(from + MAX_LOG_BLOCK_RANGE - 1);
         let filter = alloy::rpc::types::Filter::new()
@@ -202,7 +216,10 @@ async fn resolve_outbox_address<P: Provider>(
             format!("eth_getLogs OutboxCreated at factory {factory} [{from}..={chunk_to}] failed")
         })?;
         if let Some(log) = logs.last() {
-            latest = Some(
+            // Record into the cursor, not a local: this must survive an attempt that is abandoned
+            // after this chunk (see `OutboxDiscoveryCursor::found`). `get_logs` returns ascending,
+            // so the last log of the newest non-empty chunk stays the newest match overall.
+            cursor.found = Some(
                 IOutboxFactory::OutboxCreated::decode_log(&log.inner, true)
                     .context("decode OutboxCreated log")?
                     .data
@@ -210,15 +227,64 @@ async fn resolve_outbox_address<P: Provider>(
             );
         }
         from = chunk_to + 1;
+        // Record progress per *chunk*, not per scan. A resolve attempt can be abandoned mid-loop
+        // (`RPC_ATTEMPT_TIMEOUT`, or a later chunk erroring), and the caller distinguishes "failed
+        // after advancing" from "made no headway" via `scanned_to()`. Advancing only after the whole
+        // range would report zero progress for a scan that covered thousands of blocks, so a long
+        // chain would burn the failure budget and restart on every attempt without ever finishing
+        // discovery (bugbot). Chunks are scanned in ascending order and the cursor is the resume
+        // point, so committing each completed chunk is safe: at worst the newest-Outbox scan below
+        // resumes from here and re-reads nothing already covered.
+        cursor.from = from;
     }
-    // Advance the cursor past the scanned range so the next retry resumes from here instead of
-    // re-scanning history. `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`)
-    // if `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
-    cursor.from = from;
-    if let Some(outbox) = latest {
+    // `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`) if
+    // `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
+    cursor.from = cursor.from.max(from);
+    if let Some(outbox) = cursor.found {
         tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain (OutboxCreated scan)");
         return Ok(Some(outbox));
     }
     tracing::warn!(%factory, chain_key, "factory has emitted no OutboxCreated for chain_key yet");
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::address;
+
+    // Progress and discovery must move together. The scan commits `from` per chunk so an attempt
+    // abandoned mid-loop keeps its headway (otherwise the failure budget restarts discovery
+    // forever on a long chain) — but that means a match found in an early chunk sits *behind* the
+    // cursor, so it has to be carried in the cursor too. Keeping it in a local made a later-chunk
+    // failure lose the address permanently: every retry resumed past the event and reported
+    // "no Outbox", leaving write-ability inactive for the process lifetime.
+    #[test]
+    fn cursor_carries_a_discovery_past_an_interrupted_scan() {
+        let outbox = address!("00000000000000000000000000000000000000aa");
+        let factory = address!("00000000000000000000000000000000000000ff");
+
+        // Attempt 1: chunk at [0..=999] matched, then a later chunk failed — the function returned
+        // Err after committing both the progress and the match.
+        let mut cursor = OutboxDiscoveryCursor {
+            from: 1_000,
+            factory: Some(factory),
+            found: Some(outbox),
+        };
+
+        // Attempt 2 resumes from 1_000 and finds nothing new; the earlier discovery must survive.
+        assert_eq!(cursor.scanned_to(), 1_000);
+        assert_eq!(cursor.found, Some(outbox));
+
+        // A factory re-registration invalidates both: the new factory's Outbox may live anywhere,
+        // and the old address must not be reported for it.
+        let new_factory = address!("00000000000000000000000000000000000000ee");
+        if cursor.factory != Some(new_factory) {
+            cursor.factory = Some(new_factory);
+            cursor.from = 0;
+            cursor.found = None;
+        }
+        assert_eq!(cursor.scanned_to(), 0);
+        assert_eq!(cursor.found, None);
+    }
 }

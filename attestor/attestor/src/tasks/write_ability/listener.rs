@@ -202,7 +202,17 @@ pub async fn watch<P: Provider>(
         // would otherwise leave `from_block = last_seen + 1 > tip` and silently scan nothing forever
         // (bugbot: stale cursor stalls scanning). On a transient head-read failure, fall back to the
         // persisted value unclamped rather than fail boot.
-        let head = provider.get_block_number().await.unwrap_or(persisted);
+        let head = match tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number()).await {
+            Ok(Ok(head)) => head,
+            Ok(Err(err)) => {
+                tracing::warn!(%err, "could not clamp persisted Outbox cursor to live head");
+                persisted
+            }
+            Err(_) => {
+                tracing::warn!("timed out clamping persisted Outbox cursor to live head");
+                persisted
+            }
+        };
         let clamped = persisted.min(head);
         // Rewind by a bounded lookback so a crash between enqueuing a range's votes and gossiping them
         // re-scans that window (at-least-once; downstream dedups). See CURSOR_RESUME_LOOKBACK_BLOCKS.
@@ -221,9 +231,9 @@ pub async fn watch<P: Provider>(
         );
         start.saturating_sub(1)
     } else {
-        let head = provider
-            .get_block_number()
+        let head = tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number())
             .await
+            .context("timed out reading Creditcoin L1 chain head")?
             .context("failed to read Creditcoin L1 chain head")?;
         tracing::info!(
             head,

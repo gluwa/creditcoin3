@@ -83,14 +83,26 @@ pub async fn watch(
             _ = tick.tick() => {
                 // Fresh connection each poll — see the fn doc. A dead/transiently-unreachable RPC
                 // fails only this tick and is retried on the next, instead of wedging the watcher.
-                let (set, onchain_threshold) =
-                    match fetch_attestor_set_and_threshold(&dest_rpc_url, validator).await {
-                        Ok(v) => v,
-                        Err(err) => {
-                            tracing::warn!(%validator, %err, "failed to read on-chain attestor set/threshold; will retry");
-                            continue;
-                        }
-                    };
+                let (set, onchain_threshold) = match tokio::time::timeout(
+                    super::RPC_ATTEMPT_TIMEOUT,
+                    fetch_attestor_set_and_threshold(&dest_rpc_url, validator),
+                )
+                .await
+                {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(err)) => {
+                        tracing::warn!(%validator, %err, "failed to read on-chain attestor set/threshold; will retry");
+                        continue;
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            %validator,
+                            timeout_secs = super::RPC_ATTEMPT_TIMEOUT.as_secs(),
+                            "timed out reading on-chain attestor set/threshold; will retry"
+                        );
+                        continue;
+                    }
+                };
                 if set.is_empty() {
                     tracing::warn!(%validator, "EOAValidator.attestors() returned empty — keeping current set");
                     continue;
