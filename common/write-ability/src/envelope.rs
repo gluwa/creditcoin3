@@ -82,11 +82,13 @@ impl ReobservationRequest {
 /// proposing a new destination `EOAValidator` attestor set (write-ability P2-8).
 ///
 /// Each attestor signs the update digest
-/// ([`attestor_set_update_digest`](crate::hash::attestor_set_update_digest)) over the canonical
-/// (sorted) `new_attestors`, the destination `chain_id`, and the current `attestor_set_update_nonce`.
-/// The relayer snoops the topic, collects a threshold of these, and submits `submitAttestorSetUpdate`
-/// on-chain. `new_attestors` and `nonce` are carried so the relayer can reconstruct the exact digest
-/// and calldata; `chain_id` is not carried (the relayer knows its own destination chain).
+/// ([`attestor_set_update_digest`](crate::hash::attestor_set_update_digest)) over the target
+/// validator address, the canonical (sorted) `new_attestors`, the destination `chain_id`, and the
+/// current `attestor_set_update_nonce`. The relayer snoops the topic, collects a threshold of these,
+/// and submits `submitAttestorSetUpdate` on-chain. `new_attestors` and `nonce` are carried so the
+/// relayer can reconstruct the exact digest and calldata; `chain_id` and the validator address are
+/// not carried — the relayer knows both from its own route config, and taking them from the vote
+/// would let a peer redirect aggregation at an arbitrary contract.
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
 pub struct SetUpdateVote {
     /// USC chain_key this vote is scoped to. Must match the gossipsub topic prefix.
