@@ -40,7 +40,7 @@ pub const CHAIN_INFO_PRECOMPILE: Address = Address::new([
 const MAX_LOG_BLOCK_RANGE: u64 = 2000;
 
 /// The Outbox an attestor watches, plus the immutable inputs every `messageHash` on it binds.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolvedOutbox {
     /// Outbox contract address on Creditcoin L1.
     pub address: Address,

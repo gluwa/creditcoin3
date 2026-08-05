@@ -975,11 +975,16 @@ async fn run_outbox_monitor<P: Provider>(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     let mut active = Some(current);
+    // The factory the active Outbox was resolved from. The pause decision compares the cursor's
+    // live factory against THIS — never against the cursor's value on the previous tick: `resolve`
+    // records a governance transition into the cursor as soon as it reads the new registration, so
+    // an attempt that then fails (RPC error / timeout) would have already consumed the transition,
+    // and a tick-to-tick comparison would keep signing the superseded Outbox forever (bugbot).
+    let mut active_factory = cursor.factory();
     loop {
         tokio::select! {
             () = token.cancelled() => return,
             _ = tick.tick() => {
-                let previous_factory = cursor.factory();
                 // Same per-attempt bound as the activation loop: an unbounded resolve against a
                 // black-holed RPC would wedge rotation detection silently (the chunked cursor keeps
                 // whatever progress the attempt made, so a timeout costs nothing).
@@ -993,37 +998,74 @@ async fn run_outbox_monitor<P: Provider>(
                         "Outbox rotation check RPC attempt timed out after {RPC_ATTEMPT_TIMEOUT:?}"
                     ))
                 });
-                match attempt {
-                    Ok(Some(next)) if active.map(|current| current.address) != Some(next.address) => {
+                match rotation_action(&attempt, active.map(|o| o.address), active_factory, cursor.factory()) {
+                    RotationAction::Swap(next) => {
                         tracing::info!(
                             old = ?active.map(|outbox| outbox.address),
                             new = %next.address,
                             "🧭 replacement Outbox resolved"
                         );
                         active = Some(next);
+                        active_factory = cursor.factory();
                         if resolved_tx.send(Some(next)).is_err() {
                             return;
                         }
                     }
-                    Ok(Some(_)) => {}
-                    Ok(None) if cursor.factory() != previous_factory && active.is_some() => {
+                    RotationAction::KeepCurrent => {
+                        active_factory = cursor.factory();
+                    }
+                    RotationAction::Pause => {
                         tracing::warn!(
                             old = ?active.map(|outbox| outbox.address),
                             new_factory = ?cursor.factory(),
                             "Outbox factory changed without a finalized replacement — pausing signing"
                         );
                         active = None;
+                        active_factory = cursor.factory();
                         if resolved_tx.send(None).is_err() {
                             return;
                         }
                     }
-                    Ok(None) => {}
-                    Err(err) => {
-                        tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
-                    }
+                    RotationAction::Nothing => {}
+                }
+                if let Err(err) = attempt {
+                    tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
                 }
             }
         }
+    }
+}
+
+/// What one rotation-monitor tick should do. Pure so the consumed-transition case is testable.
+#[derive(Debug, PartialEq)]
+enum RotationAction {
+    /// A different Outbox resolved — hot-swap the listener to it.
+    Swap(resolver::ResolvedOutbox),
+    /// The active Outbox re-resolved — just refresh the factory it is attributed to.
+    KeepCurrent,
+    /// The registered factory no longer matches the active Outbox's and no replacement has
+    /// resolved — publish `None` so signing stops on the superseded Outbox.
+    Pause,
+    Nothing,
+}
+
+/// Pause fires on `cursor_factory != active_factory` even when the attempt ERRORED: the cursor's
+/// factory only changes when `resolve` actually read a different registered factory on-chain, so a
+/// scan failure after that read must not mask the transition (it would otherwise never re-fire —
+/// the cursor keeps the new factory, and later ticks would see no further change).
+fn rotation_action(
+    attempt: &anyhow::Result<Option<resolver::ResolvedOutbox>>,
+    active: Option<Address>,
+    active_factory: Option<Address>,
+    cursor_factory: Option<Address>,
+) -> RotationAction {
+    match attempt {
+        Ok(Some(next)) if active != Some(next.address) => RotationAction::Swap(*next),
+        Ok(Some(_)) => RotationAction::KeepCurrent,
+        Ok(None) | Err(_) if active.is_some() && cursor_factory != active_factory => {
+            RotationAction::Pause
+        }
+        Ok(None) | Err(_) => RotationAction::Nothing,
     }
 }
 
@@ -1240,4 +1282,88 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
         "♻️ re-signing reobserved message"
     );
     produce_vote(state, metrics, signer, our_address, chain_key, indexed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::address;
+
+    fn outbox(addr: Address) -> resolver::ResolvedOutbox {
+        resolver::ResolvedOutbox {
+            address: addr,
+            destination_chain_key: B256::ZERO,
+            creditcoin_chain_id: 42,
+            created_at_block: Some(1),
+        }
+    }
+
+    const OUTBOX_A: Address = address!("00000000000000000000000000000000000000aa");
+    const OUTBOX_B: Address = address!("00000000000000000000000000000000000000bb");
+    const FACTORY_1: Address = address!("00000000000000000000000000000000000000f1");
+    const FACTORY_2: Address = address!("00000000000000000000000000000000000000f2");
+
+    // The bugbot case this module exists for: `resolve` records the governance transition into the
+    // cursor (F1 -> F2) and then the SAME attempt fails, so the transition never coincides with a
+    // clean `Ok(None)`. A tick-to-tick factory comparison consumes it; comparing against the
+    // active Outbox's factory must keep firing until the pause actually happens.
+    #[test]
+    fn pause_survives_a_transition_consumed_by_a_failed_attempt() {
+        // Tick N: cursor already moved to F2, attempt errored (scan failed after the factory read).
+        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> =
+            Err(anyhow!("eth_getLogs failed"));
+        assert_eq!(
+            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::Pause,
+        );
+
+        // Tick N+1: clean Ok(None) — with the tick-to-tick rule this saw "no change" and kept
+        // signing forever; against the active factory it still pauses.
+        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(None);
+        assert_eq!(
+            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::Pause,
+        );
+    }
+
+    #[test]
+    fn routine_failures_and_quiet_ticks_do_nothing() {
+        let err: anyhow::Result<Option<resolver::ResolvedOutbox>> = Err(anyhow!("rpc blip"));
+        assert_eq!(
+            rotation_action(&err, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_1)),
+            RotationAction::Nothing,
+        );
+        let none: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(None);
+        assert_eq!(
+            rotation_action(&none, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_1)),
+            RotationAction::Nothing,
+        );
+        // Nothing active (already paused, or never resolved) — nothing to pause.
+        assert_eq!(
+            rotation_action(&none, None, None, Some(FACTORY_2)),
+            RotationAction::Nothing,
+        );
+    }
+
+    #[test]
+    fn replacement_swaps_and_same_outbox_keeps_current() {
+        let next = outbox(OUTBOX_B);
+        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(next));
+        assert_eq!(
+            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::Swap(next),
+        );
+        // Resuming from a pause is a swap too (nothing was active).
+        assert_eq!(
+            rotation_action(&attempt, None, None, Some(FACTORY_2)),
+            RotationAction::Swap(next),
+        );
+        // Same address re-resolved (e.g. a new factory adopting the same Outbox): keep signing,
+        // but re-attribute the active Outbox to the cursor's factory.
+        let same: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(outbox(OUTBOX_A)));
+        assert_eq!(
+            rotation_action(&same, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::KeepCurrent,
+        );
+    }
 }
