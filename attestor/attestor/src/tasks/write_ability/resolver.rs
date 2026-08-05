@@ -13,11 +13,9 @@
 //! an attestor started before the factory/Outbox is registered activates automatically once they
 //! exist — no restart needed. It runs normal block attestation in the meantime.
 //!
-//! TODO(write-ability): pick up a later *re-registration* (factory address change / new Outbox)
-//! mid-run. The polling activation above only fires until the first successful resolve; reacting to
-//! changes after that would mean subscribing (via the cc3 client) to the `OutboxFactoryRegistered`
-//! event (`pallets/supported-chains/src/lib.rs`) and the `OutboxCreated` event
-//! (`common/write-ability/src/abi.rs`) and re-resolving.
+//! Resolution continues after activation: [`super::run_outbox_monitor`] polls this resolver with the
+//! same incremental cursor and hot-swaps the listener when governance changes the factory or the
+//! active factory emits a replacement Outbox.
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
@@ -51,6 +49,13 @@ pub struct ResolvedOutbox {
     pub destination_chain_key: B256,
     /// Creditcoin L1 EVM chain id (`eth_chainId`) bound into `messageHash`.
     pub creditcoin_chain_id: u64,
+    /// Block the binding `OutboxCreated` was emitted in, when the log reported one.
+    ///
+    /// A listener started for *this* Outbox needs no history before this height, and must not start
+    /// after it: on a hot swap the boot-time `start_block` is the wrong floor, because governance can
+    /// point a chain key at an Outbox that was created before this process booted, whose earlier
+    /// `MessagePublished` events would then never be scanned.
+    pub created_at_block: Option<u64>,
 }
 
 /// Caller-owned state for the incremental Outbox-discovery scan across activation retries. Tracks
@@ -63,11 +68,12 @@ pub struct OutboxDiscoveryCursor {
     from: u64,
     /// Factory the cursor was advanced against; a change resets `from` to 0.
     factory: Option<Address>,
-    /// Newest `OutboxCreated` address seen so far, carried across attempts. Progress and discovery
-    /// must advance together: `from` moves past each completed chunk, so keeping the match only in a
-    /// local would lose it whenever a *later* chunk failed — the next attempt would resume past the
-    /// event and report "no Outbox" forever (bugbot). Reset with `from` on a factory change.
-    found: Option<Address>,
+    /// Newest `OutboxCreated` (address, emitting block) seen so far, carried across attempts.
+    /// Progress and discovery must advance together: `from` moves past each completed chunk, so
+    /// keeping the match only in a local would lose it whenever a *later* chunk failed — the next
+    /// attempt would resume past the event and report "no Outbox" forever (bugbot). Reset with
+    /// `from` on a factory change.
+    found: Option<(Address, Option<u64>)>,
 }
 
 impl OutboxDiscoveryCursor {
@@ -76,6 +82,13 @@ impl OutboxDiscoveryCursor {
     /// is not mistaken for a dead RPC.
     pub(super) fn scanned_to(&self) -> u64 {
         self.from
+    }
+
+    /// Factory the current scan position belongs to. The rotation monitor uses this to distinguish
+    /// "no new Outbox event" from "governance changed/removed the factory and the replacement has
+    /// not emitted an Outbox yet".
+    pub(super) fn factory(&self) -> Option<Address> {
+        self.factory
     }
 }
 
@@ -98,7 +111,7 @@ pub async fn resolve<P: Provider>(
     // The Outbox address is resolved entirely on-chain from chain_key — never configured. `cursor`
     // is the caller-owned discovery state: it advances past already-scanned *confirmed* blocks so
     // repeated resolve retries don't re-scan the whole chain history (see `resolve_outbox_address`).
-    let Some(address) = resolve_outbox_address(
+    let Some((address, created_at_block)) = resolve_outbox_address(
         provider,
         chain_key,
         destination_chain_key,
@@ -119,6 +132,7 @@ pub async fn resolve<P: Provider>(
         address,
         destination_chain_key,
         creditcoin_chain_id,
+        created_at_block,
     }))
 }
 
@@ -137,7 +151,7 @@ async fn resolve_outbox_address<P: Provider>(
     _destination_chain_key: B256,
     confirmation_depth: u64,
     cursor: &mut OutboxDiscoveryCursor,
-) -> Result<Option<Address>> {
+) -> Result<Option<(Address, Option<u64>)>> {
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
         .get_outbox_factory_address(chain_key)
@@ -145,6 +159,12 @@ async fn resolve_outbox_address<P: Provider>(
         .await
         .context("chain-info precompile get_outbox_factory_address() reverted")?;
     if !factory.exists || factory.factoryAddr.is_zero() {
+        // Record removal as a real governance transition. Keeping the previous factory here would
+        // make the monitor interpret `Ok(None)` as merely "no new events" and continue signing the
+        // de-registered Outbox until another factory eventually appeared.
+        cursor.factory = None;
+        cursor.from = 0;
+        cursor.found = None;
         tracing::warn!(
             chain_key,
             "no Outbox factory registered on-chain for chain_key"
@@ -219,12 +239,12 @@ async fn resolve_outbox_address<P: Provider>(
             // Record into the cursor, not a local: this must survive an attempt that is abandoned
             // after this chunk (see `OutboxDiscoveryCursor::found`). `get_logs` returns ascending,
             // so the last log of the newest non-empty chunk stays the newest match overall.
-            cursor.found = Some(
-                IOutboxFactory::OutboxCreated::decode_log(&log.inner, true)
-                    .context("decode OutboxCreated log")?
-                    .data
-                    .outbox,
-            );
+            let outbox = IOutboxFactory::OutboxCreated::decode_log(&log.inner, true)
+                .context("decode OutboxCreated log")?
+                .data
+                .outbox;
+            // Keep the emitting block: it is the only floor a hot-swapped listener can trust.
+            cursor.found = Some((outbox, log.block_number));
         }
         from = chunk_to + 1;
         // Record progress per *chunk*, not per scan. A resolve attempt can be abandoned mid-loop
@@ -240,9 +260,12 @@ async fn resolve_outbox_address<P: Provider>(
     // `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`) if
     // `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
     cursor.from = cursor.from.max(from);
-    if let Some(outbox) = cursor.found {
-        tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain (OutboxCreated scan)");
-        return Ok(Some(outbox));
+    if let Some((outbox, created_at_block)) = cursor.found {
+        tracing::info!(
+            %factory, %outbox, chain_key, ?created_at_block,
+            "🧭 resolved Outbox on-chain (OutboxCreated scan)"
+        );
+        return Ok(Some((outbox, created_at_block)));
     }
     tracing::warn!(%factory, chain_key, "factory has emitted no OutboxCreated for chain_key yet");
     Ok(None)
@@ -269,12 +292,12 @@ mod tests {
         let mut cursor = OutboxDiscoveryCursor {
             from: 1_000,
             factory: Some(factory),
-            found: Some(outbox),
+            found: Some((outbox, Some(950))),
         };
 
         // Attempt 2 resumes from 1_000 and finds nothing new; the earlier discovery must survive.
         assert_eq!(cursor.scanned_to(), 1_000);
-        assert_eq!(cursor.found, Some(outbox));
+        assert_eq!(cursor.found, Some((outbox, Some(950))));
 
         // A factory re-registration invalidates both: the new factory's Outbox may live anywhere,
         // and the old address must not be reported for it.
