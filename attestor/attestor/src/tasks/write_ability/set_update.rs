@@ -61,17 +61,19 @@ pub fn set_needs_update(current: &[Address], candidate: &[Address]) -> bool {
 }
 
 /// Build a signed [`SetUpdateVote`]. `new_attestors` is canonicalized (sorted, de-duped) before
-/// hashing so every attestor signs identical bytes; `chain_id` is the destination `block.chainid`
+/// hashing so every attestor signs identical bytes; `validator` is the target `EOAValidator` (the
+/// contract binds its own address into the preimage), `chain_id` is the destination `block.chainid`
 /// and `nonce` the validator's current `attestorSetUpdateNonce`.
 pub fn build_set_update_vote(
     signer: &MessageSigner,
     chain_key: u64,
+    validator: Address,
     new_attestors: &[Address],
     chain_id: U256,
     nonce: U256,
 ) -> Result<SetUpdateVote> {
     let canonical = canonical_attestor_order(new_attestors);
-    let digest = attestor_set_update_digest(&canonical, chain_id, nonce);
+    let digest = attestor_set_update_digest(validator, &canonical, chain_id, nonce);
     let signature = signer
         .sign(&digest)
         .context("sign attestor-set-update digest")?;
@@ -152,7 +154,7 @@ async fn propose_once(
             .context("read destination chain id")?,
     );
 
-    let vote = build_set_update_vote(signer, chain_key, &candidate, chain_id, nonce)?;
+    let vote = build_set_update_vote(signer, chain_key, validator, &candidate, chain_id, nonce)?;
     tracing::info!(
         proposed = candidate.len(),
         current = current.len(),
@@ -270,7 +272,8 @@ mod tests {
         let chain_id = U256::from(11_155_111u64);
         let nonce = U256::from(3u64);
 
-        let vote = build_set_update_vote(&signer, 2, &[a, b], chain_id, nonce).unwrap();
+        let validator = address!("00000000000000000000000000000000000000e1");
+        let vote = build_set_update_vote(&signer, 2, validator, &[a, b], chain_id, nonce).unwrap();
 
         // Addresses are stored canonically (sorted), not in input order.
         let canonical = canonical_attestor_order(&[a, b]);
@@ -280,7 +283,7 @@ mod tests {
         assert_eq!(vote.nonce, nonce.to_be_bytes::<32>());
 
         // The signature recovers to our address over the digest the relayer will reconstruct.
-        let digest = attestor_set_update_digest(&canonical, chain_id, nonce);
+        let digest = attestor_set_update_digest(validator, &canonical, chain_id, nonce);
         let recovered = recover_signer(&digest, &vote.signature).unwrap();
         assert_eq!(recovered, signer.address());
     }
