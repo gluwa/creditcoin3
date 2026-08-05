@@ -40,6 +40,8 @@ import {
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, fetchAttestationParams, chainDataId } from './initStore';
+import { flushStore } from './storeUtils';
+import { promotePendingOutboxes, purgePendingOutboxes } from './evmHandlers';
 
 const RuntimeAttestorStatus = {
     active: 0,
@@ -53,29 +55,6 @@ const RuntimeAttestorStatus = {
     unregistered: 4,
 } as const;
 
-/**
- * Flush pending store writes to the database before performing deletions.
- *
- * SubQuery buffers entity `.save()` calls in an in-memory store cache and only
- * persists them to the DB between blocks. Read APIs such as `getByFields` resolve
- * against persisted data, so an entity created earlier *in the same block* is not
- * visible to a subsequent delete query and would survive a deletion pass.
- *
- * This bites the attestation-revert path: when a `commitAttestation` and a
- * `revertTo` land in the same block, the freshly-created attestation is not seen
- * by `remove_attestations_above_height` and is never deleted. Flushing first makes
- * the pending writes visible so the delete queries see (and remove) them.
- *
- * `flush()` lives on the store cache in `@subql/node` but is not declared on the
- * public `@subql/types` `Store` interface, so it is accessed via a guarded cast
- * and no-ops if unavailable (never breaks indexing).
- */
-async function flushStore(): Promise<void> {
-    const maybeFlush = (store as unknown as { flush?: () => Promise<void> }).flush;
-    if (typeof maybeFlush === 'function') {
-        await maybeFlush.call(store);
-    }
-}
 
 export async function handleEventAttestorsElected(event: SubstrateEvent): Promise<void> {
     logger.info(`New Attestors Elected event found at block ${event.block.block.header.number.toString()}`);
@@ -233,6 +212,10 @@ export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Prom
         registeredAt: blockNumber,
     });
     await Promise.all([factory.save(), registration.save()]);
+
+    // Backfill: this registration may retroactively authorize an Outbox whose OutboxCreated (and
+    // messages) arrived first and sit in quarantine — promote them now instead of losing them.
+    await promotePendingOutboxes(BigInt(chainKey.toString()), address);
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {
@@ -276,6 +259,9 @@ export async function handleSupportedChainRemoved(event: SubstrateEvent): Promis
     if (outboxFactoryRegistration) {
         await OutboxFactoryRegistration.remove(chainKeyStr);
     }
+
+    // With the chain key gone nothing can ever authorize its quarantined Outboxes — drop them too.
+    await purgePendingOutboxes(chainKeyNumber);
 
     const supportedChain = await SupportedChain.getByFields([['chainKey', '=', chainKeyStr]], { limit: 1 });
     if (isEmpty(supportedChain)) {

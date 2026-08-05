@@ -186,8 +186,9 @@ jobs:
         # deploy-source-ethers.mts deploys the fee-integrated Outbox via the CREATE2 factory plus the
         # quoter, vaults, RelayerContract and the AcknowledgmentValidator (wired as the Outbox
         # validator). The source deploy registers the factory in the CC runtime BEFORE creating the
-        # Outbox, so the indexer's chain-wide discovery handler can authenticate OutboxCreated without
-        # accepting attacker-controlled emitters. Addresses land in /tmp/e2e-deploy.json.
+        # Outbox — the ordering the indexer admits directly; the reverse order is recovered via its
+        # quarantine/backfill path, exercised separately by handleOutboxBackfill.test.ts. Addresses
+        # land in /tmp/e2e-deploy.json.
         run: |
           npx tsx scripts/deploy-dest-ethers.mts
           npx tsx scripts/deploy-source-ethers.mts

@@ -544,9 +544,10 @@ type OutboxFactoryRegistration @entity {
 
 type OutboxContract @entity {
     """
-    An Outbox instance discovered on-chain via its factory's OutboxCreated event. Each discovery
-    spins up a dynamic Frontier EVM datasource that indexes this Outbox's messages — the addresses
-    are never hard-coded.
+    An Outbox instance discovered on-chain via its factory's OutboxCreated event and authorized
+    against the governance registration for its chain key — no addresses are hard-coded. The row's
+    existence IS the authorization: the chain-wide message handlers only index MessagePublished /
+    MessageAcknowledged whose emitting contract has an OutboxContract row.
     """
     # Outbox contract address (hex, lowercase)
     id: ID!
@@ -602,6 +603,53 @@ type OutboxMessage @entity {
     # Ack block timestamp (ms since epoch, null until acknowledged)
     acknowledgedTimestamp: BigInt
     # Ack transaction hash (null until acknowledged)
+    acknowledgedTxHash: String
+}
+
+type PendingOutbox @entity {
+    """
+    An OutboxCreated whose emitting factory is not (yet) the governance-registered factory for its
+    chain key. Discovery is fail-closed, but rejection must not be permanent: registration can
+    legitimately be indexed AFTER the factory deployed its Outbox (observed live on usc-dev), so the
+    event is quarantined here and promoted to an OutboxContract by handleOutboxFactoryRegistered the
+    moment governance authorizes the emitter. Rows are bounded per chain key (and gated on the chain
+    key actually existing as a SupportedChain), so counterfeit announcements cannot grow state
+    without bound.
+    """
+    # Announced Outbox contract address (hex, lowercase)
+    id: ID!
+    # Raw u64 USC chain key from the event
+    chainKey: BigInt! @index
+    # The contract that emitted OutboxCreated — authorized retroactively, or never
+    factoryAddress: String! @index
+    # bytes32 form of chainKey, stored so promotion needs no re-derivation
+    chainKeyBytes32: String!
+    # Creditcoin L1 block / timestamp / tx of the quarantined OutboxCreated
+    createdAt: BigInt!
+    createdTimestamp: BigInt!
+    createdTxHash: String!
+}
+
+type QuarantinedMessage @entity {
+    """
+    A MessagePublished observed on a PendingOutbox — kept so that when the pending Outbox is later
+    authorized, its pre-authorization history is promoted into OutboxMessage rows instead of being
+    lost (the backfill half of fail-closed discovery). Acks that arrive while quarantined are
+    recorded here too and survive promotion. Bounded per pending Outbox.
+    """
+    # messageId (bytes32, hex)
+    id: ID!
+    # The pending Outbox the message was observed on
+    outboxAddress: String! @index
+    emitter: String!
+    canAck: Boolean!
+    payload: String!
+    publishedAt: BigInt!
+    publishedTimestamp: BigInt!
+    publishedTxHash: String!
+    acknowledged: Boolean!
+    acknowledgedAt: BigInt
+    acknowledgedTimestamp: BigInt
     acknowledgedTxHash: String
 }
 

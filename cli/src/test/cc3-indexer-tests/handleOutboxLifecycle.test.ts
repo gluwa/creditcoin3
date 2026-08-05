@@ -7,22 +7,21 @@ import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
 
 // USC write-ability EVM handlers, exercised end to end in publish order:
-//   handleOutboxCreated  -> OutboxContract (+ a dynamic datasource for that address)
+//   handleOutboxCreated  -> OutboxContract (the admission the message handlers key on)
 //   handleMessagePublished -> OutboxMessage
 //   handleMessageAcknowledged -> flips the same OutboxMessage to acknowledged
 //
-// The events come from MockWriteAbilityEmitter, which announces itself as the Outbox, so the
-// datasource created from OutboxCreated is the one that then picks up its MessagePublished /
-// MessageAcknowledged.
+// The events come from MockWriteAbilityEmitter, which announces itself as the Outbox; all three
+// handlers are chain-wide topic watches that authorize each event against store state (no dynamic
+// datasources).
 //
-// Discovery is fail-closed: `handleOutboxCreated` only accepts an `OutboxCreated` whose emitter is
-// the factory governance registered for that raw chain key. So the mock has to be registered as the
-// factory for a real chain key *before* it announces anything — registering a synthetic key would
-// leave nothing for the handler to match and the happy path would silently stop being covered. That
-// mirrors the deploy ordering the tooling uses (register the factory, then call deployOutbox).
+// Discovery is fail-closed: `handleOutboxCreated` only *admits* an `OutboxCreated` whose emitter is
+// the factory governance registered for that raw chain key. This suite covers the ordered path
+// (register the factory first, as the deploy tooling does); the reverse order — announce first,
+// register later — is the backfill path covered by handleOutboxBackfill.test.ts.
 //
-// The three steps must land in this order and be indexed between each: the dynamic datasource only
-// exists once OutboxCreated has been processed, and the ack only updates an already-indexed message.
+// The three steps must land in this order and be indexed between each: admission only exists once
+// OutboxCreated has been processed, and the ack only updates an already-indexed message.
 describe('Outbox lifecycle handlers', () => {
     let api: ApiPromise;
     let provider: WebSocketProvider;
@@ -230,10 +229,11 @@ describe('Outbox lifecycle handlers', () => {
     });
 
     // The negative half of the same rule, kept last so the ordered three-step lifecycle above stays
-    // contiguous. An emitter governance never registered must not be able to create an
-    // OutboxContract — and with it a persistent dynamic datasource — just by emitting a well-formed
-    // OutboxCreated. That is the DoS vector the fail-closed check exists for, so assert it directly
-    // rather than leave it implied by the happy path.
+    // contiguous. An emitter governance never registered must not be able to create an admitted
+    // OutboxContract just by emitting a well-formed OutboxCreated. That is the DoS vector the
+    // fail-closed check exists for, so assert it directly rather than leave it implied by the happy
+    // path. (It IS quarantined — the chain key exists and a later rotation could authorize it — but
+    // quarantine is bounded state, not admission.)
     describe('when an unregistered contract announces itself for the same chain key', () => {
         let impostorAddress: string;
 
@@ -259,6 +259,19 @@ describe('Outbox lifecycle handlers', () => {
                     ) { nodes { id }}}`,
             );
             expect(response.data.outboxContracts.nodes).toEqual([]);
+        });
+
+        it('quarantines the impostor as a PendingOutbox instead', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    pendingOutboxes(
+                        filter: { id: { equalTo: "${impostorAddress}" }},
+                        last: 1,
+                    ) { nodes { id, chainKey, factoryAddress }}}`,
+            );
+            expect(response.data.pendingOutboxes.nodes.length).toEqual(1);
+            expect(response.data.pendingOutboxes.nodes[0].factoryAddress).toEqual(impostorAddress);
+            expect(BigInt(response.data.pendingOutboxes.nodes[0].chainKey)).toEqual(chainKey.toBigInt());
         });
 
         it('leaves the registered Outbox untouched', async () => {

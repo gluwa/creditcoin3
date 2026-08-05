@@ -314,23 +314,23 @@ export const blockProverDatasource: FrontierEvmDatasource = {
     },
 };
 
-// USC write-ability — fully on-chain discovery, no configured addresses:
+// USC write-ability — fully on-chain discovery, no configured addresses and no dynamic datasources:
 //
-//   OutboxCreated (EVM, chain-wide topic filter — the static datasource below)
-//     └─▶ createDynamicDatasource('Outbox', { address })   // watches each created Outbox
-//           └─ MessagePublished / MessageAcknowledged (EVM)
+//   OutboxCreated            (EVM, chain-wide topic filter)  ─▶ OutboxContract | PendingOutbox
+//   MessagePublished         (EVM, chain-wide topic filter)  ─▶ OutboxMessage | QuarantinedMessage
+//   MessageAcknowledged      (EVM, chain-wide topic filter)  ─▶ updates either of the above
 //
-// Discovery watches `OutboxCreated` across all contracts by topic (no address), then the handler
-// authenticates the emitter against the governance registration for the event's chain key. Deploy
-// flows MUST register a factory before calling deployOutbox. This preserves address-free discovery
-// without allowing counterfeit contracts to create persistent dynamic datasources.
+// Every event is matched by topic across all contracts and *authorized per event in the handler*:
+// OutboxCreated against the governance factory registration for its chain key, messages against the
+// OutboxContract row of their emitting contract. Events whose authorization has not been indexed yet
+// are quarantined (bounded) and promoted by handleOutboxFactoryRegistered — fail-closed with
+// backfill, instead of fail-forever on a deploy-ordering race.
 //
-// createDynamicDatasource spreads its `args` into the 'Outbox' template's `processor.options` (see
-// @subql/node BlockchainService.updateDynamicDs), so `{ address }` binds each instance to its
-// Outbox while inheriting the template's abi + handlers. Event signatures are not authentication;
-// the mapping handler performs the registered-factory check before calling the constructor.
-
-type FrontierEvmTemplate = Omit<FrontierEvmDatasource, 'startBlock' | 'endBlock'> & { name: string };
+// This deliberately replaces the earlier per-Outbox dynamic datasources: a dynamic datasource is
+// persistent, reorg-unsafe indexer state that had to be guarded against counterfeit creation (audit
+// P2-1) and could never see messages published before it existed. Chain-wide filters match the same
+// logs through the same topic0 dictionary lookups, so legitimate indexing cost is unchanged, while
+// counterfeit events now cost one bounded row (or a log line) instead of a datasource.
 
 export const outboxDiscoveryDatasource: FrontierEvmDatasource = {
     kind: 'substrate/FrontierEvm',
@@ -357,12 +357,13 @@ export const outboxDiscoveryDatasource: FrontierEvmDatasource = {
     },
 };
 
-export const outboxTemplate: FrontierEvmTemplate = {
-    name: 'Outbox',
+export const outboxMessagesDatasource: FrontierEvmDatasource = {
     kind: 'substrate/FrontierEvm',
+    startBlock: 1,
     processor: {
         file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
         options: {
+            // No `address`: the handlers authorize each event by its emitting contract instead.
             abi: 'outbox',
         },
     },
