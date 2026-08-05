@@ -50,7 +50,7 @@ pub const REOBS_MAX_TRACKED_IDS: usize = 10_000;
 
 /// Per-request wall-clock deadline for the tip + `eth_getLogs` re-fetch. A black-holed RPC must not
 /// let a single reobservation hang the responder; on timeout the request is dropped (the relayer
-/// re-requests on its own cadence). Matches the listener's `POLL_TIMEOUT`.
+/// re-requests on its own cadence). Matches the listener's `RPC_TIMEOUT`.
 pub const REOBS_RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Per-`message_id` cooldown tracker for reobservation requests. Synchronous and clock-injected so
