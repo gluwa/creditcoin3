@@ -39,10 +39,12 @@ use crate::pallet::{ActiveAttestors, Call, Config, MaxCatchup, Pallet};
 /// through: they fail in dispatch (`AttestorNotActive`) and pay fees, so a deregistered or
 /// misconfigured node cannot spam free prevalidation-rejected submissions.
 ///
-/// Admitted `commit_attestation` transactions carry a `provides` tag keyed by
+/// `commit_attestation` transactions from *active attestors* carry a `provides` tag keyed by
 /// `(chain_key, digest)` so the pool holds at most one pending submission per attestation —
 /// racing duplicates from other attestors are deduplicated at admission instead of all being
-/// broadcast and racing to dispatch.
+/// broadcast and racing to dispatch. Submissions from non-active signers are admitted **without**
+/// that tag, so they cannot reserve or evict the pool slot belonging to a legitimate attestation
+/// (ATTESTOR-V2-008).
 ///
 /// Other calls are passed through untouched.
 #[derive(Encode, Decode, Clone, Eq, PartialEq, TypeInfo)]
@@ -134,11 +136,26 @@ where
             let active_attestors = ActiveAttestors::<T>::get(chain_key)
                 .into_iter()
                 .collect::<BTreeSet<_>>();
+            let is_active = active_attestors.contains(who);
             // `check_duplicate` now also enforces the strictly-monotonic per-chain height
             // (via `LastDigest`), so a race loser resubmitting an already-attested height — or
             // a quorum trying a competing digest for that height — is rejected here before fees.
-            if active_attestors.contains(who) && Pallet::<T>::check_duplicate(attestation) {
+            if is_active && Pallet::<T>::check_duplicate(attestation) {
                 return Err(TransactionValidityError::Invalid(InvalidTransaction::Stale));
+            }
+
+            // Submissions from non-active signers are still admitted — they fail in dispatch
+            // (`AttestorNotActive`) and pay the fee, which is what deters spam — but they get
+            // *no* `provides` tag.
+            //
+            // The tag below is derived only from public chain data, so anyone can predict the
+            // digest honest attestors will produce next. Handing a tag to an unauthorized
+            // submitter would let any funded account reserve (or, with higher priority, evict)
+            // the single pool slot for that digest with a transaction guaranteed to fail,
+            // repeatedly delaying attestation progress (ATTESTOR-V2-008). Authorization is only
+            // checked in dispatch, so it must gate the tag here.
+            if !is_active {
+                return Ok(ValidTransaction::default());
             }
 
             // Tag the transaction with what it provides: the attestation itself. Two pending
