@@ -219,11 +219,19 @@ async fn resolve_outbox_address<P: Provider>(
             );
         }
         from = chunk_to + 1;
+        // Record progress per *chunk*, not per scan. A resolve attempt can be abandoned mid-loop
+        // (`RPC_ATTEMPT_TIMEOUT`, or a later chunk erroring), and the caller distinguishes "failed
+        // after advancing" from "made no headway" via `scanned_to()`. Advancing only after the whole
+        // range would report zero progress for a scan that covered thousands of blocks, so a long
+        // chain would burn the failure budget and restart on every attempt without ever finishing
+        // discovery (bugbot). Chunks are scanned in ascending order and the cursor is the resume
+        // point, so committing each completed chunk is safe: at worst the newest-Outbox scan below
+        // resumes from here and re-reads nothing already covered.
+        cursor.from = from;
     }
-    // Advance the cursor past the scanned range so the next retry resumes from here instead of
-    // re-scanning history. `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`)
-    // if `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
-    cursor.from = from;
+    // `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`) if
+    // `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
+    cursor.from = cursor.from.max(from);
     if let Some(outbox) = latest {
         tracing::info!(%factory, %outbox, chain_key, "🧭 resolved Outbox on-chain (OutboxCreated scan)");
         return Ok(Some(outbox));
