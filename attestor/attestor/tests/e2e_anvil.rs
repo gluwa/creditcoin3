@@ -83,6 +83,9 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         address: *outbox.address(),
         destination_chain_key: ck_b32,
         creditcoin_chain_id,
+        // The fixture hands the Outbox over directly rather than discovering it, so there is no
+        // `OutboxCreated` log to take a height from; this test drives `watch` with an explicit start.
+        created_at_block: None,
     };
     assert_eq!(resolved.address, *outbox.address());
     assert_eq!(resolved.destination_chain_key, ck_b32);

@@ -39,7 +39,7 @@ use alloy::primitives::{Address, B256};
 use alloy::providers::{Provider, ProviderBuilder};
 use anyhow::anyhow;
 use parking_lot::{Mutex, RwLock};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use zeroize::Zeroizing;
 
 use write_ability::envelope::{MessageVote, ReobservationRequest, SetUpdateVote};
@@ -447,8 +447,8 @@ pub async fn run(
     // Resolve the Outbox, retrying until it's available rather than disabling for the whole run:
     // an attestor can be started before the factory/Outbox is registered on-chain and will activate
     // write-ability automatically once they are, with no restart. While unresolved it just keeps
-    // doing block attestation. (Polling is simpler and more robust than event subscription; picking
-    // up a later Outbox *re-registration* mid-run remains a finer-grained TODO in resolver.rs.)
+    // doing block attestation. The discovery cursor stays live after activation in
+    // `run_outbox_monitor`, which detects factory and Outbox rotations with the same polling.
     let mut resolve_attempts: u64 = 0;
     let mut consecutive_resolve_failures: u64 = 0;
     // Discovery cursor: advances past confirmed blocks already scanned for `OutboxCreated` so each
@@ -635,18 +635,44 @@ pub async fn run(
         path = %cursor_store.path().display(),
         "🗂️ persisting Outbox scan cursor across restarts"
     );
-    let mut listener = tokio::spawn(async move {
+    let listener_tx = tx.clone();
+    let listener = tokio::spawn(async move {
         listener::watch(
             &listener_provider,
             resolved,
             confirmation_depth,
             scan_from,
             cursor_store,
-            tx,
+            listener_tx,
             listener_token,
         )
         .await
     });
+
+    // One live resolved-Outbox view feeds both the supervision loop below and the reobservation
+    // worker. The monitor inherits the discovery cursor from initial activation, so it scans only
+    // new finalized factory events — and starts over from genesis automatically when governance
+    // re-points the chain key at a different factory.
+    let (resolved_tx, mut resolved_rx) = watch::channel(Some(resolved));
+    let mut outbox_monitor = {
+        let provider = provider.clone();
+        let cfg = cfg.clone();
+        let token = shared.token.clone();
+        let destination_chain_key = state.destination_chain_key;
+        tokio::spawn(run_outbox_monitor(
+            provider,
+            cfg,
+            destination_chain_key,
+            outbox_cursor,
+            resolved,
+            resolved_tx,
+            token,
+        ))
+    };
+    // `listener` becomes `None` during a rotation gap (factory changed, replacement Outbox not yet
+    // finalized); `active_outbox` mirrors the last value taken from the watch for log context.
+    let mut listener = Some(listener);
+    let mut active_outbox = Some(resolved);
 
     // Reobservation runs in its OWN task, NOT inline in this loop (audit P1-4): its tip + eth_getLogs
     // RPCs (deadline-bounded, serial) must not be able to stall vote production / message ingestion
@@ -657,9 +683,10 @@ pub async fn run(
         let state = state.clone();
         let shared = shared.clone();
         let signer = signer.clone();
+        let resolved_rx = resolved_rx.clone();
         tokio::spawn(run_reobservation_worker(
             provider,
-            resolved,
+            resolved_rx,
             state,
             shared,
             signer,
@@ -678,11 +705,35 @@ pub async fn run(
         // still picked promptly (graceful shutdown tolerates finishing one in-flight item first).
         tokio::select! {
             () = shared.token.cancelled() => break,
+            joined = async { listener.as_mut().expect("branch guarded by listener.is_some()").await }, if listener.is_some() => {
+                // A clean `Ok(())` here during shutdown is the listener obeying the cancel token,
+                // not an early exit; the same applies to every sibling arm below.
+                if shared.token.is_cancelled() {
+                    break;
+                }
+                let err = match joined {
+                    Ok(Ok(())) => anyhow!("outbox listener exited without error or shutdown"),
+                    Ok(Err(err)) => err.context("outbox listener died"),
+                    Err(join_err) => anyhow!("outbox listener panicked: {join_err}"),
+                };
+                outbox_monitor.abort();
+                reobs_worker.abort();
+                if let Some(w) = &set_watcher {
+                    w.abort();
+                }
+                if let Some(p) = &set_update_proposer {
+                    p.abort();
+                }
+                return Err(Error::WriteAbility(err));
+            }
             joined = wait_for_optional_child(&mut set_watcher) => {
                 if shared.token.is_cancelled() {
                     break;
                 }
-                listener.abort();
+                if let Some(l) = &listener {
+                    l.abort();
+                }
+                outbox_monitor.abort();
                 reobs_worker.abort();
                 if let Some(p) = &set_update_proposer {
                     p.abort();
@@ -693,7 +744,10 @@ pub async fn run(
                 if shared.token.is_cancelled() {
                     break;
                 }
-                listener.abort();
+                if let Some(l) = &listener {
+                    l.abort();
+                }
+                outbox_monitor.abort();
                 reobs_worker.abort();
                 if let Some(w) = &set_watcher {
                     w.abort();
@@ -704,7 +758,10 @@ pub async fn run(
                 if shared.token.is_cancelled() {
                     break;
                 }
-                listener.abort();
+                if let Some(l) = &listener {
+                    l.abort();
+                }
+                outbox_monitor.abort();
                 if let Some(w) = &set_watcher {
                     w.abort();
                 }
@@ -713,27 +770,117 @@ pub async fn run(
                 }
                 return Err(Error::WriteAbility(child_exit_error("reobservation worker", joined)));
             }
-            maybe = rx.recv() => {
-                let Some(indexed) = maybe else {
-                    // On shutdown a closed channel is expected, not a fault: every cancel path in
-                    // `watch` returns `Ok(())` and drops the sole sender, so this arm becomes ready
-                    // at the same time as the cancel branch above and `select!` picks between them
-                    // at random. Losing that race must not be reported as an abnormal exit.
+            joined = &mut outbox_monitor => {
+                if shared.token.is_cancelled() {
+                    break;
+                }
+                if let Some(l) = &listener {
+                    l.abort();
+                }
+                reobs_worker.abort();
+                if let Some(w) = &set_watcher {
+                    w.abort();
+                }
+                if let Some(p) = &set_update_proposer {
+                    p.abort();
+                }
+                return Err(Error::WriteAbility(child_exit_error("Outbox rotation monitor", joined)));
+            }
+            changed = resolved_rx.changed() => {
+                if changed.is_err() {
+                    // The monitor drops the sender when it returns on cancel, so this is the same
+                    // clean-exit-during-shutdown race as the sibling arms above.
                     if shared.token.is_cancelled() {
                         break;
                     }
-                    // Otherwise the listener really did exit early. Harvest its result and surface
+                    if let Some(l) = &listener {
+                        l.abort();
+                    }
+                    reobs_worker.abort();
+                    if let Some(w) = &set_watcher {
+                        w.abort();
+                    }
+                    if let Some(p) = &set_update_proposer {
+                        p.abort();
+                    }
+                    return Err(Error::WriteAbility(anyhow!(
+                        "Outbox rotation monitor channel closed unexpectedly"
+                    )));
+                }
+                let next = *resolved_rx.borrow_and_update();
+
+                // Stop the old scanner before starting the new one: both cursor stores live in the
+                // same per-chain state directory, so letting the writers overlap during the swap
+                // would race. Awaiting the aborted task closes that window.
+                if let Some(old_listener) = listener.take() {
+                    old_listener.abort();
+                    let _ = old_listener.await;
+                }
+                let old_outbox = active_outbox.map(|outbox| outbox.address);
+                active_outbox = next;
+
+                if let Some(resolved) = next {
+                    tracing::warn!(
+                        ?old_outbox,
+                        new_outbox = %resolved.address,
+                        "🔄 governance/factory rotation detected — switching Outbox listener"
+                    );
+                    let listener_provider = provider.clone();
+                    let listener_token = shared.token.clone();
+                    let cursor_store = cursor::CursorStore::new(
+                        &cfg.state_dir,
+                        cfg.write_ability_chain_key,
+                        resolved.address,
+                    );
+                    let listener_tx = tx.clone();
+                    // Start the replacement listener at the new Outbox's creation height, not at the
+                    // boot-time `scan_from`. Its cursor file is keyed by address so there is nothing
+                    // persisted to resume from, and governance can point a chain key at an Outbox
+                    // created *before* this process booted — whose earlier `MessagePublished` events
+                    // would then sit below `scan_from` and never be scanned. Falling back to
+                    // `scan_from` only when the log carried no block number keeps the old behaviour
+                    // for that (not normally reachable) case.
+                    let swap_start = resolved.created_at_block.or(scan_from);
+                    listener = Some(tokio::spawn(async move {
+                        listener::watch(
+                            &listener_provider,
+                            resolved,
+                            confirmation_depth,
+                            swap_start,
+                            cursor_store,
+                            listener_tx,
+                            listener_token,
+                        )
+                        .await
+                    }));
+                } else {
+                    tracing::warn!(
+                        ?old_outbox,
+                        "⏸️ Outbox factory changed or was removed without a finalized replacement Outbox — signing paused"
+                    );
+                }
+            }
+            maybe = rx.recv() => {
+                let Some(indexed) = maybe else {
+                    // Unreachable while this task holds `tx` for rotation respawns, but kept
+                    // defensively: a closed channel during shutdown is expected, not a fault.
+                    if shared.token.is_cancelled() {
+                        break;
+                    }
+                    // Otherwise a listener really did exit early. Harvest its result and surface
                     // the underlying error to the supervisor — otherwise it would only see a generic
-                    // early-Ok exit and the failure reason would be lost.
-                    let err = match (&mut listener).await {
-                        Ok(Ok(())) => anyhow!("outbox listener exited without error or shutdown"),
-                        Ok(Err(err)) => err.context("outbox listener died"),
-                        Err(join_err) => anyhow!("outbox listener panicked: {join_err}"),
+                    // early-Ok exit and the failure reason would be lost. Abort every sibling task
+                    // before surfacing the error — dropping a `JoinHandle` here would only detach
+                    // it, leaving it running until the shared cancel token eventually fires.
+                    let err = match listener.take() {
+                        Some(handle) => match handle.await {
+                            Ok(Ok(())) => anyhow!("outbox listener exited without error or shutdown"),
+                            Ok(Err(err)) => err.context("outbox listener died"),
+                            Err(join_err) => anyhow!("outbox listener panicked: {join_err}"),
+                        },
+                        None => anyhow!("Outbox message channel closed while no listener was running"),
                     };
-                    // Abort every sibling task before surfacing the error, including the
-                    // reobservation worker — dropping its `JoinHandle` here would only detach it,
-                    // leaving it running against the now-dead listener until the shared cancel
-                    // token eventually fires.
+                    outbox_monitor.abort();
                     reobs_worker.abort();
                     if let Some(w) = &set_watcher {
                         w.abort();
@@ -743,12 +890,44 @@ pub async fn run(
                     }
                     return Err(Error::WriteAbility(err));
                 };
-                produce_vote(&state, &shared.metrics, &signer, our_address, chain_key, indexed);
+                // Aborting the old listener does not drain what it already queued, so after a
+                // rotation the channel can still hold messages observed on the superseded Outbox.
+                // Signing those would contradict the pause above (and the reobservation worker,
+                // which already refuses to serve requests while no Outbox is active), so gate on
+                // provenance rather than on the fact that a message arrived.
+                //
+                // Compare against the *live* watch value, not the `active_outbox` cache: this arm
+                // and the rotation arm are both ready when a rotation lands, so if this one wins
+                // the cache is still one rotation behind and would wave the stale message through.
+                let current = *resolved_rx.borrow();
+                match current {
+                    Some(active) if active.address == indexed.outbox => {
+                        produce_vote(&state, &shared.metrics, &signer, our_address, chain_key, indexed);
+                    }
+                    Some(active) => {
+                        tracing::warn!(
+                            message_id = %indexed.message_id,
+                            observed_on = %indexed.outbox,
+                            active_outbox = %active.address,
+                            "dropping a message buffered from a superseded Outbox"
+                        );
+                    }
+                    None => {
+                        tracing::warn!(
+                            message_id = %indexed.message_id,
+                            observed_on = %indexed.outbox,
+                            "dropping a buffered message while no Outbox is active"
+                        );
+                    }
+                }
             }
         }
     }
 
-    listener.abort();
+    if let Some(listener) = listener {
+        listener.abort();
+    }
+    outbox_monitor.abort();
     reobs_worker.abort();
     if let Some(w) = set_watcher {
         w.abort();
@@ -779,6 +958,117 @@ fn child_exit_error(
     }
 }
 
+/// Continue resolving after activation and publish a new value whenever governance points the chain
+/// key at another factory or the active factory emits a replacement Outbox. A factory transition
+/// with no finalized replacement Outbox publishes `None` immediately so consumers stop signing the
+/// de-registered Outbox while discovery continues.
+async fn run_outbox_monitor<P: Provider>(
+    provider: P,
+    cfg: Config,
+    destination_chain_key: B256,
+    mut cursor: resolver::OutboxDiscoveryCursor,
+    current: resolver::ResolvedOutbox,
+    resolved_tx: watch::Sender<Option<resolver::ResolvedOutbox>>,
+    token: tokio_util::sync::CancellationToken,
+) {
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(OUTBOX_RESOLVE_RETRY_SECS));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    let mut active = Some(current);
+    // The factory the active Outbox was resolved from. The pause decision compares the cursor's
+    // live factory against THIS — never against the cursor's value on the previous tick: `resolve`
+    // records a governance transition into the cursor as soon as it reads the new registration, so
+    // an attempt that then fails (RPC error / timeout) would have already consumed the transition,
+    // and a tick-to-tick comparison would keep signing the superseded Outbox forever (bugbot).
+    let mut active_factory = cursor.factory();
+    loop {
+        tokio::select! {
+            () = token.cancelled() => return,
+            _ = tick.tick() => {
+                // Same per-attempt bound as the activation loop: an unbounded resolve against a
+                // black-holed RPC would wedge rotation detection silently (the chunked cursor keeps
+                // whatever progress the attempt made, so a timeout costs nothing).
+                let attempt = tokio::time::timeout(
+                    RPC_ATTEMPT_TIMEOUT,
+                    resolver::resolve(&provider, &cfg, destination_chain_key, &mut cursor),
+                )
+                .await
+                .unwrap_or_else(|_| {
+                    Err(anyhow!(
+                        "Outbox rotation check RPC attempt timed out after {RPC_ATTEMPT_TIMEOUT:?}"
+                    ))
+                });
+                match rotation_action(&attempt, active.map(|o| o.address), active_factory, cursor.factory()) {
+                    RotationAction::Swap(next) => {
+                        tracing::info!(
+                            old = ?active.map(|outbox| outbox.address),
+                            new = %next.address,
+                            "🧭 replacement Outbox resolved"
+                        );
+                        active = Some(next);
+                        active_factory = cursor.factory();
+                        if resolved_tx.send(Some(next)).is_err() {
+                            return;
+                        }
+                    }
+                    RotationAction::KeepCurrent => {
+                        active_factory = cursor.factory();
+                    }
+                    RotationAction::Pause => {
+                        tracing::warn!(
+                            old = ?active.map(|outbox| outbox.address),
+                            new_factory = ?cursor.factory(),
+                            "Outbox factory changed without a finalized replacement — pausing signing"
+                        );
+                        active = None;
+                        active_factory = cursor.factory();
+                        if resolved_tx.send(None).is_err() {
+                            return;
+                        }
+                    }
+                    RotationAction::Nothing => {}
+                }
+                if let Err(err) = attempt {
+                    tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
+                }
+            }
+        }
+    }
+}
+
+/// What one rotation-monitor tick should do. Pure so the consumed-transition case is testable.
+#[derive(Debug, PartialEq)]
+enum RotationAction {
+    /// A different Outbox resolved — hot-swap the listener to it.
+    Swap(resolver::ResolvedOutbox),
+    /// The active Outbox re-resolved — just refresh the factory it is attributed to.
+    KeepCurrent,
+    /// The registered factory no longer matches the active Outbox's and no replacement has
+    /// resolved — publish `None` so signing stops on the superseded Outbox.
+    Pause,
+    Nothing,
+}
+
+/// Pause fires on `cursor_factory != active_factory` even when the attempt ERRORED: the cursor's
+/// factory only changes when `resolve` actually read a different registered factory on-chain, so a
+/// scan failure after that read must not mask the transition (it would otherwise never re-fire —
+/// the cursor keeps the new factory, and later ticks would see no further change).
+fn rotation_action(
+    attempt: &anyhow::Result<Option<resolver::ResolvedOutbox>>,
+    active: Option<Address>,
+    active_factory: Option<Address>,
+    cursor_factory: Option<Address>,
+) -> RotationAction {
+    match attempt {
+        Ok(Some(next)) if active != Some(next.address) => RotationAction::Swap(*next),
+        Ok(Some(_)) => RotationAction::KeepCurrent,
+        Ok(None) | Err(_) if active.is_some() && cursor_factory != active_factory => {
+            RotationAction::Pause
+        }
+        Ok(None) | Err(_) => RotationAction::Nothing,
+    }
+}
+
 /// Reobservation responder, run as its own task (audit P1-4). Consumes verified-on-request pull
 /// requests off `reobs_rx`, re-fetches + re-signs one at a time under a wall-clock deadline, so a
 /// slow/black-holed RPC can never stall the main write-ability loop (vote production + ingestion).
@@ -787,7 +1077,7 @@ fn child_exit_error(
 #[allow(clippy::too_many_arguments)]
 async fn run_reobservation_worker<P: alloy::providers::Provider>(
     provider: P,
-    resolved: resolver::ResolvedOutbox,
+    mut resolved_rx: watch::Receiver<Option<resolver::ResolvedOutbox>>,
     state: Arc<MessageVoteState>,
     shared: Arc<Shared>,
     signer: signing::MessageSigner,
@@ -806,18 +1096,44 @@ async fn run_reobservation_worker<P: alloy::providers::Provider>(
                     tracing::debug!("reobservation channel closed — worker exiting");
                     return;
                 };
+                // `borrow_and_update`, not `borrow`: this snapshot must also mark the value seen.
+                // With a plain `borrow` a rotation that landed before this request was picked up
+                // leaves the receiver still flagged as changed, so the `changed()` branch below
+                // fires immediately and abandons work whose snapshot was already current — dropping
+                // the first recovery attempt after every rotation.
+                let Some(resolved) = *resolved_rx.borrow_and_update() else {
+                    tracing::warn!(message_id = ?request.message_id, "dropping reobservation request while no Outbox is active");
+                    continue;
+                };
                 let handle = handle_reobservation(
                     &provider, &resolved, &state, &shared.metrics, &signer, our_address, chain_key,
                     confirmation_depth, &mut limiter, request,
                 );
-                if tokio::time::timeout(reobservation::REOBS_RPC_TIMEOUT, handle)
-                    .await
-                    .is_err()
-                {
-                    tracing::warn!(
-                        "reobservation re-fetch exceeded {:?} — RPC unresponsive; dropping this request",
-                        reobservation::REOBS_RPC_TIMEOUT
-                    );
+                // The Outbox is snapshotted above, so a rotation part-way through would have us
+                // re-fetch and re-sign against the superseded address. Abandon the in-flight
+                // response instead of finishing it: reobservation is a pull-based recovery path, so
+                // the requester just asks again once the new listener is up, and the per-message
+                // rate limiter keeps that bounded.
+                tokio::select! {
+                    () = shared.token.cancelled() => return,
+                    changed = resolved_rx.changed() => {
+                        if changed.is_err() {
+                            tracing::debug!("Outbox rotation channel closed — reobservation worker exiting");
+                            return;
+                        }
+                        tracing::warn!(
+                            observed_on = %resolved.address,
+                            "abandoning an in-flight reobservation — the Outbox rotated mid-request"
+                        );
+                    }
+                    outcome = tokio::time::timeout(reobservation::REOBS_RPC_TIMEOUT, handle) => {
+                        if outcome.is_err() {
+                            tracing::warn!(
+                                "reobservation re-fetch exceeded {:?} — RPC unresponsive; dropping this request",
+                                reobservation::REOBS_RPC_TIMEOUT
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -966,4 +1282,88 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
         "♻️ re-signing reobserved message"
     );
     produce_vote(state, metrics, signer, our_address, chain_key, indexed);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy::primitives::address;
+
+    fn outbox(addr: Address) -> resolver::ResolvedOutbox {
+        resolver::ResolvedOutbox {
+            address: addr,
+            destination_chain_key: B256::ZERO,
+            creditcoin_chain_id: 42,
+            created_at_block: Some(1),
+        }
+    }
+
+    const OUTBOX_A: Address = address!("00000000000000000000000000000000000000aa");
+    const OUTBOX_B: Address = address!("00000000000000000000000000000000000000bb");
+    const FACTORY_1: Address = address!("00000000000000000000000000000000000000f1");
+    const FACTORY_2: Address = address!("00000000000000000000000000000000000000f2");
+
+    // The bugbot case this module exists for: `resolve` records the governance transition into the
+    // cursor (F1 -> F2) and then the SAME attempt fails, so the transition never coincides with a
+    // clean `Ok(None)`. A tick-to-tick factory comparison consumes it; comparing against the
+    // active Outbox's factory must keep firing until the pause actually happens.
+    #[test]
+    fn pause_survives_a_transition_consumed_by_a_failed_attempt() {
+        // Tick N: cursor already moved to F2, attempt errored (scan failed after the factory read).
+        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> =
+            Err(anyhow!("eth_getLogs failed"));
+        assert_eq!(
+            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::Pause,
+        );
+
+        // Tick N+1: clean Ok(None) — with the tick-to-tick rule this saw "no change" and kept
+        // signing forever; against the active factory it still pauses.
+        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(None);
+        assert_eq!(
+            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::Pause,
+        );
+    }
+
+    #[test]
+    fn routine_failures_and_quiet_ticks_do_nothing() {
+        let err: anyhow::Result<Option<resolver::ResolvedOutbox>> = Err(anyhow!("rpc blip"));
+        assert_eq!(
+            rotation_action(&err, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_1)),
+            RotationAction::Nothing,
+        );
+        let none: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(None);
+        assert_eq!(
+            rotation_action(&none, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_1)),
+            RotationAction::Nothing,
+        );
+        // Nothing active (already paused, or never resolved) — nothing to pause.
+        assert_eq!(
+            rotation_action(&none, None, None, Some(FACTORY_2)),
+            RotationAction::Nothing,
+        );
+    }
+
+    #[test]
+    fn replacement_swaps_and_same_outbox_keeps_current() {
+        let next = outbox(OUTBOX_B);
+        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(next));
+        assert_eq!(
+            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::Swap(next),
+        );
+        // Resuming from a pause is a swap too (nothing was active).
+        assert_eq!(
+            rotation_action(&attempt, None, None, Some(FACTORY_2)),
+            RotationAction::Swap(next),
+        );
+        // Same address re-resolved (e.g. a new factory adopting the same Outbox): keep signing,
+        // but re-attribute the active Outbox to the cursor's factory.
+        let same: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(outbox(OUTBOX_A)));
+        assert_eq!(
+            rotation_action(&same, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            RotationAction::KeepCurrent,
+        );
+    }
 }
