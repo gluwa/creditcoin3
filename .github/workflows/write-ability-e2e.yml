@@ -181,16 +181,17 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8545'
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
-      - name: Deploy fee stack (dest + source incl. AcknowledgmentValidator) + register factory
+      - name: Deploy fee stack (dest + source incl. AcknowledgmentValidator)
         working-directory: ./usc-messaging
         # deploy-source-ethers.mts deploys the fee-integrated Outbox via the CREATE2 factory plus the
         # quoter, vaults, RelayerContract and the AcknowledgmentValidator (wired as the Outbox
-        # validator); register-factory.mjs registers the factory in the CC runtime so the attestor's
-        # chain-info precompile resolves it. Addresses land in /tmp/e2e-deploy.json.
+        # validator). The source deploy registers the factory in the CC runtime BEFORE creating the
+        # Outbox — the ordering the indexer admits directly; the reverse order is recovered via its
+        # quarantine/backfill path, exercised separately by handleOutboxBackfill.test.ts. Addresses
+        # land in /tmp/e2e-deploy.json.
         run: |
           npx tsx scripts/deploy-dest-ethers.mts
           npx tsx scripts/deploy-source-ethers.mts
-          node scripts/register-factory.mjs
 
       - name: Write .env from deployed addresses
         working-directory: ./usc-messaging
