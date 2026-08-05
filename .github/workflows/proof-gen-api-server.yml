@@ -3,7 +3,6 @@ name: proof-gen-api-server
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
     paths:
       - "proof-gen-api-server/**"
       - "common/eth/**"
@@ -69,7 +68,7 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.82.7
+        uses: taiki-e/install-action@v2.84.1
         with:
           tool: cargo-llvm-cov@0.6.24
 
@@ -166,9 +165,9 @@ jobs:
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8142'
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: |
             attestor/scripts/package-lock.json
@@ -394,9 +393,9 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: 'npm'
           cache-dependency-path: |
             attestor/scripts/package-lock.json

@@ -175,11 +175,28 @@ jobs:
       version-string: ${{ needs.sanity-check.outputs.TAG_NAME }}
       runs-on: "['ubuntu-26.04']"
 
+  verify-metadata-hash-flag:
+    runs-on: ubuntu-26.04
+    needs:
+      - sanity-check
+      - setup
+    steps:
+      - name: Check metadata-hash feature is enabled for this release build
+        shell: bash
+        run: |
+          BUILD_OPTIONS="${{ needs.setup.outputs.build_options }}"
+          echo "build_options = $BUILD_OPTIONS"
+          if ! echo "$BUILD_OPTIONS" | grep -q "metadata-hash"; then
+            echo "::error::metadata-hash feature flag is missing from the release build options ('$BUILD_OPTIONS') for tag ${{ needs.sanity-check.outputs.TAG_NAME }}"
+            exit 1
+          fi
+
   docker-build:
     needs:
       - sanity-check
       - setup
       - deploy-github-runner
+      - verify-metadata-hash-flag
     uses: ./.github/workflows/build-docker.yml
     with:
       build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash"
@@ -204,9 +221,9 @@ jobs:
           fetch-depth: 0
 
       - name: Install Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Download binaries
         uses: actions/download-artifact@v8

@@ -7,7 +7,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: create_runtime_str!("creditcoin3"),
     impl_name: create_runtime_str!("creditcoin3"),
     authoring_version: 3,
-    spec_version: 130,
+    spec_version: 131,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 2,
