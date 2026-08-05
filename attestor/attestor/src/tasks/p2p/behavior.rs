@@ -59,12 +59,18 @@ impl P2PBehavior {
     ///
     /// * `credited_topics` — topics where an `Accept` means the frame passed real validation, so P2
     ///   (first-message-delivery) credit is earned honestly. The block-attestation and message-vote
-    ///   topics qualify; so does the reobservation topic, which verifies against our own RPC first.
-    /// * `penalty_only_topics` — topics that `Accept` frames without fully validating them. The
-    ///   attestor-set-update topic only checks a frame-size bound before accepting and propagating, so
-    ///   crediting P1/P2 there would let a peer farm positive score with random small frames and use that
-    ///   buffer to absorb P4 penalties earned on the topics that DO validate. These get the same negative
-    ///   P4 weight and no positive weights at all.
+    ///   topics qualify: both fully decode the frame, and the vote topic also recovers a secp256k1
+    ///   signature, before deciding.
+    /// * `penalty_only_topics` — topics that `Accept` frames without fully validating them. These get the
+    ///   same negative P4 weight and no positive weights at all, because crediting P1/P2 would let a peer
+    ///   farm positive score cheaply and use that buffer to absorb P4 penalties earned on the topics that
+    ///   DO validate. Two topics qualify:
+    ///   - attestor-set-update: only checks a frame-size bound before accepting and propagating.
+    ///   - reobservation: accepts as soon as the frame decodes and its `chain_key` matches.
+    ///     `ReobservationRequest` carries no signature — just `chain_key`, `message_id`, `tx_hash` and
+    ///     `block_height` — so well-formed requests naming arbitrary message ids are free to produce.
+    ///     The RPC check runs later in the write-ability worker and never feeds back into
+    ///     `report_message_validation_result`, so it cannot make the `Accept` meaningful.
     pub fn new(
         key: &libp2p::identity::Keypair,
         enable_mdns: bool,
@@ -256,8 +262,11 @@ mod tests {
             write_ability::protocol::attestor_set_update_topic(7),
         );
 
-        let credited = [&attest, &votes, &reobs];
-        let penalty_only = [&set_update];
+        // `reobs` belongs here, not in `credited`: `handle_reobservation_request` Accepts on decode +
+        // chain-key match, and `ReobservationRequest` is unsigned, so the Accept attests to nothing an
+        // attacker cannot trivially produce.
+        let credited = [&attest, &votes];
+        let penalty_only = [&set_update, &reobs];
         let params = peer_score_params(&credited, &penalty_only);
 
         assert_eq!(params.topics.len(), credited.len() + penalty_only.len());

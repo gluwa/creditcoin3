@@ -112,15 +112,26 @@ pub async fn run(
 
     // Split by whether an `Accept` on the topic means the frame passed real validation. Per-topic scores
     // are SUMMED into the single peer score the thresholds apply to, so positive credit on one topic
-    // offsets penalties on another. The set-update branch in `handle_swarm` accepts (and propagates) any
-    // frame under a size bound without decoding it, so crediting it would let a peer farm score with
-    // random small frames and spend that buffer absorbing P4 earned on the topics that do validate.
-    let credited_topics: Vec<&libp2p::gossipsub::IdentTopic> = std::iter::once(&topic)
-        .chain(mv_topic.as_ref())
+    // offsets penalties on another. Two topics accept without validating and so earn no credit:
+    //
+    // * set-update — `handle_swarm` accepts (and propagates) any frame under a size bound without
+    //   decoding it at all.
+    // * reobservation — `handle_reobservation_request` returns `Accept` as soon as the frame decodes
+    //   and its `chain_key` matches. `ReobservationRequest` is four unsigned plain fields, so there is
+    //   nothing to forge: any peer can emit well-formed requests with random message ids. The RPC
+    //   verification happens later, in `run_reobservation_worker`, and its verdict never reaches
+    //   `report_message_validation_result`. (The per-source rate limiter bounds the farming rate,
+    //   since it runs before decode and returns `Ignore`, but not the principle.)
+    //
+    // Crediting either would let a peer farm P2 first-message-delivery score at zero cost up to the
+    // P2 cap, then spend that buffer absorbing P4 penalties earned on the topics that DO validate.
+    let credited_topics: Vec<&libp2p::gossipsub::IdentTopic> =
+        std::iter::once(&topic).chain(mv_topic.as_ref()).collect();
+    let penalty_only_topics: Vec<&libp2p::gossipsub::IdentTopic> = set_update_topic
+        .as_ref()
+        .into_iter()
         .chain(reobs_topic.as_ref())
         .collect();
-    let penalty_only_topics: Vec<&libp2p::gossipsub::IdentTopic> =
-        set_update_topic.as_ref().into_iter().collect();
     tracing::debug!(
         credited = credited_topics.len(),
         penalty_only = penalty_only_topics.len(),
@@ -1197,6 +1208,11 @@ fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub:
 /// swarm loop must stay responsive, so we only decode + forward here (no RPC / signing). We Accept
 /// any well-formed request so it keeps propagating to other attestors — each re-verifies it
 /// independently — even if our own forward buffer is momentarily full.
+///
+/// Because this `Accept` precedes verification and [`ReobservationRequest`] is unsigned, the
+/// reobservation topic is registered in `penalty_only_topics` (see the topic split in [`run`]) so
+/// the Accept earns no P2 credit. Keep it there: crediting it would make well-formed requests naming
+/// arbitrary message ids a free source of peer score.
 fn handle_reobservation_request(
     shared: &Arc<Shared>,
     bytes: &[u8],
