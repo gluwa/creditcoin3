@@ -259,6 +259,7 @@ pub async fn reobserve<P: Provider>(
         return Ok(Some(IndexedMessage {
             message_id: decoded.data.messageId,
             emitter,
+            outbox: resolved.address,
             payload,
             message_hash: hash,
         }));

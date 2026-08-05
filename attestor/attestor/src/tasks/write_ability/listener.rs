@@ -157,7 +157,14 @@ fn pick_to_block(
 #[derive(Clone, Debug)]
 pub struct IndexedMessage {
     pub message_id: B256,
+    /// The dApp that published the message (`MessagePublished.emitterAddress`) — **not** the Outbox.
     pub emitter: Address,
+    /// Outbox this was observed on. Carried so a consumer can tell whether the message still belongs
+    /// to the active Outbox: on a governance/factory rotation the old listener is aborted, but
+    /// messages it already queued stay buffered in the channel and would otherwise be signed against
+    /// a superseded Outbox. `message_hash` is Outbox-independent, so provenance cannot be recovered
+    /// from it downstream.
+    pub outbox: Address,
     pub payload: Vec<u8>,
     /// `keccak256(abi.encode(...))` — the digest the attestor signs (PoC §5.2).
     pub message_hash: B256,
@@ -470,6 +477,7 @@ async fn scan_range<P: Provider>(
                 let indexed = IndexedMessage {
                     message_id: decoded.data.messageId,
                     emitter,
+                    outbox: resolved.address,
                     payload,
                     message_hash: hash,
                 };
