@@ -45,17 +45,29 @@ pub fn message_hash(
 }
 
 /// Compute the attestor-set-update digest exactly as the `EOAValidator` recomputes it:
-/// `keccak256(abi.encode(newAttestors, chainId, nonce))`.
+/// `keccak256(abi.encode(address(this), newAttestors, chainId, nonce))`.
+///
+/// `validator` is the destination `EOAValidator` the update targets. The contract binds its own
+/// address into the preimage, so an update signed for one validator instance cannot be replayed
+/// against another instance on the same chain — and since instances share an `AttestorRegistry`,
+/// overlapping signer sets at the same nonce are the norm rather than the exception. Omitting it
+/// here (as the pre-registry contract did) makes every signature the fleet produces unverifiable:
+/// the contract recovers over a different preimage and rejects the whole batch.
 ///
 /// `new_attestors` MUST be in the exact order the relayer will submit on-chain (the contract hashes
 /// that order), so every attestor and the relayer agree on a **canonical** ordering — see
 /// `canonical_attestor_order`. `chain_id` is the destination chain's `block.chainid`, and `nonce`
 /// is the validator's current `attestorSetUpdateNonce` (replay/rollback protection).
 #[must_use]
-pub fn attestor_set_update_digest(new_attestors: &[Address], chain_id: U256, nonce: U256) -> B256 {
+pub fn attestor_set_update_digest(
+    validator: Address,
+    new_attestors: &[Address],
+    chain_id: U256,
+    nonce: U256,
+) -> B256 {
     // Same head-of-tuple encoding as `message_hash`: `abi_encode_params` on the tuple reproduces
-    // Solidity `abi.encode(address[], uint256, uint256)` byte-for-byte.
-    let encoded = (new_attestors.to_vec(), chain_id, nonce).abi_encode_params();
+    // Solidity `abi.encode(address, address[], uint256, uint256)` byte-for-byte.
+    let encoded = (validator, new_attestors.to_vec(), chain_id, nonce).abi_encode_params();
     keccak256(&encoded)
 }
 
@@ -108,33 +120,84 @@ mod tests {
         assert_ne!(h1, h2);
     }
 
+    /// Golden vector: the digest must equal Solidity
+    /// `keccak256(abi.encode(address(this), newAttestors, block.chainid, attestorSetUpdateNonce))`
+    /// as `EOAValidator.submitAttestorSetUpdate` computes it. Pinned by hand-encoding the same
+    /// preimage here — if either side's field order or types drift, the fleet's signatures stop
+    /// verifying on-chain and every set update fails, so the contract shape is worth nailing down
+    /// in a test rather than a comment.
     #[test]
-    fn set_update_digest_is_deterministic_and_binds_nonce_and_chain() {
+    fn set_update_digest_matches_hand_encoded_solidity_preimage() {
+        use alloy::primitives::keccak256;
+
+        let validator = address!("71a21ea8d28d3a0618d61d478ee20dcb64be8082");
+        let attestors = [
+            address!("00000000000000000000000000000000000000aa"),
+            address!("00000000000000000000000000000000000000bb"),
+        ];
+        let chain_id = U256::from(11_155_111u64); // Sepolia
+        let nonce = U256::from(3u64);
+
+        // abi.encode(address, address[], uint256, uint256):
+        //   head: validator | offset-to-array (0x80) | chain_id | nonce
+        //   tail: array length | element 0 | element 1
+        let mut expected = Vec::new();
+        expected.extend_from_slice(&validator.into_word()[..]);
+        expected.extend_from_slice(&U256::from(0x80u64).to_be_bytes::<32>());
+        expected.extend_from_slice(&chain_id.to_be_bytes::<32>());
+        expected.extend_from_slice(&nonce.to_be_bytes::<32>());
+        expected.extend_from_slice(&U256::from(attestors.len()).to_be_bytes::<32>());
+        for a in &attestors {
+            expected.extend_from_slice(&a.into_word()[..]);
+        }
+
+        assert_eq!(
+            attestor_set_update_digest(validator, &attestors, chain_id, nonce),
+            keccak256(&expected),
+            "digest no longer matches abi.encode(address, address[], uint256, uint256)"
+        );
+    }
+
+    #[test]
+    fn set_update_digest_is_deterministic_and_binds_validator_nonce_and_chain() {
         let addrs = [
             address!("00000000000000000000000000000000000000aa"),
             address!("00000000000000000000000000000000000000bb"),
         ];
-        let base = attestor_set_update_digest(&addrs, U256::from(42u64), U256::from(7u64));
+        let validator = address!("00000000000000000000000000000000000000e1");
+        let base =
+            attestor_set_update_digest(validator, &addrs, U256::from(42u64), U256::from(7u64));
         // Deterministic.
         assert_eq!(
             base,
-            attestor_set_update_digest(&addrs, U256::from(42u64), U256::from(7u64))
+            attestor_set_update_digest(validator, &addrs, U256::from(42u64), U256::from(7u64))
+        );
+        // Validator-sensitive (no cross-instance replay on the same chain).
+        let other_validator = address!("00000000000000000000000000000000000000e2");
+        assert_ne!(
+            base,
+            attestor_set_update_digest(
+                other_validator,
+                &addrs,
+                U256::from(42u64),
+                U256::from(7u64)
+            )
         );
         // Nonce-sensitive (rollback protection).
         assert_ne!(
             base,
-            attestor_set_update_digest(&addrs, U256::from(42u64), U256::from(8u64))
+            attestor_set_update_digest(validator, &addrs, U256::from(42u64), U256::from(8u64))
         );
         // Chain-id-sensitive (cross-chain isolation).
         assert_ne!(
             base,
-            attestor_set_update_digest(&addrs, U256::from(43u64), U256::from(7u64))
+            attestor_set_update_digest(validator, &addrs, U256::from(43u64), U256::from(7u64))
         );
         // Order-sensitive (why canonical ordering is mandatory).
         let reversed = [addrs[1], addrs[0]];
         assert_ne!(
             base,
-            attestor_set_update_digest(&reversed, U256::from(42u64), U256::from(7u64))
+            attestor_set_update_digest(validator, &reversed, U256::from(42u64), U256::from(7u64))
         );
     }
 
