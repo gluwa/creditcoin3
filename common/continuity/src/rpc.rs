@@ -56,18 +56,30 @@ const RATE_LIMIT_MIN_COOLDOWN_MS: u64 = 30_000;
 struct FlapState {
     /// Consecutive short-lived-connection count, drives the exponential cooldown.
     level: u32,
-    /// When the current connection was (re-)established.
-    connected_at: Instant,
+    /// When the current connection was established — `Some` only while a connection made after
+    /// the last processed failure is (believed) alive. CONSUMED (`take`) by the failure path:
+    /// measuring wall-clock age since the stamp would count cooldown sleeps and failed reconnects
+    /// as "connection lifetime", so once the cooldown exceeds the healthy threshold every failure
+    /// would reset the level and the damper would defeat itself exactly when escalated (bugbot).
+    /// `None` at failure time therefore means "no new connection since the last failure" —
+    /// unambiguously still the same dead/flapping episode.
+    connected_at: Option<Instant>,
 }
 
 /// Pure cooldown decision for one failed cycle, unit-testable without timers.
 ///
-/// `connection_age` is how long the connection that just failed had been alive. A long-lived
-/// connection failing is a fresh incident (level resets, no cooldown beyond the per-call backoff);
-/// a short-lived one escalates the level. A rate-limited error additionally raises the cooldown to
-/// [`RATE_LIMIT_MIN_COOLDOWN_MS`] immediately, whatever the level.
-fn flap_cooldown(state: &mut FlapState, connection_age: Duration, rate_limited: bool) -> Duration {
-    if connection_age >= Duration::from_secs(HEALTHY_CONNECTION_SECS) {
+/// `connection_age` is how long the connection that just failed had been alive, or `None` when no
+/// connection was established since the previous failure (a failed reconnect / still-dead
+/// endpoint) — which always escalates. A long-lived connection failing is a fresh incident (level
+/// resets, no cooldown beyond the per-call backoff); a short-lived one escalates the level. A
+/// rate-limited error additionally raises the cooldown to [`RATE_LIMIT_MIN_COOLDOWN_MS`]
+/// immediately, whatever the level.
+fn flap_cooldown(
+    state: &mut FlapState,
+    connection_age: Option<Duration>,
+    rate_limited: bool,
+) -> Duration {
+    if connection_age.is_some_and(|age| age >= Duration::from_secs(HEALTHY_CONNECTION_SECS)) {
         state.level = 0;
     } else {
         state.level = state.level.saturating_add(1);
@@ -128,7 +140,7 @@ impl ReconnectingEthRpcProvider {
             encoding,
             flap: Mutex::new(FlapState {
                 level: 0,
-                connected_at: Instant::now(),
+                connected_at: Some(Instant::now()),
             }),
         }
     }
@@ -190,7 +202,10 @@ impl ReconnectingEthRpcProvider {
                 let rate_limited = last_err.as_ref().is_some_and(is_rate_limit_error);
                 let cooldown = {
                     let mut flap = self.flap.lock().await;
-                    let connection_age = flap.connected_at.elapsed();
+                    // `take`, not read: a second failure before the next successful reconnect must
+                    // see `None` (same dead episode), never a stale stamp inflated by the cooldown
+                    // sleep itself.
+                    let connection_age = flap.connected_at.take().map(|at| at.elapsed());
                     flap_cooldown(&mut flap, connection_age, rate_limited)
                 };
                 if !cooldown.is_zero() {
@@ -203,7 +218,7 @@ impl ReconnectingEthRpcProvider {
                     tokio::time::sleep(cooldown).await;
                 }
                 self.reconnect(op).await?;
-                self.flap.lock().await.connected_at = Instant::now();
+                self.flap.lock().await.connected_at = Some(Instant::now());
             }
         }
 
@@ -633,7 +648,7 @@ mod flap_tests {
     fn state(level: u32) -> FlapState {
         FlapState {
             level,
-            connected_at: Instant::now(),
+            connected_at: Some(Instant::now()),
         }
     }
 
@@ -645,7 +660,7 @@ mod flap_tests {
         let mut s = state(0);
         let mut last = Duration::ZERO;
         for _ in 0..12 {
-            let d = flap_cooldown(&mut s, Duration::from_secs(2), false);
+            let d = flap_cooldown(&mut s, Some(Duration::from_secs(2)), false);
             assert!(
                 d >= last,
                 "cooldown must be monotonically non-decreasing while flapping"
@@ -660,7 +675,7 @@ mod flap_tests {
         let mut s = state(9);
         let d = flap_cooldown(
             &mut s,
-            Duration::from_secs(HEALTHY_CONNECTION_SECS + 1),
+            Some(Duration::from_secs(HEALTHY_CONNECTION_SECS + 1)),
             false,
         );
         assert_eq!(s.level, 0);
@@ -674,13 +689,13 @@ mod flap_tests {
         // Even the FIRST failure waits the full floor when the provider says it is out of quota —
         // retrying sooner spends more of the budget whose exhaustion caused the failure.
         let mut s = state(0);
-        let d = flap_cooldown(&mut s, Duration::from_secs(2), true);
+        let d = flap_cooldown(&mut s, Some(Duration::from_secs(2)), true);
         assert!(d >= Duration::from_millis(RATE_LIMIT_MIN_COOLDOWN_MS));
         // ... and the floor also applies when the connection looked healthy.
         let mut s = state(0);
         let d = flap_cooldown(
             &mut s,
-            Duration::from_secs(HEALTHY_CONNECTION_SECS + 1),
+            Some(Duration::from_secs(HEALTHY_CONNECTION_SECS + 1)),
             true,
         );
         assert!(d >= Duration::from_millis(RATE_LIMIT_MIN_COOLDOWN_MS));
