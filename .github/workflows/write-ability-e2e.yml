@@ -166,6 +166,17 @@ jobs:
           npx hardhat compile
           echo "USC_CONTRACTS_DIR=$GITHUB_WORKSPACE/usc-contracts" >> "$GITHUB_ENV"
 
+      # Solidity↔Rust drift gate: every function/event the attestor's sol! mirror binds must have a
+      # byte-identical selector/topic0 in the artifacts compiled above. This is the only CI job with
+      # both a Rust toolchain and compiled usc-contracts, so the check lives here — a pin bump that
+      # moves a mirrored surface fails THIS step naming the drifted item, instead of a revert (or a
+      # silently dead topic filter) somewhere in the e2e below. Without USC_CONTRACTS_DIR the test
+      # no-ops, so plain `cargo test` runs elsewhere are unaffected.
+      - name: ABI-surface drift check (Rust mirror vs compiled contracts)
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo test -p write-ability --test abi_surface -- --nocapture
+
       - name: Start anvil (destination chain)
         run: |
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8545 >"$LOGS/anvil.log" 2>&1 &
