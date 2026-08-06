@@ -315,7 +315,7 @@ pub mod pallet {
     }
 
     /// Supported-chain count assumed when pricing [`Pallet::required_bond_for_stash`], which walks
-    /// `Attestors` once per supported chain. This assumption can be changed at any time as the 
+    /// `Attestors` once per supported chain. This assumption can be changed at any time as the
     /// protocol adds more supported chains. Only a benchmark rerun would be needed.
     pub const ASSUMED_MAX_SUPPORTED_CHAINS: u32 = 8;
 
