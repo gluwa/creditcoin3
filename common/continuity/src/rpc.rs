@@ -701,6 +701,21 @@ mod flap_tests {
         assert!(d >= Duration::from_millis(RATE_LIMIT_MIN_COOLDOWN_MS));
     }
 
+    // The bugbot case: backoff already escalated, reconnect keeps FAILING, and the cooldown sleep
+    // alone exceeds the healthy threshold. Reading a stale timestamp would reset the level on
+    // every failure — `None` (no connection since the last failure) must keep escalating instead.
+    #[test]
+    fn a_failed_reconnect_never_resets_the_level() {
+        let mut s = state(7);
+        let before = s.level;
+        let d = flap_cooldown(&mut s, None, false);
+        assert!(
+            s.level > before,
+            "no-connection failures must escalate, not reset"
+        );
+        assert!(d > Duration::ZERO);
+    }
+
     #[test]
     fn classifier_matches_the_google_close_frame_and_common_phrasings() {
         // Verbatim shape from the cc3-testnet incident (Google Blockchain Node Engine close frame).
