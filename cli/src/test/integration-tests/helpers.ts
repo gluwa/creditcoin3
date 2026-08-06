@@ -30,6 +30,85 @@ export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amou
     return api.tx.utility.batchAll(txs);
 }
 
+/** `pallet-assets` id used as attest coin (`ATTEST_COIN_ASSET_ID` in the runtime). */
+export const ATTEST_COIN_ASSET_ID = 1;
+
+/**
+ * Mint attest coin to `to`.
+ *
+ * `pallet_assets::mint` requires the asset's **issuer** origin, and there is no root mint, so the
+ * call is dispatched as the on-chain issuer via `sudo.sudoAs`. The issuer is read from chain rather
+ * than hard-coded so this keeps working across the `EnsureAttestCoinAssetRoles` migration (genesis
+ * sets all four roles to the attest-coin precompile account; the migration moves owner/freezer to
+ * sudo and leaves issuer/admin on the precompile).
+ */
+export async function mintAttestCoin(api: ApiPromise, sudoSigner: KeyringPair, to: string, amount: BN | string) {
+    const details = await api.query.assets.asset(ATTEST_COIN_ASSET_ID);
+    if (details.isNone) {
+        throw new Error(`attest coin asset ${ATTEST_COIN_ASSET_ID} does not exist on chain`);
+    }
+    const issuer = details.unwrap().issuer.toString();
+
+    const before = await attestCoinBalance(api, to);
+
+    const mint = api.tx.assets.mint(ATTEST_COIN_ASSET_ID, to, amount.toString());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudoAs(issuer, mint), api, sudoKeyring);
+    if (result.status !== TxStatus.ok) {
+        throw new Error(`failed to mint attest coin to ${to}: ${JSON.stringify(result)}`);
+    }
+
+    // `sudo.sudoAs` reports the OUTER extrinsic's status; a failing inner call still yields
+    // `TxStatus.ok` and surfaces its error only in the `SudoAsDone` event. Read the balance back so
+    // a failed mint fails here instead of resurfacing later as a confusing `InsufficientBalance`
+    // from `register_attestor`.
+    const after = await attestCoinBalance(api, to);
+    const minted = after - before;
+    if (minted < BigInt(amount.toString())) {
+        throw new Error(
+            `attest coin mint to ${to} did not take effect: balance moved ${before} -> ${after}, ` +
+                `expected at least +${amount.toString()} (inner sudoAs dispatch likely failed)`,
+        );
+    }
+}
+
+/** Liquid (unbonded) attest-coin balance of `address`. */
+export async function attestCoinBalance(api: ApiPromise, address: string): Promise<bigint> {
+    const account = await api.query.assets.account(ATTEST_COIN_ASSET_ID, address);
+    return account.isNone ? 0n : BigInt(account.unwrap().balance.toString());
+}
+
+/**
+ * Set a chain's `MinBondRequirement` via sudo and return the value it had before, so callers can
+ * restore it. `MinBondRequirement` is chain-wide mutable state shared by every suite running
+ * against the same node, so callers must restore it in `afterAll`.
+ */
+export async function setMinBondRequirement(
+    api: ApiPromise,
+    sudoSigner: KeyringPair,
+    chainKey: number,
+    amount: BN | string,
+): Promise<string> {
+    const previous = (await api.query.attestation.minBondRequirement(chainKey)).toString();
+    const call = api.tx.attestation.setMinBondRequirement(chainKey, amount.toString());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudo(call), api, sudoKeyring);
+    if (result.status !== TxStatus.ok) {
+        throw new Error(`failed to set minBondRequirement for chain ${chainKey}: ${JSON.stringify(result)}`);
+    }
+
+    // `sudo.sudo` reports the OUTER extrinsic's status; a failing inner call still yields
+    // `TxStatus.ok` and surfaces its error only in the `Sudid` event. Read the value back.
+    const applied = (await api.query.attestation.minBondRequirement(chainKey)).toString();
+    if (applied !== amount.toString()) {
+        throw new Error(
+            `minBondRequirement for chain ${chainKey} did not take effect: read back ${applied}, ` +
+                `expected ${amount.toString()} (inner sudo dispatch likely failed)`,
+        );
+    }
+    return previous;
+}
+
 /**
  * Active staking era index used by `pallet_attestation` unlock / withdrawable math
  * (`T::Staking::current_era()`). Prefer this over `api.derive.session.info().currentEra`,

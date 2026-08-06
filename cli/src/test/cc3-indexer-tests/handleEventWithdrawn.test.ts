@@ -1,33 +1,47 @@
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { newApi, ApiPromise, KeyringPair, BN } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
-import { randomFundedAccount, waitEras } from '../integration-tests/helpers';
+import { randomFundedAccount, waitEras, mintAttestCoin, setMinBondRequirement } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
+/**
+ * `Withdrawn` carries the withdrawn bond and is only emitted for a non-zero bond, but
+ * `DefaultMinBondRequirement` is 0. So this suite mints attest coin to a dedicated stash and raises
+ * the chain's requirement for the lifetime of the suite (restored in `afterAll`).
+ */
+const TEST_BOND = new BN('100000000000000000000'); // 100 units
+
 describe('handleEventWithdrawn()', () => {
     let api: ApiPromise;
-    let bob: KeyringPair;
+    let root: KeyringPair;
+    /** Dedicated stash so `stashId` matching is exact and no other suite's ledger interferes. */
+    let stash: any;
     let attestor: any;
     let startingBlock: bigint;
+    let previousMinBond: string | undefined;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
-        bob = (global as any).CREDITCOIN_CREATE_SIGNER('bob');
+        root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        stash = await randomFundedAccount(api, root);
         attestor = await randomFundedAccount(api, root);
+
+        // Bond collateral must exist before `register_attestor` moves it into the bond pool.
+        await mintAttestCoin(api, root, stash.address, TEST_BOND.muln(4));
+        previousMinBond = await setMinBondRequirement(api, root, chain_Anvil2_Key, TEST_BOND);
 
         // register & bond
         await api.tx.attestation
             .registerAttestor(chain_Anvil2_Key, attestor.address)
-            .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
+            .signAndSend(stash.keyring, { nonce: await api.rpc.system.accountNextIndex(stash.address) });
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // unregister & unbond
         await api.tx.attestation
             .unregisterAttestor(chain_Anvil2_Key, attestor.address)
-            .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
+            .signAndSend(stash.keyring, { nonce: await api.rpc.system.accountNextIndex(stash.address) });
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         // wait for funds to be unlocked!
@@ -36,7 +50,14 @@ describe('handleEventWithdrawn()', () => {
     }, 450_000);
 
     afterAll(async () => {
-        await api.disconnect();
+        try {
+            // `MinBondRequirement` is chain-wide state shared with every other suite on this node.
+            if (previousMinBond !== undefined) {
+                await setMinBondRequirement(api, root, chain_Anvil2_Key, previousMinBond);
+            }
+        } finally {
+            await api.disconnect();
+        }
     });
 
     describe('when funds are withdrawn', () => {
@@ -45,7 +66,7 @@ describe('handleEventWithdrawn()', () => {
 
             await api.tx.attestation
                 .withdrawUnbonded()
-                .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
+                .signAndSend(stash.keyring, { nonce: await api.rpc.system.accountNextIndex(stash.address) });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
@@ -54,24 +75,23 @@ describe('handleEventWithdrawn()', () => {
                 `query { withdrawns (orderBy: BLOCK_NUMBER_ASC, last: 10) { nodes { id, amount, stashId, whoId, date, blockNumber }}}`,
             );
             expect(response.data.withdrawns.nodes).toBeTruthy();
-            // With DefaultMinBondRequirement=0 no Withdrawn event is emitted (bond value is 0),
-            // so 0 nodes is acceptable.
-            expect(response.data.withdrawns.nodes.length).toBeGreaterThanOrEqual(0);
+            expect(response.data.withdrawns.nodes.length).toBeGreaterThanOrEqual(1);
 
             let foundMatch = false;
             for (const node of response.data.withdrawns.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThanOrEqual(0n);
+                // Amount assertions are scoped to the owned-stash branch below, matching
+                // `handleEventBonded`. A loop-wide `amount > 0` happens to hold today only because
+                // `do_withdraw_unbonded` suppresses the event when nothing was released
+                // (`if new_total < old_total`). Do not rely on that here — it would break silently
+                // if that guard ever changes.
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);
-                // WARNING: cannot match attestorId b/c this value isn't recorded
-                // best we can do is match stashId and look for record added in blocks
-                // *AFTER* this test has started
-                if (node.stashId === bob.address && BigInt(node.blockNumber) > startingBlock) {
+                // This suite owns `stash`, so a match is exact rather than best-effort.
+                if (node.stashId === stash.address && BigInt(node.blockNumber) > startingBlock) {
+                    expect(BigInt(node.amount)).toEqual(BigInt(TEST_BOND.toString()));
                     foundMatch = true;
                 }
-                // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
-                // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
@@ -88,10 +108,7 @@ describe('handleEventWithdrawn()', () => {
                 expect(response2.data.withdrawn.date).toEqual(node.date);
                 expect(response2.data.withdrawn.blockNumber).toEqual(node.blockNumber);
             }
-            // Only require a match when there are nodes to match against
-            if (response.data.withdrawns.nodes.length > 0) {
-                expect(foundMatch).toEqual(true);
-            }
+            expect(foundMatch).toEqual(true);
         });
     });
 });

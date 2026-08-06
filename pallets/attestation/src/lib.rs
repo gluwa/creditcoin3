@@ -176,7 +176,7 @@ pub mod pallet {
 
     pub trait WeightInfo {
         fn register_attestor() -> Weight;
-        fn unregister_attestor() -> Weight;
+        fn unregister_attestor(n: u32) -> Weight;
         fn set_max_attestors() -> Weight;
         fn register_invulnerable() -> Weight;
         fn unregister_invulnerable() -> Weight;
@@ -188,7 +188,7 @@ pub mod pallet {
         fn set_min_bond_requirement() -> Weight;
         fn chill() -> Weight;
         fn attest() -> Weight;
-        fn withdraw_unbonded() -> Weight;
+        fn withdraw_unbonded(n: u32) -> Weight;
         fn import_checkpoints() -> Weight;
         fn set_attestation_chain_genesis_block_number() -> Weight;
         fn set_election_policy() -> Weight;
@@ -200,6 +200,8 @@ pub mod pallet {
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
+        fn bond_extra() -> Weight;
+        fn unbond_surplus(n: u32) -> Weight;
     }
 
     #[pallet::storage]
@@ -311,6 +313,11 @@ pub mod pallet {
     pub fn MaxInvulernablesDefault<T: Config>() -> u32 {
         T::MaxAttestationNodes::get()
     }
+
+    /// Supported-chain count assumed when pricing [`Pallet::required_bond_for_stash`], which walks
+    /// `Attestors` once per supported chain. This assumption can be changed at any time as the
+    /// protocol adds more supported chains. Only a benchmark rerun would be needed.
+    pub const ASSUMED_MAX_SUPPORTED_CHAINS: u32 = 8;
 
     #[pallet::storage]
     #[pallet::getter(fn attestations)]
@@ -961,7 +968,9 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
+        // `n` = the unbond path consults `required_bond_for_stash`, whose `Attestors` scan
+        // scales with the registry — hence the `n` component, charged at its worst case here.
+        #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
         pub fn unregister_attestor(
             origin: OriginFor<T>,
             chain_key: ChainKey,
@@ -1180,7 +1189,9 @@ pub mod pallet {
         }
 
         #[pallet::call_index(16)]
-        #[pallet::weight(<T as Config>::WeightInfo::withdraw_unbonded())]
+        // `n` = the reap guard walks `Attestors` via `stash_backs_any_attestor` so a stash that still
+        // backs an attestor is never killed; the component prices that walk at its worst case.
+        #[pallet::weight(<T as Config>::WeightInfo::withdraw_unbonded(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
         pub fn withdraw_unbonded(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
@@ -1445,6 +1456,51 @@ pub mod pallet {
             Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
             Ok(())
+        }
+
+        /// Top up the caller's attestor bond by `amount` attest coin, without registering a new
+        /// attestor.
+        ///
+        /// Required to escape the following trap: `MinBondRequirement` is read at its *current*
+        /// value by the aggregate solvency guard in `unregister_attestor`, so raising a chain's
+        /// requirement after registration can leave a stash whose `active` no longer covers its
+        /// still-registered attestors. Before this call the only way to add collateral was to
+        /// register *another* attestor, which raises the aggregate requirement by at least as much
+        /// as it adds — so a multi-attestor stash could neither top up nor unregister, and its
+        /// pooled bond was locked permanently.
+        ///
+        /// Fails with `NotStash` if the caller has no ledger (nothing to top up — a stash with no
+        /// registered attestor exits via `withdraw_unbonded`) and with `InsufficientBalance` if the
+        /// caller's liquid attest-coin balance is below `amount`.
+        #[pallet::call_index(30)]
+        #[pallet::weight(<T as Config>::WeightInfo::bond_extra())]
+        pub fn bond_extra(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
+            let stash = ensure_signed(origin)?;
+
+            Self::do_bond_extra(&stash, amount)
+        }
+
+        /// Release bond above the caller's aggregate collateral requirement into an unlocking
+        /// chunk, withdrawable with `withdraw_unbonded` after `BondingDuration`.
+        ///
+        /// Inverse of [`Self::bond_extra`], and the only way to recover surplus `active` bond:
+        /// `unregister_attestor` releases at most the *current* `MinBondRequirement` per attestor,
+        /// and `withdraw_unbonded` only reaps a stash once `active` is under the existential
+        /// deposit. Without this call, an overshot `bond_extra`, a `MinBondRequirement` *decrease*,
+        /// or a top-up made while no attestor is registered would each strand the remainder in the
+        /// bond pool permanently.
+        ///
+        /// `amount` is capped at the caller's `active` bond, and the resulting `active` may not
+        /// fall below the sum of `MinBondRequirement` across the stash's still-registered
+        /// attestors (`InsufficientRemainingBond` otherwise). With no attestors registered that
+        /// sum is zero, so the full remaining bond can be released and the stash reaped.
+        #[pallet::call_index(31)]
+        // `n` = same `required_bond_for_stash` scan as the two paths above, priced via `n`.
+        #[pallet::weight(<T as Config>::WeightInfo::unbond_surplus(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
+        pub fn unbond_surplus(origin: OriginFor<T>, amount: BalanceOf<T>) -> DispatchResult {
+            let stash = ensure_signed(origin)?;
+
+            Self::do_unbond_surplus(&stash, amount)
         }
     }
 
