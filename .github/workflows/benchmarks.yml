@@ -26,7 +26,43 @@ env:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
+  # Break the self-trigger loop: exercise-benchmarks commits "Auto-update pallet weights", that
+  # commit touches **weights.rs, which matches this workflow's own `paths` filter and re-triggers
+  # it — and because weight measurement is timing, a re-run on a fresh runner ALWAYS produces a
+  # diff, so the bot re-committed after its own commit indefinitely (pairs/strings of
+  # "Auto-update pallet weights" commits on PRs, two Linode VMs + a full runtime-benchmarks build
+  # per iteration). When the PR head commit IS the bot's own weights commit there is nothing left
+  # to do: the weights were just regenerated and validated by the run that produced them.
+  should-run:
+    runs-on: ubuntu-26.04
+    outputs:
+      skip: ${{ steps.head.outputs.skip }}
+    steps:
+      - name: Check whether the head commit is the weights bot's own
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # workflow_dispatch has no PR head — always run.
+          if [ -z "$HEAD_SHA" ]; then
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          COMMIT_JSON=$(gh api "repos/${{ github.repository }}/commits/$HEAD_SHA")
+          AUTHOR=$(echo "$COMMIT_JSON" | jq -r '.commit.author.name')
+          SUBJECT=$(echo "$COMMIT_JSON" | jq -r '.commit.message' | head -n1)
+          if [ "$AUTHOR" = "gluwa-bot" ] && [ "$SUBJECT" = "Auto-update pallet weights" ]; then
+              echo "INFO: head commit is the weights bot's own ($HEAD_SHA); skipping benchmarks"
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
   deploy-runner-build-creditcoin-for-testing-benchmarks:
+    needs:
+      - should-run
+    if: ${{ needs.should-run.outputs.skip != 'true' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -49,8 +85,11 @@ jobs:
 
   rm-gh-runner-build-creditcoin-node-for-testing-benchmarks:
     needs:
+      - should-run
       - build-creditcoin-node-for-testing-benchmarks
-    if: ${{ always() }}
+    # always() so a failed build still gets its runner removed — but not when the whole
+    # workflow was skipped as the bot's own commit (no VM was ever deployed).
+    if: ${{ always() && needs.should-run.outputs.skip != 'true' }}
     uses: ./.github/workflows/remove-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -164,8 +203,10 @@ jobs:
 
   rm-gh-runner-benchmark:
     needs:
+      - should-run
       - exercise-benchmarks
-    if: ${{ always() }}
+    # See rm-gh-runner-build-...: cleanup must survive a failed run, not a skipped one.
+    if: ${{ always() && needs.should-run.outputs.skip != 'true' }}
     uses: ./.github/workflows/remove-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
