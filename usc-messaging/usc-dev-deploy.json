@@ -1,0 +1,34 @@
+{
+  "dest": {
+    "chainId": 11155111,
+    "chainKey": 8,
+    "creditcoinChainId": 42,
+    "localChainKey": "0x0000000000000000000000000000000000000000000000000000000000000008",
+    "voteValidator": "0xE4767195c2Ae3503D7DD3869A55E627588A89A9F",
+    "inbox": "0x58D2eCdd35Fb5F4ca999087614C224a4214b90F8",
+    "dapp": "0x5585547745D46748e11Ff7d1a4758DD39262a27F",
+    "admin": "0x66C27cfd8E89288d7E830703067476c9Cb34Ff00",
+    "attestorRegistry": "0xcFd1ef75e9e6Ebd94694DF9560b023E6d5B64F8B",
+    "oldVoteValidator": "0x71A21Ea8d28D3a0618d61d478Ee20DCB64be8082"
+  },
+  "source": {
+    "chainId": 42,
+    "rpc": "https://rpc.usc-devnet.creditcoin.network",
+    "chainKey": 8,
+    "attest": "0xb5F73112516ebeB89c7EF67a507513b441Ac28fA",
+    "proofVerifier": "0x7acc1aC65892CF3547b1b0590066FB93199b430D",
+    "deliveryDecoder": "0x78D714e1b47Bb86FE15788B917C9CC7B77975529",
+    "twapReader": "0x85b108660f47caDfAB9e0503104C08C1c96e0DA9",
+    "attestorRegistry": "0xe78A45427B4797ae9b1852427476A956037B5bC2",
+    "quoter": "0xad856F238CBeafd064b80D12EadAea3981fB21B5",
+    "factory": "0xb91C2eeaA0c475115069a6ED4bc601337a22788E",
+    "attestorVault": "0xD45E290062Bd0D1C640D59C350cA03CC291b37FA",
+    "outbox": "0x95FE74eF5644d500379b4300344DD80d9e377B40",
+    "relayerFeeVault": "0x6eA3524AD29729b10F324fD2aF967beed9cc4E68",
+    "relayerContract": "0x115f277e8fcE437B1F513A293057D2E396Ac2EC1",
+    "ackValidator": "0x651D52054c8ac4b19191d7427C2633797567D39c",
+    "quoterEOA": "0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac",
+    "coreFee": "1000000000000000000",
+    "feeRegistry": "0xcCEd4FA7c35209De0a52476A8e63ba7115971876"
+  }
+}
