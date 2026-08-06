@@ -622,6 +622,69 @@ fn bond_extra_moves_liquid_balance_into_the_pool() {
     })
 }
 
+/// Regression: `withdraw_unbonded` must not reap a stash that still backs a registered attestor,
+/// **including when `MinBondRequirement` is zero** — the default this runtime ships. A zero
+/// requirement means `required_bond_for_stash` is zero while attestors are registered, so it cannot
+/// stand in for "is the ledger still needed"; `unregister_attestor` reads the ledger, so reaping it
+/// strands the attestor on `NotStash`.
+#[test]
+fn withdraw_unbonded_does_not_reap_a_stash_that_still_backs_an_attestor() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            0,
+        ));
+
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        // Zero bond and no unlocking chunks: every ED-based reap test is satisfied, and the aggregate
+        // requirement is zero, so only the attestor-existence check stands between this stash and a
+        // reap that would strand `att`.
+        let ledger = Attestation::ledger(STASH_3).unwrap();
+        assert_eq!(ledger.active, 0);
+        assert!(ledger.unlocking.is_empty());
+        assert_eq!(Attestation::required_bond_for_stash(&STASH_3, None), 0);
+
+        assert_ok!(Attestation::withdraw_unbonded(att.stash.clone()));
+        assert!(
+            Ledger::<Test>::get(STASH_3).is_some(),
+            "ledger must survive while an attestor is still registered"
+        );
+
+        // Raising the requirement afterwards lifts `required` above the ED without touching `active`,
+        // so the guard must still hold on the same state.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            100_000_000_000_000_000_000,
+        ));
+        assert!(Attestation::required_bond_for_stash(&STASH_3, None) > 0);
+        assert_eq!(Attestation::ledger(STASH_3).unwrap().active, 0);
+        assert_ok!(Attestation::withdraw_unbonded(att.stash.clone()));
+        assert!(Ledger::<Test>::get(STASH_3).is_some());
+
+        // Drop back to zero so the attestor can exit, then the ledger may finally be reaped.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            0,
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+        assert_ok!(Attestation::withdraw_unbonded(att.stash));
+        assert!(Ledger::<Test>::get(STASH_3).is_none());
+    })
+}
+
 /// Regression: the dust sweep in the unbond paths must not consume collateral that remaining
 /// attestors still need.
 ///

@@ -132,6 +132,32 @@ mod benchmarks {
     // `set_max_attestors` / `MaxAttestationNodes` ceiling.
     const MAX_ATTESTORS_PARAM: u32 = MAX_ATTESTORS - 1;
 
+    /// Upper bound for the `n` component on the dispatchables that consult
+    /// [`crate::Pallet::required_bond_for_stash`], which walks `Attestors` for every supported
+    /// chain. `n` counts the registry entries the scan visits beyond the caller's own attestor, so
+    /// the measured per-entry cost can be extrapolated to the runtime's
+    /// `MAX_BOND_SCAN_ATTESTORS` bound. Capped at one chain's worth here because a benchmark
+    /// fixture can only register up to `MaxAttestationNodes` per chain.
+    const MAX_BOND_SCAN_PARAM: u32 = MAX_ATTESTORS - 1;
+
+    /// Register `n` additional attestors on `DEV_CHAIN_KEY` so the `required_bond_for_stash` scan
+    /// has that many entries to walk. Distinct stash per attestor, so none of them shares the
+    /// benchmarked caller's ledger. Seeds are offset well clear of the `"stash"` / `"attestor"`
+    /// indices the callers use.
+    fn populate_attestor_registry<T: Config>(n: u32) {
+        for j in 0..n {
+            let stash_id = create_funded_user_with_balance::<T>("scan_stash", 10_000 + j);
+            let attestor_id: T::AccountId =
+                create_funded_user_with_balance::<T>("scan_attestor", 20_000 + j);
+            let stash_origin = T::RuntimeOrigin::signed(stash_id);
+            assert_ok!(Attestation::<T>::register_attestor(
+                stash_origin,
+                DEV_CHAIN_KEY,
+                attestor_id,
+            ));
+        }
+    }
+
     #[benchmark]
     fn set_chain_attestation_interval() {
         // Setup
@@ -228,8 +254,11 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn unregister_attestor() {
-        // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`
+    fn unregister_attestor(n: Linear<0, MAX_BOND_SCAN_PARAM>) {
+        // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`.
+        // `n` sizes the `Attestors` registry so the `required_bond_for_stash` scan in the unbond path
+        // is measured rather than assumed.
+        populate_attestor_registry::<T>(n);
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
         let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
@@ -499,8 +528,10 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn withdraw_unbonded() {
-        // Setup: match unregister path that queues retired BLS keys, then exercise purge in withdraw
+    fn withdraw_unbonded(n: Linear<0, MAX_BOND_SCAN_PARAM>) {
+        // Setup: match unregister path that queues retired BLS keys, then exercise purge in withdraw.
+        // `n` sizes the `Attestors` registry: the reap guard walks it via `stash_backs_any_attestor`.
+        populate_attestor_registry::<T>(n);
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
         let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
@@ -557,8 +588,10 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn unbond_surplus() {
-        // A registered stash releases a surplus top-up back into an unlocking chunk.
+    fn unbond_surplus(n: Linear<0, MAX_BOND_SCAN_PARAM>) {
+        // A registered stash releases a surplus top-up back into an unlocking chunk. `n` sizes the
+        // `Attestors` registry: the solvency guard consults `required_bond_for_stash`.
+        populate_attestor_registry::<T>(n);
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
         let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);

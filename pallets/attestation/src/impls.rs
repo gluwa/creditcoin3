@@ -623,15 +623,20 @@ impl<T: Config> Pallet<T> {
         let new_total = ledger.total_staked;
 
         let ed = T::BondFungibles::minimum_balance(T::BondAssetId::get());
-        // A stash that still backs registered attestors must never be reaped, even when its `active`
-        // sits below the bond asset's `min_balance`. That state is legitimate: the dust sweep in the
-        // unbond paths deliberately leaves a sub-ED `active` alone when remaining attestors need it
-        // as collateral (see `remove_attestor_and_emit_event`), so reaping on the ED test alone
-        // destroys the ledger while `Attestors` entries survive — after which `unregister_attestor`
-        // fails `NotStash` and the stash can never unwind at all.
-        let required = Self::required_bond_for_stash(&stash, None);
+        // A stash that still backs a registered attestor must never be reaped, however small its
+        // `active` is. `unregister_attestor` reads the ledger, so reaping it while `Attestors` entries
+        // survive strands those attestors on `NotStash`.
+        //
+        // The test is attestor *existence*, not `required_bond_for_stash(..).is_zero()`: with a zero
+        // `MinBondRequirement` — the default this runtime ships — the aggregate requirement is zero
+        // while attestors are still registered, so the requirement cannot stand in for "is the ledger
+        // still needed". Existence also covers the case a requirement test would catch on its own: a
+        // stash that registered while the requirement was zero has `active == 0`, and raising
+        // `MinBondRequirement` afterwards lifts `required` above the ED without touching `active`
+        // (nothing outside the unbond paths writes `active`, and `consolidate_unlocked` carries it
+        // through unchanged).
         if ledger.unlocking.is_empty()
-            && required.is_zero()
+            && !Self::stash_backs_any_attestor(&stash)
             && (ledger.active < ed || ledger.active.is_zero())
         {
             // This account must have called `unbond()` with some value that caused the active
@@ -994,6 +999,19 @@ impl<T: Config> Pallet<T> {
     /// runtime meters `proof_size` as `u64::MAX`, so the worst case is a fraction of a percent of one
     /// block's ref_time — and it is charged to the caller via the dispatch weight. Callers are all
     /// low-frequency (unregister / bond top-up), never block hooks or `commit_attestation`.
+    /// Whether `stash` still backs at least one registered attestor on any supported chain.
+    ///
+    /// Short-circuits on the first match, but its worst case is the same `Attestors` walk as
+    /// [`Self::required_bond_for_stash`] — see the `n` component on `withdraw_unbonded`'s weight.
+    pub(crate) fn stash_backs_any_attestor(stash: &T::AccountId) -> bool {
+        T::SupportedChains::supported_chains()
+            .into_iter()
+            .any(|chain_key| {
+                Attestors::<T>::iter_prefix_values(chain_key)
+                    .any(|attestor| attestor.stash == *stash)
+            })
+    }
+
     pub(crate) fn required_bond_for_stash(
         stash: &T::AccountId,
         exclude: Option<(ChainKey, &T::AccountId)>,

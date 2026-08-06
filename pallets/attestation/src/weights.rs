@@ -198,7 +198,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::AttestorsCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::RetiredAttestorBlsKeys` (r:0 w:1)
 	/// Proof: `Attestation::RetiredAttestorBlsKeys` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn unregister_attestor() -> Weight {
+	/// Storage: `Attestation::Attestors` (r:1 w:0 per registry entry scanned by
+	/// `required_bond_for_stash`) — the `n` component.
+	fn unregister_attestor(n: u32) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1581`
 		//  Estimated: `5046`
@@ -206,6 +208,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		Weight::from_parts(147_320_000, 0)
 			.saturating_add(Weight::from_parts(0, 5046))
 			.saturating_add(T::DbWeight::get().reads(14))
+			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(10))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
@@ -425,7 +428,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Balances::Freezes` (`max_values`: None, `max_size`: Some(67), added: 2542, mode: `MaxEncodedLen`)
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
-	fn withdraw_unbonded() -> Weight {
+	/// Storage: `Attestation::Attestors` (r:1 w:0 per registry entry scanned by
+	/// `required_bond_for_stash`) — the `n` component.
+	fn withdraw_unbonded(n: u32) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1612`
 		//  Estimated: `5077`
@@ -433,6 +438,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		Weight::from_parts(91_490_000, 0)
 			.saturating_add(Weight::from_parts(0, 5077))
 			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
@@ -759,16 +765,14 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// work targets `attest_coin`. Regenerate with `.github/bench.sh -p attestation -b` (reference
 	/// hardware — the surrounding numbers come from an AMD EPYC 7713) once `attest_coin` is PR'd to
 	/// `usc-dev`, or run it manually before release.
-	/// `required_bond_for_stash` scans `Attestors` per supported chain, bounded by
-	/// `Config::MaxAttestationNodes` (100) per chain. The reads below charge that worst case for a
-	/// handful of chains rather than pretending the lookup is O(1); the real generated weight should
-	/// carry a component over the chain count.
+	/// The `required_bond_for_stash` `Attestors` scan is priced by the `n` component (one read per
+	/// registry entry visited); the dispatchable charges it at
+	/// `MaxAttestationNodes * ASSUMED_MAX_SUPPORTED_CHAINS`. `unregister_attestor` and
+	/// `withdraw_unbonded` carry the same component for the same reason.
 	/// Storage: `Attestation::Ledger` (r:1 w:1)
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::MinBondRequirement` (r:8 w:0)
+	/// Storage: `Attestation::MinBondRequirement` (r:1 w:0)
 	/// Proof: `Attestation::MinBondRequirement` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Attestors` (r:800 w:0)
-	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Staking::CurrentEra` (r:1 w:0)
 	/// Proof: `Staking::CurrentEra` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -779,14 +783,15 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn unbond_surplus() -> Weight {
+	fn unbond_surplus(n: u32) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `40000`
-		//  Estimated: `120000`
+		//  Measured:  `1200`
+		//  Estimated: `8000`
 		// Minimum execution time: 100_000_000 picoseconds (conservative).
 		Weight::from_parts(140_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 120000))
-			.saturating_add(T::DbWeight::get().reads(813))
+			.saturating_add(Weight::from_parts(0, 8000))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(4))
 	}
 }
