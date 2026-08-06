@@ -6,12 +6,72 @@ export interface CreditcoinApi {
     api: ApiPromise;
 }
 
-export const creditcoinApi = async (wsUrl: string, noInitWarn = false): Promise<CreditcoinApi> => {
-    const provider = new WsProvider(wsUrl);
-    const api = await ApiPromise.create({ provider, noInitWarn });
-    await api.isReady;
+const CONNECT_RETRIES = 5;
+const CONNECT_TIMEOUT_MS = 10_000;
+const CONNECT_BACKOFF_BASE_MS = 500;
 
-    return { api };
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Establish a WsProvider whose socket is actually open before it is used.
+// WsProvider connects asynchronously, so ApiPromise.create can attempt an RPC
+// subscription before the handshake completes, surfacing as
+// "WebSocket is not connected". A fresh provider is created per attempt with
+// autoConnect left enabled (so Polkadot's default mid-session reconnect is
+// preserved on the returned provider) and we await isReady with a bounded
+// timeout, retrying with exponential backoff to absorb transient connection
+// races. The connected provider is returned to the caller; failed attempts are
+// disconnected so no reconnect loop is leaked.
+const connectProviderWithRetry = async (wsUrl: string): Promise<WsProvider> => {
+    let lastErr: unknown;
+    for (let attempt = 1; attempt <= CONNECT_RETRIES; attempt++) {
+        // autoConnect enabled (default): keeps mid-session reconnect intact for
+        // the provider we ultimately return to the caller.
+        const provider = new WsProvider(wsUrl);
+        // Bounded timeout that we always clear, so its timer/rejection never
+        // outlives the attempt and leaks an unhandled rejection on success.
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        const timeout = new Promise<never>((_resolve, reject) => {
+            timeoutId = setTimeout(
+                () => reject(new Error(`WsProvider connect timed out after ${CONNECT_TIMEOUT_MS}ms`)),
+                CONNECT_TIMEOUT_MS,
+            );
+        });
+        try {
+            await Promise.race([provider.isReady, timeout]);
+            return provider;
+        } catch (err) {
+            lastErr = err;
+            // Tear down this attempt's provider so its reconnect loop does not leak.
+            await provider.disconnect().catch(() => undefined);
+            if (attempt < CONNECT_RETRIES) {
+                await sleep(CONNECT_BACKOFF_BASE_MS * 2 ** (attempt - 1));
+            }
+        } finally {
+            // Always release the timer; on success this prevents the pending
+            // rejection from surfacing ~10s later on the happy path.
+            if (timeoutId !== undefined) {
+                clearTimeout(timeoutId);
+            }
+        }
+    }
+    throw new Error(
+        `Failed to connect to node after ${CONNECT_RETRIES} attempts: ${
+            lastErr instanceof Error ? lastErr.message : String(lastErr)
+        }`,
+    );
+};
+
+export const creditcoinApi = async (wsUrl: string, noInitWarn = false): Promise<CreditcoinApi> => {
+    const provider = await connectProviderWithRetry(wsUrl);
+    try {
+        const api = await ApiPromise.create({ provider, noInitWarn });
+        await api.isReady;
+        return { api };
+    } catch (err) {
+        // ApiPromise.create failed after a good connect: don't leak the provider.
+        await provider.disconnect().catch(() => undefined);
+        throw err;
+    }
 };
 
 // Create new API instance
