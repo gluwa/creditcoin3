@@ -174,7 +174,17 @@ impl Attestor {
                 return Ok(());
             }
             result = eth::Client::new(self.config.stream.url_eth.as_ref().as_ref(), None) => {
-                result.map_err(Error::Init)?
+                // Block cache: every block this client fetches sits behind `finalization_lag`, so
+                // entries are immutable — exactly the case the cache is documented safe for. The
+                // payoff is on the catch-up error path: `StreamRoots` discards its in-flight window
+                // on any RPC error and refetches from the last ordered height, which against a
+                // rate-limited provider re-bought the same blocks over and over (2026-08-06
+                // cc3-testnet quota lockout). With the cache, a refetch of already-seen blocks is
+                // a memory read instead of 2 RPC calls. 256 blocks comfortably covers the
+                // 10-deep concurrency window plus ordering gaps (~tens of MB for dense blocks).
+                result.map_err(Error::Init)?.with_block_cache(
+                    std::num::NonZeroUsize::new(256).expect("256 is nonzero"),
+                )
             }
         };
 

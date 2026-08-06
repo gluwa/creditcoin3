@@ -124,6 +124,17 @@ impl StreamRoots {
                                 // Failed to retrieve source chain block, try and regenerate the
                                 // stream (this can only be an RPC error)
                                 tracing::error!(%err, "Eth connection error");
+
+                                // A rate-limiting provider needs a pause, not a fast reconnect:
+                                // the rebuild below re-dials, re-subscribes and re-fetches every
+                                // discarded in-flight block, so cycling at the reconnect backoff's
+                                // base rate turns quota pushback into a self-sustaining burn (the
+                                // 2026-08-06 cc3-testnet lockout). Interim guard until the flap
+                                // cooldown generalizes here — see common/continuity/src/rpc.rs.
+                                if eth::error_looks_rate_limited(&err.to_string()) {
+                                    tracing::warn!("🧯 provider is rate limiting — cooling down 30s before stream rebuild");
+                                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                                }
                                 heap.clear();
 
                                 // Removes pending root calls
@@ -265,6 +276,7 @@ async fn stream_rpc(
         .max_delay(std::time::Duration::from_millis(5_000))
         .map(tokio_retry::strategy::jitter);
     let (stream_headers, next) = loop {
+        let mut rate_limited = false;
         match config.client.subscribe().await.map_err(Error::Client) {
             Ok(mut stream_headers) => match stream_headers.next().await {
                 Some(header) => break (stream_headers, header.number),
@@ -272,14 +284,20 @@ async fn stream_rpc(
             },
             Err(err) => {
                 tracing::warn!(?err, "Eth subscribe failed — repairing client and retrying");
+                rate_limited = eth::error_looks_rate_limited(&format!("{err:?}"));
             }
         }
         if let Err(err) = config.client.reconnect().await {
+            rate_limited = rate_limited || eth::error_looks_rate_limited(&format!("{err:?}"));
             tracing::warn!(?err, "Eth client reconnect failed");
         }
-        let delay = delays
+        let mut delay = delays
             .next()
             .unwrap_or(std::time::Duration::from_millis(5_000));
+        // Same guard as the stream body: quota pushback gets a real pause, not the backoff base.
+        if rate_limited {
+            delay = delay.max(std::time::Duration::from_secs(30));
+        }
         tokio::time::sleep(delay).await;
     };
 

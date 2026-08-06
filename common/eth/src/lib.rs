@@ -652,6 +652,11 @@ impl Client {
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
+        /// Floor applied as soon as any provider error in the sweep looks like rate limiting:
+        /// a provider refusing on quota needs a pause, not a faster retry — every early retry
+        /// spends more of the very budget whose exhaustion caused the failure (the 2026-08-06
+        /// cc3-testnet Sepolia quota lockout).
+        const RATE_LIMIT_DELAY_FLOOR: u64 = 30;
 
         let mut attempt: usize = 0;
         let mut delay = DELAY_BASE;
@@ -750,6 +755,16 @@ impl Client {
                     "⛔ all RPC endpoints failed to return a consistent block+receipts pair after retries"
                 );
                 return Err(Interrupt::Cont(err));
+            }
+
+            if error_looks_rate_limited(&err.to_string()) {
+                delay = delay.max(RATE_LIMIT_DELAY_FLOOR);
+                tracing::warn!(
+                    attempt,
+                    delay_secs = delay,
+                    error = %err,
+                    "🧯 provider is rate limiting — flooring the retry delay"
+                );
             }
 
             tracing::debug!(
@@ -1212,6 +1227,24 @@ fn looks_like_secret_segment(seg: &str) -> bool {
 /// Build a simple Ethereum-compatible Merkle tree from a block
 ///
 /// Uses `KeccakMerkleTree` which matches the POC implementation exactly.
+/// Whether an error string looks like provider rate limiting / quota exhaustion. Providers word
+/// this many ways (HTTP 429, gRPC-ish `resource_exhausted` inside a WS close frame — Google's
+/// Blockchain Node Engine does the latter), so match the phrasings we have actually seen plus the
+/// common ones. A false positive only makes one retry wait longer.
+pub fn error_looks_rate_limited(text: &str) -> bool {
+    let text = text.to_lowercase();
+    [
+        "resource_exhausted",
+        "resource exhausted",
+        "429",
+        "rate limit",
+        "too many requests",
+        "quota",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
 pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
     let tx_bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
     merkle::KeccakMerkleTree::new(&tx_bytes)
@@ -1219,6 +1252,25 @@ pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
 
 #[cfg(test)]
 mod provider_lookup_tests {
+    // Verbatim shapes from the 2026-08-06 cc3-testnet incident (Google Blockchain Node Engine
+    // close frames) plus the common provider phrasings. A false positive only slows one retry.
+    #[test]
+    fn rate_limit_classifier_matches_incident_strings() {
+        assert!(super::error_looks_rate_limited(
+            "Received close frame with data: Request trace id: c3d7ebd72b1d3944, \
+             [ORIGINAL ERROR] generic::resource_exhausted: com.google.apps.framework.request"
+        ));
+        assert!(super::error_looks_rate_limited(
+            "HTTP error 429 Too Many Requests"
+        ));
+        assert!(super::error_looks_rate_limited("daily quota exceeded"));
+        // The 04:51 trigger error is NOT rate limiting — it must keep the normal backoff.
+        assert!(!super::error_looks_rate_limited(
+            "generic::unavailable: Downstream connection unexpectedly closed"
+        ));
+        assert!(!super::error_looks_rate_limited("connection refused"));
+    }
+
     use super::{merge_provider_lookup, redact_url_query, Error, LookupOutcome};
 
     fn err(msg: &str) -> Error {
