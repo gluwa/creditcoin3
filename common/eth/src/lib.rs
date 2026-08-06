@@ -669,6 +669,10 @@ impl Client {
             // overwrite it). Mirrors the old `get_receipts` walker's `Vec`-of-errors behavior.
             let mut transport_errs: Vec<(String, Error)> = Vec::new();
             let mut payload_inconsistent_errs: Vec<(String, Error)> = Vec::new();
+            // Classified at push time: the floor must fire when ANY provider in the sweep was
+            // rate limiting, not only when the propagated (last-popped) error happens to be
+            // the rate-limited one (bugbot).
+            let mut sweep_rate_limited = false;
 
             for (label, provider) in self.providers_with_labels() {
                 match Self::fetch_block_and_receipts_from_provider(provider, number).await {
@@ -731,6 +735,8 @@ impl Client {
                             error = %e,
                             "failed to retrieve block/receipts pair from provider"
                         );
+                        sweep_rate_limited =
+                            sweep_rate_limited || error_looks_rate_limited(&e.to_string());
                         transport_errs.push((label, e));
                     }
                 }
@@ -757,7 +763,7 @@ impl Client {
                 return Err(Interrupt::Cont(err));
             }
 
-            if error_looks_rate_limited(&err.to_string()) {
+            if sweep_rate_limited {
                 delay = delay.max(RATE_LIMIT_DELAY_FLOOR);
                 tracing::warn!(
                     attempt,
