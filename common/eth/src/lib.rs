@@ -1212,6 +1212,82 @@ fn looks_like_secret_segment(seg: &str) -> bool {
 /// Build a simple Ethereum-compatible Merkle tree from a block
 ///
 /// Uses `KeccakMerkleTree` which matches the POC implementation exactly.
+/// Whether an error string looks like provider rate limiting / quota exhaustion. Matches the
+/// phrasings observed live — Chainstack's `-32005 … RPS limit` (2026-08-07), Google Blockchain
+/// Node Engine's `resource_exhausted` close frames (2026-08-06) — plus HTTP 429 and generic quota
+/// wording. Numeric tokens ("429", "32005") are matched with non-alphanumeric boundaries so block
+/// numbers and hex ids containing those digit runs never misclassify (Sepolia heights currently
+/// start 11429…). A false positive only makes one retry wait longer.
+pub fn error_looks_rate_limited(text: &str) -> bool {
+    let text = text.to_lowercase();
+    [
+        "resource_exhausted",
+        "resource exhausted",
+        "rate limit",
+        "rps limit",
+        "too many requests",
+        "quota",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+        || contains_standalone(&text, "429")
+        || contains_standalone(&text, "32005")
+}
+
+/// `needle` bounded by non-alphanumerics (or string edges) — a status/error code, not a digit run
+/// inside a block number or hex id.
+fn contains_standalone(text: &str, needle: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut start = 0;
+    while let Some(pos) = text[start..].find(needle) {
+        let i = start + pos;
+        let before_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+        let after = i + needle.len();
+        let after_ok = after >= bytes.len() || !bytes[after].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+        start = i + 1;
+    }
+    false
+}
+
+/// Per-loop rate-limit damper for periodic RPC read loops (mirrors the relayer's
+/// `pacing::RateLimitPacer`, post-review shape): a rate-limited failure escalates the level and
+/// arms a DEFERRAL WINDOW (5s doubling to 160s cap) that the loop checks at tick start; a clean
+/// pass decays one level and never slows anything. Deferral-not-sleep so a `select!` arm never
+/// blocks its siblings and a long cooldown can never hold a task past external liveness deadlines
+/// (the relayer's Bugbot review caught both failure modes — keep the designs in lockstep).
+#[derive(Debug, Default)]
+pub struct RateLimitPacer {
+    level: u32,
+    defer_until: Option<std::time::Instant>,
+}
+
+impl RateLimitPacer {
+    const LEVEL_CAP: u32 = 5;
+    const BASE: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// Record an iteration outcome. Rate-limited failures escalate + arm a window; clean passes
+    /// decay one level (gradual, so a loop colliding every other tick stays damped).
+    pub fn after(&mut self, rate_limited: bool) {
+        if rate_limited {
+            self.level = (self.level + 1).min(Self::LEVEL_CAP);
+            self.defer_until =
+                Some(std::time::Instant::now() + Self::BASE * 2u32.pow(self.level - 1));
+        } else {
+            self.level = self.level.saturating_sub(1);
+        }
+    }
+
+    /// Time remaining in an active deferral window; `None` when the loop should run its tick.
+    pub fn deferring(&self) -> Option<std::time::Duration> {
+        let until = self.defer_until?;
+        let now = std::time::Instant::now();
+        (now < until).then(|| until - now)
+    }
+}
+
 pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
     let tx_bytes: Vec<Vec<u8>> = block.items().iter().map(|item| item.to_bytes()).collect();
     merkle::KeccakMerkleTree::new(&tx_bytes)
@@ -1219,6 +1295,51 @@ pub fn simple_merkle_tree(block: &OrderedBlock) -> merkle::KeccakMerkleTree {
 
 #[cfg(test)]
 mod provider_lookup_tests {
+    // Rate-limit pacing helpers — phrasings verbatim from the 2026-08-06 (Google BNE) and
+    // 2026-08-07 (Chainstack) incidents; numeric tokens must NOT match inside block numbers.
+    #[test]
+    fn rate_limit_classifier_and_pacer() {
+        use std::time::Duration;
+        assert!(super::error_looks_rate_limited(
+            "server returned an error response: error code -32005: You've exceeded the RPS limit \
+             available on the current plan."
+        ));
+        assert!(super::error_looks_rate_limited(
+            "[ORIGINAL ERROR] generic::resource_exhausted: com.google.apps.framework.request"
+        ));
+        assert!(super::error_looks_rate_limited(
+            "HTTP 429 Too Many Requests"
+        ));
+        assert!(!super::error_looks_rate_limited(
+            "eth_getLogs from 11429000 to 11429060 failed"
+        ));
+        assert!(!super::error_looks_rate_limited(
+            "nonce 3200529 already used"
+        ));
+        assert!(!super::error_looks_rate_limited(
+            "generic::unavailable: Downstream connection unexpectedly closed"
+        ));
+
+        let mut p = super::RateLimitPacer::default();
+        p.after(false);
+        assert!(p.deferring().is_none(), "clean iterations never defer");
+        let mut last = Duration::ZERO;
+        for _ in 0..8 {
+            p.after(true);
+            let d = p.deferring().expect("rate-limited failure arms a window");
+            assert!(d >= last.saturating_sub(Duration::from_millis(50)));
+            last = d;
+        }
+        assert!(
+            last <= Duration::from_secs(80),
+            "window capped at BASE << (CAP-1)"
+        );
+        assert!(last > Duration::from_secs(40), "reached the cap");
+        // Clean passes decay the level but never arm windows.
+        p.after(false);
+        assert!(p.deferring().is_none_or(|d| d <= Duration::from_secs(80)));
+    }
+
     use super::{merge_provider_lookup, redact_url_query, Error, LookupOutcome};
 
     fn err(msg: &str) -> Error {
