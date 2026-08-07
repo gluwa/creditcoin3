@@ -146,7 +146,7 @@ Now you can start the attestor zombienet:
 ```
 
 Now check if attestations are coming through on the polkadot explorer. You should see events like
-`AttestationSubmitted` visible on the right panel of the block explorer. These attestations
+`BlockAttested` visible on the right panel of the block explorer. These attestations
 confirm that the _source chain_ state is being synchronized to the _Creditcoin chain_.
 
 ## 4. Reading attestor logs
