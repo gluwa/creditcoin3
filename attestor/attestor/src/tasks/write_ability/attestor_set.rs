@@ -68,6 +68,12 @@ pub async fn watch(
     // destination RPC), so this first tick reads the real set + threshold and swaps them in.
     let mut tick = tokio::time::interval(Duration::from_secs(ATTESTOR_SET_POLL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Rate-limit pacing: every attestor in the fleet runs this poll on the same cadence against
+    // the same (often shared, RPS-capped) destination endpoint, colliding with the fleet's
+    // synchronized per-block fetches. When the provider rejects on rate limits, escalate this
+    // loop's cooldown instead of colliding again next tick (observed live 2026-08-07, Chainstack
+    // -32005 on usc-dev; mirrors the relayer's pacing module).
+    let mut pacer = eth::RateLimitPacer::default();
 
     // The threshold currently applied to the aggregator. Tracked so a threshold-ONLY change (same
     // membership) is still detected and applied (audit P3-2) — membership equality alone would skip
@@ -81,6 +87,13 @@ pub async fn watch(
                 return;
             }
             _ = tick.tick() => {
+                // Rate-limit pacing: skip the poll while a deferral window is active (armed only
+                // by rate-limited failures; clean polls decay the level and are never slowed).
+                if let Some(remaining) = pacer.deferring() {
+                    tracing::debug!(remaining_ms = remaining.as_millis() as u64,
+                        "⏸️ pacing attestor-set watcher — skipping poll");
+                    continue;
+                }
                 // Fresh connection each poll — see the fn doc. A dead/transiently-unreachable RPC
                 // fails only this tick and is retried on the next, instead of wedging the watcher.
                 let (set, onchain_threshold) = match tokio::time::timeout(
@@ -89,9 +102,22 @@ pub async fn watch(
                 )
                 .await
                 {
-                    Ok(Ok(v)) => v,
+                    Ok(Ok(v)) => {
+                        pacer.after(false);
+                        v
+                    }
                     Ok(Err(err)) => {
                         tracing::warn!(%validator, %err, "failed to read on-chain attestor set/threshold; will retry");
+                        let rate_limited = eth::error_looks_rate_limited(&format!("{err:#}"));
+                        pacer.after(rate_limited);
+                        if rate_limited {
+                            if let Some(window) = pacer.deferring() {
+                                tracing::warn!(
+                                    defer_ms = window.as_millis() as u64,
+                                    "🧯 provider is rate limiting — deferring attestor-set polls"
+                                );
+                            }
+                        }
                         continue;
                     }
                     Err(_) => {
