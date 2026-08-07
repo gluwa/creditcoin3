@@ -47,7 +47,7 @@ jobs:
       # treats as "skip login, scan locally".
       - name: Docker Scout - CVE scan (${{ github.repository }})
         continue-on-error: true
-        uses: docker/scout-action@v1
+        uses: docker/scout-action@v1.23.1
         with:
           command: cves
           image: local://${{ github.repository }}:${{ inputs.version-string }}
@@ -57,7 +57,7 @@ jobs:
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
         continue-on-error: true
-        uses: docker/scout-action@v1
+        uses: docker/scout-action@v1.23.1
         with:
           command: cves
           image: local://${{ github.repository }}:indexer-for-${{ inputs.version-string }}
@@ -67,7 +67,7 @@ jobs:
 
       - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
         continue-on-error: true
-        uses: docker/scout-action@v1
+        uses: docker/scout-action@v1.23.1
         with:
           command: cves
           image: local://${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
