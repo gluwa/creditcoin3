@@ -96,36 +96,4 @@ mod benchmarks {
             sp_core::U256::from(1_000_000_000_000_000_000u128),
         )
     }
-
-    #[benchmark]
-    fn set_write_ability_config() {
-        // Setup
-        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        // In mock.rs we set up a single supported chain with chain_key 1
-        let chain_key: ChainKey = 1;
-
-        #[extrinsic_call]
-        _(
-            root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_key,
-            // Must be non-zero: the extrinsic rejects [0u8; 32] with ZeroWriteAbilityChainKey.
-            [1u8; 32],
-            true,
-        )
-    }
-
-    #[benchmark]
-    fn set_core_fee() {
-        // Setup
-        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-        // In mock.rs we set up a single supported chain with chain_key 1
-        let chain_key: ChainKey = 1;
-
-        #[extrinsic_call]
-        _(
-            root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            chain_key,
-            sp_core::U256::from(1_000_000_000_000_000_000u128),
-        )
-    }
 }
