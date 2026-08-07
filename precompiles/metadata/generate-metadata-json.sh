@@ -49,6 +49,9 @@ get_precompile_info() {
         "AttestorStashPrecompile")
             echo "attestor_stash:AttestorStash"
             ;;
+        "AttestCoinPrecompile")
+            echo "attest_coin:AttestCoin"
+            ;;
         *)
             echo ""
             ;;

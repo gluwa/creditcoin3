@@ -19,6 +19,7 @@ node/runtime/wasm/target/
 polkadot.*
 .DS_Store
 .idea/
+.claude/settings.local.json
 .cargo-remote.toml
 .cargo/
 
