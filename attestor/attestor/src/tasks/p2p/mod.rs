@@ -86,6 +86,58 @@ pub async fn run(
     // gossipsub peer-scoring topic parameters.
     let topic = libp2p::gossipsub::IdentTopic::new(format!("{chain_key}/attest"));
 
+    // The write-ability topics are built HERE too, for the same reason, even though they are subscribed
+    // further down. Gossipsub peer scoring is per-topic and can only be installed once, at behaviour
+    // construction: `PeerScoreParams::topics` is a map, and `mark_invalid_message_delivery` no-ops for a
+    // topic missing from it. A topic subscribed after scoring is installed is therefore *unscored*, which
+    // silently turns `report_message_validation_result(.., Reject)` on that topic into a no-op — the
+    // flooder pays nothing (audit finding). Building them up front lets the behaviour score every topic
+    // we will ever subscribe to. They depend only on `chain_key` and whether message attestation is
+    // enabled, both known here.
+    //
+    // Keep these in lockstep with the `subscribe` calls below: subscribing to a topic without adding it
+    // to `credited_topics` or `penalty_only_topics` reintroduces the finding.
+    let mv_topic = shared
+        .message_votes
+        .is_some()
+        .then(|| libp2p::gossipsub::IdentTopic::new(message_votes_topic(chain_key)));
+    let reobs_topic = shared
+        .message_votes
+        .is_some()
+        .then(|| libp2p::gossipsub::IdentTopic::new(reobservation_topic(chain_key)));
+    let set_update_topic = shared
+        .message_votes
+        .is_some()
+        .then(|| libp2p::gossipsub::IdentTopic::new(attestor_set_update_topic(chain_key)));
+
+    // Split by whether an `Accept` on the topic means the frame passed real validation. Per-topic scores
+    // are SUMMED into the single peer score the thresholds apply to, so positive credit on one topic
+    // offsets penalties on another. Two topics accept without validating and so earn no credit:
+    //
+    // * set-update — `handle_swarm` accepts (and propagates) any frame under a size bound without
+    //   decoding it at all.
+    // * reobservation — `handle_reobservation_request` returns `Accept` as soon as the frame decodes
+    //   and its `chain_key` matches. `ReobservationRequest` is four unsigned plain fields, so there is
+    //   nothing to forge: any peer can emit well-formed requests with random message ids. The RPC
+    //   verification happens later, in `run_reobservation_worker`, and its verdict never reaches
+    //   `report_message_validation_result`. (The per-source rate limiter bounds the farming rate,
+    //   since it runs before decode and returns `Ignore`, but not the principle.)
+    //
+    // Crediting either would let a peer farm P2 first-message-delivery score at zero cost up to the
+    // P2 cap, then spend that buffer absorbing P4 penalties earned on the topics that DO validate.
+    let credited_topics: Vec<&libp2p::gossipsub::IdentTopic> =
+        std::iter::once(&topic).chain(mv_topic.as_ref()).collect();
+    let penalty_only_topics: Vec<&libp2p::gossipsub::IdentTopic> = set_update_topic
+        .as_ref()
+        .into_iter()
+        .chain(reobs_topic.as_ref())
+        .collect();
+    tracing::debug!(
+        credited = credited_topics.len(),
+        penalty_only = penalty_only_topics.len(),
+        "🛡️ installing gossipsub peer-score params for every subscribed topic"
+    );
+
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(cfg.keypair)
         .with_tokio()
         .with_tcp(
@@ -97,7 +149,9 @@ pub async fn run(
         .with_quic()
         .with_dns()
         .map_err(|e| Error::P2p(e.into()))?
-        .with_behaviour(|k| behavior::P2PBehavior::new(k, enable_mdns, &topic))
+        .with_behaviour(|k| {
+            behavior::P2PBehavior::new(k, enable_mdns, &credited_topics, &penalty_only_topics)
+        })
         .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?
         .build();
 
@@ -117,12 +171,9 @@ pub async fn run(
     // Write-ability piggybacks on this same swarm: when message attestation is enabled we subscribe
     // to the message-vote topic too (same peers / discovery), and the dispatch in `handle_swarm`
     // routes frames by topic. `None` when disabled — no extra subscription, no behaviour change.
-    let mv_topic = shared.message_votes.is_some().then(|| {
-        let t = libp2p::gossipsub::IdentTopic::new(message_votes_topic(chain_key));
-        tracing::info!(topic = %t, "📫 subscribing to message-vote gossip");
-        t
-    });
+    // (The topic itself was built before the swarm so peer scoring covers it — see above.)
     if let Some(mv_topic) = &mv_topic {
+        tracing::info!(topic = %mv_topic, "📫 subscribing to message-vote gossip");
         swarm
             .behaviour_mut()
             .gossipsub
@@ -133,12 +184,8 @@ pub async fn run(
     // Reobservation requests (liveness recovery) ride the same swarm on their own topic. We only
     // *receive* these (relayers publish them); on a valid request we re-verify + re-sign. Subscribed
     // alongside the vote topic so message attestation is fully enabled or fully off.
-    let reobs_topic = shared.message_votes.is_some().then(|| {
-        let t = libp2p::gossipsub::IdentTopic::new(reobservation_topic(chain_key));
-        tracing::info!(topic = %t, "📫 subscribing to reobservation requests");
-        t
-    });
     if let Some(reobs_topic) = &reobs_topic {
+        tracing::info!(topic = %reobs_topic, "📫 subscribing to reobservation requests");
         swarm
             .behaviour_mut()
             .gossipsub
@@ -149,12 +196,8 @@ pub async fn run(
     // Attestor-set-update votes (P2-8) ride the same swarm on their own topic. We only *publish*
     // these (the proposer produces them; the relayer consumes them). Subscribing is required to
     // publish/propagate. Gated on message attestation like the topics above.
-    let set_update_topic = shared.message_votes.is_some().then(|| {
-        let t = libp2p::gossipsub::IdentTopic::new(attestor_set_update_topic(chain_key));
-        tracing::info!(topic = %t, "📫 subscribing to attestor-set-update gossip");
-        t
-    });
     if let Some(set_update_topic) = &set_update_topic {
+        tracing::info!(topic = %set_update_topic, "📫 subscribing to attestor-set-update gossip");
         swarm
             .behaviour_mut()
             .gossipsub
@@ -1168,6 +1211,11 @@ fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub:
 /// swarm loop must stay responsive, so we only decode + forward here (no RPC / signing). We Accept
 /// any well-formed request so it keeps propagating to other attestors — each re-verifies it
 /// independently — even if our own forward buffer is momentarily full.
+///
+/// Because this `Accept` precedes verification and [`ReobservationRequest`] is unsigned, the
+/// reobservation topic is registered in `penalty_only_topics` (see the topic split in [`run`]) so
+/// the Accept earns no P2 credit. Keep it there: crediting it would make well-formed requests naming
+/// arbitrary message ids a free source of peer score.
 fn handle_reobservation_request(
     shared: &Arc<Shared>,
     bytes: &[u8],
