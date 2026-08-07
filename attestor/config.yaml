@@ -70,3 +70,72 @@ attestation:
   #   overrides it.
   #
   # interval: 10
+
+write_ability:
+  # USC cross-chain message attestation. When enabled, the attestor watches the
+  # Creditcoin L1 Outbox for its chain_key and gossips ECDSA message votes on the
+  # existing p2p swarm (topic {chain_key}/message-votes/v1). It never relays.
+  #
+  # The Creditcoin L1 EVM RPC used to watch the Outbox is derived from the `cc3:`
+  # url above, and the Outbox is resolved entirely on-chain from chain_key
+  # (chain-info precompile -> OutboxFactory -> getOutbox). If no factory/Outbox is
+  # registered for this chain_key, write-ability stays disabled for the run (the
+  # rest of the attestor keeps running normally).
+  #
+  # `enabled` is the operator's opt-in; the on-chain WriteAbilityConfigs entry for
+  # this chain_key is governance's switch. When an entry exists it is authoritative:
+  # message_attestation_enabled == false keeps the task off regardless of this flag,
+  # and its bytes32 write-ability chain key overrides the locally derived one. No
+  # entry (or a failed read) falls back to this local config. Read at startup;
+  # on-chain changes are picked up on restart.
+  enabled: true
+
+  # Authorized message-vote signer EVM addresses (the static attestor set). The
+  # 2N/3+1 quorum is derived from its size. Each attestor logs its own derived
+  # signer address at startup. These defaults are the deterministic addresses of
+  # the first three zombienet attestors launched with `--well-known-keys`
+  # (//Alice, //Bob, //Charlie).
+  attestors:
+    - "0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC"  # zombie 0 (//Alice)
+    - "0x0aC32750Ed79f301248afD9B398cc5723911c392"  # zombie 1 (//Bob)
+    - "0x4910156288781F080d81c607E3a830a7019d9Bc6"  # zombie 2 (//Charlie)
+
+  # Optional: on-chain EOAValidator address. If set, takes precedence over the
+  # static `attestors` list above: the attestor reads the authorized set from
+  # `EOAValidator.attestors()` on the destination chain (the chain this attestor
+  # set attests, i.e. the `eth` url) — the same on-chain source of truth the Inbox
+  # uses. Keeps the set in lockstep with the validator without hand-maintaining it.
+  #
+  # validator_address: "0x..."
+
+  # Confirmation depth below the EVM tip before signing a MessagePublished log.
+  # Defaults to 3 (matches Creditcoin time-to-finality).
+  #
+  # block_confirmation_depth: 3
+
+  # Directory for durable write-ability state — the Outbox scan cursor, so a restart
+  # resumes where it left off instead of skipping messages published while down.
+  #
+  # Set here because the default is `/data` (the persistent volume the attestor
+  # StatefulSet mounts in k8s), which cannot be created off-cluster: an unprivileged
+  # local process gets "Read-only file system" at the filesystem root, and the boot
+  # deliberately fails loudly when the state dir is not writable. In production leave
+  # this unset so it uses the mounted volume.
+  #
+  # Note for multi-attestor local runs (launch-attestors.sh): the cursor file is named
+  # per chain key (`outbox-cursor-<chain_key>.json`), not per attestor, so instances
+  # sharing this directory share one cursor. Give each instance its own state_dir if you
+  # care about exact coverage. Sharing it cuts both ways, and the second direction is the
+  # one that matters:
+  #   - resuming from a *older* cursor re-signs a few messages — absorbed by vote dedup;
+  #   - resuming from a *newer* one (written by a faster peer) would skip messages.
+  # The listener bounds the second case by rewinding a resumed cursor by
+  # CURSOR_RESUME_LOOKBACK_BLOCKS before scanning, so a shared cursor re-scans that window
+  # instead of skipping it. Only a divergence wider than that lookback could still skip,
+  # which local runs do not reach. Production gives every attestor its own volume.
+  state_dir: ".attestor-state"
+
+  # Anti-abuse bounds.
+  #
+  # max_tracked_messages: 10000
+  # vote_ttl_secs: 3600

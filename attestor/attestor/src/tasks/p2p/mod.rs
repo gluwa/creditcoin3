@@ -12,15 +12,21 @@ pub mod behavior;
 pub mod protocols;
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use parity_scale_codec::{DecodeAll, Encode};
 use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
 use attestor_primitives::AttestorId;
+use write_ability::envelope::{MessageVote, ReobservationRequest, SetUpdateVote};
+use write_ability::protocol::{
+    attestor_set_update_topic, message_votes_topic, reobservation_topic,
+};
 
 use crate::error::Error;
 use crate::shared::Shared;
+use crate::tasks::write_ability::ingest;
 use crate::vote::{verify_vote, VerifyResult};
 
 /// Consecutive failed pings on a single connection before we reap it.
@@ -37,6 +43,13 @@ const MAX_DIAL_FAILURES: u32 = 5;
 /// [`run`]). Overflow drops the *oldest* entry — the height most likely to finalize without our
 /// broadcast anyway.
 const MAX_RETRY_QUEUE: usize = 256;
+
+/// Upper bound on an inbound attestor-set-update frame we'll relay. A `SetUpdateVote` is a bounded
+/// attestor set (≤ [`common::constants::MAX_ATTESTORS`] 20-byte addresses) plus one 65-byte
+/// signature, a chain id and a nonce, under SCALE framing — comfortably below this. Larger frames
+/// on that topic are not real votes; we `Ignore` them (no propagation, no peer penalty) instead of
+/// amplifying. Well under gossipsub's 64 KiB default transmit cap.
+const MAX_SET_UPDATE_FRAME_BYTES: usize = common::constants::MAX_ATTESTORS * 20 + 1024;
 
 /// How often queued unpublished votes are retried while the queue is non-empty. Retries also
 /// fire immediately when gossip publishing first becomes possible again (mesh regained).
@@ -61,6 +74,8 @@ pub async fn run(
     cfg: Config,
     mut gossip_rx: mpsc::UnboundedReceiver<Vote>,
     mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
+    mut mv_publish_rx: mpsc::Receiver<MessageVote>,
+    mut set_update_publish_rx: mpsc::Receiver<SetUpdateVote>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
 
@@ -70,6 +85,58 @@ pub async fn run(
     // Built before the swarm because the behavior needs the topic hash to install its
     // gossipsub peer-scoring topic parameters.
     let topic = libp2p::gossipsub::IdentTopic::new(format!("{chain_key}/attest"));
+
+    // The write-ability topics are built HERE too, for the same reason, even though they are subscribed
+    // further down. Gossipsub peer scoring is per-topic and can only be installed once, at behaviour
+    // construction: `PeerScoreParams::topics` is a map, and `mark_invalid_message_delivery` no-ops for a
+    // topic missing from it. A topic subscribed after scoring is installed is therefore *unscored*, which
+    // silently turns `report_message_validation_result(.., Reject)` on that topic into a no-op — the
+    // flooder pays nothing (audit finding). Building them up front lets the behaviour score every topic
+    // we will ever subscribe to. They depend only on `chain_key` and whether message attestation is
+    // enabled, both known here.
+    //
+    // Keep these in lockstep with the `subscribe` calls below: subscribing to a topic without adding it
+    // to `credited_topics` or `penalty_only_topics` reintroduces the finding.
+    let mv_topic = shared
+        .message_votes
+        .is_some()
+        .then(|| libp2p::gossipsub::IdentTopic::new(message_votes_topic(chain_key)));
+    let reobs_topic = shared
+        .message_votes
+        .is_some()
+        .then(|| libp2p::gossipsub::IdentTopic::new(reobservation_topic(chain_key)));
+    let set_update_topic = shared
+        .message_votes
+        .is_some()
+        .then(|| libp2p::gossipsub::IdentTopic::new(attestor_set_update_topic(chain_key)));
+
+    // Split by whether an `Accept` on the topic means the frame passed real validation. Per-topic scores
+    // are SUMMED into the single peer score the thresholds apply to, so positive credit on one topic
+    // offsets penalties on another. Two topics accept without validating and so earn no credit:
+    //
+    // * set-update — `handle_swarm` accepts (and propagates) any frame under a size bound without
+    //   decoding it at all.
+    // * reobservation — `handle_reobservation_request` returns `Accept` as soon as the frame decodes
+    //   and its `chain_key` matches. `ReobservationRequest` is four unsigned plain fields, so there is
+    //   nothing to forge: any peer can emit well-formed requests with random message ids. The RPC
+    //   verification happens later, in `run_reobservation_worker`, and its verdict never reaches
+    //   `report_message_validation_result`. (The per-source rate limiter bounds the farming rate,
+    //   since it runs before decode and returns `Ignore`, but not the principle.)
+    //
+    // Crediting either would let a peer farm P2 first-message-delivery score at zero cost up to the
+    // P2 cap, then spend that buffer absorbing P4 penalties earned on the topics that DO validate.
+    let credited_topics: Vec<&libp2p::gossipsub::IdentTopic> =
+        std::iter::once(&topic).chain(mv_topic.as_ref()).collect();
+    let penalty_only_topics: Vec<&libp2p::gossipsub::IdentTopic> = set_update_topic
+        .as_ref()
+        .into_iter()
+        .chain(reobs_topic.as_ref())
+        .collect();
+    tracing::debug!(
+        credited = credited_topics.len(),
+        penalty_only = penalty_only_topics.len(),
+        "🛡️ installing gossipsub peer-score params for every subscribed topic"
+    );
 
     let mut swarm = libp2p::SwarmBuilder::with_existing_identity(cfg.keypair)
         .with_tokio()
@@ -82,7 +149,9 @@ pub async fn run(
         .with_quic()
         .with_dns()
         .map_err(|e| Error::P2p(e.into()))?
-        .with_behaviour(|k| behavior::P2PBehavior::new(k, enable_mdns, &topic))
+        .with_behaviour(|k| {
+            behavior::P2PBehavior::new(k, enable_mdns, &credited_topics, &penalty_only_topics)
+        })
         .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?
         .build();
 
@@ -98,6 +167,44 @@ pub async fn run(
     // rather than dropped from the routing table.
     let mut boot_peers: std::collections::HashSet<libp2p::PeerId> =
         std::collections::HashSet::new();
+
+    // Write-ability piggybacks on this same swarm: when message attestation is enabled we subscribe
+    // to the message-vote topic too (same peers / discovery), and the dispatch in `handle_swarm`
+    // routes frames by topic. `None` when disabled — no extra subscription, no behaviour change.
+    // (The topic itself was built before the swarm so peer scoring covers it — see above.)
+    if let Some(mv_topic) = &mv_topic {
+        tracing::info!(topic = %mv_topic, "📫 subscribing to message-vote gossip");
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(mv_topic)
+            .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+    }
+
+    // Reobservation requests (liveness recovery) ride the same swarm on their own topic. We only
+    // *receive* these (relayers publish them); on a valid request we re-verify + re-sign. Subscribed
+    // alongside the vote topic so message attestation is fully enabled or fully off.
+    if let Some(reobs_topic) = &reobs_topic {
+        tracing::info!(topic = %reobs_topic, "📫 subscribing to reobservation requests");
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(reobs_topic)
+            .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+    }
+
+    // Attestor-set-update votes (P2-8) ride the same swarm on their own topic. We only *publish*
+    // these (the proposer produces them; the relayer consumes them). Subscribing is required to
+    // publish/propagate. Gated on message attestation like the topics above.
+    if let Some(set_update_topic) = &set_update_topic {
+        tracing::info!(topic = %set_update_topic, "📫 subscribing to attestor-set-update gossip");
+        swarm
+            .behaviour_mut()
+            .gossipsub
+            .subscribe(set_update_topic)
+            .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?;
+    }
+
     for address in cfg.boot_nodes {
         let Some(peer_id) = address.iter().find_map(|p| match p {
             libp2p::multiaddr::Protocol::P2p(pid) => Some(pid),
@@ -144,15 +251,21 @@ pub async fn run(
         .listen_on(listen_addr.clone())
         .map_err(|e| Error::P2p(e.into()))?;
 
-    // Mesh-visibility hint: "≥1 gossipsub mesh peer on the attest topic", recomputed after every
-    // swarm event. Used ONLY as the edge trigger for eagerly flushing the retry queue when the
-    // mesh (re)forms — never as a gate on publishing. Gating publishes on it wedged the node
-    // whenever the mesh regained peers without a swarm event (heartbeat GRAFTs, score recovery):
-    // the flag stayed false, both publish paths were short-circuited, and the node never even
-    // attempted to publish again. `try_publish`'s own error is the authoritative "no peers"
-    // signal (and with flood_publish, topic peers — not mesh membership — are what publishing
-    // actually needs).
+    // Mesh-visibility hints: "≥1 gossipsub mesh peer on <topic>", recomputed after every swarm
+    // event. Used ONLY as edge triggers for eagerly flushing the matching retry queue when that
+    // topic's mesh (re)forms — never as a gate on publishing. Gating publishes on a hint wedged
+    // the node whenever the mesh regained peers without a swarm event (heartbeat GRAFTs, score
+    // recovery): the flag stayed false, both publish paths were short-circuited, and the node
+    // never even attempted to publish again. `try_publish`'s own error is the authoritative "no
+    // peers" signal (and with flood_publish, topic peers — not mesh membership — are what
+    // publishing actually needs).
+    //
+    // One hint per topic: gossipsub meshes are independent per topic and form at different times,
+    // so keying the message-vote flush off the attest topic's mesh would fire it into a peerless
+    // mv mesh (harmless — stays queued) or miss the mv mesh forming first (flush deferred to the
+    // periodic retry tick).
     let mut can_broadcast = false;
+    let mut can_broadcast_mv = false;
 
     // Per-height pending buffer for incoming votes that arrived before our local production
     // reached that height. Drained when `shared.local_produced_rx` changes.
@@ -194,6 +307,9 @@ pub async fn run(
     // the on-chain attestor id is sr25519, so this binding cannot be derived — it must be learned.
     let mut peers_by_attestor: Vec<(AttestorId, libp2p::PeerId)> = Vec::new();
 
+    // Per-peer + global rate limit for inbound reobservation requests (audit P1-4).
+    let mut reobs_admission = ReobsAdmission::new(Instant::now());
+
     let mut local_produced_rx = shared.local_produced_rx.clone();
     let mut latest_finalized_rx = shared.latest_finalized_rx.clone();
 
@@ -203,6 +319,12 @@ pub async fn run(
     // votes produced while peerless were silently lost: the channel backed up until production
     // dropped fresh broadcasts, and publish failures discarded the vote outright.
     let mut retry_queue: std::collections::VecDeque<Vote> = std::collections::VecDeque::new();
+    // Same, for locally signed message votes: a vote produced while the message-votes mesh has no
+    // peers must not be lost — the relayer can only count votes it hears. Bounded like
+    // `retry_queue`; message votes need no finalized-height pruning (stale entries age out of the
+    // relayer's aggregation window harmlessly, and the cap evicts the oldest first).
+    let mut mv_retry_queue: std::collections::VecDeque<MessageVote> =
+        std::collections::VecDeque::new();
     let mut retry_tick = tokio::time::interval(RETRY_INTERVAL);
     retry_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -223,11 +345,14 @@ pub async fn run(
                 }
             }
 
-            // Periodic retry of unpublished votes. Unconditional attempt for the same reason as
-            // above; the flush stops at the first failure, so a peerless tick costs one publish
-            // call per 30s.
-            _ = retry_tick.tick(), if !retry_queue.is_empty() => {
+            // Periodic retry of unpublished votes (block attestation + message votes).
+            // Unconditional attempts (no mesh-hint gate — see `can_broadcast`); each flush stops
+            // at its first failure, so a peerless tick costs one publish call per queue per 30s.
+            _ = retry_tick.tick(), if !retry_queue.is_empty() || !mv_retry_queue.is_empty() => {
                 flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                if let Some(mv_topic) = &mv_topic {
+                    flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue);
+                }
             }
 
             // Local production cached new AttestationData → drain every buffered height up to
@@ -264,18 +389,43 @@ pub async fn run(
                 handle_peer_deactivated(&shared, &mut swarm, &peers_by_attestor, &attestor);
             }
 
+            // Outgoing — the write_ability task produced a signed message vote to gossip. A
+            // publish that fails (typically no mesh peers yet) is queued and retried, same as
+            // block-attestation votes: dropping it would silently cost the relayer our signature.
+            Some(vote) = mv_publish_rx.recv(), if mv_topic.is_some() => {
+                if let Some(mv_topic) = &mv_topic {
+                    if !try_publish_message_vote(&mut swarm, mv_topic, &vote) {
+                        queue_message_vote_for_retry(&mut mv_retry_queue, vote);
+                    }
+                }
+            }
+
+            // Outgoing — the proposer produced a signed attestor-set-update vote. Unlike message
+            // votes there is no retry queue: the proposer re-emits every poll while the set stays
+            // diverged, so a failed publish (e.g. no mesh peers yet) self-heals on the next cycle.
+            Some(vote) = set_update_publish_rx.recv(), if set_update_topic.is_some() => {
+                if let Some(set_update_topic) = &set_update_topic {
+                    try_publish_set_update_vote(&mut swarm, set_update_topic, &vote);
+                }
+            }
+
             // Incoming events from the swarm.
             event = swarm.select_next_some() => {
                 let could_broadcast = can_broadcast;
+                let could_broadcast_mv = can_broadcast_mv;
                 handle_swarm(
                     &shared,
                     &mut swarm,
+                    mv_topic.as_ref(),
+                    reobs_topic.as_ref(),
+                    set_update_topic.as_ref(),
                     &mut pending_votes,
                     MAX_PENDING_PER_HEIGHT,
                     &mut ping_failures,
                     &mut dial_failures,
                     &boot_peers,
                     &mut peers_by_attestor,
+                    &mut reobs_admission,
                     event,
                 ).await;
                 // Recompute the mesh hint after *every* event rather than inside selected event
@@ -287,10 +437,24 @@ pub async fn run(
                     .mesh_peers(&topic.hash())
                     .next()
                     .is_some();
-                // Mesh just (re)formed — flush queued votes immediately rather than waiting for
-                // the next retry tick.
+                can_broadcast_mv = mv_topic.as_ref().is_some_and(|t| {
+                    swarm
+                        .behaviour()
+                        .gossipsub
+                        .mesh_peers(&t.hash())
+                        .next()
+                        .is_some()
+                });
+                // A topic's mesh just (re)formed — flush that topic's queued votes immediately
+                // rather than waiting for the next retry tick. Each topic on its own edge: the
+                // meshes are independent, so one forming says nothing about the other.
                 if !could_broadcast && can_broadcast && !retry_queue.is_empty() {
                     flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                }
+                if !could_broadcast_mv && can_broadcast_mv {
+                    if let Some(mv_topic) = &mv_topic {
+                        flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue);
+                    }
                 }
             }
         }
@@ -332,16 +496,118 @@ fn drain_pending_votes(
     ready
 }
 
+// Reobservation-request admission control (audit P1-4). Reobservation is *unauthenticated* pull
+// traffic; without a cap a peer rotating unique message-ids/heights could make every attestor
+// re-fetch + re-propagate endlessly. Token-bucket rate-limit BOTH per relaying peer and globally
+// *before* forwarding/propagating, so an over-limit flood is dropped (Ignore) rather than amplified
+// across the mesh. Generous, since a legitimate relayer only asks when a message stalls.
+const REOBS_GLOBAL_CAPACITY: f64 = 20.0;
+const REOBS_GLOBAL_REFILL_PER_SEC: f64 = 5.0;
+const REOBS_PER_PEER_CAPACITY: f64 = 5.0;
+const REOBS_PER_PEER_REFILL_PER_SEC: f64 = 1.0;
+const REOBS_MAX_TRACKED_PEERS: usize = 1024;
+
+/// Monotonic-clock token bucket. Not thread-safe; the swarm loop owns it single-threaded.
+#[derive(Clone, Copy)]
+struct TokenBucket {
+    tokens: f64,
+    capacity: f64,
+    refill_per_sec: f64,
+    last: Instant,
+}
+
+impl TokenBucket {
+    fn new(capacity: f64, refill_per_sec: f64, now: Instant) -> Self {
+        Self {
+            tokens: capacity,
+            capacity,
+            refill_per_sec,
+            last: now,
+        }
+    }
+
+    /// Accrue tokens for the time elapsed since the last touch (capped at capacity). Callers
+    /// `refill` + [`has_token`](Self::has_token) several buckets and only [`take`](Self::take) once
+    /// they know all will succeed — so a denial doesn't consume a token from any bucket.
+    fn refill(&mut self, now: Instant) {
+        let elapsed = now.saturating_duration_since(self.last).as_secs_f64();
+        self.tokens = (self.tokens + elapsed * self.refill_per_sec).min(self.capacity);
+        self.last = now;
+    }
+
+    fn has_token(&self) -> bool {
+        self.tokens >= 1.0
+    }
+
+    /// Consume one token. Caller must have checked [`has_token`](Self::has_token) after a
+    /// [`refill`](Self::refill).
+    fn take(&mut self) {
+        self.tokens -= 1.0;
+    }
+}
+
+/// Global + per-peer reobservation admission. `admit` consumes a token from BOTH the per-peer and
+/// global buckets, but only when both have one — a denial charges neither. (A per-peer bucket keeps
+/// one peer from draining the global allowance; charging both atomically stops a global-pressure
+/// denial from burning an honest peer's local token and locking it out after capacity returns.)
+struct ReobsAdmission {
+    global: TokenBucket,
+    per_peer: std::collections::HashMap<libp2p::PeerId, TokenBucket>,
+    order: std::collections::VecDeque<libp2p::PeerId>,
+}
+
+impl ReobsAdmission {
+    fn new(now: Instant) -> Self {
+        Self {
+            global: TokenBucket::new(REOBS_GLOBAL_CAPACITY, REOBS_GLOBAL_REFILL_PER_SEC, now),
+            per_peer: std::collections::HashMap::new(),
+            order: std::collections::VecDeque::new(),
+        }
+    }
+
+    fn admit(&mut self, source: libp2p::PeerId, now: Instant) -> bool {
+        if !self.per_peer.contains_key(&source) {
+            while self.per_peer.len() >= REOBS_MAX_TRACKED_PEERS {
+                let Some(old) = self.order.pop_front() else {
+                    break;
+                };
+                self.per_peer.remove(&old);
+            }
+            self.per_peer.insert(
+                source,
+                TokenBucket::new(REOBS_PER_PEER_CAPACITY, REOBS_PER_PEER_REFILL_PER_SEC, now),
+            );
+            self.order.push_back(source);
+        }
+        // unwrap: just ensured the entry exists. Refill both, then consume from each only if BOTH
+        // have a token — so a global-pressure denial doesn't burn this peer's per-peer token.
+        let peer = self.per_peer.get_mut(&source).unwrap();
+        peer.refill(now);
+        self.global.refill(now);
+        if peer.has_token() && self.global.has_token() {
+            peer.take();
+            self.global.take();
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn handle_swarm(
     shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    mv_topic: Option<&libp2p::gossipsub::IdentTopic>,
+    reobs_topic: Option<&libp2p::gossipsub::IdentTopic>,
+    set_update_topic: Option<&libp2p::gossipsub::IdentTopic>,
     pending_votes: &mut PendingVotes,
     max_pending_per_height: usize,
     ping_failures: &mut std::collections::HashMap<libp2p::swarm::ConnectionId, u32>,
     dial_failures: &mut std::collections::HashMap<libp2p::PeerId, u32>,
     boot_peers: &std::collections::HashSet<libp2p::PeerId>,
     peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    reobs_admission: &mut ReobsAdmission,
     event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
 ) {
     use behavior::P2PBehaviorEvent;
@@ -427,31 +693,63 @@ async fn handle_swarm(
         })) => {
             shared.metrics.increase_gossipsub_message_count();
 
-            let (acceptance, learned) = handle_vote_msg(
-                shared,
-                pending_votes,
-                max_pending_per_height,
-                peers_by_attestor,
-                message.source,
-                &message.data,
-            )
-            .await;
+            // Route by topic: message votes / reobservation requests (write-ability) vs block
+            // attestations. All ride this one swarm; the write-ability topics are `Some` only when
+            // message attestation is enabled.
+            let is_message_vote = mv_topic.is_some_and(|t| message.topic == t.hash());
+            let is_reobs = reobs_topic.is_some_and(|t| message.topic == t.hash());
+            let is_set_update = set_update_topic.is_some_and(|t| message.topic == t.hash());
+            let decision = if is_message_vote {
+                handle_message_vote(shared, &message.data)
+            } else if is_reobs {
+                handle_reobservation_request(
+                    shared,
+                    &message.data,
+                    reobs_admission,
+                    propagation_source,
+                )
+            } else if is_set_update {
+                // We subscribe to the attestor-set-update topic only to publish our proposer's own
+                // votes and keep the mesh propagating them — attestors do NOT aggregate set-update
+                // votes (the relayer does). We can't decode to tell a legitimate vote from garbage,
+                // so we must not `Reject`: that would penalize honest relayers of real set-update
+                // votes (a prior bugbot fix). But `Accept`ing *everything* lets a peer amplify spam
+                // at no reputation cost. Resolve both by bounding size: a SetUpdateVote is a small
+                // SCALE blob (a bounded attestor set + one signature + chain id + nonce), so anything
+                // past `MAX_SET_UPDATE_FRAME_BYTES` is not a real vote — `Ignore` it (no propagation,
+                // no peer penalty). Legitimately-sized frames still `Accept` and relay (bugbot).
+                if message.data.len() > MAX_SET_UPDATE_FRAME_BYTES {
+                    libp2p::gossipsub::MessageAcceptance::Ignore
+                } else {
+                    libp2p::gossipsub::MessageAcceptance::Accept
+                }
+            } else {
+                let (acceptance, learned) = handle_vote_msg(
+                    shared,
+                    pending_votes,
+                    max_pending_per_height,
+                    peers_by_attestor,
+                    message.source,
+                    &message.data,
+                )
+                .await;
 
-            // Learn the attestor → peer id binding from the *original signer* of a BLS-verified
-            // vote (`message.source`, preserved across relays), not the relaying neighbour. Only
-            // recorded when the vote cryptographically verified as the attestor's, so the binding
-            // is trustworthy. This is what later lets us evict / deny that peer once its attestor
-            // is chilled.
-            if let (Some(attestor), Some(source)) = (learned, message.source) {
-                note_attestor_peer(peers_by_attestor, attestor, source);
-            }
+                // Learn the attestor → peer id binding from the *original signer* of a BLS-verified
+                // vote (`message.source`, preserved across relays), not the relaying neighbour. Only
+                // recorded when the vote cryptographically verified as the attestor's, so the binding
+                // is trustworthy. This is what later lets us evict / deny that peer once its attestor
+                // is chilled.
+                if let (Some(attestor), Some(source)) = (learned, message.source) {
+                    note_attestor_peer(peers_by_attestor, attestor, source);
+                }
 
-            let decision = match acceptance {
-                Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
-                Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
-                Acceptance::Reject => {
-                    shared.metrics.increase_invalid_gossipsub_count();
-                    libp2p::gossipsub::MessageAcceptance::Reject
+                match acceptance {
+                    Acceptance::Accept => libp2p::gossipsub::MessageAcceptance::Accept,
+                    Acceptance::Ignore => libp2p::gossipsub::MessageAcceptance::Ignore,
+                    Acceptance::Reject => {
+                        shared.metrics.increase_invalid_gossipsub_count();
+                        libp2p::gossipsub::MessageAcceptance::Reject
+                    }
                 }
             };
             swarm
@@ -594,6 +892,108 @@ fn try_publish(
             );
             false
         }
+    }
+}
+
+/// Publish one message vote to the message-votes topic. Returns `true` when the vote needs no
+/// further retry: either it was published, or gossipsub reports it a duplicate (already in the
+/// message cache from a previous successful publish). Any other failure returns `false` so the
+/// caller can queue the vote for retry.
+fn try_publish_message_vote(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    vote: &MessageVote,
+) -> bool {
+    match swarm
+        .behaviour_mut()
+        .gossipsub
+        .publish(topic.hash(), vote.encode_bytes())
+    {
+        Ok(_) => {
+            tracing::info!(chain_key = vote.chain_key, "✉️ gossiped message vote");
+            true
+        }
+        Err(libp2p::gossipsub::PublishError::Duplicate) => true,
+        Err(err) => {
+            tracing::warn!(
+                chain_key = vote.chain_key,
+                %err,
+                "✉️ message-vote publish failed — queueing for retry",
+            );
+            false
+        }
+    }
+}
+
+/// Publish an attestor-set-update vote. No retry queue — the proposer re-emits while the set stays
+/// diverged, so a transient publish failure (typically no mesh peers yet) is recovered next cycle.
+fn try_publish_set_update_vote(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    vote: &SetUpdateVote,
+) {
+    match swarm
+        .behaviour_mut()
+        .gossipsub
+        .publish(topic.hash(), vote.encode_bytes())
+    {
+        Ok(_) => {
+            tracing::info!(
+                chain_key = vote.chain_key,
+                attestors = vote.new_attestors.len(),
+                "🗳️ gossiped attestor-set-update vote"
+            );
+        }
+        Err(libp2p::gossipsub::PublishError::Duplicate) => {}
+        Err(err) => {
+            tracing::warn!(
+                chain_key = vote.chain_key,
+                %err,
+                "🗳️ attestor-set-update publish failed — proposer will re-emit next cycle",
+            );
+        }
+    }
+}
+
+/// Append a message vote to its bounded retry queue, dropping the oldest entry on overflow (the
+/// one whose aggregation window is closest to expiring anyway).
+fn queue_message_vote_for_retry(
+    mv_retry_queue: &mut std::collections::VecDeque<MessageVote>,
+    vote: MessageVote,
+) {
+    if mv_retry_queue.len() >= MAX_RETRY_QUEUE {
+        if let Some(dropped) = mv_retry_queue.pop_front() {
+            tracing::warn!(
+                chain_key = dropped.chain_key,
+                cap = MAX_RETRY_QUEUE,
+                "🗑️ message-vote retry queue full — dropping oldest unpublished vote"
+            );
+        }
+    }
+    mv_retry_queue.push_back(vote);
+}
+
+/// Republish queued message votes in order (oldest first) until one fails, which usually means
+/// the mesh went away again — the remainder stays queued for the next trigger.
+fn flush_mv_retry_queue(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    topic: &libp2p::gossipsub::IdentTopic,
+    mv_retry_queue: &mut std::collections::VecDeque<MessageVote>,
+) {
+    let backlog = mv_retry_queue.len();
+    while let Some(vote) = mv_retry_queue.front() {
+        if try_publish_message_vote(swarm, topic, vote) {
+            mv_retry_queue.pop_front();
+        } else {
+            break;
+        }
+    }
+    if mv_retry_queue.len() < backlog {
+        tracing::info!(
+            published = backlog - mv_retry_queue.len(),
+            remaining = mv_retry_queue.len(),
+            "📤 flushed unpublished message-vote backlog"
+        );
     }
 }
 
@@ -774,6 +1174,80 @@ enum Acceptance {
     Accept,
     Ignore,
     Reject,
+}
+
+/// Validate + count an incoming message vote (write-ability), mapping the result to a gossipsub
+/// acceptance. Delegates the real work to [`ingest::validate_and_count`]; we only translate the
+/// decision and surface a reached-threshold milestone.
+fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub::MessageAcceptance {
+    use libp2p::gossipsub::MessageAcceptance;
+    let Some(state) = &shared.message_votes else {
+        // Topic isn't subscribed when disabled, so this is unreachable in practice.
+        return MessageAcceptance::Ignore;
+    };
+    match ingest::validate_and_count(state, shared.chain_key, bytes) {
+        ingest::Acceptance::Accept {
+            reached_threshold,
+            message_hash,
+        } => {
+            shared.metrics.note_message_vote();
+            if reached_threshold {
+                ingest::note_threshold(shared.chain_key, &message_hash);
+            }
+            MessageAcceptance::Accept
+        }
+        ingest::Acceptance::Ignore => MessageAcceptance::Ignore,
+        ingest::Acceptance::Reject => {
+            shared.metrics.increase_invalid_gossipsub_count();
+            MessageAcceptance::Reject
+        }
+    }
+}
+
+/// Decode a reobservation request and hand it to the write-ability task to verify + re-sign. The
+/// swarm loop must stay responsive, so we only decode + forward here (no RPC / signing). We Accept
+/// any well-formed request so it keeps propagating to other attestors — each re-verifies it
+/// independently — even if our own forward buffer is momentarily full.
+///
+/// Because this `Accept` precedes verification and [`ReobservationRequest`] is unsigned, the
+/// reobservation topic is registered in `penalty_only_topics` (see the topic split in [`run`]) so
+/// the Accept earns no P2 credit. Keep it there: crediting it would make well-formed requests naming
+/// arbitrary message ids a free source of peer score.
+fn handle_reobservation_request(
+    shared: &Arc<Shared>,
+    bytes: &[u8],
+    admission: &mut ReobsAdmission,
+    source: libp2p::PeerId,
+) -> libp2p::gossipsub::MessageAcceptance {
+    use libp2p::gossipsub::MessageAcceptance;
+    let Some(state) = &shared.message_votes else {
+        return MessageAcceptance::Ignore;
+    };
+    // Rate-limit before doing (or propagating) any work: an over-limit reobservation flood is
+    // dropped with `Ignore` so it is not amplified across the mesh (audit P1-4).
+    if !admission.admit(source, Instant::now()) {
+        tracing::debug!(%source, "🚦 reobservation rate limit exceeded — dropping, not propagating");
+        return MessageAcceptance::Ignore;
+    }
+    let request = match ReobservationRequest::decode_bytes(bytes) {
+        Ok(r) => r,
+        Err(err) => {
+            tracing::warn!(%err, "⛔ failed to decode reobservation request");
+            shared.metrics.increase_invalid_gossipsub_count();
+            return MessageAcceptance::Reject;
+        }
+    };
+    if request.chain_key != shared.chain_key {
+        return MessageAcceptance::Ignore;
+    }
+    match state.reobs_tx.try_send(request) {
+        Ok(()) => MessageAcceptance::Accept,
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            tracing::warn!("reobservation queue full — dropping locally but still propagating");
+            MessageAcceptance::Accept
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => MessageAcceptance::Ignore,
+    }
 }
 
 async fn handle_vote_msg(
@@ -1071,8 +1545,29 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
 
 #[cfg(test)]
 mod tests {
-    use super::{deny_decision, drain_pending_votes, is_bufferable, PendingVotes};
+    use super::{
+        deny_decision, drain_pending_votes, is_bufferable, PendingVotes, ReobsAdmission,
+        REOBS_PER_PEER_CAPACITY,
+    };
     use attestor_primitives::AttestorId;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn reobs_admission_enforces_per_peer_and_refills() {
+        let t0 = Instant::now();
+        let mut a = ReobsAdmission::new(t0);
+        let p = libp2p::PeerId::random();
+        // Per-peer capacity is exhausted, then denied at the same instant…
+        for i in 0..REOBS_PER_PEER_CAPACITY as usize {
+            assert!(a.admit(p, t0), "request {i} within per-peer capacity");
+        }
+        assert!(!a.admit(p, t0), "over per-peer capacity");
+        // …a different peer has its own bucket (shares only the global allowance)…
+        let q = libp2p::PeerId::random();
+        assert!(a.admit(q, t0));
+        // …and the per-peer bucket refills over time (1 token/sec).
+        assert!(a.admit(p, t0 + Duration::from_secs(1)));
+    }
 
     fn att(n: u8) -> AttestorId {
         AttestorId::from_public([n; 32])

@@ -1,0 +1,18 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+name = "write-ability"
+publish.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+alloy = { workspace = true, features = ["full"] }
+parity-scale-codec = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }

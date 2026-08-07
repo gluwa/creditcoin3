@@ -24,6 +24,38 @@ pub struct SupportedChain {
     pub maturity_strategy: String,
 }
 
+/// Per-chain USC write-ability metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode, TypeInfo)]
+pub struct WriteAbilityConfig {
+    /// The destination-chain identifier (`bytes32`) used in the cross-chain `messageHash` and to
+    /// resolve the Outbox via `IOutboxFactory.getOutbox(bytes32)`.
+    pub write_ability_chain_key: [u8; 32],
+    /// Whether attestors should produce message-attestation votes for this chain.
+    pub message_attestation_enabled: bool,
+}
+
+/// Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
+/// `publishMessage`. Governance-set (operators/root) and read live by the EVM through the
+/// chain-info precompile, so changes take effect on the next publish without redeploys.
+///
+/// The denomination is part of the config rather than hardcoded: v1 launches with the fee in
+/// native CTC (`token: None`, paid via `msg.value`), and the planned switch to attestcoin is a
+/// single governance update (`token: Some(erc20)`, pulled via `transferFrom`) — no migration, no
+/// Outbox redeploy, no precompile change.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Encode, Decode, TypeInfo)]
+pub struct CoreFeeConfig {
+    /// Fee amount in attestcoin wei.
+    ///
+    /// The core fee is **always denominated in attestcoin** — the Outbox pulls it with
+    /// `transferFrom` on its configured ATTEST token and has no native-currency (`msg.value`) path
+    /// at all. There is deliberately no token field: a configurable one could only ever disagree
+    /// with what the Outbox actually charges, and the contracts read this value through
+    /// `IFeeRegistry`/`ICoreFeeProvider`, which is amount-only by design.
+    ///
+    /// Zero disables the fee while keeping the entry (equivalent to no entry at all).
+    pub amount: sp_core::U256,
+}
+
 // Maturity strategy enum used for robustness in attestors
 #[derive(Debug, Clone)]
 pub enum MaturityStrategy {

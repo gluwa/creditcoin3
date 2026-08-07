@@ -1,7 +1,13 @@
 import { SubstrateProject, SubstrateRuntimeDatasource } from '@subql/types';
 import { FrontierEvmDatasource } from '@subql/frontier-evm-processor';
 
-import { blockProverDatasource, attestationDatasources, genesisDatasource } from './datasources';
+import {
+    blockProverDatasource,
+    attestationDatasources,
+    genesisDatasource,
+    outboxDiscoveryDatasource,
+    outboxMessagesDatasource,
+} from './datasources';
 
 import * as dotenv from 'dotenv';
 import path from 'path';
@@ -18,6 +24,10 @@ const dataSources: (FrontierEvmDatasource | SubstrateRuntimeDatasource)[] = [];
 dataSources.push(attestationDatasources);
 dataSources.push(blockProverDatasource);
 dataSources.push(genesisDatasource);
+// USC write-ability: chain-wide topic watches; every event is authorized per-event in its handler
+// (no dynamic datasources — see datasources.ts).
+dataSources.push(outboxDiscoveryDatasource);
+dataSources.push(outboxMessagesDatasource);
 
 // Can expand the Datasource processor types via the genreic param
 const project: SubstrateProject<FrontierEvmDatasource> = {

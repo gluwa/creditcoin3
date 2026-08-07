@@ -248,6 +248,7 @@ try-runtime = [
     "pallet-offences/try-runtime",
     "pallet-proxy/try-runtime",
     "pallet-randomness/try-runtime",
+    "pallet-supported-chains/try-runtime",
     "pallet-session/try-runtime",
     "pallet-staking/try-runtime",
     "pallet-sudo/try-runtime",

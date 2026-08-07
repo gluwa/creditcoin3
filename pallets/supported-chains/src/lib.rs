@@ -13,6 +13,7 @@ mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod migrations;
 pub mod weights;
 
 #[frame_support::pallet]
@@ -21,21 +22,23 @@ pub mod pallet {
     pub use attestor_primitives::ChainId;
     use attestor_primitives::{ChainEncodingVersion, ChainKey};
     use frame_support::{
+        dispatch::DispatchResult,
         pallet_prelude::*,
         traits::{BuildGenesisConfig, ConstU64},
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::string::String;
+    use sp_core::H160;
     use sp_std::vec::Vec;
     use supported_chains_primitives::{
         chain_removal_listener::ChainRemovalListener,
         provider::{OnRegisterChainProvider as OnChainRegisteredProvider, SupportedChainsProvider},
-        SupportedChain,
+        CoreFeeConfig, SupportedChain, WriteAbilityConfig,
     };
 
     /// The in-code storage version.
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -72,6 +75,9 @@ pub mod pallet {
     pub trait WeightInfo {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
+        fn set_outbox_factory_addr() -> Weight;
+        fn set_write_ability_config() -> Weight;
+        fn set_core_fee() -> Weight;
     }
 
     #[pallet::storage]
@@ -101,10 +107,48 @@ pub mod pallet {
     #[pallet::getter(fn chain_key_value)]
     pub type ChainKeyValue<T> = StorageValue<_, ChainKey, ValueQuery, ConstU64<GENESIS_CHAIN_KEY>>;
 
+    #[pallet::storage]
+    #[pallet::getter(fn outbox_factory_address)]
+    pub type OutboxFactories<T> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = ChainKey,
+        Value = H160,
+        QueryKind = OptionQuery,
+    >;
+
+    /// Per-chain USC write-ability metadata
+    #[pallet::storage]
+    #[pallet::getter(fn write_ability_config)]
+    pub type WriteAbilityConfigs<T> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = ChainKey,
+        Value = WriteAbilityConfig,
+        QueryKind = OptionQuery,
+    >;
+
+    /// Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
+    /// `publishMessage`. Read live by the EVM through the chain-info precompile
+    /// (`get_core_fee(uint32)`), so a governance change takes effect on the next publish with no
+    /// contract redeploys. No entry (or a zero amount) means no fee is charged.
+    #[pallet::storage]
+    #[pallet::getter(fn core_fee)]
+    pub type CoreFees<T> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = ChainKey,
+        Value = CoreFeeConfig,
+        QueryKind = OptionQuery,
+    >;
+
     #[pallet::genesis_config]
     #[derive(frame_support::DefaultNoBound)]
     pub struct GenesisConfig<T> {
         pub supported_chains: Vec<(ChainId, Vec<u8>, ChainEncodingVersion, String)>,
+        /// Optional per-chain write-ability seeds: `(chain_key, write_ability_chain_key, enabled)`.
+        /// Chain keys are assigned in `supported_chains` order starting at `GENESIS_CHAIN_KEY`.
+        pub write_ability_configs: Vec<(ChainKey, [u8; 32], bool)>,
+        /// Optional per-chain Outbox Factory address seeds: `(chain_key, address)`.
+        /// Chain keys are assigned in `supported_chains` order starting at `GENESIS_CHAIN_KEY`.
+        pub outbox_factories: Vec<(ChainKey, H160)>,
         pub _phantom: PhantomData<T>,
     }
 
@@ -133,6 +177,34 @@ pub mod pallet {
                     .expect("Error incrementing index");
             }
             ChainKeyValue::<T>::put(chain_key);
+
+            for (chain_key, write_ability_chain_key, message_attestation_enabled) in
+                &self.write_ability_configs
+            {
+                // Mirror the `set_write_ability_config` guard: a zero key would break messageHash
+                // binding and Outbox resolution, so a chainspec must not seed one either.
+                assert!(
+                    *write_ability_chain_key != [0u8; 32],
+                    "Genesis write_ability_configs has a zero write_ability_chain_key for chain_key {chain_key:?}"
+                );
+                WriteAbilityConfigs::<T>::insert(
+                    chain_key,
+                    WriteAbilityConfig {
+                        write_ability_chain_key: *write_ability_chain_key,
+                        message_attestation_enabled: *message_attestation_enabled,
+                    },
+                );
+            }
+
+            for (chain_key, outbox_factory_addr) in &self.outbox_factories {
+                // Mirror the `set_outbox_factory_addr` guard: a zero factory reads as "unregistered"
+                // to the attestor/relayer, so a chainspec must not seed one.
+                assert!(
+                    !outbox_factory_addr.is_zero(),
+                    "Genesis outbox_factories has a zero address for chain_key {chain_key:?}"
+                );
+                OutboxFactories::<T>::insert(chain_key, *outbox_factory_addr);
+            }
         }
     }
 
@@ -156,6 +228,28 @@ pub mod pallet {
             chain_encoding: ChainEncodingVersion,
             maturity_strategy: String,
         },
+
+        /// The outbox factory for a supported chain has been registered.
+        /// This signals to attestors that they can fetch the outbox
+        /// address and begin listening for writability messages.
+        OutboxFactoryRegistered {
+            chain_key: ChainKey,
+            outbox_factory_addr: H160,
+        },
+
+        /// The USC write-ability config for a supported chain has been set.
+        WriteAbilityConfigSet {
+            chain_key: ChainKey,
+            write_ability_chain_key: [u8; 32],
+            message_attestation_enabled: bool,
+        },
+
+        /// The USC write-ability core (protocol) fee for a supported chain has been set.
+        /// `amount` is attestcoin wei; a zero `amount` disables the fee.
+        CoreFeeSet {
+            chain_key: ChainKey,
+            amount: sp_core::U256,
+        },
     }
 
     #[pallet::error]
@@ -171,6 +265,15 @@ pub mod pallet {
 
         /// Maturity strategy doesn't match one in the expected set
         InvalidMaturityStrategy,
+
+        /// The Outbox Factory address is the zero address. A zero factory cannot be resolved by the
+        /// attestor/relayer (it reads as "not registered"), so setting it via the operator path is
+        /// rejected to fail loudly instead of silently disabling write-ability for the chain.
+        ZeroOutboxFactoryAddress,
+
+        /// The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
+        /// zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
+        ZeroWriteAbilityChainKey,
     }
 
     #[pallet::call]
@@ -273,6 +376,12 @@ pub mod pallet {
 
             ChainIdAndNameToUniqKey::<T>::remove(item.chain_id, item.chain_name.clone());
 
+            OutboxFactories::<T>::remove(chain_key);
+
+            WriteAbilityConfigs::<T>::remove(chain_key);
+
+            CoreFees::<T>::remove(chain_key);
+
             SupportedChains::<T>::remove(chain_key);
 
             // Notify event listeners
@@ -285,6 +394,105 @@ pub mod pallet {
                 chain_encoding: item.chain_encoding,
                 maturity_strategy: item.maturity_strategy,
             });
+
+            Ok(())
+        }
+
+        /// Registers the outbox factory contract address for a supported chain. Only accounts in
+        /// the Operators membership (or root) can call this extrinsic.
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::WeightInfo::set_outbox_factory_addr())]
+        pub fn set_outbox_factory_addr(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            address: H160,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                SupportedChains::<T>::contains_key(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+            ensure!(
+                address != H160::zero(),
+                Error::<T>::ZeroOutboxFactoryAddress
+            );
+
+            OutboxFactories::<T>::insert(chain_key, address);
+
+            Self::deposit_event(Event::OutboxFactoryRegistered {
+                chain_key,
+                outbox_factory_addr: address,
+            });
+
+            Ok(())
+        }
+
+        /// Sets the USC write-ability config for a supported chain. Only accounts in the Operators
+        /// membership (or root) can call this extrinsic.
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::WeightInfo::set_write_ability_config())]
+        pub fn set_write_ability_config(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            write_ability_chain_key: [u8; 32],
+            message_attestation_enabled: bool,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                SupportedChains::<T>::contains_key(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+            ensure!(
+                write_ability_chain_key != [0u8; 32],
+                Error::<T>::ZeroWriteAbilityChainKey
+            );
+
+            WriteAbilityConfigs::<T>::insert(
+                chain_key,
+                WriteAbilityConfig {
+                    write_ability_chain_key,
+                    message_attestation_enabled,
+                },
+            );
+
+            Self::deposit_event(Event::WriteAbilityConfigSet {
+                chain_key,
+                write_ability_chain_key,
+                message_attestation_enabled,
+            });
+
+            Ok(())
+        }
+
+        /// Sets the USC write-ability core (protocol) fee for a supported chain, charged by that
+        /// chain's Outbox on every `publishMessage`. `token: None` denominates the fee in native
+        /// CTC (paid via `msg.value`); `Some(address)` in an ERC20 on Creditcoin's EVM
+        /// (attestcoin, pulled via `transferFrom`). A zero `amount` disables the fee. Only
+        /// accounts in the Operators membership (or root) can call this extrinsic.
+        ///
+        /// The value is read live by the EVM through the chain-info precompile
+        /// (`get_core_fee(uint32)`), so changes take effect on the next publish without any
+        /// contract redeploys. `amount` is attestcoin wei — see [`CoreFeeConfig`] for why the
+        /// denomination is not configurable.
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::WeightInfo::set_core_fee())]
+        pub fn set_core_fee(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            amount: sp_core::U256,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                SupportedChains::<T>::contains_key(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            CoreFees::<T>::insert(chain_key, CoreFeeConfig { amount });
+
+            Self::deposit_event(Event::CoreFeeSet { chain_key, amount });
 
             Ok(())
         }
@@ -310,6 +518,18 @@ pub mod pallet {
 
         fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain> {
             SupportedChains::<T>::get(chain_key)
+        }
+
+        fn get_write_ability_config(chain_key: ChainKey) -> Option<WriteAbilityConfig> {
+            WriteAbilityConfigs::<T>::get(chain_key)
+        }
+
+        fn get_outbox_factory_address(chain_key: ChainKey) -> Option<H160> {
+            OutboxFactories::<T>::get(chain_key)
+        }
+
+        fn get_core_fee(chain_key: ChainKey) -> Option<CoreFeeConfig> {
+            CoreFees::<T>::get(chain_key)
         }
     }
 }

@@ -912,6 +912,7 @@ export default {
             },
             AttestorActivated: '(u64,AccountId32,[u8;48])',
             AttestorChilled: '(u64,AccountId32)',
+            AttestorEvmAddressRegistered: '(u64,AccountId32,H160)',
             AttestorsElected: {
                 epoch: 'u64',
                 chainKey: 'u64',
@@ -977,6 +978,19 @@ export default {
                 chainName: 'Bytes',
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
                 maturityStrategy: 'Text',
+            },
+            OutboxFactoryRegistered: {
+                chainKey: 'u64',
+                outboxFactoryAddr: 'H160',
+            },
+            WriteAbilityConfigSet: {
+                chainKey: 'u64',
+                writeAbilityChainKey: '[u8;32]',
+                messageAttestationEnabled: 'bool',
+            },
+            CoreFeeSet: {
+                chainKey: 'u64',
+                amount: 'U256',
             },
         },
     },
@@ -2642,6 +2656,11 @@ export default {
                 wipeSuffix: 'bool',
                 checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
             },
+            set_attestor_evm_address: {
+                chainKey: 'u64',
+                evmAddress: 'H160',
+                proof: '[u8;65]',
+            },
         },
     },
     /**
@@ -2690,6 +2709,19 @@ export default {
             remove_chain: {
                 chainKey: 'u64',
                 removeCheckpoints: 'bool',
+            },
+            set_outbox_factory_addr: {
+                chainKey: 'u64',
+                address: 'H160',
+            },
+            set_write_ability_config: {
+                chainKey: 'u64',
+                writeAbilityChainKey: '[u8;32]',
+                messageAttestationEnabled: 'bool',
+            },
+            set_core_fee: {
+                chainKey: 'u64',
+                amount: 'U256',
             },
         },
     },
@@ -3096,7 +3128,7 @@ export default {
         stash: 'AccountId32',
     },
     /**
-     * Lookup415: pallet_attestation::ledger::AttestorLedger<T>
+     * Lookup416: pallet_attestation::ledger::AttestorLedger<T>
      **/
     PalletAttestationLedgerAttestorLedger: {
         stash: 'AccountId32',
@@ -3105,21 +3137,21 @@ export default {
         unlocking: 'Vec<PalletAttestationLedgerUnlockChunk>',
     },
     /**
-     * Lookup417: pallet_attestation::ledger::UnlockChunk<Balance>
+     * Lookup418: pallet_attestation::ledger::UnlockChunk<Balance>
      **/
     PalletAttestationLedgerUnlockChunk: {
         value: 'Compact<u128>',
         era: 'Compact<u32>',
     },
     /**
-     * Lookup419: pallet_attestation::clear_or_revert::CheckpointPruningState
+     * Lookup420: pallet_attestation::clear_or_revert::CheckpointPruningState
      **/
     PalletAttestationClearOrRevertCheckpointPruningState: {
         stopHeight: 'u64',
         nextPivot: 'u64',
     },
     /**
-     * Lookup420: pallet_attestation::pallet::Error<T>
+     * Lookup421: pallet_attestation::pallet::Error<T>
      **/
     PalletAttestationError: {
         _enum: [
@@ -3163,6 +3195,9 @@ export default {
             'AttestorWithInvalidPublicKey',
             'MajorityNotReached',
             'BlsKeyAlreadyRegistered',
+            'InvalidEvmProofOfPossession',
+            'EvmAddressAlreadyRegistered',
+            'ZeroEvmAddress',
             'InsufficientUniqueSigners',
             'RetiredAttestorPendingFull',
             'AttestorAlreadyAuthorized',
@@ -3192,7 +3227,7 @@ export default {
         ],
     },
     /**
-     * Lookup421: supported_chains_primitives::SupportedChain
+     * Lookup422: supported_chains_primitives::SupportedChain
      **/
     SupportedChainsPrimitivesSupportedChain: {
         chainId: 'u64',
@@ -3201,67 +3236,87 @@ export default {
         maturityStrategy: 'Text',
     },
     /**
-     * Lookup423: pallet_supported_chains::pallet::Error<T>
+     * Lookup424: supported_chains_primitives::WriteAbilityConfig
      **/
-    PalletSupportedChainsError: {
-        _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
+    SupportedChainsPrimitivesWriteAbilityConfig: {
+        writeAbilityChainKey: '[u8;32]',
+        messageAttestationEnabled: 'bool',
     },
     /**
-     * Lookup428: pallet_randomness::pallet::Error<T>
+     * Lookup425: supported_chains_primitives::CoreFeeConfig
+     **/
+    SupportedChainsPrimitivesCoreFeeConfig: {
+        amount: 'U256',
+    },
+    /**
+     * Lookup426: pallet_supported_chains::pallet::Error<T>
+     **/
+    PalletSupportedChainsError: {
+        _enum: [
+            'ChainAlreadyRegistered',
+            'ChainNotSupported',
+            'Arithmetic',
+            'InvalidMaturityStrategy',
+            'ZeroOutboxFactoryAddress',
+            'ZeroWriteAbilityChainKey',
+        ],
+    },
+    /**
+     * Lookup431: pallet_randomness::pallet::Error<T>
      **/
     PalletRandomnessError: 'Null',
     /**
-     * Lookup430: pallet_membership::pallet::Error<T, I>
+     * Lookup433: pallet_membership::pallet::Error<T, I>
      **/
     PalletMembershipError: {
         _enum: ['AlreadyMember', 'NotMember', 'TooManyMembers'],
     },
     /**
-     * Lookup433: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
+     * Lookup436: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>
      **/
     FrameSystemExtensionsCheckNonZeroSender: 'Null',
     /**
-     * Lookup434: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
+     * Lookup437: frame_system::extensions::check_spec_version::CheckSpecVersion<T>
      **/
     FrameSystemExtensionsCheckSpecVersion: 'Null',
     /**
-     * Lookup435: frame_system::extensions::check_tx_version::CheckTxVersion<T>
+     * Lookup438: frame_system::extensions::check_tx_version::CheckTxVersion<T>
      **/
     FrameSystemExtensionsCheckTxVersion: 'Null',
     /**
-     * Lookup436: frame_system::extensions::check_genesis::CheckGenesis<T>
+     * Lookup439: frame_system::extensions::check_genesis::CheckGenesis<T>
      **/
     FrameSystemExtensionsCheckGenesis: 'Null',
     /**
-     * Lookup439: frame_system::extensions::check_nonce::CheckNonce<T>
+     * Lookup442: frame_system::extensions::check_nonce::CheckNonce<T>
      **/
     FrameSystemExtensionsCheckNonce: 'Compact<u32>',
     /**
-     * Lookup440: frame_system::extensions::check_weight::CheckWeight<T>
+     * Lookup443: frame_system::extensions::check_weight::CheckWeight<T>
      **/
     FrameSystemExtensionsCheckWeight: 'Null',
     /**
-     * Lookup441: pallet_transaction_payment::ChargeTransactionPayment<T>
+     * Lookup444: pallet_transaction_payment::ChargeTransactionPayment<T>
      **/
     PalletTransactionPaymentChargeTransactionPayment: 'Compact<u128>',
     /**
-     * Lookup442: frame_metadata_hash_extension::CheckMetadataHash<T>
+     * Lookup445: frame_metadata_hash_extension::CheckMetadataHash<T>
      **/
     FrameMetadataHashExtensionCheckMetadataHash: {
         mode: 'FrameMetadataHashExtensionMode',
     },
     /**
-     * Lookup443: frame_metadata_hash_extension::Mode
+     * Lookup446: frame_metadata_hash_extension::Mode
      **/
     FrameMetadataHashExtensionMode: {
         _enum: ['Disabled', 'Enabled'],
     },
     /**
-     * Lookup444: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
+     * Lookup447: pallet_attestation::extensions::PrevalidateAttestationCommit<T>
      **/
     PalletAttestationExtensionsPrevalidateAttestationCommit: 'Null',
     /**
-     * Lookup446: creditcoin3_runtime::Runtime
+     * Lookup449: creditcoin3_runtime::Runtime
      **/
     Creditcoin3RuntimeRuntime: 'Null',
 };

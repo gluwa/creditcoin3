@@ -235,6 +235,29 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
             >;
+            /**
+             * Register (or rotate) the caller's write-ability message-vote signing address for a chain.
+             *
+             * Opt-in: only attestors participating in USC write-ability need call this. The caller is
+             * the **attestor** account (the one that holds the seed the EVM key is derived from, same
+             * account that calls [`attest`](Self::attest)). Because the EVM address is secret-derived —
+             * peers cannot compute it from public data — the attestor proves possession: `proof` is a
+             * 65-byte `(r, s, v)` secp256k1 signature over the domain-separated digest
+             * `keccak256(DOMAIN ‖ chain_key ‖ attestor_account)`. We `ecrecover` it and require the
+             * recovered address to equal `evm_address`, which simultaneously proves key ownership and
+             * binds the address to this attestor + chain (so it cannot be replayed to claim the address
+             * under another identity or chain). Rejected if another attestor on this chain already
+             * holds `evm_address` (mirrors BLS-key uniqueness). The registered address is what the
+             * destination `EOAValidator` attestor set is built from.
+             **/
+            setAttestorEvmAddress: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    evmAddress: H160 | string | Uint8Array,
+                    proof: U8aFixed | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, H160, U8aFixed]
+            >;
             setChainAttestationInterval: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -3249,6 +3272,48 @@ declare module '@polkadot/api-base/types/submittable' {
                     removeCheckpoints: bool | boolean | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, bool]
+            >;
+            /**
+             * Sets the USC write-ability core (protocol) fee for a supported chain, charged by that
+             * chain's Outbox on every `publishMessage`. `token: None` denominates the fee in native
+             * CTC (paid via `msg.value`); `Some(address)` in an ERC20 on Creditcoin's EVM
+             * (attestcoin, pulled via `transferFrom`). A zero `amount` disables the fee. Only
+             * accounts in the Operators membership (or root) can call this extrinsic.
+             *
+             * The value is read live by the EVM through the chain-info precompile
+             * (`get_core_fee(uint32)`), so changes take effect on the next publish without any
+             * contract redeploys. `amount` is attestcoin wei — see [`CoreFeeConfig`] for why the
+             * denomination is not configurable.
+             **/
+            setCoreFee: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    amount: U256 | AnyNumber | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, U256]
+            >;
+            /**
+             * Registers the outbox factory contract address for a supported chain. Only accounts in
+             * the Operators membership (or root) can call this extrinsic.
+             **/
+            setOutboxFactoryAddr: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    address: H160 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, H160]
+            >;
+            /**
+             * Sets the USC write-ability config for a supported chain. Only accounts in the Operators
+             * membership (or root) can call this extrinsic.
+             **/
+            setWriteAbilityConfig: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    writeAbilityChainKey: U8aFixed | string | Uint8Array,
+                    messageAttestationEnabled: bool | boolean | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, U8aFixed, bool]
             >;
             /**
              * Generic tx
