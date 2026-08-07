@@ -55,9 +55,18 @@ console.log("minted+approved", ethers.formatEther(total), "ATTEST");
 const quoter = new ethers.Contract(s.quoter,
   ["function priceUpdate(uint64,uint16,(uint256,uint256,uint256,uint256,uint16))"], payer);
 const twap = new ethers.Contract(s.twapReader, ["function update(uint256)"], payer);
-await (await twap.update(ethers.parseEther("1"))).wait();
-await (await quoter.priceUpdate(10_000_000_000n, s.chainKey, [0n, 1n, 10_000_000_000n, 10_000_000_000n, 0])).wait();
-console.log("refreshed TWAP + quoter price");
+try {
+  await (await twap.update(ethers.parseEther("1"))).wait();
+  await (await quoter.priceUpdate(10_000_000_000n, s.chainKey, [0n, 1n, 10_000_000_000n, 10_000_000_000n, 0])).wait();
+  console.log("refreshed TWAP + quoter price");
+} catch (e) {
+  // 2026-08-07: the oracle role (setOracleService) was handed to the partner's dedicated
+  // oracle EOA, so this refresh reverts UnauthorizedOracle when run with the deployer key.
+  // Continue anyway — the publish still works while the partner's last push is < maxPriceAge
+  // (1h); if the publish then reverts StalePrice, either ask for a push or run
+  // set-oracle-devnet.mts to take the role back temporarily.
+  console.warn("TWAP/quoter refresh skipped (oracle role is held elsewhere):", (e as Error).message?.slice(0, 120));
+}
 
 // The Outbox requires the emitter to personally approve the RelayerContract as forwarder
 // (approvedForwarders[emitter][forwarder]) — one-time, idempotent.
