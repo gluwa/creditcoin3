@@ -33,7 +33,7 @@ use core::marker::PhantomData;
 
 /// Weight functions for `pallet_supported_chains`.
 pub struct WeightInfo<T>(PhantomData<T>);
-impl<T: frame_system::Config> pallet_supported_chains::WeightInfo for WeightInfo<T> {
+impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Storage: `SupportedChains::ChainIdAndNameToUniqKey` (r:1 w:1)
 	/// Proof: `SupportedChains::ChainIdAndNameToUniqKey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::ChainKeyValue` (r:1 w:1)
@@ -197,28 +197,6 @@ impl<T: frame_system::Config> pallet_supported_chains::WeightInfo for WeightInfo
 		// Minimum execution time: 28_680_000 picoseconds.
 		Weight::from_parts(30_390_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
-			.saturating_add(T::DbWeight::get().reads(5))
-			.saturating_add(T::DbWeight::get().writes(3))
-	}
-	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
-	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `SupportedChains::OutboxFactories` (r:0 w:1)
-	/// Proof: `SupportedChains::OutboxFactories` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn set_outbox_factory_addr() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `375`
-		//  Estimated: `3840`
-		// Minimum execution time: 17_000_000 picoseconds.
-		Weight::from_parts(18_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3840))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}

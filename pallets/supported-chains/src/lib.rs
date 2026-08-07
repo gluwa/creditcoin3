@@ -23,14 +23,12 @@ pub mod pallet {
     use attestor_primitives::{ChainEncodingVersion, ChainKey};
     use frame_support::{
         dispatch::DispatchResult,
-        dispatch::DispatchResult,
         pallet_prelude::*,
         traits::{BuildGenesisConfig, ConstU64},
         Blake2_128Concat,
     };
     use frame_system::pallet_prelude::*;
     use scale_info::prelude::string::String;
-    use sp_core::H160;
     use sp_core::H160;
     use sp_std::vec::Vec;
     use supported_chains_primitives::{

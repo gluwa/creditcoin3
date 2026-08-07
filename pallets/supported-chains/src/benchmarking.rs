@@ -5,7 +5,6 @@ use frame_benchmarking::v2::*;
 use frame_support::traits::OriginTrait;
 use scale_info::prelude::string::String;
 use sp_core::H160;
-use sp_core::H160;
 
 #[benchmarks]
 mod benchmarks {
