@@ -181,6 +181,10 @@ pub async fn run_proposer(
     tracing::info!(%validator, "🗳️ attestor-set-update proposer online");
     let mut tick = tokio::time::interval(Duration::from_secs(SET_UPDATE_POLL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // Rate-limit pacing — see the attestor-set watcher: same shared-endpoint collision, same
+    // damper. Only genuine rate-limit rejections escalate; timeouts and other errors keep the
+    // base cadence.
+    let mut pacer = eth::RateLimitPacer::default();
 
     loop {
         tokio::select! {
@@ -189,6 +193,13 @@ pub async fn run_proposer(
                 return;
             }
             _ = tick.tick() => {
+                // Rate-limit pacing: skip the cycle while a deferral window is active (armed only
+                // by rate-limited failures; clean cycles decay the level and are never slowed).
+                if let Some(remaining) = pacer.deferring() {
+                    tracing::debug!(remaining_ms = remaining.as_millis() as u64,
+                        "⏸️ pacing set-update proposer — skipping cycle");
+                    continue;
+                }
                 // Ensure this attestor's own EVM address is registered on-chain, every cycle. The
                 // startup registration in `lib.rs` is best-effort and one-shot; re-checking here
                 // recovers not only from a transient startup RPC blip (review P2-8 #2) but also from
@@ -205,6 +216,7 @@ pub async fn run_proposer(
                 .await
                 {
                     Ok(Ok(Some(vote))) => {
+                        pacer.after(false);
                         // Bounded `try_send`: if the publish channel is full the vote is dropped and
                         // re-proposed next tick (set changes persist until an update lands), so a
                         // backed-up publisher never blocks this loop.
@@ -212,9 +224,21 @@ pub async fn run_proposer(
                             tracing::warn!("set-update vote publish channel full — will re-propose next tick");
                         }
                     }
-                    Ok(Ok(None)) => {}
+                    Ok(Ok(None)) => {
+                        pacer.after(false);
+                    }
                     Ok(Err(err)) => {
                         tracing::warn!(%err, "attestor-set-update proposal cycle failed; will retry");
+                        let rate_limited = eth::error_looks_rate_limited(&format!("{err:#}"));
+                        pacer.after(rate_limited);
+                        if rate_limited {
+                            if let Some(window) = pacer.deferring() {
+                                tracing::warn!(
+                                    defer_ms = window.as_millis() as u64,
+                                    "🧯 provider is rate limiting — deferring set-update cycles"
+                                );
+                            }
+                        }
                     }
                     Err(_) => {
                         tracing::warn!(
