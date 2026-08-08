@@ -454,10 +454,13 @@ async fn handle_swarm(
                     libp2p::gossipsub::MessageAcceptance::Reject
                 }
             };
-            swarm
+            if let Err(err) = swarm
                 .behaviour_mut()
                 .gossipsub
-                .report_message_validation_result(&message_id, &propagation_source, decision);
+                .report_message_validation_result(&message_id, &propagation_source, decision)
+            {
+                tracing::warn!(%message_id, %err, "gossipsub validation-result report failed");
+            }
         }
         SwarmEvent::ConnectionClosed {
             connection_id,
