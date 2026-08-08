@@ -20,6 +20,12 @@ concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
   cancel-in-progress: true
 
+# DO-2336/DO-2338: any explicit narrower permissions declaration here (workflow-level
+# or job-level, 2 scopes or 13) caused a hard startup_failure every time, confirmed
+# live across several attempts, for reasons that weren't identified — reverted to the
+# proven-working shorthand. docker/scout-action's PR comment instead uses a dedicated
+# gluwa-bot PAT (secrets.GLUWA_BOT_PR) as its github-token, sidestepping the need for
+# GITHUB_TOKEN's own permissions to be elevated at all.
 permissions: read-all
 
 jobs:
@@ -27,6 +33,16 @@ jobs:
     needs:
       - deploy-runner-docker-build
     uses: ./.github/workflows/build-docker.yml
+    # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
+    # deliberately has no DOCKER_PUSH_USERNAME/PASSWORD (only release.yml, tag-triggered,
+    # does real pushes); inherit would leak those in and make "Push docker images"
+    # start firing on every ordinary PR/push build here. DOCKERHUB_SCOUT_* is a separate
+    # read-only gluwabot token safe to expose to PR builds (which run untrusted PR
+    # content) — it lets Scout authenticate without granting any push capability.
+    secrets:
+      GLUWA_BOT_PR: ${{ secrets.GLUWA_BOT_PR }}
+      DOCKERHUB_SCOUT_USERNAME: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+      DOCKERHUB_SCOUT_TOKEN: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
     with:
       build-options: "BUILD_ARGS="
       version-string: "latest"
