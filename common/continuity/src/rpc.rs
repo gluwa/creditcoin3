@@ -10,8 +10,12 @@ use attestor_primitives::{block::Block, AttestationCheckpoint, SignedAttestation
 use cc_client::{AccountId32, Client as CcClient};
 use eth::continuity::Manager as ContinuityManager;
 use sp_core::H256;
-use std::{future::Future, sync::Arc, time::Duration};
-use tokio::sync::RwLock;
+use std::{
+    future::Future,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::sync::{Mutex, RwLock};
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
 use tracing::warn;
 use usc_abi_encoding::common::EncodingVersion;
@@ -28,6 +32,87 @@ const RECONNECT_BACKOFF_MAX_MS: u64 = 5_000;
 /// as the number of *retries*, so we pass `RECONNECT_MAX_ATTEMPTS - 1` to `.take(..)`.
 const RECONNECT_MAX_ATTEMPTS: usize = 5;
 
+/// A connection that dies before living this long is *flapping* — the reconnect "succeeded" but
+/// the endpoint is not actually serving us (the canonical case: a rate-limited provider accepts
+/// the WS handshake and then kills the first request with `resource_exhausted`). Only a connection
+/// that outlives this resets the flap level.
+const HEALTHY_CONNECTION_SECS: u64 = 60;
+
+/// Cross-cycle flap cooldown: `FLAP_COOLDOWN_BASE_MS << level`, capped. This is what the per-call
+/// backoff above cannot provide — that strategy is created fresh inside every `reconnect()` call,
+/// so a connect-succeeds-then-dies loop resets it to the base delay each cycle and hammers the
+/// endpoint forever (observed live: ~190k reconnect attempts in 2h against a quota-exhausted
+/// provider, each attempt itself burning quota).
+const FLAP_COOLDOWN_BASE_MS: u64 = 1_000;
+const FLAP_COOLDOWN_MAX_MS: u64 = 300_000;
+
+/// Floor applied as soon as the error chain looks like rate limiting / quota exhaustion:
+/// retrying sooner than this is strictly counterproductive — every attempt spends more of the
+/// very budget whose exhaustion caused the failure.
+const RATE_LIMIT_MIN_COOLDOWN_MS: u64 = 30_000;
+
+/// Reconnect-storm damper state, shared across reconnect cycles (see [`flap_cooldown`]).
+#[derive(Debug)]
+struct FlapState {
+    /// Consecutive short-lived-connection count, drives the exponential cooldown.
+    level: u32,
+    /// When the current connection was established — `Some` only while a connection made after
+    /// the last processed failure is (believed) alive. CONSUMED (`take`) by the failure path:
+    /// measuring wall-clock age since the stamp would count cooldown sleeps and failed reconnects
+    /// as "connection lifetime", so once the cooldown exceeds the healthy threshold every failure
+    /// would reset the level and the damper would defeat itself exactly when escalated (bugbot).
+    /// `None` at failure time therefore means "no new connection since the last failure" —
+    /// unambiguously still the same dead/flapping episode.
+    connected_at: Option<Instant>,
+}
+
+/// Pure cooldown decision for one failed cycle, unit-testable without timers.
+///
+/// `connection_age` is how long the connection that just failed had been alive, or `None` when no
+/// connection was established since the previous failure (a failed reconnect / still-dead
+/// endpoint) — which always escalates. A long-lived connection failing is a fresh incident (level
+/// resets, no cooldown beyond the per-call backoff); a short-lived one escalates the level. A
+/// rate-limited error additionally raises the cooldown to [`RATE_LIMIT_MIN_COOLDOWN_MS`]
+/// immediately, whatever the level.
+fn flap_cooldown(
+    state: &mut FlapState,
+    connection_age: Option<Duration>,
+    rate_limited: bool,
+) -> Duration {
+    if connection_age.is_some_and(|age| age >= Duration::from_secs(HEALTHY_CONNECTION_SECS)) {
+        state.level = 0;
+    } else {
+        state.level = state.level.saturating_add(1);
+    }
+    // Shift clamped well past the point where the cap takes over (base << 9 already exceeds it).
+    let exp = FLAP_COOLDOWN_BASE_MS
+        .saturating_mul(1u64 << state.level.min(20))
+        .min(FLAP_COOLDOWN_MAX_MS);
+    let mut cooldown_ms = if state.level == 0 { 0 } else { exp };
+    if rate_limited {
+        cooldown_ms = cooldown_ms.max(RATE_LIMIT_MIN_COOLDOWN_MS);
+    }
+    Duration::from_millis(cooldown_ms)
+}
+
+/// Whether an error chain looks like provider rate limiting / quota exhaustion. Providers word
+/// this many ways (HTTP 429, gRPC-ish `resource_exhausted` inside a WS close frame — Google's
+/// Blockchain Node Engine does the latter), so match the phrasings we have actually seen plus the
+/// common ones; a false positive only makes one retry wait longer.
+fn is_rate_limit_error(err: &anyhow::Error) -> bool {
+    let text = format!("{err:#}").to_lowercase();
+    [
+        "resource_exhausted",
+        "resource exhausted",
+        "429",
+        "rate limit",
+        "too many requests",
+        "quota",
+    ]
+    .iter()
+    .any(|needle| text.contains(needle))
+}
+
 /// ETH RPC provider that owns one long-lived [`eth::Client`] and reconnects it on transport
 /// failures.
 ///
@@ -43,6 +128,9 @@ pub struct ReconnectingEthRpcProvider {
     /// startup. Used for all block fetching / continuity building so that a
     /// per-chain or future encoding change is honoured instead of assuming V1.
     encoding: EncodingVersion,
+    /// Reconnect-storm damper (see [`flap_cooldown`]). Behind its own lock — it is touched only
+    /// on the failure path, never per successful call.
+    flap: Mutex<FlapState>,
 }
 
 impl ReconnectingEthRpcProvider {
@@ -50,6 +138,10 @@ impl ReconnectingEthRpcProvider {
         Self {
             client: RwLock::new(client),
             encoding,
+            flap: Mutex::new(FlapState {
+                level: 0,
+                connected_at: Some(Instant::now()),
+            }),
         }
     }
 
@@ -102,7 +194,31 @@ impl ReconnectingEthRpcProvider {
             }
 
             if attempt < ETH_RPC_MAX_ATTEMPTS {
+                // Cross-cycle flap damper BEFORE the reconnect: the per-call backoff inside
+                // `reconnect` restarts from its base every cycle, so without this a provider that
+                // accepts the handshake and then kills the first request (rate limiting) is
+                // re-dialed every couple of seconds forever — each dial spending more of the
+                // exhausted budget.
+                let rate_limited = last_err.as_ref().is_some_and(is_rate_limit_error);
+                let cooldown = {
+                    let mut flap = self.flap.lock().await;
+                    // `take`, not read: a second failure before the next successful reconnect must
+                    // see `None` (same dead episode), never a stale stamp inflated by the cooldown
+                    // sleep itself.
+                    let connection_age = flap.connected_at.take().map(|at| at.elapsed());
+                    flap_cooldown(&mut flap, connection_age, rate_limited)
+                };
+                if !cooldown.is_zero() {
+                    warn!(
+                        op,
+                        cooldown_ms = cooldown.as_millis() as u64,
+                        rate_limited,
+                        "🧯 connection is flapping — cooling down before reconnecting"
+                    );
+                    tokio::time::sleep(cooldown).await;
+                }
                 self.reconnect(op).await?;
+                self.flap.lock().await.connected_at = Some(Instant::now());
             }
         }
 
@@ -524,3 +640,98 @@ pub type SharedCcProvider = Arc<dyn CcRpcProvider>;
 /// This allows multiple builders or services to share the same ETH client,
 /// which is especially useful when block caching is enabled.
 pub type SharedEthProvider = Arc<dyn EthRpcProvider>;
+
+#[cfg(test)]
+mod flap_tests {
+    use super::*;
+
+    fn state(level: u32) -> FlapState {
+        FlapState {
+            level,
+            connected_at: Some(Instant::now()),
+        }
+    }
+
+    // The storm this exists for: connect "succeeds", first request dies, repeat. Each cycle the
+    // connection age is a couple of seconds, so the level must climb and the cooldown grow toward
+    // the cap instead of resetting with every fresh handshake.
+    #[test]
+    fn short_lived_connections_escalate_toward_the_cap() {
+        let mut s = state(0);
+        let mut last = Duration::ZERO;
+        for _ in 0..12 {
+            let d = flap_cooldown(&mut s, Some(Duration::from_secs(2)), false);
+            assert!(
+                d >= last,
+                "cooldown must be monotonically non-decreasing while flapping"
+            );
+            last = d;
+        }
+        assert_eq!(last, Duration::from_millis(FLAP_COOLDOWN_MAX_MS));
+    }
+
+    #[test]
+    fn a_healthy_connection_resets_the_level() {
+        let mut s = state(9);
+        let d = flap_cooldown(
+            &mut s,
+            Some(Duration::from_secs(HEALTHY_CONNECTION_SECS + 1)),
+            false,
+        );
+        assert_eq!(s.level, 0);
+        // A long-lived connection failing is a fresh incident — the per-call backoff inside
+        // `reconnect` is enough, no extra cooldown.
+        assert_eq!(d, Duration::ZERO);
+    }
+
+    #[test]
+    fn rate_limiting_applies_the_floor_immediately() {
+        // Even the FIRST failure waits the full floor when the provider says it is out of quota —
+        // retrying sooner spends more of the budget whose exhaustion caused the failure.
+        let mut s = state(0);
+        let d = flap_cooldown(&mut s, Some(Duration::from_secs(2)), true);
+        assert!(d >= Duration::from_millis(RATE_LIMIT_MIN_COOLDOWN_MS));
+        // ... and the floor also applies when the connection looked healthy.
+        let mut s = state(0);
+        let d = flap_cooldown(
+            &mut s,
+            Some(Duration::from_secs(HEALTHY_CONNECTION_SECS + 1)),
+            true,
+        );
+        assert!(d >= Duration::from_millis(RATE_LIMIT_MIN_COOLDOWN_MS));
+    }
+
+    // The bugbot case: backoff already escalated, reconnect keeps FAILING, and the cooldown sleep
+    // alone exceeds the healthy threshold. Reading a stale timestamp would reset the level on
+    // every failure — `None` (no connection since the last failure) must keep escalating instead.
+    #[test]
+    fn a_failed_reconnect_never_resets_the_level() {
+        let mut s = state(7);
+        let before = s.level;
+        let d = flap_cooldown(&mut s, None, false);
+        assert!(
+            s.level > before,
+            "no-connection failures must escalate, not reset"
+        );
+        assert!(d > Duration::ZERO);
+    }
+
+    #[test]
+    fn classifier_matches_the_google_close_frame_and_common_phrasings() {
+        // Verbatim shape from the cc3-testnet incident (Google Blockchain Node Engine close frame).
+        let google = anyhow!(
+            "Received close frame with data: Request trace id: c3d7ebd72b1d3944, \
+             [ORIGINAL ERROR] generic::resource_exhausted: com.google.apps.framework.request"
+        );
+        assert!(is_rate_limit_error(&google));
+        assert!(is_rate_limit_error(&anyhow!(
+            "HTTP error 429 Too Many Requests"
+        )));
+        assert!(is_rate_limit_error(&anyhow!("daily quota exceeded")));
+        assert!(!is_rate_limit_error(&anyhow!("connection refused")));
+        assert!(!is_rate_limit_error(&anyhow!("header decode failed")));
+        // Context wrapping must not hide the cause (alternate formatting walks the chain).
+        let wrapped = google.context("eth_getBlockByNumber failed");
+        assert!(is_rate_limit_error(&wrapped));
+    }
+}
