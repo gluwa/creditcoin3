@@ -30,7 +30,7 @@ while [ -z "$IP_ADDRESS" ]; do
     # use up to 60 sec random delay to avoid everything being scheduled at once!
     sleep $((RANDOM % 60))
 
-    VM_KIND=${VM_KIND:-github-runner}
+    VM_KIND=${VM_KIND:-github-provisioned-runner}
     echo "INFO: VM_KIND=$VM_KIND"
 
     KEEP_UNTIL=${KEEP_UNTIL:-$(date --utc "+%Y-%m-%dT%H:%M:%S" -d "+5 hours")}
