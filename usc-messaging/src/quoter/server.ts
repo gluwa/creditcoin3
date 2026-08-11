@@ -75,11 +75,15 @@ export function buildServer(cfg: QuoterConfig): express.Express {
         acknowledgmentPrice: fee.acknowledgmentPrice,
         gasLimit,
         destinationChain: chainKey,
-        requiresAck,
         payloadHash,
         targetContract: ethers.getAddress(body.targetContract),
         expectedCompletion: now + BigInt(cfg.estimatedDeliverySecs),
         expiry: now + BigInt(cfg.quoteTtlSecs),
+        // Phase 1 pricing (pricing.ts) only ever produces ATTEST-denominated fees — there is no
+        // native-price path yet, so the signed quote always settles in ATTEST. requiresAck stays
+        // an off-chain request input only: the v3 Quote struct has no such field — the
+        // destination Outbox derives canAck from acknowledgmentPrice being nonzero.
+        payInNative: false,
       };
 
       const signed = await signQuote(wallet, fields, {
@@ -103,6 +107,7 @@ export function buildServer(cfg: QuoterConfig): express.Express {
           targetContract: fields.targetContract,
           expectedCompletion: fields.expectedCompletion.toString(),
           expiry: fields.expiry.toString(),
+          payInNative: fields.payInNative,
           signature: signed.signature,
         },
         totalAttest: total.toString(),

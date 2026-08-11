@@ -9,7 +9,7 @@ import {
 } from "./quote.js";
 
 const QUOTE_TUPLE =
-  "tuple(uint256 coreFee,uint256 relayPrice,uint256 acknowledgmentPrice,uint256 gasLimit,uint32 destinationChain,bool requiresAck,bytes32 payloadHash,address targetContract,uint256 expectedCompletion,uint256 expiry,bytes signature)";
+  "tuple(uint256 coreFee,uint256 relayPrice,uint256 acknowledgmentPrice,uint256 gasLimit,uint32 destinationChain,bytes32 payloadHash,address targetContract,uint256 expectedCompletion,uint256 expiry,bool payInNative,bytes signature)";
 
 async function main(): Promise<void> {
   const wallet = ethers.Wallet.createRandom();
@@ -19,11 +19,11 @@ async function main(): Promise<void> {
     acknowledgmentPrice: 7_000000000000000000n,
     gasLimit: 300_000n,
     destinationChain: 11155111,
-    requiresAck: true,
     payloadHash: ethers.keccak256(ethers.toUtf8Bytes("hello world")),
     targetContract: "0x1111111111111111111111111111111111111111",
     expectedCompletion: 1_800_000_000n,
     expiry: 1_900_000_000n,
+    payInNative: false,
   };
   const domain: QuoteDomain = {
     sourceChainId: 42n,
@@ -63,8 +63,8 @@ async function main(): Promise<void> {
     throw new Error("relayPrice did not round-trip");
   if (Number(decoded.destinationChain) !== fields.destinationChain)
     throw new Error("destinationChain did not round-trip");
-  if (decoded.requiresAck !== fields.requiresAck)
-    throw new Error("requiresAck did not round-trip");
+  if (decoded.payInNative !== fields.payInNative)
+    throw new Error("payInNative did not round-trip");
   if (decoded.payloadHash !== fields.payloadHash)
     throw new Error("payloadHash did not round-trip");
   if (decoded.signature !== signed.signature)
