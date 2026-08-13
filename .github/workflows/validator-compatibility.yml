@@ -178,9 +178,14 @@ jobs:
       - name: Set-Up
         run: |
           sudo apt-get update
+          sudo apt-get install -y jq unzip
           # firefox/tigervnc/mutter are installed for optional visual debugging
-          # of the local network from the self-hosted VM.
-          sudo apt-get install -y jq unzip firefox tigervnc-standalone-server mutter
+          # of the local network from the self-hosted VM. They must never fail the
+          # job: on Ubuntu 26.04 the firefox deb is a snap shim whose preinst talks
+          # to api.snapcraft.io, and a timeout there wedges dpkg.
+          sudo apt-get install -y firefox tigervnc-standalone-server mutter \
+            || echo "WARNING: optional visual-debugging tools not installed"
+          sudo dpkg --configure -a || true
           mkdir -p "${LOG_DIR}" "${DATA_DIR}"
 
       - name: Download SUT binary from current PR

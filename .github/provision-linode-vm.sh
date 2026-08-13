@@ -58,28 +58,62 @@ done
 SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
 echo "INFO: $SSH_USER_AT_HOSTNAME"
 
+SSH_OPTS=(-i ~/.ssh/id_rsa -o StrictHostKeyChecking=no
+          -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+
 # make sure we have ssh connectivity first by retrying multiple times
 echo "INFO: checking for ssh connectivity ..."
-until ssh -i ~/.ssh/id_rsa \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" cat /etc/os-release; do
+until ssh "${SSH_OPTS[@]}" "$SSH_USER_AT_HOSTNAME" cat /etc/os-release; do
   echo "DEBUG: retrying ssh connection ..."
   sleep 30
 done
 
+# One successful ssh does NOT mean the VM is ready: sshd accepts a connection
+# while cloud-init is still configuring, then restarts, and the next connections
+# die with "kex_exchange_identification: Connection reset by peer". Wait for
+# cloud-init to actually finish before running anything that matters.
+# `status --wait` blocks until cloud-init finishes, but exits non-zero if it
+# ended up in an error/degraded state. Bound the retries so a degraded VM cannot
+# spin here until the job's 15 minute timeout - the steps below retry anyway.
+echo "INFO: waiting for cloud-init to finish ..."
+for attempt in 1 2 3 4 5; do
+  if ssh "${SSH_OPTS[@]}" "$SSH_USER_AT_HOSTNAME" 'sudo cloud-init status --wait'; then
+    break
+  fi
+  echo "DEBUG: cloud-init not settled on attempt $attempt, retrying ..."
+  sleep 15
+done
+
+# Run a provisioning script on the VM, retrying transient ssh/apt failures.
+# Only safe for idempotent scripts - see the runner registration below.
+run_remote_script() {
+  local script="$1"
+  local attempt
+  for attempt in 1 2 3; do
+    if ssh "${SSH_OPTS[@]}" "$SSH_USER_AT_HOSTNAME" < "$script"; then
+      return 0
+    fi
+    echo "DEBUG: $script failed on attempt $attempt, retrying ..."
+    sleep 30
+  done
+  echo "ERROR: $script still failing after 3 attempts"
+  return 1
+}
+
 # explicitly upgrade before doing anything else to prevent accidental restarts
 echo "INFO: attempting Ubuntu upgrade ..."
-ssh -i ~/.ssh/id_rsa \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/apply-ubuntu-upgrades.sh
+run_remote_script .github/apply-ubuntu-upgrades.sh || true
 
 # WARNING: commands below won't be retried if they fail b/c we want to
 # detect such failures and not continue further
 set -euo pipefail
 
 echo "INFO: installing upstream Docker Engine ..."
-ssh -i ~/.ssh/id_rsa \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/install-docker-engine-from-upstream.sh
+run_remote_script .github/install-docker-engine-from-upstream.sh
 
+# NOTE: deliberately NOT retried - a partial run may already have registered the
+# runner with GitHub, and a second attempt would register a duplicate.
 echo "INFO: provisioning GitHub runner ..."
-ssh -i ~/.ssh/id_rsa \
+ssh "${SSH_OPTS[@]}" \
   -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
-  -o StrictHostKeyChecking=no "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh
+  "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh
