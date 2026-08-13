@@ -110,36 +110,34 @@ export async function setMinBondRequirement(
 }
 
 /**
- * Active staking era index used by `pallet_attestation` unlock / withdrawable math
- * (`T::Staking::current_era()`). Prefer this over `api.derive.session.info().currentEra`,
- * which does not always track the same value.
+ * Staking era index used by `pallet_attestation`'s unlock / withdrawable math.
  */
-export async function readActiveStakingEraIndex(api: ApiPromise): Promise<number> {
-    const opt = await api.query.staking.activeEra();
+export async function readStakingCurrentEraIndex(api: ApiPromise): Promise<number> {
+    const opt = await api.query.staking.currentEra();
     if (opt.isNone) {
         return 0;
     }
-    return opt.unwrap().index.toNumber();
+    return opt.unwrap().toNumber();
 }
 
 /**
- * Block until `pallet-staking`'s active era index reaches `targetEra` (inclusive).
+ * Block until `pallet-staking`'s `CurrentEra` reaches `targetEra` (inclusive).
  */
 export async function waitUntilStakingEra(api: ApiPromise, targetEra: number) {
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
-    let currentEra = await readActiveStakingEraIndex(api);
+    let currentEra = await readStakingCurrentEraIndex(api);
     while (currentEra < targetEra) {
         console.log(`Waiting for staking era ${targetEra}, currently at ${currentEra}`);
         await sleep(blockTime);
-        currentEra = await readActiveStakingEraIndex(api);
+        currentEra = await readStakingCurrentEraIndex(api);
     }
 }
 
 /**
- * Wait until `pallet-staking`'s active era index advances by `eras` from now.
+ * Wait until `pallet-staking`'s `CurrentEra` advances by `eras` from now.
  */
 export async function waitEras(eras: number, api: ApiPromise) {
-    const currentEra = await readActiveStakingEraIndex(api);
+    const currentEra = await readStakingCurrentEraIndex(api);
     await waitUntilStakingEra(api, currentEra + eras);
 }
 

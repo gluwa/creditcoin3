@@ -1,7 +1,13 @@
 import { newApi, ApiPromise, KeyringPair, BN } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
-import { randomFundedAccount, waitEras, mintAttestCoin, setMinBondRequirement } from '../integration-tests/helpers';
+import {
+    randomFundedAccount,
+    mintAttestCoin,
+    setMinBondRequirement,
+    readStakingCurrentEraIndex,
+    waitForAttestorUnbonding,
+} from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
@@ -43,10 +49,15 @@ describe('handleEventWithdrawn()', () => {
             .unregisterAttestor(chain_Anvil2_Key, attestor.address)
             .signAndSend(stash.keyring, { nonce: await api.rpc.system.accountNextIndex(stash.address) });
         await forElapsedBlocks(api, { minBlocks: 1 });
+        // Captured AFTER the unregister is in a block: this is the era the unlock chunk is stamped
+        // against (`current_era() + BondingDuration`).
+        const unregisterEra = await readStakingCurrentEraIndex(api);
 
-        // wait for funds to be unlocked!
-        const unbondingPeriod: number = api.consts.attestation.bondingDuration.toNumber();
-        await waitEras(unbondingPeriod, api); // ~ 5 minutes
+        // Wait for funds to be unlocked. `waitForAttestorUnbonding` anchors on the era the unregister
+        // above actually landed in and adds a one-era margin, rather than counting `bondingDuration`
+        // eras from an arbitrary later read — an unmatured chunk yields no `Withdrawn` event at all,
+        // because `do_withdraw_unbonded` only emits when `consolidate_unlocked` released something.
+        await waitForAttestorUnbonding(api, unregisterEra); // ~ 5 minutes
     }, 450_000);
 
     afterAll(async () => {
