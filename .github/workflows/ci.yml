@@ -141,6 +141,9 @@ jobs:
       git-lfs-checkout: false
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
+      # regenerate-metadata needs a subxt that can decode this branch's runtime
+      # metadata, so build it here instead of reusing an older release asset
+      build-subxt: true
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-ci']"
     secrets: inherit
 
@@ -1693,15 +1696,11 @@ jobs:
         run: |
           yarn install
 
-      - name: Download subxt from release ${{ needs.should-run.outputs.devnet_release_tag }}
-        uses: i3h/download-release-asset@v1
+      - name: Download subxt built from this branch
+        uses: actions/download-artifact@v8
         with:
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          tag: ${{ needs.should-run.outputs.devnet_release_tag }}
-          file: subxt
-          path: /usr/local/bin
-          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
+          name: subxt
+          path: /var/tmp/subxt-bin
 
       - name: Auto-update typedefs
         id: update_typedefs
@@ -1709,7 +1708,8 @@ jobs:
         run: |
           ./get-metadata.sh
 
-          sudo chmod a+x /usr/local/bin/subxt
+          # download-artifact does not preserve the executable bit
+          sudo install -m 0755 /var/tmp/subxt-bin/subxt /usr/local/bin/subxt
           subxt version
 
           subxt metadata -f bytes > ../common/cc-client/artifacts/metadata.scale
