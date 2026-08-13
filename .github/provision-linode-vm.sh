@@ -58,12 +58,16 @@ done
 SSH_USER_AT_HOSTNAME="ubuntu@$IP_ADDRESS"
 echo "INFO: $SSH_USER_AT_HOSTNAME"
 
-SSH_OPTS=(-i ~/.ssh/id_rsa -o StrictHostKeyChecking=no
-          -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+# ssh to the VM with connect/keepalive timeouts, so a half-open connection to a
+# still-booting VM fails fast enough to be retried instead of hanging.
+vm_ssh() {
+  ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no \
+      -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 "$@"
+}
 
 # make sure we have ssh connectivity first by retrying multiple times
 echo "INFO: checking for ssh connectivity ..."
-until ssh "${SSH_OPTS[@]}" "$SSH_USER_AT_HOSTNAME" cat /etc/os-release; do
+until vm_ssh "$SSH_USER_AT_HOSTNAME" cat /etc/os-release; do
   echo "DEBUG: retrying ssh connection ..."
   sleep 30
 done
@@ -77,7 +81,7 @@ done
 # spin here until the job's 15 minute timeout - the steps below retry anyway.
 echo "INFO: waiting for cloud-init to finish ..."
 for attempt in 1 2 3 4 5; do
-  if ssh "${SSH_OPTS[@]}" "$SSH_USER_AT_HOSTNAME" 'sudo cloud-init status --wait'; then
+  if vm_ssh "$SSH_USER_AT_HOSTNAME" 'sudo cloud-init status --wait'; then
     break
   fi
   echo "DEBUG: cloud-init not settled on attempt $attempt, retrying ..."
@@ -90,7 +94,7 @@ run_remote_script() {
   local script="$1"
   local attempt
   for attempt in 1 2 3; do
-    if ssh "${SSH_OPTS[@]}" "$SSH_USER_AT_HOSTNAME" < "$script"; then
+    if vm_ssh "$SSH_USER_AT_HOSTNAME" < "$script"; then
       return 0
     fi
     echo "DEBUG: $script failed on attempt $attempt, retrying ..."
@@ -114,6 +118,5 @@ run_remote_script .github/install-docker-engine-from-upstream.sh
 # NOTE: deliberately NOT retried - a partial run may already have registered the
 # runner with GitHub, and a second attempt would register a duplicate.
 echo "INFO: provisioning GitHub runner ..."
-ssh "${SSH_OPTS[@]}" \
-  -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
+vm_ssh -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
   "$SSH_USER_AT_HOSTNAME" < .github/provision-github-runner.sh
