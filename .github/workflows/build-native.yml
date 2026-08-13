@@ -135,7 +135,10 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: install
-          args: subxt-cli@0.50.1 --locked
+          # keep in step with the `subxt` library pin in the root Cargo.toml:
+          # the CLI writes common/cc-client/artifacts/metadata.scale and the
+          # library's #[subxt::subxt(...)] macro has to parse it
+          args: subxt-cli@0.44.3 --locked
 
       - name: Upload subxt binary
         if: ${{ inputs.build-subxt }}

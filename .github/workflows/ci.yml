@@ -1712,7 +1712,11 @@ jobs:
           sudo install -m 0755 /var/tmp/subxt-bin/subxt /usr/local/bin/subxt
           subxt version
 
-          subxt metadata -f bytes > ../common/cc-client/artifacts/metadata.scale
+          # pin the metadata version rather than taking subxt's default, which
+          # is whatever the runtime reports as its highest stable version. That
+          # would silently jump to v17 on a future SDK bump and break the
+          # cc-client macro with a compile error instead of a metadata error.
+          subxt metadata --version 16 -f bytes > ../common/cc-client/artifacts/metadata.scale
 
           # kill the node b/c the tests will launch their own processes
           killall -9 creditcoin3-node
