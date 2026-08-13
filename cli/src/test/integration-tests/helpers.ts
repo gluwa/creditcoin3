@@ -142,13 +142,25 @@ export async function waitEras(eras: number, api: ApiPromise) {
 }
 
 /**
- * Wait until attestor bond started unlocking at `unregisterEra` is withdrawable.
- * Unlock chunks mature when `current_era >= unregisterEra + bondingDuration`; we wait
- * one extra era (see attestor-stash precompile tests) for era-boundary safety.
+ * Wait until an attestor bond that started unlocking at `unregisterEra` is withdrawable.
+ *
+ * `unregisterEra` must come from {@link readStakingCurrentEraIndex} *after* the unregister is in a
+ * block. No safety margin is added on top of `bondingDuration`, and none is needed: the pallet
+ * stamps the chunk `CurrentEra_at_dispatch + bondingDuration`, `CurrentEra` is monotonic, and we
+ * read it after the dispatch — so `unregisterEra >= CurrentEra_at_dispatch`, which makes
+ * `unregisterEra + bondingDuration` at or past the chunk's maturity era in every case.
+ *
+ * Do not reintroduce a default margin. An extra era is not free: with fast-runtime an era is
+ * 150s (15-block epoch x 5s x 2 sessions per era) against a `bondingDuration` of 2, so a `+1`
+ * default turned a 300s wait into 450s and deterministically blew the 400s/450s hook timeouts in
+ * `attestor/withdraw-unbonded` and `handleEventWithdrawn`. It only ever looked necessary because
+ * the era was being read from the lagging `ActiveEra` — see {@link readStakingCurrentEraIndex}.
+ *
+ * `opts.extraEras` remains for callers that genuinely want slack; budget ~150s per extra era.
  */
 export async function waitForAttestorUnbonding(api: ApiPromise, unregisterEra: number, opts?: { extraEras?: number }) {
     const bondingDuration = api.consts.attestation.bondingDuration.toNumber();
-    const extraEras = opts?.extraEras ?? 1;
+    const extraEras = opts?.extraEras ?? 0;
     const targetEra = unregisterEra + bondingDuration + extraEras;
     await waitUntilStakingEra(api, targetEra);
 }

@@ -54,10 +54,10 @@ describe('handleEventWithdrawn()', () => {
         const unregisterEra = await readStakingCurrentEraIndex(api);
 
         // Wait for funds to be unlocked. `waitForAttestorUnbonding` anchors on the era the unregister
-        // above actually landed in and adds a one-era margin, rather than counting `bondingDuration`
-        // eras from an arbitrary later read — an unmatured chunk yields no `Withdrawn` event at all,
-        // because `do_withdraw_unbonded` only emits when `consolidate_unlocked` released something.
-        await waitForAttestorUnbonding(api, unregisterEra); // ~ 5 minutes
+        // above actually landed in, rather than counting `bondingDuration` eras from an arbitrary
+        // later read — an unmatured chunk yields no `Withdrawn` event at all, because
+        // `do_withdraw_unbonded` only emits when `consolidate_unlocked` released something.
+        await waitForAttestorUnbonding(api, unregisterEra); // bondingDuration (2) eras ~ 5 min
     }, 450_000);
 
     afterAll(async () => {
