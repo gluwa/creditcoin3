@@ -30,48 +30,137 @@ export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amou
     return api.tx.utility.batchAll(txs);
 }
 
+/** `pallet-assets` id used as attest coin (`ATTEST_COIN_ASSET_ID` in the runtime). */
+export const ATTEST_COIN_ASSET_ID = 1;
+
 /**
- * Active staking era index used by `pallet_attestation` unlock / withdrawable math
- * (`T::Staking::current_era()`). Prefer this over `api.derive.session.info().currentEra`,
- * which does not always track the same value.
+ * Mint attest coin to `to`.
+ *
+ * `pallet_assets::mint` requires the asset's **issuer** origin, and there is no root mint, so the
+ * call is dispatched as the on-chain issuer via `sudo.sudoAs`. The issuer is read from chain rather
+ * than hard-coded so this keeps working across the `EnsureAttestCoinAssetRoles` migration (genesis
+ * sets all four roles to the attest-coin precompile account; the migration moves owner/freezer to
+ * sudo and leaves issuer/admin on the precompile).
  */
-export async function readActiveStakingEraIndex(api: ApiPromise): Promise<number> {
-    const opt = await api.query.staking.activeEra();
+export async function mintAttestCoin(api: ApiPromise, sudoSigner: KeyringPair, to: string, amount: BN | string) {
+    const details = await api.query.assets.asset(ATTEST_COIN_ASSET_ID);
+    if (details.isNone) {
+        throw new Error(`attest coin asset ${ATTEST_COIN_ASSET_ID} does not exist on chain`);
+    }
+    const issuer = details.unwrap().issuer.toString();
+
+    const before = await attestCoinBalance(api, to);
+
+    const mint = api.tx.assets.mint(ATTEST_COIN_ASSET_ID, to, amount.toString());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudoAs(issuer, mint), api, sudoKeyring);
+    if (result.status !== TxStatus.ok) {
+        throw new Error(`failed to mint attest coin to ${to}: ${JSON.stringify(result)}`);
+    }
+
+    // `sudo.sudoAs` reports the OUTER extrinsic's status; a failing inner call still yields
+    // `TxStatus.ok` and surfaces its error only in the `SudoAsDone` event. Read the balance back so
+    // a failed mint fails here instead of resurfacing later as a confusing `InsufficientBalance`
+    // from `register_attestor`.
+    const after = await attestCoinBalance(api, to);
+    const minted = after - before;
+    if (minted < BigInt(amount.toString())) {
+        throw new Error(
+            `attest coin mint to ${to} did not take effect: balance moved ${before} -> ${after}, ` +
+                `expected at least +${amount.toString()} (inner sudoAs dispatch likely failed)`,
+        );
+    }
+}
+
+/** Liquid (unbonded) attest-coin balance of `address`. */
+export async function attestCoinBalance(api: ApiPromise, address: string): Promise<bigint> {
+    const account = await api.query.assets.account(ATTEST_COIN_ASSET_ID, address);
+    return account.isNone ? 0n : BigInt(account.unwrap().balance.toString());
+}
+
+/**
+ * Set a chain's `MinBondRequirement` via sudo and return the value it had before, so callers can
+ * restore it. `MinBondRequirement` is chain-wide mutable state shared by every suite running
+ * against the same node, so callers must restore it in `afterAll`.
+ */
+export async function setMinBondRequirement(
+    api: ApiPromise,
+    sudoSigner: KeyringPair,
+    chainKey: number,
+    amount: BN | string,
+): Promise<string> {
+    const previous = (await api.query.attestation.minBondRequirement(chainKey)).toString();
+    const call = api.tx.attestation.setMinBondRequirement(chainKey, amount.toString());
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    const result = await signSendAndWatchCcKeyring(api.tx.sudo.sudo(call), api, sudoKeyring);
+    if (result.status !== TxStatus.ok) {
+        throw new Error(`failed to set minBondRequirement for chain ${chainKey}: ${JSON.stringify(result)}`);
+    }
+
+    // `sudo.sudo` reports the OUTER extrinsic's status; a failing inner call still yields
+    // `TxStatus.ok` and surfaces its error only in the `Sudid` event. Read the value back.
+    const applied = (await api.query.attestation.minBondRequirement(chainKey)).toString();
+    if (applied !== amount.toString()) {
+        throw new Error(
+            `minBondRequirement for chain ${chainKey} did not take effect: read back ${applied}, ` +
+                `expected ${amount.toString()} (inner sudo dispatch likely failed)`,
+        );
+    }
+    return previous;
+}
+
+/**
+ * Staking era index used by `pallet_attestation`'s unlock / withdrawable math.
+ */
+export async function readStakingCurrentEraIndex(api: ApiPromise): Promise<number> {
+    const opt = await api.query.staking.currentEra();
     if (opt.isNone) {
         return 0;
     }
-    return opt.unwrap().index.toNumber();
+    return opt.unwrap().toNumber();
 }
 
 /**
- * Block until `pallet-staking`'s active era index reaches `targetEra` (inclusive).
+ * Block until `pallet-staking`'s `CurrentEra` reaches `targetEra` (inclusive).
  */
 export async function waitUntilStakingEra(api: ApiPromise, targetEra: number) {
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
-    let currentEra = await readActiveStakingEraIndex(api);
+    let currentEra = await readStakingCurrentEraIndex(api);
     while (currentEra < targetEra) {
         console.log(`Waiting for staking era ${targetEra}, currently at ${currentEra}`);
         await sleep(blockTime);
-        currentEra = await readActiveStakingEraIndex(api);
+        currentEra = await readStakingCurrentEraIndex(api);
     }
 }
 
 /**
- * Wait until `pallet-staking`'s active era index advances by `eras` from now.
+ * Wait until `pallet-staking`'s `CurrentEra` advances by `eras` from now.
  */
 export async function waitEras(eras: number, api: ApiPromise) {
-    const currentEra = await readActiveStakingEraIndex(api);
+    const currentEra = await readStakingCurrentEraIndex(api);
     await waitUntilStakingEra(api, currentEra + eras);
 }
 
 /**
- * Wait until attestor bond started unlocking at `unregisterEra` is withdrawable.
- * Unlock chunks mature when `current_era >= unregisterEra + bondingDuration`; we wait
- * one extra era (see attestor-stash precompile tests) for era-boundary safety.
+ * Wait until an attestor bond that started unlocking at `unregisterEra` is withdrawable.
+ *
+ * `unregisterEra` must come from {@link readStakingCurrentEraIndex} *after* the unregister is in a
+ * block. No safety margin is added on top of `bondingDuration`, and none is needed: the pallet
+ * stamps the chunk `CurrentEra_at_dispatch + bondingDuration`, `CurrentEra` is monotonic, and we
+ * read it after the dispatch — so `unregisterEra >= CurrentEra_at_dispatch`, which makes
+ * `unregisterEra + bondingDuration` at or past the chunk's maturity era in every case.
+ *
+ * Do not reintroduce a default margin. An extra era is not free: with fast-runtime an era is
+ * 150s (15-block epoch x 5s x 2 sessions per era) against a `bondingDuration` of 2, so a `+1`
+ * default turned a 300s wait into 450s and deterministically blew the 400s/450s hook timeouts in
+ * `attestor/withdraw-unbonded` and `handleEventWithdrawn`. It only ever looked necessary because
+ * the era was being read from the lagging `ActiveEra` — see {@link readStakingCurrentEraIndex}.
+ *
+ * `opts.extraEras` remains for callers that genuinely want slack; budget ~150s per extra era.
  */
 export async function waitForAttestorUnbonding(api: ApiPromise, unregisterEra: number, opts?: { extraEras?: number }) {
     const bondingDuration = api.consts.attestation.bondingDuration.toNumber();
-    const extraEras = opts?.extraEras ?? 1;
+    const extraEras = opts?.extraEras ?? 0;
     const targetEra = unregisterEra + bondingDuration + extraEras;
     await waitUntilStakingEra(api, targetEra);
 }

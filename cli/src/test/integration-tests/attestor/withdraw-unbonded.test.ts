@@ -3,7 +3,7 @@ import {
     initAliceKeyring,
     randomFundedAccount,
     fundFromSudo,
-    readActiveStakingEraIndex,
+    readStakingCurrentEraIndex,
     waitForAttestorUnbonding,
     ALICE_NODE_URL,
     CLIBuilder,
@@ -80,7 +80,7 @@ describe('withdraw-unbonded', () => {
         result = CLI(`attestor unregister --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
-        unregisterEra = await readActiveStakingEraIndex(api);
+        unregisterEra = await readStakingCurrentEraIndex(api);
         const ledgerOpt: any = await api.query.attestation.ledger(caller.evmStashAddress);
         expect(ledgerOpt.isSome).toBe(true);
         expect(ledgerOpt.unwrap().unlocking.length).toBeGreaterThan(0);
