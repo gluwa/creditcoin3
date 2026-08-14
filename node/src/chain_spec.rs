@@ -426,7 +426,10 @@ fn devnet_genesis(
                 18,
             )],
             accounts: vec![],
-            next_asset_id: Some(2),
+            // Unset: `NextAssetId` is only consumed by the permissionless `create`, which is
+            // unreachable (`pallet_assets::Config::CreateOrigin = EnsureNever`). Attest coin is
+            // provisioned here by id, and any future asset via root `force_create`.
+            next_asset_id: None,
         },
         transaction_payment: Default::default(),
 
@@ -629,7 +632,10 @@ fn testnet_genesis(
                 18,
             )],
             accounts: vec![],
-            next_asset_id: Some(2),
+            // Unset: `NextAssetId` is only consumed by the permissionless `create`, which is
+            // unreachable (`pallet_assets::Config::CreateOrigin = EnsureNever`). Attest coin is
+            // provisioned here by id, and any future asset via root `force_create`.
+            next_asset_id: None,
         },
         transaction_payment: Default::default(),
 

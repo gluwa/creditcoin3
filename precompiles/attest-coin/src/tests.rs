@@ -749,6 +749,77 @@ fn deposit_succeeds_with_successful_subcall() {
 
 // ── withdraw tests ────────────────────────────────────────────────────────────
 
+/// `balanceOf` must return exactly one 32-byte word. Return data carries no selector and the ABI
+/// head of a single static return type starts at byte 0, so any other length means the configured
+/// address is not the ERC-20 governance vetted. Reject instead of guessing which word to trust: a
+/// token that controls returndata length could otherwise choose a layout that reads as a valid
+/// balance to this precompile while every ordinary Solidity caller sees a different value, which
+/// would defeat the fee-on-transfer probe in `deposit` (it is built on the same helper).
+#[test]
+fn withdraw_reverts_when_balance_of_returns_non_canonical_data() {
+    // `balanceOf` reports 10_000 (enough treasury for the 1_000 withdraw) in its first word, then
+    // pads to `ret_len` bytes. Only 32 conforms; longer and shorter answers must be rejected
+    // outright rather than silently decoded from either end.
+    for ret_len in [32usize, 31, 64, 96] {
+        let caller = H160::repeat_byte(0xAA);
+        let substrate = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+
+        ExtBuilder::default()
+            .with_balances(vec![(substrate.clone(), 10_000_000_000_000_000_000)])
+            .build()
+            .execute_with(|| {
+                pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+                let precompile_acct =
+                    <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(
+                        precompile_addr(),
+                    );
+
+                assert_ok!(AssetsPallet::<Runtime>::force_asset_status(
+                    frame_system::RawOrigin::Root.into(),
+                    1,
+                    alice(),
+                    precompile_acct.clone(),
+                    precompile_acct.clone(),
+                    alice(),
+                    1,
+                    false,
+                    false,
+                ));
+                assert_ok!(AssetsPallet::<Runtime>::transfer(
+                    RuntimeOrigin::signed(alice()),
+                    1,
+                    substrate.clone(),
+                    10_000,
+                ));
+
+                let input = withdraw_input(1_000);
+                let mut handle = make_handle(caller, input);
+                handle.subcall_handle = Some(Box::new(move |_subcall| {
+                    // First word is the real balance; any padding is attacker-chosen filler that a
+                    // "read the last word" decoder would pick up instead.
+                    let mut output = encode_u256(10_000).to_vec();
+                    output.resize(ret_len, 0xEE);
+                    SubcallOutput {
+                        reason: ExitReason::Succeed(ExitSucceed::Returned),
+                        output,
+                        cost: 0,
+                        logs: vec![],
+                    }
+                }));
+
+                if ret_len == 32 {
+                    // Conforming: must get past the guard. The follow-up `transfer` subcall reuses
+                    // this same handler, so it answers 10_000 rather than `true` and the transfer
+                    // is what fails — proving the length guard itself did not fire.
+                    assert_reverts_with(&mut handle, b"erc20 transfer returned false");
+                } else {
+                    assert_reverts_with(&mut handle, b"balanceOf: bad return");
+                }
+            });
+    }
+}
+
 #[test]
 fn withdraw_reverts_token_not_configured() {
     ExtBuilder::default().build().execute_with(|| {

@@ -32,8 +32,11 @@ describe('handleEventMinBondRequirementUpdated()', () => {
         }, 30_000);
 
         it('graphQL returns known MinBondRequirementUpdated entity', async () => {
+            // Filter on `chainKey`: other suites raise and restore `MinBondRequirement` for their
+            // own chains, so an unfiltered `last: 1` would depend on this file happening to run
+            // after them (jest's default sequencer orders by file size / prior duration).
             const response = await graphQLQuery(
-                `query { minBondRequirementUpdateds(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, whoId, amount, chainKey }}}`,
+                `query { minBondRequirementUpdateds(orderBy: BLOCK_NUMBER_ASC, last: 1, filter: {chainKey: {equalTo: "${chain_Anvil1_Key}"}}) { nodes { id, blockNumber, date, whoId, amount, chainKey }}}`,
             );
             expect(response.data.minBondRequirementUpdateds.nodes).toBeTruthy();
             expect(response.data.minBondRequirementUpdateds.nodes.length).toBeGreaterThanOrEqual(1);

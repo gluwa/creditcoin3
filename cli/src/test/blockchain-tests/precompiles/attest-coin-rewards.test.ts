@@ -1,7 +1,7 @@
 import { Keyring } from '@polkadot/keyring';
 import { BN, u8aConcat, u8aToHex, stringToU8a } from '@polkadot/util';
 import { blake2AsU8a, cryptoWaitReady, decodeAddress, mnemonicGenerate } from '@polkadot/util-crypto';
-import { ethers, hexlify, JsonRpcProvider, parseEther, WebSocketProvider, zeroPadValue, ContractFactory } from 'ethers';
+import { ethers, hexlify, parseEther, WebSocketProvider, zeroPadValue, ContractFactory } from 'ethers';
 
 import { newApi, ApiPromise, KeyringPair, MICROUNITS_PER_CTC } from '../../../lib';
 import { chain_Anvil1_Key } from '../pallets/supported-chains/consts';
@@ -36,17 +36,6 @@ const CLAIM_PRECOMPILE_GAS = 3_000_000;
 function accountIdToBytes32(accountSs58OrRaw: string | Uint8Array): string {
     const raw = typeof accountSs58OrRaw === 'string' ? decodeAddress(accountSs58OrRaw) : accountSs58OrRaw;
     return zeroPadValue(hexlify(raw), 32);
-}
-
-/**
- * Foundry Anvil account #0 - always pre-funded. Same key as `attestor/scripts/Transfer.js` (`getSigner`).
- * Alith / `CREDITCOIN_EVM_PRIVATE_KEY('alice')` is **not** funded on vanilla Anvil.
- */
-const ANVIL_DEFAULT_ACCOUNT_0_PRIVATE_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
-
-/** Foundry Anvil / local EVM - default matches CI `anvil --port 8141`; override with `ANVIL1_HTTP_URL` (e.g. `http://127.0.0.1:8545`). */
-function anvilHttpUrl(): string {
-    return process.env.ANVIL1_HTTP_URL ?? 'http://127.0.0.1:8141';
 }
 
 /** Creditcoin node HTTP JSON-RPC for the **embedded EVM** (precompile + `setAttestCoinToken` target). */
@@ -211,7 +200,6 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     let creditcoinWs: string;
     /** Creditcoin EVM - precompile + treasury token live here. */
     let creditcoinEvm: WebSocketProvider;
-    let anvilEvm: JsonRpcProvider;
     let evmWalletCc3: ethers.Wallet;
     let root: KeyringPair;
     let alice: KeyringPair;
@@ -222,30 +210,20 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await cryptoWaitReady();
         creditcoinWs = (global as any).CREDITCOIN_API_URL as string;
         const cc3Http = creditcoinHttpUrl();
-        const anvilHttp = anvilHttpUrl();
         dbg('CREDITCOIN_API_URL (Substrate ws)=', creditcoinWs);
         dbg('CREDITCOIN_HTTP_URL (EVM)=', cc3Http);
-        dbg('ANVIL1_HTTP_URL (deploy mock token)=', anvilHttp);
 
         ({ api } = await newApi(creditcoinWs));
         creditcoinEvm = new WebSocketProvider(creditcoinWs);
-        anvilEvm = new JsonRpcProvider(anvilHttp);
 
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         alice = (global as any).CREDITCOIN_CREATE_SIGNER('alice');
 
         const pk = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');
         evmWalletCc3 = new ethers.Wallet(pk, creditcoinEvm);
-        const evmWalletAnvil = new ethers.Wallet(ANVIL_DEFAULT_ACCOUNT_0_PRIVATE_KEY, anvilEvm);
 
         // `integration-test-blockchain` runs zombienet attestors with //Alice-funded setup; Alice's stash is already
         // on `attestation::Ledger` - no `registerAttestor` here.
-
-        dbg('deploy MockAttestToken on Anvil (supported-chain local EVM)');
-        const factoryAnvil = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode, evmWalletAnvil);
-        const deployedAnvil = await factoryAnvil.deploy();
-        await deployedAnvil.waitForDeployment();
-        dbg('Anvil token', await deployedAnvil.getAddress());
 
         dbg('deploy same mock on Creditcoin EVM for precompile treasury + runtime `setAttestCoinToken`');
         const factoryCc3 = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode, evmWalletCc3);

@@ -671,13 +671,19 @@ fn erc20_balance_of(
     data.extend_from_slice(&SEL_BALANCE_OF);
     data.extend_from_slice(&encode_address(account.as_fixed_bytes()));
     let ret = erc20_subcall(handle, token, data)?;
-    if ret.len() < 32 {
+    // A conforming `balanceOf(address) returns (uint256)` returns *exactly* one 32-byte word:
+    // return data carries no selector, and the ABI head of a single static type starts at byte 0.
+    // Any other length means the configured address is not the ERC-20 governance vetted, so
+    // reject rather than guess which word to trust — a token that controls the returndata length
+    // could otherwise pick a layout that defeats the fee-on-transfer probe in
+    // `deposit_with_beneficiary`, which is built on this helper.
+    if ret.len() != 32 {
         return Err(PrecompileFailure::Revert {
             exit_status: ExitRevert::Reverted,
             output: b"balanceOf: bad return".to_vec(),
         });
     }
-    Ok(U256::from_big_endian(&ret[ret.len() - 32..]))
+    Ok(U256::from_big_endian(&ret[..32]))
 }
 
 fn account_id_to_sr25519_public<AccountId: Encode>(acct: &AccountId) -> Option<sr25519::Public> {

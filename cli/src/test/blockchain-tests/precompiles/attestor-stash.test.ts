@@ -4,7 +4,7 @@ import { u8aToHex } from '@polkadot/util';
 
 import { newApi, ApiPromise, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { evmAddressToSubstrateAddress } from '../../../lib/evm/address';
-import { fundFromSudo, waitEras } from '../../integration-tests/helpers';
+import { fundFromSudo, waitEras, mintAttestCoin, setMinBondRequirement } from '../../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../pallets/supported-chains/consts';
 import { attestorStashAddress } from './consts';
 import { testIf } from '../../utils';
@@ -66,6 +66,18 @@ describe('Precompile: AttestorStash', (): void => {
     // The attestor id we register, chill, and unregister across the serial tests.
     const attestorId = randomAttestorId();
 
+    /**
+     * Bond this suite requires, in attest-coin base units (100 units).
+     *
+     * `DefaultMinBondRequirement` is 0, so without setting this the whole suite goes vacuous rather
+     * than merely failing one line: a registered ledger and a never-registered one would both read
+     * `totalStaked == active == 0`, which is exactly the "silently-empty-ledger foot-gun" the
+     * `getLedgerByAddress` / `getCallerLedger` entries were added to catch. `withdrawUnbonded` would
+     * also stop emitting `UnbondedWithdrawn`, because a zero bond queues no unlock chunk.
+     */
+    const TEST_MIN_BOND = new BN('100000000000000000000');
+    let previousMinBond: string | undefined;
+
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
@@ -74,18 +86,33 @@ describe('Precompile: AttestorStash', (): void => {
         alith = new ethers.Wallet(privateKey, provider);
 
         // Fund Alith's derived Substrate account (this is the `stash`) with plenty of
-        // CTC. The default min bond is 100 CTC, so 2M is overkill.
+        // native CTC — it pays fees and the per-registration transfer to the attestor key.
         const result = await fundFromSudo(api, alith.address, MICROUNITS_PER_CTC.mul(new BN(2_000_000)));
         expect(result.status).toBe(0);
 
         stashSubstrateAddress = evmAddressToSubstrateAddress(alith.address);
         stashAccountIdHex = u8aToHex(decodeAddress(stashSubstrateAddress));
 
+        // The bond is denominated in attest coin, not CTC, so the stash needs a balance of the
+        // asset before `registerAttestor` can move it into the bond pool. Minted before the
+        // requirement is raised so no registration can observe a bond it cannot pay.
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        await mintAttestCoin(api, root, stashSubstrateAddress, TEST_MIN_BOND.muln(4));
+        previousMinBond = await setMinBondRequirement(api, root, chainKey, TEST_MIN_BOND);
+
         contract = new ethers.Contract(attestorStashAddress, contractABI, alith);
-    }, 90_000);
+    }, 120_000);
 
     afterAll(async () => {
-        await api.disconnect();
+        try {
+            // `MinBondRequirement` is chain-wide state shared with every other suite on this node.
+            if (previousMinBond !== undefined) {
+                const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+                await setMinBondRequirement(api, root, chainKey, previousMinBond);
+            }
+        } finally {
+            await api.disconnect();
+        }
     });
 
     // -----------------------------------------------------------------------------
