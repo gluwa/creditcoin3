@@ -52,6 +52,7 @@ pallet-grandpa = { workspace = true }
 pallet-identity = { workspace = true }
 pallet-im-online = { workspace = true }
 pallet-membership = { workspace = true }
+pallet-migrations = { workspace = true }
 pallet-nomination-pools = { workspace = true }
 pallet-nomination-pools-runtime-api = { workspace = true }
 pallet-offences = { workspace = true }
@@ -130,9 +131,12 @@ runtime-benchmarks = [
     "pallet-identity/runtime-benchmarks",
     "pallet-im-online/runtime-benchmarks",
     "pallet-membership/runtime-benchmarks",
+    "pallet-migrations/runtime-benchmarks",
     "pallet-nomination-pools/runtime-benchmarks",
     "pallet-offences/runtime-benchmarks",
+    "pallet-session/runtime-benchmarks",
     "pallet-timestamp/runtime-benchmarks",
+    "pallet-transaction-payment/runtime-benchmarks",
     "pallet-staking/runtime-benchmarks",
     "pallet-sudo/runtime-benchmarks",
     "pallet-supported-chains/runtime-benchmarks",
@@ -181,6 +185,7 @@ std = [
     "pallet-identity/std",
     "pallet-im-online/std",
     "pallet-membership/std",
+    "pallet-migrations/std",
     "pallet-nomination-pools/std",
     "pallet-nomination-pools-runtime-api/std",
     "pallet-offences/std",
@@ -244,6 +249,7 @@ try-runtime = [
     "pallet-identity/try-runtime",
     "pallet-im-online/try-runtime",
     "pallet-membership/try-runtime",
+    "pallet-migrations/try-runtime",
     "pallet-nomination-pools/try-runtime",
     "pallet-offences/try-runtime",
     "pallet-proxy/try-runtime",
