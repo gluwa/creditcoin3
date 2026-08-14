@@ -5,14 +5,10 @@ use serde::Serialize;
 use sp_core::U256;
 pub use subxt::utils::{AccountId32, H256};
 use subxt::{
-    backend::{
-        legacy::LegacyRpcMethods,
-        rpc::{RpcClient, RpcParams},
-    },
-    config::DefaultExtrinsicParamsBuilder,
-    error::RpcError,
-    ext::jsonrpsee::core::client::Error as JsonRpseeError,
-    OnlineClient, SubstrateConfig,
+    backend::legacy::LegacyRpcMethods, backend::rpc::RpcClient,
+    config::DefaultExtrinsicParamsBuilder, error::RpcError,
+    ext::jsonrpsee::core::client::Error as JsonRpseeError, ext::subxt_rpcs::client::RpcParams,
+    ext::subxt_rpcs::Error as SubxtRpcsError, OnlineClient, SubstrateConfig,
 };
 use subxt_signer::sr25519::Signature;
 use thiserror::Error;
@@ -116,6 +112,16 @@ impl From<subxt::Error> for Error {
     }
 }
 
+/// subxt 0.44 split the RPC-client error out of `subxt::Error` into its own
+/// `subxt_rpcs::Error` type (see [`is_transient_rpcs`]). Raw `RpcClient` calls (dialing,
+/// `request`/`subscribe`) surface this type directly rather than wrapped in `subxt::Error`, so
+/// route it through the same `subxt::Error::Rpc` classifier for a single source of truth.
+impl From<SubxtRpcsError> for Error {
+    fn from(err: SubxtRpcsError) -> Self {
+        subxt::Error::Rpc(RpcError::ClientError(err)).into()
+    }
+}
+
 /// Classifier shared by `From<subxt::Error>` so the logic has one source of truth.
 ///
 /// Treats as recoverable (→ `Reconnect`):
@@ -129,24 +135,59 @@ impl From<subxt::Error> for Error {
 ///     emits when the WS background task goes away (see [`is_transient_custom_message`]).
 fn is_transient_subxt(err: &subxt::Error) -> bool {
     match err {
-        subxt::Error::Rpc(
-            RpcError::SubscriptionDropped | RpcError::DisconnectedWillReconnect(_),
-        ) => true,
-        subxt::Error::Rpc(RpcError::ClientError(boxed)) => {
-            let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() else {
-                return false;
-            };
-            match jr {
-                JsonRpseeError::Transport(_)
-                | JsonRpseeError::RestartNeeded(_)
-                | JsonRpseeError::RequestTimeout => true,
-                JsonRpseeError::Call(obj) => is_transient_call_message(obj.message()),
-                JsonRpseeError::Custom(msg) => is_transient_custom_message(msg),
-                _ => false,
+        subxt::Error::Rpc(RpcError::SubscriptionDropped) => true,
+        subxt::Error::Rpc(RpcError::ClientError(rpc_err)) => is_transient_rpcs(rpc_err),
+        _ => false,
+    }
+}
+
+/// Classifier for the inner [`SubxtRpcsError`]. subxt 0.44 moved the RPC-client error variants
+/// (`DisconnectedWillReconnect`, the boxed jsonrpsee client error) out of `RpcError` and into
+/// `subxt_rpcs::Error`, reached via `RpcError::ClientError`. Server-returned JSON-RPC error
+/// objects (previously `jsonrpsee::Error::Call`) are now `SubxtRpcsError::User`.
+fn is_transient_rpcs(err: &SubxtRpcsError) -> bool {
+    match err {
+        SubxtRpcsError::DisconnectedWillReconnect(_) => true,
+        // Server returned a JSON-RPC error object — check whether the message indicates a
+        // transient condition (overload, shutdown, gateway timeout, etc.).
+        SubxtRpcsError::User(user_error) => is_transient_call_message(&user_error.message),
+        SubxtRpcsError::Client(boxed) => {
+            // Direct jsonrpsee error (non-reconnecting client path).
+            if let Some(jr) = boxed.downcast_ref::<JsonRpseeError>() {
+                return match jr {
+                    JsonRpseeError::Transport(_)
+                    | JsonRpseeError::RestartNeeded(_)
+                    | JsonRpseeError::RequestTimeout => true,
+                    JsonRpseeError::Custom(msg) => is_transient_custom_message(msg),
+                    _ => false,
+                };
             }
+            // Reconnecting-RPC-client wraps errors in a second Client layer; peel it.
+            if let Some(nested) = boxed.downcast_ref::<SubxtRpcsError>() {
+                return is_transient_rpcs(nested);
+            }
+            // Generic fallback: walk the source chain for transient IO error kinds.
+            is_transient_io_source_chain(boxed.as_ref())
         }
         _ => false,
     }
+}
+
+/// Walks the error source chain looking for a [`std::io::Error`] whose kind indicates
+/// a transient connection problem (node down, starting up, network blip).
+fn is_transient_io_source_chain(err: &(dyn std::error::Error + 'static)) -> bool {
+    if let Some(io) = err.downcast_ref::<std::io::Error>() {
+        return matches!(
+            io.kind(),
+            std::io::ErrorKind::ConnectionRefused
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::BrokenPipe
+                | std::io::ErrorKind::UnexpectedEof
+                | std::io::ErrorKind::TimedOut
+        );
+    }
+    err.source().is_some_and(is_transient_io_source_chain)
 }
 
 /// jsonrpsee surfaces some connection deaths as a plain `Error::Custom(String)` rather than a
@@ -1047,13 +1088,8 @@ impl Client {
                 Ok(())
             }
             Err(e) => {
-                if let subxt::Error::Rpc(e) = e {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::RpcError(e))
-                } else {
-                    error!("Error submitting attestation: {:?}", e);
-                    Err(Error::FailedToSubmit)
-                }
+                error!("Error submitting attestation: {:?}", e);
+                Err(e.into())
             }
         }
     }
@@ -1134,7 +1170,7 @@ impl Client {
     }
 
     pub async fn get_free_balance(&self, account: &AccountId32) -> Result<u128, Error> {
-        let storage_query = cc3::storage().system().account(account);
+        let storage_query = cc3::storage().system().account(account.clone());
         let account_info = self
             .api()
             .storage()
@@ -1260,14 +1296,13 @@ mod utils {
         }
     }
 
-    pub(super) fn is_fee_error(e: &subxt::Error) -> bool {
-        if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(err)) = e {
-            if let Some(subxt::ext::jsonrpsee::core::client::Error::Call(call_err)) =
-                err.downcast_ref::<subxt::ext::jsonrpsee::core::client::Error>()
-            {
-                if let Some(data) = call_err.data() {
-                    return data.get().contains(INABILITY_TO_PAY_SOME_FEE_MSG);
-                }
+    pub fn is_fee_error(e: &subxt::Error) -> bool {
+        if let subxt::Error::Rpc(subxt::error::RpcError::ClientError(
+            subxt::ext::subxt_rpcs::Error::User(user_error),
+        )) = e
+        {
+            if let Some(data) = &user_error.data {
+                return data.get().contains(INABILITY_TO_PAY_SOME_FEE_MSG);
             }
         }
 
@@ -1405,9 +1440,9 @@ mod transient_classifier_tests {
         // watchdog, surfacing as `Rpc(ClientError(RequestTimeout))`. Must reconnect, not crash —
         // otherwise `StreamCC3` yields it out and the production worker dies (no internal retry
         // for non-`ConnectionError`).
-        let err = subxt::Error::Rpc(RpcError::ClientError(Box::new(
-            JsonRpseeError::RequestTimeout,
-        )));
+        let err = subxt::Error::Rpc(RpcError::ClientError(
+            subxt::ext::subxt_rpcs::Error::Client(Box::new(JsonRpseeError::RequestTimeout)),
+        ));
         assert!(
             is_transient_subxt(&err),
             "RequestTimeout must classify as transient"
@@ -1511,5 +1546,69 @@ mod tests {
             0,
             "a value-cloned Client has its own ArcSwap and is unaffected"
         );
+    }
+
+    #[test]
+    fn server_rpc_error_transient_via_user_variant() {
+        // In subxt-rpcs 0.44, server-returned JSON-RPC error objects (previously routed through
+        // jsonrpsee::Error::Call inside Client(boxed)) now surface as SubxtRpcsError::User.
+        // Transient server messages must still classify as transient through this new path.
+        let make = |msg: &str| {
+            subxt::Error::Rpc(RpcError::ClientError(subxt::ext::subxt_rpcs::Error::User(
+                subxt::ext::subxt_rpcs::UserError {
+                    code: -32000,
+                    message: msg.to_owned(),
+                    data: None,
+                },
+            )))
+        };
+        assert!(is_transient_subxt(&make("the server is going down")));
+        assert!(is_transient_subxt(&make("upstream timeout")));
+        assert!(!is_transient_subxt(&make("method not found")));
+        assert!(!is_transient_subxt(&make("invalid params")));
+    }
+
+    #[test]
+    fn connection_refused_nested_client_is_transient() {
+        // subxt 0.44 reconnecting-rpc-client adds a second Client layer around the
+        // jsonrpsee transport error; the outer downcast to JsonRpseeError fails and
+        // previously caused a crash instead of a reconnect.
+        let io_err =
+            std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "connection refused");
+        let inner = subxt::ext::subxt_rpcs::Error::Client(Box::new(JsonRpseeError::Transport(
+            Box::new(io_err),
+        )));
+        let err = subxt::Error::Rpc(RpcError::ClientError(
+            subxt::ext::subxt_rpcs::Error::Client(Box::new(inner)),
+        ));
+        assert!(
+            is_transient_subxt(&err),
+            "Client(Client(Transport(ConnectionRefused))) must classify as transient"
+        );
+    }
+
+    #[test]
+    fn call_message_classification() {
+        for transient in [
+            "Downstream connection unexpectedly closed",
+            "the server is going down",
+            "node is shutting down",
+            "503 Service Unavailable",
+            "rate limit exceeded",
+            "too many requests",
+            "upstream timeout",
+            "RPC::DEADLINE_EXCEEDED",
+        ] {
+            assert!(
+                is_transient_call_message(transient),
+                "expected transient: {transient:?}"
+            );
+        }
+        for fatal in ["method not found", "invalid params", "bad signature"] {
+            assert!(
+                !is_transient_call_message(fatal),
+                "expected fatal: {fatal:?}"
+            );
+        }
     }
 }

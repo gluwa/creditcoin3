@@ -188,6 +188,16 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             subAccountDeposit: u128 & AugmentedConst<ApiType>;
             /**
+             * The amount held on deposit per registered username. This value should change only in
+             * runtime upgrades with proper migration of existing deposits.
+             **/
+            usernameDeposit: u128 & AugmentedConst<ApiType>;
+            /**
+             * The number of blocks that must pass to enable the permanent deletion of a username by
+             * its respective authority.
+             **/
+            usernameGracePeriod: u32 & AugmentedConst<ApiType>;
+            /**
              * Generic const
              **/
             [key: string]: Codec;
@@ -200,6 +210,26 @@ declare module '@polkadot/api-base/types/consts' {
              * multiple pallets send unsigned transactions.
              **/
             unsignedPriority: u64 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
+        multiBlockMigrations: {
+            /**
+             * The maximal length of an encoded cursor.
+             *
+             * A good default needs to selected such that no migration will ever have a cursor with MEL
+             * above this limit. This is statically checked in `integrity_test`.
+             **/
+            cursorMaxLen: u32 & AugmentedConst<ApiType>;
+            /**
+             * The maximal length of an encoded identifier.
+             *
+             * A good default needs to selected such that no migration will ever have an identifier
+             * with MEL above this limit. This is statically checked in `integrity_test`.
+             **/
+            identifierMaxLen: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const
              **/
@@ -289,6 +319,16 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             [key: string]: Codec;
         };
+        session: {
+            /**
+             * The amount to be held when setting keys.
+             **/
+            keyDeposit: u128 & AugmentedConst<ApiType>;
+            /**
+             * Generic const
+             **/
+            [key: string]: Codec;
+        };
         staking: {
             /**
              * Number of eras that staked funds must remain bonded for.
@@ -344,6 +384,10 @@ declare module '@polkadot/api-base/types/consts' {
              * this effect.
              **/
             maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
+            /**
+             * The absolute maximum of winner validators this pallet should return.
+             **/
+            maxValidatorSet: u32 & AugmentedConst<ApiType>;
             /**
              * Number of sessions per era.
              **/
@@ -517,6 +561,13 @@ declare module '@polkadot/api-base/types/consts' {
              * With that `List::migrate` can be called, which will perform the appropriate migration.
              **/
             bagThresholds: Vec<u64> & AugmentedConst<ApiType>;
+            /**
+             * Maximum number of accounts that may be re-bagged automatically in `on_idle`.
+             *
+             * A value of `0` (obtained by configuring `type MaxAutoRebagPerBlock = ();`) disables
+             * the feature.
+             **/
+            maxAutoRebagPerBlock: u32 & AugmentedConst<ApiType>;
             /**
              * Generic const
              **/
