@@ -2943,6 +2943,12 @@ export default {
                 wipeSuffix: 'bool',
                 checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
             },
+            bond_extra: {
+                amount: 'u128',
+            },
+            unbond_surplus: {
+                amount: 'u128',
+            },
         },
     },
     /**

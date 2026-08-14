@@ -3421,6 +3421,14 @@ declare module '@polkadot/types/lookup' {
             readonly wipeSuffix: bool;
             readonly checkpoints: Vec<AttestorPrimitivesAttestationCheckpoint>;
         } & Struct;
+        readonly isBondExtra: boolean;
+        readonly asBondExtra: {
+            readonly amount: u128;
+        } & Struct;
+        readonly isUnbondSurplus: boolean;
+        readonly asUnbondSurplus: {
+            readonly amount: u128;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3446,7 +3454,9 @@ declare module '@polkadot/types/lookup' {
             | 'SetMaxCatchup'
             | 'ForceApplyUpdates'
             | 'RevertTo'
-            | 'ForwardPatchCheckpoints';
+            | 'ForwardPatchCheckpoints'
+            | 'BondExtra'
+            | 'UnbondSurplus';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (323) */
