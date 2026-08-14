@@ -8488,8 +8488,10 @@ mod migrate_attestors_count_v1_to_v2 {
 mod prevalidate_attestation_commit_extension {
     use super::*;
     use crate::extensions::PrevalidateAttestationCommit;
-    use sp_runtime::traits::SignedExtension;
-    use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidityError};
+    use sp_runtime::traits::{TransactionExtension, TxBaseImplication};
+    use sp_runtime::transaction_validity::{
+        InvalidTransaction, TransactionSource, TransactionValidityError,
+    };
 
     #[test]
     fn prevalidate_attestation_passes_for_unique() {
@@ -8537,10 +8539,13 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor.attestor_id,
+                RuntimeOrigin::signed(attestor.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert!(res.is_ok());
@@ -8600,29 +8605,46 @@ mod prevalidate_attestation_commit_extension {
 
             // The legitimate attestor claims the slot for this digest.
             let authorized = PrevalidateAttestationCommit::<Test>::new()
-                .validate(&attestor.attestor_id, &call, &info, 0)
+                .validate(
+                    RuntimeOrigin::signed(attestor.attestor_id),
+                    &call,
+                    &info,
+                    0,
+                    (),
+                    &TxBaseImplication(call.clone()),
+                    TransactionSource::External,
+                )
                 .expect("active attestor is admitted");
             assert!(
-                !authorized.provides.is_empty(),
+                !authorized.0.provides.is_empty(),
                 "an active attestor must still claim the dedup slot"
             );
 
             // A non-attestor submitting the *same* attestation is admitted (it pays its fee in
             // dispatch) but must not be able to conflict with the submission above.
             let unauthorized = PrevalidateAttestationCommit::<Test>::new()
-                .validate(&ATTESTOR_2, &call, &info, 0)
+                .validate(
+                    RuntimeOrigin::signed(ATTESTOR_2),
+                    &call,
+                    &info,
+                    0,
+                    (),
+                    &TxBaseImplication(call.clone()),
+                    TransactionSource::External,
+                )
                 .expect("non-active signers are still admitted, to pay fees in dispatch");
             assert!(
-                unauthorized.provides.is_empty(),
+                unauthorized.0.provides.is_empty(),
                 "an unauthorized submission must not claim the shared attestation slot"
             );
 
             // The two must not collide in the pool.
             assert!(
                 authorized
+                    .0
                     .provides
                     .iter()
-                    .all(|tag| !unauthorized.provides.contains(tag)),
+                    .all(|tag| !unauthorized.0.provides.contains(tag)),
                 "unauthorized submissions must not preempt the legitimate attestation's slot"
             );
         })
@@ -8707,15 +8729,18 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &attestor_2.attestor_id,
+                RuntimeOrigin::signed(attestor_2.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert_eq!(
-                res,
-                Err(TransactionValidityError::Invalid(InvalidTransaction::Stale))
+                res.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Stale)
             );
         })
     }
@@ -8750,10 +8775,13 @@ mod prevalidate_attestation_commit_extension {
             let info = call.get_dispatch_info();
 
             let res = PrevalidateAttestationCommit::<Test>::new().validate(
-                &account.attestor_id,
+                RuntimeOrigin::signed(account.attestor_id),
                 &call,
                 &info,
                 0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
             );
 
             assert!(
@@ -8764,7 +8792,7 @@ mod prevalidate_attestation_commit_extension {
             // ...but carries no `provides` tag, so it cannot occupy the pool slot a legitimate
             // attestation for this digest would use (ATTESTOR-V2-008).
             assert!(
-                res.expect("checked ok above").provides.is_empty(),
+                res.expect("checked ok above").0.provides.is_empty(),
                 "an unauthorized submission must not be tagged with the shared attestation slot"
             );
 

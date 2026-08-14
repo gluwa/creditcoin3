@@ -43,8 +43,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node
@@ -112,6 +111,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install libclang
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
       - name: Configure rustc version
         run: |
           RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
@@ -121,8 +123,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
-
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node
@@ -154,6 +155,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install libclang
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
       - name: Configure rustc version
         run: |
           RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
@@ -163,7 +167,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          targets: wasm32-unknown-unknown
+          targets: wasm32v1-none
           components: clippy, rust-src
 
       - uses: Swatinem/rust-cache@v2
@@ -225,6 +229,9 @@ jobs:
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Install libclang
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
       - name: Configure rustc version
         run: |
           RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
@@ -235,8 +242,7 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: llvm-tools-preview, rust-src
-          targets: wasm32-unknown-unknown
-
+          targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node

@@ -449,8 +449,7 @@ async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
         .await
         .context("Failed to retrieve supported chain")?
         .ok_or(anyhow!(
-            "No such supported chain. Check that provided chain_key is valid. chain_key: {}",
-            chain_key
+            "No such supported chain. Check that provided chain_key is valid. chain_key: {chain_key}"
         ))?;
 
     if supported_chain.chain_id != eth_client.chain_id() {
@@ -466,11 +465,10 @@ async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
         .maturity_strategy
         .as_str()
         .try_into()
-        .map_err(|e| anyhow!("Invalid maturity strategy: {:?}", e))?;
+        .map_err(|e| anyhow!("Invalid maturity strategy: {e:?}"))?;
 
     // Return final maturity delay
     strategy_enum.maturity_delay().ok_or(anyhow!(
-        "No maturity delay for strategy: strategy_enum: {:?}",
-        strategy_enum
+        "No maturity delay for strategy: strategy_enum: {strategy_enum:?}"
     ))
 }
