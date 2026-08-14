@@ -376,10 +376,7 @@ impl ConfigBuilder {
             .await
             .context("Failed to fetch attestation interval")?
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Attestation interval not configured for chain {}",
-                    chain_key
-                )
+                anyhow::anyhow!("Attestation interval not configured for chain {chain_key}")
             })?;
 
         let checkpoint_interval = cc3_client
@@ -387,7 +384,7 @@ impl ConfigBuilder {
             .await
             .context("Failed to fetch checkpoint interval")?
             .ok_or_else(|| {
-                anyhow::anyhow!("Checkpoint interval not configured for chain {}", chain_key)
+                anyhow::anyhow!("Checkpoint interval not configured for chain {chain_key}")
             })? as u64;
 
         Ok(self
