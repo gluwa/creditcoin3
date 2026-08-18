@@ -13,8 +13,10 @@ name: Promote Branch (fast-forward)
 # invariant (main subset-of usc-testnet subset-of usc-dev) holds by
 # construction rather than by discipline.
 #
-# Manual dispatch only. Releases are infrequent enough that a deliberate click
-# per promotion is cheaper than the divergence the merge button leaves behind.
+# Promoting is manual dispatch only. Releases are infrequent enough that a
+# deliberate click per promotion is cheaper than the divergence the merge button
+# leaves behind. The pull_request trigger below never promotes; it is a
+# report-only self-test, described where it is declared.
 
 "on":
   # Allows you to run this workflow manually from the Actions tab
@@ -39,19 +41,40 @@ name: Promote Branch (fast-forward)
         default: true
         description: Run every check and report what would move, without moving it.
 
+  # Self-test. A workflow_dispatch trigger only registers from the default
+  # branch, so without this there is no way to exercise this file until it has
+  # already been merged. On a pull request touching the promotion machinery,
+  # run every gate for real - real runner, real token, real LFS checkout - with
+  # DRY_RUN forced on so no ref can move.
+  #
+  # Report-only: the gate steps are continue-on-error under pull_request. Gate 3
+  # legitimately fails until the one-time reconcile merges have been run, so
+  # enforcing it here would mean a permanently red check that tells us nothing.
+  # What the self-test proves is that the workflow wires up and the gates reach
+  # a verdict; the verdicts themselves are printed in the job summary.
+  pull_request:
+    paths:
+      - '.github/workflows/promote-branch.yml'
+      - '.github/check-promotion-is-safe.sh'
+
 permissions: read-all
 
 # Two promotions racing each other would make the ancestry checks meaningless.
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 # Security: don't use inputs directly, pass them through ENV, see:
 # https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
 env:
-  SOURCE_REF: ${{ inputs.SOURCE_REF }}
-  TARGET_BRANCH: ${{ inputs.TARGET_BRANCH }}
-  DRY_RUN: ${{ inputs.DRY_RUN }}
+  # inputs.* are empty on the pull_request self-test, hence the fallbacks.
+  SOURCE_REF: ${{ inputs.SOURCE_REF || 'usc-dev' }}
+  TARGET_BRANCH: ${{ inputs.TARGET_BRANCH || 'usc-testnet' }}
+  # Anything that is not a manual dispatch must not be able to move a ref.
+  # Written as 'A != x || B' rather than the usual 'A == x && B || C' ternary:
+  # that form collapses to C whenever B is false, which would quietly turn an
+  # explicit DRY_RUN=false back into true and make real promotion impossible.
+  DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.DRY_RUN }}
 
 jobs:
   promote:
@@ -96,6 +119,8 @@ jobs:
           echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
 
       - name: Check the promotion comes from usc-dev
+        id: gate-source
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: |
           # Every change enters at usc-dev and is promoted upward. Enforcing that
           # here also means the commit is already on origin, so the push moves a
@@ -115,6 +140,8 @@ jobs:
           exit 1
 
       - name: Check nothing is lost by promoting to ${{ env.TARGET_BRANCH }}
+        id: gate-safe
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: |
           # Runs first because it gives the actionable message: if the target
           # carries real work that never went through usc-dev, this names the
@@ -122,6 +149,8 @@ jobs:
           .github/check-promotion-is-safe.sh "$SOURCE_SHA" "$TARGET_BRANCH"
 
       - name: Check the promotion is a fast-forward
+        id: gate-ff
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: |
           # check-promotion-is-safe.sh tolerates dropping empty commits, because
           # the rebase-based promotion path legitimately does that. A push
@@ -152,6 +181,8 @@ jobs:
           exit 1
 
       - name: Promote ${{ env.SOURCE_REF }} to ${{ env.TARGET_BRANCH }}
+        id: push
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: |
           # No --force, no --force-with-lease. Push refusing a non-fast-forward
           # is the safety mechanism, not an obstacle to work around.
@@ -164,8 +195,35 @@ jobs:
               echo "INFO: origin/$TARGET_BRANCH now points at $SOURCE_SHA"
           fi
 
+      - name: Self-test summary
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GATE_SOURCE: ${{ steps.gate-source.outcome }}
+          GATE_SAFE: ${{ steps.gate-safe.outcome }}
+          GATE_FF: ${{ steps.gate-ff.outcome }}
+          GATE_PUSH: ${{ steps.push.outcome }}
+        run: |
+          {
+              echo "### Promotion self-test: $SOURCE_REF -> $TARGET_BRANCH"
+              echo
+              echo "Report-only. DRY_RUN was forced on, so nothing was pushed."
+              echo
+              echo "| gate | outcome |"
+              echo "| --- | --- |"
+              echo "| 1. source is contained in usc-dev | $GATE_SOURCE |"
+              echo "| 2. nothing with content is lost | $GATE_SAFE |"
+              echo "| 3. promotion is a fast-forward | $GATE_FF |"
+              echo "| 4. dry-run push | $GATE_PUSH |"
+              echo
+              if [[ "$GATE_FF" != "success" ]]; then
+                  echo "Gate 3 failing is expected until the one-time reconcile"
+                  echo "merges have been run on usc-dev. See the gate's own output"
+                  echo "for the exact commands."
+              fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Report result to Slack
-        if: always()
+        if: always() && github.event_name == 'workflow_dispatch'
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
