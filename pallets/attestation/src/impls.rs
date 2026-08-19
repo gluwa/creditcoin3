@@ -632,7 +632,31 @@ impl<T: Config> Pallet<T> {
     }
 
     pub(super) fn do_withdraw_unbonded(stash: &T::AccountId) -> DispatchResult {
-        let mut ledger = Self::ledger(stash).ok_or(Error::<T>::NotStash)?;
+        let Some(mut ledger) = Self::ledger(stash) else {
+            // A ledger-less stash can still hold live [`RetiredAttestorBlsKeys`] rows:
+            // `remove_attestor_and_emit_event` deregisters such a stash and records the retirement
+            // as usual, and [`Self::purge_retired_bls_keys_for_stash`] is the *only* era-based
+            // release there is. Gating it behind a ledger would reserve those [`BlsKeyOwner`]
+            // claims forever for any attestor that unregisters after
+            // `MigrateLegacyNativeBonds` and does not re-register — the retirement delay would
+            // start but never elapse.
+            //
+            // Releasing early instead is not an option: the claim is held so that attestations
+            // referencing the retired controller stay verifiable for the delay, which is a
+            // property of attestation history rather than of the bond. So the era still has to be
+            // respected — it just has to be *reachable*.
+            //
+            // Nothing else in this function applies: there is no bond to consolidate or return,
+            // and no ledger to reap. Callers with neither a ledger nor a retired row still get
+            // `NotStash`, so an unrelated account sees the same error as before rather than a
+            // silent no-op success.
+            ensure!(
+                !RetiredAttestorKeysByStash::<T>::get(stash).is_empty(),
+                Error::<T>::NotStash
+            );
+            Self::purge_retired_bls_keys_for_stash(stash, Self::current_era());
+            return Ok(());
+        };
 
         let (stash, old_total) = (ledger.stash.clone(), ledger.total_staked);
 
