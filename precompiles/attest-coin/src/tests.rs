@@ -36,10 +36,7 @@ fn encode_addr_as_bytes32(addr: H160) -> [u8; 32] {
 }
 
 fn encode_u256(v: u128) -> [u8; 32] {
-    let u = U256::from(v);
-    let mut out = [0u8; 32];
-    u.to_big_endian(&mut out);
-    out
+    U256::from(v).to_big_endian()
 }
 
 /// Build raw input for `accrued(bytes32)`.

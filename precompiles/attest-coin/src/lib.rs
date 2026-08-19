@@ -549,11 +549,11 @@ where
     Runtime::RuntimeCall: GetDispatchInfo,
 {
     <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(
-        call.get_dispatch_info().weight,
+        call.get_dispatch_info().total_weight(),
     )
 }
 
-/// Like [`RuntimeHelper::try_dispatch`], but does **not** reserve `dispatch_info.weight.proof_size()` on
+/// Like [`RuntimeHelper::try_dispatch`], but does **not** reserve `dispatch_info.total_weight().proof_size()` on
 /// the EVM handle. Otherwise Substrate benchmark PoV for `pallet_assets` dispatch is stacked on top of the
 /// same transaction’s Frontier proof meter and exhausts gas (`gasUsed == gasLimit`).
 fn try_dispatch_attest_coin_no_pov<Runtime, Call>(
@@ -569,8 +569,9 @@ where
     let dispatch_info = call.get_dispatch_info();
 
     let remaining_gas = handle.remaining_gas();
-    let required_gas =
-        <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(dispatch_info.weight);
+    let required_gas = <Runtime as pallet_evm::Config>::GasWeightMapping::weight_to_gas(
+        dispatch_info.total_weight(),
+    );
     if required_gas > remaining_gas {
         return Err(TryDispatchError::Evm(ExitError::OutOfGas));
     }
@@ -584,7 +585,7 @@ where
 
     RuntimeHelper::<Runtime>::refund_weight_v2_cost(
         handle,
-        dispatch_info.weight,
+        dispatch_info.total_weight(),
         post_dispatch_info.actual_weight,
     )
     .map_err(TryDispatchError::Evm)?;
@@ -717,8 +718,7 @@ fn bad_input() -> PrecompileFailure {
 
 #[cfg_attr(test, allow(dead_code))]
 pub(crate) fn encode_u256(u: U256) -> Vec<u8> {
-    let mut out = [0u8; 32];
-    u.to_big_endian(&mut out);
+    let out = u.to_big_endian();
     out.to_vec()
 }
 
@@ -729,8 +729,7 @@ pub(crate) fn encode_address(addr: &[u8; 20]) -> [u8; 32] {
 }
 
 pub(crate) fn u256_to_u64(u: U256) -> Result<u64, PrecompileFailure> {
-    let mut be = [0u8; 32];
-    u.to_big_endian(&mut be);
+    let be = u.to_big_endian();
     if be.iter().take(24).any(|b| *b != 0) {
         return Err(PrecompileFailure::Revert {
             exit_status: ExitRevert::Reverted,
@@ -741,8 +740,7 @@ pub(crate) fn u256_to_u64(u: U256) -> Result<u64, PrecompileFailure> {
 }
 
 pub(crate) fn u256_to_u128_balance(u: U256) -> Result<u128, PrecompileFailure> {
-    let mut be = [0u8; 32];
-    u.to_big_endian(&mut be);
+    let be = u.to_big_endian();
     if be.iter().take(16).any(|b| *b != 0) {
         return Err(PrecompileFailure::Revert {
             exit_status: ExitRevert::Reverted,
@@ -757,8 +755,7 @@ pub(crate) fn u256_to_u128_balance(u: U256) -> Result<u128, PrecompileFailure> {
 fn u256_to_reward_points<Runtime: pallet_attest_coin_rewards::Config>(
     u: U256,
 ) -> Result<Runtime::RewardPoints, PrecompileFailure> {
-    let mut be = [0u8; 32];
-    u.to_big_endian(&mut be);
+    let be = u.to_big_endian();
     if be.iter().take(16).any(|b| *b != 0) {
         return Err(PrecompileFailure::Revert {
             exit_status: ExitRevert::Reverted,

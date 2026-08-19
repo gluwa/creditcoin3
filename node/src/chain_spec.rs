@@ -353,6 +353,7 @@ fn devnet_genesis(
             // unreachable (`pallet_assets::Config::CreateOrigin = EnsureNever`). Attest coin is
             // provisioned here by id, and any future asset via root `force_create`.
             next_asset_id: None,
+            reserves: vec![],
         },
         transaction_payment: Default::default(),
 
@@ -559,6 +560,7 @@ fn testnet_genesis(
             // unreachable (`pallet_assets::Config::CreateOrigin = EnsureNever`). Attest coin is
             // provisioned here by id, and any future asset via root `force_create`.
             next_asset_id: None,
+            reserves: vec![],
         },
         transaction_payment: Default::default(),
 

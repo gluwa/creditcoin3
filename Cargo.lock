@@ -8876,7 +8876,6 @@ dependencies = [
  "cfg-if",
  "foreign-types",
  "libc",
- "once_cell",
  "openssl-macros",
  "openssl-sys",
 ]
@@ -8984,8 +8983,8 @@ dependencies = [
 
 [[package]]
 name = "pallet-assets"
-version = "40.0.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?branch=stable2409#298f676c91d64f15f38ea7fd78f125c5889ab09c"
+version = "48.1.0"
+source = "git+https://github.com/paritytech/polkadot-sdk?branch=stable2512#7ca066b352d9b9ce5934d22796139c8cf2313357"
 dependencies = [
  "frame-benchmarking",
  "frame-support",

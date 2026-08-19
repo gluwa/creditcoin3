@@ -196,6 +196,8 @@ impl pallet_assets::Config for Test {
     type Extra = ();
     type WeightInfo = ();
     type CallbackHandle = ();
+    type Holder = ();
+    type ReserveData = ();
 }
 
 pallet_staking_reward_curve::build! {
@@ -440,6 +442,7 @@ impl ExtBuilder {
                 (1, STASH_3, 1_000_000_000_000_000_000_000),
             ],
             next_asset_id: Some(2),
+            reserves: vec![],
         };
         assets_genesis.assimilate_storage(&mut t).unwrap();
 

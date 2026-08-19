@@ -22,7 +22,7 @@ use std::path::Path;
 ///
 /// # Example
 ///
-/// ```rust
+/// ```rust,no_run
 /// use serde::{Deserialize, Serialize};
 /// use utils::JsonSerializable;
 ///

@@ -224,6 +224,8 @@ impl pallet_assets::Config for Runtime {
     type Extra = ();
     type WeightInfo = ();
     type CallbackHandle = ();
+    type Holder = ();
+    type ReserveData = ();
 }
 
 use precompile_utils::precompile_set::{AddressU64, PrecompileAt, PrecompileSetBuilder};
@@ -524,6 +526,7 @@ impl ExtBuilder {
                 (1, Account::Charlie, attest_coin),
             ],
             next_asset_id: Some(2),
+            reserves: vec![],
         }
         .assimilate_storage(&mut t)
         .expect("Pallet assets genesis");

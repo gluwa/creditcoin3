@@ -69,7 +69,9 @@ bridge-usage-example/lib/*
 **/*trace.json
 **/*memory.json
 **/claim_attestation*.json
-./config.json
+# Written by the `JsonSerializable` doctest in common/utils (relative path, no cleanup).
+# Was previously listed as './config.json', which git silently ignores as a pattern.
+common/utils/config.json
 primitives/data/*
 prover/artifacts/*
 

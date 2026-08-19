@@ -405,60 +405,6 @@ impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
 
 pub type AssetsForceOrigin = frame_system::EnsureRoot<AccountId>;
 
-impl pallet_assets::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type Balance = Balance;
-    type AssetId = u32;
-    type AssetIdParameter = u32;
-    type Currency = Balances;
-    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
-    type ForceOrigin = AssetsForceOrigin;
-    type AssetDeposit = ConstU128<0>;
-    type MetadataDepositBase = ConstU128<0>;
-    type MetadataDepositPerByte = ConstU128<0>;
-    type ApprovalDeposit = ConstU128<0>;
-    type StringLimit = ConstU32<50>;
-    type AssetAccountDeposit = ConstU128<0>;
-    type RemoveItemsLimit = ConstU32<1000>;
-    type Freezer = ();
-    type Extra = ();
-    type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
-    type CallbackHandle = ();
-}
-
-/// Attest Coin on `pallet-assets` (18 decimals). Must match genesis + attest-coin precompile
-/// mint path. Single source of truth: the `AttestCoinAssetId` parameter type (used by both
-/// `pallet_attest_coin_rewards::Config` and `pallet_attestation::Config::BondAssetId`) reads
-/// this constant, so all three consumers stay in lockstep (audit Low #4).
-pub const ATTEST_COIN_ASSET_ID: u32 = 1;
-
-/// EVM address of the attest-coin precompile (`hash(4053)`; see `runtime/src/precompiles.rs`).
-pub fn attest_coin_precompile_h160() -> H160 {
-    H160::from_low_u64_be(4053)
-}
-
-/// Substrate `AccountId` of the attest-coin precompile (issuer for [`ATTEST_COIN_ASSET_ID`]).
-pub fn attest_coin_precompile_account() -> AccountId {
-    AddressMapping::into_account_id(attest_coin_precompile_h160())
-}
-
-parameter_types! {
-    pub const AttestationBondPoolPalletId: PalletId = PalletId(*b"att/bond");
-}
-
-/// Shared account holding attest-coin bonds for [`pallet_attestation`].
-///
-/// Must hold **native** balance at genesis (or be funded before first bond): non-sufficient assets
-/// require [`frame_system::Pallet::can_accrue_consumers`] on the receiver, which needs `providers > 0`.
-pub struct AttestationBondPoolAccount;
-impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
-    fn get() -> AccountId {
-        AttestationBondPoolPalletId::get().into_account_truncating()
-    }
-}
-
-pub type AssetsForceOrigin = frame_system::EnsureRoot<AccountId>;
-
 parameter_types! {
     /// The only deposit that needs a non-zero value here.
     ///
@@ -500,6 +446,8 @@ impl pallet_assets::Config for Runtime {
     type Extra = ();
     type WeightInfo = pallet_assets::weights::SubstrateWeight<Runtime>;
     type CallbackHandle = ();
+    type Holder = ();
+    type ReserveData = ();
 }
 
 parameter_types! {
