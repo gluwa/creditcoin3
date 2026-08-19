@@ -10271,3 +10271,132 @@ mod unregister_without_a_ledger {
         })
     }
 }
+
+/// A ledger-less stash still records BLS retirement on unregister, and
+/// [`Pallet::purge_retired_bls_keys_for_stash`] is the only era-based release. `withdraw_unbonded`
+/// must therefore stay reachable without a ledger, or the [`BlsKeyOwner`] claim of an attestor that
+/// unregisters after `MigrateLegacyNativeBonds` and never re-registers would be reserved forever.
+mod retired_bls_keys_without_a_ledger {
+    use super::*;
+
+    /// Register, attest (which claims the BLS key), drop the ledger, then unregister — leaving a
+    /// live retired row on a stash with no ledger.
+    fn retire_with_no_ledger(att: &Attestor) {
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(att.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            att.public_key,
+            att.signature
+        ));
+        assert_ok!(Attestation::chill(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+
+        Ledger::<Test>::remove(att.stash_id);
+
+        assert_ok!(Attestation::unregister_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id
+        ));
+        assert_eq!(
+            BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att.public_key),
+            Some(att.attestor_id)
+        );
+    }
+
+    #[test]
+    fn withdraw_unbonded_releases_the_bls_claim_without_a_ledger() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            retire_with_no_ledger(&att);
+
+            progress_to_block(50);
+            assert_ok!(Attestation::withdraw_unbonded(att.stash.clone()));
+
+            assert!(!crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            assert!(!BlsKeyOwner::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                att.public_key
+            ));
+            assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1).is_empty());
+
+            // The claim is genuinely free: another stash can now take the controller and the key.
+            assert_ok!(Attestation::register_attestor(
+                RuntimeOrigin::signed(STASH_2),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                att.public_key,
+                att.signature
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att.public_key),
+                Some(ATTESTOR_1)
+            );
+        })
+    }
+
+    /// The delay protects verification of attestations that reference the retired controller, so it
+    /// is a property of attestation history, not of the bond — a missing ledger must not shortcut
+    /// it.
+    #[test]
+    fn withdraw_unbonded_without_a_ledger_does_not_release_before_the_era_elapses() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            retire_with_no_ledger(&att);
+
+            // Still inside the bonding duration.
+            assert_ok!(Attestation::withdraw_unbonded(att.stash.clone()));
+
+            assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, att.public_key),
+                Some(ATTESTOR_1)
+            );
+
+            // A different stash cannot jump the queue for the controller while the row is live.
+            assert_noop!(
+                Attestation::register_attestor(
+                    RuntimeOrigin::signed(STASH_2),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1,
+                ),
+                Error::<Test>::ControllerRetiredByAnotherStash
+            );
+        })
+    }
+
+    /// An account with neither a ledger nor a retired row is still `NotStash`, so the relaxation
+    /// does not turn `withdraw_unbonded` into a silent no-op success for unrelated callers.
+    #[test]
+    fn withdraw_unbonded_is_still_not_stash_with_no_ledger_and_nothing_retired() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::withdraw_unbonded(RuntimeOrigin::signed(STASH_2)),
+                Error::<Test>::NotStash
+            );
+        })
+    }
+}
