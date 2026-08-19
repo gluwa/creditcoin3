@@ -85,7 +85,10 @@ jobs:
       - uses: actions/checkout@v7
         with:
           lfs: true
-          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+          # pull_request runs the PR's own version of this workflow, before
+          # review - a real push token has no business being in scope there.
+          # Read-only gates never need more than the default token.
+          token: ${{ github.event_name == 'workflow_dispatch' && secrets.GLUWA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 0
 
       - name: Resolve refs
