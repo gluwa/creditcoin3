@@ -10067,3 +10067,207 @@ mod audit_attestation_bounds {
         })
     }
 }
+
+/// A registered attestor whose stash has no ledger must still be able to leave.
+///
+/// Registration always creates a ledger, and the only path that removes one (`kill_stash`) is gated
+/// on the stash backing no attestor — so this pairing is an inconsistent state rather than a
+/// reachable one. `MigrateLegacyNativeBonds` produces it deliberately: it clears the legacy
+/// native-CTC ledgers but leaves [`Attestors`] intact so attestation does not stall across the
+/// upgrade. Refusing the exit with `NotStash` made that state permanent, since `register_attestor`
+/// also refuses with `AlreadyAttestor` while the registration survives.
+mod unregister_without_a_ledger {
+    use super::*;
+
+    /// Reproduces what `MigrateLegacyNativeBonds` leaves behind: ledger gone, attestor still
+    /// registered.
+    fn drop_ledger(stash_id: AccountId) {
+        Ledger::<Test>::remove(stash_id);
+        assert!(Ledger::<Test>::get(stash_id).is_none());
+    }
+
+    #[test]
+    fn unregister_attestor_succeeds_when_the_stash_has_no_ledger() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                att.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id,
+            ));
+
+            drop_ledger(STASH_1);
+
+            assert_ok!(Attestation::unregister_attestor(
+                att.stash,
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_none());
+            System::assert_last_event(
+                crate::Event::AttestorUnregistered(SUPPORTED_CHAIN_KEY, ATTESTOR_1).into(),
+            );
+            // Nothing was unbonded, so no ledger is conjured up on the way out.
+            assert!(Ledger::<Test>::get(STASH_1).is_none());
+        })
+    }
+
+    /// The relaxation must not weaken who may call the exit — ownership is still enforced, and it
+    /// is checked before the ledger lookup so a missing ledger cannot be used to bypass it.
+    #[test]
+    fn unregister_without_a_ledger_still_rejects_a_foreign_stash() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                att.stash,
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id,
+            ));
+
+            drop_ledger(STASH_1);
+
+            assert_noop!(
+                Attestation::unregister_attestor(
+                    RuntimeOrigin::signed(STASH_2),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                Error::<Test>::NotYourAttestor
+            );
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_some());
+        })
+    }
+
+    /// A ledger-less stash that never registered the attestor is still `AddressNotAttestor`, not a
+    /// silent success — the missing ledger only skips the unbond, it does not skip any other check.
+    #[test]
+    fn unregister_without_a_ledger_still_rejects_an_unregistered_attestor() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                Attestation::unregister_attestor(
+                    RuntimeOrigin::signed(STASH_1),
+                    SUPPORTED_CHAIN_KEY,
+                    ATTESTOR_1
+                ),
+                Error::<Test>::AddressNotAttestor
+            );
+        })
+    }
+
+    /// The operator-side exit. `kick_active_attestor` chills first, then routes through the same
+    /// `remove_attestor_and_emit_event`, so it is fixed by the same change.
+    #[test]
+    fn kick_active_attestor_with_unregister_succeeds_when_the_stash_has_no_ledger() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                att.stash,
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att.public_key,
+                att.signature
+            ));
+            progress_to_block(5);
+            assert_eq!(
+                Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1)
+                    .unwrap()
+                    .status,
+                AttestorStatus::Active
+            );
+
+            drop_ledger(STASH_1);
+
+            assert_ok!(Attestation::kick_active_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1,
+                true
+            ));
+
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_none());
+            assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+        })
+    }
+
+    /// The end state the migration is aiming for: a migrated attestor leaves and comes back on a
+    /// fresh attest-coin ledger. Before the fix this was a deadlock in both directions.
+    #[test]
+    fn ledgerless_attestor_can_unregister_then_re_register_with_a_fresh_ledger() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                att.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id,
+            ));
+
+            drop_ledger(STASH_1);
+
+            // The other half of the deadlock.
+            assert_noop!(
+                Attestation::register_attestor(
+                    att.stash.clone(),
+                    SUPPORTED_CHAIN_KEY,
+                    att.attestor_id
+                ),
+                Error::<Test>::AlreadyAttestor
+            );
+
+            assert_ok!(Attestation::unregister_attestor(
+                att.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            assert_ok!(Attestation::register_attestor(
+                att.stash,
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id,
+            ));
+
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_some());
+            // Re-registration goes through the normal bonded path, so the ledger is back.
+            assert!(Ledger::<Test>::get(STASH_1).is_some());
+        })
+    }
+
+    /// A stash can back several attestors; a missing ledger must let every one of them out, not
+    /// just the first.
+    #[test]
+    fn every_attestor_on_a_ledgerless_stash_can_exit() {
+        ExtBuilder.build_and_execute(|| {
+            let first = Attestor::new(STASH_1, ATTESTOR_1);
+            let second = Attestor::new(STASH_1, ATTESTOR_2);
+            assert_ok!(Attestation::register_attestor(
+                first.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                first.attestor_id,
+            ));
+            assert_ok!(Attestation::register_attestor(
+                second.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                second.attestor_id,
+            ));
+
+            drop_ledger(STASH_1);
+
+            assert_ok!(Attestation::unregister_attestor(
+                first.stash,
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_1
+            ));
+            assert_ok!(Attestation::unregister_attestor(
+                second.stash,
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_2
+            ));
+
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).is_none());
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_2).is_none());
+        })
+    }
+}
