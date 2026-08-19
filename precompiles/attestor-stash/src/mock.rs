@@ -223,34 +223,8 @@ impl pallet_assets::Config for Runtime {
     type Extra = ();
     type WeightInfo = ();
     type CallbackHandle = ();
-}
-
-pub struct AttestationBondPoolAccount;
-impl frame_support::traits::Get<AccountId> for AttestationBondPoolAccount {
-    fn get() -> AccountId {
-        Account::Bogus
-    }
-}
-
-impl pallet_assets::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type Balance = Balance;
-    type AssetId = u32;
-    type AssetIdParameter = u32;
-    type Currency = Balances;
-    type CreateOrigin = AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
-    type ForceOrigin = frame_system::EnsureRoot<AccountId>;
-    type AssetDeposit = ConstU128<0>;
-    type MetadataDepositBase = ConstU128<0>;
-    type MetadataDepositPerByte = ConstU128<0>;
-    type ApprovalDeposit = ConstU128<0>;
-    type StringLimit = ConstU32<50>;
-    type AssetAccountDeposit = ConstU128<0>;
-    type RemoveItemsLimit = ConstU32<1000>;
-    type Freezer = ();
-    type Extra = ();
-    type WeightInfo = ();
-    type CallbackHandle = ();
+    type Holder = ();
+    type ReserveData = ();
 }
 
 pub struct AttestationBondPoolAccount;
@@ -551,6 +525,7 @@ impl ExtBuilder {
             metadata: vec![(1u32, b"AC".to_vec(), b"AC".to_vec(), 18)],
             accounts: asset_accounts,
             next_asset_id: Some(2),
+            reserves: vec![],
         }
         .assimilate_storage(&mut t)
         .expect("Pallet assets storage can be assimilated");
