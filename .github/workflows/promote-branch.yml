@@ -118,26 +118,39 @@ jobs:
 
           echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
 
-      - name: Check the promotion comes from usc-dev
+      - name: Check the promotion source has cleared the required stages
         id: gate-source
         continue-on-error: ${{ github.event_name == 'pull_request' }}
         run: |
           # Every change enters at usc-dev and is promoted upward. Enforcing that
           # here also means the commit is already on origin, so the push moves a
           # label over objects the remote (LFS included) already has.
-          if git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/usc-dev"; then
-              echo "PASS: $SOURCE_SHA is contained in origin/usc-dev"
-              exit 0
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/usc-dev"; then
+              echo "FAIL: $SOURCE_SHA is not contained in origin/usc-dev."
+              echo "      Every change must enter at usc-dev and be promoted upward,"
+              echo "      so only a commit already on usc-dev can be promoted."
+              echo
+              echo "      If this is a mainnet hotfix that cannot wait, cut a"
+              echo "      release/x.y.z-mainnet branch from main, ship from there, and"
+              echo "      let the normal promotion carry the fix later."
+              exit 1
           fi
+          echo "PASS: $SOURCE_SHA is contained in origin/usc-dev"
 
-          echo "FAIL: $SOURCE_SHA is not contained in origin/usc-dev."
-          echo "      Every change must enter at usc-dev and be promoted upward,"
-          echo "      so only a commit already on usc-dev can be promoted."
-          echo
-          echo "      If this is a mainnet hotfix that cannot wait, cut a"
-          echo "      release/x.y.z-mainnet branch from main, ship from there, and"
-          echo "      let the normal promotion carry the fix later."
-          exit 1
+          # main is the last stage of usc-dev -> usc-testnet -> main. Containment
+          # in usc-dev alone isn't enough here, or a source that skipped
+          # usc-testnet entirely would ship straight to mainnet unvalidated.
+          if [[ "$TARGET_BRANCH" == "main" ]]; then
+              if ! git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/usc-testnet"; then
+                  echo "FAIL: $SOURCE_SHA is not contained in origin/usc-testnet."
+                  echo "      A promotion to main must already have gone through"
+                  echo "      usc-testnet. Promote to usc-testnet first, then re-run"
+                  echo "      this workflow with SOURCE_REF=usc-testnet (or a ref"
+                  echo "      reachable from it)."
+                  exit 1
+              fi
+              echo "PASS: $SOURCE_SHA is contained in origin/usc-testnet"
+          fi
 
       - name: Check nothing is lost by promoting to ${{ env.TARGET_BRANCH }}
         id: gate-safe
