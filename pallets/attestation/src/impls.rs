@@ -293,77 +293,98 @@ impl<T: Config> Pallet<T> {
         // Get the min bond requirement for the attestor
         let bond = Self::min_bond_requirement(chain_key);
 
-        let mut ledger = Self::ledger(&stash).ok_or(Error::<T>::NotStash)?;
-        // Value is the minimum of the bond and the active amount
-        let mut value = bond.min(ledger.active);
-
-        ensure!(
-            ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
-            Error::<T>::NoMoreChunks,
-        );
-
         // Aligns with the unlock chunk era used below (unbond completes at or after this era).
         let purge_at_era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
 
-        if !value.is_zero() {
-            // Decrease the active amount
-            ledger.active -= value;
-
-            // Aggregate solvency guard. The ledger is per-stash but a stash can back
-            // multiple attestors (across chains), so unlocking `bond.min(active)` for the
-            // attestor being removed here must not leave the *remaining* still-registered
-            // attestors collectively undercollateralized — a situation that arises once an
-            // operator raises a chain's `MinBondRequirement` after registration. The
-            // attestor being removed is still present in [`Attestors`] at this point, so it
-            // is excluded from the requirement. Checked before any storage write so a
-            // failure cleanly aborts the unbond.
-            let required = Self::required_bond_for_stash(&stash, Some((chain_key, &attestor_id)));
-
-            // Avoid there being a dust balance left in the staking system — but only when no
-            // remaining attestor still needs it as collateral. Sweeping unconditionally would zero
-            // an `active` that satisfied `required`, turning a legitimate exit into a spurious
-            // `InsufficientRemainingBond` (the guard reads the *post*-sweep value, so it cannot
-            // tell dust-sweeping apart from real undercollateralization). Reachable only when
-            // `0 < required < ED`; at the attest-coin asset's `min_balance` of 1 this branch fires
-            // only once `active` is already zero, so the ordering is currently a no-op — but
-            // `min_balance` is mutable via root `force_asset_status`, so don't rely on that.
-            if required.is_zero() && ledger.active < existential_deposit::<T>() {
-                value += ledger.active;
-                ledger.active = Zero::zero();
-            }
+        // No ledger means there is no bond to unwind, so deregistration proceeds directly.
+        //
+        // Registration always creates a ledger (`try_insert_attestor_and_emit_event` bonds before
+        // it returns), and the only path that removes one is `kill_stash`, which returns the pooled
+        // funds and is gated on `!stash_backs_any_attestor`. So a registered attestor whose stash
+        // has no ledger is an inconsistent state rather than a reachable one — and the correct
+        // response to it on an *exit* path is to let the exit clean it up, not to block it.
+        // Refusing here with `NotStash` is what made the state permanent: the attestor could
+        // neither leave nor re-register, since `register_attestor` refuses with `AlreadyAttestor`
+        // while the registration survives.
+        //
+        // `MigrateLegacyNativeBonds` produces exactly this state on purpose. It clears the legacy
+        // native-CTC ledgers but deliberately leaves [`Attestors`] intact so attestation does not
+        // stall across the upgrade, leaving those attestors to unregister and re-bond in attest
+        // coin on their own schedule.
+        //
+        // Nothing is given away by skipping the unwind: with no ledger there is no `active` to draw
+        // down, no pooled balance to return, and no aggregate solvency requirement to violate. The
+        // BLS retirement below still runs on both paths, so the key-reuse delay is unaffected.
+        if let Some(mut ledger) = Self::ledger(&stash) {
+            // Value is the minimum of the bond and the active amount
+            let mut value = bond.min(ledger.active);
 
             ensure!(
-                ledger.active >= required,
-                Error::<T>::InsufficientRemainingBond
+                ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
+                Error::<T>::NoMoreChunks,
             );
 
-            // Note: in case there is no current era it is fine to bond one era more.
-            if let Some(chunk) = ledger
-                .unlocking
-                .last_mut()
-                .filter(|chunk| chunk.era == purge_at_era)
-            {
-                // To keep the chunk count down, we only keep one chunk per era. Since
-                // `unlocking` is a FiFo queue, if a chunk exists for `era` we know that it will
-                // be the last one.
-                chunk.value = chunk.value.defensive_saturating_add(value)
-            } else {
-                ledger
+            if !value.is_zero() {
+                // Decrease the active amount
+                ledger.active -= value;
+
+                // Aggregate solvency guard. The ledger is per-stash but a stash can back
+                // multiple attestors (across chains), so unlocking `bond.min(active)` for the
+                // attestor being removed here must not leave the *remaining* still-registered
+                // attestors collectively undercollateralized — a situation that arises once an
+                // operator raises a chain's `MinBondRequirement` after registration. The
+                // attestor being removed is still present in [`Attestors`] at this point, so it
+                // is excluded from the requirement. Checked before any storage write so a
+                // failure cleanly aborts the unbond.
+                let required =
+                    Self::required_bond_for_stash(&stash, Some((chain_key, &attestor_id)));
+
+                // Avoid there being a dust balance left in the staking system — but only when no
+                // remaining attestor still needs it as collateral. Sweeping unconditionally would zero
+                // an `active` that satisfied `required`, turning a legitimate exit into a spurious
+                // `InsufficientRemainingBond` (the guard reads the *post*-sweep value, so it cannot
+                // tell dust-sweeping apart from real undercollateralization). Reachable only when
+                // `0 < required < ED`; at the attest-coin asset's `min_balance` of 1 this branch fires
+                // only once `active` is already zero, so the ordering is currently a no-op — but
+                // `min_balance` is mutable via root `force_asset_status`, so don't rely on that.
+                if required.is_zero() && ledger.active < existential_deposit::<T>() {
+                    value += ledger.active;
+                    ledger.active = Zero::zero();
+                }
+
+                ensure!(
+                    ledger.active >= required,
+                    Error::<T>::InsufficientRemainingBond
+                );
+
+                // Note: in case there is no current era it is fine to bond one era more.
+                if let Some(chunk) = ledger
                     .unlocking
-                    .try_push(UnlockChunk {
-                        value,
-                        era: purge_at_era,
-                    })
-                    .map_err(|_| Error::<T>::NoMoreChunks)?;
-            };
+                    .last_mut()
+                    .filter(|chunk| chunk.era == purge_at_era)
+                {
+                    // To keep the chunk count down, we only keep one chunk per era. Since
+                    // `unlocking` is a FiFo queue, if a chunk exists for `era` we know that it will
+                    // be the last one.
+                    chunk.value = chunk.value.defensive_saturating_add(value)
+                } else {
+                    ledger
+                        .unlocking
+                        .try_push(UnlockChunk {
+                            value,
+                            era: purge_at_era,
+                        })
+                        .map_err(|_| Error::<T>::NoMoreChunks)?;
+                };
 
-            // Update the ledger
-            ledger.update()?;
+                // Update the ledger
+                ledger.update()?;
 
-            Self::deposit_event(Event::<T>::Unbonded {
-                stash: stash.clone(),
-                amount: value,
-            });
+                Self::deposit_event(Event::<T>::Unbonded {
+                    stash: stash.clone(),
+                    amount: value,
+                });
+            }
         }
 
         if let Some(bls_public_key) = attestor.bls_public_key {
