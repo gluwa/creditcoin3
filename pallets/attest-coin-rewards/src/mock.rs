@@ -83,6 +83,7 @@ impl frame_system::Config for Runtime {
     type SS58Prefix = SS58Prefix;
     type OnSetCode = ();
     type MaxConsumers = ConstU32<16>;
+    type ExtensionsWeightInfo = ();
 }
 
 impl pallet_timestamp::Config for Runtime {
@@ -102,7 +103,8 @@ impl pallet_balances::Config for Runtime {
     type ExistentialDeposit = ExistentialDeposit;
     type AccountStore = System;
     type WeightInfo = ();
-    type RuntimeHoldReason = ();
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type DoneSlashHandler = ();
     type FreezeIdentifier = ();
     type MaxFreezes = ();
     type RuntimeFreezeReason = RuntimeFreezeReason;
@@ -127,6 +129,8 @@ impl pallet_assets::Config for Runtime {
     type Extra = ();
     type WeightInfo = ();
     type CallbackHandle = ();
+    type Holder = ();
+    type ReserveData = ();
 }
 
 pub struct DummyRegistrationHandler;
@@ -179,7 +183,9 @@ impl onchain::Config for OnChainSeqPhragmen {
     type Solver = SequentialPhragmen<AccountId, Perbill>;
     type DataProvider = Staking;
     type WeightInfo = ();
-    type MaxWinners = ConstU32<100>;
+    type Sort = frame_support::traits::ConstBool<false>;
+    type MaxBackersPerWinner = ConstU32<256>;
+    type MaxWinnersPerPage = ConstU32<100>;
     type Bounds = ElectionsBounds;
 }
 
@@ -211,7 +217,10 @@ impl pallet_staking::Config for Runtime {
     type BenchmarkingConfig = pallet_staking::TestBenchmarkingConfig;
     type WeightInfo = ();
     type MaxControllersInDeprecationBatch = ConstU32<100>;
-    type DisablingStrategy = pallet_staking::UpToLimitDisablingStrategy<SLASHING_DISABLING_FACTOR>;
+    type OldCurrency = Balances;
+    type RuntimeHoldReason = RuntimeHoldReason;
+    type MaxValidatorSet = ConstU32<100>;
+    type Filter = frame_support::traits::Nothing;
 }
 
 impl_opaque_keys! {
@@ -223,18 +232,23 @@ impl_opaque_keys! {
 impl pallet_session::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type ValidatorId = <Self as frame_system::Config>::AccountId;
-    type ValidatorIdOf = pallet_staking::StashOf<Self>;
+    type ValidatorIdOf = sp_runtime::traits::ConvertInto;
     type ShouldEndSession = Babe;
     type NextSessionRotation = Babe;
     type SessionManager = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
     type SessionHandler = <MockSessionKeys as OpaqueKeys>::KeyTypeIdProviders;
     type Keys = MockSessionKeys;
     type WeightInfo = ();
+    type DisablingStrategy =
+        pallet_session::disabling::UpToLimitDisablingStrategy<SLASHING_DISABLING_FACTOR>;
+    type Currency = Balances;
+    type KeyDeposit = frame_support::traits::ConstU128<0>;
 }
 
 impl pallet_session::historical::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
     type FullIdentification = pallet_staking::Exposure<AccountId, u128>;
-    type FullIdentificationOf = pallet_staking::ExposureOf<Self>;
+    type FullIdentificationOf = pallet_staking::DefaultExposureOf<Self>;
 }
 
 impl pallet_babe::Config for Runtime {
@@ -316,6 +330,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 
     let initial_balance: Balance = 10_000_000_000_000_000_000_000;
     pallet_balances::GenesisConfig::<Runtime> {
+        dev_accounts: None,
         balances: vec![
             (alice(), initial_balance),
             (bob(), initial_balance),
@@ -330,6 +345,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
         metadata: vec![(1, b"AC".to_vec(), b"AC".to_vec(), 18)],
         accounts: vec![(1, alice(), initial_balance), (1, bob(), initial_balance)],
         next_asset_id: Some(2),
+        reserves: vec![],
     }
     .assimilate_storage(&mut t)
     .unwrap();
