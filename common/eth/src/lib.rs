@@ -1265,7 +1265,7 @@ pub struct RateLimitPacer {
 }
 
 impl RateLimitPacer {
-    const LEVEL_CAP: u32 = 5;
+    const LEVEL_CAP: u32 = 6;
     const BASE: std::time::Duration = std::time::Duration::from_secs(5);
 
     /// Record an iteration outcome. Rate-limited failures escalate + arm a window; clean passes
@@ -1331,13 +1331,13 @@ mod provider_lookup_tests {
             last = d;
         }
         assert!(
-            last <= Duration::from_secs(80),
+            last <= Duration::from_secs(160),
             "window capped at BASE << (CAP-1)"
         );
-        assert!(last > Duration::from_secs(40), "reached the cap");
+        assert!(last > Duration::from_secs(80), "reached the cap");
         // Clean passes decay the level but never arm windows.
         p.after(false);
-        assert!(p.deferring().is_none_or(|d| d <= Duration::from_secs(80)));
+        assert!(p.deferring().is_none_or(|d| d <= Duration::from_secs(160)));
     }
 
     use super::{merge_provider_lookup, redact_url_query, Error, LookupOutcome};
