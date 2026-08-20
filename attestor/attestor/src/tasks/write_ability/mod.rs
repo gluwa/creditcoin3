@@ -420,8 +420,7 @@ pub async fn run(
     .await
     .map_err(|_| {
         Error::WriteAbility(anyhow!(
-            "connect Creditcoin L1 EVM RPC timed out after {:?}",
-            RPC_ATTEMPT_TIMEOUT
+            "connect Creditcoin L1 EVM RPC timed out after {RPC_ATTEMPT_TIMEOUT:?}"
         ))
     })?
     .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
@@ -438,8 +437,7 @@ pub async fn run(
             .await
             .map_err(|_| {
                 Error::WriteAbility(anyhow!(
-                    "read Creditcoin L1 chain head timed out after {:?}",
-                    RPC_ATTEMPT_TIMEOUT
+                    "read Creditcoin L1 chain head timed out after {RPC_ATTEMPT_TIMEOUT:?}"
                 ))
             })?
             .map_err(|e| Error::WriteAbility(anyhow!("read Creditcoin L1 chain head: {e}")))?;
@@ -473,8 +471,7 @@ pub async fn run(
                 ),
             ) => attempt.unwrap_or_else(|_| {
                 Err(anyhow!(
-                    "Outbox resolution RPC attempt timed out after {:?}",
-                    RPC_ATTEMPT_TIMEOUT
+                    "Outbox resolution RPC attempt timed out after {RPC_ATTEMPT_TIMEOUT:?}"
                 ))
             }),
             joined = wait_for_optional_child(&mut set_watcher) => {
