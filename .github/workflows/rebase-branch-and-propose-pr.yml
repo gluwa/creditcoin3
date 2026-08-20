@@ -39,6 +39,11 @@ jobs:
           git checkout -b "${{ env.BRANCH_NAME }}" "${{ env.LAST_REF }}"
           git branch
 
+      - name: Check nothing is lost by promoting to ${{ env.TARGET_BRANCH }}
+        run: |
+          .github/check-promotion-is-safe.sh \
+            "${{ env.LAST_REF }}" "${{ env.TARGET_BRANCH }}"
+
       - name: Rebase ${{ env.BRANCH_NAME }} against ${{ env.TARGET_BRANCH }}
         run: |
           git config --global user.email "creditcoin@gluwa.com"

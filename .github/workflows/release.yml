@@ -34,7 +34,17 @@ jobs:
         id: identify-tag
         shell: bash
         run: |
-          TAG_NAME=$(git describe --tag)
+          # Use the ref that triggered this run, not `git describe`. A release
+          # commit can carry more than one tag (e.g. both -devnet and -mainnet
+          # once a branch is promoted by fast-forward), and `git describe` picks
+          # only one of them, so it can report a tag we are not releasing.
+          if [[ "$GITHUB_REF_TYPE" != "tag" ]]; then
+              echo "FAIL: expected a tag push, got ref type '$GITHUB_REF_TYPE'"
+              exit 1
+          fi
+
+          TAG_NAME="$GITHUB_REF_NAME"
+          echo "INFO: releasing tag '$TAG_NAME'"
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_ENV"
           echo "TAG_NAME=$TAG_NAME" >> "$GITHUB_OUTPUT"
 
