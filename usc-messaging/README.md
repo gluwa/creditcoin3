@@ -269,7 +269,7 @@ npx tsx scripts/deploy.ts
 ```sh
 bash usc-messaging/scripts/launch-attestors.sh
 ```
-**WAIT FOR THIS LOG BEFORE PROCEEDING** 
+**WAIT FOR THIS LOG BEFORE PROCEEDING**
 ```sh
 ✅ Attestor set ready
 ```
