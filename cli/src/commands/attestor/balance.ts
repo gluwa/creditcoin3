@@ -1,7 +1,7 @@
 import { Command, OptionValues } from 'commander';
 import { BN, newApi } from '../../lib';
 import { evmAddressOption } from '../options';
-import { getBalancesAll, toCTCString } from '../../lib/balance';
+import { getBalance, toCTCString } from '../../lib/balance';
 import { getAttestorContractReadOnly, substrateAddressToBytes32 } from '../../lib/attestor/precompile';
 import { evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import Table from 'cli-table3';
@@ -37,14 +37,17 @@ async function showStashBalanceAction(options: OptionValues) {
     const active = new BN(ledgerInfo.active.toString());
     const unlockingChunks: number = ledgerInfo.unlockingChunks;
 
-    const balanceAll = await getBalancesAll(stashAccountId, api);
+    // Reuse the shared helper rather than reading derive fields directly: attestor bonds go
+    // through StakingInterface, so they are staking bonds and now sit in a HoldReason::Staking
+    // hold. Reading `lockedBalance` here reported held stake as unlocked.
+    const balance = await getBalance(stashAccountId, api);
 
     const table = new Table({});
 
     table.push(
-        ['Transferable', toCTCString(balanceAll.availableBalance, 4)],
-        ['Locked', toCTCString(balanceAll.lockedBalance, 4)],
-        ['Total', toCTCString(balanceAll.freeBalance.add(balanceAll.reservedBalance), 4)],
+        ['Transferable', toCTCString(balance.transferable, 4)],
+        ['Locked', toCTCString(balance.locked, 4)],
+        ['Total', toCTCString(balance.total, 4)],
         ['TotalStake', toCTCString(totalStaked, 4)],
         ['ActiveStake', toCTCString(active, 4)],
         ['UnlockingChunks', unlockingChunks.toString()],

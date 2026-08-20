@@ -2,7 +2,7 @@ import { ApiPromise, parseUnits, MICROUNITS_PER_CTC } from '..';
 import { BN } from '@polkadot/util';
 import Table from 'cli-table3';
 
-import type { DeriveStakingAccount } from '@polkadot/api-derive/types';
+import type { DeriveBalancesAll, DeriveStakingAccount } from '@polkadot/api-derive/types';
 
 export function parseCTCString(amount: string): BN {
     try {
@@ -42,32 +42,49 @@ export interface AccountBalance {
 export async function getBalance(address: string, api: ApiPromise) {
     const balacesAll = await getBalancesAll(address, api);
     const stakingInfo = await getStakingInfo(address, api);
-    const stakingHold = await getStakingHoldBalance(address, api);
+
+    const total = balacesAll.freeBalance.add(balacesAll.reservedBalance);
+    const transferable = getTransferable(balacesAll);
 
     const balance: AccountBalance = {
         address,
-        transferable: balacesAll.availableBalance,
+        transferable,
         bonded: stakingInfo?.stakingLedger.active?.unwrap() || new BN(0),
         evm: new BN(0), // Get Balance does not reflect EVM balance, it must be added manually
-        // pallet-staking now bonds funds via a balances hold (HoldReason::Staking) instead of
-        // the legacy lock, so `lockedBalance` (derived from `balances.locks`) alone is 0 for any
-        // stash that hasn't gone through the old lock->hold migration.
-        locked: balacesAll.lockedBalance.add(stakingHold),
-        total: balacesAll.freeBalance.add(balacesAll.reservedBalance),
+        // Everything the account holds but cannot spend right now: reserves (where
+        // pallet-staking now parks bonded funds, as a HoldReason::Staking hold) plus whatever
+        // the freezes still withhold. Derived as `total - transferable` rather than by summing
+        // individual locks and holds, so it stays correct for any encumbrance mechanism and
+        // keeps Transferable + Locked == Total.
+        locked: total.sub(transferable),
+        total,
         unbonding: calcUnbonding(stakingInfo),
     };
 
     return balance;
 }
 
+/**
+ * Spendable balance, per the runtime's own rule.
+ *
+ * `availableBalance` is `max(0, free - lockedBalance)`, which only looks at `balances.locks`.
+ * That is wrong on two counts since pallet-staking moved bonded funds to a hold: it misses held
+ * stake entirely, and because `frozen` is a floor on `free + reserved` (so anything reserved
+ * discounts it) it also subtracts freezes that a reserve already covers. `transferable`
+ * implements `free - max(maybeEd, frozen - reserved)`, matching pallet-balances
+ * `reducible_balance()`. polkadot-js documents `availableBalance` as legacy and points here.
+ *
+ * It is `null` on chains still returning the pre-FrameSystemAccountInfo shape, hence the
+ * fallback, and @polkadot/api 15.x omits the outer clamp, hence the BN.max.
+ */
+export function getTransferable(balancesAll: DeriveBalancesAll): BN {
+    const transferable = balancesAll.transferable ?? balancesAll.availableBalance;
+    return BN.max(new BN(0), transferable);
+}
+
 export async function getBalancesAll(address: string, api: ApiPromise) {
     const balance = await api.derive.balances.all(address);
     return balance;
-}
-
-async function getStakingHoldBalance(address: string, api: ApiPromise): Promise<BN> {
-    const holds = await api.query.balances.holds(address);
-    return holds.filter((hold) => hold.id.isStaking).reduce((total, hold) => total.iadd(hold.amount), new BN(0));
 }
 
 async function getStakingInfo(address: string, api: ApiPromise) {
