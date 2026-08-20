@@ -222,6 +222,18 @@ mod benchmarks {
     #[benchmark]
     fn register_attestor() {
         // Worst case: re-registration clears a retired BLS row + stash index from a prior unregister.
+        //
+        // A NON-ZERO `MinBondRequirement` is load-bearing. Registration bonds
+        // `min_bond_requirement(chain)` worth of attest-coin into `BondPoolAccount` — a first
+        // registration via `AttestorLedger::bond`, a re-registration via the `AlreadyBonded`
+        // branch's `bond_extra_for_registration`. Both go through
+        // `BondFungibles::transfer`, touching `Assets::Asset` and two `Assets::Account` rows.
+        // At the dev runtime's `DefaultMinBondRequirement = 0`, `bond_extra_for_registration`
+        // returns early on `bond.is_zero()` and `sync_pool_delta` short-circuits on a zero
+        // delta, so the asset work never runs and drops out of the generated weight while
+        // dispatch still pays it on any chain with a real requirement.
+        MinBondRequirement::<T>::set(DEV_CHAIN_KEY, BENCH_MIN_BOND.into());
+
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
         let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
@@ -747,8 +759,24 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn kick_active_attestor() {
-        // Setup
+    fn kick_active_attestor(n: Linear<0, MAX_BOND_SCAN_PARAM>) {
+        // Worst case is `unregister: true`: the extrinsic runs `do_chill_attestor_immediate`
+        // *and* the whole of `remove_attestor_and_emit_event`, i.e. the same unbond path
+        // `unregister_attestor` is benchmarked over — so it needs the same two fixtures.
+        //
+        // A NON-ZERO `MinBondRequirement` is load-bearing, not incidental. The unbond work —
+        // including the `required_bond_for_stash` registry scan the `n` component is here to
+        // measure — is wrapped in `if !value.is_zero()`, where
+        // `value = min_bond_requirement(chain).min(ledger.active)`. The dev runtime ships
+        // `DefaultMinBondRequirement = 0`, so leaving it at the default makes `value` zero, skips
+        // the whole block, and fits `n` to a zero slope: the scan silently vanishes from the
+        // generated weight while dispatch keeps paying for it on any chain with a real
+        // requirement, letting an operator pack far more registry/asset work into a block than
+        // the charged weight covers.
+        MinBondRequirement::<T>::set(DEV_CHAIN_KEY, BENCH_MIN_BOND.into());
+
+        populate_attestor_registry::<T>(n);
+
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
 
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
@@ -760,6 +788,18 @@ mod benchmarks {
             DEV_CHAIN_KEY,
             attestor_id.clone(),
         ).expect("If adding the attestor doesn't work, then we aren't benchmarking the right path anyways.");
+        // `attest` so this actually kicks an *active* attestor. It sets the BLS key that makes
+        // `remove_attestor_and_emit_event` write `RetiredAttestorBlsKeys` +
+        // `RetiredAttestorKeysByStash`; both writes are skipped for a never-attested attestor.
+        // No `chill` here, unlike the `unregister_attestor` fixture — the extrinsic under
+        // measurement performs the immediate chill itself.
+        Attestation::<T>::attest(
+            att.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            att.public_key,
+            att.signature,
+        )
+        .expect("attest() required so the kick retains a retired BLS key");
 
         #[extrinsic_call]
         _(
