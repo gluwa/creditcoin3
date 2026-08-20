@@ -18,4 +18,6 @@ USER postgresuser
 # Environment variables for PostgreSQL
 ENV POSTGRES_DB=postgres
 ENV POSTGRES_USER=postgres
+# Local development/CI container only; not a real credential.
+# hadolint ignore=DL3064
 ENV POSTGRES_PASSWORD=postgres

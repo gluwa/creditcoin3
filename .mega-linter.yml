@@ -9,11 +9,14 @@ DISABLE_LINTERS:
   - REPOSITORY_OSV_SCANNER
   - RUST_CLIPPY
   - SPELL_CSPELL
-  - SPELL_MISSPELL
   - GRAPHQL_GRAPHQL_SCHEMA_LINTER
-  - REPOSITORY_GITLEAKS
 
 GITHUB_COMMENT_REPORTER: false
+
+# The Lob detector matches `test_`-prefixed Rust test function names (Lob test keys share
+# that prefix) and "verifies" them, producing false positives. Lob is not used here.
+REPOSITORY_TRUFFLEHOG_ARGUMENTS: --exclude-detectors=lob
+
 JSON_PRETTIER_ARGUMENTS: --no-error-on-unmatched-pattern
 # Git LFS pointer stubs (see .gitattributes) are not real JSON — jsonlint would fail on them.
 # Raw chainspecs are huge anyway.
