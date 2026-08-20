@@ -692,7 +692,23 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::Ledger` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestorsCount` (r:1 w:1)
 	/// Proof: `Attestation::AttestorsCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn kick_active_attestor() -> Weight {
+	/// Storage: `Assets::Asset` (r:1 w:1)
+	/// Proof: `Assets::Asset` (`max_values`: None, `max_size`: Some(210), added: 2685, mode: `MaxEncodedLen`)
+	/// Storage: `Assets::Account` (r:2 w:2)
+	/// Proof: `Assets::Account` (`max_values`: None, `max_size`: Some(134), added: 2609, mode: `MaxEncodedLen`)
+	/// Storage: `Attestation::Attestors` (r:1 w:0 per registry entry scanned by
+	/// `required_bond_for_stash`) — the `n` component.
+	/// NOT BENCHMARK-GENERATED — hand-derived conservative placeholder, for the same reason as
+	/// `bond_extra` / `unbond_surplus` below: the BENCHMARKS workflow only runs for pull requests
+	/// targeting `main` / `usc-testnet` / `usc-dev`, so no run is scheduled while this work targets
+	/// `attest_coin`. The previous figures were fitted against a fixture with
+	/// `MinBondRequirement = 0` and no registry to scan, so they priced only the immediate chill
+	/// plus a no-op unregister — they carried no `n` component and no attest-coin transfer at all.
+	/// Derived here as `unregister_attestor` (the unbond path this shares) plus the immediate chill
+	/// and the bond-pool asset transfer, with headroom. Regenerate with
+	/// `.github/bench.sh -p attestation -b` on reference hardware (an AMD EPYC 7713, matching the
+	/// surrounding numbers) once `attest_coin` is PR'd to `usc-dev`, or manually before release.
+	fn kick_active_attestor(n: u32) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1014`
 		//  Estimated: `4479`

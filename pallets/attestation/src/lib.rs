@@ -205,7 +205,7 @@ pub mod pallet {
         fn set_election_policy() -> Weight;
         fn authorize_attestor() -> Weight;
         fn remove_authorized_attestor() -> Weight;
-        fn kick_active_attestor() -> Weight;
+        fn kick_active_attestor(n: u32) -> Weight;
         fn force_election() -> Weight;
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
@@ -1328,7 +1328,13 @@ pub mod pallet {
         }
 
         #[pallet::call_index(24)]
-        #[pallet::weight(<T as Config>::WeightInfo::kick_active_attestor())]
+        // `unregister: true` runs the full `remove_attestor_and_emit_event` unbond path,
+        // including the `required_bond_for_stash` scan. Charged at the same
+        // `MaxAttestationNodes * ASSUMED_MAX_SUPPORTED_CHAINS` bound as `unregister_attestor`.
+        // `unregister: false` skips the scan, so that variant is over-charged — deliberately,
+        // to keep this in line with the other bond-scan dispatchables rather than introducing a
+        // post-dispatch refund on an operator-only call.
+        #[pallet::weight(<T as Config>::WeightInfo::kick_active_attestor(T::MaxAttestationNodes::get().saturating_mul(ASSUMED_MAX_SUPPORTED_CHAINS)))]
         pub fn kick_active_attestor(
             origin: OriginFor<T>,
             chain_key: ChainKey,
