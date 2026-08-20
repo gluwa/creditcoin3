@@ -42,6 +42,7 @@ export interface AccountBalance {
 export async function getBalance(address: string, api: ApiPromise) {
     const balacesAll = await getBalancesAll(address, api);
     const stakingInfo = await getStakingInfo(address, api);
+    const stakingHold = await getStakingHoldBalance(address, api);
 
     const total = balacesAll.freeBalance.add(balacesAll.reservedBalance);
     const transferable = getTransferable(balacesAll);
@@ -51,12 +52,10 @@ export async function getBalance(address: string, api: ApiPromise) {
         transferable,
         bonded: stakingInfo?.stakingLedger.active?.unwrap() || new BN(0),
         evm: new BN(0), // Get Balance does not reflect EVM balance, it must be added manually
-        // Everything the account holds but cannot spend right now: reserves (where
-        // pallet-staking now parks bonded funds, as a HoldReason::Staking hold) plus whatever
-        // the freezes still withhold. Derived as `total - transferable` rather than by summing
-        // individual locks and holds, so it stays correct for any encumbrance mechanism and
-        // keeps Transferable + Locked == Total.
-        locked: total.sub(transferable),
+        // Staking-scoped encumbrance: the legacy lock plus the HoldReason::Staking hold that
+        // replaced it. Deliberately NOT `total - transferable`: that would also sweep in
+        // unrelated reserves such as the proxy deposit, which is not locked stake.
+        locked: balacesAll.lockedBalance.add(stakingHold),
         total,
         unbonding: calcUnbonding(stakingInfo),
     };
@@ -80,6 +79,16 @@ export async function getBalance(address: string, api: ApiPromise) {
 export function getTransferable(balancesAll: DeriveBalancesAll): BN {
     const transferable = balancesAll.transferable ?? balancesAll.availableBalance;
     return BN.max(new BN(0), transferable);
+}
+
+/**
+ * Bonded stake now sits in a HoldReason::Staking hold rather than a `balances.locks` lock, so
+ * `lockedBalance` alone reports zero for any stash that has been through the lock-to-hold
+ * migration.
+ */
+async function getStakingHoldBalance(address: string, api: ApiPromise): Promise<BN> {
+    const holds = await api.query.balances.holds(address);
+    return holds.filter((hold) => hold.id.isStaking).reduce((total, hold) => total.iadd(hold.amount), new BN(0));
 }
 
 export async function getBalancesAll(address: string, api: ApiPromise) {
