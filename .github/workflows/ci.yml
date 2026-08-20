@@ -19,6 +19,7 @@ jobs:
   should-run:
     runs-on: ubuntu-26.04
     outputs:
+      changes: ${{ steps.filter.outputs.changes }}
       archiver: ${{ steps.filter.outputs.archiver }}
       attestor_cli_testing: ${{ steps.filter.outputs.attestor_cli_testing }}
       attestor_network_testing: ${{ steps.filter.outputs.attestor_network_testing }}
@@ -117,7 +118,8 @@ jobs:
   deploy-runner-build-creditcoin-for-testing:
     needs:
       - should-run
-    if: toJSON(needs.should-run.outputs.changes) != '[]'
+    # extrinsics check below needs the build unconditionally on usc-dev, regardless of path filters
+    if: ${{ needs.should-run.outputs.changes != '[]' || github.base_ref == 'usc-dev' }}
     strategy:
       fail-fast: false
       matrix:
@@ -135,6 +137,7 @@ jobs:
     needs:
       - should-run
       - deploy-runner-build-creditcoin-for-testing
+    if: ${{ needs.should-run.outputs.changes != '[]' || github.base_ref == 'usc-dev' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
