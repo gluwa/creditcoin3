@@ -1,0 +1,14 @@
+---
+##########################
+## Hadolint config file ##
+##########################
+# MegaLinter passes --config, so a repo-level file fully replaces its bundled
+# default. That default ignored DL3018, which is mirrored here on purpose.
+ignored:
+  # Pin versions in apk add. Mirrors MegaLinter's bundled default.
+  - DL3018
+  # Non-numeric user-id may not be resolvable by host system. New in hadolint
+  # 2.15.1 (MegaLinter v10) and informational only; our images intentionally
+  # create named service users. hadolint fails on info-level findings by
+  # default, so this would otherwise block CI.
+  - DL3066
