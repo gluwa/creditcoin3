@@ -206,7 +206,7 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Install cargo-machete
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.86.2
         with:
           tool: cargo-machete@0.9.1
 
@@ -248,7 +248,7 @@ jobs:
           shared-key: build-creditcoin-node
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.86.2
         with:
           tool: cargo-llvm-cov@0.6.24
 
