@@ -15,6 +15,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tokio-retry = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 
 # Creditcoin / USC dependencies

@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use attestor_primitives::ChainKey;
 
-use crate::retry::with_retries;
+use cc_client::retry::with_retries;
 
 pub struct BlsStore {
     chain_key: ChainKey,
