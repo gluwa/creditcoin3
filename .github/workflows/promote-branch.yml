@@ -1,0 +1,248 @@
+---
+name: Promote Branch (fast-forward)
+
+# Moves a branch label forward along history that already exists:
+#
+#     usc-dev  ->  usc-testnet  ->  main
+#
+# A promotion is not a merge. None of GitHub's merge modes can express it:
+# every one of them mints a new commit on the target, which is why the target
+# kept reading as "N commits behind" the source after each release. A plain
+# `git push <sha>:<branch>` is the only operation that moves the label without
+# adding anything, and it refuses a non-fast-forward by default, so the
+# invariant (main subset-of usc-testnet subset-of usc-dev) holds by
+# construction rather than by discipline.
+#
+# Promoting is manual dispatch only. Releases are infrequent enough that a
+# deliberate click per promotion is cheaper than the divergence the merge button
+# leaves behind. The pull_request trigger below never promotes; it is a
+# report-only self-test, described where it is declared.
+
+"on":
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+    inputs:
+      SOURCE_REF:
+        required: true
+        type: string
+        default: 'usc-dev'
+        description: "Ref to promote FROM. WARNING: edit this field, not the one above!"
+      TARGET_BRANCH:
+        required: true
+        type: choice
+        options:
+          - usc-testnet
+          - main
+        default: 'usc-testnet'
+        description: Branch to promote INTO. Fast-forward only, never usc-dev.
+      DRY_RUN:
+        required: false
+        type: boolean
+        default: true
+        description: Run every check and report what would move, without moving it.
+
+  # Self-test. A workflow_dispatch trigger only registers from the default
+  # branch, so without this there is no way to exercise this file until it has
+  # already been merged. On a pull request touching the promotion machinery,
+  # run every gate for real - real runner, real token, real LFS checkout - with
+  # DRY_RUN forced on so no ref can move.
+  #
+  # Report-only: the gate steps are continue-on-error under pull_request. Gate 3
+  # legitimately fails until the one-time reconcile merges have been run, so
+  # enforcing it here would mean a permanently red check that tells us nothing.
+  # What the self-test proves is that the workflow wires up and the gates reach
+  # a verdict; the verdicts themselves are printed in the job summary.
+  pull_request:
+    paths:
+      - '.github/workflows/promote-branch.yml'
+      - '.github/check-promotion-is-safe.sh'
+
+permissions: read-all
+
+# Two promotions racing each other would make the ancestry checks meaningless.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+# Security: don't use inputs directly, pass them through ENV, see:
+# https://docs.github.com/en/actions/reference/security/secure-use#use-an-intermediate-environment-variable
+env:
+  # inputs.* are empty on the pull_request self-test, hence the fallbacks.
+  SOURCE_REF: ${{ inputs.SOURCE_REF || 'usc-dev' }}
+  TARGET_BRANCH: ${{ inputs.TARGET_BRANCH || 'usc-testnet' }}
+  # Anything that is not a manual dispatch must not be able to move a ref.
+  # Written as 'A != x || B' rather than the usual 'A == x && B || C' ternary:
+  # that form collapses to C whenever B is false, which would quietly turn an
+  # explicit DRY_RUN=false back into true and make real promotion impossible.
+  DRY_RUN: ${{ github.event_name != 'workflow_dispatch' || inputs.DRY_RUN }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-26.04
+    # checkov:skip=CKV2_GHA_1:We need this to push the promoted ref
+    permissions: write-all
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          lfs: true
+          # pull_request runs the PR's own version of this workflow, before
+          # review - a real push token has no business being in scope there.
+          # Read-only gates never need more than the default token.
+          token: ${{ github.event_name == 'workflow_dispatch' && secrets.GLUWA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Resolve refs
+        run: |
+          # The choice input already constrains this, but keep the allowlist in
+          # the job too: usc-dev is where changes enter, never a promotion target.
+          case "$TARGET_BRANCH" in
+              usc-testnet|main) ;;
+              *)
+                  echo "FAIL: '$TARGET_BRANCH' is not a promotion target"
+                  echo "      expected one of: usc-testnet, main"
+                  exit 1
+                  ;;
+          esac
+
+          # Accept a branch name, a tag or a raw SHA. Prefer the remote-tracking
+          # branch so 'usc-dev' means origin's usc-dev, not a stale local copy.
+          if git rev-parse -q --verify "refs/remotes/origin/$SOURCE_REF^{commit}" >/dev/null; then
+              SOURCE_SHA=$(git rev-parse "refs/remotes/origin/$SOURCE_REF^{commit}")
+          elif git rev-parse -q --verify "$SOURCE_REF^{commit}" >/dev/null; then
+              SOURCE_SHA=$(git rev-parse "$SOURCE_REF^{commit}")
+          else
+              echo "FAIL: cannot resolve '$SOURCE_REF' to a commit"
+              exit 1
+          fi
+
+          echo "INFO: promoting '$SOURCE_REF' ($SOURCE_SHA) into '$TARGET_BRANCH'"
+          git --no-pager log -1 --format="INFO: source tip: %h %s" "$SOURCE_SHA"
+          git --no-pager log -1 --format="INFO: target tip: %h %s" "refs/remotes/origin/$TARGET_BRANCH"
+
+          echo "SOURCE_SHA=$SOURCE_SHA" >> "$GITHUB_ENV"
+
+      - name: Check the promotion source has cleared the required stages
+        id: gate-source
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: |
+          # Every change enters at usc-dev and is promoted upward. Enforcing that
+          # here also means the commit is already on origin, so the push moves a
+          # label over objects the remote (LFS included) already has.
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/usc-dev"; then
+              echo "FAIL: $SOURCE_SHA is not contained in origin/usc-dev."
+              echo "      Every change must enter at usc-dev and be promoted upward,"
+              echo "      so only a commit already on usc-dev can be promoted."
+              echo
+              echo "      If this is a mainnet hotfix that cannot wait, cut a"
+              echo "      release/x.y.z-mainnet branch from main, ship from there, and"
+              echo "      let the normal promotion carry the fix later."
+              exit 1
+          fi
+          echo "PASS: $SOURCE_SHA is contained in origin/usc-dev"
+
+          # main is the last stage of usc-dev -> usc-testnet -> main. Containment
+          # in usc-dev alone isn't enough here, or a source that skipped
+          # usc-testnet entirely would ship straight to mainnet unvalidated.
+          if [[ "$TARGET_BRANCH" == "main" ]]; then
+              if ! git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/usc-testnet"; then
+                  echo "FAIL: $SOURCE_SHA is not contained in origin/usc-testnet."
+                  echo "      A promotion to main must already have gone through"
+                  echo "      usc-testnet. Promote to usc-testnet first, then re-run"
+                  echo "      this workflow with SOURCE_REF=usc-testnet (or a ref"
+                  echo "      reachable from it)."
+                  exit 1
+              fi
+              echo "PASS: $SOURCE_SHA is contained in origin/usc-testnet"
+          fi
+
+      - name: Check nothing is lost by promoting to ${{ env.TARGET_BRANCH }}
+        id: gate-safe
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: |
+          # Runs first because it gives the actionable message: if the target
+          # carries real work that never went through usc-dev, this names the
+          # commits instead of letting the push fail with a bare rejection.
+          .github/check-promotion-is-safe.sh "$SOURCE_SHA" "$TARGET_BRANCH"
+
+      - name: Check the promotion is a fast-forward
+        id: gate-ff
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: |
+          # check-promotion-is-safe.sh tolerates dropping empty commits, because
+          # the rebase-based promotion path legitimately does that. A push
+          # cannot: the target tip must already be an ancestor of the source.
+          if git merge-base --is-ancestor \
+              "refs/remotes/origin/$TARGET_BRANCH" "$SOURCE_SHA"; then
+              echo "PASS: origin/$TARGET_BRANCH is an ancestor of $SOURCE_REF"
+              exit 0
+          fi
+
+          echo "FAIL: origin/$TARGET_BRANCH is not an ancestor of $SOURCE_REF, so"
+          echo "      this promotion is not a fast-forward and will not be pushed."
+          echo
+          echo "      Commits on $TARGET_BRANCH that $SOURCE_REF does not have:"
+          echo
+          git --no-pager log --format="      %h %s" \
+              "$SOURCE_SHA..refs/remotes/origin/$TARGET_BRANCH"
+          echo
+          echo "      The check above found none of them carry content, so nothing"
+          echo "      would be lost, but the label still cannot move forward over"
+          echo "      them. Reconcile once, from a clone with push rights:"
+          echo
+          echo "          git checkout usc-dev"
+          echo "          git merge --no-ff origin/$TARGET_BRANCH"
+          echo "          git push origin usc-dev"
+          echo
+          echo "      then re-run this workflow."
+          exit 1
+
+      - name: Promote ${{ env.SOURCE_REF }} to ${{ env.TARGET_BRANCH }}
+        id: push
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        run: |
+          # No --force, no --force-with-lease. Push refusing a non-fast-forward
+          # is the safety mechanism, not an obstacle to work around.
+          if [[ "$DRY_RUN" == "true" ]]; then
+              echo "INFO: DRY_RUN is set, reporting only"
+              git push --dry-run origin "$SOURCE_SHA:refs/heads/$TARGET_BRANCH"
+              echo "INFO: nothing was pushed. Re-run with DRY_RUN unchecked to promote."
+          else
+              git push origin "$SOURCE_SHA:refs/heads/$TARGET_BRANCH"
+              echo "INFO: origin/$TARGET_BRANCH now points at $SOURCE_SHA"
+          fi
+
+      - name: Self-test summary
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GATE_SOURCE: ${{ steps.gate-source.outcome }}
+          GATE_SAFE: ${{ steps.gate-safe.outcome }}
+          GATE_FF: ${{ steps.gate-ff.outcome }}
+          GATE_PUSH: ${{ steps.push.outcome }}
+        run: |
+          {
+              echo "### Promotion self-test: $SOURCE_REF -> $TARGET_BRANCH"
+              echo
+              echo "Report-only. DRY_RUN was forced on, so nothing was pushed."
+              echo
+              echo "| gate | outcome |"
+              echo "| --- | --- |"
+              echo "| 1. source is contained in usc-dev | $GATE_SOURCE |"
+              echo "| 2. nothing with content is lost | $GATE_SAFE |"
+              echo "| 3. promotion is a fast-forward | $GATE_FF |"
+              echo "| 4. dry-run push | $GATE_PUSH |"
+              echo
+              if [[ "$GATE_FF" != "success" ]]; then
+                  echo "Gate 3 failing is expected until the one-time reconcile"
+                  echo "merges have been run on usc-dev. See the gate's own output"
+                  echo "for the exact commands."
+              fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report result to Slack
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: ${{ job.status }}
+          channel: "#protocol-internal"
+          message: "promote ${{ env.SOURCE_REF }} -> ${{ env.TARGET_BRANCH }} (dry-run: ${{ env.DRY_RUN }}): ${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}"
