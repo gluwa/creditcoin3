@@ -78,7 +78,9 @@ import type {
     SpStakingOffenceOffenceDetails,
     SpStakingPagedExposureMetadata,
     SpWeightsWeightV2Weight,
+    SupportedChainsPrimitivesCoreFeeConfig,
     SupportedChainsPrimitivesSupportedChain,
+    SupportedChainsPrimitivesWriteAbilityConfig,
 } from '@polkadot/types/lookup';
 import type { Observable } from '@polkadot/types/types';
 
@@ -141,6 +143,24 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, H256]
             > &
                 QueryableStorageEntry<ApiType, [u64, H256]>;
+            /**
+             * Write-ability message-vote signing address (EVM / secp256k1) an attestor registered for a
+             * chain, proven via [`set_attestor_evm_address`](Pallet::set_attestor_evm_address). This is the
+             * address the destination `EOAValidator` set is built from: peers cannot derive it (it is
+             * secret-derived, domain-separated from the attestor's substrate/BLS keys), so the attestor
+             * self-registers it with a proof of possession. Keyed like [`Attestors`] so the per-chain set
+             * is a straight join with [`ActiveAttestors`]. `None`/absent means the attestor has not opted
+             * into write-ability. Cleared on [`unregister_attestor`](Pallet::unregister_attestor).
+             **/
+            attestorEvmAddress: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<H160>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             attestors: AugmentedQuery<
                 ApiType,
                 (
@@ -261,6 +281,21 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, u64]
             > &
                 QueryableStorageEntry<ApiType, [u64, u64]>;
+            /**
+             * Reverse index of [`AttestorEvmAddress`] enforcing that no two attestors on the same chain
+             * register the **same** EVM address — mirrors [`BlsKeyOwner`]. Without it, one write-ability
+             * signing key could be claimed by multiple controllers and satisfy threshold-of-N on the
+             * destination validator (`ecrecover` maps every vote to the one address).
+             **/
+            evmAddressOwner: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: H160 | string | Uint8Array,
+                ) => Observable<Option<AccountId32>>,
+                [u64, H160]
+            > &
+                QueryableStorageEntry<ApiType, [u64, H160]>;
             invulnerables: AugmentedQuery<
                 ApiType,
                 (
@@ -1741,9 +1776,36 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64, Bytes]>;
             chainKeyValue: AugmentedQuery<ApiType, () => Observable<u64>, []> & QueryableStorageEntry<ApiType, []>;
+            /**
+             * Per-chain USC write-ability core (protocol) fee, charged by the Outbox on every
+             * `publishMessage`. Read live by the EVM through the chain-info precompile
+             * (`get_core_fee(uint32)`), so a governance change takes effect on the next publish with no
+             * contract redeploys. No entry (or a zero amount) means no fee is charged.
+             **/
+            coreFees: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesCoreFeeConfig>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            outboxFactories: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H160>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             supportedChains: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesSupportedChain>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Per-chain USC write-ability metadata
+             **/
+            writeAbilityConfigs: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<SupportedChainsPrimitivesWriteAbilityConfig>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
