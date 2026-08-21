@@ -72,8 +72,10 @@ pub async fn watch(
     // the same (often shared, RPS-capped) destination endpoint, colliding with the fleet's
     // synchronized per-block fetches. When the provider rejects on rate limits, escalate this
     // loop's cooldown instead of colliding again next tick (observed live 2026-08-07, Chainstack
-    // -32005 on usc-dev; mirrors the relayer's pacing module).
-    let mut pacer = eth::RateLimitPacer::default();
+    // -32005 on usc-dev; mirrors the relayer's pacing module). Base the window on this loop's own
+    // poll interval — a shorter window would expire before the next tick and never actually skip
+    // a poll, so the fleet would keep colliding on the first few escalations (bugbot).
+    let mut pacer = eth::RateLimitPacer::new(Duration::from_secs(ATTESTOR_SET_POLL_SECS));
 
     // The threshold currently applied to the aggregator. Tracked so a threshold-ONLY change (same
     // membership) is still detected and applied (audit P3-2) — membership equality alone would skip

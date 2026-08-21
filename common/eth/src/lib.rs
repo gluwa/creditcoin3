@@ -1254,19 +1254,40 @@ fn contains_standalone(text: &str, needle: &str) -> bool {
 
 /// Per-loop rate-limit damper for periodic RPC read loops (mirrors the relayer's
 /// `pacing::RateLimitPacer`, post-review shape): a rate-limited failure escalates the level and
-/// arms a DEFERRAL WINDOW (5s doubling to 160s cap) that the loop checks at tick start; a clean
-/// pass decays one level and never slows anything. Deferral-not-sleep so a `select!` arm never
-/// blocks its siblings and a long cooldown can never hold a task past external liveness deadlines
-/// (the relayer's Bugbot review caught both failure modes — keep the designs in lockstep).
-#[derive(Debug, Default)]
+/// arms a DEFERRAL WINDOW that the loop checks at tick start; a clean pass decays one level and
+/// never slows anything. Deferral-not-sleep so a `select!` arm never blocks its siblings and a long
+/// cooldown can never hold a task past external liveness deadlines (the relayer's Bugbot review
+/// caught both failure modes — keep the designs in lockstep).
+///
+/// The window doubles from `base` (level 1) up to `base << (LEVEL_CAP - 1)` (level `LEVEL_CAP`).
+/// Construct with [`RateLimitPacer::new`], passing the **caller loop's own poll interval** as
+/// `base`: a window shorter than that interval expires before the loop wakes up again and so never
+/// actually defers a poll, letting the fleet collide again on the very next tick (bugbot).
+#[derive(Debug)]
 pub struct RateLimitPacer {
     level: u32,
     defer_until: Option<std::time::Instant>,
+    base: std::time::Duration,
+}
+
+impl Default for RateLimitPacer {
+    fn default() -> Self {
+        Self::new(std::time::Duration::from_secs(5))
+    }
 }
 
 impl RateLimitPacer {
     const LEVEL_CAP: u32 = 6;
-    const BASE: std::time::Duration = std::time::Duration::from_secs(5);
+
+    /// `base` is the level-1 deferral window — pass the caller loop's own poll interval so the
+    /// first classified failure already defers at least the next tick (see the type docs).
+    pub fn new(base: std::time::Duration) -> Self {
+        Self {
+            level: 0,
+            defer_until: None,
+            base,
+        }
+    }
 
     /// Record an iteration outcome. Rate-limited failures escalate + arm a window; clean passes
     /// decay one level (gradual, so a loop colliding every other tick stays damped).
@@ -1274,7 +1295,7 @@ impl RateLimitPacer {
         if rate_limited {
             self.level = (self.level + 1).min(Self::LEVEL_CAP);
             self.defer_until =
-                Some(std::time::Instant::now() + Self::BASE * 2u32.pow(self.level - 1));
+                Some(std::time::Instant::now() + self.base * 2u32.pow(self.level - 1));
         } else {
             self.level = self.level.saturating_sub(1);
         }
@@ -1338,6 +1359,24 @@ mod provider_lookup_tests {
         // Clean passes decay the level but never arm windows.
         p.after(false);
         assert!(p.deferring().is_none_or(|d| d <= Duration::from_secs(160)));
+    }
+
+    #[test]
+    fn pacer_base_must_cover_the_callers_own_poll_interval() {
+        use std::time::Duration;
+        // A window shorter than the caller's poll interval expires before the loop wakes up
+        // again and never actually defers anything — `new` must be given that interval as `base`
+        // so a single classified failure already skips at least the next tick.
+        let interval = Duration::from_secs(30);
+        let mut p = super::RateLimitPacer::new(interval);
+        p.after(true);
+        let d = p
+            .deferring()
+            .expect("first classified failure arms a window");
+        assert!(
+            d >= interval.saturating_sub(Duration::from_millis(50)),
+            "level-1 window ({d:?}) must cover at least the poll interval ({interval:?})"
+        );
     }
 
     use super::{merge_provider_lookup, redact_url_query, Error, LookupOutcome};

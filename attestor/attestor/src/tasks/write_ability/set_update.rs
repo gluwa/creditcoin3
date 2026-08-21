@@ -183,8 +183,9 @@ pub async fn run_proposer(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // Rate-limit pacing — see the attestor-set watcher: same shared-endpoint collision, same
     // damper. Only genuine rate-limit rejections escalate; timeouts and other errors keep the
-    // base cadence.
-    let mut pacer = eth::RateLimitPacer::default();
+    // base cadence. Base the window on this loop's own poll interval, same reasoning as the
+    // attestor-set watcher (bugbot).
+    let mut pacer = eth::RateLimitPacer::new(Duration::from_secs(SET_UPDATE_POLL_SECS));
 
     loop {
         tokio::select! {
