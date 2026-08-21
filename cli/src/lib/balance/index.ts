@@ -40,12 +40,12 @@ export interface AccountBalance {
 }
 
 export async function getBalance(address: string, api: ApiPromise) {
-    const balacesAll = await getBalancesAll(address, api);
+    const balancesAll = await getBalancesAll(address, api);
     const stakingInfo = await getStakingInfo(address, api);
     const stakingHold = await getStakingHoldBalance(address, api);
 
-    const total = balacesAll.freeBalance.add(balacesAll.reservedBalance);
-    const transferable = getTransferable(balacesAll);
+    const total = balancesAll.freeBalance.add(balancesAll.reservedBalance);
+    const transferable = getTransferable(balancesAll);
 
     const balance: AccountBalance = {
         address,
@@ -55,7 +55,7 @@ export async function getBalance(address: string, api: ApiPromise) {
         // Staking-scoped encumbrance: the legacy lock plus the HoldReason::Staking hold that
         // replaced it. Deliberately NOT `total - transferable`: that would also sweep in
         // unrelated reserves such as the proxy deposit, which is not locked stake.
-        locked: balacesAll.lockedBalance.add(stakingHold),
+        locked: balancesAll.lockedBalance.add(stakingHold),
         total,
         unbonding: calcUnbonding(stakingInfo),
     };
