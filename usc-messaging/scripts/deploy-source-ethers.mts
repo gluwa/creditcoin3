@@ -1,5 +1,8 @@
 // Plain-ethers source-stack deploy (no hardhat runtime — it wedges on this RPC).
 // Reads compiled artifacts from usc-contracts/artifacts. Run with tsx (Node 22).
+// Post-#23 redesign: RelayerContract owns verifier/decoder, RelayerFeeVault is a dumb vault,
+// AcknowledgmentValidator takes proofVerifier+attestToken, AttestorVault needs an AttestorRegistry
+// (mirrors deploy-source-devnet.mts, which already targets this same contract layout).
 import { ethers } from "ethers";
 import { ApiPromise, Keyring, WsProvider } from "@polkadot/api";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
@@ -83,30 +86,42 @@ async function main() {
   // + an immediate observation makes the quoter fee-floor usable by the time anything publishes.
   await (await (twap as any).setWindow(60)).wait();
   await (await (twap as any).update(ethers.parseEther("1"))).wait();
+  // Registry starts empty; owner (this deployer) can updateAttestorSet later if the vault flow needs it.
+  const registry = await deploy("AttestorRegistry", ART("write-ability/AttestorRegistry.sol", "AttestorRegistry"), [owner, []]);
   const factory = await deploy("OutboxFactory", ART("write-ability/deployer/OutboxFactory.sol", "OutboxFactory"));
   // Indexer discovery is fail-closed: authenticate OutboxCreated against governance registration.
   await registerFactoryBeforeOutbox(await factory.getAddress());
   const quoter = await deploy("USCRelayingQuoter", ART("write-ability/USCRelayingQuoter.sol", "USCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
+  // Outbox.coreFee() reads through IFeeRegistry, NOT the quoter — FeeRegistry wraps this chain's
+  // own chain-info precompile (ICoreFeeProvider.get_core_fee(uint32), selector 0x5b023376, fixed
+  // address AddressU64<4051> per runtime/src/precompiles.rs). An unconfigured chain_key reads back
+  // 0 (no fee), which is fine for the e2e — it just means outbox.coreFee() doesn't revert.
+  const CORE_FEE_PRECOMPILE = "0x0000000000000000000000000000000000000FD3";
+  const feeRegistry = await deploy("FeeRegistry", ART("write-ability/FeeRegistry.sol", "FeeRegistry"), [CORE_FEE_PRECOMPILE]);
 
   const attestAddr = await attest.getAddress();
   const quoterAddr = await quoter.getAddress();
+  const proofAddr = await proof.getAddress();
+  const decoderAddr = await decoder.getAddress();
+  const feeRegistryAddr = await feeRegistry.getAddress();
   const RATE = 0n;
 
+  // av (nonce n), fv (n+1), rc (n+2); Outbox via CREATE2 — resolves the ctor circularity.
   const n = await wallet.getNonce();
   const at = (k: number) => ethers.getCreateAddress({ from: owner, nonce: n + k });
   const [avAddr, fvAddr, rcAddr] = [at(0), at(1), at(2)];
-  const obAddr = await (factory as any).computeOutboxAddressFor(owner, CHAIN_KEY, owner, owner, RATE, avAddr, quoterAddr, attestAddr);
+  const obAddr = await (factory as any).computeOutboxAddressFor(owner, CHAIN_KEY, owner, owner, RATE, avAddr, feeRegistryAddr, attestAddr);
 
   const av = await deploy("AttestorVault", ART("write-ability/AttestorVault.sol", "AttestorVault"),
-    [owner, attestAddr, obAddr, rcAddr, owner, DEAD, 0]);
+    [owner, attestAddr, obAddr, rcAddr, owner, await registry.getAddress(), DEAD, 0]);
   const fv = await deploy("RelayerFeeVault", ART("write-ability/RelayerFeeVault.sol", "RelayerFeeVault"),
-    [owner, attestAddr, rcAddr, await proof.getAddress(), await decoder.getAddress(), quoterAddr]);
+    [attestAddr, rcAddr]);
   const rc = await deploy("RelayerContract", ART("write-ability/RelayerContract.sol", "RelayerContract"),
-    [owner, attestAddr, obAddr, avAddr, fvAddr, quoterAddr]);
+    [owner, attestAddr, obAddr, quoterAddr, proofAddr, decoderAddr]);
   if ((await av.getAddress()) !== avAddr || (await rc.getAddress()) !== rcAddr) throw new Error("precompute mismatch");
 
   console.log("  deployOutbox via factory…");
-  const tx = await (factory as any).deployOutbox(CHAIN_KEY, owner, owner, RATE, avAddr, quoterAddr, attestAddr);
+  const tx = await (factory as any).deployOutbox(CHAIN_KEY, owner, owner, RATE, avAddr, feeRegistryAddr, attestAddr);
   const rcpt = await tx.wait();
   const created = rcpt.logs.map((l: any) => { try { return (factory as any).interface.parseLog(l); } catch { return null; } })
     .find((e: any) => e?.name === "OutboxCreated");
@@ -122,16 +137,21 @@ async function main() {
   // Outbox. The relayer's ack submitter proves MessageDelivered on the destination and calls
   // submitAcknowledgment here, which flips messages[id].acknowledged = true on the Outbox.
   const ackValidator = await deploy("AcknowledgmentValidator",
-    ART("write-ability/AcknowledgementValidator.sol", "AcknowledgmentValidator"), [CHAIN_KEY, owner]);
+    ART("write-ability/AcknowledgementValidator.sol", "AcknowledgmentValidator"), [CHAIN_KEY, owner, proofAddr, attestAddr]);
   const ackAddr = await ackValidator.getAddress();
   await (await outbox.setValidator(ackAddr)).wait();
   await (await (ackValidator as any).setOutbox(outboxAddr)).wait();
-  console.log("  ack: validator", ackAddr, "→ Outbox");
+  // Without this, trustedInboxes[dest.inbox] stays false and submitAcknowledgment skips every
+  // MessageDelivered log it decodes, reverting NoMessageDeliveredLogs even with a valid proof —
+  // the decoder's own setTrustedInbox below is a separate allowlist and does not cover this one.
+  await (await (ackValidator as any).updateTrustedInbox(addrs.dest.inbox, true)).wait();
+  console.log("  ack: validator", ackAddr, "→ Outbox, trusted inbox", addrs.dest.inbox);
+  await (await (rc as any).setRelayerFeeVault(fvAddr)).wait();
+  await (await (rc as any).setDestinationEvmChainId(CHAIN_KEY, DEST_CHAIN_ID)).wait();
   await (await (quoter as any).addQuoter(QUOTER_EOA)).wait();
   await (await (quoter as any).setCoreFee(CHAIN_KEY, ethers.parseEther("1"))).wait();
   await (await (decoder as any).setTrustedInbox(DEST_CHAIN_ID, addrs.dest.inbox)).wait();
-  await (await (fv as any).setDestinationEvmChainId(CHAIN_KEY, DEST_CHAIN_ID)).wait();
-  console.log("  wired: forwarder, quoter EOA, coreFee, trustedInbox, destEvmChainId");
+  console.log("  wired: forwarder, feeVault, destEvmChainId, quoter EOA, coreFee, trustedInbox");
 
   // seed prices (deployer == oracleService)
   await (await (twap as any).update(ethers.parseEther("1"))).wait();
@@ -141,8 +161,9 @@ async function main() {
 
   addrs.source = {
     chainId: 42, rpc: "http://127.0.0.1:9944", chainKey: CHAIN_KEY,
-    attest: attestAddr, proofVerifier: await proof.getAddress(), deliveryDecoder: await decoder.getAddress(),
-    twapReader: await twap.getAddress(), quoter: quoterAddr, factory: await factory.getAddress(),
+    attest: attestAddr, proofVerifier: proofAddr, deliveryDecoder: decoderAddr,
+    twapReader: await twap.getAddress(), attestorRegistry: await registry.getAddress(),
+    quoter: quoterAddr, feeRegistry: feeRegistryAddr, factory: await factory.getAddress(),
     attestorVault: avAddr, outbox: outboxAddr, relayerFeeVault: fvAddr, relayerContract: rcAddr,
     ackValidator: ackAddr,
     quoterEOA: QUOTER_EOA, coreFee: ethers.parseEther("1").toString(),

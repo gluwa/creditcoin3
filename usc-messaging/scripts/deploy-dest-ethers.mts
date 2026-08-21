@@ -1,5 +1,7 @@
-// Plain-ethers destination-stack deploy (anvil): EOAValidator + SimpleInbox + MockDestination.
-// Artifacts come from the usc-contracts hardhat build. Run with tsx (Node 22).
+// Plain-ethers destination-stack deploy (anvil): AttestorRegistry + EOAValidator + Inbox +
+// MockDestination. Artifacts come from the usc-contracts hardhat build. Run with tsx (Node 22).
+// Post-#23: SimpleInbox is gone — Inbox takes a fixed messageDispatcher (the dApp) set at
+// construction, and EOAValidator delegates its attestor set to a shared AttestorRegistry.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -27,19 +29,31 @@ async function deploy(name: string, art: any, args: any[] = []) {
   return c;
 }
 
-// Placeholder attestor set (launch-attestors.sh syncs the live set; deployer is admin). 2/3+1.
+// Placeholder attestor set: launch-attestors.sh replaces this wholesale via
+// AttestorRegistry.updateAttestorSet once the live attestors are known. MIN_ATTESTOR_COUNT_FLOOR
+// (3) forces at least 3 distinct seed addresses even as a placeholder — any non-zero, non-duplicate
+// addresses work since they're wiped before delivery is exercised.
+const PLACEHOLDER_ATTESTORS = [
+  "0x0000000000000000000000000000000000000001",
+  "0x0000000000000000000000000000000000000002",
+  "0x0000000000000000000000000000000000000003",
+];
+const registry = await deploy("AttestorRegistry", ART("write-ability/AttestorRegistry.sol", "AttestorRegistry"),
+  [wallet.address, PLACEHOLDER_ATTESTORS]);
+// 2/3 + 1 quorum (numerator 20 / THRESHOLD_DENOMINATOR 30, addition 1), minAttestorCount at the floor.
 const validator = await deploy("EOAValidator", ART("write-ability/EOAValidator.sol", "EOAValidator"),
-  [wallet.address, [wallet.address], 1, 2, 3, 1]);
-const inbox = await deploy("SimpleInbox", ART("write-ability/SimpleInbox.sol", "SimpleInbox"),
-  [await validator.getAddress(), CREDITCOIN_CHAIN_ID, LOCAL_CHAIN_KEY]);
+  [wallet.address, await registry.getAddress(), 3, 20, 1]);
 const dapp = await deploy("MockDestination", ART("mocks/TestMocks.sol", "MockDestination"));
+// Inbox requires its messageDispatcher to already have code, so the dApp must be deployed first.
+const inbox = await deploy("Inbox", ART("write-ability/Inbox.sol", "Inbox"),
+  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, await validator.getAddress(), await dapp.getAddress(), wallet.address]);
 
 const addrs = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : {};
 addrs.dest = {
   chainId: 31337, rpc: "http://127.0.0.1:8545", chainKey: CHAIN_KEY,
   creditcoinChainId: CREDITCOIN_CHAIN_ID, localChainKey: LOCAL_CHAIN_KEY,
-  voteValidator: await validator.getAddress(), inbox: await inbox.getAddress(),
-  dapp: await dapp.getAddress(), admin: wallet.address,
+  voteValidator: await validator.getAddress(), attestorRegistry: await registry.getAddress(),
+  inbox: await inbox.getAddress(), dapp: await dapp.getAddress(), admin: wallet.address,
 };
 writeFileSync(OUT, JSON.stringify(addrs, null, 2));
 console.log("✅ dest stack deployed →", OUT);

@@ -150,20 +150,28 @@ echo "✍️  Updated $CONFIG  (write_ability.attestors)"
 
 printf '%s\n' "$SET" > "$ATTESTOR_SET_FILE"
 
-# Sync the on-chain EOAValidator's attestor set with the addresses we just discovered, so the
-# destination Inbox's validateVotes accepts exactly these attestors. deploy.ts seeds the validator
-# best-effort (it runs before the attestors); this is the authoritative update. The destination
-# deployer (DESTINATION_CHAIN_PRIVATE_KEY) is the validator admin. (.env was sourced at startup.)
+# Sync the on-chain attestor set with the addresses we just discovered, so the destination
+# Inbox's validateVotes accepts exactly these attestors. Post-#23: EOAValidator no longer owns the
+# set directly — it delegates to a shared AttestorRegistry (EOAValidator.attestorRegistry()), and
+# updateAttestorSet lives there. deploy-dest-ethers.mts seeds the registry with a 3-address
+# placeholder best-effort (it runs before the attestors); this is the authoritative update. The
+# destination deployer (DESTINATION_CHAIN_PRIVATE_KEY) is the registry's owner. (.env sourced at startup.)
 if [[ -n "${VOTE_VALIDATOR_ADDR:-}" ]]; then
   if command -v cast >/dev/null 2>&1; then
-    echo "🔗 Syncing EOAValidator attestor set on the destination chain ($VOTE_VALIDATOR_ADDR)…"
-    if cast send "$VOTE_VALIDATOR_ADDR" 'updateAttestorSet(address[])' "[$SET]" \
+    REGISTRY_ADDR="$(cast call "$VOTE_VALIDATOR_ADDR" 'attestorRegistry()(address)' \
+      --rpc-url "${DESTINATION_CHAIN_RPC_URL:-http://127.0.0.1:8545}" 2>/dev/null || true)"
+    if [[ -z "$REGISTRY_ADDR" ]]; then
+      echo "❌ Could not resolve attestorRegistry() from EOAValidator ($VOTE_VALIDATOR_ADDR) — is the RPC reachable?" >&2
+      exit 1
+    fi
+    echo "🔗 Syncing AttestorRegistry attestor set on the destination chain ($REGISTRY_ADDR)…"
+    if cast send "$REGISTRY_ADDR" 'updateAttestorSet(address[])' "[$SET]" \
         --rpc-url "${DESTINATION_CHAIN_RPC_URL:-http://127.0.0.1:8545}" \
         --private-key "${DESTINATION_CHAIN_PRIVATE_KEY:-}" \
         >/dev/null 2>&1; then
       echo "✅ EOAValidator attestor set updated to the live attestors"
     else
-      echo "❌ Could not update the EOAValidator set ($VOTE_VALIDATOR_ADDR): updateAttestorSet reverted or the RPC/admin key is wrong. The destination Inbox would then reject these attestors and delivery would fail — failing now instead of printing 'ready' and surfacing later as a confusing delivery timeout." >&2
+      echo "❌ Could not update the AttestorRegistry set ($REGISTRY_ADDR): updateAttestorSet reverted or the RPC/admin key is wrong. The destination Inbox would then reject these attestors and delivery would fail — failing now instead of printing 'ready' and surfacing later as a confusing delivery timeout." >&2
       exit 1
     fi
   else

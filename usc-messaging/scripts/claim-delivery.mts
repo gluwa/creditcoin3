@@ -1,6 +1,14 @@
 // Level-2 relayer payout: prove the destination MessageDelivered tx via proof-gen and call
-// RelayerFeeVault.claimDelivery on the source (CC EVM). The claim is permissionless — msg.sender
+// RelayerContract.claimDelivery on the source (CC EVM). The claim is permissionless — msg.sender
 // (a dedicated claimant EOA here, funded with gas only) receives the funded relayFee (+tip).
+// Post-#23: claimDelivery/getMessageInfo moved from RelayerFeeVault to RelayerContract — the vault
+// is now a dumb fund holder that only RelayerContract instructs via `pay`.
+//
+// Manual/local use only: a relayer started with --relayer-contract-address (the normal
+// configuration) auto-claims via its own AckAndClaim worker before this script would ever get a
+// chance to race it — see assert-relay-claimed.mts, which the e2e uses instead to verify that
+// auto-claim. Run this one directly against a relayer that has claiming disabled, or with no
+// relayer running at all, to demonstrate the permissionless claim path itself.
 //
 // Proof bundle comes from the same proof-gen `proof-by-tx` endpoint the ack path uses; it is only
 // available once the destination block is attested on CC3 (i.e. after the ack round-trip lands).
@@ -40,15 +48,15 @@ for (let i = 0; i < 40; i++) {
 if (!deliveryTx) throw new Error(`no MessageDelivered for ${messageId} on Inbox ${dest.inbox}`);
 console.log("  delivery tx (dest):", deliveryTx);
 
-// ── 2. Read the funded route from the source vault (gives the canonical destination chain key) ───
+// ── 2. Read the funded route from RelayerContract's fee ledger (gives the canonical dest chain key) ─
 const attest = new ethers.Contract(src.attest, ["function balanceOf(address) view returns (uint256)"], srcProvider);
-const fvAbi = [
-  "function getMessageInfo(bytes32) view returns ((address payer,uint32 destinationChain,uint256 gasLimit,uint256 relayFee,uint256 tip,uint256 tipExpiry,uint256 deliveryDeadline,bool relaySettled))",
+const rcAbi = [
+  "function getMessageInfo(bytes32) view returns ((address payer,uint32 destinationChain,uint256 gasLimit,uint256 relayFee,uint256 tip,uint256 tipExpiry,uint256 deliveryDeadline,bool relaySettled,bool feesInNative))",
   "function claimDelivery(bytes32 messageId, bytes32 chainKey, uint64 blockHeight, (uint8 kind, bytes32 root, bytes data) inclusionProof, (bytes32 lowerEndpointDigest, bytes32[] roots) continuityProof)",
-  "event DeliveryClaimed(bytes32 indexed messageId, address indexed relayer, uint256 relayFee, uint256 tip)",
+  "event DeliveryClaimed(bytes32 indexed messageId, address indexed relayer, address indexed submitter, uint256 relayFee, uint256 tip)",
 ];
-const fv = new ethers.Contract(src.relayerFeeVault, fvAbi, claimant);
-const infoBefore = await fv.getMessageInfo(messageId);
+const rc = new ethers.Contract(src.relayerContract, rcAbi, claimant);
+const infoBefore = await rc.getMessageInfo(messageId);
 if (infoBefore.relaySettled) throw new Error("relay already settled before claim — nothing to prove");
 // Derive chainKey from the funded route, not a hardcoded constant: claimDelivery requires
 // chainKey == bytes32(uint256(fd.destinationChain)).
@@ -88,11 +96,11 @@ const continuityProof = { lowerEndpointDigest: proof.continuityProof.lowerEndpoi
 await (await funder.sendTransaction({ to: claimant.address, value: ethers.parseEther("1") })).wait(); // gas
 const balBefore = await attest.balanceOf(claimant.address);
 
-const rcpt = await (await fv.claimDelivery(messageId, chainKey, proof.headerNumber, inclusionProof, continuityProof)).wait();
-const claimed = rcpt.logs.map((l: any) => { try { return fv.interface.parseLog(l); } catch { return null; } }).find((e: any) => e?.name === "DeliveryClaimed");
+const rcpt = await (await rc.claimDelivery(messageId, chainKey, proof.headerNumber, inclusionProof, continuityProof)).wait();
+const claimed = rcpt.logs.map((l: any) => { try { return rc.interface.parseLog(l); } catch { return null; } }).find((e: any) => e?.name === "DeliveryClaimed");
 
 const balAfter = await attest.balanceOf(claimant.address);
-const infoAfter = await fv.getMessageInfo(messageId);
+const infoAfter = await rc.getMessageInfo(messageId);
 const delta = balAfter - balBefore;
 
 // ── 6. Assert the payout against the FUNDED amounts, not just the event's own numbers ────────────
