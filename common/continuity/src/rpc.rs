@@ -193,21 +193,27 @@ impl ReconnectingEthRpcProvider {
                 }
             }
 
+            // Cross-cycle flap damper: consume the connection stamp on EVERY failure, including
+            // the final attempt. Gating this on `attempt < ETH_RPC_MAX_ATTEMPTS` would leave a
+            // stale `Some` stamp behind whenever the last attempt fails after an earlier
+            // reconnect succeeded — the next `run` call would then measure "age" against idle
+            // time between cycles instead of an actually-served connection, and could wrongly
+            // reset the level right when escalation matters most (bugbot).
+            let rate_limited = last_err.as_ref().is_some_and(is_rate_limit_error);
+            let cooldown = {
+                let mut flap = self.flap.lock().await;
+                // `take`, not read: a second failure before the next successful reconnect must
+                // see `None` (same dead episode), never a stale stamp inflated by the cooldown
+                // sleep itself.
+                let connection_age = flap.connected_at.take().map(|at| at.elapsed());
+                flap_cooldown(&mut flap, connection_age, rate_limited)
+            };
+
             if attempt < ETH_RPC_MAX_ATTEMPTS {
-                // Cross-cycle flap damper BEFORE the reconnect: the per-call backoff inside
-                // `reconnect` restarts from its base every cycle, so without this a provider that
-                // accepts the handshake and then kills the first request (rate limiting) is
-                // re-dialed every couple of seconds forever — each dial spending more of the
-                // exhausted budget.
-                let rate_limited = last_err.as_ref().is_some_and(is_rate_limit_error);
-                let cooldown = {
-                    let mut flap = self.flap.lock().await;
-                    // `take`, not read: a second failure before the next successful reconnect must
-                    // see `None` (same dead episode), never a stale stamp inflated by the cooldown
-                    // sleep itself.
-                    let connection_age = flap.connected_at.take().map(|at| at.elapsed());
-                    flap_cooldown(&mut flap, connection_age, rate_limited)
-                };
+                // The per-call backoff inside `reconnect` restarts from its base every cycle, so
+                // without the damper above a provider that accepts the handshake and then kills
+                // the first request (rate limiting) is re-dialed every couple of seconds forever
+                // — each dial spending more of the exhausted budget.
                 if !cooldown.is_zero() {
                     warn!(
                         op,
