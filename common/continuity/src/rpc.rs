@@ -95,22 +95,13 @@ fn flap_cooldown(
     Duration::from_millis(cooldown_ms)
 }
 
-/// Whether an error chain looks like provider rate limiting / quota exhaustion. Providers word
-/// this many ways (HTTP 429, gRPC-ish `resource_exhausted` inside a WS close frame — Google's
-/// Blockchain Node Engine does the latter), so match the phrasings we have actually seen plus the
-/// common ones; a false positive only makes one retry wait longer.
+/// Whether an error chain looks like provider rate limiting / quota exhaustion. Delegates to
+/// [`eth::error_looks_rate_limited`] so this classifier and the eth client's stay in lockstep —
+/// a divergent copy here previously missed Chainstack's `-32005` / `rps limit` wording and
+/// matched `429` as a raw substring, false-tripping on ordinary errors naming heights like
+/// `11429000` (bugbot).
 fn is_rate_limit_error(err: &anyhow::Error) -> bool {
-    let text = format!("{err:#}").to_lowercase();
-    [
-        "resource_exhausted",
-        "resource exhausted",
-        "429",
-        "rate limit",
-        "too many requests",
-        "quota",
-    ]
-    .iter()
-    .any(|needle| text.contains(needle))
+    eth::error_looks_rate_limited(&format!("{err:#}"))
 }
 
 /// ETH RPC provider that owns one long-lived [`eth::Client`] and reconnects it on transport
@@ -734,8 +725,16 @@ mod flap_tests {
             "HTTP error 429 Too Many Requests"
         )));
         assert!(is_rate_limit_error(&anyhow!("daily quota exceeded")));
+        assert!(is_rate_limit_error(&anyhow!(
+            "server returned an error response: error code -32005: You've exceeded the RPS \
+             limit available on the current plan."
+        )));
         assert!(!is_rate_limit_error(&anyhow!("connection refused")));
         assert!(!is_rate_limit_error(&anyhow!("header decode failed")));
+        // A block-height digit run must not be mistaken for the HTTP 429 status code.
+        assert!(!is_rate_limit_error(&anyhow!(
+            "eth_getLogs from 11429000 to 11429060 failed"
+        )));
         // Context wrapping must not hide the cause (alternate formatting walks the chain).
         let wrapped = google.context("eth_getBlockByNumber failed");
         assert!(is_rate_limit_error(&wrapped));
