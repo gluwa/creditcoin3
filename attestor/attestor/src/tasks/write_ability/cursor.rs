@@ -15,6 +15,12 @@
 //! and the relayer dedups votes (see [`super::listener::scan_range`]). We therefore never advance the
 //! persisted cursor *past* work that has not been scanned, but we may repeat a little already-scanned
 //! work; that is the safe direction for a signer.
+//!
+//! [`FactoryScanCursorStore`] persists the *other* scan this task runs: `OutboxCreated` discovery
+//! against the factory contract (see [`super::resolver::OutboxDiscoveryCursor`]). Without it, a
+//! factory change (or just a restart) rescans that factory's full log history from genesis before
+//! write-ability can activate at all — the same at-least-once safety applies, since re-scanning
+//! already-covered blocks only wastes time, never correctness.
 
 use std::path::{Path, PathBuf};
 
@@ -175,6 +181,144 @@ impl CursorStore {
     }
 }
 
+/// On-disk record of an [`super::resolver::OutboxDiscoveryCursor`]'s scan progress.
+///
+/// Unlike [`CursorRecord`], `factory` is not a validity gate enforced by this store — the factory
+/// is exactly what the scan is trying to pin down, so there is nothing to compare it against at
+/// load time. Instead [`FactoryScanCursorStore::load`] returns the record as-is and
+/// `resolver::resolve_outbox_address`'s existing `cursor.factory != factory` comparison against the
+/// freshly-read on-chain registration discards it, the same way it already discards a mid-run
+/// rotation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct FactoryScanRecord {
+    /// Highest block scanned so far for `OutboxCreated` on `factory` (inclusive).
+    scanned_to: u64,
+    /// Factory this scan was performed against.
+    factory: Address,
+    /// Write-ability chain key this cursor belongs to.
+    chain_key: u64,
+    /// The latest `OutboxCreated` match found so far, if any: its Outbox address and the block it
+    /// was emitted in (see `resolver::OutboxDiscoveryCursor::found`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    found_outbox: Option<Address>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    found_created_at_block: Option<u64>,
+}
+
+/// In-memory shape of a [`FactoryScanCursorStore`] record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PersistedFactoryScan {
+    pub factory: Address,
+    pub scanned_to: u64,
+    pub found: Option<(Address, Option<u64>)>,
+}
+
+/// Persists an [`super::resolver::OutboxDiscoveryCursor`]'s `OutboxCreated` discovery progress to a
+/// JSON file, atomically.
+///
+/// Scoped only by `chain_key`, not by factory: the resolved factory can change (governance
+/// re-registration), and it is exactly the discovery scan's job to find the Outbox for whichever
+/// factory is currently registered — see [`FactoryScanRecord`]'s docs for how a stale factory is
+/// handled.
+#[derive(Clone, Debug)]
+pub struct FactoryScanCursorStore {
+    path: PathBuf,
+    chain_key: u64,
+}
+
+impl FactoryScanCursorStore {
+    /// Factory-scan cursor file for `chain_key` inside `dir`. See [`CursorStore::new`]'s
+    /// single-owner-of-`dir` invariant — the same one applies here.
+    #[must_use]
+    pub fn new(dir: &Path, chain_key: u64) -> Self {
+        Self {
+            path: dir.join(format!("factory-scan-cursor-{chain_key}.json")),
+            chain_key,
+        }
+    }
+
+    /// The file this store reads and writes (for logging).
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Load the persisted scan progress, or `None` when there is nothing usable yet: file missing
+    /// (first boot), or unreadable/corrupt (logged, then treated as absent so a bad file never
+    /// wedges boot — same reasoning as [`CursorStore::load`]).
+    #[must_use]
+    pub fn load(&self) -> Option<PersistedFactoryScan> {
+        let raw = match std::fs::read(&self.path) {
+            Ok(bytes) => bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            Err(e) => {
+                tracing::warn!(
+                    path = %self.path.display(), %e,
+                    "could not read factory-scan cursor file; starting OutboxCreated discovery from genesis"
+                );
+                return None;
+            }
+        };
+        let record: FactoryScanRecord = match serde_json::from_slice(&raw) {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(
+                    path = %self.path.display(), %e,
+                    "factory-scan cursor file is corrupt; ignoring it"
+                );
+                return None;
+            }
+        };
+        Some(PersistedFactoryScan {
+            factory: record.factory,
+            scanned_to: record.scanned_to,
+            found: record
+                .found_outbox
+                .map(|outbox| (outbox, record.found_created_at_block)),
+        })
+    }
+
+    /// Persist `scan` atomically (temp file + fsync + rename — same scheme as
+    /// [`CursorStore::save`]). Overwrites whatever was previously recorded for this `chain_key`
+    /// outright: every call carries the scan's full current progress, so there is nothing from a
+    /// prior record worth preserving.
+    pub fn save(&self, scan: &PersistedFactoryScan) -> Result<()> {
+        let (found_outbox, found_created_at_block) = match scan.found {
+            Some((outbox, block)) => (Some(outbox), block),
+            None => (None, None),
+        };
+        let record = FactoryScanRecord {
+            scanned_to: scan.scanned_to,
+            factory: scan.factory,
+            chain_key: self.chain_key,
+            found_outbox,
+            found_created_at_block,
+        };
+        let json = serde_json::to_vec_pretty(&record).context("serialize factory-scan cursor")?;
+
+        let dir = self.path.parent().unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("create cursor dir {}", dir.display()))?;
+
+        let tmp = self
+            .path
+            .with_extension(format!("json.tmp.{}", std::process::id()));
+        {
+            use std::io::Write as _;
+            let mut f = std::fs::File::create(&tmp).with_context(|| {
+                format!("create temp factory-scan cursor file {}", tmp.display())
+            })?;
+            f.write_all(&json)
+                .context("write temp factory-scan cursor file")?;
+            f.sync_all()
+                .context("fsync temp factory-scan cursor file")?;
+        }
+        std::fs::rename(&tmp, &self.path)
+            .with_context(|| format!("rename {} -> {}", tmp.display(), self.path.display()))?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,5 +410,92 @@ mod tests {
         // No probe file should linger after the check.
         let leftover: Vec<_> = std::fs::read_dir(&nested).unwrap().collect();
         assert!(leftover.is_empty(), "probe file must be cleaned up");
+    }
+
+    fn factory() -> Address {
+        address!("00000000000000000000000000000000000000ff")
+    }
+
+    #[test]
+    fn factory_scan_missing_file_loads_none() {
+        let dir = TmpDir::new("factory-missing");
+        let store = FactoryScanCursorStore::new(dir.path(), 2);
+        assert_eq!(store.load(), None);
+    }
+
+    #[test]
+    fn factory_scan_round_trips_with_a_winner() {
+        let dir = TmpDir::new("factory-roundtrip");
+        let store = FactoryScanCursorStore::new(dir.path(), 2);
+        let scan = PersistedFactoryScan {
+            factory: factory(),
+            scanned_to: 12_345,
+            found: Some((outbox(), Some(100))),
+        };
+        store.save(&scan).unwrap();
+        assert_eq!(store.load(), Some(scan));
+
+        // A later save overwrites in place.
+        let advanced = PersistedFactoryScan {
+            factory: factory(),
+            scanned_to: 20_000,
+            found: Some((outbox(), Some(100))),
+        };
+        store.save(&advanced).unwrap();
+        assert_eq!(store.load(), Some(advanced));
+    }
+
+    /// A scan that has covered some of the range but found no `OutboxCreated` match yet round-trips
+    /// with `found: None` rather than a partially-populated pair.
+    #[test]
+    fn factory_scan_round_trips_with_no_winner_yet() {
+        let dir = TmpDir::new("factory-no-winner");
+        let store = FactoryScanCursorStore::new(dir.path(), 2);
+        let scan = PersistedFactoryScan {
+            factory: factory(),
+            scanned_to: 2_000,
+            found: None,
+        };
+        store.save(&scan).unwrap();
+        assert_eq!(store.load(), Some(scan));
+    }
+
+    #[test]
+    fn factory_scan_corrupt_file_loads_none() {
+        let dir = TmpDir::new("factory-corrupt");
+        let store = FactoryScanCursorStore::new(dir.path(), 2);
+        std::fs::write(store.path(), b"not json {{{").unwrap();
+        assert_eq!(store.load(), None);
+    }
+
+    /// Unlike [`CursorStore`], loading does not itself discard a record for a different factory —
+    /// that discard happens one layer up, in `resolver::resolve_outbox_address`'s comparison
+    /// against the freshly-read on-chain factory. This store just returns whatever was persisted.
+    #[test]
+    fn factory_scan_load_returns_record_regardless_of_which_factory_it_names() {
+        let dir = TmpDir::new("factory-any");
+        let store = FactoryScanCursorStore::new(dir.path(), 2);
+        let old_factory = address!("00000000000000000000000000000000000000ee");
+        let scan = PersistedFactoryScan {
+            factory: old_factory,
+            scanned_to: 500,
+            found: None,
+        };
+        store.save(&scan).unwrap();
+        assert_eq!(store.load(), Some(scan));
+    }
+
+    #[test]
+    fn factory_scan_save_creates_missing_dir() {
+        let dir = TmpDir::new("factory-mkdir");
+        let nested = dir.path().join("a").join("b");
+        let store = FactoryScanCursorStore::new(&nested, 1);
+        let scan = PersistedFactoryScan {
+            factory: factory(),
+            scanned_to: 42,
+            found: None,
+        };
+        store.save(&scan).unwrap();
+        assert_eq!(store.load(), Some(scan));
     }
 }

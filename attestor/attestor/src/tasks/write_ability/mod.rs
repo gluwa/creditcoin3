@@ -449,9 +449,29 @@ pub async fn run(
     // `run_outbox_monitor`, which detects factory and Outbox rotations with the same polling.
     let mut resolve_attempts: u64 = 0;
     let mut consecutive_resolve_failures: u64 = 0;
+    // Durable factory-scan cursor: persists `OutboxCreated` discovery progress so a restart resumes
+    // the scan instead of rescanning the factory's full log history from genesis. Scoped only by
+    // chain_key — see `cursor::FactoryScanCursorStore`'s docs for how a stale (rotated-away)
+    // persisted factory is handled.
+    let factory_scan_store =
+        cursor::FactoryScanCursorStore::new(&cfg.state_dir, cfg.write_ability_chain_key);
     // Discovery cursor: advances past confirmed blocks already scanned for `OutboxCreated` so each
     // retry only scans new blocks instead of re-scanning the whole chain history every interval.
-    let mut outbox_cursor = resolver::OutboxDiscoveryCursor::default();
+    // Seeded from whatever `factory_scan_store` has on disk; a persisted factory that has since
+    // rotated away is discarded automatically by `resolve`'s on-chain factory comparison.
+    let mut outbox_cursor = match factory_scan_store.load() {
+        Some(persisted) => {
+            tracing::info!(
+                path = %factory_scan_store.path().display(),
+                factory = %persisted.factory,
+                scanned_to = persisted.scanned_to,
+                found = ?persisted.found,
+                "🗂️ resuming OutboxCreated discovery from persisted factory-scan cursor"
+            );
+            resolver::OutboxDiscoveryCursor::from_persisted(persisted)
+        }
+        None => resolver::OutboxDiscoveryCursor::default(),
+    };
     let resolved = loop {
         // Progress-aware failure budget, mirroring the listener's `next_failure_count`. Outbox
         // discovery is a *chunked* log scan, so one attempt legitimately exceeds
@@ -468,6 +488,7 @@ pub async fn run(
                     &cfg,
                     state.destination_chain_key,
                     &mut outbox_cursor,
+                    Some(&factory_scan_store),
                 ),
             ) => attempt.unwrap_or_else(|_| {
                 Err(anyhow!(
@@ -661,6 +682,7 @@ pub async fn run(
             cfg,
             destination_chain_key,
             outbox_cursor,
+            factory_scan_store,
             resolved,
             resolved_tx,
             token,
@@ -959,11 +981,13 @@ fn child_exit_error(
 /// key at another factory or the active factory emits a replacement Outbox. A factory transition
 /// with no finalized replacement Outbox publishes `None` immediately so consumers stop signing the
 /// de-registered Outbox while discovery continues.
+#[allow(clippy::too_many_arguments)]
 async fn run_outbox_monitor<P: Provider>(
     provider: P,
     cfg: Config,
     destination_chain_key: B256,
     mut cursor: resolver::OutboxDiscoveryCursor,
+    factory_scan_store: cursor::FactoryScanCursorStore,
     current: resolver::ResolvedOutbox,
     resolved_tx: watch::Sender<Option<resolver::ResolvedOutbox>>,
     token: tokio_util::sync::CancellationToken,
@@ -987,7 +1011,13 @@ async fn run_outbox_monitor<P: Provider>(
                 // whatever progress the attempt made, so a timeout costs nothing).
                 let attempt = tokio::time::timeout(
                     RPC_ATTEMPT_TIMEOUT,
-                    resolver::resolve(&provider, &cfg, destination_chain_key, &mut cursor),
+                    resolver::resolve(
+                        &provider,
+                        &cfg,
+                        destination_chain_key,
+                        &mut cursor,
+                        Some(&factory_scan_store),
+                    ),
                 )
                 .await
                 .unwrap_or_else(|_| {

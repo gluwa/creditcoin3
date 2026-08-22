@@ -16,6 +16,12 @@
 //! Resolution continues after activation: [`super::run_outbox_monitor`] polls this resolver with the
 //! same incremental cursor and hot-swaps the listener when governance changes the factory or the
 //! active factory emits a replacement Outbox.
+//!
+//! The `OutboxCreated` scan this module runs is itself durable: when a
+//! [`FactoryScanCursorStore`](super::cursor::FactoryScanCursorStore) is supplied, progress is
+//! persisted after every call and — via [`OutboxDiscoveryCursor::from_persisted`] — reloaded once
+//! at process start, so a restart resumes the scan instead of rescanning the factory's full log
+//! history from genesis (which a factory change already forces even within one run).
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
@@ -28,6 +34,7 @@ use attestor_primitives::ChainKey;
 use write_ability::abi::{IChainInfo, IOutboxFactory};
 
 use super::config::Config;
+use super::cursor::{FactoryScanCursorStore, PersistedFactoryScan};
 
 /// `chain-info` precompile address (`0x…0fD3`, 4051) — see `precompiles/metadata/sol/chain_info.sol`.
 /// Exposes `pallet_supported_chains::OutboxFactories` (`chain_key → factory address`) to the EVM.
@@ -77,6 +84,22 @@ pub struct OutboxDiscoveryCursor {
 }
 
 impl OutboxDiscoveryCursor {
+    /// Seed a cursor from previously persisted scan progress (see
+    /// [`FactoryScanCursorStore::load`](super::cursor::FactoryScanCursorStore::load)), so a restart
+    /// resumes `OutboxCreated` discovery instead of starting over from genesis.
+    ///
+    /// The seed is provisional, not validated here: `resolve_outbox_address`'s on-chain factory
+    /// read discards it via the ordinary `cursor.factory != factory` comparison below if the
+    /// persisted factory turns out to differ from what is currently registered (a rotation that
+    /// happened while the process was down) — the same path a mid-run rotation already takes.
+    pub(super) fn from_persisted(persisted: PersistedFactoryScan) -> Self {
+        Self {
+            from: persisted.scanned_to,
+            factory: Some(persisted.factory),
+            found: persisted.found,
+        }
+    }
+
     /// Block the scan has reached. The caller uses this to tell a resolve attempt that *failed after
     /// advancing* from one that made no headway at all, so a chunked scan spanning several attempts
     /// is not mistaken for a dead RPC.
@@ -100,11 +123,16 @@ impl OutboxDiscoveryCursor {
 /// Returns `Ok(None)` when no Outbox factory / Outbox is registered on-chain for this chain key —
 /// the caller treats that as "write-ability not available" and disables it for the run rather than
 /// failing. `Err` is reserved for genuine RPC/contract failures.
+///
+/// `factory_scan_store`, when `Some`, persists `cursor`'s progress after this call so a restart can
+/// resume via [`OutboxDiscoveryCursor::from_persisted`] instead of rescanning from genesis; `None`
+/// keeps discovery in-memory-only (used in tests and wherever persistence is not wired up).
 pub async fn resolve<P: Provider>(
     provider: &P,
     cfg: &Config,
     destination_chain_key: B256,
     cursor: &mut OutboxDiscoveryCursor,
+    factory_scan_store: Option<&FactoryScanCursorStore>,
 ) -> Result<Option<ResolvedOutbox>> {
     let chain_key = cfg.write_ability_chain_key;
 
@@ -117,6 +145,7 @@ pub async fn resolve<P: Provider>(
         destination_chain_key,
         cfg.block_confirmation_depth,
         cursor,
+        factory_scan_store,
     )
     .await?
     else {
@@ -151,6 +180,7 @@ async fn resolve_outbox_address<P: Provider>(
     _destination_chain_key: B256,
     confirmation_depth: u64,
     cursor: &mut OutboxDiscoveryCursor,
+    factory_scan_store: Option<&FactoryScanCursorStore>,
 ) -> Result<Option<(Address, Option<u64>)>> {
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
@@ -260,6 +290,20 @@ async fn resolve_outbox_address<P: Provider>(
     // `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`) if
     // `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
     cursor.from = cursor.from.max(from);
+
+    // Persist whatever progress this call made, win or not — best-effort: a write failure only
+    // costs a re-scan on the next restart, never correctness, so it must not fail resolution.
+    if let Some(store) = factory_scan_store {
+        let to_persist = PersistedFactoryScan {
+            factory,
+            scanned_to: cursor.from,
+            found: cursor.found,
+        };
+        if let Err(err) = store.save(&to_persist) {
+            tracing::warn!(chain_key, %err, "failed to persist factory-scan cursor");
+        }
+    }
+
     if let Some((outbox, created_at_block)) = cursor.found {
         tracing::info!(
             %factory, %outbox, chain_key, ?created_at_block,
@@ -309,5 +353,39 @@ mod tests {
         }
         assert_eq!(cursor.scanned_to(), 0);
         assert_eq!(cursor.found, None);
+    }
+
+    /// A cursor seeded from a persisted scan carries over its cursor position, factory and winner
+    /// verbatim — the whole point of persisting it is to skip re-scanning that range.
+    #[test]
+    fn from_persisted_seeds_cursor_verbatim() {
+        let outbox = address!("00000000000000000000000000000000000000aa");
+        let factory = address!("00000000000000000000000000000000000000ff");
+        let persisted = PersistedFactoryScan {
+            factory,
+            scanned_to: 12_345,
+            found: Some((outbox, Some(950))),
+        };
+        let cursor = OutboxDiscoveryCursor::from_persisted(persisted);
+        assert_eq!(cursor.scanned_to(), 12_345);
+        assert_eq!(cursor.factory(), Some(factory));
+        assert_eq!(cursor.found, Some((outbox, Some(950))));
+    }
+
+    /// A seed recorded against a factory other than the one currently registered on-chain must not
+    /// be reused verbatim — `resolve_outbox_address`'s ordinary `cursor.factory != factory`
+    /// comparison is what actually discards it, but this pins down that `from_persisted` itself
+    /// does no filtering, so that comparison is the only thing standing between a stale seed and a
+    /// wrongly-carried-over cursor.
+    #[test]
+    fn from_persisted_does_not_filter_by_factory_itself() {
+        let persisted = PersistedFactoryScan {
+            factory: address!("00000000000000000000000000000000000000ff"),
+            scanned_to: 12_345,
+            found: None,
+        };
+        let cursor = OutboxDiscoveryCursor::from_persisted(persisted);
+        let live_factory = address!("00000000000000000000000000000000000000ee");
+        assert_ne!(cursor.factory(), Some(live_factory));
     }
 }
