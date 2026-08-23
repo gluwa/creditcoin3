@@ -80,6 +80,16 @@ pub struct Config {
 
     /// Source of the authorized signer set / quorum size.
     pub attestor_set: AttestorSet,
+
+    /// When a governance factory rotation is detected, resume the `OutboxCreated` discovery scan
+    /// from the last factory-scan checkpoint instead of resetting it to genesis — cutting the
+    /// rescan down to just the blocks since that checkpoint. Safe as long as the new factory is
+    /// itself freshly deployed at rotation time (its `OutboxCreated` can only land at or after the
+    /// checkpoint, since the checkpoint already reflects a later block than the new factory's
+    /// deployment). Re-pointing to a *pre-existing* factory whose `OutboxCreated` predates the
+    /// checkpoint would make discovery skip it and never find that chain key's Outbox — `false`
+    /// restores the old unconditional genesis rescan, which has no such assumption.
+    pub resume_rotation_from_checkpoint: bool,
 }
 
 impl Config {
@@ -98,6 +108,7 @@ impl Config {
             max_tracked_messages: DEFAULT_MAX_TRACKED_MESSAGES,
             vote_ttl: DEFAULT_VOTE_TTL,
             attestor_set: AttestorSet::default(),
+            resume_rotation_from_checkpoint: DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT,
         }
     }
 }
@@ -220,6 +231,13 @@ pub const DEFAULT_MAX_TRACKED_MESSAGES: usize = 10_000;
 /// Default TTL for incomplete vote aggregates.
 pub const DEFAULT_VOTE_TTL: Duration = Duration::from_secs(3600);
 
+/// Default for [`Config::resume_rotation_from_checkpoint`]: resume from the last factory-scan
+/// checkpoint rather than genesis on a factory rotation. On by default — a rotation deploying a
+/// fresh factory (the normal case) is safe to resume this way, and the multi-minute genesis
+/// rescan it replaces is itself an active operational cost (confluence write-ability handoff §3.4,
+/// §10.9). Set to `false` if a deployment ever re-points a chain key at a pre-existing factory.
+pub const DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT: bool = true;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -239,6 +257,7 @@ mod tests {
             attestor_set: AttestorSet::Static(vec![address!(
                 "000000000000000000000000000000000000000a"
             )]),
+            resume_rotation_from_checkpoint: DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT,
         }
     }
 

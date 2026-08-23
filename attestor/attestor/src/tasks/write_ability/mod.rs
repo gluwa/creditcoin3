@@ -669,8 +669,9 @@ pub async fn run(
 
     // One live resolved-Outbox view feeds both the supervision loop below and the reobservation
     // worker. The monitor inherits the discovery cursor from initial activation, so it scans only
-    // new finalized factory events — and starts over from genesis automatically when governance
-    // re-points the chain key at a different factory.
+    // new finalized factory events — and resumes from the last factory-scan checkpoint (or, with
+    // `resume_rotation_from_checkpoint` off, restarts from genesis) when governance re-points the
+    // chain key at a different factory.
     let (resolved_tx, mut resolved_rx) = watch::channel(Some(resolved));
     let mut outbox_monitor = {
         let provider = provider.clone();
@@ -1009,6 +1010,7 @@ async fn run_outbox_monitor<P: Provider>(
                 // Same per-attempt bound as the activation loop: an unbounded resolve against a
                 // black-holed RPC would wedge rotation detection silently (the chunked cursor keeps
                 // whatever progress the attempt made, so a timeout costs nothing).
+                let scanned_before = cursor.scanned_to();
                 let attempt = tokio::time::timeout(
                     RPC_ATTEMPT_TIMEOUT,
                     resolver::resolve(
@@ -1056,7 +1058,18 @@ async fn run_outbox_monitor<P: Provider>(
                     RotationAction::Nothing => {}
                 }
                 if let Err(err) = attempt {
-                    tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
+                    if cursor.scanned_to() > scanned_before {
+                        // Advanced before failing: a wide OutboxCreated backlog scan in progress
+                        // (the resolver already logged per-chunk progress for it), not a dead
+                        // endpoint — same distinction the activation loop draws below.
+                        tracing::info!(
+                            scanned_to = cursor.scanned_to(),
+                            error = %format!("{err:#}"),
+                            "🐢 Outbox rotation check advanced but did not finish this attempt; continuing"
+                        );
+                    } else {
+                        tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
+                    }
                 }
             }
         }

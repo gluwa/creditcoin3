@@ -18,9 +18,11 @@
 //!
 //! [`FactoryScanCursorStore`] persists the *other* scan this task runs: `OutboxCreated` discovery
 //! against the factory contract (see [`super::resolver::OutboxDiscoveryCursor`]). Without it, a
-//! factory change (or just a restart) rescans that factory's full log history from genesis before
-//! write-ability can activate at all — the same at-least-once safety applies, since re-scanning
-//! already-covered blocks only wastes time, never correctness.
+//! restart rescans that factory's full log history from genesis before write-ability can activate
+//! at all; a factory change (governance rotation) instead resumes from the checkpoint already on
+//! disk unless `Config::resume_rotation_from_checkpoint` is turned off — the same at-least-once
+//! safety applies either way, since re-scanning already-covered blocks only wastes time, never
+//! correctness.
 
 use std::path::{Path, PathBuf};
 

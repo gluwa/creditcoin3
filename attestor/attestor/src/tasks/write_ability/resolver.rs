@@ -21,7 +21,9 @@
 //! [`FactoryScanCursorStore`](super::cursor::FactoryScanCursorStore) is supplied, progress is
 //! persisted after every call and — via [`OutboxDiscoveryCursor::from_persisted`] — reloaded once
 //! at process start, so a restart resumes the scan instead of rescanning the factory's full log
-//! history from genesis (which a factory change already forces even within one run).
+//! history from genesis. A factory change (rotation) used to force that same genesis rescan even
+//! within one run; with [`Config::resume_rotation_from_checkpoint`] (on by default) it instead
+//! resumes from the last checkpoint, same as a restart does.
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
@@ -144,6 +146,7 @@ pub async fn resolve<P: Provider>(
         chain_key,
         destination_chain_key,
         cfg.block_confirmation_depth,
+        cfg.resume_rotation_from_checkpoint,
         cursor,
         factory_scan_store,
     )
@@ -179,6 +182,7 @@ async fn resolve_outbox_address<P: Provider>(
     chain_key: ChainKey,
     _destination_chain_key: B256,
     confirmation_depth: u64,
+    resume_rotation_from_checkpoint: bool,
     cursor: &mut OutboxDiscoveryCursor,
     factory_scan_store: Option<&FactoryScanCursorStore>,
 ) -> Result<Option<(Address, Option<u64>)>> {
@@ -205,10 +209,32 @@ async fn resolve_outbox_address<P: Provider>(
 
     // If the resolved factory changed (governance re-registered a different one for this chain key),
     // the cursor reflects the *old* factory's scanned history and could skip the new factory's
-    // OutboxCreated. Restart from genesis for the new factory.
+    // OutboxCreated. `cursor.from` at this point is exactly the last factory-scan checkpoint (the
+    // highest block scanned before this call learned of the rotation) — resuming from there instead
+    // of genesis is safe as long as the new factory is itself freshly deployed at rotation time (see
+    // `Config::resume_rotation_from_checkpoint`'s docs for the assumption and its failure mode).
     if cursor.factory != Some(factory) {
+        let previous_factory = cursor.factory;
+        let resume_from = if resume_rotation_from_checkpoint {
+            cursor.from
+        } else {
+            0
+        };
+        if previous_factory.is_some() {
+            // Not fired on the very first resolve (no `previous_factory` yet) — that is initial
+            // discovery, not a rotation, and `resume_from` is 0 either way since a fresh cursor
+            // never scanned anything.
+            tracing::info!(
+                chain_key,
+                %factory,
+                ?previous_factory,
+                resume_from,
+                resume_rotation_from_checkpoint,
+                "🔁 Outbox factory rotated; restarting OutboxCreated discovery"
+            );
+        }
         cursor.factory = Some(factory);
-        cursor.from = 0;
+        cursor.from = resume_from;
         cursor.found = None;
     }
 
@@ -286,6 +312,19 @@ async fn resolve_outbox_address<P: Provider>(
         // point, so committing each completed chunk is safe: at worst the newest-Outbox scan below
         // resumes from here and re-reads nothing already covered.
         cursor.from = from;
+        if from <= safe_tip {
+            // More chunks remain after this one — a multi-chunk backlog (post-rotation or initial
+            // activation), the same condition the relayer's own "N of M blocks" line fires under.
+            // A resolve attempt that later gets cut off by the caller's RPC_ATTEMPT_TIMEOUT (a big
+            // backlog easily spans several 2,000-block chunks) still leaves this line in the log for
+            // every chunk it completed first — the "grinding vs wedged" ambiguity the plain 30s
+            // timeout message can't resolve on its own.
+            tracing::info!(
+                chain_key,
+                %factory,
+                "🔎 scanning OutboxCreated backlog ({chunk_to} of {safe_tip} blocks); resolution not final yet"
+            );
+        }
     }
     // `from` is `safe_tip + 1` when the loop ran, or unchanged (`cursor.from`) if
     // `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
@@ -343,15 +382,55 @@ mod tests {
         assert_eq!(cursor.scanned_to(), 1_000);
         assert_eq!(cursor.found, Some((outbox, Some(950))));
 
-        // A factory re-registration invalidates both: the new factory's Outbox may live anywhere,
-        // and the old address must not be reported for it.
+        // A factory re-registration invalidates the match: the new factory's Outbox may live
+        // anywhere, and the old address must not be reported for it. This exercises
+        // `resume_rotation_from_checkpoint: false` — the legacy unconditional genesis reset;
+        // see `factory_rotation_resumes_from_checkpoint_when_enabled` for the default path.
         let new_factory = address!("00000000000000000000000000000000000000ee");
+        let resume_rotation_from_checkpoint = false;
         if cursor.factory != Some(new_factory) {
+            cursor.from = if resume_rotation_from_checkpoint {
+                cursor.from
+            } else {
+                0
+            };
             cursor.factory = Some(new_factory);
-            cursor.from = 0;
             cursor.found = None;
         }
         assert_eq!(cursor.scanned_to(), 0);
+        assert_eq!(cursor.found, None);
+    }
+
+    /// With `resume_rotation_from_checkpoint` (the default), a factory rotation keeps the cursor's
+    /// position instead of resetting to genesis — the checkpoint is a valid floor for the new
+    /// factory's own `OutboxCreated` as long as it was itself freshly deployed at rotation time
+    /// (see `Config::resume_rotation_from_checkpoint`'s docs for that assumption and its failure
+    /// mode). The stale `found` match is still discarded: it belongs to the old factory.
+    #[test]
+    fn factory_rotation_resumes_from_checkpoint_when_enabled() {
+        let outbox = address!("00000000000000000000000000000000000000aa");
+        let old_factory = address!("00000000000000000000000000000000000000ff");
+        let new_factory = address!("00000000000000000000000000000000000000ee");
+
+        let mut cursor = OutboxDiscoveryCursor {
+            from: 500_000,
+            factory: Some(old_factory),
+            found: Some((outbox, Some(499_000))),
+        };
+
+        let resume_rotation_from_checkpoint = true;
+        if cursor.factory != Some(new_factory) {
+            cursor.from = if resume_rotation_from_checkpoint {
+                cursor.from
+            } else {
+                0
+            };
+            cursor.factory = Some(new_factory);
+            cursor.found = None;
+        }
+
+        assert_eq!(cursor.scanned_to(), 500_000);
+        assert_eq!(cursor.factory(), Some(new_factory));
         assert_eq!(cursor.found, None);
     }
 

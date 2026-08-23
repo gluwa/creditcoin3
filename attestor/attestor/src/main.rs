@@ -114,6 +114,11 @@ struct ConfigFileWriteAbility {
     /// precedence over `attestors`. The set is read once at startup via `destination_eth_rpc_url`
     /// and hot-reloaded by the attestor-set watcher while running.
     validator_address: Option<alloy::primitives::Address>,
+    /// On a governance factory rotation, resume `OutboxCreated` discovery from the last
+    /// factory-scan checkpoint instead of rescanning from genesis. Defaults to `true` — set to
+    /// `false` only if a deployment ever re-points a chain key at a pre-existing factory (see
+    /// `write_ability::config::Config::resume_rotation_from_checkpoint`'s docs).
+    resume_rotation_from_checkpoint: Option<bool>,
 }
 
 impl Config {
@@ -503,6 +508,9 @@ impl Config {
                 .vote_ttl_secs
                 .map_or(config::DEFAULT_VOTE_TTL, std::time::Duration::from_secs),
             attestor_set,
+            resume_rotation_from_checkpoint: file
+                .resume_rotation_from_checkpoint
+                .unwrap_or(config::DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT),
         };
 
         // Fail the boot on a config that would silently weaken safety or prevent quorum, rather
