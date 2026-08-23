@@ -479,7 +479,6 @@ pub async fn run(
         // Counting those as failures would trip `MAX_CONSECUTIVE_RESOLVE_FAILURES` and restart —
         // and `outbox_cursor` is in-memory, so the restart discards every chunk already scanned,
         // making it a loop that never activates rather than a recovery.
-        let scanned_before = outbox_cursor.scanned_to();
         let attempt = tokio::select! {
             attempt = tokio::time::timeout(
                 RPC_ATTEMPT_TIMEOUT,
@@ -555,7 +554,7 @@ pub async fn run(
             }
             Err(err) => {
                 resolve_attempts += 1;
-                if outbox_cursor.scanned_to() > scanned_before {
+                if outbox_cursor.advanced_last_call() {
                     // Advanced before failing: this is a wide scan in progress, not a dead endpoint.
                     consecutive_resolve_failures = 0;
                     tracing::info!(
@@ -1010,7 +1009,6 @@ async fn run_outbox_monitor<P: Provider>(
                 // Same per-attempt bound as the activation loop: an unbounded resolve against a
                 // black-holed RPC would wedge rotation detection silently (the chunked cursor keeps
                 // whatever progress the attempt made, so a timeout costs nothing).
-                let scanned_before = cursor.scanned_to();
                 let attempt = tokio::time::timeout(
                     RPC_ATTEMPT_TIMEOUT,
                     resolver::resolve(
@@ -1058,10 +1056,15 @@ async fn run_outbox_monitor<P: Provider>(
                     RotationAction::Nothing => {}
                 }
                 if let Err(err) = attempt {
-                    if cursor.scanned_to() > scanned_before {
+                    if cursor.advanced_last_call() {
                         // Advanced before failing: a wide OutboxCreated backlog scan in progress
                         // (the resolver already logged per-chunk progress for it), not a dead
-                        // endpoint — same distinction the activation loop draws below.
+                        // endpoint — same distinction the activation loop draws below. Checking
+                        // `advanced_last_call()` rather than diffing `scanned_to()` before/after
+                        // matters here specifically: with `resume_rotation_from_checkpoint: false`
+                        // a rotation resets `from` back to 0 inside this same call, so a diff would
+                        // see a *lower* value after a call that did make progress and misreport it
+                        // as a stall (bugbot).
                         tracing::info!(
                             scanned_to = cursor.scanned_to(),
                             error = %format!("{err:#}"),

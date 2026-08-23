@@ -83,6 +83,13 @@ pub struct OutboxDiscoveryCursor {
     /// attempt would resume past the event and report "no Outbox" forever (bugbot). Reset with
     /// `from` on a factory change.
     found: Option<(Address, Option<u64>)>,
+    /// Whether the most recent `resolve` call completed at least one log-scan chunk, reset to
+    /// `false` at the start of every call. Callers use this — not a before/after diff of
+    /// `scanned_to()` — to tell a resolve attempt that *failed after advancing* from one that made
+    /// no headway at all: with `resume_rotation_from_checkpoint: false`, a rotation resets `from`
+    /// back to `0` inside the same call, so a before/after diff would see a *lower* value after a
+    /// call that did make progress and misreport it as a stall (bugbot).
+    advanced_last_call: bool,
 }
 
 impl OutboxDiscoveryCursor {
@@ -99,12 +106,11 @@ impl OutboxDiscoveryCursor {
             from: persisted.scanned_to,
             factory: Some(persisted.factory),
             found: persisted.found,
+            advanced_last_call: false,
         }
     }
 
-    /// Block the scan has reached. The caller uses this to tell a resolve attempt that *failed after
-    /// advancing* from one that made no headway at all, so a chunked scan spanning several attempts
-    /// is not mistaken for a dead RPC.
+    /// Block the scan has reached.
     pub(super) fn scanned_to(&self) -> u64 {
         self.from
     }
@@ -114,6 +120,13 @@ impl OutboxDiscoveryCursor {
     /// not emitted an Outbox yet".
     pub(super) fn factory(&self) -> Option<Address> {
         self.factory
+    }
+
+    /// Whether the call that just returned completed at least one log-scan chunk. See the field's
+    /// docs for why this — not a `scanned_to()` before/after diff — is the correct way for a caller
+    /// to tell "failed after advancing" from "made no headway at all".
+    pub(super) fn advanced_last_call(&self) -> bool {
+        self.advanced_last_call
     }
 }
 
@@ -186,6 +199,10 @@ async fn resolve_outbox_address<P: Provider>(
     cursor: &mut OutboxDiscoveryCursor,
     factory_scan_store: Option<&FactoryScanCursorStore>,
 ) -> Result<Option<(Address, Option<u64>)>> {
+    // Reset per call, before any `.await`, so it is accurate even if this attempt is later cut off
+    // by the caller's RPC_ATTEMPT_TIMEOUT — see `OutboxDiscoveryCursor::advanced_last_call`'s docs.
+    cursor.advanced_last_call = false;
+
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
         .get_outbox_factory_address(chain_key)
@@ -305,13 +322,14 @@ async fn resolve_outbox_address<P: Provider>(
         from = chunk_to + 1;
         // Record progress per *chunk*, not per scan. A resolve attempt can be abandoned mid-loop
         // (`RPC_ATTEMPT_TIMEOUT`, or a later chunk erroring), and the caller distinguishes "failed
-        // after advancing" from "made no headway" via `scanned_to()`. Advancing only after the whole
-        // range would report zero progress for a scan that covered thousands of blocks, so a long
-        // chain would burn the failure budget and restart on every attempt without ever finishing
-        // discovery (bugbot). Chunks are scanned in ascending order and the cursor is the resume
-        // point, so committing each completed chunk is safe: at worst the newest-Outbox scan below
-        // resumes from here and re-reads nothing already covered.
+        // after advancing" from "made no headway" via `advanced_last_call()`. Advancing only after
+        // the whole range would report zero progress for a scan that covered thousands of blocks, so
+        // a long chain would burn the failure budget and restart on every attempt without ever
+        // finishing discovery (bugbot). Chunks are scanned in ascending order and the cursor is the
+        // resume point, so committing each completed chunk is safe: at worst the newest-Outbox scan
+        // below resumes from here and re-reads nothing already covered.
         cursor.from = from;
+        cursor.advanced_last_call = true;
         if from <= safe_tip {
             // More chunks remain after this one — a multi-chunk backlog (post-rotation or initial
             // activation), the same condition the relayer's own "N of M blocks" line fires under.
@@ -376,6 +394,7 @@ mod tests {
             from: 1_000,
             factory: Some(factory),
             found: Some((outbox, Some(950))),
+            advanced_last_call: false,
         };
 
         // Attempt 2 resumes from 1_000 and finds nothing new; the earlier discovery must survive.
@@ -416,6 +435,7 @@ mod tests {
             from: 500_000,
             factory: Some(old_factory),
             found: Some((outbox, Some(499_000))),
+            advanced_last_call: false,
         };
 
         let resume_rotation_from_checkpoint = true;
@@ -432,6 +452,39 @@ mod tests {
         assert_eq!(cursor.scanned_to(), 500_000);
         assert_eq!(cursor.factory(), Some(new_factory));
         assert_eq!(cursor.found, None);
+    }
+
+    /// Regression (bugbot): a caller that diffs `scanned_to()` before and after a call to tell
+    /// "advanced" from "no headway" gets it backwards when `resume_rotation_from_checkpoint: false`
+    /// resets `from` to genesis *inside* that same call — the post-call value can land below the
+    /// pre-call snapshot even though the fresh scan clearly advanced. `advanced_last_call()` reports
+    /// per-call progress directly instead, independent of where `from` ends up.
+    #[test]
+    fn advanced_last_call_survives_a_rotation_reset_within_the_same_call() {
+        let mut cursor = OutboxDiscoveryCursor {
+            from: 500_000,
+            factory: Some(address!("00000000000000000000000000000000000000ff")),
+            found: None,
+            advanced_last_call: false,
+        };
+        let scanned_before = cursor.scanned_to();
+
+        // What `resolve_outbox_address` does within a single call: reset at the top, then a
+        // rotation with `resume_rotation_from_checkpoint: false` sets `from` back to 0, then one
+        // chunk of the fresh scan completes.
+        cursor.advanced_last_call = false;
+        cursor.from = 0;
+        cursor.from = 2_000;
+        cursor.advanced_last_call = true;
+
+        assert!(
+            cursor.scanned_to() < scanned_before,
+            "the old factory's checkpoint is not a valid baseline for the new factory's scan"
+        );
+        assert!(
+            cursor.advanced_last_call(),
+            "a chunk was scanned this call, regardless of where `from` ended up"
+        );
     }
 
     /// A cursor seeded from a persisted scan carries over its cursor position, factory and winner
