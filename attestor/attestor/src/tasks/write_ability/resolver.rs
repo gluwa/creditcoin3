@@ -24,6 +24,14 @@
 //! history from genesis. A factory change (rotation) used to force that same genesis rescan even
 //! within one run; with [`Config::resume_rotation_from_checkpoint`] (on by default) it instead
 //! resumes from the last checkpoint, same as a restart does.
+//!
+//! Resuming can overshoot: the checkpoint is a valid floor only when the rotated-to factory was
+//! itself deployed at rotation time. Point a chain key at a factory whose `OutboxCreated` already
+//! sits *below* the checkpoint and the resumed scan runs to the tip, matches nothing, and reports
+//! "no Outbox" — permanently, since the cursor is then persisted at the tip against that very
+//! factory and reads back as valid on the next boot. [`genesis_fallback_target`] closes that: a
+//! scan that completes with no match, having started above [`Config::writability_genesis_block`],
+//! rewinds to that floor and tries once more before the chain key is declared Outbox-less.
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
@@ -67,15 +75,55 @@ pub struct ResolvedOutbox {
     pub created_at_block: Option<u64>,
 }
 
+/// Where a completed-but-empty `OutboxCreated` scan should restart, or `None` to accept "this
+/// factory has no Outbox" as final. Pure so the decision is unit-testable without a live provider,
+/// mirroring how the rest of this module's cursor arithmetic is tested.
+///
+/// The fallback is deliberately **not** configurable. The state it recovers from — a scan resumed
+/// above the event it was looking for — is otherwise unrecoverable without an operator deleting the
+/// cursor file on every pod by hand, and the recovery costs one extra scan of a range that was
+/// going to be scanned anyway had the checkpoint not been trusted.
+///
+/// Three conditions, all necessary:
+/// - `found_something` is false — a match makes the scan conclusive whatever floor it began at;
+/// - `scan_floor > genesis_block` — the scan started above the floor, so there is unlooked-at range
+///   below it. A scan that already began at the floor has covered everything and its "no Outbox"
+///   verdict is the truth;
+/// - `already_used` is false — one rewind per factory per process, so a factory that genuinely has
+///   no `OutboxCreated` settles into the cheap tip-following steady state instead of rescanning the
+///   whole chain on every retry.
+fn genesis_fallback_target(
+    found_something: bool,
+    scan_floor: u64,
+    genesis_block: u64,
+    already_used: bool,
+) -> Option<u64> {
+    (!found_something && !already_used && scan_floor > genesis_block).then_some(genesis_block)
+}
+
+/// The scan-shaping knobs [`resolve_outbox_address`] reads out of [`Config`], grouped so the
+/// function keeps a legible signature as they accumulate (and stays under clippy's argument-count
+/// limit). Copied per call — all three are plain scalars read from a config that only changes on
+/// restart.
+#[derive(Clone, Copy, Debug)]
+struct DiscoveryPolicy {
+    /// Depth below the tip to treat as safe when the `finalized` tag is unavailable.
+    confirmation_depth: u64,
+    /// See [`Config::resume_rotation_from_checkpoint`].
+    resume_rotation_from_checkpoint: bool,
+    /// See [`Config::writability_genesis_block`] — the floor every from-scratch scan starts at.
+    genesis_block: u64,
+}
+
 /// Caller-owned state for the incremental Outbox-discovery scan across activation retries. Tracks
 /// how far we have scanned and against which factory, so each retry only scans new *confirmed*
 /// blocks (no full-history log storm) while staying reorg-safe, and a factory re-registration
-/// restarts the scan from genesis.
+/// restarts the scan from the configured floor.
 #[derive(Default)]
 pub struct OutboxDiscoveryCursor {
     /// Next block to scan from.
     from: u64,
-    /// Factory the cursor was advanced against; a change resets `from` to 0.
+    /// Factory the cursor was advanced against; a change resets `from` to the scan floor.
     factory: Option<Address>,
     /// Newest `OutboxCreated` (address, emitting block) seen so far, carried across attempts.
     /// Progress and discovery must advance together: `from` moves past each completed chunk, so
@@ -87,9 +135,21 @@ pub struct OutboxDiscoveryCursor {
     /// `false` at the start of every call. Callers use this — not a before/after diff of
     /// `scanned_to()` — to tell a resolve attempt that *failed after advancing* from one that made
     /// no headway at all: with `resume_rotation_from_checkpoint: false`, a rotation resets `from`
-    /// back to `0` inside the same call, so a before/after diff would see a *lower* value after a
-    /// call that did make progress and misreport it as a stall (bugbot).
+    /// back to the scan floor inside the same call — as does the genesis fallback — so a
+    /// before/after diff would see a *lower* value after a call that did make progress and
+    /// misreport it as a stall (bugbot).
     advanced_last_call: bool,
+    /// Block the *current* factory's scan started from. Everything below it has never been looked
+    /// at for this factory, which is exactly what the genesis fallback needs to know: a completed
+    /// scan that found nothing is only conclusive when this equals the configured floor.
+    ///
+    /// Moves with `from` whenever a scan (re)starts — initial seed, rotation, de-registration,
+    /// fallback — and is persisted so the distinction survives a restart.
+    scan_floor: u64,
+    /// Whether the genesis fallback has already been spent on the current factory. Reset alongside
+    /// `from`/`found` on every factory change, so each factory gets exactly one — bounding the
+    /// recovery to a single extra full scan instead of one per retry.
+    genesis_fallback_done: bool,
 }
 
 impl OutboxDiscoveryCursor {
@@ -107,6 +167,23 @@ impl OutboxDiscoveryCursor {
             factory: Some(persisted.factory),
             found: persisted.found,
             advanced_last_call: false,
+            scan_floor: persisted.scan_floor,
+            genesis_fallback_done: false,
+        }
+    }
+
+    /// A fresh cursor for a chain key with nothing persisted, starting at `genesis_block` (see
+    /// [`Config::writability_genesis_block`]). Prefer this over `default()` anywhere a real
+    /// configuration is in hand — `default()` starts at block 0 regardless, which is only correct
+    /// when the floor is 0.
+    pub(super) fn starting_at(genesis_block: u64) -> Self {
+        Self {
+            from: genesis_block,
+            factory: None,
+            found: None,
+            advanced_last_call: false,
+            scan_floor: genesis_block,
+            genesis_fallback_done: false,
         }
     }
 
@@ -158,8 +235,11 @@ pub async fn resolve<P: Provider>(
         provider,
         chain_key,
         destination_chain_key,
-        cfg.block_confirmation_depth,
-        cfg.resume_rotation_from_checkpoint,
+        DiscoveryPolicy {
+            confirmation_depth: cfg.block_confirmation_depth,
+            resume_rotation_from_checkpoint: cfg.resume_rotation_from_checkpoint,
+            genesis_block: cfg.writability_genesis_block,
+        },
         cursor,
         factory_scan_store,
     )
@@ -194,8 +274,7 @@ async fn resolve_outbox_address<P: Provider>(
     provider: &P,
     chain_key: ChainKey,
     _destination_chain_key: B256,
-    confirmation_depth: u64,
-    resume_rotation_from_checkpoint: bool,
+    policy: DiscoveryPolicy,
     cursor: &mut OutboxDiscoveryCursor,
     factory_scan_store: Option<&FactoryScanCursorStore>,
 ) -> Result<Option<(Address, Option<u64>)>> {
@@ -214,8 +293,10 @@ async fn resolve_outbox_address<P: Provider>(
         // make the monitor interpret `Ok(None)` as merely "no new events" and continue signing the
         // de-registered Outbox until another factory eventually appeared.
         cursor.factory = None;
-        cursor.from = 0;
+        cursor.from = policy.genesis_block;
+        cursor.scan_floor = policy.genesis_block;
         cursor.found = None;
+        cursor.genesis_fallback_done = false;
         tracing::warn!(
             chain_key,
             "no Outbox factory registered on-chain for chain_key"
@@ -232,10 +313,14 @@ async fn resolve_outbox_address<P: Provider>(
     // `Config::resume_rotation_from_checkpoint`'s docs for the assumption and its failure mode).
     if cursor.factory != Some(factory) {
         let previous_factory = cursor.factory;
-        let resume_from = if resume_rotation_from_checkpoint {
+        // Note the asymmetry: the resume branch keeps the checkpoint verbatim even if it sits
+        // *below* `genesis_block`. The floor answers "where does a scan with no usable position
+        // start?", and a checkpoint is a position; raising it here would skip range the previous
+        // scan had already proven worth covering. Only the from-scratch branch takes the floor.
+        let resume_from = if policy.resume_rotation_from_checkpoint {
             cursor.from
         } else {
-            0
+            policy.genesis_block
         };
         if previous_factory.is_some() {
             // Not fired on the very first resolve (no `previous_factory` yet) — that is initial
@@ -246,13 +331,17 @@ async fn resolve_outbox_address<P: Provider>(
                 %factory,
                 ?previous_factory,
                 resume_from,
-                resume_rotation_from_checkpoint,
+                resume_rotation_from_checkpoint = policy.resume_rotation_from_checkpoint,
+                genesis_block = policy.genesis_block,
                 "🔁 Outbox factory rotated; restarting OutboxCreated discovery"
             );
         }
         cursor.factory = Some(factory);
         cursor.from = resume_from;
+        cursor.scan_floor = resume_from;
         cursor.found = None;
+        // A fresh factory earns a fresh fallback: this is the transition that can overshoot.
+        cursor.genesis_fallback_done = false;
     }
 
     // 2. Discover the factory's Outbox for this chain key. The synced CREATE2 factory has no
@@ -285,7 +374,7 @@ async fn resolve_outbox_address<P: Provider>(
         Ok(Some(block)) => block.header.number,
         // `finalized` tag unsupported/errored → depth fallback (same as the listener). The tip
         // read above already covers a dead RPC, so a finalized-read failure is not fatal here.
-        Ok(None) | Err(_) => tip.saturating_sub(confirmation_depth),
+        Ok(None) | Err(_) => tip.saturating_sub(policy.confirmation_depth),
     };
     let sig = IOutboxFactory::OutboxCreated::SIGNATURE_HASH;
     let topic_chain_key = alloy::primitives::U256::from(chain_key);
@@ -348,13 +437,44 @@ async fn resolve_outbox_address<P: Provider>(
     // `safe_tip < cursor.from` (tip regressed / depth grew) — never regressing the cursor.
     cursor.from = cursor.from.max(from);
 
+    // Reaching here means the chunk loop ran to completion: an attempt cut short by the caller's
+    // RPC_ATTEMPT_TIMEOUT is aborted mid-`await`, and a failing chunk returns via `?`. So a `found`
+    // of `None` at this point is a *complete* scan of [`scan_floor`, `safe_tip`] that matched
+    // nothing — which is only the same thing as "this factory has no Outbox" when the scan began at
+    // the configured floor. Otherwise rewind once and let the next retry cover the rest.
+    if let Some(rewind_to) = genesis_fallback_target(
+        cursor.found.is_some(),
+        cursor.scan_floor,
+        policy.genesis_block,
+        cursor.genesis_fallback_done,
+    ) {
+        tracing::warn!(
+            chain_key,
+            %factory,
+            scanned_from = cursor.scan_floor,
+            scanned_to = cursor.from,
+            rewind_to,
+            "🪃 no OutboxCreated found above the resumed checkpoint; the factory's own event \
+             may predate it (a rotation onto a pre-existing factory). Rescanning once from \
+             the configured write-ability genesis block before reporting no Outbox"
+        );
+        cursor.genesis_fallback_done = true;
+        cursor.from = rewind_to;
+        cursor.scan_floor = rewind_to;
+    }
+
     // Persist whatever progress this call made, win or not — best-effort: a write failure only
     // costs a re-scan on the next restart, never correctness, so it must not fail resolution.
+    //
+    // Deliberately *after* the rewind above, so a fallback that has been decided is durable: a
+    // restart mid-recovery resumes the rescan instead of reloading the very cursor that stranded
+    // this chain key in the first place.
     if let Some(store) = factory_scan_store {
         let to_persist = PersistedFactoryScan {
             factory,
             scanned_to: cursor.from,
             found: cursor.found,
+            scan_floor: cursor.scan_floor,
         };
         if let Err(err) = store.save(&to_persist) {
             tracing::warn!(chain_key, %err, "failed to persist factory-scan cursor");
@@ -368,7 +488,13 @@ async fn resolve_outbox_address<P: Provider>(
         );
         return Ok(Some((outbox, created_at_block)));
     }
-    tracing::warn!(%factory, chain_key, "factory has emitted no OutboxCreated for chain_key yet");
+    tracing::warn!(
+        %factory,
+        chain_key,
+        scanned_from = cursor.scan_floor,
+        scanned_to = cursor.from,
+        "factory has emitted no OutboxCreated for chain_key yet"
+    );
     Ok(None)
 }
 
@@ -395,6 +521,8 @@ mod tests {
             factory: Some(factory),
             found: Some((outbox, Some(950))),
             advanced_last_call: false,
+            scan_floor: 0,
+            genesis_fallback_done: false,
         };
 
         // Attempt 2 resumes from 1_000 and finds nothing new; the earlier discovery must survive.
@@ -436,6 +564,8 @@ mod tests {
             factory: Some(old_factory),
             found: Some((outbox, Some(499_000))),
             advanced_last_call: false,
+            scan_floor: 0,
+            genesis_fallback_done: false,
         };
 
         let resume_rotation_from_checkpoint = true;
@@ -454,6 +584,135 @@ mod tests {
         assert_eq!(cursor.found, None);
     }
 
+    /// The T4-shaped failure this fallback exists for, in cursor terms: a rotation onto a
+    /// **pre-existing** factory resumes at the old factory's checkpoint, scans to the tip, and
+    /// matches nothing — because the new factory's `OutboxCreated` was emitted far below. The
+    /// scan is complete but not conclusive, so it rewinds to the configured floor.
+    #[test]
+    fn fallback_rewinds_a_resumed_scan_that_found_nothing() {
+        // Resumed at 705_530, factory B's OutboxCreated is at 608_120 — never looked at.
+        assert_eq!(
+            genesis_fallback_target(false, 705_530, 0, false),
+            Some(0),
+            "a resumed scan with no match must rewind to the floor"
+        );
+    }
+
+    /// The three ways the fallback correctly declines, each for a different reason.
+    #[test]
+    fn fallback_declines_when_the_scan_is_already_conclusive() {
+        assert_eq!(
+            genesis_fallback_target(true, 705_530, 0, false),
+            None,
+            "a match makes the scan conclusive whatever floor it began at"
+        );
+        assert_eq!(
+            genesis_fallback_target(false, 0, 0, false),
+            None,
+            "a scan that began at the floor has covered everything; no Outbox is the truth"
+        );
+        assert_eq!(
+            genesis_fallback_target(false, 705_530, 0, true),
+            None,
+            "one rewind per factory — otherwise an Outbox-less factory rescans on every retry"
+        );
+    }
+
+    /// The floor is honoured, not hardcoded to 0: with `writability_genesis_block` set, the rewind
+    /// targets it, and a scan that already started there is conclusive rather than looping.
+    #[test]
+    fn fallback_targets_the_configured_genesis_block() {
+        assert_eq!(
+            genesis_fallback_target(false, 705_530, 300_000, false),
+            Some(300_000)
+        );
+        assert_eq!(
+            genesis_fallback_target(false, 300_000, 300_000, false),
+            None,
+            "starting at the configured floor is as complete as a scan can be"
+        );
+        assert_eq!(
+            genesis_fallback_target(false, 250_000, 300_000, false),
+            None,
+            "already below the floor: nothing above it went unscanned"
+        );
+    }
+
+    /// The fallback terminates. Walking the cursor through the full recovery — rotate, scan, no
+    /// match, rewind, rescan, still no match — must end in a settled state, not a rescan loop.
+    #[test]
+    fn fallback_terminates_after_one_rewind() {
+        let mut cursor = OutboxDiscoveryCursor::starting_at(0);
+        cursor.factory = Some(address!("00000000000000000000000000000000000000ff"));
+        cursor.from = 705_530;
+        cursor.scan_floor = 705_530;
+
+        // First completion: nothing found above the resumed floor → rewind.
+        let first = genesis_fallback_target(
+            cursor.found.is_some(),
+            cursor.scan_floor,
+            0,
+            cursor.genesis_fallback_done,
+        );
+        assert_eq!(first, Some(0));
+        cursor.genesis_fallback_done = true;
+        cursor.from = 0;
+        cursor.scan_floor = 0;
+
+        // Second completion after the full rescan: still nothing. Both the spent-fallback guard and
+        // the floor check now say stop, so the verdict stands.
+        cursor.from = 705_600;
+        assert_eq!(
+            genesis_fallback_target(
+                cursor.found.is_some(),
+                cursor.scan_floor,
+                0,
+                cursor.genesis_fallback_done
+            ),
+            None
+        );
+    }
+
+    /// `starting_at` is what a fresh cursor uses when nothing is persisted: the configured floor is
+    /// both the scan position and the floor, so a first scan is immediately conclusive.
+    #[test]
+    fn starting_at_seeds_position_and_floor_together() {
+        let cursor = OutboxDiscoveryCursor::starting_at(300_000);
+        assert_eq!(cursor.scanned_to(), 300_000);
+        assert_eq!(cursor.scan_floor, 300_000);
+        assert_eq!(cursor.factory(), None);
+        assert!(!cursor.genesis_fallback_done);
+        assert_eq!(
+            genesis_fallback_target(false, cursor.scan_floor, 300_000, false),
+            None
+        );
+    }
+
+    /// A cursor reloaded from disk carries the floor its scan actually began at, so a restart in
+    /// the middle of the stranded state still recognises it as unresolved rather than trusting the
+    /// tip-height checkpoint as a completed scan. This is what makes the recovery survive the
+    /// "restart it and see" reflex.
+    #[test]
+    fn from_persisted_carries_the_floor_so_a_restart_can_still_recover() {
+        let persisted = PersistedFactoryScan {
+            factory: address!("00000000000000000000000000000000000000ee"),
+            scanned_to: 705_600,
+            found: None,
+            scan_floor: 705_530,
+        };
+        let cursor = OutboxDiscoveryCursor::from_persisted(persisted);
+        assert_eq!(cursor.scanned_to(), 705_600);
+        assert_eq!(cursor.scan_floor, 705_530);
+        assert!(
+            !cursor.genesis_fallback_done,
+            "a reload re-arms the fallback"
+        );
+        assert_eq!(
+            genesis_fallback_target(false, cursor.scan_floor, 0, cursor.genesis_fallback_done),
+            Some(0)
+        );
+    }
+
     /// Regression (bugbot): a caller that diffs `scanned_to()` before and after a call to tell
     /// "advanced" from "no headway" gets it backwards when `resume_rotation_from_checkpoint: false`
     /// resets `from` to genesis *inside* that same call — the post-call value can land below the
@@ -466,6 +725,8 @@ mod tests {
             factory: Some(address!("00000000000000000000000000000000000000ff")),
             found: None,
             advanced_last_call: false,
+            scan_floor: 0,
+            genesis_fallback_done: false,
         };
         let scanned_before = cursor.scanned_to();
 
@@ -497,6 +758,7 @@ mod tests {
             factory,
             scanned_to: 12_345,
             found: Some((outbox, Some(950))),
+            scan_floor: 0,
         };
         let cursor = OutboxDiscoveryCursor::from_persisted(persisted);
         assert_eq!(cursor.scanned_to(), 12_345);
@@ -515,6 +777,7 @@ mod tests {
             factory: address!("00000000000000000000000000000000000000ff"),
             scanned_to: 12_345,
             found: None,
+            scan_floor: 0,
         };
         let cursor = OutboxDiscoveryCursor::from_persisted(persisted);
         let live_factory = address!("00000000000000000000000000000000000000ee");

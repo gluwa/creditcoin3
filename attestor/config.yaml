@@ -115,12 +115,39 @@ write_ability:
 
   # On a governance Outbox-factory rotation, resume OutboxCreated discovery from the
   # last factory-scan checkpoint instead of rescanning the factory's full log history
-  # from genesis. Defaults to true. Only turn this off if a deployment ever re-points
-  # a chain key at a pre-existing factory (one not freshly deployed as part of the
-  # rotation) — resuming from the checkpoint would then risk skipping an OutboxCreated
-  # emitted before it.
+  # from genesis. Defaults to true. Turning it off restores the unconditional rescan
+  # from writability_genesis_block, which makes no assumption about when the rotated-to
+  # factory was deployed.
+  #
+  # Resuming can overshoot — re-point a chain key at a pre-existing factory whose
+  # OutboxCreated already sits below the checkpoint and the resumed scan matches
+  # nothing. That is recovered automatically: a completed scan that found nothing,
+  # having started above writability_genesis_block, rewinds to that floor and tries
+  # once more (logged as "🪃 no OutboxCreated found above the resumed checkpoint")
+  # before the chain key is reported as having no Outbox. The recovery costs one extra
+  # full scan and fires at most once per factory per process.
   #
   # resume_rotation_from_checkpoint: true
+
+  # First Creditcoin L1 block that any *from-scratch* OutboxCreated discovery scan
+  # starts at: initial activation on an empty state volume, a rotation with
+  # resume_rotation_from_checkpoint off, a factory de-registration, and the rewind
+  # described above. Defaults to 0 — a true genesis scan.
+  #
+  # This is a floor, not a rewind. A persisted cursor that is already further along
+  # resumes from where it left off, and a rotation that resumes from a checkpoint keeps
+  # that checkpoint; this value only answers "where does a scan with no position start?".
+  #
+  # Raising it to a height known to precede this chain key's Outbox factory deployment
+  # cuts every one of those scans down to the range that could actually contain the
+  # event — on a long-lived chain that is the difference between a multi-minute
+  # fleet-wide quorum outage during a rotation and a brief one.
+  #
+  # ⚠️ Set it ABOVE a factory's OutboxCreated block and that Outbox becomes
+  # undiscoverable, including via the rewind, which floors here too. Use a height known
+  # to precede every factory this chain key will ever be pointed at.
+  #
+  # writability_genesis_block: 0
 
   # Directory for durable write-ability state — the Outbox scan cursor, so a restart
   # resumes where it left off instead of skipping messages published while down.

@@ -22,7 +22,9 @@
 //! at all; a factory change (governance rotation) instead resumes from the checkpoint already on
 //! disk unless `Config::resume_rotation_from_checkpoint` is turned off — the same at-least-once
 //! safety applies either way, since re-scanning already-covered blocks only wastes time, never
-//! correctness.
+//! correctness. The record also carries the *floor* each scan began at, which is what lets the
+//! resolver's genesis fallback recover a scan that resumed above the event it was looking for
+//! (see [`super::resolver`]) even across a restart.
 
 use std::path::{Path, PathBuf};
 
@@ -205,6 +207,17 @@ struct FactoryScanRecord {
     found_outbox: Option<Address>,
     #[serde(skip_serializing_if = "Option::is_none")]
     found_created_at_block: Option<u64>,
+    /// Block this factory's scan *started* from — the floor below which it has never looked. Read
+    /// back by the resolver's genesis fallback to tell "scanned everything and this factory has no
+    /// Outbox" from "resumed above the event and would never have seen it".
+    ///
+    /// `Option` purely for backward compatibility with records written before this field existed:
+    /// [`FactoryScanCursorStore::load`] maps `None` to `scanned_to`, the conservative reading
+    /// ("assume the scan began where it currently sits"), which grants such a record exactly one
+    /// genesis fallback. Reading it as 0 instead would silently deny the fallback to precisely the
+    /// cursors most likely to need it — one written by a rotation on an older build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scan_floor: Option<u64>,
 }
 
 /// In-memory shape of a [`FactoryScanCursorStore`] record.
@@ -213,6 +226,8 @@ pub struct PersistedFactoryScan {
     pub factory: Address,
     pub scanned_to: u64,
     pub found: Option<(Address, Option<u64>)>,
+    /// Block this factory's scan started from; see [`FactoryScanRecord::scan_floor`].
+    pub scan_floor: u64,
 }
 
 /// Persists an [`super::resolver::OutboxDiscoveryCursor`]'s `OutboxCreated` discovery progress to a
@@ -277,6 +292,9 @@ impl FactoryScanCursorStore {
             found: record
                 .found_outbox
                 .map(|outbox| (outbox, record.found_created_at_block)),
+            // Pre-`scan_floor` record: assume the scan began where it now sits, so the resolver
+            // grants it one genesis fallback rather than trusting a floor it never recorded.
+            scan_floor: record.scan_floor.unwrap_or(record.scanned_to),
         })
     }
 
@@ -295,6 +313,7 @@ impl FactoryScanCursorStore {
             chain_key: self.chain_key,
             found_outbox,
             found_created_at_block,
+            scan_floor: Some(scan.scan_floor),
         };
         let json = serde_json::to_vec_pretty(&record).context("serialize factory-scan cursor")?;
 
@@ -433,6 +452,7 @@ mod tests {
             factory: factory(),
             scanned_to: 12_345,
             found: Some((outbox(), Some(100))),
+            scan_floor: 0,
         };
         store.save(&scan).unwrap();
         assert_eq!(store.load(), Some(scan));
@@ -442,6 +462,7 @@ mod tests {
             factory: factory(),
             scanned_to: 20_000,
             found: Some((outbox(), Some(100))),
+            scan_floor: 0,
         };
         store.save(&advanced).unwrap();
         assert_eq!(store.load(), Some(advanced));
@@ -457,9 +478,46 @@ mod tests {
             factory: factory(),
             scanned_to: 2_000,
             found: None,
+            scan_floor: 0,
         };
         store.save(&scan).unwrap();
         assert_eq!(store.load(), Some(scan));
+    }
+
+    /// `scan_floor` round-trips, so the resolver can tell "scanned everything below" from
+    /// "resumed above the event" across a restart — the distinction its genesis fallback turns on.
+    #[test]
+    fn factory_scan_round_trips_the_scan_floor() {
+        let dir = TmpDir::new("factory-floor");
+        let store = FactoryScanCursorStore::new(dir.path(), 2);
+        let scan = PersistedFactoryScan {
+            factory: factory(),
+            scanned_to: 705_600,
+            found: None,
+            scan_floor: 705_530,
+        };
+        store.save(&scan).unwrap();
+        assert_eq!(store.load(), Some(scan));
+    }
+
+    /// A record written before `scan_floor` existed loads with the floor set to `scanned_to`, not
+    /// to 0. That is the conservative reading — "assume the scan began where it now sits" — and it
+    /// grants such a record exactly one genesis fallback. Defaulting to 0 would instead claim the
+    /// range below was already covered, denying the recovery to precisely the cursors most likely
+    /// to need it: one written by a rotation on a build that predates this field.
+    #[test]
+    fn factory_scan_record_without_a_floor_defaults_to_its_position() {
+        let dir = TmpDir::new("factory-legacy");
+        let store = FactoryScanCursorStore::new(dir.path(), 2);
+        let legacy = format!(
+            r#"{{"scanned_to":705600,"factory":"{}","chain_key":2}}"#,
+            factory()
+        );
+        std::fs::write(store.path(), legacy).unwrap();
+        let loaded = store.load().expect("legacy record must still load");
+        assert_eq!(loaded.scanned_to, 705_600);
+        assert_eq!(loaded.scan_floor, 705_600);
+        assert_eq!(loaded.found, None);
     }
 
     #[test]
@@ -482,6 +540,7 @@ mod tests {
             factory: old_factory,
             scanned_to: 500,
             found: None,
+            scan_floor: 0,
         };
         store.save(&scan).unwrap();
         assert_eq!(store.load(), Some(scan));
@@ -496,6 +555,7 @@ mod tests {
             factory: factory(),
             scanned_to: 42,
             found: None,
+            scan_floor: 0,
         };
         store.save(&scan).unwrap();
         assert_eq!(store.load(), Some(scan));
