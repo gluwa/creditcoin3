@@ -471,10 +471,10 @@ pub async fn run(
             );
             resolver::OutboxDiscoveryCursor::from_persisted(persisted)
         }
-        // Nothing persisted: start at the configured write-ability genesis block rather than block
+        // Nothing persisted: start at the configured factory-scan genesis block rather than block
         // 0, so a chain whose factory was deployed far above genesis does not scan the dead range
-        // below it on every fresh volume (`Config::writability_genesis_block`).
-        None => resolver::OutboxDiscoveryCursor::starting_at(cfg.writability_genesis_block),
+        // below it on every fresh volume (`Config::factory_scan_genesis_block`).
+        None => resolver::OutboxDiscoveryCursor::starting_at(cfg.factory_scan_genesis_block),
     };
     let resolved = loop {
         // Progress-aware failure budget, mirroring the listener's `next_failure_count`. Outbox
@@ -673,7 +673,7 @@ pub async fn run(
     // One live resolved-Outbox view feeds both the supervision loop below and the reobservation
     // worker. The monitor inherits the discovery cursor from initial activation, so it scans only
     // new finalized factory events — and resumes from the last factory-scan checkpoint (or, with
-    // `resume_rotation_from_checkpoint` off, restarts from `writability_genesis_block`) when
+    // `resume_rotation_from_checkpoint` off, restarts from `factory_scan_genesis_block`) when
     // governance re-points the chain key at a different factory. A resumed scan that turns out to
     // have started above the new factory's own `OutboxCreated` rewinds to that floor once on its
     // own (`resolver::genesis_fallback_target`), so a rotation onto a pre-existing factory

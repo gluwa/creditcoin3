@@ -124,8 +124,8 @@ struct ConfigFileWriteAbility {
     /// de-registration, and the genesis fallback. Defaults to 0 (a true genesis scan). A floor
     /// only: it never rewinds a cursor that is already further along. Set it above a factory's
     /// `OutboxCreated` and that Outbox becomes undiscoverable (see
-    /// `write_ability::config::Config::writability_genesis_block`'s docs).
-    writability_genesis_block: Option<u64>,
+    /// `write_ability::config::Config::factory_scan_genesis_block`'s docs).
+    factory_scan_genesis_block: Option<u64>,
 }
 
 impl Config {
@@ -518,9 +518,9 @@ impl Config {
             resume_rotation_from_checkpoint: file
                 .resume_rotation_from_checkpoint
                 .unwrap_or(config::DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT),
-            writability_genesis_block: file
-                .writability_genesis_block
-                .unwrap_or(config::DEFAULT_WRITABILITY_GENESIS_BLOCK),
+            factory_scan_genesis_block: file
+                .factory_scan_genesis_block
+                .unwrap_or(config::DEFAULT_FACTORY_SCAN_GENESIS_BLOCK),
         };
 
         // Fail the boot on a config that would silently weaken safety or prevent quorum, rather

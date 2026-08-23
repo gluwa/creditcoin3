@@ -30,7 +30,7 @@
 //! sits *below* the checkpoint and the resumed scan runs to the tip, matches nothing, and reports
 //! "no Outbox" — permanently, since the cursor is then persisted at the tip against that very
 //! factory and reads back as valid on the next boot. [`genesis_fallback_target`] closes that: a
-//! scan that completes with no match, having started above [`Config::writability_genesis_block`],
+//! scan that completes with no match, having started above [`Config::factory_scan_genesis_block`],
 //! rewinds to that floor and tries once more before the chain key is declared Outbox-less.
 
 use alloy::primitives::{Address, B256};
@@ -111,7 +111,7 @@ struct DiscoveryPolicy {
     confirmation_depth: u64,
     /// See [`Config::resume_rotation_from_checkpoint`].
     resume_rotation_from_checkpoint: bool,
-    /// See [`Config::writability_genesis_block`] — the floor every from-scratch scan starts at.
+    /// See [`Config::factory_scan_genesis_block`] — the floor every from-scratch scan starts at.
     genesis_block: u64,
 }
 
@@ -173,7 +173,7 @@ impl OutboxDiscoveryCursor {
     }
 
     /// A fresh cursor for a chain key with nothing persisted, starting at `genesis_block` (see
-    /// [`Config::writability_genesis_block`]). Prefer this over `default()` anywhere a real
+    /// [`Config::factory_scan_genesis_block`]). Prefer this over `default()` anywhere a real
     /// configuration is in hand — `default()` starts at block 0 regardless, which is only correct
     /// when the floor is 0.
     pub(super) fn starting_at(genesis_block: u64) -> Self {
@@ -238,7 +238,7 @@ pub async fn resolve<P: Provider>(
         DiscoveryPolicy {
             confirmation_depth: cfg.block_confirmation_depth,
             resume_rotation_from_checkpoint: cfg.resume_rotation_from_checkpoint,
-            genesis_block: cfg.writability_genesis_block,
+            genesis_block: cfg.factory_scan_genesis_block,
         },
         cursor,
         factory_scan_store,
@@ -456,7 +456,7 @@ async fn resolve_outbox_address<P: Provider>(
             rewind_to,
             "🪃 no OutboxCreated found above the resumed checkpoint; the factory's own event \
              may predate it (a rotation onto a pre-existing factory). Rescanning once from \
-             the configured write-ability genesis block before reporting no Outbox"
+             the configured factory-scan genesis block before reporting no Outbox"
         );
         cursor.genesis_fallback_done = true;
         cursor.from = rewind_to;
@@ -618,7 +618,7 @@ mod tests {
         );
     }
 
-    /// The floor is honoured, not hardcoded to 0: with `writability_genesis_block` set, the rewind
+    /// The floor is honoured, not hardcoded to 0: with `factory_scan_genesis_block` set, the rewind
     /// targets it, and a scan that already started there is conclusive rather than looping.
     #[test]
     fn fallback_targets_the_configured_genesis_block() {
