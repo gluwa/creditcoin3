@@ -271,7 +271,7 @@ impl FactoryScanCursorStore {
             Err(e) => {
                 tracing::warn!(
                     path = %self.path.display(), %e,
-                    "could not read factory-scan cursor file; starting OutboxCreated discovery from genesis"
+                    "could not read factory-scan cursor file; starting OutboxCreated discovery from the configured factory-scan genesis block"
                 );
                 return None;
             }
