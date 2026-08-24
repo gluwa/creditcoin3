@@ -48,4 +48,25 @@ interface IAttestCoinPrecompile {
     ///         receive the same amount of ERC-20 on the caller's EVM address (inverse of `deposit`).
     /// @dev Requires the attest-coin asset **admin** to be the precompile account (runtime migration).
     function withdraw(uint256 amount) external;
+
+    /// @notice Burn liquid attest coin from an explicit Substrate `stash` and send the same amount of
+    ///         ERC-20 to the caller. The sr25519-authorized inverse of `depositTo`.
+    /// @dev `withdraw` can only burn from the caller's own mapped account, so an sr25519 stash that
+    ///      received attest coin via `depositTo` needs this entry to get back out to ERC-20 without
+    ///      controlling a second EVM-space key.
+    ///      `evmRecipient` must equal `msg.sender`. `sigHi`/`sigLo` are the stash's sr25519
+    ///      signature (32+32 bytes) over `pallet_attest_coin_rewards::Pallet::withdraw_signing_message`,
+    ///      which binds the genesis hash, stash, `nonce`, `amount` and `evmRecipient`. Read the next
+    ///      expected nonce from `attestCoinRewards.withdrawNonce(stash)`; it is a counter separate
+    ///      from the claim nonce. The nonce is consumed before any token movement and rolled back if
+    ///      that movement fails, so a failed attempt does not burn the signature.
+    ///      Requires the attest-coin asset **admin** to be the precompile account.
+    function withdrawFrom(
+        bytes32 stash,
+        uint256 nonce,
+        uint256 amount,
+        address evmRecipient,
+        bytes32 sigHi,
+        bytes32 sigLo
+    ) external;
 }
