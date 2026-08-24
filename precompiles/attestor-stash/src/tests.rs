@@ -4,11 +4,12 @@ use crate::{
         *,
     },
     AttestorInfo, LedgerInfo, SELECTOR_LOG_ATTESTOR_CHILLED, SELECTOR_LOG_ATTESTOR_REGISTERED,
-    SELECTOR_LOG_ATTESTOR_UNREGISTERED, SELECTOR_LOG_UNBONDED_WITHDRAWN,
+    SELECTOR_LOG_ATTESTOR_UNREGISTERED, SELECTOR_LOG_BOND_EXTRA_ADDED,
+    SELECTOR_LOG_SURPLUS_UNBONDED, SELECTOR_LOG_UNBONDED_WITHDRAWN,
 };
 
-use precompile_utils::{evm::logs::log2, evm::logs::log4, testing::*};
-use sp_core::{H160, H256};
+use precompile_utils::{evm::logs::log2, evm::logs::log4, solidity, testing::*};
+use sp_core::{H160, H256, U256};
 use std::str::from_utf8;
 
 fn precompiles() -> Precompiles<Runtime> {
@@ -708,5 +709,283 @@ fn withdraw_unbonded_after_unregister_emits_event() {
                     Vec::<u8>::new(),
                 ))
                 .execute_returns(true);
+        });
+}
+
+// ── bondExtra / unbondSurplus ──────────────────────────────────────────────────
+//
+// These two exist on the precompile because an EVM-space stash has no signing key, so the
+// Substrate extrinsics are unreachable for it. `unbond_surplus` in particular is the only release
+// path for bond above the aggregate requirement — see the regression test at the bottom.
+
+#[test]
+fn bond_extra_tops_up_the_ledger_and_emits_event() {
+    let alice: H160 = Alice.into();
+    let alice_h256: H256 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            let top_up = U256::from(MIN_BOND);
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::bond_extra { amount: top_up })
+                .expect_log(log2(
+                    Precompile,
+                    SELECTOR_LOG_BOND_EXTRA_ADDED,
+                    H256::from(alice),
+                    solidity::encode_event_data(top_up),
+                ))
+                .execute_returns(true);
+
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::get_caller_ledger {})
+                .execute_returns(LedgerInfo {
+                    exists: true,
+                    stash: alice_h256,
+                    total_staked: 2 * MIN_BOND,
+                    active: 2 * MIN_BOND,
+                    unlocking_chunks: 0,
+                    withdrawable: 0,
+                });
+        });
+}
+
+#[test]
+fn bond_extra_without_a_ledger_reverts() {
+    let bob: H160 = Bob.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Bob, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            // Bob is funded but has never registered an attestor, so there is no ledger to top up.
+            precompiles()
+                .prepare_test(
+                    bob,
+                    Precompile,
+                    PCall::bond_extra {
+                        amount: U256::from(MIN_BOND),
+                    },
+                )
+                .execute_reverts(|output| {
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ") && s.contains("NotStash")
+                });
+        });
+}
+
+#[test]
+fn bond_extra_above_the_balance_type_width_reverts_without_truncating() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            // Must revert, not wrap: a truncated `U256::MAX` would bond an arbitrary small amount.
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::bond_extra { amount: U256::MAX })
+                .execute_reverts(|output| {
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Value is too large for uint128")
+                });
+        });
+}
+
+#[test]
+fn unbond_surplus_releases_the_top_up_and_emits_event() {
+    let alice: H160 = Alice.into();
+    let alice_h256: H256 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            let amount = U256::from(MIN_BOND);
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::bond_extra { amount })
+                .execute_returns(true);
+
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::unbond_surplus { amount })
+                .expect_log(log2(
+                    Precompile,
+                    SELECTOR_LOG_SURPLUS_UNBONDED,
+                    H256::from(alice),
+                    solidity::encode_event_data(amount),
+                ))
+                .execute_returns(true);
+
+            // `active` drops back to the requirement; the released amount is now unlocking and
+            // `total_staked` stays put until `withdrawUnbonded` moves it out of the pool.
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::get_caller_ledger {})
+                .execute_returns(LedgerInfo {
+                    exists: true,
+                    stash: alice_h256,
+                    total_staked: 2 * MIN_BOND,
+                    active: MIN_BOND,
+                    unlocking_chunks: 1,
+                    withdrawable: 0,
+                });
+        });
+}
+
+#[test]
+fn unbond_surplus_cannot_breach_the_aggregate_requirement() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            // `active` is exactly the requirement for the one registered attestor, so there is no
+            // surplus to release — the solvency guard must reject this rather than undercollateralize.
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::unbond_surplus {
+                        amount: U256::from(MIN_BOND),
+                    },
+                )
+                .execute_reverts(|output| {
+                    let s = from_utf8(output).unwrap();
+                    s.contains("Dispatched call failed with error: ")
+                        && s.contains("InsufficientRemainingBond")
+                });
+        });
+}
+
+/// Regression for the reason `unbondSurplus` has to be on this precompile at all.
+///
+/// An EVM-space stash cannot sign a Substrate extrinsic, so before this entry existed a governance
+/// *decrease* of `MinBondRequirement` stranded the difference in the bond pool permanently:
+/// `unregister_attestor` releases at most the *current* requirement, and `withdraw_unbonded` only
+/// reaps once `active` is below the existential deposit.
+#[test]
+fn unbond_surplus_releases_bond_stranded_by_a_min_bond_decrease() {
+    let alice: H160 = Alice.into();
+    let alice_h256: H256 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            // Governance halves the requirement after the stash already bonded the full amount.
+            let lowered = MIN_BOND / 2;
+            pallet_attestation::MinBondRequirement::<Runtime>::set(TEST_CHAIN_KEY, lowered);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::unregister_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            // Unregister released only the *lowered* requirement, leaving `MIN_BOND - lowered`
+            // stuck in `active` with no attestor left to justify it.
+            let stranded = MIN_BOND - lowered;
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::get_caller_ledger {})
+                .execute_returns(LedgerInfo {
+                    exists: true,
+                    stash: alice_h256,
+                    total_staked: MIN_BOND,
+                    active: stranded,
+                    unlocking_chunks: 1,
+                    withdrawable: 0,
+                });
+
+            // With no attestors registered the aggregate requirement is zero, so the remainder is
+            // fully releasable — the point of the entry.
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::unbond_surplus {
+                        amount: U256::from(stranded),
+                    },
+                )
+                .execute_returns(true);
+
+            let bonding_duration = <Runtime as pallet_attestation::Config>::BondingDuration::get();
+            pallet_staking::CurrentEra::<Runtime>::put(bonding_duration + 1);
+
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::withdraw_unbonded {})
+                .execute_returns(true);
+
+            // Ledger reaped: nothing of the original bond is left behind in the pool.
+            precompiles()
+                .prepare_test(alice, Precompile, PCall::get_caller_ledger {})
+                .execute_returns(LedgerInfo {
+                    exists: false,
+                    stash: H256::zero(),
+                    total_staked: 0,
+                    active: 0,
+                    unlocking_chunks: 0,
+                    withdrawable: 0,
+                });
         });
 }
