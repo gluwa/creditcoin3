@@ -18,4 +18,6 @@ USER postgresuser
 # Environment variables for PostgreSQL
 ENV POSTGRES_DB=postgres
 ENV POSTGRES_USER=postgres
+# Local/CI indexer database only; never reachable outside the compose network.
+# hadolint ignore=DL3064
 ENV POSTGRES_PASSWORD=postgres
