@@ -1434,6 +1434,7 @@ declare module '@polkadot/types/lookup' {
         readonly isForcedElection: boolean;
         readonly asForcedElection: {
             readonly epoch: u64;
+            readonly randomness: Option<U8aFixed>;
         } & Struct;
         readonly isForcedUpdatesApplied: boolean;
         readonly isRevertedAttestationChainTo: boolean;
@@ -1496,7 +1497,7 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'OpenToAny' | 'AuthorizedOnly' | 'DeniedToAll';
     }
 
-    /** @name PalletSupportedChainsEvent (108) */
+    /** @name PalletSupportedChainsEvent (109) */
     interface PalletSupportedChainsEvent extends Enum {
         readonly isChainRegistered: boolean;
         readonly asChainRegistered: {
@@ -1517,13 +1518,13 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'ChainRegistered' | 'ChainRemoved';
     }
 
-    /** @name AttestorPrimitivesChainEncodingVersion (109) */
+    /** @name AttestorPrimitivesChainEncodingVersion (110) */
     interface AttestorPrimitivesChainEncodingVersion extends Enum {
         readonly isV1: boolean;
         readonly type: 'V1';
     }
 
-    /** @name PalletRandomnessEvent (110) */
+    /** @name PalletRandomnessEvent (111) */
     interface PalletRandomnessEvent extends Enum {
         readonly isStoreRandomnessForEpoch: boolean;
         readonly asStoreRandomnessForEpoch: {
@@ -1533,7 +1534,7 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'StoreRandomnessForEpoch';
     }
 
-    /** @name PalletMembershipEvent (111) */
+    /** @name PalletMembershipEvent (112) */
     interface PalletMembershipEvent extends Enum {
         readonly isMemberAdded: boolean;
         readonly isMemberRemoved: boolean;
@@ -1544,7 +1545,7 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'MemberAdded' | 'MemberRemoved' | 'MembersSwapped' | 'MembersReset' | 'KeyChanged' | 'Dummy';
     }
 
-    /** @name PalletMigrationsEvent (112) */
+    /** @name PalletMigrationsEvent (113) */
     interface PalletMigrationsEvent extends Enum {
         readonly isUpgradeStarted: boolean;
         readonly asUpgradeStarted: {
@@ -1586,7 +1587,7 @@ declare module '@polkadot/types/lookup' {
             | 'HistoricCleared';
     }
 
-    /** @name FrameSystemPhase (114) */
+    /** @name FrameSystemPhase (115) */
     interface FrameSystemPhase extends Enum {
         readonly isApplyExtrinsic: boolean;
         readonly asApplyExtrinsic: u32;
@@ -1595,19 +1596,19 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'ApplyExtrinsic' | 'Finalization' | 'Initialization';
     }
 
-    /** @name FrameSystemLastRuntimeUpgradeInfo (117) */
+    /** @name FrameSystemLastRuntimeUpgradeInfo (118) */
     interface FrameSystemLastRuntimeUpgradeInfo extends Struct {
         readonly specVersion: Compact<u32>;
         readonly specName: Text;
     }
 
-    /** @name FrameSystemCodeUpgradeAuthorization (119) */
+    /** @name FrameSystemCodeUpgradeAuthorization (120) */
     interface FrameSystemCodeUpgradeAuthorization extends Struct {
         readonly codeHash: H256;
         readonly checkVersion: bool;
     }
 
-    /** @name FrameSystemCall (120) */
+    /** @name FrameSystemCall (121) */
     interface FrameSystemCall extends Enum {
         readonly isRemark: boolean;
         readonly asRemark: {
@@ -1668,21 +1669,21 @@ declare module '@polkadot/types/lookup' {
             | 'ApplyAuthorizedUpgrade';
     }
 
-    /** @name FrameSystemLimitsBlockWeights (124) */
+    /** @name FrameSystemLimitsBlockWeights (125) */
     interface FrameSystemLimitsBlockWeights extends Struct {
         readonly baseBlock: SpWeightsWeightV2Weight;
         readonly maxBlock: SpWeightsWeightV2Weight;
         readonly perClass: FrameSupportDispatchPerDispatchClassWeightsPerClass;
     }
 
-    /** @name FrameSupportDispatchPerDispatchClassWeightsPerClass (125) */
+    /** @name FrameSupportDispatchPerDispatchClassWeightsPerClass (126) */
     interface FrameSupportDispatchPerDispatchClassWeightsPerClass extends Struct {
         readonly normal: FrameSystemLimitsWeightsPerClass;
         readonly operational: FrameSystemLimitsWeightsPerClass;
         readonly mandatory: FrameSystemLimitsWeightsPerClass;
     }
 
-    /** @name FrameSystemLimitsWeightsPerClass (126) */
+    /** @name FrameSystemLimitsWeightsPerClass (127) */
     interface FrameSystemLimitsWeightsPerClass extends Struct {
         readonly baseExtrinsic: SpWeightsWeightV2Weight;
         readonly maxExtrinsic: Option<SpWeightsWeightV2Weight>;
@@ -1690,25 +1691,25 @@ declare module '@polkadot/types/lookup' {
         readonly reserved: Option<SpWeightsWeightV2Weight>;
     }
 
-    /** @name FrameSystemLimitsBlockLength (128) */
+    /** @name FrameSystemLimitsBlockLength (129) */
     interface FrameSystemLimitsBlockLength extends Struct {
         readonly max: FrameSupportDispatchPerDispatchClassU32;
     }
 
-    /** @name FrameSupportDispatchPerDispatchClassU32 (129) */
+    /** @name FrameSupportDispatchPerDispatchClassU32 (130) */
     interface FrameSupportDispatchPerDispatchClassU32 extends Struct {
         readonly normal: u32;
         readonly operational: u32;
         readonly mandatory: u32;
     }
 
-    /** @name SpWeightsRuntimeDbWeight (130) */
+    /** @name SpWeightsRuntimeDbWeight (131) */
     interface SpWeightsRuntimeDbWeight extends Struct {
         readonly read: u64;
         readonly write: u64;
     }
 
-    /** @name SpVersionRuntimeVersion (131) */
+    /** @name SpVersionRuntimeVersion (132) */
     interface SpVersionRuntimeVersion extends Struct {
         readonly specName: Text;
         readonly implName: Text;
@@ -1720,7 +1721,7 @@ declare module '@polkadot/types/lookup' {
         readonly systemVersion: u8;
     }
 
-    /** @name FrameSystemError (136) */
+    /** @name FrameSystemError (137) */
     interface FrameSystemError extends Enum {
         readonly isInvalidSpecName: boolean;
         readonly isSpecVersionNeedsToIncrease: boolean;
@@ -1743,10 +1744,10 @@ declare module '@polkadot/types/lookup' {
             | 'Unauthorized';
     }
 
-    /** @name SpConsensusBabeAppPublic (139) */
+    /** @name SpConsensusBabeAppPublic (140) */
     interface SpConsensusBabeAppPublic extends U8aFixed {}
 
-    /** @name SpConsensusBabeDigestsNextConfigDescriptor (142) */
+    /** @name SpConsensusBabeDigestsNextConfigDescriptor (143) */
     interface SpConsensusBabeDigestsNextConfigDescriptor extends Enum {
         readonly isV1: boolean;
         readonly asV1: {
@@ -1756,7 +1757,7 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'V1';
     }
 
-    /** @name SpConsensusBabeAllowedSlots (144) */
+    /** @name SpConsensusBabeAllowedSlots (145) */
     interface SpConsensusBabeAllowedSlots extends Enum {
         readonly isPrimarySlots: boolean;
         readonly isPrimaryAndSecondaryPlainSlots: boolean;
@@ -1764,7 +1765,7 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'PrimarySlots' | 'PrimaryAndSecondaryPlainSlots' | 'PrimaryAndSecondaryVRFSlots';
     }
 
-    /** @name SpConsensusBabeDigestsPreDigest (148) */
+    /** @name SpConsensusBabeDigestsPreDigest (149) */
     interface SpConsensusBabeDigestsPreDigest extends Enum {
         readonly isPrimary: boolean;
         readonly asPrimary: SpConsensusBabeDigestsPrimaryPreDigest;
@@ -1775,26 +1776,26 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'Primary' | 'SecondaryPlain' | 'SecondaryVRF';
     }
 
-    /** @name SpConsensusBabeDigestsPrimaryPreDigest (149) */
+    /** @name SpConsensusBabeDigestsPrimaryPreDigest (150) */
     interface SpConsensusBabeDigestsPrimaryPreDigest extends Struct {
         readonly authorityIndex: u32;
         readonly slot: u64;
         readonly vrfSignature: SpCoreSr25519VrfVrfSignature;
     }
 
-    /** @name SpCoreSr25519VrfVrfSignature (150) */
+    /** @name SpCoreSr25519VrfVrfSignature (151) */
     interface SpCoreSr25519VrfVrfSignature extends Struct {
         readonly preOutput: U8aFixed;
         readonly proof: U8aFixed;
     }
 
-    /** @name SpConsensusBabeDigestsSecondaryPlainPreDigest (152) */
+    /** @name SpConsensusBabeDigestsSecondaryPlainPreDigest (153) */
     interface SpConsensusBabeDigestsSecondaryPlainPreDigest extends Struct {
         readonly authorityIndex: u32;
         readonly slot: u64;
     }
 
-    /** @name SpConsensusBabeDigestsSecondaryVRFPreDigest (153) */
+    /** @name SpConsensusBabeDigestsSecondaryVRFPreDigest (154) */
     interface SpConsensusBabeDigestsSecondaryVRFPreDigest extends Struct {
         readonly authorityIndex: u32;
         readonly slot: u64;
