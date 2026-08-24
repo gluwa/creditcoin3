@@ -52,9 +52,11 @@ export async function getBalance(address: string, api: ApiPromise) {
         transferable,
         bonded: stakingInfo?.stakingLedger.active?.unwrap() || new BN(0),
         evm: new BN(0), // Get Balance does not reflect EVM balance, it must be added manually
-        // Staking-scoped encumbrance: the legacy lock plus the HoldReason::Staking hold that
-        // replaced it. Deliberately NOT `total - transferable`: that would also sweep in
-        // unrelated reserves such as the proxy deposit, which is not locked stake.
+        // Staking-scoped encumbrance: `balances.locks` (which is where the attestation
+        // pallet's own `b0ndl0ck` bond still lives) plus the HoldReason::Staking hold that
+        // pallet-staking moved to. Both terms are required - they are disjoint mechanisms, so
+        // there is no double count. Deliberately NOT `total - transferable`: that would also
+        // sweep in unrelated reserves such as the proxy deposit, which is not locked stake.
         locked: balancesAll.lockedBalance.add(stakingHold),
         total,
         unbonding: calcUnbonding(stakingInfo),
@@ -74,7 +76,13 @@ export async function getBalance(address: string, api: ApiPromise) {
  * `reducible_balance()`. polkadot-js documents `availableBalance` as legacy and points here.
  *
  * It is `null` on chains still returning the pre-FrameSystemAccountInfo shape, hence the
- * fallback, and @polkadot/api 15.x omits the outer clamp, hence the BN.max.
+ * fallback. The BN.max is belt-and-braces: the derive already clamps both fields at the source
+ * in the pinned 16.x, so it only matters if that pin is ever moved backwards.
+ *
+ * Note the hidden coupling to `ExistentialDeposit = 0` (`runtime/src/lib.rs`): that is what
+ * makes the `maybeEd` term a no-op today, so the reported figure equals `free` exactly for a
+ * stash whose freezes are covered by its reserves. If the ED ever becomes non-zero, this
+ * tightens by one ED and every `canPay()` check tightens with it.
  */
 export function getTransferable(balancesAll: DeriveBalancesAll): BN {
     const transferable = balancesAll.transferable ?? balancesAll.availableBalance;

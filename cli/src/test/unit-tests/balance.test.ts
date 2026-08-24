@@ -25,13 +25,6 @@ describe('getTransferable', () => {
         expect(result.toString()).toBe('3904');
     });
 
-    test('clamps a negative result to zero', () => {
-        // @polkadot/api 15.x omits the outer max(0, ..) that 16.x added, so frozen > free can
-        // produce a negative value that must not surface as a balance.
-        const result = getTransferable(derived(new BN(-50), new BN(0)));
-        expect(result.toString()).toBe('0');
-    });
-
     test('returns zero rather than negative when everything is encumbered', () => {
         const result = getTransferable(derived(new BN(0), new BN(0)));
         expect(result.toString()).toBe('0');

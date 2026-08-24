@@ -37,9 +37,12 @@ async function showStashBalanceAction(options: OptionValues) {
     const active = new BN(ledgerInfo.active.toString());
     const unlockingChunks: number = ledgerInfo.unlockingChunks;
 
-    // Reuse the shared helper rather than reading derive fields directly: attestor bonds go
-    // through StakingInterface, so they are staking bonds and now sit in a HoldReason::Staking
-    // hold. Reading `lockedBalance` here reported held stake as unlocked.
+    // Reuse the shared helper rather than reading derive fields directly. `locked` has to sum
+    // two disjoint mechanisms: the attestor bond, which the attestation pallet still keeps as a
+    // `b0ndl0ck` lock (see `pallets/attestation/src/ledger.rs`) and so lands in
+    // `lockedBalance`, and any pallet-staking stake, which now sits in a HoldReason::Staking
+    // hold and is invisible to `lockedBalance`. Reading the derive directly reported the bond
+    // but silently dropped the held stake, so both terms are needed.
     const balance = await getBalance(stashAccountId, api);
 
     const table = new Table({});
