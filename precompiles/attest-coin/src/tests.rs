@@ -627,6 +627,121 @@ fn claim_nonce_replay_protection() {
     });
 }
 
+// ── mapped-caller (EVM stash) claim authorization ──────────────────────────────
+
+/// A stash that is the `AddressMapping` image of an EVM address has no sr25519 key — its 32 bytes
+/// are `blake2_256("evm:" || address)`. That is the identity of every attestor registered through
+/// the attestor-stash precompile, so the EVM call itself has to authorize the claim; otherwise
+/// those rewards are unclaimable forever. Signature words are zero here on purpose.
+#[test]
+fn claim_succeeds_for_mapped_caller_without_signature() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+        let caller = H160::repeat_byte(0xAA);
+        let stash = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+        let stash_raw: [u8; 32] = stash.clone().into();
+        Accrued::<Runtime>::insert(&stash, 1_000u128);
+
+        let amount = 50u128;
+        let input = claim_input(
+            stash_raw,
+            0,
+            SUPPORTED_CHAIN_KEY,
+            amount,
+            caller,
+            [0u8; 32],
+            [0u8; 32],
+        );
+        let mut handle = make_handle(caller, input);
+        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        assert!(
+            execute(&mut handle).is_ok(),
+            "mapped caller must be able to claim without an sr25519 signature"
+        );
+
+        assert_eq!(Accrued::<Runtime>::get(&stash), 950u128, "accrued debited");
+        assert_eq!(
+            pallet_attest_coin_rewards::ClaimNonce::<Runtime>::get(&stash),
+            1u64,
+            "claim nonce bumped"
+        );
+    });
+}
+
+/// The self-authorizing branch is scoped to the caller's *own* derived stash. Naming somebody
+/// else's mapped stash falls through to the signature path, where a zero signature fails — so the
+/// relaxation cannot be used to drain another EVM account's rewards.
+#[test]
+fn claim_reverts_for_mapped_caller_of_a_different_stash() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+        let caller = H160::repeat_byte(0xAA);
+        let victim_addr = H160::repeat_byte(0xBB);
+        let victim = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(victim_addr);
+        let victim_raw: [u8; 32] = victim.clone().into();
+        Accrued::<Runtime>::insert(&victim, 1_000u128);
+
+        let input = claim_input(
+            victim_raw,
+            0,
+            SUPPORTED_CHAIN_KEY,
+            50,
+            caller,
+            [0u8; 32],
+            [0u8; 32],
+        );
+        let mut handle = make_handle(caller, input);
+        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        assert_reverts_with(&mut handle, b"bad signature");
+
+        assert_eq!(
+            Accrued::<Runtime>::get(&victim),
+            1_000u128,
+            "victim accrual untouched"
+        );
+    });
+}
+
+/// `commit_claim` is the single replay gate for both authorization paths: dropping the signature
+/// does not drop nonce enforcement, so the same claim cannot be submitted twice.
+#[test]
+fn claim_mapped_caller_cannot_replay_same_nonce() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+        let caller = H160::repeat_byte(0xAA);
+        let stash = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+        let stash_raw: [u8; 32] = stash.clone().into();
+        Accrued::<Runtime>::insert(&stash, 1_000u128);
+
+        let input = claim_input(
+            stash_raw,
+            0,
+            SUPPORTED_CHAIN_KEY,
+            50,
+            caller,
+            [0u8; 32],
+            [0u8; 32],
+        );
+
+        let mut handle = make_handle(caller, input.clone());
+        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        assert!(execute(&mut handle).is_ok(), "first claim succeeds");
+
+        let mut replay = make_handle(caller, input);
+        attach_mock_balance_then_transfer(&mut replay, u128::MAX, true);
+        assert_reverts_with(&mut replay, b"bad nonce");
+
+        assert_eq!(
+            Accrued::<Runtime>::get(&stash),
+            950u128,
+            "replay must not debit a second time"
+        );
+    });
+}
+
 // ── deposit revert tests ───────────────────────────────────────────────────────
 
 #[test]

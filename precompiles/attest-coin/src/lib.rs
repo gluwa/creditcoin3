@@ -2,8 +2,11 @@
 //! `depositTo(uint256,bytes32)`, and `withdraw(uint256)` (`pallet-assets` burn → ERC-20 to caller;
 //! inverse of deposit). Requires asset **admin** = precompile account (see runtime migration).
 //!
-//! Governance must configure a standard ERC-20 (no fee-on-transfer / rebasing). Claims require a
-//! stash sr25519 signature; staking controllers cannot authorize claims.
+//! Governance must configure a standard ERC-20 (no fee-on-transfer / rebasing). Claims are
+//! authorized either by the stash's own sr25519 signature, or — when the stash is the
+//! `AddressMapping` image of the EVM caller, as it is for every attestor registered through the
+//! attestor-stash precompile — by that EVM call itself. Staking controllers cannot authorize
+//! claims under either path.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -151,6 +154,11 @@ where
     /// The claim executes `ERC-20.transfer(evm_recipient, amount)` with
     /// `sub_context.caller = code_address` so the transfer is sent from the precompile's own balance.
     ///
+    /// Authorized one of two ways (see the inline note at the check): an sr25519 signature from
+    /// the stash, or — when `AddressMapping::into_account_id(msg.sender) == stash` — the EVM
+    /// transaction itself. The latter is required for EVM-mapped stashes, whose `AccountId32` is a
+    /// blake2 hash with no corresponding sr25519 key.
+    ///
     /// Claims may only spend ERC-20 **above** the amount needed to back withdrawable
     /// [`pallet_assets`] attest-coin (total supply minus bond-pool balance). Bonded
     /// attest coin in [`pallet_attestation::Config::BondPoolAccount`] is not redeemable via
@@ -208,19 +216,57 @@ where
             }
         };
 
-        let msg = Rewards::<Runtime>::claim_signing_message(
-            &stash,
-            nonce_u64,
-            chain_key,
-            amount_u128,
-            evm_recipient.0,
-        );
+        // Authorization. Two mutually exclusive paths; the stash's own identity picks which one
+        // applies, so a caller can never choose the weaker of the two for a stash they don't own.
+        //
+        // 1] `caller_is_stash` — the EVM caller's mapped account *is* the stash. Every attestor
+        //    onboarded through the attestor-stash precompile has exactly this identity (that is
+        //    the only path `creditcoin-cli attestor register` offers): `AddressMapping` derives
+        //    the stash from `msg.sender`, so the stash is `blake2_256("evm:" || address)` — a
+        //    hash, not a public key. No sr25519 secret key for those 32 bytes exists or can be
+        //    found, so `verify_sr25519_stash` can never succeed for such a stash and its accrued
+        //    rewards would otherwise be permanently unclaimable.
+        //
+        //    Accepting the caller directly is sound because the EVM transaction signature has
+        //    already proven control of `caller_h160`, and `into_account_id` is a deterministic
+        //    function of that address alone. Producing a `stash` that matches therefore requires
+        //    having signed as the single EVM address which hashes to it — the same fact the
+        //    sr25519 signature exists to establish ("the stash authorized this claim"), just
+        //    established one layer up by the EVM rather than re-proven inside the precompile.
+        //
+        //    Replay needs no extra binding on this path. The sr25519 message commits to
+        //    (genesis, stash, nonce, chain_key, amount, recipient) because that signature is a
+        //    detached artifact which outlives the call and could otherwise be resubmitted. Here
+        //    there is no detached artifact: the authorization *is* this transaction, already
+        //    replay-protected by the caller's EVM account nonce. `commit_claim` below still
+        //    checks and bumps `ClaimNonce` and debits `Accrued`, so no reward can be drawn twice
+        //    by either route, and the two routes cannot be mixed to double-spend.
+        //
+        //    It grants no reach beyond the caller's own accrual. The equality is against the
+        //    *stash*, and `evm_recipient == caller_h160` is enforced above, so a caller can only
+        //    ever spend the accrual of the one stash their own address derives, paid to their own
+        //    address. This is also why the documented "staking controllers cannot authorize
+        //    claims" property is preserved: a controller/attestor key maps to a *different*
+        //    `AccountId32` than the stash, so it fails this equality, falls through to the
+        //    signature path, and has no stash key there either.
+        //
+        // 2] Otherwise — an sr25519 stash must sign the claim message, exactly as before.
+        let caller_is_stash = Runtime::AddressMapping::into_account_id(caller_h160) == stash;
+        if !caller_is_stash {
+            let msg = Rewards::<Runtime>::claim_signing_message(
+                &stash,
+                nonce_u64,
+                chain_key,
+                amount_u128,
+                evm_recipient.0,
+            );
 
-        if !verify_sr25519_stash(&stash, &msg, &sig) {
-            return Err(PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: b"bad signature".to_vec(),
-            });
+            if !verify_sr25519_stash(&stash, &msg, &sig) {
+                return Err(PrecompileFailure::Revert {
+                    exit_status: ExitRevert::Reverted,
+                    output: b"bad signature".to_vec(),
+                });
+            }
         }
 
         let treasury_balance = erc20_balance_of(handle, token, handle.code_address())?;
