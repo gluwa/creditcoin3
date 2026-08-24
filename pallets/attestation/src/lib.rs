@@ -50,7 +50,7 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use parity_scale_codec::{DecodeWithMemTracking, FullCodec};
-    use randomness_primitives::provider::RandomnessPalletProvider;
+    use randomness_primitives::{provider::RandomnessPalletProvider, Randomness};
     use sp_staking::StakingInterface;
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
@@ -694,6 +694,13 @@ pub mod pallet {
         /// A force election was triggered via sudo.
         ForcedElection {
             epoch: u64,
+            /// The epoch randomness the election was seeded with, or `None` when the provider had
+            /// none on record for `epoch`.
+            ///
+            /// Recorded explicitly so a seedless forced election is auditable: flattening `None`
+            /// to `[0; 32]` here would make "no entropy available" indistinguishable from real
+            /// entropy that happened to be zero.
+            randomness: Option<Randomness>,
         },
         /// Pending updates were force-applied via operator call.
         ForcedUpdatesApplied,
@@ -1339,16 +1346,26 @@ pub mod pallet {
         /// zero seed. The current selection logic does not subsample by randomness, but threading
         /// the real seed keeps forced and scheduled elections consistent and avoids advertising a
         /// misleading all-zero randomness value.
+        ///
+        /// The provider retains only a bounded window of recent epochs, so an epoch that has not
+        /// happened yet — or has already aged out — has no entropy on record. That case is reported
+        /// in [`Event::ForcedElection::randomness`] as `None` rather than being flattened to
+        /// `[0; 32]`: a zero seed is indistinguishable from a real one on-chain, so silently
+        /// substituting it would reintroduce the predictable seed this call was changed to stop
+        /// using, with nothing in the event to show it happened. Election is still permitted,
+        /// because `epoch` is currently only a label and selection does not consume the seed;
+        /// whoever wires up randomness-dependent selection must decide whether `None` should
+        /// become a hard error at that point.
         #[pallet::call_index(25)]
         #[pallet::weight(<T as Config>::WeightInfo::force_election())]
         pub fn force_election(origin: OriginFor<T>, epoch: u64) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
-            let randomness = T::RandomnessProvider::randomness_by_epoch_id(epoch);
+            let randomness = T::RandomnessProvider::try_randomness_by_epoch_id(epoch);
 
-            Self::do_start_election(epoch, randomness)?;
+            Self::do_start_election(epoch, randomness.unwrap_or_default())?;
 
-            Self::deposit_event(Event::<T>::ForcedElection { epoch });
+            Self::deposit_event(Event::<T>::ForcedElection { epoch, randomness });
 
             Ok(())
         }
