@@ -9,9 +9,19 @@
 //!
 //! The precompile only exposes the subset of pallet calls that are authored
 //! by a stash (`register_attestor`, `unregister_attestor`, `chill`,
-//! `withdraw_unbonded`). Operator-gated calls (anything behind
-//! `OperatorsOrigin`) and attestor-authored calls (`attest`) are
-//! intentionally *not* exposed here.
+//! `withdraw_unbonded`, `bond_extra`, `unbond_surplus`). Operator-gated calls
+//! (anything behind `OperatorsOrigin`) and attestor-authored calls (`attest`)
+//! are intentionally *not* exposed here.
+//!
+//! `bond_extra` / `unbond_surplus` must be routable from here, not only as
+//! Substrate extrinsics: an EVM-space stash is `blake2_256("evm:" || address)`,
+//! a hash with no signing key, so an extrinsic-only surplus path is unreachable
+//! for it. `unbond_surplus` is the *only* release path for bond above the
+//! stash's aggregate requirement — `unregister_attestor` releases at most the
+//! *current* `MinBondRequirement` per attestor and `withdraw_unbonded` only
+//! reaps once `active` is below the existential deposit — so without it a
+//! governance *decrease* of `MinBondRequirement` would strand the difference in
+//! the bond pool permanently for every EVM-space stash.
 //!
 //! The precompile is accessible at address `0x0FD4` (4052 in decimal) in the
 //! Creditcoin 3 runtime.
@@ -30,7 +40,7 @@ use precompile_utils::{
     prelude::*,
     solidity::Codec,
 };
-use sp_core::H256;
+use sp_core::{H256, U256};
 use sp_runtime::{traits::UniqueSaturatedInto, Saturating};
 use sp_staking::StakingInterface;
 use sp_std::vec::Vec;
@@ -86,6 +96,12 @@ pub const SELECTOR_LOG_ATTESTOR_CHILLED: [u8; 32] =
 
 /// `UnbondedWithdrawn(address indexed stash)`
 pub const SELECTOR_LOG_UNBONDED_WITHDRAWN: [u8; 32] = keccak256!("UnbondedWithdrawn(address)");
+
+/// `BondExtraAdded(address indexed stash, uint256 amount)`
+pub const SELECTOR_LOG_BOND_EXTRA_ADDED: [u8; 32] = keccak256!("BondExtraAdded(address,uint256)");
+
+/// `SurplusUnbonded(address indexed stash, uint256 amount)`
+pub const SELECTOR_LOG_SURPLUS_UNBONDED: [u8; 32] = keccak256!("SurplusUnbonded(address,uint256)");
 
 /// Precompile exposing stash-facing calls of `pallet_attestation`.
 pub struct AttestorStashPrecompile<Runtime>(PhantomData<Runtime>);
@@ -398,5 +414,89 @@ where
         .record(handle)?;
 
         Ok(true)
+    }
+
+    /// Top up the caller's stash bond by `amount` of attest coin, without registering another
+    /// attestor. Moves the amount from the stash's liquid `pallet-assets` balance into the bond
+    /// pool and credits `total_staked` / `active`.
+    ///
+    /// Mirrors `pallet_attestation::Call::bond_extra`. The pallet rejects a stash with no ledger
+    /// (`NotStash` — a stash with no registered attestor exits via `withdrawUnbonded` instead) and
+    /// an amount above the stash's liquid balance (`InsufficientBalance`); both surface here as a
+    /// revert.
+    #[precompile::public("bondExtra(uint256)")]
+    fn bond_extra(handle: &mut impl PrecompileHandle, amount: U256) -> EvmResult<bool> {
+        handle.record_log_costs_manual(2, 32)?;
+
+        let value = Self::u256_to_balance(amount).in_field("amount")?;
+        let caller_evm = handle.context().caller;
+        let origin = Runtime::AddressMapping::into_account_id(caller_evm);
+
+        RuntimeHelper::<Runtime>::try_dispatch(
+            handle,
+            Some(origin).into(),
+            pallet_attestation::Call::<Runtime>::bond_extra { amount: value },
+            0,
+        )?;
+
+        log2(
+            handle.context().address,
+            SELECTOR_LOG_BOND_EXTRA_ADDED,
+            H256::from(caller_evm),
+            solidity::encode_event_data(amount),
+        )
+        .record(handle)?;
+
+        Ok(true)
+    }
+
+    /// Move `amount` of surplus bond into an unlocking chunk so `withdrawUnbonded` can return it.
+    ///
+    /// Mirrors `pallet_attestation::Call::unbond_surplus`. The inverse of `bondExtra`, and the only
+    /// way to release bond that sits above the stash's aggregate requirement — reachable, for
+    /// example, after governance *lowers* a chain's `MinBondRequirement` below what the stash bonded
+    /// at registration. `active` may only be reduced down to the sum of `MinBondRequirement` across
+    /// the stash's still-registered attestors, never below (`InsufficientRemainingBond` otherwise);
+    /// with no attestors registered that sum is zero, so the whole remaining bond is releasable and
+    /// the stash can then be reaped by `withdrawUnbonded`.
+    #[precompile::public("unbondSurplus(uint256)")]
+    fn unbond_surplus(handle: &mut impl PrecompileHandle, amount: U256) -> EvmResult<bool> {
+        handle.record_log_costs_manual(2, 32)?;
+
+        let value = Self::u256_to_balance(amount).in_field("amount")?;
+        let caller_evm = handle.context().caller;
+        let origin = Runtime::AddressMapping::into_account_id(caller_evm);
+
+        RuntimeHelper::<Runtime>::try_dispatch(
+            handle,
+            Some(origin).into(),
+            pallet_attestation::Call::<Runtime>::unbond_surplus { amount: value },
+            0,
+        )?;
+
+        log2(
+            handle.context().address,
+            SELECTOR_LOG_SURPLUS_UNBONDED,
+            H256::from(caller_evm),
+            solidity::encode_event_data(amount),
+        )
+        .record(handle)?;
+
+        Ok(true)
+    }
+
+    /// `uint256` → the attestation pallet's balance type.
+    ///
+    /// Reverts rather than truncating. `CurrencyBalance` is 128-bit, so a wider `uint256` argument
+    /// has no faithful representation; silently wrapping it would bond or release an amount other
+    /// than the one the caller signed for. `uint256` is the parameter type rather than `uint128`
+    /// because callers reach these two entries straight from the attest-coin precompile's
+    /// `deposit(uint256)` / `withdraw(uint256)` and from ERC-20 balances, all of which are
+    /// `uint256`; narrowing at the ABI boundary would just move the truncation into the caller.
+    fn u256_to_balance(value: U256) -> MayRevert<pallet_attestation::BalanceOf<Runtime>> {
+        let raw: u128 = value
+            .try_into()
+            .map_err(|_| RevertReason::value_is_too_large("uint128"))?;
+        Ok(pallet_attestation::BalanceOf::<Runtime>::from(raw))
     }
 }

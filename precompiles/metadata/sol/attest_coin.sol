@@ -11,8 +11,16 @@ interface IAttestCoinPrecompile {
 
     /// @notice Claim accrued reward points as ERC-20 tokens to the caller's EVM address.
     /// @dev `evmRecipient` must equal `msg.sender`.
-    ///      `sigHi`/`sigLo` are the sr25519 signature (32+32 bytes) over the runtime-defined
-    ///      message (see `pallet_attest_coin_rewards::Pallet::claim_signing_message`).
+    ///      Authorized either way:
+    ///        - If `stash` is the runtime `AddressMapping` image of `msg.sender` — the identity of
+    ///          every attestor registered via the attestor-stash precompile — this call is
+    ///          self-authorizing and `sigHi`/`sigLo` are ignored (pass zero). Such a stash is a
+    ///          blake2 hash with no sr25519 key, so no signature over it can ever exist.
+    ///        - Otherwise `sigHi`/`sigLo` must be the stash's sr25519 signature (32+32 bytes) over
+    ///          the runtime-defined message (see
+    ///          `pallet_attest_coin_rewards::Pallet::claim_signing_message`).
+    ///      Either way the claim only ever spends the named stash's accrual, paid to `msg.sender`,
+    ///      and `ClaimNonce` prevents replay.
     function claim(
         bytes32 stash,
         uint256 nonce,

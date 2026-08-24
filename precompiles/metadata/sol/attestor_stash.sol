@@ -50,6 +50,12 @@ interface AttestorStash {
     /// @notice Emitted when a stash successfully withdraws fully-unbonded funds.
     event UnbondedWithdrawn(address indexed stash);
 
+    /// @notice Emitted when a stash tops up its bond without registering an attestor.
+    event BondExtraAdded(address indexed stash, uint256 amount);
+
+    /// @notice Emitted when a stash releases surplus bond into an unlocking chunk.
+    event SurplusUnbonded(address indexed stash, uint256 amount);
+
     /// @notice Register a new attestor under the caller's stash for `chainKey`.
     /// @dev Mirrors `pallet_attestation::register_attestor`. Requires the
     ///      stash to have at least `MinBondRequirement` for the target chain
@@ -69,6 +75,23 @@ interface AttestorStash {
     /// @notice Withdraw the caller stash's fully-unbonded funds.
     /// @dev Mirrors `pallet_attestation::withdraw_unbonded`.
     function withdrawUnbonded() external returns (bool);
+
+    /// @notice Top up the caller stash's bond by `amount`, no new attestor.
+    /// @dev Mirrors `pallet_attestation::bond_extra`. Moves `amount` from the
+    ///      stash's liquid attest-coin balance into the bond pool. Reverts if
+    ///      the caller has no ledger or `amount` exceeds its liquid balance.
+    ///      `amount` must fit in 128 bits.
+    function bondExtra(uint256 amount) external returns (bool);
+
+    /// @notice Release `amount` of surplus bond into an unlocking chunk.
+    /// @dev Mirrors `pallet_attestation::unbond_surplus`. Inverse of
+    ///      `bondExtra`, and the only way to release bond above the stash's
+    ///      aggregate requirement (e.g. after governance lowers a chain's
+    ///      `MinBondRequirement`). `active` may not drop below the sum of
+    ///      `MinBondRequirement` across still-registered attestors. Follow with
+    ///      `withdrawUnbonded` once the unbonding era elapses. `amount` must fit
+    ///      in 128 bits.
+    function unbondSurplus(uint256 amount) external returns (bool);
 
     /// @notice Returns attestor state for the given chain and attestor id.
     /// @return info `AttestorInfo` struct (`exists == false` if not registered).

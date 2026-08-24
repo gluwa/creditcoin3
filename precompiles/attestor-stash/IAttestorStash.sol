@@ -6,7 +6,8 @@ pragma solidity >=0.8.3;
 ///      (decimal 4052) in the Creditcoin 3 runtime.
 ///
 /// Only stash-authored calls are exposed (`registerAttestor`,
-/// `unregisterAttestor`, `chill`, `withdrawUnbonded`). `attest` is authored by
+/// `unregisterAttestor`, `chill`, `withdrawUnbonded`, `bondExtra`,
+/// `unbondSurplus`). `attest` is authored by
 /// the attestor itself, and operator-gated administration (set_max_attestors,
 /// kick_active_attestor, etc.) is not routable through this precompile on
 /// purpose — those must still be submitted as signed Substrate extrinsics.
@@ -60,6 +61,16 @@ interface IAttestorStash {
     /// @param stash The EVM address of the stash.
     event UnbondedWithdrawn(address indexed stash);
 
+    /// @notice Emitted when a stash tops up its bond without registering an attestor.
+    /// @param stash  The EVM address of the stash.
+    /// @param amount Attest coin moved from the stash into the bond pool.
+    event BondExtraAdded(address indexed stash, uint256 amount);
+
+    /// @notice Emitted when a stash releases surplus bond into an unlocking chunk.
+    /// @param stash  The EVM address of the stash.
+    /// @param amount Attest coin moved from `active` into `unlocking`.
+    event SurplusUnbonded(address indexed stash, uint256 amount);
+
     /// @notice Register a new attestor under the caller's stash for `chainKey`.
     /// @dev Calls `pallet_attestation::register_attestor`. Requires the stash
     ///      to have at least `MinBondRequirement` for the target chain and
@@ -93,6 +104,27 @@ interface IAttestorStash {
     ///      error in that case, which will revert the precompile call).
     /// @return success `true` on successful dispatch.
     function withdrawUnbonded() external returns (bool success);
+
+    /// @notice Top up the caller stash's bond by `amount` without registering another attestor.
+    /// @dev Calls `pallet_attestation::bond_extra`. Moves `amount` from the stash's liquid
+    ///      attest-coin (`pallet-assets`) balance into the bond pool and credits `active`.
+    ///      Reverts if the caller has no ledger (register an attestor first) or if `amount`
+    ///      exceeds the stash's liquid balance. `amount` must fit in 128 bits.
+    /// @param amount Attest coin to bond, in the asset's smallest unit.
+    /// @return success `true` on successful dispatch.
+    function bondExtra(uint256 amount) external returns (bool success);
+
+    /// @notice Release `amount` of surplus bond into an unlocking chunk.
+    /// @dev Calls `pallet_attestation::unbond_surplus` — the inverse of `bondExtra`, and the only
+    ///      way to release bond sitting above the stash's aggregate requirement (reachable after
+    ///      governance *lowers* a chain's `MinBondRequirement` below what the stash bonded at
+    ///      registration). `active` may only be reduced to the sum of `MinBondRequirement` across
+    ///      the stash's still-registered attestors, never below; with none registered that sum is
+    ///      zero, so the whole remaining bond is releasable. Call `withdrawUnbonded` once the
+    ///      chunk's unbonding era has elapsed. `amount` must fit in 128 bits.
+    /// @param amount Attest coin to move from `active` into `unlocking`.
+    /// @return success `true` on successful dispatch.
+    function unbondSurplus(uint256 amount) external returns (bool success);
 
     /// @notice Returns attestor state for the given chain and attestor id.
     /// @param chainKey   The chain identifier.
