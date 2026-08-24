@@ -104,5 +104,43 @@
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "bytes32",
+        "name": "stash",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "uint256",
+        "name": "nonce",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "evmRecipient",
+        "type": "address"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "sigHi",
+        "type": "bytes32"
+      },
+      {
+        "internalType": "bytes32",
+        "name": "sigLo",
+        "type": "bytes32"
+      }
+    ],
+    "name": "withdrawFrom",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
   }
 ]

@@ -1,6 +1,8 @@
 //! Attest-coin precompile: `accrued(bytes32)`, `claim(...)`, `deposit(uint256)`,
-//! `depositTo(uint256,bytes32)`, and `withdraw(uint256)` (`pallet-assets` burn → ERC-20 to caller;
-//! inverse of deposit). Requires asset **admin** = precompile account (see runtime migration).
+//! `depositTo(uint256,bytes32)`, `withdraw(uint256)` (`pallet-assets` burn → ERC-20 to caller;
+//! inverse of deposit) and `withdrawFrom(...)` (the same burn for an explicit sr25519 stash,
+//! authorized by that stash’s signature — the inverse of `depositTo`). Requires asset **admin** =
+//! precompile account (see runtime migration).
 //!
 //! Governance must configure a standard ERC-20 (no fee-on-transfer / rebasing). Claims are
 //! authorized either by the stash's own sr25519 signature, or — when the stash is the
@@ -49,6 +51,9 @@ const SEL_DEPOSIT: [u8; 4] = [0xb6, 0xb5, 0x5f, 0x25];
 const SEL_DEPOSIT_TO: [u8; 4] = [0xc6, 0xbc, 0x97, 0x5d];
 /// `withdraw(uint256)` — burn Substrate attest coin from caller’s mapped account, send ERC-20 to caller.
 pub const SEL_WITHDRAW: [u8; 4] = [0x2e, 0x1a, 0x7d, 0x4d];
+/// `withdrawFrom(bytes32,uint256,uint256,address,bytes32,bytes32)` — sr25519-authorized counterpart
+/// of [`SEL_DEPOSIT_TO`]: burn an explicit stash’s attest coin, send ERC-20 to the caller.
+pub const SEL_WITHDRAW_FROM: [u8; 4] = [0xe4, 0x3b, 0x5f, 0x5c];
 // Asset ID for attest coin in `pallet-assets` was previously a magic constant here. It now
 // lives on `pallet_attest_coin_rewards::Config::AttestCoinAssetId`; this precompile reads it
 // from the runtime so a config change can never silently re-target a different asset. See
@@ -104,6 +109,7 @@ where
             SEL_DEPOSIT => Self::deposit(handle, &input[4..]),
             SEL_DEPOSIT_TO => Self::deposit_to(handle, &input[4..]),
             SEL_WITHDRAW => Self::withdraw(handle, &input[4..]),
+            SEL_WITHDRAW_FROM => Self::withdraw_from(handle, &input[4..]),
             _ => Err(PrecompileFailure::Error {
                 exit_status: ExitError::Other("unknown selector".into()),
             }),
@@ -443,9 +449,9 @@ where
     /// transfer-fails-before-burn case is covered by
     /// `withdraw_restores_pallet_balance_when_erc20_transfer_fails`, and an end-to-end
     /// burn-failure-after-transfer test belongs in the runtime integration suite (`cli/`) where
-    /// the full EVM executor is in scope. The pre-burn substrate balance re-check at line 440
-    /// closes the only realistic window where burn could fail post-transfer without an
-    /// integration-test harness.
+    /// the full EVM executor is in scope. The pre-burn substrate balance re-check in
+    /// [`Self::withdraw_core`] closes the only realistic window where burn could fail
+    /// post-transfer without an integration-test harness.
     fn withdraw(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         handle.record_cost(120_000)?;
         if rest.len() < 32 {
@@ -472,6 +478,153 @@ where
 
         let caller_h160 = handle.context().caller;
         let beneficiary = Runtime::AddressMapping::into_account_id(caller_h160);
+
+        Self::withdraw_core(
+            handle,
+            token,
+            beneficiary,
+            caller_h160,
+            amount_u256,
+            amount_u128,
+        )?;
+
+        Ok(PrecompileOutput {
+            exit_status: ExitSucceed::Returned,
+            output: Vec::new(),
+        })
+    }
+
+    /// Burn `amount` of attest coin from an explicit sr25519 `stash` and send the same amount of
+    /// ERC-20 to the caller. The signature-authorized inverse of
+    /// [`Self::deposit_to`](Self::deposit_to).
+    ///
+    /// `withdraw` can only ever burn from `AddressMapping::into_account_id(msg.sender)`, so before
+    /// this entry existed a stash that received attest coin via `depositTo` — the documented
+    /// onboarding path for an sr25519 attestor — had no way back out to ERC-20 without first
+    /// controlling a second, EVM-space key and hand-computing its mapped account to
+    /// `assets.transfer` into. This closes that asymmetry.
+    ///
+    /// Authorization is the stash’s own sr25519 signature over
+    /// [`pallet_attest_coin_rewards::Pallet::withdraw_signing_message`], which binds the network,
+    /// the stash, a single-use nonce, the exact amount and the exact ERC-20 recipient. `msg.sender`
+    /// must equal that bound recipient, so submitting the transaction cannot redirect the payout.
+    /// The nonce is consumed *before* any token movement and rolled back if the movement fails, so
+    /// a failed attempt does not burn the signature and a replay of a spent one cannot succeed.
+    ///
+    /// This is the only self-authorizing route for an sr25519 stash and it intentionally does not
+    /// accept a mapped caller shortcut: an EVM-space stash is already served by `withdraw`, whose
+    /// implicit `msg.sender` origin is strictly narrower than a detached signature.
+    fn withdraw_from(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
+        // Same base as `claim`: an sr25519 verify plus the ERC-20 subcall and burn dispatch.
+        handle.record_cost(120_000)?;
+        // withdrawFrom(bytes32,uint256,uint256,address,bytes32,bytes32) — 6 x 32 bytes.
+        if rest.len() < 192 {
+            return Err(bad_input());
+        }
+
+        let mut stash_raw = [0u8; 32];
+        stash_raw.copy_from_slice(&rest[0..32]);
+        let stash = Runtime::AccountId::from(stash_raw);
+
+        let nonce_u256 = U256::from_big_endian(&rest[32..64]);
+        let amount_u256 = U256::from_big_endian(&rest[64..96]);
+
+        // `address`: last 20 bytes of the fourth 32-byte word (ABI head).
+        let mut evm_recipient = H160::zero();
+        evm_recipient.0.copy_from_slice(&rest[108..128]);
+
+        let mut sig = [0u8; 64];
+        sig[..].copy_from_slice(&rest[128..192]);
+
+        if amount_u256.is_zero() {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"zero amount".to_vec(),
+            });
+        }
+        let amount_u128 = u256_to_u128_balance(amount_u256)?;
+        let nonce_u64 = u256_to_u64(nonce_u256)?;
+
+        let caller_h160 = handle.context().caller;
+        if caller_h160 != evm_recipient {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"evm recipient must be caller".to_vec(),
+            });
+        }
+
+        let token = match Rewards::<Runtime>::erc20_token() {
+            Some(t) => t,
+            None => {
+                return Err(PrecompileFailure::Revert {
+                    exit_status: ExitRevert::Reverted,
+                    output: b"token not configured".to_vec(),
+                });
+            }
+        };
+
+        let msg = Rewards::<Runtime>::withdraw_signing_message(
+            &stash,
+            nonce_u64,
+            amount_u128,
+            evm_recipient.0,
+        );
+
+        if !verify_sr25519_stash(&stash, &msg, &sig) {
+            return Err(PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: b"bad signature".to_vec(),
+            });
+        }
+
+        // Consume the nonce before moving anything, so a concurrent replay of the same signature
+        // cannot both pass. Rolled back below if the burn/transfer pair fails.
+        Rewards::<Runtime>::commit_withdraw(&stash, nonce_u64).map_err(|e| {
+            use pallet_attest_coin_rewards::Error as RewardErr;
+            let msg: &[u8] = match e {
+                RewardErr::BadWithdrawNonce => b"bad nonce",
+                _ => b"commit withdraw failed",
+            };
+            PrecompileFailure::Revert {
+                exit_status: ExitRevert::Reverted,
+                output: msg.to_vec(),
+            }
+        })?;
+
+        if let Err(failure) = Self::withdraw_core(
+            handle,
+            token,
+            stash.clone(),
+            caller_h160,
+            amount_u256,
+            amount_u128,
+        ) {
+            Rewards::<Runtime>::undo_withdraw_commit(&stash, nonce_u64);
+            return Err(failure);
+        }
+
+        Ok(PrecompileOutput {
+            exit_status: ExitSucceed::Returned,
+            output: Vec::new(),
+        })
+    }
+
+    /// Shared body of [`Self::withdraw`] and [`Self::withdraw_from`]: release `amount` of ERC-20
+    /// from the precompile treasury to `recipient`, then burn the same amount of attest coin from
+    /// `beneficiary`.
+    ///
+    /// Factored out rather than duplicated so the two entries cannot drift on the part that
+    /// maintains 1:1 backing — the ordering of the balance/treasury/gas checks, the ERC-20-before-
+    /// burn sequence, and the pre-burn balance re-check are all invariants of the asset, not of
+    /// either caller’s authorization scheme.
+    fn withdraw_core(
+        handle: &mut impl PrecompileHandle,
+        token: H160,
+        beneficiary: Runtime::AccountId,
+        recipient: H160,
+        amount_u256: U256,
+        amount_u128: u128,
+    ) -> Result<(), PrecompileFailure> {
         let precompile_h160 = handle.code_address();
         let admin = Runtime::AddressMapping::into_account_id(precompile_h160);
 
@@ -512,7 +665,7 @@ where
             });
         }
 
-        erc20_transfer(handle, token, caller_h160, amount_u256)?;
+        erc20_transfer(handle, token, recipient, amount_u256)?;
 
         let balance_after_transfer =
             pallet_assets::Pallet::<Runtime>::balance(asset_id.clone(), &beneficiary);
@@ -526,10 +679,7 @@ where
         try_dispatch_attest_coin_no_pov::<Runtime, _>(handle, Some(admin).into(), burn_call)
             .map_err(PrecompileFailure::from)?;
 
-        Ok(PrecompileOutput {
-            exit_status: ExitSucceed::Returned,
-            output: Vec::new(),
-        })
+        Ok(())
     }
 }
 
