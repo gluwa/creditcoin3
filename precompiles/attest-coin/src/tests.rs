@@ -1,5 +1,5 @@
 use crate::mock::*;
-use crate::{SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO, SEL_WITHDRAW};
+use crate::{SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO, SEL_WITHDRAW, SEL_WITHDRAW_FROM};
 use fp_evm::{Context, ExitReason, ExitRevert, ExitSucceed, PrecompileFailure};
 use frame_support::assert_ok;
 use frame_support::traits::Get;
@@ -70,6 +70,35 @@ fn withdraw_input(amount: u128) -> Vec<u8> {
     v.extend_from_slice(&SEL_WITHDRAW);
     v.extend_from_slice(&encode_u256(amount));
     v
+}
+
+/// Build raw input for `withdrawFrom(bytes32,uint256,uint256,address,bytes32,bytes32)`.
+fn withdraw_from_input(
+    stash_bytes32: [u8; 32],
+    nonce: u64,
+    amount: u128,
+    evm_recipient: H160,
+    sig_r: [u8; 32],
+    sig_s: [u8; 32],
+) -> Vec<u8> {
+    let mut v = Vec::new();
+    v.extend_from_slice(&SEL_WITHDRAW_FROM);
+    v.extend_from_slice(&stash_bytes32);
+    v.extend_from_slice(&encode_u256(nonce as u128));
+    v.extend_from_slice(&encode_u256(amount));
+    v.extend_from_slice(&encode_addr_as_bytes32(evm_recipient));
+    v.extend_from_slice(&sig_r);
+    v.extend_from_slice(&sig_s);
+    v
+}
+
+/// Split a 64-byte sr25519 signature into the two `bytes32` ABI words.
+fn split_sig(sig: &sr25519::Signature) -> ([u8; 32], [u8; 32]) {
+    let mut hi = [0u8; 32];
+    let mut lo = [0u8; 32];
+    hi.copy_from_slice(&sig.0[..32]);
+    lo.copy_from_slice(&sig.0[32..]);
+    (hi, lo)
 }
 
 /// Build raw input for `claim(bytes32,uint256,uint256,uint256,address,bytes32,bytes32)`.
@@ -1118,6 +1147,306 @@ fn encode_u256_round_trips() {
     assert_eq!(round_tripped, val);
 }
 
+// ── withdrawFrom (sr25519-authorized exit) ────────────────────────────────────
+//
+// `withdraw` can only burn from the caller's own mapped account, so an sr25519 stash funded via
+// `depositTo` — the documented onboarding path — had no route back to ERC-20. These cover the
+// signature-authorized counterpart.
+
+/// Give the precompile the asset roles it needs to burn, and fund `stash` with attest coin.
+fn setup_withdraw_from_asset(stash: &AccountId, amount: u128) {
+    pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+
+    let precompile_acct =
+        <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(precompile_addr());
+    assert_ok!(AssetsPallet::<Runtime>::force_asset_status(
+        frame_system::RawOrigin::Root.into(),
+        1,
+        alice(),
+        precompile_acct.clone(),
+        precompile_acct,
+        alice(),
+        1,
+        false,
+        false,
+    ));
+    assert_ok!(AssetsPallet::<Runtime>::transfer(
+        RuntimeOrigin::signed(alice()),
+        1,
+        stash.clone(),
+        amount,
+    ));
+}
+
+#[test]
+fn withdraw_from_burns_the_signed_stash_and_pays_the_caller() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    // Any EVM address may submit; it must be the one bound in the signature.
+    let submitter = H160::repeat_byte(0xCC);
+
+    ExtBuilder::default()
+        // Native balance so the non-sufficient asset can have an account (providers > 0).
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+            let before = AssetsPallet::<Runtime>::balance(1u32, stash.clone());
+
+            let amount = 1_000u128;
+            let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::withdraw_signing_message(
+                &stash,
+                0,
+                amount,
+                submitter.0,
+            );
+            let (sig_r, sig_s) = split_sig(&pair.sign(&msg));
+
+            let input = withdraw_from_input(stash_raw, 0, amount, submitter, sig_r, sig_s);
+            let mut handle = make_handle(submitter, input);
+            attach_mock_balance_then_transfer(&mut handle, 10_000, true);
+            assert!(
+                execute(&mut handle).is_ok(),
+                "signed stash must be able to exit to ERC-20"
+            );
+
+            assert_eq!(
+                AssetsPallet::<Runtime>::balance(1u32, stash.clone()),
+                before - amount,
+                "attest coin burned from the signed stash, not from the submitter"
+            );
+            assert_eq!(
+                pallet_attest_coin_rewards::WithdrawNonce::<Runtime>::get(&stash),
+                1u64,
+                "withdraw nonce consumed"
+            );
+        });
+}
+
+#[test]
+fn withdraw_from_reverts_on_bad_signature() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    let submitter = H160::repeat_byte(0xCC);
+
+    ExtBuilder::default()
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+
+            let input = withdraw_from_input(stash_raw, 0, 1_000, submitter, [0u8; 32], [0u8; 32]);
+            let mut handle = make_handle(submitter, input);
+            attach_mock_balance_then_transfer(&mut handle, 10_000, true);
+            assert_reverts_with(&mut handle, b"bad signature");
+        });
+}
+
+/// A signature over a *different* amount than the one submitted must not authorize the call —
+/// the amount is part of the signed preimage, so this is the tamper case.
+#[test]
+fn withdraw_from_reverts_when_amount_differs_from_the_signed_amount() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    let submitter = H160::repeat_byte(0xCC);
+
+    ExtBuilder::default()
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+
+            let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::withdraw_signing_message(
+                &stash,
+                0,
+                1_000,
+                submitter.0,
+            );
+            let (sig_r, sig_s) = split_sig(&pair.sign(&msg));
+
+            // Signed for 1_000, submitted for 5_000.
+            let input = withdraw_from_input(stash_raw, 0, 5_000, submitter, sig_r, sig_s);
+            let mut handle = make_handle(submitter, input);
+            attach_mock_balance_then_transfer(&mut handle, 10_000, true);
+            assert_reverts_with(&mut handle, b"bad signature");
+        });
+}
+
+/// Domain separation: the `AttestCoin:withdrawFrom:v1:` prefix means a signature gathered for a
+/// claim is not a valid withdraw authorization, even for the same stash / nonce / amount / payee.
+#[test]
+fn withdraw_from_rejects_a_claim_signature() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    let submitter = H160::repeat_byte(0xCC);
+
+    ExtBuilder::default()
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+
+            let claim_msg = pallet_attest_coin_rewards::Pallet::<Runtime>::claim_signing_message(
+                &stash,
+                0,
+                SUPPORTED_CHAIN_KEY,
+                1_000,
+                submitter.0,
+            );
+            let (sig_r, sig_s) = split_sig(&pair.sign(&claim_msg));
+
+            let input = withdraw_from_input(stash_raw, 0, 1_000, submitter, sig_r, sig_s);
+            let mut handle = make_handle(submitter, input);
+            attach_mock_balance_then_transfer(&mut handle, 10_000, true);
+            assert_reverts_with(&mut handle, b"bad signature");
+        });
+}
+
+#[test]
+fn withdraw_from_rejects_a_recipient_other_than_the_caller() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    let bound_recipient = H160::repeat_byte(0xCC);
+    let someone_else = H160::repeat_byte(0xDD);
+
+    ExtBuilder::default()
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+
+            let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::withdraw_signing_message(
+                &stash,
+                0,
+                1_000,
+                bound_recipient.0,
+            );
+            let (sig_r, sig_s) = split_sig(&pair.sign(&msg));
+
+            // Correctly signed, but submitted by an address other than the bound recipient.
+            let input = withdraw_from_input(stash_raw, 0, 1_000, bound_recipient, sig_r, sig_s);
+            let mut handle = make_handle(someone_else, input);
+            attach_mock_balance_then_transfer(&mut handle, 10_000, true);
+            assert_reverts_with(&mut handle, b"evm recipient must be caller");
+        });
+}
+
+#[test]
+fn withdraw_from_cannot_replay_a_spent_signature() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    let submitter = H160::repeat_byte(0xCC);
+
+    ExtBuilder::default()
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+
+            let amount = 1_000u128;
+            let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::withdraw_signing_message(
+                &stash,
+                0,
+                amount,
+                submitter.0,
+            );
+            let (sig_r, sig_s) = split_sig(&pair.sign(&msg));
+            let input = withdraw_from_input(stash_raw, 0, amount, submitter, sig_r, sig_s);
+
+            let mut handle = make_handle(submitter, input.clone());
+            attach_mock_balance_then_transfer(&mut handle, 10_000, true);
+            assert!(execute(&mut handle).is_ok(), "first withdraw succeeds");
+
+            let after_first = AssetsPallet::<Runtime>::balance(1u32, stash.clone());
+
+            let mut replay = make_handle(submitter, input);
+            attach_mock_balance_then_transfer(&mut replay, 10_000, true);
+            assert_reverts_with(&mut replay, b"bad nonce");
+
+            assert_eq!(
+                AssetsPallet::<Runtime>::balance(1u32, stash.clone()),
+                after_first,
+                "replay must not burn a second time"
+            );
+        });
+}
+
+/// A failed token movement must not consume the signature — otherwise a transient ERC-20 failure
+/// would permanently strand the stash's exit behind a nonce it can no longer sign for.
+#[test]
+fn withdraw_from_restores_the_nonce_when_erc20_transfer_fails() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    let submitter = H160::repeat_byte(0xCC);
+
+    ExtBuilder::default()
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+            let before = AssetsPallet::<Runtime>::balance(1u32, stash.clone());
+
+            let amount = 1_000u128;
+            let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::withdraw_signing_message(
+                &stash,
+                0,
+                amount,
+                submitter.0,
+            );
+            let (sig_r, sig_s) = split_sig(&pair.sign(&msg));
+            let input = withdraw_from_input(stash_raw, 0, amount, submitter, sig_r, sig_s);
+
+            let mut handle = make_handle(submitter, input.clone());
+            attach_mock_balance_then_transfer(&mut handle, 10_000, false);
+            assert!(
+                execute(&mut handle).is_err(),
+                "must revert when the ERC-20 transfer fails"
+            );
+
+            assert_eq!(
+                pallet_attest_coin_rewards::WithdrawNonce::<Runtime>::get(&stash),
+                0u64,
+                "nonce rolled back so the signature is still usable"
+            );
+            assert_eq!(
+                AssetsPallet::<Runtime>::balance(1u32, stash.clone()),
+                before,
+                "failed transfer must not burn attest coin"
+            );
+
+            // The same signature works once the token cooperates.
+            let mut retry = make_handle(submitter, input);
+            attach_mock_balance_then_transfer(&mut retry, 10_000, true);
+            assert!(execute(&mut retry).is_ok(), "retry with the same signature");
+        });
+}
+
+#[test]
+fn withdraw_from_reverts_zero_amount() {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    let submitter = H160::repeat_byte(0xCC);
+
+    ExtBuilder::default()
+        .with_balances(vec![(stash.clone(), 10_000_000_000_000_000_000)])
+        .build()
+        .execute_with(|| {
+            setup_withdraw_from_asset(&stash, 10_000);
+
+            let input = withdraw_from_input(stash_raw, 0, 0, submitter, [0u8; 32], [0u8; 32]);
+            let mut handle = make_handle(submitter, input);
+            assert_reverts_with(&mut handle, b"zero amount");
+        });
+}
+
 // ── selector regression: SEL_* must equal keccak256(canonical-signature)[..4] ────────────
 //
 // The constants are hand-rolled and only validated by these asserts. Drift between the
@@ -1152,6 +1481,14 @@ fn selector_deposit_matches_abi() {
 #[test]
 fn selector_deposit_to_matches_abi() {
     assert_eq!(SEL_DEPOSIT_TO, selector_of(b"depositTo(uint256,bytes32)"));
+}
+
+#[test]
+fn selector_withdraw_from_matches_abi() {
+    assert_eq!(
+        selector_of(b"withdrawFrom(bytes32,uint256,uint256,address,bytes32,bytes32)"),
+        SEL_WITHDRAW_FROM
+    );
 }
 
 #[test]

@@ -73,6 +73,17 @@ pub mod pallet {
     #[pallet::storage]
     pub type ClaimNonce<T: Config> = StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
 
+    /// Monotonic withdraw nonce per stash (for sr25519-signed EVM `withdrawFrom`).
+    ///
+    /// Deliberately *separate* from [`ClaimNonce`] rather than shared. A shared counter would make
+    /// every signed-but-unsubmitted claim signature invalid the moment a withdraw landed (and vice
+    /// versa), serializing two independent flows for no security gain — the two message preimages
+    /// are already domain-separated by prefix, so neither signature can be replayed as the other
+    /// regardless of the counter.
+    #[pallet::storage]
+    pub type WithdrawNonce<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u64, ValueQuery>;
+
     /// ERC-20 contract address (treasury tokens sit here; claims use `transfer`, not `mint`).
     #[pallet::storage]
     pub type AttestCoinErc20<T: Config> = StorageValue<_, sp_core::H160, OptionQuery>;
@@ -106,6 +117,8 @@ pub mod pallet {
         InsufficientAccrued,
         /// Claim nonce does not match on-chain counter.
         BadClaimNonce,
+        /// Withdraw nonce does not match on-chain counter.
+        BadWithdrawNonce,
     }
 
     #[pallet::call]
@@ -230,6 +243,52 @@ pub mod pallet {
             let mut m = Vec::with_capacity(PREFIX.len() + 32 + 32 + 8 + 8 + 16 + 20);
             m.extend_from_slice(PREFIX);
             m.extend_from_slice(genesis_hash.as_ref());
+            m.extend_from_slice(&Self::stash_id_bytes(stash));
+            m.extend_from_slice(&nonce.to_le_bytes());
+            m.extend_from_slice(&chain_key.to_le_bytes());
+            m.extend_from_slice(&amount.to_le_bytes());
+            m.extend_from_slice(&evm_recipient);
+            m
+        }
+
+        /// Preimage signed by an sr25519 stash to authorize `withdrawFrom` on the attest-coin
+        /// precompile: burn the stash's `pallet-assets` attest coin and release the same amount of
+        /// ERC-20 to `evm_recipient`.
+        ///
+        /// The `AttestCoin:withdrawFrom:v1:` prefix is what keeps this domain-separated from
+        /// [`Self::claim_signing_message`]: the two preimages can never collide, so a signature
+        /// gathered for one flow is not a valid authorization for the other even though both are
+        /// verified by the same `sr25519_verify` against the same stash key.
+        ///
+        /// No `chain_key` field, unlike the claim message. A withdraw has no chain dimension — it
+        /// moves the stash's own liquid balance across the asset/ERC-20 boundary and is not scoped
+        /// to any attestation chain. `(genesis, stash, nonce, amount, recipient)` already pins the
+        /// authorization to one network, one signer, one submission, one amount and one payee.
+        pub fn withdraw_signing_message(
+            stash: &T::AccountId,
+            nonce: u64,
+            amount: u128,
+            evm_recipient: [u8; 20],
+        ) -> Vec<u8> {
+            const PREFIX: &[u8] = b"AttestCoin:withdrawFrom:v1:";
+            let genesis_hash = frame_system::Pallet::<T>::block_hash(BlockNumberFor::<T>::zero());
+            // prefix + genesis(32) + stash_id(32) + nonce(8) + amount(16) + recipient(20)
+            let mut m = Vec::with_capacity(PREFIX.len() + 32 + 32 + 8 + 16 + 20);
+            m.extend_from_slice(PREFIX);
+            m.extend_from_slice(genesis_hash.as_ref());
+            m.extend_from_slice(&Self::stash_id_bytes(stash));
+            m.extend_from_slice(&nonce.to_le_bytes());
+            m.extend_from_slice(&amount.to_le_bytes());
+            m.extend_from_slice(&evm_recipient);
+            m
+        }
+
+        /// The stash's 32-byte `AccountId32` as it appears in a signing preimage.
+        ///
+        /// Shared by both signing messages on purpose: the byte layout of the signer field is the
+        /// one part the precompile's `sr25519_verify` reinterprets as a public key, so the two
+        /// preimages must derive it identically or one flow's signatures silently stop verifying.
+        fn stash_id_bytes(stash: &T::AccountId) -> [u8; 32] {
             let enc = stash.encode();
             debug_assert!(
                 enc.len() == 32,
@@ -241,12 +300,52 @@ pub mod pallet {
             } else if !enc.is_empty() {
                 id[32 - enc.len()..].copy_from_slice(&enc);
             }
-            m.extend_from_slice(&id);
-            m.extend_from_slice(&nonce.to_le_bytes());
-            m.extend_from_slice(&chain_key.to_le_bytes());
-            m.extend_from_slice(&amount.to_le_bytes());
-            m.extend_from_slice(&evm_recipient);
-            m
+            id
+        }
+
+        pub fn withdraw_nonce_of(stash: &T::AccountId) -> u64 {
+            WithdrawNonce::<T>::get(stash)
+        }
+
+        /// Consume `expected_nonce` for a `withdrawFrom`, after signature verification in the
+        /// precompile. Unlike [`Self::commit_claim`] there is no accrual to debit — the debit is
+        /// the `pallet-assets` burn the precompile performs next — so this only advances the
+        /// counter that makes the signature single-use.
+        pub fn commit_withdraw(stash: &T::AccountId, expected_nonce: u64) -> Result<(), Error<T>> {
+            WithdrawNonce::<T>::try_mutate(stash, |nonce| {
+                ensure!(*nonce == expected_nonce, Error::<T>::BadWithdrawNonce);
+                let next_nonce = expected_nonce
+                    .checked_add(1)
+                    .ok_or(Error::<T>::BadWithdrawNonce)?;
+                *nonce = next_nonce;
+                Ok(())
+            })
+        }
+
+        /// Undo [`Self::commit_withdraw`] when the ERC-20 transfer or the burn fails inside the
+        /// precompile, so a failed attempt does not burn the caller's signature.
+        ///
+        /// Guarded the same way as [`Self::undo_claim_commit`]: only rolls back when the on-chain
+        /// value is exactly `nonce_before_withdraw + 1`, i.e. this undo corresponds to the
+        /// immediately preceding commit. Rolling back a stale nonce after further commits would
+        /// regress the counter and re-enable an already-spent signature.
+        pub fn undo_withdraw_commit(stash: &T::AccountId, nonce_before_withdraw: u64) {
+            let current = WithdrawNonce::<T>::get(stash);
+            let Some(expected_current) = nonce_before_withdraw.checked_add(1) else {
+                log::error!(
+                    target: "runtime::attest-coin-rewards",
+                    "undo_withdraw_commit: nonce overflow for nonce_before_withdraw {nonce_before_withdraw}, refusing rollback"
+                );
+                return;
+            };
+            if current != expected_current {
+                log::error!(
+                    target: "runtime::attest-coin-rewards",
+                    "undo_withdraw_commit: nonce mismatch (current {current}, expected {expected_current}), refusing rollback"
+                );
+                return;
+            }
+            WithdrawNonce::<T>::insert(stash, nonce_before_withdraw);
         }
 
         pub fn claim_nonce_of(stash: &T::AccountId) -> u64 {
