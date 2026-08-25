@@ -89,7 +89,34 @@ pub struct Config {
     /// deployment). Re-pointing to a *pre-existing* factory whose `OutboxCreated` predates the
     /// checkpoint would make discovery skip it and never find that chain key's Outbox — `false`
     /// restores the old unconditional genesis rescan, which has no such assumption.
+    ///
+    /// That skip is no longer terminal: a resumed scan that reaches the confirmed tip having found
+    /// nothing retries once from [`factory_scan_genesis_block`](Self::factory_scan_genesis_block)
+    /// before reporting "no Outbox" (see [`super::resolver`]). Leaving this on therefore costs one
+    /// extra full scan in the pre-existing-factory case rather than stranding the chain key.
     pub resume_rotation_from_checkpoint: bool,
+
+    /// First Creditcoin L1 block any *from-scratch* `OutboxCreated` discovery scan starts at — the
+    /// floor that replaces a literal block 0 everywhere discovery restarts: initial activation, a
+    /// rotation with [`resume_rotation_from_checkpoint`](Self::resume_rotation_from_checkpoint)
+    /// off, a factory de-registration, and the genesis fallback above.
+    ///
+    /// Defaults to [`DEFAULT_FACTORY_SCAN_GENESIS_BLOCK`] (0), i.e. a true genesis scan. Raising it
+    /// to a height known to precede this chain key's Outbox factory deployment cuts every one of
+    /// those scans down to the blocks that could actually contain the event — on a long-lived chain
+    /// that is the difference between a multi-minute fleet-wide quorum outage and a brief one.
+    ///
+    /// **It answers one question: where does a scan with no usable position start?** It never
+    /// moves a cursor that has one — a persisted scan resumes from where it left off, and a
+    /// rotation that resumes from a checkpoint keeps that checkpoint, in both cases even when the
+    /// position sits *below* this value. The single deliberate exception is the genesis fallback,
+    /// whose whole job is to rewind to this floor once a resumed scan has proven inconclusive.
+    ///
+    /// ⚠️ Set it **above** the block a factory emitted its `OutboxCreated` in and that Outbox
+    /// becomes undiscoverable — including via the genesis fallback, which floors here too. The safe
+    /// value is a height known to precede every factory this chain key will ever be pointed at,
+    /// e.g. the block the chain's first Outbox factory was deployed in, minus a margin.
+    pub factory_scan_genesis_block: u64,
 }
 
 impl Config {
@@ -109,6 +136,7 @@ impl Config {
             vote_ttl: DEFAULT_VOTE_TTL,
             attestor_set: AttestorSet::default(),
             resume_rotation_from_checkpoint: DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT,
+            factory_scan_genesis_block: DEFAULT_FACTORY_SCAN_GENESIS_BLOCK,
         }
     }
 }
@@ -238,6 +266,12 @@ pub const DEFAULT_VOTE_TTL: Duration = Duration::from_secs(3600);
 /// §10.9). Set to `false` if a deployment ever re-points a chain key at a pre-existing factory.
 pub const DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT: bool = true;
 
+/// Default for [`Config::factory_scan_genesis_block`]: block 0, i.e. a discovery scan that starts
+/// from scratch really does start at genesis. Preserves the historical behaviour for every
+/// deployment that does not set it, so raising it is always an explicit decision about a specific
+/// chain whose factory deployment height the operator knows.
+pub const DEFAULT_FACTORY_SCAN_GENESIS_BLOCK: u64 = 0;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -258,6 +292,7 @@ mod tests {
                 "000000000000000000000000000000000000000a"
             )]),
             resume_rotation_from_checkpoint: DEFAULT_RESUME_ROTATION_FROM_CHECKPOINT,
+            factory_scan_genesis_block: DEFAULT_FACTORY_SCAN_GENESIS_BLOCK,
         }
     }
 
