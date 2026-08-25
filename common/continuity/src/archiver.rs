@@ -35,12 +35,22 @@ struct LatestResponse {
 
 /// A non-2xx response from the archiver's HTTP API.
 ///
-/// Kept as a typed error rather than collapsing straight into `anyhow!` so callers can tell an
-/// archiver-side *client* rejection (4xx — a request the archiver will never serve, such as a
-/// block range wider than its `MAX_API_RANGE`) apart from a genuine archiver fault (5xx or a
-/// transport failure). The former is a caller mistake and must not surface as a 5xx: doing so
-/// both misleads the client and pages an operator for a request that could never have
-/// succeeded.
+/// Kept as a typed error rather than collapsing straight into `anyhow!` so callers can tell three
+/// cases apart, because they need three different answers:
+///
+/// - **Range rejection** (`400`) — a request the archiver will never serve, such as a block range
+///   wider than its `MAX_API_RANGE`, or `to < from`. A caller mistake; must not surface as a 5xx,
+///   which both misleads the client and pages an operator for a request that could never have
+///   succeeded.
+/// - **Data unavailable** (`404`) — the range is perfectly valid, but the archiver does not hold
+///   every root in it yet (`incomplete data: expected N roots ... found M`). That is a *temporary*
+///   availability gap while it catches up or backfills, so the caller should be told to retry and
+///   an operator should still see it: a persistent 404 means a real archiver gap.
+/// - **Archiver fault** (`5xx`) — a genuine server-side failure, left to the caller's fallback.
+///
+/// The 400/404 split matters: collapsing both into "client rejection" tells a caller its range was
+/// bad when the range was fine, marks a recoverable condition non-retriable, and downgrades the log
+/// out of the range an operator is paged on.
 #[derive(Debug, thiserror::Error)]
 #[error("archiver rejected GET /roots for range {from}..{to} with {status}: {body}")]
 pub struct ArchiverStatusError {
@@ -51,9 +61,19 @@ pub struct ArchiverStatusError {
 }
 
 impl ArchiverStatusError {
-    /// True when the archiver refused the request itself rather than failing to serve it.
-    pub fn is_client_rejection(&self) -> bool {
-        self.status.is_client_error()
+    /// True when the archiver refused the request itself and always will — a 4xx that is not a
+    /// `404`. Retrying an identical request cannot help.
+    ///
+    /// `404` is deliberately excluded: see [`Self::is_data_unavailable`].
+    pub fn is_range_rejection(&self) -> bool {
+        self.status.is_client_error() && self.status != reqwest::StatusCode::NOT_FOUND
+    }
+
+    /// True when the archiver accepted the range but cannot serve it *yet* — a `404`, which its
+    /// `/roots` handler returns when the store holds fewer roots than the range asks for. The same
+    /// request can succeed once the archiver has caught up, so this is retriable.
+    pub fn is_data_unavailable(&self) -> bool {
+        self.status == reqwest::StatusCode::NOT_FOUND
     }
 }
 

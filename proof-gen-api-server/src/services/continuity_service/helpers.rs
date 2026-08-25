@@ -26,18 +26,35 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
     Some(ServiceError::UnsupportedBlockFormat { block_number })
 }
 
-/// If the anyhow chain carries a 4xx from the archiver, surface it as a client error rather
-/// than letting it fall through to `Internal`/`RpcUnavailable`.
+/// If the anyhow chain carries a non-2xx status from the archiver, surface the archiver's own
+/// classification rather than letting it flatten into `Internal`/`RpcUnavailable`.
 ///
-/// The archiver already answers these correctly (`400 range too large (max N blocks)`); without
-/// this the status is flattened into an opaque 5xx, which is both wrong for the caller and the
-/// reason a boundary-crossing batch pages an operator. 5xx from the archiver keeps falling
-/// through to the caller-supplied mapping — those are real faults.
+/// The archiver answers precisely, and the three cases need three different responses:
+///
+/// - `400` (`range too large (max N blocks)`, `"to" must be >= "from"`) → `ArchiverRangeRejected`,
+///   a non-retriable 400. Without this the status becomes an opaque 5xx, which is both wrong for
+///   the caller and the reason a boundary-crossing batch pages an operator.
+/// - `404` (`incomplete data: expected N roots ... found M`) → `ArchiverDataUnavailable`, a
+///   retriable 503. The range is valid; the archiver is behind or has a gap. Folding this in with
+///   the 400 case would tell the caller its range was bad, mark a recoverable state non-retriable,
+///   and drop the log below the level an operator is paged on.
+/// - `5xx` and transport failures → `None`, falling through to the caller-supplied mapping. Those
+///   are real faults and keep their existing behaviour.
 fn classify_archiver_client_rejection(err: &AnyhowError) -> Option<ServiceError> {
     let status_err = archiver::anyhow_chain_archiver_status(err)?;
-    if !status_err.is_client_rejection() {
+
+    if status_err.is_data_unavailable() {
+        return Some(ServiceError::ArchiverDataUnavailable {
+            from: status_err.from,
+            to: status_err.to,
+            detail: status_err.body.clone(),
+        });
+    }
+
+    if !status_err.is_range_rejection() {
         return None;
     }
+
     Some(ServiceError::ArchiverRangeRejected {
         from: status_err.from,
         to: status_err.to,
@@ -384,6 +401,7 @@ mod tests {
     use anyhow::Result;
     use async_trait::async_trait;
     use attestor_primitives::block::Block;
+    use axum::http::StatusCode;
     use continuity::rpc::EthRpcProvider;
     use continuity::{mocks::make_mock_providers, ContinuityBuilder, ContinuityConfig};
     use std::sync::Arc;
@@ -1285,5 +1303,97 @@ mod tests {
 
         assert_eq!(att_before, att_after, "attestation cache must be untouched");
         assert_eq!(cp_before, cp_after, "checkpoint cache must be untouched");
+    }
+
+    // ---------------------------------------------------------------------
+    // Archiver status classification.
+    //
+    // The archiver's `/roots` handler (archiver/src/api.rs) answers with three distinct
+    // meanings, and they must not be collapsed: `400` for a range it will never serve,
+    // `404` for a valid range it does not hold *yet*, and `5xx` for its own faults.
+    // ---------------------------------------------------------------------
+
+    /// Build an anyhow chain shaped like the one `ArchiverClient::get_roots` produces, so the
+    /// classifier is exercised through `anyhow_chain_archiver_status` rather than a bare value.
+    fn archiver_err(status: u16, body: &str, from: u64, to: u64) -> AnyhowError {
+        AnyhowError::new(archiver::ArchiverStatusError {
+            status: reqwest::StatusCode::from_u16(status).expect("valid status"),
+            body: body.to_string(),
+            from,
+            to,
+        })
+        .context("failed to get roots from archiver")
+    }
+
+    #[test]
+    fn archiver_400_range_too_large_is_a_non_retriable_bad_request() {
+        let err = archiver_err(
+            400,
+            "range too large (max 1000 blocks)",
+            24_996_001,
+            24_998_000,
+        );
+        let mapped = classify_archiver_client_rejection(&err).expect("400 must classify");
+
+        assert!(
+            matches!(
+                mapped,
+                ServiceError::ArchiverRangeRejected {
+                    from: 24_996_001,
+                    to: 24_998_000,
+                    ..
+                }
+            ),
+            "expected ArchiverRangeRejected, got {mapped:?}"
+        );
+        assert_eq!(mapped.status_code(), StatusCode::BAD_REQUEST);
+        assert!(
+            !mapped.retriable(),
+            "a range the archiver will never serve is not retriable"
+        );
+        assert_eq!(mapped.code(), "ArchiverRangeRejected");
+    }
+
+    #[test]
+    fn archiver_404_incomplete_data_is_a_retriable_service_unavailable() {
+        // Regression: this used to fall into `is_client_rejection` (any 4xx) and surface as a
+        // non-retriable 400, telling the caller its range was bad when the range was fine and
+        // demoting a real archiver gap out of the operator-visible log range.
+        let err = archiver_err(
+            404,
+            "incomplete data: expected 2000 roots for range 24996001..=24998000, found 1200",
+            24_996_001,
+            24_998_000,
+        );
+        let mapped = classify_archiver_client_rejection(&err).expect("404 must classify");
+
+        assert!(
+            matches!(mapped, ServiceError::ArchiverDataUnavailable { .. }),
+            "expected ArchiverDataUnavailable, got {mapped:?}"
+        );
+        assert_eq!(mapped.status_code(), StatusCode::SERVICE_UNAVAILABLE);
+        assert!(
+            mapped.retriable(),
+            "the archiver catching up makes this retriable"
+        );
+        assert_eq!(mapped.code(), "ArchiverDataUnavailable");
+        // 503 is a server error, so `into_response` logs it at ERROR and a persistent gap
+        // still reaches an operator.
+        assert!(mapped.status_code().is_server_error());
+    }
+
+    #[test]
+    fn archiver_5xx_falls_through_to_the_caller_supplied_mapping() {
+        let err = archiver_err(500, "database is on fire", 1, 100);
+        assert!(
+            classify_archiver_client_rejection(&err).is_none(),
+            "archiver faults must keep their existing handling"
+        );
+    }
+
+    #[test]
+    fn non_archiver_errors_are_not_classified() {
+        let err = AnyhowError::msg("something else entirely");
+        assert!(classify_archiver_client_rejection(&err).is_none());
     }
 }

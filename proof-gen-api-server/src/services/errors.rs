@@ -161,6 +161,17 @@ pub enum ServiceError {
     /// satisfy the former and still exceed the latter.
     #[error("archiver cannot serve roots for range {from}..{to}: {detail}")]
     ArchiverRangeRejected { from: u64, to: u64, detail: String },
+
+    /// The archiver accepted the roots range but does not hold every root in it yet — its `/roots`
+    /// handler answers `404 incomplete data: expected N roots ... found M`.
+    ///
+    /// Distinct from [`Self::ArchiverRangeRejected`] in every respect that matters: the range is
+    /// valid, the condition is temporary, and the same request succeeds once the archiver catches
+    /// up. So this is a retriable 503 rather than a 400, which also keeps it in the server-error
+    /// range that `into_response` logs at `ERROR` — a persistent gap here is a real archiver
+    /// problem an operator needs to see, not a caller mistake to be filed away at `WARN`.
+    #[error("archiver has not yet indexed every root for range {from}..{to}: {detail}")]
+    ArchiverDataUnavailable { from: u64, to: u64, detail: String },
 }
 
 impl ServiceError {
@@ -170,6 +181,9 @@ impl ServiceError {
             ServiceError::RpcUnavailable { .. }
                 | ServiceError::BlockNotReady { .. }
                 | ServiceError::BlockNotOnSourceChain { .. }
+                // The range is valid and the archiver will hold it once it catches up, so the
+                // identical request is worth retrying — unlike ArchiverRangeRejected.
+                | ServiceError::ArchiverDataUnavailable { .. }
         )
     }
     pub fn code(&self) -> &'static str {
@@ -196,6 +210,7 @@ impl ServiceError {
             ServiceError::EmptyTxHashes => "EmptyTxHashes",
             ServiceError::BatchSpanTooLarge { .. } => "BatchSpanTooLarge",
             ServiceError::ArchiverRangeRejected { .. } => "ArchiverRangeRejected",
+            ServiceError::ArchiverDataUnavailable { .. } => "ArchiverDataUnavailable",
         }
     }
 
@@ -214,7 +229,9 @@ impl ServiceError {
             | Self::TooManyTxHashes
             | Self::BatchSpanTooLarge { .. }
             | Self::ArchiverRangeRejected { .. } => StatusCode::BAD_REQUEST,
-            Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::RpcUnavailable { .. } | Self::ArchiverDataUnavailable { .. } => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. } | Self::BlockNotOnSourceChain { .. } => {
                 StatusCode::NOT_FOUND
@@ -354,6 +371,7 @@ impl GetErrorType for ServiceError {
             ServiceError::TooManyTxHashes => ErrorType::TooManyTxHashes,
             ServiceError::BatchSpanTooLarge { .. } => ErrorType::BatchSpanTooLarge,
             ServiceError::ArchiverRangeRejected { .. } => ErrorType::ArchiverRangeRejected,
+            ServiceError::ArchiverDataUnavailable { .. } => ErrorType::ArchiverDataUnavailable,
         }
     }
 }
