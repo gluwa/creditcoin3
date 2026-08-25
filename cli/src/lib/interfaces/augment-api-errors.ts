@@ -41,6 +41,14 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             CallbackFailed: AugmentedError<ApiType>;
             /**
+             * The asset cannot be destroyed because some accounts for this asset contain freezes.
+             **/
+            ContainsFreezes: AugmentedError<ApiType>;
+            /**
+             * The asset cannot be destroyed because some accounts for this asset contain holds.
+             **/
+            ContainsHolds: AugmentedError<ApiType>;
+            /**
              * The origin account is frozen.
              **/
             Frozen: AugmentedError<ApiType>;
@@ -77,6 +85,10 @@ declare module '@polkadot/api-base/types/errors' {
              * The asset should be frozen before the given operation.
              **/
             NotFrozen: AugmentedError<ApiType>;
+            /**
+             * Tried setting too many reserves.
+             **/
+            TooManyReserves: AugmentedError<ApiType>;
             /**
              * No approval exists that would allow the transfer.
              **/

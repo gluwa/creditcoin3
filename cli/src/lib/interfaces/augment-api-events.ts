@@ -183,6 +183,18 @@ declare module '@polkadot/api-base/types/events' {
                 { assetId: u32; owner: AccountId32 }
             >;
             /**
+             * Reserve information was removed for `asset_id`.
+             **/
+            ReservesRemoved: AugmentedEvent<ApiType, [assetId: u32], { assetId: u32 }>;
+            /**
+             * Reserve information was set or updated for `asset_id`.
+             **/
+            ReservesUpdated: AugmentedEvent<
+                ApiType,
+                [assetId: u32, reserves: Vec<Null>],
+                { assetId: u32; reserves: Vec<Null> }
+            >;
+            /**
              * The management team changed.
              **/
             TeamChanged: AugmentedEvent<

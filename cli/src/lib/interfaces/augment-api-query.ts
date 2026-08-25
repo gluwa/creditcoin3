@@ -151,6 +151,11 @@ declare module '@polkadot/api-base/types/storage' {
             nextAssetId: AugmentedQuery<ApiType, () => Observable<Option<u32>>, []> &
                 QueryableStorageEntry<ApiType, []>;
             /**
+             * Maps an asset to a list of its configured reserve information.
+             **/
+            reserves: AugmentedQuery<ApiType, (arg: u32 | AnyNumber | Uint8Array) => Observable<Vec<Null>>, [u32]> &
+                QueryableStorageEntry<ApiType, [u32]>;
+            /**
              * Generic query
              **/
             [key: string]: QueryableStorageEntry<ApiType>;
