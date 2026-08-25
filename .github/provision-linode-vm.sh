@@ -25,6 +25,16 @@ EXISTING_VM_ID=$(linode-cli linodes list --json --label "$LC_RUNNER_VM_NAME" | j
 if [ -n "$EXISTING_VM_ID" ]; then
   echo "INFO: deleting leftover VM $EXISTING_VM_ID (label $LC_RUNNER_VM_NAME) from a prior attempt"
   linode-cli linodes delete "$EXISTING_VM_ID"
+
+  # delete is async - creating a VM with the same label before it finishes
+  # fails on a label conflict, since Linode labels must be unique.
+  echo "INFO: waiting for $EXISTING_VM_ID to finish deleting ..."
+  for attempt in $(seq 1 12); do
+    STILL_THERE=$(linode-cli linodes list --json --label "$LC_RUNNER_VM_NAME" | jq -r '.[0].id // empty')
+    [ -z "$STILL_THERE" ] && break
+    echo "DEBUG: $EXISTING_VM_ID still present on attempt $attempt, retrying ..."
+    sleep 5
+  done
 fi
 
 # retry until we get a VM
@@ -121,8 +131,9 @@ set -euo pipefail
 echo "INFO: installing upstream Docker Engine ..."
 run_remote_script .github/install-docker-engine-from-upstream.sh
 
-# NOTE: deliberately NOT retried - a partial run may already have registered the
-# runner with GitHub, and a second attempt would register a duplicate.
+# NOTE: not retried internally (still safe under the step-level retry in
+# deploy-runner.yml - provision-github-runner.sh's config.sh uses --replace,
+# so re-registering under the same name on a retried attempt is not an error).
 echo "INFO: provisioning GitHub runner ..."
 vm_ssh -o SendEnv=LC_GITHUB_REPO_ADMIN_TOKEN,LC_RUNNER_VM_NAME,LC_WORKFLOW_ID,LC_PROXY_ENABLED,LC_PROXY_SECRET_VARIANT,LC_PROXY_TYPE \
   "$SSH_USER_AT_HOSTNAME" <.github/provision-github-runner.sh
