@@ -15,6 +15,7 @@ import type { Data } from '@polkadot/types';
 import type {
     Bytes,
     Compact,
+    Null,
     Option,
     Text,
     U256,
@@ -639,6 +640,9 @@ declare module '@polkadot/api-base/types/submittable' {
              * refunded.
              * - `allow_burn`: If `true` then assets may be destroyed in order to complete the refund.
              *
+             * It will fail with either [`Error::ContainsHolds`] or [`Error::ContainsFreezes`] if
+             * the asset account contains holds or freezes in place.
+             *
              * Emits `Refunded` event when successful.
              **/
             refund: AugmentedSubmittable<
@@ -657,6 +661,9 @@ declare module '@polkadot/api-base/types/submittable' {
              *
              * - `id`: The identifier of the asset for the account holding a deposit.
              * - `who`: The account to refund.
+             *
+             * It will fail with either [`Error::ContainsHolds`] or [`Error::ContainsFreezes`] if
+             * the asset account contains holds or freezes in place.
              *
              * Emits `Refunded` event when successful.
              **/
@@ -724,6 +731,24 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u32, u128]
             >;
             /**
+             * Sets the trusted reserve information of an asset.
+             *
+             * Origin must be the Owner of the asset `id`. The origin must conform to the configured
+             * `CreateOrigin` or be the signed `owner` configured during asset creation.
+             *
+             * - `id`: The identifier of the asset.
+             * - `reserves`: The full list of trusted reserves information.
+             *
+             * Emits `AssetMinBalanceChanged` event when successful.
+             **/
+            setReserves: AugmentedSubmittable<
+                (
+                    id: u32 | AnyNumber | Uint8Array,
+                    reserves: Vec<Null> | (Null | null)[],
+                ) => SubmittableExtrinsic<ApiType>,
+                [u32, Vec<Null>]
+            >;
+            /**
              * Change the Issuer, Admin and Freezer of an asset.
              *
              * Origin must be Signed and the sender should be the Owner of the asset `id`.
@@ -780,6 +805,9 @@ declare module '@polkadot/api-base/types/submittable' {
              *
              * - `id`: The identifier of the asset to be destroyed. This must identify an existing
              * asset.
+             *
+             * It will fail with either [`Error::ContainsHolds`] or [`Error::ContainsFreezes`] if
+             * an account contains holds or freezes in place.
              **/
             startDestroy: AugmentedSubmittable<
                 (id: u32 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
@@ -841,9 +869,10 @@ declare module '@polkadot/api-base/types/submittable' {
              *
              * A deposit will be taken from the signer account.
              *
-             * - `origin`: Must be Signed by `Freezer` or `Admin` of the asset `id`; the signer account
-             * must have sufficient funds for a deposit to be taken.
-             * - `id`: The identifier of the asset for the account to be created.
+             * - `origin`: Must be Signed; the signer account must have sufficient funds for a deposit
+             * to be taken.
+             * - `id`: The identifier of the asset for the account to be created, the asset status must
+             * be live.
              * - `who`: The account to be created.
              *
              * Emits `Touched` event when successful.
