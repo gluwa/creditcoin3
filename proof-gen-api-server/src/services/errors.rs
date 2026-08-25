@@ -150,6 +150,17 @@ pub enum ServiceError {
         span: u64,
         max_span: u64,
     },
+    /// The archiver refused the roots request itself with a 4xx — in practice a checkpoint-aligned
+    /// range wider than its `MAX_API_RANGE`.
+    ///
+    /// This is deliberately *not* `Internal`. The request cannot be served as submitted no matter
+    /// how many times it is retried, so reporting it as 5xx tells the caller the server is broken
+    /// (and that retrying is pointless for the wrong reason) while paging an operator for a request
+    /// that was never going to succeed. `max_batch_span` bounds the *transaction* spread, whereas
+    /// the archiver bounds the *checkpoint-aligned* range the proof actually needs, so a batch can
+    /// satisfy the former and still exceed the latter.
+    #[error("archiver cannot serve roots for range {from}..{to}: {detail}")]
+    ArchiverRangeRejected { from: u64, to: u64, detail: String },
 }
 
 impl ServiceError {
@@ -184,6 +195,7 @@ impl ServiceError {
             ServiceError::TooManyTxHashes => "TooManyTxHashes",
             ServiceError::EmptyTxHashes => "EmptyTxHashes",
             ServiceError::BatchSpanTooLarge { .. } => "BatchSpanTooLarge",
+            ServiceError::ArchiverRangeRejected { .. } => "ArchiverRangeRejected",
         }
     }
 
@@ -200,7 +212,8 @@ impl ServiceError {
             | Self::TooManyTxQueriesInProofQuery
             | Self::EmptyTxHashes
             | Self::TooManyTxHashes
-            | Self::BatchSpanTooLarge { .. } => StatusCode::BAD_REQUEST,
+            | Self::BatchSpanTooLarge { .. }
+            | Self::ArchiverRangeRejected { .. } => StatusCode::BAD_REQUEST,
             Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. } | Self::BlockNotOnSourceChain { .. } => {
@@ -340,6 +353,7 @@ impl GetErrorType for ServiceError {
             ServiceError::EmptyTxHashes => ErrorType::EmptyTxHashes,
             ServiceError::TooManyTxHashes => ErrorType::TooManyTxHashes,
             ServiceError::BatchSpanTooLarge { .. } => ErrorType::BatchSpanTooLarge,
+            ServiceError::ArchiverRangeRejected { .. } => ErrorType::ArchiverRangeRejected,
         }
     }
 }

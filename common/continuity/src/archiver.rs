@@ -33,6 +33,36 @@ struct LatestResponse {
     latest_block: Option<u64>,
 }
 
+/// A non-2xx response from the archiver's HTTP API.
+///
+/// Kept as a typed error rather than collapsing straight into `anyhow!` so callers can tell an
+/// archiver-side *client* rejection (4xx — a request the archiver will never serve, such as a
+/// block range wider than its `MAX_API_RANGE`) apart from a genuine archiver fault (5xx or a
+/// transport failure). The former is a caller mistake and must not surface as a 5xx: doing so
+/// both misleads the client and pages an operator for a request that could never have
+/// succeeded.
+#[derive(Debug, thiserror::Error)]
+#[error("archiver rejected GET /roots for range {from}..{to} with {status}: {body}")]
+pub struct ArchiverStatusError {
+    pub status: reqwest::StatusCode,
+    pub body: String,
+    pub from: u64,
+    pub to: u64,
+}
+
+impl ArchiverStatusError {
+    /// True when the archiver refused the request itself rather than failing to serve it.
+    pub fn is_client_rejection(&self) -> bool {
+        self.status.is_client_error()
+    }
+}
+
+/// Find an [`ArchiverStatusError`] anywhere in an `anyhow` error chain.
+pub fn anyhow_chain_archiver_status(err: &anyhow::Error) -> Option<&ArchiverStatusError> {
+    err.chain()
+        .find_map(|cause| cause.downcast_ref::<ArchiverStatusError>())
+}
+
 impl ArchiverClient {
     /// Create a new archiver client pointing at the given base URL (e.g. `http://localhost:8080`).
     pub fn new(base_url: String) -> Self {
@@ -56,38 +86,46 @@ impl ArchiverClient {
         );
 
         let started = Instant::now();
-        let response = self
-            .http
-            .get(&url)
-            .send()
-            .await
-            .with_context(|| {
-                let elapsed_ms = started.elapsed().as_millis();
-                warn!(
-                    archiver_url = %self.base_url,
-                    from,
-                    to,
-                    span,
-                    duration_ms = elapsed_ms,
-                    "📡 ❌ archiver GET /roots transport error"
-                );
-                "archiver request failed"
-            })?
-            .error_for_status()
-            .with_context(|| {
-                let elapsed_ms = started.elapsed().as_millis();
-                warn!(
-                    archiver_url = %self.base_url,
-                    from,
-                    to,
-                    span,
-                    duration_ms = elapsed_ms,
-                    "📡 ❌ archiver GET /roots non-success status"
-                );
-                "archiver returned error status"
-            })?;
+        let response = self.http.get(&url).send().await.with_context(|| {
+            let elapsed_ms = started.elapsed().as_millis();
+            warn!(
+                archiver_url = %self.base_url,
+                from,
+                to,
+                span,
+                duration_ms = elapsed_ms,
+                "📡 ❌ archiver GET /roots transport error"
+            );
+            "archiver request failed"
+        })?;
 
         let status = response.status();
+        if !status.is_success() {
+            let elapsed_ms = started.elapsed().as_millis();
+            // Read the body before discarding the response: the archiver puts the actionable
+            // detail there (e.g. "range too large (max 1000 blocks)"), and `error_for_status`
+            // would throw it away, leaving callers only a bare status to reason about.
+            let body = response.text().await.unwrap_or_default();
+            let body = body.trim().to_string();
+            warn!(
+                archiver_url = %self.base_url,
+                from,
+                to,
+                span,
+                status = %status,
+                duration_ms = elapsed_ms,
+                detail = %body,
+                "📡 ❌ archiver GET /roots non-success status"
+            );
+            return Err(ArchiverStatusError {
+                status,
+                body,
+                from,
+                to,
+            }
+            .into());
+        }
+
         let entries: Vec<RootEntry> = response
             .json()
             .await

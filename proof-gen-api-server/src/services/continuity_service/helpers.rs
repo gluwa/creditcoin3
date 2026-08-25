@@ -4,6 +4,7 @@ use std::time::Instant;
 use super::*;
 use anyhow::Error as AnyhowError;
 use attestor_primitives::block::ContinuityProof;
+use continuity::archiver;
 use eth;
 
 /// If the anyhow chain wraps an [`eth::Error`] that the eth client classifies as a
@@ -23,6 +24,25 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
     let block_number =
         eth::anyhow_chain_inconsistent_block_number_hint(err).unwrap_or(fallback_block_number);
     Some(ServiceError::UnsupportedBlockFormat { block_number })
+}
+
+/// If the anyhow chain carries a 4xx from the archiver, surface it as a client error rather
+/// than letting it fall through to `Internal`/`RpcUnavailable`.
+///
+/// The archiver already answers these correctly (`400 range too large (max N blocks)`); without
+/// this the status is flattened into an opaque 5xx, which is both wrong for the caller and the
+/// reason a boundary-crossing batch pages an operator. 5xx from the archiver keeps falling
+/// through to the caller-supplied mapping — those are real faults.
+fn classify_archiver_client_rejection(err: &AnyhowError) -> Option<ServiceError> {
+    let status_err = archiver::anyhow_chain_archiver_status(err)?;
+    if !status_err.is_client_rejection() {
+        return None;
+    }
+    Some(ServiceError::ArchiverRangeRejected {
+        from: status_err.from,
+        to: status_err.to,
+        detail: status_err.body.clone(),
+    })
 }
 
 /// Map an `anyhow::Error` returned by the eth provider into a `ServiceError`,
@@ -55,6 +75,9 @@ where
     F: FnOnce(AnyhowError) -> ServiceError,
 {
     if let Some(svc_err) = classify_eth_rpc_anyhow_as_inconsistent(&err, fallback_block_number) {
+        return svc_err;
+    }
+    if let Some(svc_err) = classify_archiver_client_rejection(&err) {
         return svc_err;
     }
     on_other(err)
