@@ -5,7 +5,7 @@
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
 
-const UC = process.env.USC_CONTRACTS_DIR ?? "/Users/dylan/Projects/usc-contracts";
+const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR ?? "/Users/dylan/Projects/asc-contracts";
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 

@@ -9,8 +9,8 @@ import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// usc-contracts checkout: $USC_CONTRACTS_DIR, else the sibling of this repo (…/Projects/usc-contracts).
-const UC = process.env.USC_CONTRACTS_DIR ?? fileURLToPath(new URL("../../../usc-contracts", import.meta.url));
+// asc-contracts checkout: $ASC_CONTRACTS_DIR, else the sibling of this repo (…/Projects/asc-contracts).
+const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR ?? fileURLToPath(new URL("../../../asc-contracts", import.meta.url));
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 

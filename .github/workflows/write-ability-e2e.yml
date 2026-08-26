@@ -165,6 +165,9 @@ jobs:
           npm install
           npx hardhat compile
           echo "ASC_CONTRACTS_DIR=$GITHUB_WORKSPACE/asc-contracts" >> "$GITHUB_ENV"
+          # Also export the pre-rename name: the usc-messaging deploy scripts accept either,
+          # but anything else that still reads only the old one keeps working.
+          echo "USC_CONTRACTS_DIR=$GITHUB_WORKSPACE/asc-contracts" >> "$GITHUB_ENV"
           # Fail the gate rather than skip it if the dir ever goes missing (see ABI_GATE_STRICT).
           echo "ABI_GATE_STRICT=1" >> "$GITHUB_ENV"
 
