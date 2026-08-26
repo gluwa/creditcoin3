@@ -33,6 +33,56 @@ struct LatestResponse {
     latest_block: Option<u64>,
 }
 
+/// A non-2xx response from the archiver's HTTP API.
+///
+/// Kept as a typed error rather than collapsing straight into `anyhow!` so callers can tell three
+/// cases apart, because they need three different answers:
+///
+/// - **Range rejection** (`400`) — a request the archiver will never serve, such as a block range
+///   wider than its `MAX_API_RANGE`, or `to < from`. A caller mistake; must not surface as a 5xx,
+///   which both misleads the client and pages an operator for a request that could never have
+///   succeeded.
+/// - **Data unavailable** (`404`) — the range is perfectly valid, but the archiver does not hold
+///   every root in it yet (`incomplete data: expected N roots ... found M`). That is a *temporary*
+///   availability gap while it catches up or backfills, so the caller should be told to retry and
+///   an operator should still see it: a persistent 404 means a real archiver gap.
+/// - **Archiver fault** (`5xx`) — a genuine server-side failure, left to the caller's fallback.
+///
+/// The 400/404 split matters: collapsing both into "client rejection" tells a caller its range was
+/// bad when the range was fine, marks a recoverable condition non-retriable, and downgrades the log
+/// out of the range an operator is paged on.
+#[derive(Debug, thiserror::Error)]
+#[error("archiver rejected GET /roots for range {from}..{to} with {status}: {body}")]
+pub struct ArchiverStatusError {
+    pub status: reqwest::StatusCode,
+    pub body: String,
+    pub from: u64,
+    pub to: u64,
+}
+
+impl ArchiverStatusError {
+    /// True when the archiver refused the request itself and always will — a 4xx that is not a
+    /// `404`. Retrying an identical request cannot help.
+    ///
+    /// `404` is deliberately excluded: see [`Self::is_data_unavailable`].
+    pub fn is_range_rejection(&self) -> bool {
+        self.status.is_client_error() && self.status != reqwest::StatusCode::NOT_FOUND
+    }
+
+    /// True when the archiver accepted the range but cannot serve it *yet* — a `404`, which its
+    /// `/roots` handler returns when the store holds fewer roots than the range asks for. The same
+    /// request can succeed once the archiver has caught up, so this is retriable.
+    pub fn is_data_unavailable(&self) -> bool {
+        self.status == reqwest::StatusCode::NOT_FOUND
+    }
+}
+
+/// Find an [`ArchiverStatusError`] anywhere in an `anyhow` error chain.
+pub fn anyhow_chain_archiver_status(err: &anyhow::Error) -> Option<&ArchiverStatusError> {
+    err.chain()
+        .find_map(|cause| cause.downcast_ref::<ArchiverStatusError>())
+}
+
 impl ArchiverClient {
     /// Create a new archiver client pointing at the given base URL (e.g. `http://localhost:8080`).
     pub fn new(base_url: String) -> Self {
@@ -56,38 +106,46 @@ impl ArchiverClient {
         );
 
         let started = Instant::now();
-        let response = self
-            .http
-            .get(&url)
-            .send()
-            .await
-            .with_context(|| {
-                let elapsed_ms = started.elapsed().as_millis();
-                warn!(
-                    archiver_url = %self.base_url,
-                    from,
-                    to,
-                    span,
-                    duration_ms = elapsed_ms,
-                    "📡 ❌ archiver GET /roots transport error"
-                );
-                "archiver request failed"
-            })?
-            .error_for_status()
-            .with_context(|| {
-                let elapsed_ms = started.elapsed().as_millis();
-                warn!(
-                    archiver_url = %self.base_url,
-                    from,
-                    to,
-                    span,
-                    duration_ms = elapsed_ms,
-                    "📡 ❌ archiver GET /roots non-success status"
-                );
-                "archiver returned error status"
-            })?;
+        let response = self.http.get(&url).send().await.with_context(|| {
+            let elapsed_ms = started.elapsed().as_millis();
+            warn!(
+                archiver_url = %self.base_url,
+                from,
+                to,
+                span,
+                duration_ms = elapsed_ms,
+                "📡 ❌ archiver GET /roots transport error"
+            );
+            "archiver request failed"
+        })?;
 
         let status = response.status();
+        if !status.is_success() {
+            let elapsed_ms = started.elapsed().as_millis();
+            // Read the body before discarding the response: the archiver puts the actionable
+            // detail there (e.g. "range too large (max 1000 blocks)"), and `error_for_status`
+            // would throw it away, leaving callers only a bare status to reason about.
+            let body = response.text().await.unwrap_or_default();
+            let body = body.trim().to_string();
+            warn!(
+                archiver_url = %self.base_url,
+                from,
+                to,
+                span,
+                status = %status,
+                duration_ms = elapsed_ms,
+                detail = %body,
+                "📡 ❌ archiver GET /roots non-success status"
+            );
+            return Err(ArchiverStatusError {
+                status,
+                body,
+                from,
+                to,
+            }
+            .into());
+        }
+
         let entries: Vec<RootEntry> = response
             .json()
             .await

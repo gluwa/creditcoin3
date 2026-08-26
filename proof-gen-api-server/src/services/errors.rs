@@ -150,6 +150,28 @@ pub enum ServiceError {
         span: u64,
         max_span: u64,
     },
+    /// The archiver refused the roots request itself with a 4xx — in practice a checkpoint-aligned
+    /// range wider than its `MAX_API_RANGE`.
+    ///
+    /// This is deliberately *not* `Internal`. The request cannot be served as submitted no matter
+    /// how many times it is retried, so reporting it as 5xx tells the caller the server is broken
+    /// (and that retrying is pointless for the wrong reason) while paging an operator for a request
+    /// that was never going to succeed. `max_batch_span` bounds the *transaction* spread, whereas
+    /// the archiver bounds the *checkpoint-aligned* range the proof actually needs, so a batch can
+    /// satisfy the former and still exceed the latter.
+    #[error("archiver cannot serve roots for range {from}..{to}: {detail}")]
+    ArchiverRangeRejected { from: u64, to: u64, detail: String },
+
+    /// The archiver accepted the roots range but does not hold every root in it yet — its `/roots`
+    /// handler answers `404 incomplete data: expected N roots ... found M`.
+    ///
+    /// Distinct from [`Self::ArchiverRangeRejected`] in every respect that matters: the range is
+    /// valid, the condition is temporary, and the same request succeeds once the archiver catches
+    /// up. So this is a retriable 503 rather than a 400, which also keeps it in the server-error
+    /// range that `into_response` logs at `ERROR` — a persistent gap here is a real archiver
+    /// problem an operator needs to see, not a caller mistake to be filed away at `WARN`.
+    #[error("archiver has not yet indexed every root for range {from}..{to}: {detail}")]
+    ArchiverDataUnavailable { from: u64, to: u64, detail: String },
 }
 
 impl ServiceError {
@@ -159,6 +181,9 @@ impl ServiceError {
             ServiceError::RpcUnavailable { .. }
                 | ServiceError::BlockNotReady { .. }
                 | ServiceError::BlockNotOnSourceChain { .. }
+                // The range is valid and the archiver will hold it once it catches up, so the
+                // identical request is worth retrying — unlike ArchiverRangeRejected.
+                | ServiceError::ArchiverDataUnavailable { .. }
         )
     }
     pub fn code(&self) -> &'static str {
@@ -184,6 +209,8 @@ impl ServiceError {
             ServiceError::TooManyTxHashes => "TooManyTxHashes",
             ServiceError::EmptyTxHashes => "EmptyTxHashes",
             ServiceError::BatchSpanTooLarge { .. } => "BatchSpanTooLarge",
+            ServiceError::ArchiverRangeRejected { .. } => "ArchiverRangeRejected",
+            ServiceError::ArchiverDataUnavailable { .. } => "ArchiverDataUnavailable",
         }
     }
 
@@ -200,8 +227,11 @@ impl ServiceError {
             | Self::TooManyTxQueriesInProofQuery
             | Self::EmptyTxHashes
             | Self::TooManyTxHashes
-            | Self::BatchSpanTooLarge { .. } => StatusCode::BAD_REQUEST,
-            Self::RpcUnavailable { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            | Self::BatchSpanTooLarge { .. }
+            | Self::ArchiverRangeRejected { .. } => StatusCode::BAD_REQUEST,
+            Self::RpcUnavailable { .. } | Self::ArchiverDataUnavailable { .. } => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
             Self::TxHashLookupUnavailable { .. } => StatusCode::NOT_IMPLEMENTED,
             Self::TxHashNotFound { .. } | Self::BlockNotOnSourceChain { .. } => {
                 StatusCode::NOT_FOUND
@@ -340,6 +370,8 @@ impl GetErrorType for ServiceError {
             ServiceError::EmptyTxHashes => ErrorType::EmptyTxHashes,
             ServiceError::TooManyTxHashes => ErrorType::TooManyTxHashes,
             ServiceError::BatchSpanTooLarge { .. } => ErrorType::BatchSpanTooLarge,
+            ServiceError::ArchiverRangeRejected { .. } => ErrorType::ArchiverRangeRejected,
+            ServiceError::ArchiverDataUnavailable { .. } => ErrorType::ArchiverDataUnavailable,
         }
     }
 }
