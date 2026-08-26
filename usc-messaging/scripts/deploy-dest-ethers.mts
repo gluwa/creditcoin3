@@ -4,7 +4,6 @@
 // construction, and EOAValidator delegates its attestor set to a shared AttestorRegistry.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 // asc-contracts checkout: $ASC_CONTRACTS_DIR, else the sibling of this repo (…/Projects/asc-contracts).
 function ascContractsDir(): string {

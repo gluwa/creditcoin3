@@ -7,7 +7,6 @@ import { ethers } from "ethers";
 import { ApiPromise, Keyring, WsProvider } from "@polkadot/api";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 
 // asc-contracts checkout: $ASC_CONTRACTS_DIR, else the sibling of this repo (…/Projects/asc-contracts).
 function ascContractsDir(): string {
