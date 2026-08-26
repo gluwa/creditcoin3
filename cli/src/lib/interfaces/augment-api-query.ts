@@ -456,6 +456,21 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             /**
+             * Monotonic withdraw nonce per stash (for sr25519-signed EVM `withdrawFrom`).
+             *
+             * Deliberately *separate* from [`ClaimNonce`] rather than shared. A shared counter would make
+             * every signed-but-unsubmitted claim signature invalid the moment a withdraw landed (and vice
+             * versa), serializing two independent flows for no security gain — the two message preimages
+             * are already domain-separated by prefix, so neither signature can be replayed as the other
+             * regardless of the counter.
+             **/
+            withdrawNonce: AugmentedQuery<
+                ApiType,
+                (arg: AccountId32 | string | Uint8Array) => Observable<u64>,
+                [AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [AccountId32]>;
+            /**
              * Generic query
              **/
             [key: string]: QueryableStorageEntry<ApiType>;

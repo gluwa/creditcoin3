@@ -4028,7 +4028,7 @@ export default {
      * Lookup476: pallet_attest_coin_rewards::pallet::Error<T>
      **/
     PalletAttestCoinRewardsError: {
-        _enum: ['TokenNotConfigured', 'NotStash', 'InsufficientAccrued', 'BadClaimNonce'],
+        _enum: ['TokenNotConfigured', 'NotStash', 'InsufficientAccrued', 'BadClaimNonce', 'BadWithdrawNonce'],
     },
     /**
      * Lookup479: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>

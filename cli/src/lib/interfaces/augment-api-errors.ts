@@ -282,6 +282,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             BadClaimNonce: AugmentedError<ApiType>;
             /**
+             * Withdraw nonce does not match on-chain counter.
+             **/
+            BadWithdrawNonce: AugmentedError<ApiType>;
+            /**
              * Claim exceeds accrued points.
              **/
             InsufficientAccrued: AugmentedError<ApiType>;
