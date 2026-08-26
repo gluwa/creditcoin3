@@ -4868,7 +4868,8 @@ declare module '@polkadot/types/lookup' {
         readonly isNotStash: boolean;
         readonly isInsufficientAccrued: boolean;
         readonly isBadClaimNonce: boolean;
-        readonly type: 'TokenNotConfigured' | 'NotStash' | 'InsufficientAccrued' | 'BadClaimNonce';
+        readonly isBadWithdrawNonce: boolean;
+        readonly type: 'TokenNotConfigured' | 'NotStash' | 'InsufficientAccrued' | 'BadClaimNonce' | 'BadWithdrawNonce';
     }
 
     /** @name FrameSystemExtensionsCheckNonZeroSender (479) */
