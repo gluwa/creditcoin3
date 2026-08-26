@@ -15,8 +15,16 @@ mod tests;
 /// Precompile for verifying ed25519 signatures.
 pub struct Ed25519VerifierPrecompile<Runtime>(PhantomData<Runtime>);
 
-// 3MB limit for message size
-type ConstU3MB = ConstU32<3145728>;
+// Maximum message size, 1.7MB.
+//
+// This bound has to stay reachable under EIP-7623's calldata floor, which prices a
+// transaction at `21000 + 10*zero + 40*non_zero` calldata bytes and hard-rejects one whose
+// gas limit falls below that. An all-non-zero message therefore costs ~40 gas per byte, so
+// BLOCK_GAS_LIMIT (75_000_000) admits at most (75_000_000 - 21000) / 40 = 1_874_475 bytes.
+// The previous 3MB bound sat above that ceiling and was unreachable: a 3MB message needed
+// 125_850_120 gas, so the transaction died on the floor check before this precompile ran,
+// and callers saw an out-of-gas with no revert data instead of a size error.
+type MaxMessageSize = ConstU32<1_700_000>;
 
 // 64 bytes for ed25519 signature
 type ED25519SignatureBytes = ConstU32<64>;
@@ -48,7 +56,7 @@ where
     #[precompile::view]
     fn verify(
         handle: &mut impl PrecompileHandle,
-        message: BoundedBytes<ConstU3MB>,
+        message: BoundedBytes<MaxMessageSize>,
         signature: BoundedBytes<ED25519SignatureBytes>,
         public_key: H256,
     ) -> EvmResult<bool> {
