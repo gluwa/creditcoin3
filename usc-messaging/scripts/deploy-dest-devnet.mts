@@ -1,10 +1,10 @@
 // usc-dev destination-stack deploy (real Sepolia): SimpleInbox + MockDestination, REUSING the
 // live EOAValidator (attestor _3 + relayer 0.1.1 already speak it; set is synced 10/7).
-// Env: SEPOLIA_RPC, DEPLOYER_KEY. Artifacts from $USC_CONTRACTS_DIR (post-#23 build).
+// Env: SEPOLIA_RPC, DEPLOYER_KEY. Artifacts from $ASC_CONTRACTS_DIR (post-#23 build).
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 
-const UC = process.env.USC_CONTRACTS_DIR ?? "/Users/dylan/Projects/usc-contracts";
+const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR ?? "/Users/dylan/Projects/asc-contracts";
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 
