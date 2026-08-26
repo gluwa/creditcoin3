@@ -507,6 +507,8 @@ mod labels {
         EmptyTxHashes,
         TooManyTxHashes,
         BatchSpanTooLarge,
+        ArchiverRangeRejected,
+        ArchiverDataUnavailable,
         Internal,
     }
 
