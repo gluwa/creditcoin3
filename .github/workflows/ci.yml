@@ -1798,7 +1798,7 @@ jobs:
     uses: gluwa/usc-testnet-bridge-examples/.github/workflows/hello-bridge.yml@main
     with:
       source_chain_kind: "anvil"
-      usc_kind: "local"
+      asc_kind: "local"
       checkout_repo: "gluwa/usc-testnet-bridge-examples"
       checkout_ref: "main"
 
@@ -1810,7 +1810,7 @@ jobs:
     uses: gluwa/usc-testnet-bridge-examples/.github/workflows/custom-contracts-bridging.yml@main
     with:
       source_chain_kind: "anvil"
-      usc_kind: "local"
+      asc_kind: "local"
       checkout_repo: "gluwa/usc-testnet-bridge-examples"
       checkout_ref: "main"
 
@@ -1822,7 +1822,7 @@ jobs:
     uses: gluwa/usc-testnet-bridge-examples/.github/workflows/bridge-offchain-worker.yml@main
     with:
       source_chain_kind: "anvil"
-      usc_kind: "local"
+      asc_kind: "local"
       checkout_repo: "gluwa/usc-testnet-bridge-examples"
       checkout_ref: "main"
 
@@ -1835,7 +1835,7 @@ jobs:
     with:
       runs-on: "['ubuntu-26.04']"
       source_chain_kind: "anvil"
-      usc_kind: "local"
+      asc_kind: "local"
       checkout_repo: "gluwa/usc-testnet-bridge-examples"
       checkout_ref: "main"
 
