@@ -1,6 +1,6 @@
 //! Solidity ↔ Rust ABI-surface drift detector.
 //!
-//! `src/abi.rs` is a hand-trimmed `sol!` mirror of the usc-contracts surface the attestor calls.
+//! `src/abi.rs` is a hand-trimmed `sol!` mirror of the asc-contracts surface the attestor calls.
 //! Nothing enforces that the mirror stays byte-identical with the contracts: creditcoin3↔relayer
 //! agreement is policed by the shared golden vectors, but Solidity↔Rust drift was only caught
 //! implicitly, three layers deep, when the e2e's delivery reverted (or worse, when a topic filter
@@ -8,11 +8,11 @@
 //!
 //! This test closes that leg: for every mirrored function and event, recompute the selector /
 //! topic0 from the Rust `sol!` types and assert an identical one exists in the compiled hardhat
-//! artifact. It runs wherever `USC_CONTRACTS_DIR` points at a compiled usc-contracts checkout —
+//! artifact. It runs wherever `ASC_CONTRACTS_DIR` points at a compiled asc-contracts checkout —
 //! locally, and in the `write-ability-e2e` workflow, which exports exactly that variable — so a
-//! usc-contracts pin bump that moves a mirrored surface fails HERE, naming the drifted item,
+//! asc-contracts pin bump that moves a mirrored surface fails HERE, naming the drifted item,
 //! instead of somewhere downstream. Without the env var the test is a no-op (unit-test runs and
-//! CI jobs that don't check out usc-contracts stay green).
+//! CI jobs that don't check out asc-contracts stay green).
 //!
 //! `IChainInfo` is deliberately NOT covered: it mirrors this repo's own chain-info precompile
 //! (`precompiles/chain-info`), not a usc-contracts artifact, and drift there is caught by the
@@ -88,17 +88,32 @@ fn assert_function_mirrored(artifact: &std::path::Path, rust_signature: &str, se
 
 #[test]
 fn mirrored_abi_surface_matches_compiled_contracts() {
-    let Ok(dir) = std::env::var("USC_CONTRACTS_DIR") else {
+    // `ASC_CONTRACTS_DIR` since the repository was renamed usc-contracts -> asc-contracts;
+    // `USC_CONTRACTS_DIR` stays accepted so existing local setups keep working.
+    let dir = std::env::var("ASC_CONTRACTS_DIR")
+        .or_else(|_| std::env::var("USC_CONTRACTS_DIR"))
+        .ok();
+    // Set by CI alongside the artifacts dir. Without it an unset dir skips, which is what a plain
+    // `cargo test` on a dev machine wants — but it also silently no-opped this gate in CI for
+    // weeks, so any environment that means to enforce the gate sets this and gets a failure
+    // instead of a pass.
+    let strict = std::env::var("ABI_GATE_STRICT").is_ok();
+    let Some(dir) = dir else {
+        assert!(
+            !strict,
+            "ABI_GATE_STRICT is set but neither ASC_CONTRACTS_DIR nor USC_CONTRACTS_DIR is — the \
+             drift gate would have silently passed without checking anything"
+        );
         eprintln!(
-            "USC_CONTRACTS_DIR not set — skipping ABI-surface check (run against a compiled \
-             usc-contracts checkout to enable; the write-ability-e2e workflow does)"
+            "ASC_CONTRACTS_DIR not set — skipping ABI-surface check (point it at a compiled \
+             asc-contracts checkout to enable; the write-ability-e2e workflow does)"
         );
         return;
     };
     let contracts = std::path::Path::new(&dir).join("artifacts/contracts/write-ability");
     assert!(
         contracts.is_dir(),
-        "USC_CONTRACTS_DIR is set but {} does not exist — run `npx hardhat compile` there first",
+        "contracts dir is set but {} does not exist — run `npx hardhat compile` there first",
         contracts.display()
     );
 

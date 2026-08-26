@@ -19,7 +19,7 @@ name: write-ability-e2e
 "on":
   workflow_dispatch:
   pull_request:
-    branches: [main, usc-dev, usc-testnet, attestor_v2]
+    branches: [main, usc-dev, usc-testnet, attestor_v2, writeability-off-usc-dev]
     paths:
       - "attestor/**"
       - "common/**"
@@ -108,18 +108,18 @@ jobs:
           # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
           # could pass or fail as the relayer's default branch moved). Bump this deliberately when
           # a relayer change needs to be exercised here.
-          ref: 62f17fdcbc5a2e917e6ce1199c21d5d9440e9177 # main @ 2026-08-20 (#39) — resynced to usc-contracts #23 (AckAndClaim); bump deliberately
+          ref: ea6a0b2802f878b51f8943a74baec9eb60931d92 # v0.5.0 (#43) — cursor persistence, settlement metrics, genesis fallback; bump deliberately
           path: usc-message-relayer
 
       # Fee-integrated write-ability contracts. The plain-ethers deploy scripts read their compiled
-      # artifacts from here (via $USC_CONTRACTS_DIR); pinned to a full SHA so the e2e is reproducible.
-      - name: Check out usc-contracts (fee-integrated contracts)
+      # artifacts from here (via $ASC_CONTRACTS_DIR); pinned to a full SHA so the e2e is reproducible.
+      - name: Check out asc-contracts (fee-integrated contracts)
         uses: actions/checkout@v6
         with:
-          repository: gluwa/usc-contracts
+          repository: gluwa/asc-contracts
           ref: e300c16676efc850a5b382033d666bc9c3a0ce23 # main @ 2026-08-17 (post-#23/#28 v3 RelayerQuote struct) — bump deliberately
-          path: usc-contracts
-          # usc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
+          path: asc-contracts
+          # asc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
           # gets "Repository not found". Use the org bot PAT (same one build-native uses cross-repo).
           token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
@@ -156,22 +156,25 @@ jobs:
         # tsx and need ethers / @polkadot/api / express from usc-messaging's own package.
         run: npm install
 
-      - name: Build usc-contracts artifacts (fee stack)
-        working-directory: ./usc-contracts
-        # `npm install` (not `npm ci`): usc-contracts' committed lockfile can lag its package.json
+      - name: Build asc-contracts artifacts (fee stack)
+        working-directory: ./asc-contracts
+        # `npm install` (not `npm ci`): asc-contracts' committed lockfile can lag its package.json
         # at the pinned SHA (e.g. a missing @openzeppelin/contracts entry), which `npm ci` rejects.
         # We only need the compiled artifacts, so tolerate the drift and resolve on the fly.
         run: |
           npm install
           npx hardhat compile
-          echo "USC_CONTRACTS_DIR=$GITHUB_WORKSPACE/usc-contracts" >> "$GITHUB_ENV"
+          echo "ASC_CONTRACTS_DIR=$GITHUB_WORKSPACE/asc-contracts" >> "$GITHUB_ENV"
+          # Fail the gate rather than skip it if the dir ever goes missing (see ABI_GATE_STRICT).
+          echo "ABI_GATE_STRICT=1" >> "$GITHUB_ENV"
 
       # Solidity↔Rust drift gate: every function/event the attestor's sol! mirror binds must have a
       # byte-identical selector/topic0 in the artifacts compiled above. This is the only CI job with
-      # both a Rust toolchain and compiled usc-contracts, so the check lives here — a pin bump that
+      # both a Rust toolchain and compiled asc-contracts, so the check lives here — a pin bump that
       # moves a mirrored surface fails THIS step naming the drifted item, instead of a revert (or a
-      # silently dead topic filter) somewhere in the e2e below. Without USC_CONTRACTS_DIR the test
-      # no-ops, so plain `cargo test` runs elsewhere are unaffected.
+      # silently dead topic filter) somewhere in the e2e below. ABI_GATE_STRICT is set above so a
+      # missing artifacts dir fails here instead of no-opping; plain `cargo test` runs elsewhere
+      # leave it unset and still skip.
       - name: ABI-surface drift check (Rust mirror vs compiled contracts)
         run: |
           rustup show active-toolchain || rustup toolchain install
