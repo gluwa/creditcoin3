@@ -5,7 +5,21 @@
 import { ethers } from "ethers";
 import { readFileSync } from "node:fs";
 
-const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR ?? "/Users/dylan/Projects/asc-contracts";
+function ascContractsDir(): string {
+  // ASC_CONTRACTS_DIR since the repo was renamed usc-contracts -> asc-contracts; the old name is
+  // still accepted so existing setups keep working. Deliberately no default: this used to fall
+  // back to one developer's home directory, so anyone else got a confusing "cannot read artifact"
+  // three calls later instead of being told what to set.
+  const dir = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
+  if (!dir) {
+    throw new Error(
+      "set ASC_CONTRACTS_DIR to a compiled asc-contracts checkout (run `npx hardhat compile` there first)",
+    );
+  }
+  return dir;
+}
+
+const UC = ascContractsDir();
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 

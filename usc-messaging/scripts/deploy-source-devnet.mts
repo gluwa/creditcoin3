@@ -5,7 +5,21 @@
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
 
-const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR ?? "/Users/dylan/Projects/asc-contracts";
+function ascContractsDir(): string {
+  // ASC_CONTRACTS_DIR since the repo was renamed usc-contracts -> asc-contracts; the old name is
+  // still accepted so existing setups keep working. Deliberately no default: this used to fall
+  // back to one developer's home directory, so anyone else got a confusing "cannot read artifact"
+  // three calls later instead of being told what to set.
+  const dir = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
+  if (!dir) {
+    throw new Error(
+      "set ASC_CONTRACTS_DIR to a compiled asc-contracts checkout (run `npx hardhat compile` there first)",
+    );
+  }
+  return dir;
+}
+
+const UC = ascContractsDir();
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 
@@ -50,17 +64,26 @@ async function main() {
   const factory = await deploy("OutboxFactory", ART("write-ability/deployer/OutboxFactory.sol", "OutboxFactory"));
   const quoter = await deploy("USCRelayingQuoter", ART("write-ability/USCRelayingQuoter.sol", "USCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
 
+  // Outbox.coreFee() reads through IFeeRegistry, NOT the quoter. This slot used to be handed the
+  // quoter, which is a different interface: coreFee() then reverted, and fix-fee-registry.mts
+  // existed to swap the real registry in after every deploy. FeeRegistry forwards to this chain's
+  // own chain-info precompile (ICoreFeeProvider.get_core_fee(uint32), AddressU64<4051> per
+  // runtime/src/precompiles.rs), so fee policy stays in the runtime rather than in contract state.
+  const CORE_FEE_PRECOMPILE = "0x0000000000000000000000000000000000000FD3";
+  const feeRegistry = await deploy("FeeRegistry", ART("write-ability/FeeRegistry.sol", "FeeRegistry"), [CORE_FEE_PRECOMPILE]);
+
   const attestAddr = await attest.getAddress();
   const quoterAddr = await quoter.getAddress();
   const proofAddr = await proof.getAddress();
   const decoderAddr = await decoder.getAddress();
+  const feeRegistryAddr = await feeRegistry.getAddress();
   const RATE = 0n;
 
   // av (nonce n), fv (n+1), rc (n+2); Outbox via CREATE2 — resolves the ctor circularity.
   const n = await wallet.getNonce();
   const at = (k: number) => ethers.getCreateAddress({ from: owner, nonce: n + k });
   const [avAddr, fvAddr, rcAddr] = [at(0), at(1), at(2)];
-  const obAddr = await (factory as any).computeOutboxAddressFor(owner, CHAIN_KEY, owner, owner, RATE, avAddr, quoterAddr, attestAddr);
+  const obAddr = await (factory as any).computeOutboxAddressFor(owner, CHAIN_KEY, owner, owner, RATE, avAddr, feeRegistryAddr, attestAddr);
 
   const av = await deploy("AttestorVault", ART("write-ability/AttestorVault.sol", "AttestorVault"),
     [owner, attestAddr, obAddr, rcAddr, owner, await registry.getAddress(), DEAD, 0]);
@@ -71,7 +94,7 @@ async function main() {
   if ((await av.getAddress()) !== avAddr || (await rc.getAddress()) !== rcAddr) throw new Error("precompute mismatch");
 
   console.log("  deployOutbox via factory…");
-  const tx = await (factory as any).deployOutbox(CHAIN_KEY, owner, owner, RATE, avAddr, quoterAddr, attestAddr);
+  const tx = await (factory as any).deployOutbox(CHAIN_KEY, owner, owner, RATE, avAddr, feeRegistryAddr, attestAddr);
   const rcpt = await tx.wait();
   const created = rcpt.logs.map((l: any) => { try { return (factory as any).interface.parseLog(l); } catch { return null; } })
     .find((e: any) => e?.name === "OutboxCreated");
@@ -106,7 +129,7 @@ async function main() {
     chainId: CC_CHAIN_ID, rpc, chainKey: CHAIN_KEY,
     attest: attestAddr, proofVerifier: proofAddr, deliveryDecoder: decoderAddr,
     twapReader: await twap.getAddress(), attestorRegistry: await registry.getAddress(),
-    quoter: quoterAddr, factory: await factory.getAddress(),
+    quoter: quoterAddr, feeRegistry: feeRegistryAddr, factory: await factory.getAddress(),
     attestorVault: avAddr, outbox: outboxAddr, relayerFeeVault: fvAddr, relayerContract: rcAddr,
     ackValidator: ackAddr, quoterEOA: QUOTER_EOA, coreFee: ethers.parseEther("1").toString(),
   };
