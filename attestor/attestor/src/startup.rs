@@ -55,9 +55,25 @@ pub async fn register_bls(
     bls_key: &bls_signatures::PrivateKey,
 ) -> Result<(), Error> {
     let status = cc3.get_attestor_status(chain_key).await?;
-    if status != Some(AttestorStatus::Idle) {
-        tracing::info!(?status, %account_id, "ℹ️ skipping attest() — already registered");
-        return Ok(());
+    match status {
+        Some(AttestorStatus::Idle) => {}
+        // Not in the attestor pool at all. `attest()` cannot be self-served from
+        // here — a stash has to call `register_attestor` first — so skipping is
+        // correct, but say why rather than reporting the opposite.
+        None => {
+            tracing::warn!(
+                %account_id,
+                chain_key,
+                "⚠️ not registered as an attestor for this chain — skipping attest(). \
+                 A stash account must call register_attestor(chain_key, attestor_id) first, \
+                 using an account other than the attestor itself."
+            );
+            return Ok(());
+        }
+        Some(other) => {
+            tracing::info!(status = ?other, %account_id, "ℹ️ skipping attest() — already registered");
+            return Ok(());
+        }
     }
 
     // bls_signatures uses BLS12-381 minimal-pubkey-size: public key is 48 bytes (G1),
