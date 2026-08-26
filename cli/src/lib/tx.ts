@@ -127,9 +127,9 @@ export async function getTxFee(
 }
 
 export function canPay(balance: AccountBalance, amount: BN, existentialDeposit = new BN(1)) {
-    const availableBalance = balance.transferable;
-    const availableAfter = availableBalance.sub(amount);
-    return availableAfter.gte(existentialDeposit);
+    const transferable = balance.transferable;
+    const transferableAfter = transferable.sub(amount);
+    return transferableAfter.gte(existentialDeposit);
 }
 
 export async function requireKeyringHasSufficientFunds(
