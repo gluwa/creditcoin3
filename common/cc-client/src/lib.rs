@@ -606,6 +606,25 @@ impl Client {
         Ok(result.map(|addr| sp_core::H160(addr.0)))
     }
 
+    pub async fn get_outbox_discovery_address(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<sp_core::H160>, Error> {
+        let address = cc3::storage()
+            .supported_chains()
+            .outbox_discoveries(chain_key);
+
+        let result = self
+            .api()
+            .storage()
+            .at_latest()
+            .await?
+            .fetch(&address)
+            .await?;
+
+        Ok(result.map(|addr| sp_core::H160(addr.0)))
+    }
+
     pub async fn get_supported_chains(&self) -> Result<Vec<SupportedChain>, Error> {
         let mut supported_chains: Vec<SupportedChain> = Vec::new();
         let address = cc3::storage().supported_chains().supported_chains_iter();
