@@ -3,7 +3,7 @@ A minimal set of steps to test the functionality of the attestcoin precompile.
 
 ## Steps List
 1. Stand up local chain following steps 1-2 in .github/CONTRIBUTING.md
-2. Configure pallet attestation 
+2. Configure pallet attestation
     a. set_target_sample_size -> 1
     b. set_min_bond_requirement -> 100
 3. Deploy Attestcoin ERC20 contract
@@ -13,7 +13,7 @@ A minimal set of steps to test the functionality of the attestcoin precompile.
     b. With ATC, 10,000 for the precompile and 100 for the attestor stash
 6. Call `deposit` in the attestcoin precompile to fund a mapped EVM stash account with pallet assets attestcoin
 7. Call `register_attestor` in the attestor stash precompile
-8. Start your attestor, mostly following steps from https://docs.creditcoin.org/attestcoin-protocol/attestcoin-protocol-operator-guides/attestor-operator-guide 
+8. Start your attestor, mostly following steps from https://docs.creditcoin.org/attestcoin-protocol/attestcoin-protocol-operator-guides/attestor-operator-guide
 9. Run script that listens for the first attestation to arrive on-chain, verifies the reward balance by calling `accrued` in the attestcoin precompile, then calls the attestcoin precompile function `claim` to claim the reward.
 10. Call `chill` on our attestor using the attestor-stash precompile
 11. Call `unregister_attestor` using the attestor-stash precompile then `withdraw` in the attestcoin precompile
@@ -37,9 +37,9 @@ anvil --block-time 6
 
 ### 2. Configure Pallet Attestation
 
-Point Polkadot.js at your local node: https://polkadot.js.org/apps/?rpc=ws%3A%2F%2F127.0.0.1%3A9944#/explorer 
+Point Polkadot.js at your local node: https://polkadot.js.org/apps/?rpc=ws%3A%2F%2F127.0.0.1%3A9944#/explorer
 
-Go to Developer -> Sudo and select the call Attestation -> setTargetSampleSize. 
+Go to Developer -> Sudo and select the call Attestation -> setTargetSampleSize.
 Params:
 chainKey -> 2
 newTargetSampleSize -> 1
@@ -71,9 +71,9 @@ minter       0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac
 
 ### 4. Set Attestcoin Rewards Token in PalletAttestcoinRewards
 
-Point Polkadot.js at your local node: https://polkadot.js.org/apps/?rpc=ws%3A%2F%2F127.0.0.1%3A9944#/explorer 
+Point Polkadot.js at your local node: https://polkadot.js.org/apps/?rpc=ws%3A%2F%2F127.0.0.1%3A9944#/explorer
 
-Go to Developer -> Sudo and select the call AttestCoinRewards -> setAttestCoinToken. 
+Go to Developer -> Sudo and select the call AttestCoinRewards -> setAttestCoinToken.
 Params:
 token -> <ATTESTCOIN_ERC20 from .env>
 
@@ -95,11 +95,11 @@ node scripts/fund-erc20.js precompile 10000
 - Create Stash EVM Account
 
 ```sh
-node scripts/new-stash.js 
+node scripts/new-stash.js
 ```
 
 - CTC funding
-In polkadot.js go to Developer -> Sudo and select the call Balances -> forceSetBalance. 
+In polkadot.js go to Developer -> Sudo and select the call Balances -> forceSetBalance.
 Params:
 who -> Address20
 Address20 -> <STASH_ADDRESS from .env>
@@ -124,7 +124,7 @@ OUT=$(subkey generate --output-type json); { printf '\n# Attestor operator accou
 ```
 
 - Fund the account
-In polkadot.js go to Developer -> Sudo and select the call Balances -> forceSetBalance. 
+In polkadot.js go to Developer -> Sudo and select the call Balances -> forceSetBalance.
 Params:
 who -> Id
 Id -> <ATTESTOR_SS58 from .env>
@@ -222,16 +222,3 @@ node scripts/show-balances.js
 Read-only. After a full run the stash holds nothing bonded, nothing liquid and
 nothing unclaimed, and its ERC-20 balance is the rewards claimed plus the bond
 that round-tripped back out.
-
-
-
-
-
-
-
-
-
-
-
-
-
