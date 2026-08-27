@@ -76,6 +76,7 @@ pub mod pallet {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
         fn set_outbox_factory_addr() -> Weight;
+        fn set_outbox_discovery_addr() -> Weight;
         fn set_write_ability_config() -> Weight;
         fn set_core_fee() -> Weight;
     }
@@ -116,6 +117,21 @@ pub mod pallet {
         QueryKind = OptionQuery,
     >;
 
+    /// Per-chain Outbox discovery-registry address (`OutboxDeployer`/`OutboxDiscovery` in
+    /// asc-contracts) — a queryable, access-controlled mapping of `chainKey` to the current
+    /// Outbox, unlike `OutboxFactories` above, which only identifies the permissionless factory
+    /// whose deployment logs an attacker can spoof. Read live by the EVM through the chain-info
+    /// precompile (`get_outbox_discovery_address(uint64)`) so attestor/relayer resolvers can bind
+    /// the Outbox from this registry instead of trusting the newest `OutboxCreated` log.
+    #[pallet::storage]
+    #[pallet::getter(fn outbox_discovery_address)]
+    pub type OutboxDiscoveries<T> = StorageMap<
+        Hasher = Blake2_128Concat,
+        Key = ChainKey,
+        Value = H160,
+        QueryKind = OptionQuery,
+    >;
+
     /// Per-chain USC write-ability metadata
     #[pallet::storage]
     #[pallet::getter(fn write_ability_config)]
@@ -149,6 +165,9 @@ pub mod pallet {
         /// Optional per-chain Outbox Factory address seeds: `(chain_key, address)`.
         /// Chain keys are assigned in `supported_chains` order starting at `GENESIS_CHAIN_KEY`.
         pub outbox_factories: Vec<(ChainKey, H160)>,
+        /// Optional per-chain Outbox discovery-registry address seeds: `(chain_key, address)`.
+        /// Chain keys are assigned in `supported_chains` order starting at `GENESIS_CHAIN_KEY`.
+        pub outbox_discoveries: Vec<(ChainKey, H160)>,
         pub _phantom: PhantomData<T>,
     }
 
@@ -205,6 +224,16 @@ pub mod pallet {
                 );
                 OutboxFactories::<T>::insert(chain_key, *outbox_factory_addr);
             }
+
+            for (chain_key, outbox_discovery_addr) in &self.outbox_discoveries {
+                // Mirror the `set_outbox_discovery_addr` guard: a zero registry reads as
+                // "unregistered" to the attestor/relayer, so a chainspec must not seed one.
+                assert!(
+                    !outbox_discovery_addr.is_zero(),
+                    "Genesis outbox_discoveries has a zero address for chain_key {chain_key:?}"
+                );
+                OutboxDiscoveries::<T>::insert(chain_key, *outbox_discovery_addr);
+            }
         }
     }
 
@@ -235,6 +264,14 @@ pub mod pallet {
         OutboxFactoryRegistered {
             chain_key: ChainKey,
             outbox_factory_addr: H160,
+        },
+
+        /// The Outbox discovery-registry address for a supported chain has been registered.
+        /// This signals to attestors/relayers that they can resolve the Outbox for this chain
+        /// key from the registry instead of scanning the factory's `OutboxCreated` logs.
+        OutboxDiscoveryRegistered {
+            chain_key: ChainKey,
+            outbox_discovery_addr: H160,
         },
 
         /// The USC write-ability config for a supported chain has been set.
@@ -270,6 +307,12 @@ pub mod pallet {
         /// attestor/relayer (it reads as "not registered"), so setting it via the operator path is
         /// rejected to fail loudly instead of silently disabling write-ability for the chain.
         ZeroOutboxFactoryAddress,
+
+        /// The Outbox discovery-registry address is the zero address. A zero registry cannot be
+        /// resolved by the attestor/relayer (it reads as "not registered"), so setting it via the
+        /// operator path is rejected to fail loudly instead of silently disabling registry-based
+        /// resolution for the chain.
+        ZeroOutboxDiscoveryAddress,
 
         /// The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
         /// zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
@@ -378,6 +421,8 @@ pub mod pallet {
 
             OutboxFactories::<T>::remove(chain_key);
 
+            OutboxDiscoveries::<T>::remove(chain_key);
+
             WriteAbilityConfigs::<T>::remove(chain_key);
 
             CoreFees::<T>::remove(chain_key);
@@ -423,6 +468,39 @@ pub mod pallet {
             Self::deposit_event(Event::OutboxFactoryRegistered {
                 chain_key,
                 outbox_factory_addr: address,
+            });
+
+            Ok(())
+        }
+
+        /// Registers the Outbox discovery-registry contract address for a supported chain — the
+        /// `OutboxDeployer`/`OutboxDiscovery` in asc-contracts, whose `outboxOf`/`defaultOutbox`
+        /// getter attestor/relayer resolvers should read instead of scanning the permissionless
+        /// factory's `OutboxCreated` logs. Only accounts in the Operators membership (or root)
+        /// can call this extrinsic.
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::WeightInfo::set_outbox_discovery_addr())]
+        pub fn set_outbox_discovery_addr(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            address: H160,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                SupportedChains::<T>::contains_key(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+            ensure!(
+                address != H160::zero(),
+                Error::<T>::ZeroOutboxDiscoveryAddress
+            );
+
+            OutboxDiscoveries::<T>::insert(chain_key, address);
+
+            Self::deposit_event(Event::OutboxDiscoveryRegistered {
+                chain_key,
+                outbox_discovery_addr: address,
             });
 
             Ok(())
@@ -526,6 +604,10 @@ pub mod pallet {
 
         fn get_outbox_factory_address(chain_key: ChainKey) -> Option<H160> {
             OutboxFactories::<T>::get(chain_key)
+        }
+
+        fn get_outbox_discovery_address(chain_key: ChainKey) -> Option<H160> {
+            OutboxDiscoveries::<T>::get(chain_key)
         }
 
         fn get_core_fee(chain_key: ChainKey) -> Option<CoreFeeConfig> {

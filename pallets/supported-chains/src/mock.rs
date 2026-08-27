@@ -140,6 +140,7 @@ impl ExtBuilder {
             )],
             write_ability_configs: Default::default(),
             outbox_factories: Default::default(),
+            outbox_discoveries: Default::default(),
             _phantom: Default::default(),
         };
 
@@ -172,6 +173,7 @@ impl ExtBuilder {
             supported_chains,
             write_ability_configs: Default::default(),
             outbox_factories: Default::default(),
+            outbox_discoveries: Default::default(),
             _phantom: Default::default(),
         };
 

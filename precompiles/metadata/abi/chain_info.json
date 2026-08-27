@@ -405,6 +405,37 @@
         "type": "uint64"
       }
     ],
+    "name": "get_outbox_discovery_address",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "address",
+            "name": "discoveryAddr",
+            "type": "address"
+          },
+          {
+            "internalType": "bool",
+            "name": "exists",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct OutboxDiscoveryResult",
+        "name": "result",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "chainKey",
+        "type": "uint64"
+      }
+    ],
     "name": "get_outbox_factory_address",
     "outputs": [
       {
