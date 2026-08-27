@@ -1,0 +1,16 @@
+{
+  "name": "attest-coin-manual-testing",
+  "private": true,
+  "description": "Helper scripts for the attest-coin precompile manual test walkthrough",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "deploy": "node scripts/deploy-erc20.js"
+  },
+  "dependencies": {
+    "@polkadot/api": "^16.5.2",
+    "@polkadot/util-crypto": "^13.5.9",
+    "dotenv": "^17.4.0",
+    "ethers": "^6.17.0",
+    "js-yaml": "^5.4.1"
+  }
+}
