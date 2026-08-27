@@ -3504,6 +3504,20 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, U256]
             >;
             /**
+             * Registers the Outbox discovery-registry contract address for a supported chain — the
+             * `OutboxDeployer`/`OutboxDiscovery` in asc-contracts, whose `outboxOf`/`defaultOutbox`
+             * getter attestor/relayer resolvers should read instead of scanning the permissionless
+             * factory's `OutboxCreated` logs. Only accounts in the Operators membership (or root)
+             * can call this extrinsic.
+             **/
+            setOutboxDiscoveryAddr: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    address: H160 | string | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, H160]
+            >;
+            /**
              * Registers the outbox factory contract address for a supported chain. Only accounts in
              * the Operators membership (or root) can call this extrinsic.
              **/

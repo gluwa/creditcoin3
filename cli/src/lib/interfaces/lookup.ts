@@ -1174,6 +1174,10 @@ export default {
                 chainKey: 'u64',
                 outboxFactoryAddr: 'H160',
             },
+            OutboxDiscoveryRegistered: {
+                chainKey: 'u64',
+                outboxDiscoveryAddr: 'H160',
+            },
             WriteAbilityConfigSet: {
                 chainKey: 'u64',
                 writeAbilityChainKey: '[u8;32]',
@@ -3024,6 +3028,10 @@ export default {
                 chainKey: 'u64',
                 amount: 'U256',
             },
+            set_outbox_discovery_addr: {
+                chainKey: 'u64',
+                address: 'H160',
+            },
         },
     },
     /**
@@ -3631,6 +3639,7 @@ export default {
             'Arithmetic',
             'InvalidMaturityStrategy',
             'ZeroOutboxFactoryAddress',
+            'ZeroOutboxDiscoveryAddress',
             'ZeroWriteAbilityChainKey',
         ],
     },

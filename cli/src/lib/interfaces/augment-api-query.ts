@@ -1788,6 +1788,20 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Per-chain Outbox discovery-registry address (`OutboxDeployer`/`OutboxDiscovery` in
+             * asc-contracts) — a queryable, access-controlled mapping of `chainKey` to the current
+             * Outbox, unlike `OutboxFactories` above, which only identifies the permissionless factory
+             * whose deployment logs an attacker can spoof. Read live by the EVM through the chain-info
+             * precompile (`get_outbox_discovery_address(uint64)`) so attestor/relayer resolvers can bind
+             * the Outbox from this registry instead of trusting the newest `OutboxCreated` log.
+             **/
+            outboxDiscoveries: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H160>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             outboxFactories: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<H160>>,
