@@ -984,6 +984,13 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaturityStrategy: AugmentedError<ApiType>;
             /**
+             * The Outbox discovery-registry address is the zero address. A zero registry cannot be
+             * resolved by the attestor/relayer (it reads as "not registered"), so setting it via the
+             * operator path is rejected to fail loudly instead of silently disabling registry-based
+             * resolution for the chain.
+             **/
+            ZeroOutboxDiscoveryAddress: AugmentedError<ApiType>;
+            /**
              * The Outbox Factory address is the zero address. A zero factory cannot be resolved by the
              * attestor/relayer (it reads as "not registered"), so setting it via the operator path is
              * rejected to fail loudly instead of silently disabling write-ability for the chain.

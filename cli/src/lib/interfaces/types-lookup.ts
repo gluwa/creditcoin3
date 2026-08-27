@@ -1522,6 +1522,11 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly outboxFactoryAddr: H160;
         } & Struct;
+        readonly isOutboxDiscoveryRegistered: boolean;
+        readonly asOutboxDiscoveryRegistered: {
+            readonly chainKey: u64;
+            readonly outboxDiscoveryAddr: H160;
+        } & Struct;
         readonly isWriteAbilityConfigSet: boolean;
         readonly asWriteAbilityConfigSet: {
             readonly chainKey: u64;
@@ -1534,7 +1539,12 @@ declare module '@polkadot/types/lookup' {
             readonly amount: U256;
         } & Struct;
         readonly type:
-            'ChainRegistered' | 'ChainRemoved' | 'OutboxFactoryRegistered' | 'WriteAbilityConfigSet' | 'CoreFeeSet';
+            | 'ChainRegistered'
+            | 'ChainRemoved'
+            | 'OutboxFactoryRegistered'
+            | 'OutboxDiscoveryRegistered'
+            | 'WriteAbilityConfigSet'
+            | 'CoreFeeSet';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (109) */
@@ -3589,8 +3599,18 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly amount: U256;
         } & Struct;
+        readonly isSetOutboxDiscoveryAddr: boolean;
+        readonly asSetOutboxDiscoveryAddr: {
+            readonly chainKey: u64;
+            readonly address: H160;
+        } & Struct;
         readonly type:
-            'RegisterChain' | 'RemoveChain' | 'SetOutboxFactoryAddr' | 'SetWriteAbilityConfig' | 'SetCoreFee';
+            | 'RegisterChain'
+            | 'RemoveChain'
+            | 'SetOutboxFactoryAddr'
+            | 'SetWriteAbilityConfig'
+            | 'SetCoreFee'
+            | 'SetOutboxDiscoveryAddr';
     }
 
     /** @name PalletRandomnessCall (352) */
@@ -4327,6 +4347,7 @@ declare module '@polkadot/types/lookup' {
         readonly isArithmetic: boolean;
         readonly isInvalidMaturityStrategy: boolean;
         readonly isZeroOutboxFactoryAddress: boolean;
+        readonly isZeroOutboxDiscoveryAddress: boolean;
         readonly isZeroWriteAbilityChainKey: boolean;
         readonly type:
             | 'ChainAlreadyRegistered'
@@ -4334,6 +4355,7 @@ declare module '@polkadot/types/lookup' {
             | 'Arithmetic'
             | 'InvalidMaturityStrategy'
             | 'ZeroOutboxFactoryAddress'
+            | 'ZeroOutboxDiscoveryAddress'
             | 'ZeroWriteAbilityChainKey';
     }
 
