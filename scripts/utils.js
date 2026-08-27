@@ -19,6 +19,34 @@ const DEFAULT_PRECOMPILE_ADDRESS = '0x0000000000000000000000000000000000000FD2';
 const DEFAULT_API_URL = 'http://localhost:3100';
 const GAS_BUFFER_MULTIPLIER = 135; // 100% + 35% buffer
 
+/**
+ * Intrinsic calldata floor introduced by EIP-7623, live from the Osaka hard fork.
+ *
+ * A transaction is charged `max(actual_gas, 21000 + 10*zero_bytes + 40*non_zero_bytes)`,
+ * and is rejected outright when its gas *limit* falls below that floor -- regardless of
+ * how little execution the call performs. Proof payloads are large and compute-light,
+ * which is exactly the shape the floor targets, so any gas limit we pick without asking
+ * the node must account for it. A fixed limit that ignores payload size will refuse to
+ * execute once the payload is big enough.
+ *
+ * @param {string} data hex-encoded calldata, with or without the 0x prefix
+ * @returns {bigint} the minimum gas limit the transaction can be submitted with
+ */
+function calldataFloor(data) {
+    const hex = data.startsWith('0x') ? data.slice(2) : data;
+    let zero = 0;
+    for (let i = 0; i + 1 < hex.length; i += 2) {
+        if (hex[i] === '0' && hex[i + 1] === '0') zero++;
+    }
+    const nonZero = hex.length / 2 - zero;
+    return BigInt(21000 + 10 * zero + 40 * nonZero);
+}
+
+// Execution-only gas allowance for a batch verify, used only when estimation fails.
+// This was previously a hardcoded `gasLimit` on the transaction; it is kept as the
+// execution component and raised to the EIP-7623 calldata floor when the payload needs it.
+const BATCH_EXECUTION_GAS_ALLOWANCE = BigInt(10000000);
+
 // Chain ID to Chain Key mapping (based on chain_spec.rs)
 const CHAIN_ID_TO_KEY = {
     1: 1, // Ethereum
@@ -482,12 +510,17 @@ async function submitToPrecompile(
         // Calculate a reasonable estimate based on continuity proof size (matching Rust logic)
         const continuityBlocks = continuityProof.roots?.length || continuityProof.blocks?.length || 1;
         // Base: 21000 (tx) + ~5000 per continuity block + ~10000 for merkle + overhead
-        const calculatedGas = 21000 + continuityBlocks * 5000 + 20000;
+        const calculatedGas = BigInt(21000 + continuityBlocks * 5000 + 20000);
+        // That heuristic is execution-only and ignores payload size, so it can land below
+        // the EIP-7623 calldata floor and be rejected before running. Take whichever is larger.
+        const floor = calldataFloor(data);
+        const base = calculatedGas > floor ? calculatedGas : floor;
+        gasLimit = (base * BigInt(GAS_BUFFER_MULTIPLIER)) / BigInt(100);
         console.warn(`   Gas estimation failed: ${gasEstimateError.toString()}`);
         console.log(
-            `   Using calculated gas limit based on proof size: ${calculatedGas} (${continuityBlocks} continuity blocks)`,
+            `   Using calculated gas limit: ${gasLimit.toString()} (heuristic ${calculatedGas.toString()}, ` +
+                `EIP-7623 calldata floor ${floor.toString()}, ${continuityBlocks} continuity blocks)`,
         );
-        gasLimit = BigInt(calculatedGas);
     }
 
     // Send transaction
@@ -616,12 +649,39 @@ async function submitBatchToPrecompile(
         throw new Error(`Transaction will revert: ${errorMsg}${dataStr}`);
     }
 
+    // Estimate gas and add buffer.
+    // A fixed limit does not work here: under EIP-7623 a batch is rejected before executing
+    // once its calldata floor exceeds the limit, and the floor grows with payload size.
+    console.log('⏳ Estimating gas...');
+    let gasLimit;
+    try {
+        const estimatedGas = await provider.estimateGas({
+            to: precompileAddr,
+            data,
+            from: signerAddress,
+        });
+        gasLimit = (estimatedGas * BigInt(GAS_BUFFER_MULTIPLIER)) / BigInt(100);
+        console.log(`   Estimated gas: ${estimatedGas.toString()}, Gas limit with buffer: ${gasLimit.toString()}`);
+    } catch (gasEstimateError) {
+        // Estimation can fail against precompiles even when the call would succeed, so fall
+        // back to the previous fixed allowance for execution, raised to the calldata floor
+        // when the payload is large enough to need it.
+        const floor = calldataFloor(data);
+        const base = BATCH_EXECUTION_GAS_ALLOWANCE > floor ? BATCH_EXECUTION_GAS_ALLOWANCE : floor;
+        gasLimit = (base * BigInt(GAS_BUFFER_MULTIPLIER)) / BigInt(100);
+        console.warn(`   Gas estimation failed: ${gasEstimateError.toString()}`);
+        console.log(
+            `   Using fallback gas limit: ${gasLimit.toString()} (execution allowance ` +
+                `${BATCH_EXECUTION_GAS_ALLOWANCE.toString()}, EIP-7623 calldata floor ${floor.toString()})`,
+        );
+    }
+
     // Send transaction
     console.log('📤 Sending batch transaction...');
     const tx = await signer.sendTransaction({
         to: precompileAddr,
         data,
-        gasLimit: 10000000, // Higher gas limit for batch
+        gasLimit,
     });
 
     console.log(`✅ Transaction submitted: ${tx.hash}`);
