@@ -166,6 +166,33 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::OutboxDiscoveries` (r:0 w:1)
+	/// Proof: `SupportedChains::OutboxDiscoveries` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	//
+	// Not benchmarked (no `creditcoin3-node` binary available in this environment) — a copy of
+	// `set_outbox_factory_addr`'s weight, since the storage shape (one `SupportedChains` read plus
+	// a single map write) is identical. Re-run `benchmark pallet` for this extrinsic before
+	// shipping to a network where weight accuracy is enforced.
+	fn set_outbox_discovery_addr() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `369`
+		//  Estimated: `3834`
+		// Minimum execution time: 29_510_000 picoseconds.
+		Weight::from_parts(30_880_000, 0)
+			.saturating_add(Weight::from_parts(0, 3834))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(3))
+	}
 	/// Storage: `SupportedChains::WriteAbilityConfigs` (r:0 w:1)
 	/// Proof: `SupportedChains::WriteAbilityConfigs` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_write_ability_config() -> Weight {

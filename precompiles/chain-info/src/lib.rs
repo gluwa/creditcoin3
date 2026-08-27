@@ -15,7 +15,7 @@ use pallet_attestation::{
     LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
-use pallet_supported_chains::{CoreFees, OutboxFactories, SupportedChains};
+use pallet_supported_chains::{CoreFees, OutboxDiscoveries, OutboxFactories, SupportedChains};
 use precompile_utils::{prelude::*, solidity::Codec};
 
 // Gas cost constants
@@ -60,6 +60,12 @@ impl ChainInfoResult {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
 pub struct OutboxFactoryResult {
     pub factory_addr: Address,
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
+pub struct OutboxDiscoveryResult {
+    pub discovery_addr: Address,
     pub exists: bool,
 }
 
@@ -187,6 +193,40 @@ where
             }),
             None => Ok(OutboxFactoryResult {
                 factory_addr: Address(H160::zero()),
+                exists: false,
+            }),
+        }
+    }
+
+    /// Outbox discovery-registry address for `chain_key` — the `OutboxDeployer`/`OutboxDiscovery`
+    /// in asc-contracts, whose `outboxOf`/`defaultOutbox` getter is the authoritative source for
+    /// the current Outbox. Unlike [`get_outbox_factory_address`](Self::get_outbox_factory_address),
+    /// which only identifies the permissionless factory contract, this address is safe for a
+    /// resolver to trust: registry entries are only written through an access-controlled deploy
+    /// path, so a caller can bind the Outbox from this registry instead of scanning the factory's
+    /// `OutboxCreated` logs, which an attacker can spoof for any chain key.
+    #[precompile::public("get_outbox_discovery_address(uint64)")]
+    #[precompile::view]
+    fn get_outbox_discovery_address(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+    ) -> EvmResult<OutboxDiscoveryResult> {
+        let maybe_address = OutboxDiscoveries::<Runtime>::get(chain_key);
+
+        handle.record_db_read::<Runtime>(
+            maybe_address
+                .as_ref()
+                .map(|address| address.encoded_size())
+                .unwrap_or_default(),
+        )?;
+
+        match maybe_address {
+            Some(address) => Ok(OutboxDiscoveryResult {
+                discovery_addr: Address(address),
+                exists: true,
+            }),
+            None => Ok(OutboxDiscoveryResult {
+                discovery_addr: Address(H160::zero()),
                 exists: false,
             }),
         }

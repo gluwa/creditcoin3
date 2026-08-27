@@ -394,6 +394,7 @@ impl ExtBuilder {
             )],
             write_ability_configs: Default::default(),
             outbox_factories: Default::default(),
+            outbox_discoveries: Default::default(),
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

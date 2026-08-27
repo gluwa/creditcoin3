@@ -477,6 +477,9 @@ fn devnet_genesis(
             // `set_outbox_factory_addr` once deployed (the extrinsic rejects zero addresses, so
             // seeding zeros here would create entries that look registered but are invalid).
             outbox_factories: vec![],
+            // Same reasoning as `outbox_factories`: registered post-genesis via
+            // `set_outbox_discovery_addr` once the registry contract is deployed.
+            outbox_discoveries: vec![],
             _phantom: Default::default(),
         },
         operators: Default::default(),
@@ -626,6 +629,7 @@ fn testnet_genesis(
             ],
             write_ability_configs: Default::default(),
             outbox_factories: Default::default(),
+            outbox_discoveries: Default::default(),
             _phantom: Default::default(),
         },
         operators: Default::default(),

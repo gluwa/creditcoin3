@@ -34,6 +34,14 @@ struct OutboxFactoryResult {
 }
 
 /**
+ * @dev get_outbox_discovery_address result structure
+ */
+struct OutboxDiscoveryResult {
+    address discoveryAddr;
+    bool exists;
+}
+
+/**
  * @dev Height result structure
  */
 struct HeightResult {
@@ -98,6 +106,18 @@ interface ChainInfoContract {
      * @return result outbox factory address if found
      */
     function get_outbox_factory_address(uint64 chainKey) external view returns (OutboxFactoryResult memory result);
+
+    /**
+     * @dev Get the Outbox discovery-registry address for a given chainKey — the
+     *      OutboxDeployer/OutboxDiscovery in asc-contracts, whose outboxOf/defaultOutbox getter
+     *      is the authoritative source for the current Outbox. Prefer this over
+     *      get_outbox_factory_address for resolving the Outbox: this address is only ever
+     *      written through an access-controlled deploy path, so it is safe to trust directly,
+     *      unlike the permissionless factory's OutboxCreated log stream.
+     * @param chainKey The chain key for which to get the Outbox discovery registry
+     * @return result discovery registry address if found
+     */
+    function get_outbox_discovery_address(uint64 chainKey) external view returns (OutboxDiscoveryResult memory result);
 
     /**
      * @dev Get the USC write-ability core (protocol) fee for a given chainKey, charged by that
