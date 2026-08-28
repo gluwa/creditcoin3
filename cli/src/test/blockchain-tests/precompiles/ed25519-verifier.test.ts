@@ -316,12 +316,16 @@ describe('Precompile: Ed25519Verifier.verify()', (): void => {
             }
         });
 
-        test('should revert for message exceeding 3MB limit', async () => {
+        test('should revert for message exceeding the 1.7MB limit', async () => {
             // Generate a keypair
             const pair = keyring.addFromMnemonic(mnemonicGenerate());
 
-            // Create a message larger than 3MB (3MB + 1 byte)
-            const largeMessage = 'A'.repeat(3145729);
+            // One byte over the precompile's MaxMessageSize bound (1_700_000).
+            // Kept under EIP-7623's calldata floor on purpose: an all-non-zero message costs
+            // ~40 gas/byte, so this call needs ~68M of the 75M block gas limit and still
+            // reaches the precompile's own size check. A 3MB message would need 125.8M and
+            // would die on the floor check with no revert data to assert against.
+            const largeMessage = 'A'.repeat(1_700_001);
             const messageBytes = new TextEncoder().encode(largeMessage);
 
             // Sign the message (this will work in substrate)

@@ -2,7 +2,8 @@ use crate::mock::*;
 use precompile_utils::testing::*;
 use sp_core::{sr25519, Pair, H160, H256};
 
-const THREE_MB: usize = 3 * 1024 * 1024; // 3,145,728 bytes
+// Mirrors `MaxMessageSize` in lib.rs.
+const MAX_MESSAGE_SIZE: usize = 1_700_000;
 
 fn precompiles() -> Precompiles<Runtime> {
     PrecompilesValue::get()
@@ -251,13 +252,13 @@ fn verify_signature_too_long_should_revert() {
 }
 
 #[test]
-fn verify_message_exceeding_3mb_should_revert() {
+fn verify_message_exceeding_max_size_should_revert() {
     ExtBuilder::default().build().execute_with(|| {
         let (pair, _seed) = sr25519::Pair::generate();
         let public = pair.public();
 
-        // 3MB + 1 byte exceeds the BoundedBytes<ConstU3MB> limit
-        let message = vec![0x42u8; THREE_MB + 1];
+        // One byte over the bound exceeds the BoundedBytes<MaxMessageSize> limit
+        let message = vec![0x42u8; MAX_MESSAGE_SIZE + 1];
         let signature = pair.sign(&message);
 
         let caller: H160 = Account::Alice.into();
