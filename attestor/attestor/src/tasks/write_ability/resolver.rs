@@ -48,7 +48,7 @@ use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
 use attestor_primitives::ChainKey;
-use write_ability::abi::{IChainInfo, IOutboxDeployer, IOutboxFactory};
+use write_ability::abi::{IChainInfo, IOutboxDiscovery, IOutboxFactory};
 
 use super::config::Config;
 use super::cursor::{FactoryScanCursorStore, PersistedFactoryScan};
@@ -315,14 +315,20 @@ pub async fn resolve<P: Provider>(
 }
 
 /// Resolve the Outbox by reading the discovery-registry address off the chain-info precompile and
-/// calling `outboxOf` on it, instead of scanning the permissionless factory's `OutboxCreated` logs.
+/// calling `defaultOutbox` on it, instead of scanning the permissionless factory's `OutboxCreated`
+/// logs.
 ///
 /// This exists for a security reason, not as a shortcut: `OutboxFactory.deployOutbox` is
 /// intentionally permissionless, so any account can deploy an Outbox for `chain_key` and emit an
 /// `OutboxCreated` indistinguishable from a legitimate one — [`resolve_outbox_address`]'s log scan
 /// binds the newest such event, so an attacker's deployment would be permanently newest. The
-/// registry (`OutboxDeployer`/`OutboxDiscovery` in asc-contracts) is written only through an
-/// access-controlled deploy path, so its `outboxOf` answer is safe to trust directly.
+/// registry (`OutboxDiscovery` in asc-contracts) is written only through an access-controlled
+/// deploy path, so its `defaultOutbox` answer is safe to trust directly.
+///
+/// `defaultOutbox`, not `outboxOf`: confirmed as the source of truth on Slack (Kevin Nguyen,
+/// 28 Aug 2026) — "the default deployed outbox for each chain via: `defaultOutbox(chainKey)` (not
+/// from deployer) because there will be multiple version[s] of outbox". `outboxOf` lives on the
+/// older `OutboxDeployer` and doesn't support that.
 ///
 /// Returns `Ok(None)` — not an error — when no discovery address is registered for `chain_key` yet,
 /// or the registry has no Outbox for it. The caller falls through to the factory scan in that case,
@@ -341,9 +347,9 @@ async fn resolve_outbox_from_registry<P: Provider>(
     }
     let discovery = discovery.discoveryAddr;
 
-    // The registry contract keys `outboxOf` by `uint32` while `chain_key` is `u64`. Reject anything
-    // unrepresentable rather than truncating: a silently wrapped key would read the registry for a
-    // *different* chain and bind whatever Outbox that answered with.
+    // The registry contract keys `defaultOutbox` by `uint32` while `chain_key` is `u64`. Reject
+    // anything unrepresentable rather than truncating: a silently wrapped key would read the
+    // registry for a *different* chain and bind whatever Outbox that answered with.
     let chain_key_u32 = u32::try_from(chain_key).with_context(|| {
         format!(
             "chain_key {chain_key} exceeds the uint32 the Outbox registry is keyed by, so it \
@@ -351,11 +357,11 @@ async fn resolve_outbox_from_registry<P: Provider>(
         )
     })?;
 
-    let outbox = IOutboxDeployer::new(discovery, provider)
-        .outboxOf(chain_key_u32)
+    let outbox = IOutboxDiscovery::new(discovery, provider)
+        .defaultOutbox(chain_key_u32)
         .call()
         .await
-        .with_context(|| format!("outboxOf reverted on registry {discovery}"))?;
+        .with_context(|| format!("defaultOutbox reverted on registry {discovery}"))?;
 
     if outbox._0.is_zero() {
         return Ok(None);
