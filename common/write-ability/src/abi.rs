@@ -67,12 +67,12 @@ sol! {
             returns (address factoryAddr, bool exists);
 
         /// `chain-info` precompile accessor exposing the per-chain Outbox discovery-registry
-        /// address (`OutboxDeployer`/`OutboxDiscovery` in asc-contracts) registered in
+        /// address (`OutboxDiscovery` in asc-contracts) registered in
         /// `SupportedChains::OutboxDiscoveries`. Unlike the factory above, this address is safe to
         /// trust directly: it is only ever written through an access-controlled deploy path, so a
-        /// resolver can bind the Outbox from its `outboxOf`/`defaultOutbox` getter instead of
-        /// scanning the permissionless factory's `OutboxCreated` logs. `exists` is false when no
-        /// registry has been set for `chainKey`.
+        /// resolver can bind the Outbox from its `defaultOutbox` getter instead of scanning the
+        /// permissionless factory's `OutboxCreated` logs. `exists` is false when no registry has
+        /// been set for `chainKey`.
         function get_outbox_discovery_address(uint64 chainKey)
             external
             view
@@ -81,11 +81,13 @@ sol! {
 
     #[sol(rpc)]
     #[derive(Debug)]
-    contract IOutboxDeployer {
-        /// Authoritative chainKey → Outbox mapping, written only through
-        /// `OutboxDeployer.deployOutbox` (owner-gated). Returns the zero address when no Outbox
-        /// has been deployed for `chainKey` yet.
-        function outboxOf(uint32 chainKey) external view returns (address);
+    contract IOutboxDiscovery {
+        /// The default Outbox for `chainKey`, or the zero address if none — the source of truth
+        /// asc-contracts#38 confirmed for discovery (Slack, 28 Aug 2026): "the default deployed
+        /// outbox for each chain via: defaultOutbox(chainKey) (not from deployer) because there
+        /// will be multiple version[s] of outbox". Written only through `registerOutbox`/
+        /// `setDefaultOutbox` (owner or authorized-deployer gated).
+        function defaultOutbox(uint32 chainKey) external view returns (address);
     }
 
     #[sol(rpc)]
