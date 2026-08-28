@@ -23,7 +23,74 @@ env:
   CXXFLAGS: "-include cstdint"
 
 jobs:
+  # `runtime/src/lib.rs` has to stay in the trigger paths above, because the migration
+  # tuples live in it (`SingleBlockMigrations`, `pallet_migrations::Config::Migrations`).
+  # But that file also holds the entire rest of the runtime, so triggering on the filename
+  # alone runs this ~1h job for changes that cannot affect migrations at all -- an EVM
+  # config constant, a precompile bound, a weight tweak. This gate looks at what actually
+  # changed inside the file and only lets the expensive job through when the migration
+  # surface moved.
+  should-run:
+    runs-on: ubuntu-26.04
+    outputs:
+      migrations: ${{ steps.decide.outputs.migrations }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: "Examine which files have been modified by this PR"
+        uses: dorny/paths-filter@v4.0.2
+        id: filter
+        with:
+          filters: |
+            dedicated_migration_files:
+              - "**/migrations/**"
+              - "**/migrations.rs"
+            workflow:
+              - ".github/workflows/try-runtime.yml"
+            runtime_lib:
+              - "runtime/src/lib.rs"
+
+      - name: "Decide whether the migration surface changed"
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Unambiguous: dedicated migration files, or this workflow itself.
+          if [ "${{ steps.filter.outputs.dedicated_migration_files }}" = "true" ] \
+             || [ "${{ steps.filter.outputs.workflow }}" = "true" ]; then
+            echo "INFO: migration files or this workflow changed"
+            echo "migrations=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `runtime/src/lib.rs` changed. Inspect the diff hunks rather than the filename.
+          #
+          # The match is deliberately broad -- case-insensitive `migrat`, plus
+          # `OnRuntimeUpgrade` -- so that `SingleBlockMigrations`, `MultiBlockMigrator`,
+          # `pallet_x::migrations::v2::MigrateToV2` and `LazyMigrationV1ToV2` are all
+          # caught. A false positive only costs a needless run, which is today's status
+          # quo; a false negative would skip validation on a real migration.
+          if [ "${{ steps.filter.outputs.runtime_lib }}" = "true" ]; then
+            git fetch --no-tags --depth=1 origin "${{ github.base_ref }}"
+            if git diff --unified=0 "origin/${{ github.base_ref }}...HEAD" -- runtime/src/lib.rs \
+                 | grep -E '^[+-]' \
+                 | grep -vE '^(\+\+\+|---)' \
+                 | grep -qiE 'migrat|OnRuntimeUpgrade'; then
+              echo "INFO: runtime/src/lib.rs changed and the migration surface moved"
+              echo "migrations=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "INFO: runtime/src/lib.rs changed, but not the migration surface -- skipping"
+          fi
+
+          echo "migrations=false" >> "$GITHUB_OUTPUT"
+
   try-runtime:
+    needs: should-run
+    if: ${{ needs.should-run.outputs.migrations == 'true' || github.event_name == 'workflow_dispatch' }}
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
