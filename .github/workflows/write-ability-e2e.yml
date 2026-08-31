@@ -99,17 +99,18 @@ jobs:
       # source here so the e2e still exercises attestor + relayer together. Pinned to a full commit
       # SHA (see the `ref:` below) so the e2e is reproducible; cross-repo protocol drift is caught by
       # the shared write-ability golden vectors on both sides. (Alternative once image publishing is
-      # wired: docker cp the binary out of a SHA-tagged gluwa/usc-message-relayer image.)
-      - name: Check out usc-message-relayer
+      # wired: docker cp the binary out of a SHA-tagged gluwa/usc-message-relayer image — note the
+      # Docker Hub repo keeps the usc- name; only the GitHub repo was renamed.)
+      - name: Check out asc-message-relayer
         uses: actions/checkout@v6
         with:
-          repository: gluwa/usc-message-relayer
+          repository: gluwa/asc-message-relayer
           # Pin a full commit SHA (not a branch) so this creditcoin3 commit always builds against
           # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
           # could pass or fail as the relayer's default branch moved). Bump this deliberately when
           # a relayer change needs to be exercised here.
           ref: ea6a0b2802f878b51f8943a74baec9eb60931d92 # v0.5.0 (#43) — cursor persistence, settlement metrics, genesis fallback; bump deliberately
-          path: usc-message-relayer
+          path: asc-message-relayer
 
       # Fee-integrated write-ability contracts. The plain-ethers deploy scripts read their compiled
       # artifacts from here (via $ASC_CONTRACTS_DIR); pinned to a full SHA so the e2e is reproducible.
@@ -123,13 +124,13 @@ jobs:
           # gets "Repository not found". Use the org bot PAT (same one build-native uses cross-repo).
           token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
-      - name: Rust cache (usc-message-relayer)
+      - name: Rust cache (asc-message-relayer)
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: usc-message-relayer
+          workspaces: asc-message-relayer
 
       - name: Build message-relayer
-        working-directory: ./usc-message-relayer
+        working-directory: ./asc-message-relayer
         run: |
           rustup show active-toolchain || rustup toolchain install
           cargo build --release --locked -p message-relayer
