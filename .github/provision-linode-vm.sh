@@ -7,6 +7,10 @@ python3 --version
 pip install -r .github/requirements.txt
 linode-cli --version
 
+# retry action re-runs this in the same workspace; reset prior attempt's state
+rm -f ~/.ssh/id_rsa ~/.ssh/id_rsa.pub
+git checkout -- .github/authorized_keys .github/linode-cloud-init.template
+
 # Authorize hosted-runner
 mkdir -p ~/.ssh/
 ssh-keygen -q -t rsa -N '' -f ~/.ssh/id_rsa
