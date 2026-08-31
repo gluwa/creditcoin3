@@ -139,6 +139,10 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+      # execa >=6 is ESM-only, but cli/ is compiled to CommonJS and requires it
+      # from CJS test helpers, so major bumps break the TypeScript build
+      - dependency-name: "execa"
+        update-types: ["version-update:semver-major"]
 
   # Python dependencies for Linode
   - package-ecosystem: "pip"

@@ -459,13 +459,28 @@ const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// The maximum storage growth per block in bytes.
 const MAX_STORAGE_GROWTH: u64 = 400 * 1024;
 
-/// Pin the EVM hard fork to Cancun explicitly. `pallet_evm::Config::config()` defaults to
-/// whatever hard fork our Frontier fork ships (currently Osaka), which silently pulled in
-/// EIP-7623's calldata-floor gas pricing (40 gas per non-zero calldata byte) on the stable2512
-/// upgrade. That floor charges every call up front for raw calldata length before any contract
-/// or precompile logic runs, making our 3MB precompile message limits effectively unaffordable
-/// within BLOCK_GAS_LIMIT. Pin to Cancun to keep the gas economics this chain was tuned for.
-static CANCUN_EVM_CONFIG: fp_evm::Config = fp_evm::Config::cancun();
+/// Run the EVM at the Osaka hard fork, matching Ethereum mainnet's opcode and gas semantics.
+///
+/// `pallet_evm::Config::config()` would default to whatever hard fork our Frontier fork ships,
+/// which is Osaka today; naming it here makes the choice explicit rather than incidental, so a
+/// future Frontier bump cannot move consensus gas pricing under us without a deliberate edit.
+///
+/// Relative to the Cancun pin this replaces, Osaka turns on three EIPs:
+///
+/// - EIP-7702 (`has_eip_7702`): type-4 SetCode transactions. Under Cancun these were accepted
+///   and mined but their authorization lists were silently dropped, because the stack executor
+///   only applies them behind this flag.
+/// - EIP-7623 (`has_eip_7623`): the calldata floor, `21000 + 10*zero + 40*non_zero`, charged as
+///   `max(actual, floor)` and hard-rejected when a transaction's gas *limit* falls below it.
+///   Ordinary traffic is unaffected (the floor only binds when execution is cheaper than
+///   `6*zero + 24*non_zero`), but it roughly doubles the cost of the calldata-heavy,
+///   compute-light precompile paths and caps a single all-non-zero verifier message at ~1.79MB
+///   within BLOCK_GAS_LIMIT, down from ~3.76MB.
+/// - EIP-7939 (`has_eip_7939`): the CLZ opcode. Purely additive.
+///
+/// This is consensus-affecting: it must ship as a runtime upgrade under a new `spec_version`,
+/// never inside a rebuild that reuses the current one.
+static EVM_CONFIG: fp_evm::Config = fp_evm::Config::osaka();
 
 parameter_types! {
     pub BlockGasLimit: U256 = U256::from(BLOCK_GAS_LIMIT);
@@ -501,7 +516,7 @@ impl pallet_evm::Config for Runtime {
     type CreateInnerOriginFilter = ();
 
     fn config() -> &'static fp_evm::Config {
-        &CANCUN_EVM_CONFIG
+        &EVM_CONFIG
     }
 }
 

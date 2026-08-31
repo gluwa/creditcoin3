@@ -1800,11 +1800,11 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/hello-bridge.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/hello-bridge.yml@main
     with:
       source_chain_kind: "anvil"
-      usc_kind: "local"
-      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
       checkout_ref: "main"
 
   custom-contracts-bridging:
@@ -1812,11 +1812,11 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/custom-contracts-bridging.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/custom-contracts-bridging.yml@main
     with:
       source_chain_kind: "anvil"
-      usc_kind: "local"
-      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
       checkout_ref: "main"
 
   bridge-offchain-worker:
@@ -1824,11 +1824,11 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/bridge-offchain-worker.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/bridge-offchain-worker.yml@main
     with:
       source_chain_kind: "anvil"
-      usc_kind: "local"
-      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
       checkout_ref: "main"
 
   loan-flow:
@@ -1836,12 +1836,12 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/usc-testnet-bridge-examples/.github/workflows/loan-flow.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/loan-flow.yml@main
     with:
       runs-on: "['ubuntu-26.04']"
       source_chain_kind: "anvil"
-      usc_kind: "local"
-      checkout_repo: "gluwa/usc-testnet-bridge-examples"
+      asc_kind: "local"
+      checkout_repo: "gluwa/attestcoin-protocol-examples"
       checkout_ref: "main"
 
   archiver-testing:

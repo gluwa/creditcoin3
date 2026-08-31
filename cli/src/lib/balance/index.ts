@@ -2,7 +2,7 @@ import { ApiPromise, parseUnits, MICROUNITS_PER_CTC } from '..';
 import { BN } from '@polkadot/util';
 import Table from 'cli-table3';
 
-import type { DeriveStakingAccount } from '@polkadot/api-derive/types';
+import type { DeriveBalancesAll, DeriveStakingAccount } from '@polkadot/api-derive/types';
 
 export function parseCTCString(amount: string): BN {
     try {
@@ -40,34 +40,68 @@ export interface AccountBalance {
 }
 
 export async function getBalance(address: string, api: ApiPromise) {
-    const balacesAll = await getBalancesAll(address, api);
+    const balancesAll = await getBalancesAll(address, api);
     const stakingInfo = await getStakingInfo(address, api);
     const stakingHold = await getStakingHoldBalance(address, api);
 
+    const total = balancesAll.freeBalance.add(balancesAll.reservedBalance);
+    const transferable = getTransferable(balancesAll);
+
     const balance: AccountBalance = {
         address,
-        transferable: balacesAll.availableBalance,
+        transferable,
         bonded: stakingInfo?.stakingLedger.active?.unwrap() || new BN(0),
         evm: new BN(0), // Get Balance does not reflect EVM balance, it must be added manually
-        // pallet-staking now bonds funds via a balances hold (HoldReason::Staking) instead of
-        // the legacy lock, so `lockedBalance` (derived from `balances.locks`) alone is 0 for any
-        // stash that hasn't gone through the old lock->hold migration.
-        locked: balacesAll.lockedBalance.add(stakingHold),
-        total: balacesAll.freeBalance.add(balacesAll.reservedBalance),
+        // Staking-scoped encumbrance: `balances.locks` (which is where the attestation
+        // pallet's own `b0ndl0ck` bond still lives) plus the HoldReason::Staking hold that
+        // pallet-staking moved to. Both terms are required - they are disjoint mechanisms, so
+        // there is no double count. Deliberately NOT `total - transferable`: that would also
+        // sweep in unrelated reserves such as the proxy deposit, which is not locked stake.
+        locked: balancesAll.lockedBalance.add(stakingHold),
+        total,
         unbonding: calcUnbonding(stakingInfo),
     };
 
     return balance;
 }
 
-export async function getBalancesAll(address: string, api: ApiPromise) {
-    const balance = await api.derive.balances.all(address);
-    return balance;
+/**
+ * Spendable balance, per the runtime's own rule.
+ *
+ * `availableBalance` is `max(0, free - lockedBalance)`, which only looks at `balances.locks`.
+ * That is wrong on two counts since pallet-staking moved bonded funds to a hold: it misses held
+ * stake entirely, and because `frozen` is a floor on `free + reserved` (so anything reserved
+ * discounts it) it also subtracts freezes that a reserve already covers. `transferable`
+ * implements `free - max(maybeEd, frozen - reserved)`, matching pallet-balances
+ * `reducible_balance()`. polkadot-js documents `availableBalance` as legacy and points here.
+ *
+ * It is `null` on chains still returning the pre-FrameSystemAccountInfo shape, hence the
+ * fallback. The BN.max is belt-and-braces: the derive already clamps both fields at the source
+ * in the pinned 16.x, so it only matters if that pin is ever moved backwards.
+ *
+ * Note the hidden coupling to `ExistentialDeposit = 0` (`runtime/src/lib.rs`): that is what
+ * makes the `maybeEd` term a no-op today, so the reported figure equals `free` exactly for a
+ * stash whose freezes are covered by its reserves. If the ED ever becomes non-zero, this
+ * tightens by one ED and every `canPay()` check tightens with it.
+ */
+export function getTransferable(balancesAll: DeriveBalancesAll): BN {
+    const transferable = balancesAll.transferable ?? balancesAll.availableBalance;
+    return BN.max(new BN(0), transferable);
 }
 
+/**
+ * Bonded stake now sits in a HoldReason::Staking hold rather than a `balances.locks` lock, so
+ * `lockedBalance` alone reports zero for any stash that has been through the lock-to-hold
+ * migration.
+ */
 async function getStakingHoldBalance(address: string, api: ApiPromise): Promise<BN> {
     const holds = await api.query.balances.holds(address);
     return holds.filter((hold) => hold.id.isStaking).reduce((total, hold) => total.iadd(hold.amount), new BN(0));
+}
+
+export async function getBalancesAll(address: string, api: ApiPromise) {
+    const balance = await api.derive.balances.all(address);
+    return balance;
 }
 
 async function getStakingInfo(address: string, api: ApiPromise) {

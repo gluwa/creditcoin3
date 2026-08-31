@@ -21,6 +21,24 @@ type EthereumPrecompilesChecks = (AcceptDelegateCall, CallableByContract, Callab
 /// Non-frontier/non-mainnet precompiles: delegatecall *not* allowed (see `common_checks` in precompile-utils).
 type NonEthereumPrecompileChecks = (CallableByContract, CallableByPrecompile);
 
+// NOTE on EIP-7702 and the two tuples above.
+//
+// `get_address_type` (precompile-utils `precompile_set.rs`) classifies a caller purely by whether
+// it has code. An EOA that has delegated under EIP-7702 carries 23 bytes of `0xef0100 || address`,
+// so it is classified `AddressType::Contract`, not `AddressType::EOA`, and is routed through the
+// `callable_by_smart_contract` gate instead of the unchecked EOA path.
+//
+// That is currently harmless: both tuples use bare `CallableByContract`, which defaults to
+// `ForAllSelectors` and therefore permits every selector. Verified against a delegated EOA on a
+// network running the EIP-7702-enabled configuration -- it reaches selector dispatch exactly as a
+// plain EOA does.
+//
+// It stops being harmless the moment a selector filter is added to restrict contract callers, e.g.
+// `CallableByContract<OnlySomeSelectors>`. At that point delegated EOAs get caught by the filter
+// even though their owner is an ordinary user, and the failure will look inexplicable from the
+// caller's side. If you narrow either tuple, decide deliberately whether delegated EOAs belong on
+// the permitted side of that filter.
+
 /// Upper bound on the Creditcoin-precompile numeric address band (covers 4049–5050 today with room above).
 ///
 /// Addresses from `AddressU64<1>` through this exclusive band are routed through the tuple below;
