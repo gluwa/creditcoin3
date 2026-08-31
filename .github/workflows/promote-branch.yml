@@ -266,4 +266,4 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "promote ${{ env.SOURCE_REF }} -> ${{ env.TARGET_BRANCH }} (dry-run: ${{ env.DRY_RUN }}): ${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}"
+          message: "promote ${{ env.SOURCE_REF }} -> ${{ env.TARGET_BRANCH }} (dry-run: ${{ env.DRY_RUN }}): ${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }} ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"

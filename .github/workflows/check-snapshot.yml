@@ -191,4 +191,4 @@ jobs:
           status: ${{ job.status }}
           inputs: ${{ toJson(inputs) }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Checking ${{ inputs.target-chain }} snapshot complete! cc <@U028EMRHS3S>"
+          message: "Checking ${{ inputs.target-chain }} snapshot complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
