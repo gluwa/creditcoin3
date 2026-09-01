@@ -275,8 +275,8 @@ jobs:
 
       - name: Install azure-cli
         run: |
-          sudo apt-get install -y jq
           sudo .github/install-azure-cli.sh
+          sudo apt-get install -y jq
 
       - name: Azure Login with OIDC
         uses: azure/login@v3
