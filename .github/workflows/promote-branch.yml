@@ -229,9 +229,14 @@ jobs:
           elif [[ "$DRY_RUN" == "true" ]]; then
               TITLE="Promotion dry run: $SOURCE_REF -> $TARGET_BRANCH"
               NOTE="DRY_RUN was enabled, so nothing was pushed. Re-run with it unchecked to promote."
-          else
+          elif [[ "$GATE_PUSH" == "success" ]]; then
               TITLE="Promotion: $SOURCE_REF -> $TARGET_BRANCH"
               NOTE="origin/$TARGET_BRANCH now points at ${SOURCE_SHA:-unknown}."
+          else
+              # always() means this step also renders when a gate failed and the
+              # push was skipped. Never claim the target moved without checking.
+              TITLE="Promotion did not complete: $SOURCE_REF -> $TARGET_BRANCH"
+              NOTE="origin/$TARGET_BRANCH was NOT moved. The gate table below shows where it stopped."
           fi
 
           if [[ "$DRY_RUN" == "true" ]]; then
@@ -247,15 +252,18 @@ jobs:
               echo
               echo "| gate | outcome |"
               echo "| --- | --- |"
-              echo "| 1. source is contained in usc-dev | $GATE_SOURCE |"
+              echo "| 1. source has cleared the required stages | $GATE_SOURCE |"
               echo "| 2. nothing with content is lost | $GATE_SAFE |"
               echo "| 3. promotion is a fast-forward | $GATE_FF |"
               echo "| $PUSH_LABEL | $GATE_PUSH |"
               echo
-              if [[ "$GATE_FF" != "success" ]]; then
+              if [[ "$GATE_FF" == "failure" ]]; then
                   echo "Gate 3 did not pass, so the target cannot move forward over"
                   echo "its current tip. See that step's output for the commits"
                   echo "involved and what to do about them."
+              elif [[ "$GATE_FF" == "skipped" ]]; then
+                  echo "Gate 3 never ran, because an earlier gate failed. Fix that"
+                  echo "one first, then re-run."
               fi
           } >> "$GITHUB_STEP_SUMMARY"
 
