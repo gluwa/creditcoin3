@@ -120,7 +120,7 @@ jobs:
           status: ${{ job.status }}
           inputs: ${{ toJson(matrix) }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! cc <@U028EMRHS3S>"
+          message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
 
   submit-verify-and-emit:
     needs:
@@ -288,7 +288,7 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Sepolia complete! cc <@U028EMRHS3S>"
+          message: "Proofs diff for Sepolia complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
 
   compare-proofs-ethereum:
     needs:
@@ -346,4 +346,4 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Ethereum complete! cc <@U028EMRHS3S>"
+          message: "Proofs diff for Ethereum complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"

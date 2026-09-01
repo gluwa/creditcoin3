@@ -24,7 +24,7 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "Release pipeline started! cc <@U028EMRHS3S>"
+          message: "Release pipeline started!"
 
       - uses: actions/checkout@v7
         with:
@@ -324,7 +324,7 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "Release pipeline finished! cc <@U028EMRHS3S>"
+          message: "Release pipeline finished! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
 
   rm-gh-runner-docker:
     needs:
