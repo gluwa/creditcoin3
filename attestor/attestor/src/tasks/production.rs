@@ -601,12 +601,30 @@ async fn wait_for_block_attested(
     // authoritative `latest_cc3` from this function's return value.
     let mut scratch = AttestationInfo::default();
 
-    let mut tick = tokio::time::interval(std::time::Duration::from_secs(5));
+    const TICK_SECS: u64 = 5;
+    // With the p2p outbox re-gossiping unfinalized votes every 30s, a healthy quorum recovers
+    // from any lost genesis publish within about a minute. A wait this long therefore means the
+    // bootstrap is genuinely stuck (peers down, quorum unreachable, vote mismatch) — escalate to
+    // ERROR once per minute so log gates and alerting surface it, instead of the deadlock hiding
+    // behind an INFO ticker until some downstream test times out.
+    const ESCALATE_AFTER_SECS: u64 = 5 * 60;
+
+    let mut tick = tokio::time::interval(std::time::Duration::from_secs(TICK_SECS));
+    let mut waited_secs: u64 = 0;
     loop {
         tokio::select! {
             _ = shared.token.cancelled() => return Ok(None),
             _ = tick.tick() => {
-                tracing::info!(target, "⏲️ still waiting for genesis BlockAttested...");
+                waited_secs += TICK_SECS;
+                if waited_secs >= ESCALATE_AFTER_SECS && waited_secs % 60 == 0 {
+                    tracing::error!(
+                        target,
+                        waited_secs,
+                        "⏲️ genesis BlockAttested still missing after prolonged waiting — the attestation chain is not bootstrapping. Check that a quorum of attestors for this chain key is running and meshed (each re-gossips its genesis vote every 30s, so a healthy quorum recovers in under a minute)"
+                    );
+                } else {
+                    tracing::info!(target, waited_secs, "⏲️ still waiting for genesis BlockAttested...");
+                }
             }
             maybe_batch = events.next() => {
                 // Stream end = permanent backfill error (see the main-loop arm) — fail fast.
