@@ -29,6 +29,34 @@ pub struct ChainState {
     pub attestation_genesis_block: AtomicU64,
     pub checkpoint_interval: AtomicU64,
     pub attestation_interval: AtomicU64,
+    /// Wall-clock instant of the last event-driven write to the attestation or checkpoint
+    /// cache. This is the health signal that actually tracks serving ability: proofs are
+    /// answered from these caches, and the caches are fed by the cc3 finalized-block
+    /// subscription. If this stops advancing, the subscription is dead and the replica will
+    /// start returning `BlockNotReady` for anything newer than its frozen view — regardless
+    /// of what a point-in-time RPC probe says. Initialised to construction time so a fresh
+    /// pod counts as healthy until real events land (same convention as the attestor's
+    /// liveness watchdog).
+    pub last_cache_advance: std::sync::Mutex<Instant>,
+}
+
+impl ChainState {
+    /// Record that the cc3 event subscription just advanced one of the caches.
+    fn touch_cache(&self) {
+        let mut guard = self
+            .last_cache_advance
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *guard = Instant::now();
+    }
+
+    /// Time since the cc3 event subscription last advanced a cache.
+    fn cache_age(&self) -> Duration {
+        self.last_cache_advance
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .elapsed()
+    }
 }
 
 // Single block proof query object, used in batch requests to specify which transactions to include merkle proofs for. If a block is included in the batch but not listed in the tx_indexes, it will be processed with tx_index = None (continuity proof only)
@@ -166,6 +194,21 @@ pub struct ContinuityService {
     max_batch_span: u64,
 }
 
+/// How long the caches may go without an event-driven write before the cc3 subscription is
+/// considered dead for health purposes. See [`ContinuityService::cc3_cache_freshness`].
+pub const CC3_CACHE_STALE_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// Result of [`ContinuityService::cc3_cache_freshness`].
+#[derive(Debug, Clone)]
+pub struct CacheFreshness {
+    /// True when every configured chain's cache advanced within [`CC3_CACHE_STALE_AFTER`].
+    pub fresh: bool,
+    /// Age of the least-recently-advanced chain's cache.
+    pub max_age_seconds: u64,
+    /// Chains whose cache has not advanced within the window (empty when `fresh`).
+    pub stale_chains: Vec<u64>,
+}
+
 const MERKLE_BACKFILL_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK: usize = 50;
 const MERKLE_BACKFILL_MAX_CONCURRENCY: usize = 8;
@@ -283,6 +326,7 @@ impl ContinuityService {
                     attestation_genesis_block: AtomicU64::new(attestation_genesis_block),
                     checkpoint_interval: AtomicU64::new(checkpoint_interval),
                     attestation_interval: AtomicU64::new(attestation_interval),
+                    last_cache_advance: std::sync::Mutex::new(Instant::now()),
                 }),
             );
         }
@@ -618,16 +662,57 @@ impl ContinuityService {
         self.start_time.elapsed().as_secs()
     }
 
-    /// Health check for CC3 RPC connectivity
+    /// Live cc3 RPC probe: a lightweight storage read on **every** configured chain.
+    ///
+    /// Previously this probed a single chain picked by `HashMap::iter().next()`, which Rust
+    /// randomises per process — so two replicas of identical code could report opposite
+    /// results, and the failure was never attributable to a chain. Every failing chain is
+    /// now logged with its error; the caller only sees a bool, and without the log line this
+    /// class of fault is undiagnosable (it ran 26 days on devnet with no record of why).
+    ///
+    /// Note this is a *diagnostic*, not the serving signal — see [`Self::cc3_cache_freshness`].
     pub async fn check_cc3_connectivity(&self) -> anyhow::Result<()> {
-        // Use a lightweight storage query as a connectivity check (any configured chain)
-        let (_, chain) = self
-            .chains
-            .iter()
-            .next()
-            .ok_or_else(|| anyhow::anyhow!("no chains configured"))?;
-        let _genesis = chain.builder.get_attestation_genesis_block().await?;
-        Ok(())
+        anyhow::ensure!(!self.chains.is_empty(), "no chains configured");
+        let mut failed: Vec<u64> = Vec::new();
+        for (chain_key, chain) in &self.chains {
+            if let Err(err) = chain.builder.get_attestation_genesis_block().await {
+                tracing::warn!(chain_key, ?err, "🩺 cc3 RPC probe failed");
+                failed.push(*chain_key);
+            }
+        }
+        if failed.is_empty() {
+            Ok(())
+        } else {
+            failed.sort_unstable();
+            anyhow::bail!("cc3 RPC probe failed for chain_key(s) {failed:?}")
+        }
+    }
+
+    /// Whether the cc3 event subscription is still advancing the caches this service serves
+    /// proofs from — the signal that actually reflects serving ability.
+    ///
+    /// A chain is stale once no attestation or checkpoint has been cached for
+    /// [`CC3_CACHE_STALE_AFTER`]. Attestations land roughly every two minutes on the
+    /// current networks (attestation_interval 10 × ~12 s blocks), so the window tolerates
+    /// several missed intervals before declaring the subscription dead.
+    pub fn cc3_cache_freshness(&self) -> CacheFreshness {
+        let mut max_age = Duration::ZERO;
+        let mut stale_chains: Vec<u64> = Vec::new();
+        for (chain_key, chain) in &self.chains {
+            let age = chain.cache_age();
+            if age > max_age {
+                max_age = age;
+            }
+            if age > CC3_CACHE_STALE_AFTER {
+                stale_chains.push(*chain_key);
+            }
+        }
+        stale_chains.sort_unstable();
+        CacheFreshness {
+            fresh: stale_chains.is_empty(),
+            max_age_seconds: max_age.as_secs(),
+            stale_chains,
+        }
     }
 
     /// Health check for ETH RPC connectivity
@@ -662,6 +747,7 @@ impl ContinuityService {
                     .await
                     .insert(block_number, digest);
             }
+            chain.touch_cache();
             tracing::debug!(
                 chain_key,
                 block_number,
@@ -807,6 +893,7 @@ impl ContinuityService {
                     .await
                     .insert(block_number, digest);
             }
+            chain.touch_cache();
             tracing::debug!(
                 chain_key,
                 block_number,
