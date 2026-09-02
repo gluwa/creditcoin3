@@ -2,9 +2,6 @@
 name: Create Devnet release
 
 "on":
-  schedule:
-    # every month, on the 2nd @ 6am
-    - cron: "0 6 2 * *"
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
