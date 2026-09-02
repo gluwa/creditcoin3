@@ -30,9 +30,17 @@ pub struct ChainConfig {
     /// and you keep a more expensive "archive" endpoint for old data.
     pub eth_rpc_fallback_urls: Vec<String>,
     pub archiver_url: Option<String>,
-    /// Number of blocks to lag behind the EVM chain tip for reorg protection.
+    /// Reorg-protection depth override, in blocks.
+    ///
+    /// `None` (the default when the field is omitted) means: derive it at startup from the
+    /// chain's on-chain `MaturityStrategy` in the supported-chains pallet -- the same value the
+    /// attestors use, so this process cannot disagree with them. `Some(n)` pins an explicit
+    /// value; startup logs a WARN if it differs from the on-chain one.
+    ///
+    /// This used to be a plain `u64` defaulting to `0`, so *omitting* it silently disabled reorg
+    /// protection. That is the failure mode this change removes.
     /// See [`continuity::ContinuityConfig::block_confirmation_depth`].
-    pub block_confirmation_depth: u64,
+    pub block_confirmation_depth: Option<u64>,
 }
 
 /// Server configuration after CLI / file resolution.
@@ -60,7 +68,8 @@ impl Config {
                 eth_rpc_url: "http://mock".to_string(),
                 eth_rpc_fallback_urls: Vec::new(),
                 archiver_url: None,
-                block_confirmation_depth: 0,
+                // Mock config has no chain to resolve against; pin explicitly.
+                block_confirmation_depth: Some(0),
             }],
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
             max_batch_span: DEFAULT_MAX_BATCH_SPAN,
@@ -118,10 +127,11 @@ pub struct ChainConfigFile {
     pub eth_rpc_fallback_urls: Vec<String>,
     #[serde(default)]
     pub archiver_url: Option<String>,
-    /// Number of blocks to lag behind the EVM chain tip for reorg protection.
-    /// Defaults to 0 (no lag) for backward compatibility.
+    /// Reorg-protection depth override. **Omit it** to derive the depth from the chain's on-chain
+    /// `MaturityStrategy` (recommended -- matches the attestors by construction). Set it only to
+    /// deliberately pin a value; startup warns if it disagrees with the chain.
     #[serde(default)]
-    pub block_confirmation_depth: u64,
+    pub block_confirmation_depth: Option<u64>,
 }
 
 fn default_max_batch_size() -> NonZeroUsize {
@@ -295,6 +305,34 @@ chains:
 "#;
         let cfg = parse(yaml).expect("yaml should parse");
         assert!(cfg.chains[0].eth_rpc_fallback_urls.is_empty());
+    }
+
+    #[test]
+    fn yaml_without_depth_is_none_not_zero() {
+        // Regression guard: omitting the field must mean "derive from chain", never "0".
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        assert_eq!(cfg.chains[0].block_confirmation_depth, None);
+    }
+
+    #[test]
+    fn yaml_with_explicit_depth_is_some() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    block_confirmation_depth: 64
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        assert_eq!(cfg.chains[0].block_confirmation_depth, Some(64));
     }
 
     #[test]

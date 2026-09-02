@@ -84,13 +84,12 @@ pub struct ProofGenApiServer {
 
     #[arg(
         long,
-        default_value = "0",
         env = "BLOCK_CONFIRMATION_DEPTH",
-        help = "Number of blocks to lag behind the EVM chain tip when validating block existence. \
-                Blocks within this depth of the tip are rejected to guard against reorgs. \
-                Set to 0 for instant-finality chains. A typical safe value for Ethereum mainnet is 12."
+        help = "Reorg-protection depth override, in blocks. Omit to derive it from the chain's \
+                on-chain MaturityStrategy (recommended; matches the attestors). If set and it \
+                differs from the on-chain value, startup logs a warning."
     )]
-    block_confirmation_depth: u64,
+    block_confirmation_depth: Option<u64>,
 }
 
 #[tokio::main]

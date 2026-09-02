@@ -10928,6 +10928,7 @@ dependencies = [
  "serde_yaml",
  "sp-core",
  "stream",
+ "supported-chains-primitives",
  "sysinfo 0.37.2",
  "thiserror 1.0.69",
  "tokio",
