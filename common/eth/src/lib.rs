@@ -205,6 +205,12 @@ const ETHEREUM_MAINNET_CHAIN_ID: u64 = 1;
 /// header root even when the data is otherwise sound.
 const ETHEREUM_BYZANTIUM_BLOCK: u64 = 4_370_000;
 
+/// exSat's EVM layer does not maintain a receipts trie or a state trie: every
+/// block header it serves reports `receiptsRoot` and `stateRoot` as 32 zero
+/// bytes, on every block, whether or not the block has transactions. This is
+/// structural, not a property of any single RPC replica.
+const EXSAT_CHAIN_ID: u64 = 7200;
+
 impl OrderedBlock {
     /// Builds an [`OrderedBlock`] from RPC-fetched [`Block`] and receipts. Verifies that
     /// recomputed transaction and receipt Merkle roots match the header (so a reorg between
@@ -262,18 +268,28 @@ impl OrderedBlock {
             return Err(Error::BlockHeaderRootsMismatch(expected_number));
         }
 
+        // Two source chains cannot satisfy the receipt-root check, for unrelated reasons.
+        //
         // Pre-Byzantium Ethereum mainnet receipts encode a post-state root rather than a status byte.
         // Some RPC providers return these historical receipts re-serialized in the modern status form,
         // so a recomputed receipt root will not match the canonical header root even though the body
-        // is consistent. Skip only the receipt-root check for that range; the transaction-root check
-        // above still guards against reorg-induced cross-fetch mismatches.
-        let skip_receipt_root =
-            chain_id == ETHEREUM_MAINNET_CHAIN_ID && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
+        // is consistent.
+        //
+        // exSat never populates `receiptsRoot` at all -- it is permanently zero on every block -- so
+        // for any block carrying at least one transaction the recomputed root can never match, and the
+        // chain stalls at its first transaction-bearing block reporting a reorg that did not happen.
+        //
+        // Skip only the receipt-root check in these cases; the transaction-root check above still
+        // guards against reorg-induced cross-fetch mismatches, and on exSat that root is genuine and
+        // canonical (verified by recomputing it from the block's own transactions).
+        let skip_receipt_root = (chain_id == ETHEREUM_MAINNET_CHAIN_ID
+            && expected_number < ETHEREUM_BYZANTIUM_BLOCK)
+            || chain_id == EXSAT_CHAIN_ID;
 
         if skip_receipt_root {
             trace!(
                 block_number = expected_number,
-                "Skipping receipt root check for pre-Byzantium Ethereum mainnet block"
+                "Skipping receipt root check for this chain/block"
             );
         } else {
             let inner_receipts: Vec<_> = receipts
