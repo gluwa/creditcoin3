@@ -33,12 +33,12 @@ const MAX_PING_FAILURES: u32 = 3;
 /// the peer comes back it re-announces via identify/kad discovery and is re-added as usual.
 const MAX_DIAL_FAILURES: u32 = 5;
 
-/// Upper bound on locally-produced votes retained for publish retry (see `retry_queue` in
+/// Upper bound on locally-produced votes retained in the re-gossip outbox (see `outbox` in
 /// [`run`]). Overflow drops the *oldest* entry — the height most likely to finalize without our
 /// broadcast anyway.
-const MAX_RETRY_QUEUE: usize = 256;
+const MAX_OUTBOX: usize = 256;
 
-/// How often queued unpublished votes are retried while the queue is non-empty. Retries also
+/// How often unfinalized local votes are re-gossiped while the outbox is non-empty. Re-sends also
 /// fire immediately when gossip publishing first becomes possible again (mesh regained).
 const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -84,6 +84,14 @@ pub async fn run(
         .map_err(|e| Error::P2p(e.into()))?
         .with_behaviour(|k| behavior::P2PBehavior::new(k, enable_mdns, &topic))
         .map_err(|e| Error::P2p(anyhow::anyhow!("{e}")))?
+        // libp2p's default idle_connection_timeout is ZERO: a connection holding no active
+        // protocol stream is torn down immediately. Attestation topics are per-chain, so a
+        // connection to an attestor serving a *different* chain never carries a gossipsub
+        // stream — under the default it closes the instant identify finishes, mdns rediscovers
+        // the peer, and the pair redials forever (observed in CI: ~300 reconnects per peer over
+        // 28 minutes, destabilizing the local mesh during the genesis window). A real timeout
+        // lets such connections sit idle instead of thrashing.
+        .with_swarm_config(|c| c.with_idle_connection_timeout(std::time::Duration::from_secs(60)))
         .build();
 
     tracing::info!(%topic, "📫 subscribing to lightweight attestation gossip");
@@ -197,12 +205,16 @@ pub async fn run(
     let mut local_produced_rx = shared.local_produced_rx.clone();
     let mut latest_finalized_rx = shared.latest_finalized_rx.clone();
 
-    // Locally-produced votes that could not be published (no mesh peers yet, or a transient
-    // publish failure). Retried when the mesh comes back and on a fixed interval; entries at or
-    // below the finalized height are pruned since they no longer need propagation. Without this,
-    // votes produced while peerless were silently lost: the channel backed up until production
-    // dropped fresh broadcasts, and publish failures discarded the vote outright.
-    let mut retry_queue: std::collections::VecDeque<Vote> = std::collections::VecDeque::new();
+    // Outbox of locally-produced votes, re-gossiped on a fixed interval (and when the mesh
+    // re-forms) until their height finalizes on-chain. A vote used to leave the queue on publish
+    // *success* — but gossipsub returning Ok only means the message was handed to ≥1 connection,
+    // not that any peer received it. During the CI genesis deadlock all three chain-4 attestors
+    // "successfully" published their genesis vote seconds after boot, every copy evaporated in
+    // connection churn, and with no re-send the 3-vote quorum could never assemble: each attestor
+    // waited on BlockAttested(genesis) forever while anvil kept mining. Keeping votes queued
+    // until *finalization* (pruned by the `latest_finalized_rx` arm below) makes any single lost
+    // publish self-healing at the next tick instead of permanent.
+    let mut outbox: std::collections::VecDeque<Vote> = std::collections::VecDeque::new();
     let mut retry_tick = tokio::time::interval(RETRY_INTERVAL);
     retry_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -218,16 +230,19 @@ pub async fn run(
             // authoritative no-peers signal; pre-gating on the mesh hint wedged publishing
             // whenever the hint went stale-false (see `can_broadcast`).
             Some(vote) = gossip_rx.recv() => {
-                if !try_publish(&mut swarm, &topic, &vote) {
-                    queue_for_retry(&mut retry_queue, vote);
-                }
+                // Publish eagerly, but queue regardless of the result: Ok is not delivery (see
+                // the outbox comment above), so the vote stays until its height finalizes.
+                try_publish(&mut swarm, &topic, &vote);
+                enqueue_unfinalized(&mut outbox, vote);
             }
 
-            // Periodic retry of unpublished votes. Unconditional attempt for the same reason as
-            // above; the flush stops at the first failure, so a peerless tick costs one publish
-            // call per 30s.
-            _ = retry_tick.tick(), if !retry_queue.is_empty() => {
-                flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+            // Periodic re-gossip of every unfinalized local vote. Unconditional attempt — a
+            // publish failing is the authoritative no-peers signal; the sweep stops at the first
+            // failure, so a peerless tick costs one publish call per 30s. Steady state keeps this
+            // cheap: only the handful of in-flight heights are queued, and peers' pools dedup
+            // repeats by (height, attestor).
+            _ = retry_tick.tick(), if !outbox.is_empty() => {
+                republish_outbox(&mut outbox, |vote| try_publish(&mut swarm, &topic, vote));
             }
 
             // Local production cached new AttestationData → drain every buffered height up to
@@ -254,7 +269,7 @@ pub async fn run(
                 let finalized = latest_finalized_rx.borrow().map(|info| info.height);
                 if let Some(fin) = finalized {
                     pending_votes.retain(|&height, _| height > fin);
-                    retry_queue.retain(|vote| vote.height > fin);
+                    outbox.retain(|vote| vote.height > fin);
                 }
             }
 
@@ -289,8 +304,8 @@ pub async fn run(
                     .is_some();
                 // Mesh just (re)formed — flush queued votes immediately rather than waiting for
                 // the next retry tick.
-                if !could_broadcast && can_broadcast && !retry_queue.is_empty() {
-                    flush_retry_queue(&mut swarm, &topic, &mut retry_queue);
+                if !could_broadcast && can_broadcast && !outbox.is_empty() {
+                    republish_outbox(&mut outbox, |vote| try_publish(&mut swarm, &topic, vote));
                 }
             }
         }
@@ -593,51 +608,54 @@ fn try_publish(
                 digest = ?vote.digest,
                 height = vote.height,
                 %err,
-                "✉️ gossip publish failed — queueing for retry",
+                "✉️ gossip publish failed — vote stays in the outbox for re-gossip",
             );
             false
         }
     }
 }
 
-/// Append a vote to the bounded retry queue, dropping the oldest entry on overflow (lowest
-/// height — the one most likely to finalize without our broadcast).
-fn queue_for_retry(retry_queue: &mut std::collections::VecDeque<Vote>, vote: Vote) {
-    if retry_queue.len() >= MAX_RETRY_QUEUE {
-        if let Some(dropped) = retry_queue.pop_front() {
+/// Append a vote to the bounded outbox, dropping the oldest entry on overflow (lowest height —
+/// the one most likely to finalize without our broadcast).
+fn enqueue_unfinalized(outbox: &mut std::collections::VecDeque<Vote>, vote: Vote) {
+    if outbox.len() >= MAX_OUTBOX {
+        if let Some(dropped) = outbox.pop_front() {
             tracing::warn!(
                 digest = ?dropped.digest,
                 height = dropped.height,
-                cap = MAX_RETRY_QUEUE,
-                "🗑️ retry queue full — dropping oldest unpublished vote"
+                cap = MAX_OUTBOX,
+                "🗑️ outbox full — dropping oldest unfinalized vote"
             );
         }
     }
-    retry_queue.push_back(vote);
+    outbox.push_back(vote);
 }
 
-/// Republish queued votes in order (oldest first) until one fails, which usually means the mesh
-/// went away again — the remainder stays queued for the next trigger.
-fn flush_retry_queue(
-    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
-    topic: &libp2p::gossipsub::IdentTopic,
-    retry_queue: &mut std::collections::VecDeque<Vote>,
-) {
-    let backlog = retry_queue.len();
-    while let Some(vote) = retry_queue.front() {
-        if try_publish(swarm, topic, vote) {
-            retry_queue.pop_front();
+/// Re-gossip queued votes in order (oldest first), stopping at the first failure — which usually
+/// means the mesh went away again; the rest wait for the next trigger. Votes are NOT removed on
+/// publish success: gossipsub Ok is hand-off, not delivery, and the entry only leaves the outbox
+/// when its height finalizes on-chain (the `latest_finalized_rx` prune). Takes the publisher as a
+/// closure so the resend policy is testable without a swarm.
+fn republish_outbox(
+    outbox: &mut std::collections::VecDeque<Vote>,
+    mut publish: impl FnMut(&Vote) -> bool,
+) -> usize {
+    let mut published = 0;
+    for vote in outbox.iter() {
+        if publish(vote) {
+            published += 1;
         } else {
             break;
         }
     }
-    if retry_queue.len() < backlog {
-        tracing::info!(
-            published = backlog - retry_queue.len(),
-            remaining = retry_queue.len(),
-            "📤 flushed unpublished vote backlog"
+    if published > 0 {
+        tracing::debug!(
+            published,
+            queued = outbox.len(),
+            "📤 re-gossiped unfinalized vote backlog"
         );
     }
+    published
 }
 
 // -------------------------------------* peer deny-list *-------------------------------------- //
@@ -1177,9 +1195,9 @@ mod tests {
         assert!(note_dial_failure(&mut failures, &boot, a));
     }
 
-    // ---------------------------* publish retry queue *--------------------------- //
+    // ---------------------------* unfinalized-vote outbox *--------------------------- //
 
-    use super::{queue_for_retry, MAX_RETRY_QUEUE};
+    use super::{enqueue_unfinalized, republish_outbox, MAX_OUTBOX};
     use attestor_pool::Vote;
 
     fn vote_at(height: u64) -> Vote {
@@ -1216,18 +1234,56 @@ mod tests {
     }
 
     #[test]
-    fn retry_queue_is_bounded_and_drops_oldest_first() {
-        let mut queue = std::collections::VecDeque::new();
-        for h in 0..(MAX_RETRY_QUEUE as u64 + 2) {
-            queue_for_retry(&mut queue, vote_at(h));
+    fn outbox_is_bounded_and_drops_oldest_first() {
+        let mut outbox = std::collections::VecDeque::new();
+        for h in 0..(MAX_OUTBOX as u64 + 2) {
+            enqueue_unfinalized(&mut outbox, vote_at(h));
         }
-        assert_eq!(queue.len(), MAX_RETRY_QUEUE);
+        assert_eq!(outbox.len(), MAX_OUTBOX);
         // The two oldest entries (h=0, h=1) were displaced; the newest survives at the back.
-        assert_eq!(queue.front().map(|v| v.height), Some(2));
+        assert_eq!(outbox.front().map(|v| v.height), Some(2));
+        assert_eq!(outbox.back().map(|v| v.height), Some(MAX_OUTBOX as u64 + 1));
+    }
+
+    // The CI genesis deadlock: all three chain-4 attestors "successfully" published their genesis
+    // vote once, every copy was lost to connection churn, and nothing ever re-sent — quorum could
+    // never assemble. The outbox therefore must NOT treat publish success as removal; a vote only
+    // leaves via the finalization prune.
+    #[test]
+    fn a_published_vote_stays_queued_until_finalized() {
+        let mut outbox = std::collections::VecDeque::new();
+        enqueue_unfinalized(&mut outbox, vote_at(0));
+        enqueue_unfinalized(&mut outbox, vote_at(10));
+
+        // Every re-gossip sweep publishes the full backlog and removes nothing.
+        for _ in 0..2 {
+            let published = republish_outbox(&mut outbox, |_| true);
+            assert_eq!(published, 2);
+            assert_eq!(outbox.len(), 2, "publish success must not dequeue");
+        }
+
+        // Only finalization prunes (mirrors the `latest_finalized_rx` arm in `run`).
+        outbox.retain(|vote| vote.height > 0);
         assert_eq!(
-            queue.back().map(|v| v.height),
-            Some(MAX_RETRY_QUEUE as u64 + 1)
+            outbox.iter().map(|v| v.height).collect::<Vec<_>>(),
+            vec![10]
         );
+    }
+
+    // Peerless sweep: stop at the first failure so an empty mesh costs one publish per tick, and
+    // report zero published — nothing is lost, everything waits for the next trigger.
+    #[test]
+    fn republish_stops_at_the_first_failure_and_keeps_everything() {
+        let mut outbox = std::collections::VecDeque::new();
+        enqueue_unfinalized(&mut outbox, vote_at(0));
+        enqueue_unfinalized(&mut outbox, vote_at(10));
+        let mut attempts = 0;
+        let published = republish_outbox(&mut outbox, |_| {
+            attempts += 1;
+            false
+        });
+        assert_eq!((published, attempts), (0, 1));
+        assert_eq!(outbox.len(), 2);
     }
 
     // The admission window is `max(max_catchup, interval)` *blocks* above the finalized height
