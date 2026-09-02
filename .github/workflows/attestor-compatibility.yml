@@ -299,7 +299,7 @@ jobs:
 
       - name: Wait for Anvil
         run: |
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141' "${LOG_DIR}/anvil.log"
 
       # NOTE: no archiver here. The attestor pulls source-chain data and builds
       # its own continuity-proof merkle roots directly from --eth-url (via
