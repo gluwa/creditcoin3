@@ -68,13 +68,20 @@ const RESOLVE_ESCALATE_EVERY_ATTEMPTS: u64 = (5 * 60) / OUTBOX_RESOLVE_RETRY_SEC
 
 /// A responsive node may legitimately report that no Outbox exists yet (`Ok(None)`) forever, but
 /// repeated RPC errors against the same bare alloy provider mean the connection is no longer
-/// usable. Surface the failure so the process supervisor rebuilds the provider on restart instead
-/// of retrying the same dead socket indefinitely.
+/// usable. After this many consecutive failures, rebuild the provider in place — see
+/// [`connect_l1_provider`] — rather than retrying the same dead socket indefinitely.
+///
+/// This used to return an error instead, on the theory that a process supervisor would rebuild the
+/// provider by restarting us. That only holds where a supervisor exists: under zombienet nothing
+/// restarts the attestor, so a long enough outage killed it permanently and took every other
+/// (healthy) task down with it — p2p, validation, production and api all exited cleanly behind a
+/// resolver that could not reach the RPC. Rebuilding in place removes the dependency on an
+/// external supervisor and keeps an RPC outage scoped to the one task that cares about it.
 ///
 /// Sized to ~5 minutes (matching [`RESOLVE_ESCALATE_EVERY_ATTEMPTS`]): a *planned* node restart —
 /// the CI outage-recovery scenarios bounce the CC3 node for a couple of minutes, and a devnet
-/// rollout looks the same — must ride out on retries, not exit the process. Only an outage long
-/// past any orchestrated restart indicates the provider itself is wedged.
+/// rollout looks the same — rides out on plain retries well below this. Crossing it means the
+/// provider itself is suspect, so it buys a fresh connection, not a dead process.
 const MAX_CONSECUTIVE_RESOLVE_FAILURES: u64 = (5 * 60) / OUTBOX_RESOLVE_RETRY_SECS;
 
 /// Message-vote state shared between this task (producer) and the p2p task (publisher + incoming
@@ -338,6 +345,22 @@ async fn resolve_active_set(cfg: &Config) -> Option<HashSet<Address>> {
     }
 }
 
+/// Connect the Creditcoin L1 EVM provider used for Outbox discovery and message observation.
+///
+/// Factored out of [`run`] so the resolve loop can rebuild the connection in place once it looks
+/// wedged (see [`MAX_CONSECUTIVE_RESOLVE_FAILURES`]) instead of returning an error and relying on
+/// a process supervisor to do it. Yields `anyhow::Error` rather than [`Error`] because the rebuild
+/// path logs and carries on; only the initial call in `run` treats a failure as fatal, and there a
+/// provider we could never build at all genuinely is.
+async fn connect_l1_provider(rpc: &str) -> anyhow::Result<impl Provider + Clone + 'static> {
+    tokio::time::timeout(RPC_ATTEMPT_TIMEOUT, ProviderBuilder::new().on_builtin(rpc))
+        .await
+        .map_err(|_| {
+            anyhow!("connect Creditcoin L1 EVM RPC timed out after {RPC_ATTEMPT_TIMEOUT:?}")
+        })?
+        .map_err(|e| anyhow!("connect Creditcoin L1 EVM RPC: {e}"))
+}
+
 /// Entry point spawned from `lib.rs`. Drives the Outbox listener and produces signed votes; the
 /// swarm itself is owned by the p2p task. `seed` is the 32-byte secret the EVM key derives from.
 /// `reobs_rx` carries reobservation requests the p2p task decoded off the reobservation topic.
@@ -413,17 +436,11 @@ pub async fn run(
             "cc3_eth_rpc_url is required when message attestation is on"
         ))
     })?;
-    let provider = tokio::time::timeout(
-        RPC_ATTEMPT_TIMEOUT,
-        ProviderBuilder::new().on_builtin(rpc.as_str()),
-    )
-    .await
-    .map_err(|_| {
-        Error::WriteAbility(anyhow!(
-            "connect Creditcoin L1 EVM RPC timed out after {RPC_ATTEMPT_TIMEOUT:?}"
-        ))
-    })?
-    .map_err(|e| Error::WriteAbility(anyhow!("connect Creditcoin L1 EVM RPC: {e}")))?;
+    // `mut` so the resolve loop can swap in a fresh connection when the current one wedges. Safe
+    // to reassign here: the first clone handed to a spawned task is taken well after the loop.
+    let mut provider = connect_l1_provider(rpc.as_str())
+        .await
+        .map_err(Error::WriteAbility)?;
 
     // Capture the chain head *before* the resolve loop. When no explicit `start_block` is
     // configured we scan from here, not from the head after resolution finishes — otherwise
@@ -570,9 +587,31 @@ pub async fn run(
                     consecutive_resolve_failures += 1;
                 }
                 if consecutive_resolve_failures >= MAX_CONSECUTIVE_RESOLVE_FAILURES {
-                    return Err(Error::WriteAbility(err.context(format!(
-                        "Outbox resolution failed {consecutive_resolve_failures} consecutive times; restarting to rebuild the RPC provider"
-                    ))));
+                    // Reset the window before the attempt, not after it: whether the rebuild
+                    // succeeds or not we want the next one a full window away, rather than
+                    // re-connecting on every retry tick for as long as the node stays down.
+                    consecutive_resolve_failures = 0;
+                    tracing::warn!(
+                        consecutive_failures = MAX_CONSECUTIVE_RESOLVE_FAILURES,
+                        error = %format!("{err:#}"),
+                        "🔌 Outbox resolution has failed for a full window — rebuilding the Creditcoin L1 EVM provider in place"
+                    );
+                    match connect_l1_provider(rpc.as_str()).await {
+                        Ok(fresh) => {
+                            provider = fresh;
+                            tracing::info!(
+                                "🔌 Creditcoin L1 EVM provider rebuilt; resuming Outbox resolution"
+                            );
+                        }
+                        Err(e) => {
+                            // Still unreachable. Keep retrying on the existing provider — the node
+                            // being down is not a reason to take the whole attestor with it.
+                            tracing::warn!(
+                                error = %format!("{e:#}"),
+                                "🔌 provider rebuild failed; continuing to retry"
+                            );
+                        }
+                    }
                 }
                 // `{:#}` (alternate Display), not `%err`: these errors are built with
                 // `anyhow::Context`, whose plain Display prints ONLY the outermost context. Logging
@@ -1346,6 +1385,37 @@ mod tests {
             creditcoin_chain_id: 42,
             created_at_block: Some(1),
         }
+    }
+
+    // The rebuild path added when the resolver stopped killing the process: a dead endpoint must
+    // come back as `Err` so the loop can log it and keep going. If `on_builtin` ever became lazy
+    // for this URL scheme it would hand back a healthy-looking provider instead, and the rebuild
+    // would silently swap a dead connection for another dead connection.
+    #[tokio::test]
+    async fn connect_l1_provider_reports_a_dead_endpoint_as_an_error() {
+        // Port 1 is privileged and never bound by the test host, so this refuses immediately
+        // rather than spending the full RPC_ATTEMPT_TIMEOUT.
+        let err = connect_l1_provider("ws://127.0.0.1:1")
+            .await
+            .err()
+            .expect("a websocket endpoint that refuses the connection must not yield a provider");
+        assert!(
+            format!("{err:#}").contains("connect Creditcoin L1 EVM RPC"),
+            "the failure should be labelled as an L1 connect failure, got: {err:#}"
+        );
+    }
+
+    // Sizing guard for the rebuild window. The CI outage-recovery scenarios bounce the node for
+    // `RANDOM % 180` seconds plus restart time; the window has to sit above that so an orchestrated
+    // restart rides out on plain retries and only a genuinely wedged provider triggers a rebuild.
+    #[test]
+    fn resolve_failure_window_outlasts_an_orchestrated_node_restart() {
+        let window_secs = MAX_CONSECUTIVE_RESOLVE_FAILURES * OUTBOX_RESOLVE_RETRY_SECS;
+        assert_eq!(window_secs, 300, "the rebuild window should be ~5 minutes");
+        assert!(
+            window_secs > 180,
+            "window ({window_secs}s) must exceed the CI outage sleep of up to 180s"
+        );
     }
 
     const OUTBOX_A: Address = address!("00000000000000000000000000000000000000aa");
