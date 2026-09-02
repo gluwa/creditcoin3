@@ -211,30 +211,59 @@ jobs:
               echo "INFO: origin/$TARGET_BRANCH now points at $SOURCE_SHA"
           fi
 
-      - name: Self-test summary
-        if: always() && github.event_name == 'pull_request'
+      - name: Job summary
+        # Every event, not just the self-test: a manual dispatch is the path
+        # people actually promote on, and it was rendering no summary at all.
+        # always() so a failed gate still reports which one and why.
+        if: always()
         env:
           GATE_SOURCE: ${{ steps.gate-source.outcome }}
           GATE_SAFE: ${{ steps.gate-safe.outcome }}
           GATE_FF: ${{ steps.gate-ff.outcome }}
           GATE_PUSH: ${{ steps.push.outcome }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
+          if [[ "$EVENT_NAME" == "pull_request" ]]; then
+              TITLE="Promotion self-test: $SOURCE_REF -> $TARGET_BRANCH"
+              NOTE="Report-only. DRY_RUN is forced on for anything that is not a manual dispatch, so nothing was pushed."
+          elif [[ "$DRY_RUN" == "true" ]]; then
+              TITLE="Promotion dry run: $SOURCE_REF -> $TARGET_BRANCH"
+              NOTE="DRY_RUN was enabled, so nothing was pushed. Re-run with it unchecked to promote."
+          elif [[ "$GATE_PUSH" == "success" ]]; then
+              TITLE="Promotion: $SOURCE_REF -> $TARGET_BRANCH"
+              NOTE="origin/$TARGET_BRANCH now points at ${SOURCE_SHA:-unknown}."
+          else
+              # always() means this step also renders when a gate failed and the
+              # push was skipped. Never claim the target moved without checking.
+              TITLE="Promotion did not complete: $SOURCE_REF -> $TARGET_BRANCH"
+              NOTE="origin/$TARGET_BRANCH was NOT moved. The gate table below shows where it stopped."
+          fi
+
+          if [[ "$DRY_RUN" == "true" ]]; then
+              PUSH_LABEL="4. dry-run push"
+          else
+              PUSH_LABEL="4. push"
+          fi
+
           {
-              echo "### Promotion self-test: $SOURCE_REF -> $TARGET_BRANCH"
+              echo "### $TITLE"
               echo
-              echo "Report-only. DRY_RUN was forced on, so nothing was pushed."
+              echo "$NOTE"
               echo
               echo "| gate | outcome |"
               echo "| --- | --- |"
-              echo "| 1. source is contained in usc-dev | $GATE_SOURCE |"
+              echo "| 1. source has cleared the required stages | $GATE_SOURCE |"
               echo "| 2. nothing with content is lost | $GATE_SAFE |"
               echo "| 3. promotion is a fast-forward | $GATE_FF |"
-              echo "| 4. dry-run push | $GATE_PUSH |"
+              echo "| $PUSH_LABEL | $GATE_PUSH |"
               echo
-              if [[ "$GATE_FF" != "success" ]]; then
-                  echo "Gate 3 failing is expected until the one-time reconcile"
-                  echo "merges have been run on usc-dev. See the gate's own output"
-                  echo "for the exact commands."
+              if [[ "$GATE_FF" == "failure" ]]; then
+                  echo "Gate 3 did not pass, so the target cannot move forward over"
+                  echo "its current tip. See that step's output for the commits"
+                  echo "involved and what to do about them."
+              elif [[ "$GATE_FF" == "skipped" ]]; then
+                  echo "Gate 3 never ran, because an earlier gate failed. Fix that"
+                  echo "one first, then re-run."
               fi
           } >> "$GITHUB_STEP_SUMMARY"
 
@@ -245,4 +274,4 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "promote ${{ env.SOURCE_REF }} -> ${{ env.TARGET_BRANCH }} (dry-run: ${{ env.DRY_RUN }}): ${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }}"
+          message: "promote ${{ env.SOURCE_REF }} -> ${{ env.TARGET_BRANCH }} (dry-run: ${{ env.DRY_RUN }}): ${{ github.event.repository.html_url }}/actions/runs/${{ github.run_id }} ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"

@@ -2,9 +2,12 @@
 name: Propose Testnet PR
 
 "on":
-  schedule:
-    # every week @ 7am on Monday
-    - cron: "0 7 * * 1"
+  # No schedule. These rebase-based promotion PRs are superseded by
+  # promote-branch.yml, which fast-forwards the target instead. A scheduled run
+  # mints a PR whose head is a REBASED copy of usc-dev, so its commits carry
+  # rewritten SHAs, GitHub can never auto-close it, and merging it would push
+  # duplicates onto the target and undo the fast-forward invariant. Kept
+  # dispatchable as a fallback until the mainnet hop is proven.
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
     inputs:

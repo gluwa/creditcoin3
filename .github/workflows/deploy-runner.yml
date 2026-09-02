@@ -38,7 +38,7 @@ permissions: read-all
 
 jobs:
   deploy-runner:
-    timeout-minutes: 15
+    timeout-minutes: 25
     name: proxy=${{ inputs.proxy }} / ${{ inputs.secret }} / type=${{ inputs.proxy_type }}
     runs-on: ubuntu-26.04
     steps:
@@ -59,8 +59,12 @@ jobs:
 
       - name: Provision VM
         if: env.LC_GITHUB_REPO_ADMIN_TOKEN
-        run: |
-          .github/provision-linode-vm.sh
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 2
+          retry_wait_seconds: 15
+          command: .github/provision-linode-vm.sh
         env:
           LC_OWNER_REPO_SLUG: ${{ github.repository }}
           LC_GITHUB_REPO_ADMIN_TOKEN: ${{ secrets.GH_REPO_ADMIN_TOKEN }}

@@ -101,10 +101,8 @@ jobs:
 
       - name: Install azure-cli
         run: |
-          sudo apt remove azure-cli -y && sudo apt autoremove -y
-          curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-          sudo apt install -y jq unzip
-          az version
+          sudo .github/install-azure-cli.sh
+          sudo apt-get install -y jq unzip
 
       - name: Azure Login with OIDC
         uses: azure/login@v3
@@ -191,4 +189,4 @@ jobs:
           status: ${{ job.status }}
           inputs: ${{ toJson(inputs) }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Checking ${{ inputs.target-chain }} snapshot complete! cc <@U028EMRHS3S>"
+          message: "Checking ${{ inputs.target-chain }} snapshot complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"

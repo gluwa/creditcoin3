@@ -57,4 +57,4 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#protocol-internal"
-          message: "Bump version to ${{ steps.bump-version.outputs.new_version }}-devnet! Check for release in 1hr; cc <@U028EMRHS3S>"
+          message: "Bump version to ${{ steps.bump-version.outputs.new_version }}-devnet! Check for release in 1hr; cc <!subteam^S028FDV6CCV>"

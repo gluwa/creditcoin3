@@ -264,8 +264,8 @@ jobs:
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141' /var/tmp/integration-test-attestor-network/anvil1.log
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8242' /var/tmp/integration-test-attestor-network/anvil2.log
 
       - name: Start archiver against Anvil1
         env:
@@ -552,7 +552,7 @@ jobs:
             >>/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141' /var/tmp/integration-test-attestor-network/anvil1.log
           ~/.foundry/bin/cast rpc --rpc-url http://127.0.0.1:8141 anvil_mine 0xc8
 
           for _ in $(seq 1 18); do
@@ -1889,7 +1889,7 @@ jobs:
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
+          .github/wait-for-ethereum.sh 'http://127.0.0.1:8141' /var/tmp/archiver-testing/anvil.log
 
       - name: Setup Node.js environment
         uses: actions/setup-node@v7
