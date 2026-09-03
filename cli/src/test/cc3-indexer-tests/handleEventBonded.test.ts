@@ -1,26 +1,47 @@
-import { newApi, ApiPromise, KeyringPair } from '../../lib';
+import { newApi, ApiPromise, KeyringPair, BN } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
-import { randomFundedAccount } from '../integration-tests/helpers';
+import { randomFundedAccount, mintAttestCoin, setMinBondRequirement } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { graphQLQuery } from './common';
 
+/**
+ * `DefaultMinBondRequirement` is 0, which would make `Bonded.amount` 0 and the amount assertion
+ * vacuous. Mint attest coin to a dedicated stash and raise the chain's requirement for the lifetime
+ * of the suite (restored in `afterAll`).
+ */
+const TEST_BOND = new BN('100000000000000000000'); // 100 units
+
 describe('handleEventBonded()', () => {
     let api: ApiPromise;
-    let bob: KeyringPair;
+    let root: KeyringPair;
+    /** Dedicated stash so `stashId` matching is exact and no other suite's ledger interferes. */
+    let stash: any;
     let attestor: any;
     let startingBlock: number;
+    let previousMinBond: string | undefined;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
-        bob = (global as any).CREDITCOIN_CREATE_SIGNER('bob');
+        root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
-        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+        stash = await randomFundedAccount(api, root);
         attestor = await randomFundedAccount(api, root);
-    }, 30_000);
+
+        // Bond collateral must exist before `register_attestor` moves it into the bond pool.
+        await mintAttestCoin(api, root, stash.address, TEST_BOND.muln(4));
+        previousMinBond = await setMinBondRequirement(api, root, chain_Anvil2_Key, TEST_BOND);
+    }, 90_000);
 
     afterAll(async () => {
-        await api.disconnect();
+        try {
+            // `MinBondRequirement` is chain-wide state shared with every other suite on this node.
+            if (previousMinBond !== undefined) {
+                await setMinBondRequirement(api, root, chain_Anvil2_Key, previousMinBond);
+            }
+        } finally {
+            await api.disconnect();
+        }
     });
 
     describe('when new attestor is registered', () => {
@@ -30,7 +51,7 @@ describe('handleEventBonded()', () => {
             // NOTE: registering the attestor will bond a fixed amount
             await api.tx.attestation
                 .registerAttestor(chain_Anvil2_Key, attestor.address)
-                .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
+                .signAndSend(stash.keyring, { nonce: await api.rpc.system.accountNextIndex(stash.address) });
             await forElapsedBlocks(api, { minBlocks: 3 });
         }, 30_000);
 
@@ -43,18 +64,18 @@ describe('handleEventBonded()', () => {
 
             let foundMatch = false;
             for (const node of response.data.bondeds.nodes) {
-                expect(BigInt(node.amount)).toBeGreaterThan(0);
+                // Only structural assertions loop-wide. `register_attestor`'s first-bond path emits
+                // `Bonded` unconditionally, so with `DefaultMinBondRequirement = 0` every other
+                // suite that registers an attestor contributes a `Bonded { amount: 0 }` row to this
+                // `last: 10` window. Amount assertions belong in the owned-stash branch only.
                 expect(node.stashId).toBeTruthy();
                 expect(node.whoId).toBeTruthy();
                 expect(node.whoId).toEqual(node.stashId);
-                // WARNING: cannot match attestorId b/c this value isn't recorded
-                // best we can do is match stashId and look for record added in blocks
-                // *AFTER* this test has started
-                if (node.stashId === bob.address && node.blockNumber > startingBlock) {
+                // This suite owns `stash`, so a match is exact rather than best-effort.
+                if (node.stashId === stash.address && node.blockNumber > startingBlock) {
+                    expect(BigInt(node.amount)).toEqual(BigInt(TEST_BOND.toString()));
                     foundMatch = true;
                 }
-                // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
-                // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
