@@ -138,6 +138,60 @@ impl Server {
             })?
             .ok_or_else(|| anyhow!("Failed to get supported chain for chain_key {chain_key}"))?;
         let supported_chain_id = supported_chain.chain_id;
+
+        // Reorg-protection depth. The source of truth is the chain's MaturityStrategy in the
+        // supported-chains pallet -- the same value the attestors act on -- so derive it from the
+        // `supported_chain` we already fetched unless the operator pinned an override. An
+        // unparseable or depth-less strategy is a real misconfiguration and fails startup
+        // outright: a prover guessing its reorg window is worse than one that is down.
+        let on_chain_depth: u64 = {
+            let strategy = supported_chains_primitives::MaturityStrategy::try_from(
+                supported_chain.maturity_strategy.as_str(),
+            )
+            .map_err(|e| {
+                anyhow!(
+                    "chain_key {chain_key}: invalid on-chain maturity strategy {:?}: {e:?}",
+                    supported_chain.maturity_strategy
+                )
+            })?;
+            strategy.maturity_delay().ok_or_else(|| {
+                anyhow!(
+                    "chain_key {chain_key}: maturity strategy {strategy:?} has no block-depth \
+                     equivalent; set block_confirmation_depth explicitly"
+                )
+            })?
+        };
+        let block_confirmation_depth = match chain.block_confirmation_depth {
+            None => {
+                tracing::info!(
+                    chain_key,
+                    block_confirmation_depth = on_chain_depth,
+                    maturity_strategy = %supported_chain.maturity_strategy,
+                    "⛓️  reorg-protection depth derived from on-chain MaturityStrategy"
+                );
+                on_chain_depth
+            }
+            Some(explicit) if explicit == on_chain_depth => {
+                tracing::info!(
+                    chain_key,
+                    block_confirmation_depth = explicit,
+                    "⛓️  reorg-protection depth pinned in config; matches on-chain MaturityStrategy"
+                );
+                explicit
+            }
+            Some(explicit) => {
+                tracing::warn!(
+                    chain_key,
+                    configured = explicit,
+                    on_chain = on_chain_depth,
+                    maturity_strategy = %supported_chain.maturity_strategy,
+                    "⛓️  reorg-protection depth pinned in config DISAGREES with the on-chain \
+                     MaturityStrategy the attestors use; this prover will confirm blocks on a \
+                     different schedule from them. Remove block_confirmation_depth to derive it."
+                );
+                explicit
+            }
+        };
         // Source-chain block encoding from CC3 metadata, rather than assuming V1.
         let chain_encoding =
             usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
@@ -224,15 +278,15 @@ impl Server {
             .attestation_interval(attestation_interval)
             .checkpoint_interval(checkpoint_interval)
             .last_checkpoint_block(last_checkpoint_block)
-            .block_confirmation_depth(chain.block_confirmation_depth)
+            .block_confirmation_depth(block_confirmation_depth)
             .build();
 
-        if chain.block_confirmation_depth > 0 {
+        if block_confirmation_depth > 0 {
             debug!(
                 chain_key,
-                block_confirmation_depth = chain.block_confirmation_depth,
+                block_confirmation_depth,
                 "⛓️  EVM reorg protection: accepting blocks only up to {} blocks behind chain tip",
-                chain.block_confirmation_depth
+                block_confirmation_depth
             );
         }
 
