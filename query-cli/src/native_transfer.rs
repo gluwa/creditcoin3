@@ -54,7 +54,7 @@ impl TransferExecutor {
         info!("Building provider...");
         let provider = ProviderBuilder::new()
             .wallet(wallet)
-            .on_http(eth_rpc_url.parse()?);
+            .connect_http(eth_rpc_url.parse()?);
 
         info!("Getting chain ID...");
         let chain_id = provider.get_chain_id().await?;
@@ -82,7 +82,7 @@ impl TransferExecutor {
         let wallet = EthereumWallet::from(signer);
         let provider = ProviderBuilder::new()
             .wallet(wallet)
-            .on_http(self.eth_rpc_url.parse()?);
+            .connect_http(self.eth_rpc_url.parse()?);
 
         let to_address =
             Address::from_str(&config.to_address).context("Invalid recipient address")?;
@@ -159,7 +159,7 @@ impl TransferExecutor {
         let wallet = EthereumWallet::from(signer);
         let provider = ProviderBuilder::new()
             .wallet(wallet)
-            .on_http(self.eth_rpc_url.parse()?);
+            .connect_http(self.eth_rpc_url.parse()?);
 
         // Send all transactions sequentially to ensure proper nonce ordering
         let mut pending_txs_with_hashes = Vec::new();

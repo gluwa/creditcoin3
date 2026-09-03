@@ -167,7 +167,7 @@ impl BlockProver {
 
         info!("Query verification successful (view)");
 
-        Ok(result._0)
+        Ok(result)
     }
 
     /// Verify a blockchain query with Merkle proof and continuity chain (transaction that emits events)
@@ -330,7 +330,7 @@ impl BlockProver {
 
         info!("Batch query verification successful (view)");
 
-        Ok(result._0)
+        Ok(result)
     }
 
     /// Verify a batch of queries with shared continuity proof (transaction that emits events)

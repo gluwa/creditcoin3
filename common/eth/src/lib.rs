@@ -178,7 +178,7 @@ impl BlockItem for TxRx {
     }
 
     fn tx_type(&self) -> Option<u8> {
-        match self.tx.inner.clone() {
+        match self.tx.inner.clone_inner() {
             TxEnvelope::Legacy(_) => None,
             TxEnvelope::Eip2930(_) => Some(1),
             TxEnvelope::Eip1559(_) => Some(2),
@@ -408,13 +408,13 @@ impl Client {
         let rpc_provider = match url_scheme {
             "http" | "https" => ProviderBuilder::new()
                 .network::<Ethereum>()
-                .on_http(url.clone()),
+                .connect_http(url.clone()),
 
             "ws" | "wss" => {
                 let ws = WsConnect::new(url.clone());
                 ProviderBuilder::new()
                     .network::<Ethereum>()
-                    .on_ws(ws)
+                    .connect_ws(ws)
                     .await?
             }
 
@@ -612,8 +612,8 @@ impl Client {
         let builder = ProviderBuilder::new().wallet(EthereumWallet::from(self.get_signer()?));
 
         let provider = match self.get_url()? {
-            ConnectionTransport::Http(url) => builder.on_http(url),
-            ConnectionTransport::Ws(ws_client) => builder.on_ws(ws_client).await?,
+            ConnectionTransport::Http(url) => builder.connect_http(url),
+            ConnectionTransport::Ws(ws_client) => builder.connect_ws(ws_client).await?,
         };
 
         Ok(provider)
@@ -784,7 +784,8 @@ impl Client {
         let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
         let block_fut = async {
             provider
-                .get_block(block_id, true.into())
+                .get_block(block_id)
+                .full()
                 .await?
                 .ok_or(Error::FailedToGetBlock(number))
         };
@@ -832,10 +833,8 @@ impl Client {
 
         for (label, provider) in providers {
             match provider
-                .get_block(
-                    BlockId::Number(BlockNumberOrTag::Number(number)),
-                    true.into(),
-                )
+                .get_block(BlockId::Number(BlockNumberOrTag::Number(number)))
+                .full()
                 .await
             {
                 Ok(Some(block)) => {
@@ -916,7 +915,8 @@ impl Client {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<u64, Error> {
         let block_opt = self
             .rpc_provider
-            .get_block_by_hash(hash, true.into())
+            .get_block_by_hash(hash)
+            .full()
             .await
             .map_err(|e| {
                 error!("Failed to get block by hash: {:?}", e);

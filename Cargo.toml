@@ -50,7 +50,11 @@ members = [
     "tracing/client/rpc/debug",
     "tracing/client/rpc/trace",
 ]
-resolver = "2"
+# Resolver v3 is v2 plus MSRV-aware version selection: when a dependency's newest release
+# requires a rustc newer than the toolchain in rust-toolchain.toml (1.88.0), Cargo picks the
+# newest release that still builds instead of failing. The alloy 1.6 tree needs this — its
+# sub-crates carry caret requirements whose 1.7+ releases moved to rustc 1.91.
+resolver = "3"
 
 [workspace.package]
 authors = ["Gluwa Inc. Developer Support <support.dev@gluwa.com>"]
@@ -132,7 +136,9 @@ url = { version = "2.4.0" }
 wasm-timer = { version = "0.2" }
 zeroize = { version = "1.8", features = ["derive"] }
 # Alloy
-alloy = { version = "0.11", features = [
+# Held at 1.6.x on purpose: 1.7.0 and later declare MSRV rustc 1.91, while this workspace is
+# pinned to 1.88.0 by rust-toolchain.toml.
+alloy = { version = "~1.6", features = [
     "node-bindings",
     "providers",
     "provider-http",
@@ -283,8 +289,8 @@ pallet-randomness = { path = "pallets/randomness", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Encoding
-usc-abi-encoding = { version = "0.5" }
-usc-query-builder = { version = "0.7" }
+usc-abi-encoding = { version = "0.6" }
+usc-query-builder = { version = "0.8" }
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
@@ -354,6 +360,13 @@ stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
+
+# usc-abi-encoding 0.6 / usc-query-builder 0.8 are the alloy-1.6 ports of the USC SDK. They are
+# not on crates.io yet, so resolve them from the branch that carries the port. Drop this stanza
+# once gluwa/usc-sdk-rs#update_dependencies is merged and released.
+[patch.crates-io]
+usc-abi-encoding = { git = "https://github.com/gluwa/usc-sdk-rs", branch = "update_dependencies" }
+usc-query-builder = { git = "https://github.com/gluwa/usc-sdk-rs", branch = "update_dependencies" }
 
 [profile.release]
 # Substrate runtime requires unwinding.
