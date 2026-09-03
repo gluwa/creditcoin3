@@ -118,7 +118,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: gluwa/asc-contracts
-          ref: e300c16676efc850a5b382033d666bc9c3a0ce23 # main @ 2026-08-17 (post-#23/#28 v3 RelayerQuote struct) — bump deliberately
+          ref: a4d05d7b6f49b01592233fb34ce7a9212c178ee9 # main @ 2026-09-03 (post-#38 OutboxDiscovery + automatic timelock) — bump deliberately
           path: asc-contracts
           # asc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
           # gets "Repository not found". Use the org bot PAT (same one build-native uses cross-repo).

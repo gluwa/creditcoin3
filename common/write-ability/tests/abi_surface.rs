@@ -20,7 +20,7 @@
 
 use alloy::primitives::keccak256;
 use alloy::sol_types::{SolCall, SolEvent};
-use write_ability::abi::{IOutbox, IOutboxFactory, IVoteValidator};
+use write_ability::abi::{IOutbox, IOutboxDiscovery, IOutboxFactory, IVoteValidator};
 
 /// Canonical signature string ("name(type1,type2,…)") for an ABI item in a hardhat artifact.
 /// Elementary and array types are already canonical in the artifact's `type` field; tuples would
@@ -130,6 +130,63 @@ fn mirrored_abi_surface_matches_compiled_contracts() {
         IOutboxFactory::OutboxCreated::SIGNATURE,
         IOutboxFactory::OutboxCreated::SIGNATURE_HASH.0,
     );
+
+    // OutboxDiscovery (asc-contracts #38). Both events and reads are asserted: a moved topic0
+    // silently blinds a subscription, and a moved selector makes a read revert with empty
+    // returndata, which the registry-first resolver would see as "no Outbox for this chain".
+    let discovery = contracts.join("deployer/OutboxDiscovery.sol/OutboxDiscovery.json");
+    for (sig, topic0) in [
+        (
+            IOutboxDiscovery::OutboxRegistered::SIGNATURE,
+            IOutboxDiscovery::OutboxRegistered::SIGNATURE_HASH.0,
+        ),
+        (
+            IOutboxDiscovery::OutboxRemovalScheduled::SIGNATURE,
+            IOutboxDiscovery::OutboxRemovalScheduled::SIGNATURE_HASH.0,
+        ),
+        (
+            IOutboxDiscovery::DefaultOutboxChangeScheduled::SIGNATURE,
+            IOutboxDiscovery::DefaultOutboxChangeScheduled::SIGNATURE_HASH.0,
+        ),
+        (
+            IOutboxDiscovery::PendingDefaultCancelled::SIGNATURE,
+            IOutboxDiscovery::PendingDefaultCancelled::SIGNATURE_HASH.0,
+        ),
+        (
+            IOutboxDiscovery::PendingRemovalCancelled::SIGNATURE,
+            IOutboxDiscovery::PendingRemovalCancelled::SIGNATURE_HASH.0,
+        ),
+    ] {
+        assert_event_mirrored(&discovery, sig, topic0);
+    }
+    for (sig, selector) in [
+        (
+            "defaultOutbox(uint32)",
+            IOutboxDiscovery::defaultOutboxCall::SELECTOR,
+        ),
+        (
+            "activeOutboxes(uint32)",
+            IOutboxDiscovery::activeOutboxesCall::SELECTOR,
+        ),
+        (
+            "isActiveOutbox(uint32,address)",
+            IOutboxDiscovery::isActiveOutboxCall::SELECTOR,
+        ),
+        (
+            "defaultDeployer()",
+            IOutboxDiscovery::defaultDeployerCall::SELECTOR,
+        ),
+        (
+            "pendingDefaultOutbox(uint32)",
+            IOutboxDiscovery::pendingDefaultOutboxCall::SELECTOR,
+        ),
+        (
+            "pendingRemovalTime(uint32,address)",
+            IOutboxDiscovery::pendingRemovalTimeCall::SELECTOR,
+        ),
+    ] {
+        assert_function_mirrored(&discovery, sig, selector);
+    }
 
     let validator = contracts.join("EOAValidator.sol/EOAValidator.json");
     assert_function_mirrored(
