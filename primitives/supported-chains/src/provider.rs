@@ -11,6 +11,7 @@ pub trait SupportedChainsProvider {
     fn get_supported_chain(chain_key: ChainKey) -> Option<SupportedChain>;
     fn get_write_ability_config(chain_key: ChainKey) -> Option<WriteAbilityConfig>;
     fn get_outbox_factory_address(chain_key: ChainKey) -> Option<H160>;
+    fn get_outbox_discovery_address(chain_key: ChainKey) -> Option<H160>;
     fn get_core_fee(chain_key: ChainKey) -> Option<CoreFeeConfig>;
 }
 

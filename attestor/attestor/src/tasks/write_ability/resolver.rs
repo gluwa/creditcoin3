@@ -48,7 +48,7 @@ use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
 use attestor_primitives::ChainKey;
-use write_ability::abi::{IChainInfo, IOutboxFactory};
+use write_ability::abi::{IChainInfo, IOutboxDiscovery, IOutboxFactory};
 
 use super::config::Config;
 use super::cursor::{FactoryScanCursorStore, PersistedFactoryScan};
@@ -314,10 +314,69 @@ pub async fn resolve<P: Provider>(
     }))
 }
 
+/// Resolve the Outbox by reading the discovery-registry address off the chain-info precompile and
+/// calling `defaultOutbox` on it, instead of scanning the permissionless factory's `OutboxCreated`
+/// logs.
+///
+/// This exists for a security reason, not as a shortcut: `OutboxFactory.deployOutbox` is
+/// intentionally permissionless, so any account can deploy an Outbox for `chain_key` and emit an
+/// `OutboxCreated` indistinguishable from a legitimate one — [`resolve_outbox_address`]'s log scan
+/// binds the newest such event, so an attacker's deployment would be permanently newest. The
+/// registry (`OutboxDiscovery` in asc-contracts) is written only through an access-controlled
+/// deploy path, so its `defaultOutbox` answer is safe to trust directly.
+///
+/// `defaultOutbox`, not `outboxOf`: confirmed as the source of truth on Slack (Kevin Nguyen,
+/// 28 Aug 2026) — "the default deployed outbox for each chain via: `defaultOutbox(chainKey)` (not
+/// from deployer) because there will be multiple version[s] of outbox". `outboxOf` lives on the
+/// older `OutboxDeployer` and doesn't support that.
+///
+/// Returns `Ok(None)` — not an error — when no discovery address is registered for `chain_key` yet,
+/// or the registry has no Outbox for it. The caller falls through to the factory scan in that case,
+/// so a chain key not yet migrated onto the registry keeps resolving exactly as before.
+async fn resolve_outbox_from_registry<P: Provider>(
+    provider: &P,
+    chain_key: ChainKey,
+) -> Result<Option<Address>> {
+    let discovery = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)
+        .get_outbox_discovery_address(chain_key)
+        .call()
+        .await
+        .context("chain-info precompile get_outbox_discovery_address() reverted")?;
+    if !discovery.exists || discovery.discoveryAddr.is_zero() {
+        return Ok(None);
+    }
+    let discovery = discovery.discoveryAddr;
+
+    // The registry contract keys `defaultOutbox` by `uint32` while `chain_key` is `u64`. Reject
+    // anything unrepresentable rather than truncating: a silently wrapped key would read the
+    // registry for a *different* chain and bind whatever Outbox that answered with.
+    let chain_key_u32 = u32::try_from(chain_key).with_context(|| {
+        format!(
+            "chain_key {chain_key} exceeds the uint32 the Outbox registry is keyed by, so it \
+             cannot be represented on-chain"
+        )
+    })?;
+
+    let outbox = IOutboxDiscovery::new(discovery, provider)
+        .defaultOutbox(chain_key_u32)
+        .call()
+        .await
+        .with_context(|| format!("defaultOutbox reverted on registry {discovery}"))?;
+
+    if outbox._0.is_zero() {
+        return Ok(None);
+    }
+
+    Ok(Some(outbox._0))
+}
+
 /// Resolve the Outbox contract address for `chain_key` entirely on-chain.
 ///
-/// 1. Fetch the Outbox factory for this chain from the `chain-info` precompile, which exposes
-///    `pallet_supported_chains::OutboxFactories` (a `chain_key → factory address` map) to the EVM.
+/// 0. Prefer the discovery registry when one is registered for this chain key (see
+///    [`resolve_outbox_from_registry`]) — a single trustworthy read, no scan or cursor involved.
+/// 1. Otherwise, fetch the Outbox factory for this chain from the `chain-info` precompile, which
+///    exposes `pallet_supported_chains::OutboxFactories` (a `chain_key → factory address` map) to
+///    the EVM.
 /// 2. Ask that factory for the Outbox bound to this chain key via `IOutboxFactory.getOutbox`.
 ///
 /// Returns `Ok(None)` when no factory is registered for `chain_key` or the factory has no Outbox for
@@ -334,6 +393,18 @@ async fn resolve_outbox_address<P: Provider>(
     // Reset per call, before any `.await`, so it is accurate even if this attempt is later cut off
     // by the caller's RPC_ATTEMPT_TIMEOUT — see `OutboxDiscoveryCursor::advanced_last_call`'s docs.
     cursor.advanced_last_call = false;
+
+    // 0. Registry read, when this chain key has one — see `resolve_outbox_from_registry`. No cursor
+    //    bookkeeping needed: unlike the log scan, a registry read is complete and authoritative on
+    //    every call, so there is nothing to resume or persist.
+    if let Some(outbox) = resolve_outbox_from_registry(provider, chain_key).await? {
+        tracing::info!(
+            %outbox,
+            chain_key,
+            "🧭 resolved Outbox on-chain (discovery registry)"
+        );
+        return Ok(Some((outbox, None)));
+    }
 
     // 1. Outbox factory for this chain, from the chain-info precompile.
     let factory = IChainInfo::new(CHAIN_INFO_PRECOMPILE, provider)

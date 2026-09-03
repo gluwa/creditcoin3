@@ -1700,6 +1700,10 @@ impl_runtime_apis! {
         fn outbox_factory_address(chain_key: ChainKey) -> Option<H160> {
             SupportedChains::get_outbox_factory_address(chain_key)
         }
+
+        fn outbox_discovery_address(chain_key: ChainKey) -> Option<H160> {
+            SupportedChains::get_outbox_discovery_address(chain_key)
+        }
     }
 
     impl randomness_primitives::api::RandomnessPalletApi<Block> for Runtime {
