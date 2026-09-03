@@ -42,5 +42,6 @@ pub use errors::ContinuityError;
 pub use indexer_client::AttestationWithProof;
 pub use proof::BuiltContinuityProof;
 pub use rpc::{
-    CcRpcProvider, EthRpcProvider, ReconnectingEthRpcProvider, SharedCcProvider, SharedEthProvider,
+    CcRpcProvider, EthRpcProvider, ReconnectingCcRpcProvider, ReconnectingEthRpcProvider,
+    SharedCcProvider, SharedEthProvider,
 };

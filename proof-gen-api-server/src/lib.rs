@@ -74,6 +74,8 @@ impl Server {
         ;
         debug!("🚀 ✅ [startup] Creditcoin3 client connected");
 
+        let shared_chain_provider: Arc<CcClient> = Arc::new(cc3_client.clone());
+
         let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(config.chains.len());
         let checkpoint_intervals = Arc::new(RwLock::new(HashMap::new()));
         let last_checkpoint_blocks = Arc::new(RwLock::new(HashMap::new()));
@@ -98,7 +100,7 @@ impl Server {
             }
             let builder = Self::build_continuity_for_chain(
                 &config,
-                cc3_client.clone(),
+                shared_chain_provider.clone(),
                 chain,
                 &checkpoint_intervals,
                 &last_checkpoint_blocks,
@@ -119,7 +121,7 @@ impl Server {
 
     async fn build_continuity_for_chain(
         global: &Config,
-        cc3_client: CcClient,
+        cc3_client: Arc<CcClient>,
         chain: &ChainConfig,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
         last_checkpoint_blocks: &Arc<RwLock<HashMap<u64, u64>>>,
@@ -315,7 +317,10 @@ impl Server {
         );
         let builder = Arc::new(ContinuityBuilder::new_with_providers(
             continuity_config,
-            Arc::new(cc3_client.clone()),
+            Arc::new(continuity::rpc::ReconnectingCcRpcProvider::new(
+                cc3_client,
+                std::time::Duration::from_secs(15),
+            )),
             eth_provider,
         ));
 

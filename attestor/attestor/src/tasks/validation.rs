@@ -442,7 +442,7 @@ async fn revalidate_stashed(shared: &Arc<Shared>, stashed: SignedQuorum) -> Opti
 
     let chain_key = shared.chain_key;
     let target_sample_size =
-        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc_client::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
             cc3.target_sample_size(chain_key).await
         })
         .await
@@ -529,7 +529,7 @@ async fn aggregate_and_validate(
 
     // Pre-checks against runtime — each wrapped in the retry shim so transient WS blips don't
     // bubble up as task-fatal `ValidationError::External`s.
-    let supported = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+    let supported = cc_client::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
         let r = cc3.api().runtime_api().at_latest().await?;
         r.call(
             cc_client::Client::runtime_api()
@@ -545,7 +545,7 @@ async fn aggregate_and_validate(
         return Err(ValidationError::Invalid);
     }
 
-    let is_dup = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+    let is_dup = cc_client::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
         let r = cc3.api().runtime_api().at_latest().await?;
         r.call(
             cc_client::Client::runtime_api()
@@ -589,7 +589,7 @@ async fn aggregate_and_validate(
     // instead — fees are saved and the pool collects more votes from gossip before the next
     // emission.
     let target_sample_size =
-        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc_client::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
             cc3.target_sample_size(chain_key).await
         })
         .await
@@ -614,7 +614,7 @@ async fn aggregate_and_validate(
     // digest would reintroduce the sentinel ambiguity the runtime's own Option-based handling
     // avoids, and the height is needed to mirror the runtime's header-number continuity checks.
     let last_finalized: Option<(Height, cc_client::H256)> =
-        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc_client::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
             cc3.fetch_last_finalized(chain_key).await
         })
         .await

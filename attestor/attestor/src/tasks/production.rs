@@ -487,7 +487,7 @@ async fn handle_one(
             // committee changes).
             let chain_key = shared.chain_key;
             let attestors =
-                crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+                cc_client::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
                     cc3.get_attestor_active_set(chain_key).await
                 })
                 .await

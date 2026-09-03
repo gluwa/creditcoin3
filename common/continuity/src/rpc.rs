@@ -13,6 +13,7 @@ use sp_core::H256;
 use std::{future::Future, sync::Arc, time::Duration};
 use tokio::sync::RwLock;
 use tokio_retry::strategy::{jitter, ExponentialBackoff};
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
@@ -296,30 +297,78 @@ pub trait EthRpcProvider: Send + Sync {
     async fn is_healthy(&self) -> Result<bool>;
 }
 
+/// CC3 RPC provider that retries transient failures and reconnects the shared
+/// [`cc_client::Client`] in between, instead of surfacing the first transport error.
+///
+/// Without this, a one-shot call through a bare [`CcClient`] hits a dead connection forever once
+/// the underlying WS drops: nothing else in this crate ever calls `Client::reconnect()`, so
+/// every subsequent call (including the `/health` connectivity check) keeps failing even after
+/// the RPC endpoint itself has recovered — the connection only gets rebuilt on process restart.
+/// This mirrors [`ReconnectingEthRpcProvider`] on the source-chain side.
+#[derive(Debug, Clone)]
+pub struct ReconnectingCcRpcProvider {
+    client: Arc<CcClient>,
+    timeout: Duration,
+}
+
+impl ReconnectingCcRpcProvider {
+    pub fn new(client: impl Into<Arc<CcClient>>, timeout: Duration) -> Self {
+        Self {
+            client: client.into(),
+            timeout,
+        }
+    }
+
+    /// Run a CC3 call, retrying and reconnecting the shared client on transient failures,
+    /// bounded by [`CC3_CALL_TIMEOUT`] so a sustained outage fails fast instead of hanging.
+    async fn run<T, F, Fut>(&self, op: &'static str, f: F) -> Result<T>
+    where
+        F: FnMut(Arc<CcClient>) -> Fut,
+        Fut: Future<Output = std::result::Result<T, cc_client::Error>>,
+    {
+        let result = tokio::time::timeout(
+            self.timeout,
+            cc_client::retry::with_retries(&self.client, &CancellationToken::new(), f),
+        )
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "{op}: timed out after {:?} while retrying CC3 RPC",
+                self.timeout
+            )
+        })?;
+
+        result.map_err(|e| anyhow!("{op}: {e}"))
+    }
+}
+
 #[async_trait]
-impl CcRpcProvider for CcClient {
+impl CcRpcProvider for ReconnectingCcRpcProvider {
     async fn get_attestations_for_chain(
         &self,
         chain_key: u64,
     ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
-        self.get_attestations_for_chain(chain_key)
-            .await
-            .context("Failed to fetch attestations")
+        self.run("get_attestations_for_chain", move |client| async move {
+            client.get_attestations_for_chain(chain_key).await
+        })
+        .await
     }
 
     async fn get_last_checkpoint(&self, chain_key: u64) -> Result<Option<AttestationCheckpoint>> {
-        self.get_last_checkpoint(chain_key)
-            .await
-            .context("Failed to fetch last checkpoint")
+        self.run("get_last_checkpoint", move |client| async move {
+            client.get_last_checkpoint(chain_key).await
+        })
+        .await
     }
 
     async fn get_checkpoints_for_chain(
         &self,
         chain_key: u64,
     ) -> Result<Vec<AttestationCheckpoint>> {
-        self.get_checkpoints_for_chain(chain_key)
-            .await
-            .context("Failed to fetch checkpoints")
+        self.run("get_checkpoints_for_chain", move |client| async move {
+            client.get_checkpoints_for_chain(chain_key).await
+        })
+        .await
     }
 
     async fn get_checkpoint_by_height(
@@ -327,22 +376,34 @@ impl CcRpcProvider for CcClient {
         chain_key: u64,
         block_number: u64,
     ) -> Result<Option<AttestationCheckpoint>> {
-        self.get_checkpoint_by_height(chain_key, block_number)
-            .await
-            .map_err(|e| anyhow!("Failed to fetch checkpoint by height: {e}"))
+        self.run("get_checkpoint_by_height", move |client| async move {
+            client
+                .get_checkpoint_by_height(chain_key, block_number)
+                .await
+        })
+        .await
     }
 
     async fn get_attestation_chain_genesis_block_number(&self, chain_key: u64) -> Result<u64> {
-        self.get_attestation_chain_genesis_block_number(chain_key)
-            .await
-            .map_err(|e| anyhow!("Failed to fetch genesis block number: {e}"))
+        self.run(
+            "get_attestation_chain_genesis_block_number",
+            move |client| async move {
+                client
+                    .get_attestation_chain_genesis_block_number(chain_key)
+                    .await
+            },
+        )
+        .await
     }
 
     async fn fetch_last_digest(&self, chain_key: u64) -> Result<Option<H256>> {
-        self.fetch_last_digest(chain_key)
-            .await
-            .map(|opt| opt.map(|d| H256::from_slice(d.as_bytes())))
-            .map_err(|e| anyhow!("Failed to fetch last digest: {e}"))
+        let digest = self
+            .run("fetch_last_digest", move |client| async move {
+                client.fetch_last_digest(chain_key).await
+            })
+            .await?;
+
+        Ok(digest.map(|d| H256::from_slice(d.as_bytes())))
     }
 
     async fn get_attestation_by_digest(
@@ -351,29 +412,32 @@ impl CcRpcProvider for CcClient {
         digest: H256,
     ) -> Result<Option<SignedAttestation<H256, AccountId32>>> {
         let sp_digest = sp_core::H256::from_slice(digest.as_bytes());
-        self.get_attestation_by_digest(chain_key, sp_digest)
-            .await
-            .map(|opt| {
-                opt.map(|att| SignedAttestation {
-                    attestation: att.attestation,
-                    signature: att.signature,
-                    attestors: att.attestors,
-                    continuity_proof: att.continuity_proof,
-                })
+        let attestation = self
+            .run("get_attestation_by_digest", move |client| async move {
+                client.get_attestation_by_digest(chain_key, sp_digest).await
             })
-            .map_err(|e| anyhow!("Failed to fetch attestation by digest: {e}"))
+            .await?;
+
+        Ok(attestation.map(|att| SignedAttestation {
+            attestation: att.attestation,
+            signature: att.signature,
+            attestors: att.attestors,
+            continuity_proof: att.continuity_proof,
+        }))
     }
 
     async fn get_attestation_interval(&self, chain_key: u64) -> Result<Option<u64>> {
-        self.chain_attestation_interval(chain_key)
-            .await
-            .map_err(|e| anyhow!("Failed to fetch attestation interval: {e}"))
+        self.run("get_attestation_interval", move |client| async move {
+            client.chain_attestation_interval(chain_key).await
+        })
+        .await
     }
 
     async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u64>> {
-        self.chain_checkpoint_interval(chain_key)
-            .await
-            .map_err(|e| anyhow!("Failed to fetch checkpoint interval: {e}"))
+        self.run("get_checkpoint_interval", move |client| async move {
+            client.chain_checkpoint_interval(chain_key).await
+        })
+        .await
     }
 }
 

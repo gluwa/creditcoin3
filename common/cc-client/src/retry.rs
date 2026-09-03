@@ -1,27 +1,30 @@
-//! Retry shim for runtime API calls.
+//! Retry shim for RPC calls against a shared, reconnecting [`crate::Client`].
 //!
 //! Background:
-//!   v1 wrapped every `runtime_api.call(...)` in `cc_client::api::ReconnectingRuntimeApi`,
-//!   which takes `&mut Client` and transparently retries on transient WS disconnects, calling
+//!   v1 wrapped every `runtime_api.call(...)` in [`crate::api::ReconnectingRuntimeApi`], which
+//!   takes `&mut Client` and transparently retries on transient WS disconnects, calling
 //!   `Client::reconnect()` between attempts. v2 holds `Arc<Client>` (one swap shared across all
-//!   tasks) so we can't get `&mut`; we need a `&Arc<Client>`-friendly equivalent.
+//!   tasks) so we can't get `&mut`; this module is the `&Arc<Client>`-friendly equivalent.
 //!
 //! `with_retries` retries an async closure. If the inner error matches [`is_transient`] —
-//! JSON-RPC disconnects, subxt RPC errors, generic IO errors — it triggers `cc3.reconnect()`
-//! between attempts. Because `cc3` is shared across all tasks via one `ArcSwap`, a reconnect
-//! here is observed by every other task on its next call.
+//! JSON-RPC disconnects, subxt RPC errors, generic IO errors — it triggers `client.reconnect()`
+//! between attempts. Because the `Client` is shared across all tasks via one `ArcSwap`, a
+//! reconnect here is observed by every other task on its next call.
 //!
 //! Pacing is delegated to `Client::reconnect`'s shared `BackoffState` (it sleeps until the
 //! client-wide `next_attempt_at` before dialing; every failed dial advances it exponentially
 //! up to 30s), so this shim adds no backoff of its own — stacking a second schedule on top
-//! would double recovery time on every attempt (see `cc_client::api`'s reconnect helper for
+//! would double recovery time on every attempt (see the reconnect helper in [`crate::api`] for
 //! the same reasoning). The one case reconnect pacing can't cover is a node that accepts the
 //! dial but can't serve requests: the successful dial resets the shared backoff, so we pause
 //! [`FRESH_DIAL_STILL_FAILING_PAUSE`] before re-dialing once a fresh connection has already
 //! failed, keeping that loop from hot-spinning.
 //!
-//! Cancellation: each retry attempt is races against `token.cancelled()`. If cancellation fires
-//! mid-retry, we return an [`Err`] immediately.
+//! Cancellation: each retry attempt is raced against `token.cancelled()`. If cancellation fires
+//! mid-retry, we return an [`Err`] immediately. Retries here are otherwise unbounded — callers
+//! that need a wall-clock bound (e.g. an HTTP request handler that must not hang forever) should
+//! race the whole call against a `tokio::time::timeout` rather than pass a token tied to a
+//! fixed deadline, since the token is also this call's only cooperative-cancellation path.
 
 use std::sync::Arc;
 
@@ -35,21 +38,21 @@ use tokio_util::sync::CancellationToken;
 //
 // Pause before re-dialing when a *fresh* connection already failed the call: the successful
 // dial reset the shared backoff, so without this a node that accepts sockets but can't serve
-// requests would be re-dialed in a tight loop. Mirrors the fixed pause in `cc_client::api`'s
+// requests would be re-dialed in a tight loop. Mirrors the fixed pause in `crate::api`'s
 // reconnect helper.
 const FRESH_DIAL_STILL_FAILING_PAUSE: std::time::Duration = std::time::Duration::from_secs(1);
 
-/// Retry an async closure that takes a `&Arc<cc_client::Client>` and returns
-/// `Result<T, cc_client::Error>`. On transient errors, `cc3.reconnect()` is invoked between
+/// Retry an async closure that takes a `&Arc<crate::Client>` and returns
+/// `Result<T, crate::Error>`. On transient errors, `client.reconnect()` is invoked between
 /// attempts so the shared `ArcSwap` rolls forward for every other task too.
 pub async fn with_retries<T, F, Fut>(
-    cc3: &Arc<cc_client::Client>,
+    client: &Arc<crate::Client>,
     token: &CancellationToken,
     mut f: F,
-) -> Result<T, cc_client::Error>
+) -> Result<T, crate::Error>
 where
-    F: FnMut(Arc<cc_client::Client>) -> Fut,
-    Fut: std::future::Future<Output = Result<T, cc_client::Error>>,
+    F: FnMut(Arc<crate::Client>) -> Fut,
+    Fut: std::future::Future<Output = Result<T, crate::Error>>,
 {
     let mut attempt: usize = 0;
     // True when the attempt that just failed ran on a connection we freshly dialed (previous
@@ -58,16 +61,14 @@ where
 
     loop {
         if token.is_cancelled() {
-            return Err(cc_client::Error::from(subxt::Error::Other(
-                "cancelled".into(),
-            )));
+            return Err(crate::Error::from(subxt::Error::Other("cancelled".into())));
         }
 
         let res = tokio::select! {
-            _ = token.cancelled() => return Err(cc_client::Error::from(subxt::Error::Other(
+            () = token.cancelled() => return Err(crate::Error::from(subxt::Error::Other(
                 "cancelled".into(),
             ))),
-            r = f(cc3.clone()) => r,
+            r = f(client.clone()) => r,
         };
 
         match res {
@@ -83,7 +84,7 @@ where
                     // dial reset the shared backoff — pause so we don't hot-loop dials against
                     // a node that accepts sockets but can't serve requests.
                     tokio::select! {
-                        _ = token.cancelled() => return Err(cc_client::Error::from(
+                        () = token.cancelled() => return Err(crate::Error::from(
                             subxt::Error::Other("cancelled".into()),
                         )),
                         () = tokio::time::sleep(FRESH_DIAL_STILL_FAILING_PAUSE) => {}
@@ -97,10 +98,10 @@ where
                 // failure (e.g. malformed URL) doesn't vanish — `is_transient` may not catch
                 // every error variant from `build_inner`, and we'd otherwise spin silently.
                 let reconnect_res = tokio::select! {
-                    _ = token.cancelled() => return Err(cc_client::Error::from(
+                    () = token.cancelled() => return Err(crate::Error::from(
                         subxt::Error::Other("cancelled".into()),
                     )),
-                    r = cc3.reconnect() => r,
+                    r = client.reconnect() => r,
                 };
                 match reconnect_res {
                     Ok(()) => fresh_dial_failed = true,
@@ -116,19 +117,20 @@ where
     }
 }
 
-/// Classifies a `cc_client::Error` as transient (worth a reconnect+retry) vs. permanent.
+/// Classifies a `crate::Error` as transient (worth a reconnect+retry) vs. permanent.
 ///
 /// Transient covers WS disconnects, JSON-RPC connection errors, IO errors. Permanent covers
 /// decoding errors, dispatch errors, anything wrapping a runtime/module error.
-pub fn is_transient(err: &cc_client::Error) -> bool {
-    // cc_client::Error exposes its subxt error through `SubxtError(subxt::Error)` (the variant
+#[must_use]
+pub fn is_transient(err: &crate::Error) -> bool {
+    // crate::Error exposes its subxt error through `SubxtError(subxt::Error)` (the variant
     // is plain `SubxtError`, not `Subxt`).
     let subxt_err = match err {
-        cc_client::Error::SubxtError(e) => e,
-        // cc-client's own classifier already routed a recoverable disconnect here; honour it so
+        crate::Error::SubxtError(e) => e,
+        // crate's own classifier already routed a recoverable disconnect here; honour it so
         // this second layer agrees rather than misfiling it as permanent.
-        cc_client::Error::ConnectionError(_) => return true,
-        cc_client::Error::RpcError(rpc_err) => return is_transient_rpc(rpc_err),
+        crate::Error::ConnectionError(_) => return true,
+        crate::Error::RpcError(rpc_err) => return is_transient_rpc(rpc_err),
         // All other variants are domain-level (decoding, dispatch, missing data, transaction
         // outcomes) — permanent for the purpose of "retry & reconnect".
         _ => return false,
@@ -154,7 +156,7 @@ fn is_transient_rpc(rpc_err: &subxt::error::RpcError) -> bool {
         // subxt 0.44 moved the RPC-client error variants (`DisconnectedWillReconnect`, the
         // boxed client error) out of `RpcError` and into `subxt_rpcs::Error`, reached via
         // `RpcError::ClientError`.
-        RpcError::ClientError(rpcs_err) => is_transient_rpcs(rpcs_err),
+        RpcError::ClientError(rpc_err) => is_transient_rpcs(rpc_err),
         _ => false,
     }
 }
@@ -225,8 +227,8 @@ mod tests {
 
     /// Wrap a message the way subxt surfaces jsonrpsee client errors: a boxed `dyn Error` whose
     /// Display output is all the classifier gets to see.
-    fn client_error(msg: &str) -> cc_client::Error {
-        cc_client::Error::from(subxt::Error::Rpc(subxt::error::RpcError::ClientError(
+    fn client_error(msg: &str) -> crate::Error {
+        crate::Error::from(subxt::Error::Rpc(subxt::error::RpcError::ClientError(
             subxt::ext::subxt_rpcs::Error::Client(Box::new(std::io::Error::other(msg.to_owned()))),
         )))
     }
@@ -280,12 +282,12 @@ mod tests {
     #[test]
     fn structural_variants_classify_transient() {
         let disconnected =
-            cc_client::Error::from(subxt::Error::Rpc(subxt::error::RpcError::ClientError(
+            crate::Error::from(subxt::Error::Rpc(subxt::error::RpcError::ClientError(
                 subxt::ext::subxt_rpcs::Error::DisconnectedWillReconnect("ws closed".into()),
             )));
         assert!(is_transient(&disconnected));
 
-        let dropped = cc_client::Error::from(subxt::Error::Rpc(
+        let dropped = crate::Error::from(subxt::Error::Rpc(
             subxt::error::RpcError::SubscriptionDropped,
         ));
         assert!(is_transient(&dropped));
@@ -293,7 +295,7 @@ mod tests {
 
     #[test]
     fn decode_and_metadata_errors_are_permanent() {
-        let metadata = cc_client::Error::from(subxt::Error::Other("metadata mismatch".into()));
+        let metadata = crate::Error::from(subxt::Error::Other("metadata mismatch".into()));
         assert!(!is_transient(&metadata));
     }
 }
