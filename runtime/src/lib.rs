@@ -245,6 +245,13 @@ impl frame_system::Config for Runtime {
         // executed on devnet/testnet (version 1). Remove once mainnet runs a runtime that
         // includes it.
         pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
+        // Write-ability storage migration (v0 -> v1: WriteAbilityConfigs / OutboxFactories).
+        // Version-guarded, so it no-ops on chains where it already ran (e.g. usc-dev).
+        pallet_supported_chains::migrations::MigrateV0ToV1<Runtime>,
+        // Write-ability storage migration (v1 -> v2: CoreFeeConfig loses its `token` field, so any
+        // legacy entry would mis-decode). Clears CoreFees, which is empty on every network today
+        // (no genesis field, write-ability undeployed). Version-guarded like the one above.
+        pallet_supported_chains::migrations::MigrateV1ToV2<Runtime>,
         // NOTE: all other historical migrations are intentionally NOT registered:
         // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
         //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2
@@ -1684,6 +1691,14 @@ impl_runtime_apis! {
 
         fn chain_key_by_chain_id_and_name(chain_id: ChainId, chain_name: Vec<u8>) -> Option<ChainKey>{
             SupportedChains::chain_key_by_chain_id_and_name(chain_id, chain_name)
+        }
+
+        fn write_ability_config(chain_key: ChainKey) -> Option<supported_chains_primitives::WriteAbilityConfig> {
+            SupportedChains::get_write_ability_config(chain_key)
+        }
+
+        fn outbox_factory_address(chain_key: ChainKey) -> Option<H160> {
+            SupportedChains::get_outbox_factory_address(chain_key)
         }
     }
 

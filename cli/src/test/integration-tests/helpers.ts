@@ -139,7 +139,7 @@ export async function setUpProxy(api: ApiPromise, nonProxiedCli: any, delegate: 
 }
 
 export function tearDownProxy(cli: any, proxy: any) {
-    if (process.env.PROXY_ENABLED === 'yes') {
+    if (process.env.PROXY_ENABLED === 'yes' && proxy !== undefined) {
         const result = cli(`proxy remove --proxy ${proxy.address}`);
         expect(result.exitCode).toEqual(0);
         expect(result.stdout).toContain('Transaction included at block');

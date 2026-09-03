@@ -3,7 +3,8 @@ use crate::{
         Account::{Alice, Precompile},
         *,
     },
-    BoundsCheckResult, ChainInfo, ChainInfoResult, HashResult, HeightHashResult, HeightResult,
+    BoundsCheckResult, ChainInfo, ChainInfoResult, CoreFees, HashResult, HeightHashResult,
+    HeightResult, OutboxFactories, OutboxFactoryResult,
 };
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
@@ -12,9 +13,13 @@ use pallet_attestation::{
     Attestations, CheckpointBuckets, Checkpoints, LastCheckpoint, LastDigest,
     Pallet as AttestationPallet,
 };
-use precompile_utils::{prelude::UnboundedBytes, testing::*};
+use precompile_utils::{
+    prelude::{Address, UnboundedBytes},
+    testing::*,
+};
 
-use sp_core::{H160, H256};
+use sp_core::{H160, H256, U256};
+use supported_chains_primitives::CoreFeeConfig;
 
 fn precompiles() -> Precompiles<Runtime> {
     PrecompilesValue::get()
@@ -87,6 +92,143 @@ fn get_chain_by_key_works() {
                 )
                 .execute_returns(expected_result);
         });
+}
+
+#[test]
+fn get_outbox_factory_address_works() {
+    let alice: H160 = Alice.into();
+
+    let factory_addr = H160::repeat_byte(0x11);
+
+    let expected_result = OutboxFactoryResult {
+        factory_addr: Address(factory_addr),
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Insert factory address
+            OutboxFactories::<Runtime>::insert(SUPPORTED_CHAIN_KEY, factory_addr);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_outbox_factory_address {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_outbox_factory_address_returns_default_when_not_set() {
+    let alice: H160 = Alice.into();
+
+    let unknown_chain_key: u64 = 9999;
+
+    let expected_result = OutboxFactoryResult {
+        factory_addr: Address(H160::zero()),
+        exists: false,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Ensure chain does NOT exist (or at least no factory set)
+            assert!(!OutboxFactories::<Runtime>::contains_key(unknown_chain_key));
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_outbox_factory_address {
+                        chain_key: unknown_chain_key,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_core_fee_returns_the_configured_amount() {
+    let alice: H160 = Alice.into();
+
+    let amount = U256::from(1_000_000_000_000_000_000u128); // 1 ATTEST
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            CoreFees::<Runtime>::insert(SUPPORTED_CHAIN_KEY, CoreFeeConfig { amount });
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_core_fee {
+                        chain_key: SUPPORTED_CHAIN_KEY as u32,
+                    },
+                )
+                .execute_returns(amount);
+
+            // A governance fee change is picked up on the next read — the whole point of the Outbox
+            // reading this live rather than holding its own copy.
+            let raised = U256::from(2_500_000_000_000_000_000u128);
+            CoreFees::<Runtime>::insert(SUPPORTED_CHAIN_KEY, CoreFeeConfig { amount: raised });
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_core_fee {
+                        chain_key: SUPPORTED_CHAIN_KEY as u32,
+                    },
+                )
+                .execute_returns(raised);
+        });
+}
+
+#[test]
+fn get_core_fee_returns_zero_when_not_set() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            assert!(!CoreFees::<Runtime>::contains_key(SUPPORTED_CHAIN_KEY));
+
+            // An unconfigured chain is indistinguishable from an explicit zero fee, by design: both
+            // mean "charge nothing", so the ABI carries no separate `exists` flag.
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_core_fee {
+                        chain_key: SUPPORTED_CHAIN_KEY as u32,
+                    },
+                )
+                .execute_returns(U256::zero());
+        });
+}
+
+/// The Solidity consumer (`ICoreFeeProvider` in usc-contracts, behind `IFeeRegistry`) declares
+/// `get_core_fee(uint32) returns (uint256)` and its FeeRegistry staticcalls that selector directly.
+/// A drift in the argument width or the return shape would change the selector and silently stop
+/// resolving, so pin it here.
+#[test]
+fn get_core_fee_selector_matches_the_solidity_consumer() {
+    assert_eq!(
+        PCall::get_core_fee_selectors(),
+        [0x5b023376],
+        "get_core_fee(uint32) selector must stay 0x5b023376 — it is hardcoded in \
+         usc-contracts ICoreFeeProvider"
+    );
 }
 
 #[test]

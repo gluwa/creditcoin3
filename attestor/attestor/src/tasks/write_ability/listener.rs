@@ -1,0 +1,643 @@
+//! Creditcoin L1 Outbox event listener (confluence §7.3 A3 / §6.8).
+//!
+//! Polls `eth_getLogs` for `MessagePublished` on the resolved Outbox and emits an
+//! [`IndexedMessage`] (with the canonical `messageHash` already computed) for each finalized event.
+//!
+//! Finality: the Outbox lives on Creditcoin L1, which has deterministic GRANDPA finality, so events
+//! are surfaced up to the **finalized head** ([`FinalityPolicy::Finalized`]) — a finalized block
+//! cannot be reorged out from under a signed vote (§6.8). `block_confirmation_depth` is only a
+//! *fallback* probabilistic bound, used if finality stalls or the `finalized` tag is unavailable.
+//! Polling (rather than `eth_subscribe`) avoids the silent-stream-stall failure mode, matching the
+//! relayer.
+
+use std::time::{Duration, Instant};
+
+use alloy::primitives::{Address, B256};
+use alloy::providers::Provider;
+use alloy::rpc::types::eth::BlockNumberOrTag;
+use alloy::rpc::types::{BlockTransactionsKind, Filter};
+use alloy::sol_types::SolEvent;
+use anyhow::{Context, Result};
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+use write_ability::abi::IOutbox;
+use write_ability::hash::message_hash;
+
+use super::cursor::CursorStore;
+use super::resolver::ResolvedOutbox;
+
+/// Poll cadence for `eth_getLogs`.
+pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
+
+/// Per-RPC deadline. This deliberately wraps only network calls, never delivery into the bounded
+/// signing channel. A dense but valid log range may take longer than this to drain under
+/// backpressure; cancelling mid-drain would leave the block cursor before the chunk and replay the
+/// same prefix forever. Network calls still need a deadline so a black-holed provider cannot wedge
+/// the listener.
+const RPC_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Consecutive *stalled* polls before the listener gives up and returns `Err`. Only a poll that
+/// errored **and** made no forward progress counts (see [`next_failure_count`]); a slow backfill
+/// that keeps advancing the scan resets the budget, so catching up across many polls never trips
+/// this. The write-ability task harvests the eventual error and propagates it to the supervisor,
+/// which restarts the pod — rebuilding the provider from scratch. This is the reconnect story for
+/// the write-ability EVM provider: unlike the block-attestation path (wrapped in the reconnecting
+/// `eth::Client`), this provider is a bare alloy connection whose pubsub service exits permanently
+/// after a single failed reconnect, so a routine RPC blip would otherwise silently kill message
+/// voting for the process lifetime (C1). At the 6s cadence this rides out ~1 minute of fast errors,
+/// or (with `RPC_TIMEOUT`) a few minutes of a black-holed endpoint, before restarting — long enough
+/// to absorb a transient blip, short enough that a dead provider does not strand quorum indefinitely.
+const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
+
+/// Blocks to rewind a *persisted* cursor by on resume. The cursor is saved once a poll's range has
+/// been handed to the signing pipeline, not once each vote is durably gossiped (see [`super::cursor`]),
+/// so a crash between the save and the gossip would otherwise leave the resumed cursor *past* votes
+/// that never left the process. Rewinding by this margin re-scans that window on boot; re-signing is
+/// harmless (the aggregator dedups by signer, the relayer dedups votes). Sized to comfortably cover
+/// one poll's in-flight range plus finality lag, while keeping the restart re-scan cheap.
+const CURSOR_RESUME_LOOKBACK_BLOCKS: u64 = 256;
+
+/// Max block span per `eth_getLogs` request. The scan window can grow large — e.g. a long
+/// Outbox-resolve wait leaves a wide gap between `last_seen` and the finalized tip on first poll —
+/// and a single `eth_getLogs` over an unbounded span exceeds most RPC providers' range limits,
+/// failing every poll until the failure budget restarts the task (which re-seeds from a fresh head
+/// and permanently skips the unscanned span). Chunk the scan into ranges of this size instead; 2000
+/// blocks is comfortably within the common provider caps (Alchemy/Infra allow ≥2k per query).
+const MAX_LOG_BLOCK_RANGE: u64 = 2000;
+
+/// How long the finalized head may stay frozen while the tip keeps advancing before we treat
+/// finality as *stalled* (not merely lagging) and fall back to the probabilistic depth bound.
+/// GRANDPA finality on Creditcoin normally lags the tip by seconds; a freeze this long means
+/// finality is genuinely stuck, at which point signing must continue under the governed depth
+/// bound rather than halt. Well above normal finality lag, well below any real outage budget.
+const FINALITY_STALL_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// The finality policy for the Outbox source chain (Creditcoin L1).
+#[derive(Clone, Copy, Debug)]
+pub enum FinalityPolicy {
+    /// Sign up to the chain's GRANDPA-**finalized** head (exact, reorg-proof) — the production
+    /// policy for Creditcoin. Falls back to `tip - fallback_depth` *only* when finality is
+    /// unavailable or has stalled past [`FINALITY_STALL_TIMEOUT`] (governed probabilistic bound).
+    Finalized { fallback_depth: u64 },
+    /// Always sign up to `tip - depth` (probabilistic). For chains/harnesses without deterministic
+    /// finality — e.g. the anvil unit-e2e, where the `finalized` tag has no GRANDPA meaning.
+    Depth(u64),
+}
+
+/// Runtime finality state, tracked across polls to distinguish a genuine finality *stall* from
+/// normal finality lag (see [`FinalityPolicy::Finalized`]).
+#[derive(Clone, Copy, Debug)]
+pub struct FinalityTracker {
+    last_finalized: Option<u64>,
+    last_advance: Instant,
+    in_fallback: bool,
+}
+
+impl FinalityTracker {
+    #[must_use]
+    pub fn new(now: Instant) -> Self {
+        Self {
+            last_finalized: None,
+            last_advance: now,
+            in_fallback: false,
+        }
+    }
+}
+
+/// Decide the highest block to sign up to. Pure so the finality policy is unit-testable without an
+/// RPC. Updates `tracker` (finalized-advance timestamp + whether we're in probabilistic fallback);
+/// never regresses below the last known finalized head.
+fn pick_to_block(
+    finalized: Option<u64>,
+    tip: u64,
+    policy: &FinalityPolicy,
+    tracker: &mut FinalityTracker,
+    now: Instant,
+) -> u64 {
+    match *policy {
+        FinalityPolicy::Depth(depth) => {
+            tracker.in_fallback = false;
+            tip.saturating_sub(depth)
+        }
+        FinalityPolicy::Finalized { fallback_depth } => match finalized {
+            Some(f) => {
+                let advanced = tracker.last_finalized.is_none_or(|prev| f > prev);
+                if advanced {
+                    tracker.last_finalized = Some(f);
+                    tracker.last_advance = now;
+                    tracker.in_fallback = false;
+                    f
+                } else if now.duration_since(tracker.last_advance) >= FINALITY_STALL_TIMEOUT {
+                    // Finality genuinely stalled: sign the probabilistic bound, but never below the
+                    // last finalized head we already trust.
+                    tracker.in_fallback = true;
+                    tip.saturating_sub(fallback_depth).max(f)
+                } else {
+                    // Finality is lagging but not stalled — stay at the finalized head.
+                    tracker.in_fallback = false;
+                    f
+                }
+            }
+            None => {
+                // Chain reports no finalized head (or the tag is unsupported / errored this poll).
+                // Sign the probabilistic bound, but NEVER regress below the last finalized head we
+                // already trusted: a transient `finalized`-read blip after a prior good read must not
+                // let `tip - depth` advance the scan past a head we know is final and re-sign
+                // not-yet-finalized logs (bugbot). `max(last_finalized)` mirrors the stall branch.
+                tracker.in_fallback = true;
+                tip.saturating_sub(fallback_depth)
+                    .max(tracker.last_finalized.unwrap_or(0))
+            }
+        },
+    }
+}
+
+/// A finalized `MessagePublished` the attestor should vote on.
+#[derive(Clone, Debug)]
+pub struct IndexedMessage {
+    pub message_id: B256,
+    /// The dApp that published the message (`MessagePublished.emitterAddress`) — **not** the Outbox.
+    pub emitter: Address,
+    /// Outbox this was observed on. Carried so a consumer can tell whether the message still belongs
+    /// to the active Outbox: on a governance/factory rotation the old listener is aborted, but
+    /// messages it already queued stay buffered in the channel and would otherwise be signed against
+    /// a superseded Outbox. `message_hash` is Outbox-independent, so provenance cannot be recovered
+    /// from it downstream.
+    pub outbox: Address,
+    pub payload: Vec<u8>,
+    /// `keccak256(abi.encode(...))` — the digest the attestor signs (PoC §5.2).
+    pub message_hash: B256,
+}
+
+/// Next value of the consecutive-poll-failure budget after one poll.
+///
+/// A poll that either completed (`poll_ok`) or advanced the scan (`made_progress`) resets the budget
+/// to zero; only a fully *stalled* poll — errored **and** zero forward progress — increments it.
+/// This is what stops a slow-but-progressing backfill (which may encounter a later RPC failure after
+/// advancing earlier chunks) from tripping [`MAX_CONSECUTIVE_POLL_FAILURES`] and restarting the
+/// whole process, block attestation included. Pure so the rule is unit-testable without an RPC or
+/// timers.
+fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
+    if poll_ok || made_progress {
+        0
+    } else {
+        prev.saturating_add(1)
+    }
+}
+
+/// Watch the resolved Outbox until `token` fires. Sends each finalized message on `tx`.
+///
+/// `cursor` persists the scan position (`last_seen`) across restarts: on boot the persisted value
+/// is preferred over `start_block`/head so a restart resumes exactly where it left off, and after
+/// every poll that advances the scan the new position is saved.
+pub async fn watch<P: Provider>(
+    provider: &P,
+    resolved: ResolvedOutbox,
+    block_confirmation_depth: u64,
+    start_block: Option<u64>,
+    cursor: CursorStore,
+    tx: mpsc::Sender<IndexedMessage>,
+    token: CancellationToken,
+) -> Result<()> {
+    // Cursor precedence: a persisted position wins over `start_block`/head so a restart resumes
+    // rather than skipping down-time messages (default config) or replaying the whole history from
+    // `start_block`. To force a different start position, remove the cursor file.
+    let mut last_seen = if let Some(persisted) = cursor.load() {
+        // Read the live head to sanity-clamp the persisted position. A cursor *ahead* of the current
+        // head (chain rolled back / resynced to a shorter chain, or a file copied from another node)
+        // would otherwise leave `from_block = last_seen + 1 > tip` and silently scan nothing forever
+        // (bugbot: stale cursor stalls scanning). On a transient head-read failure, fall back to the
+        // persisted value unclamped rather than fail boot.
+        let head = match tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number()).await {
+            Ok(Ok(head)) => head,
+            Ok(Err(err)) => {
+                tracing::warn!(%err, "could not clamp persisted Outbox cursor to live head");
+                persisted
+            }
+            Err(_) => {
+                tracing::warn!("timed out clamping persisted Outbox cursor to live head");
+                persisted
+            }
+        };
+        let clamped = persisted.min(head);
+        // Rewind by a bounded lookback so a crash between enqueuing a range's votes and gossiping them
+        // re-scans that window (at-least-once; downstream dedups). See CURSOR_RESUME_LOOKBACK_BLOCKS.
+        let resume = clamped.saturating_sub(CURSOR_RESUME_LOOKBACK_BLOCKS);
+        tracing::info!(
+            persisted,
+            head,
+            resume_from = resume + 1,
+            "⏮️ resuming message-attestation scan from persisted Outbox cursor (clamped to tip, rewound by lookback)"
+        );
+        resume
+    } else if let Some(start) = start_block {
+        tracing::info!(
+            start_block = start,
+            "⏮️ no persisted Outbox cursor; starting message-attestation scan from configured block"
+        );
+        start.saturating_sub(1)
+    } else {
+        let head = tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number())
+            .await
+            .context("timed out reading Creditcoin L1 chain head")?
+            .context("failed to read Creditcoin L1 chain head")?;
+        tracing::info!(
+            head,
+            "⏮️ no persisted Outbox cursor or start_block; scanning from current head (future messages only)"
+        );
+        head
+    };
+
+    let mut tick = tokio::time::interval(Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS));
+    tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+    // Creditcoin L1 has deterministic GRANDPA finality, so the normal signing boundary is the
+    // finalized head (reorg-proof); `block_confirmation_depth` is the governed probabilistic bound
+    // used only if finality stalls or the `finalized` tag is unavailable (audit P1-2).
+    let policy = FinalityPolicy::Finalized {
+        fallback_depth: block_confirmation_depth,
+    };
+    let mut finality = FinalityTracker::new(Instant::now());
+
+    tracing::info!(
+        outbox = %resolved.address,
+        ?resolved.destination_chain_key,
+        creditcoin_chain_id = resolved.creditcoin_chain_id,
+        fallback_depth = block_confirmation_depth,
+        "📡 message-attestation Outbox listener online (signing finalized head; depth is fallback)"
+    );
+
+    let mut consecutive_failures: u32 = 0;
+    loop {
+        tokio::select! {
+            () = token.cancelled() => {
+                tracing::info!("🛑 Outbox listener exiting on cancel");
+                return Ok(());
+            }
+            _ = tick.tick() => {
+                let prev_seen = last_seen;
+                // Individual network calls inside `poll_once` are deadline-bounded. Do not wrap the
+                // whole poll: delivery to `tx` is intentionally allowed to wait for downstream
+                // capacity so a dense chunk is delivered exactly once before its cursor advances.
+                //
+                // That wait is unbounded, though, and `poll_once` is awaited inside this arm's body
+                // rather than as a `select!` branch — so without racing the cancel token here, a
+                // consumer that is wedged but still holding the receiver would make the listener
+                // ignore shutdown entirely (the removed whole-poll timeout used to cap that at 30s).
+                // Abandoning a poll mid-drain is safe: the cursor only advances after a full chunk,
+                // and re-scanning a range on the next boot is the documented at-least-once contract.
+                let outcome = tokio::select! {
+                    () = token.cancelled() => {
+                        tracing::info!("🛑 Outbox listener exiting on cancel (mid-poll)");
+                        return Ok(());
+                    }
+                    outcome = poll_once(
+                        provider, &resolved, &policy, &mut finality, &mut last_seen, &tx,
+                    ) => outcome,
+                };
+
+                // Did the scan advance this poll? `poll_once` bumps `last_seen` after each
+                // successful chunk, so this is true even when the poll ultimately errored/timed out
+                // part-way through a wide backfill. Drives both cursor persistence and — crucially —
+                // the failure budget below.
+                let made_progress = last_seen != prev_seen;
+
+                // Persist any forward progress this poll made — including a *partial* advance before
+                // an error mid-way through a chunked backfill. At-least-once by design: re-scanning
+                // the in-flight range after a crash is harmless (downstream dedups), so we save
+                // whenever `last_seen` moved rather than gating on `Ok`. A persistence failure is
+                // logged but never fails the poll — losing the volume shouldn't take signing down;
+                // the next advance retries the write.
+                if made_progress {
+                    if let Err(err) = cursor.save(last_seen) {
+                        tracing::warn!(
+                            %err, last_seen,
+                            "failed to persist Outbox cursor; will retry on next advance"
+                        );
+                    }
+                }
+
+                // Progress-aware failure budget: a poll that either completed or *advanced the scan*
+                // resets the budget; only a fully stalled poll (errored AND zero forward progress)
+                // counts toward the restart threshold. A wide backfill (far-behind start_block, or a
+                // long Outbox-resolve wait) can legitimately advance several chunks before a later
+                // RPC fails — counting that progressing-but-unfinished poll as a failure would
+                // trip `MAX_CONSECUTIVE_POLL_FAILURES` and restart the whole process (taking block
+                // attestation down with it) even while it was catching up the entire time.
+                consecutive_failures =
+                    next_failure_count(consecutive_failures, outcome.is_ok(), made_progress);
+                match outcome {
+                    Ok(()) => {}
+                    // Errored but the scan advanced — a slow-but-progressing backfill, not a fault.
+                    // Budget already reset above; keep going.
+                    Err(err) if made_progress => {
+                        tracing::info!(
+                            last_seen, %err,
+                            "🐢 outbox backfill advanced but hit an RPC failure mid-scan; \
+                             continuing (not counted as a failure)"
+                        );
+                    }
+                    // Stalled poll (no progress): the budget was incremented above.
+                    Err(err) => {
+                        // Give up after a sustained *stalled* run. Returning Err lets the
+                        // write-ability task harvest it and restart the pod, which rebuilds this
+                        // (non-self-healing) provider — the only reconnect path it has (C1).
+                        if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
+                            return Err(err).with_context(|| {
+                                format!(
+                                    "outbox poll stalled (no progress) {consecutive_failures} times \
+                                     in a row — RPC connection is likely dead; restarting to rebuild it"
+                                )
+                            });
+                        }
+                        tracing::warn!(
+                            %err,
+                            consecutive_failures,
+                            max = MAX_CONSECUTIVE_POLL_FAILURES,
+                            "outbox poll stalled with no progress; will retry"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Run a single poll iteration, signing up to the boundary chosen by `policy` (the finalized head,
+/// or a probabilistic depth fallback — see [`pick_to_block`]). Exposed (beyond the internal
+/// [`watch`] loop) so the anvil e2e test can drive polling deterministically.
+pub async fn poll_once<P: Provider>(
+    provider: &P,
+    resolved: &ResolvedOutbox,
+    policy: &FinalityPolicy,
+    finality: &mut FinalityTracker,
+    last_seen: &mut u64,
+    tx: &mpsc::Sender<IndexedMessage>,
+) -> Result<()> {
+    let tip = tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number())
+        .await
+        .context("eth_blockNumber timed out")??;
+
+    // Read the finalized head only when the policy uses it. A finalized-tag read failure (node up
+    // but the tag is unsupported/errored) is treated as "finalized unavailable" → depth fallback,
+    // rather than failing the whole poll — the tip read above already covers a dead RPC.
+    let finalized = match policy {
+        FinalityPolicy::Finalized { .. } => {
+            match tokio::time::timeout(
+                RPC_TIMEOUT,
+                provider.get_block_by_number(
+                    BlockNumberOrTag::Finalized,
+                    BlockTransactionsKind::Hashes,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(Some(b))) => Some(b.header.number),
+                Ok(Ok(None)) => None,
+                Ok(Err(err)) => {
+                    tracing::warn!(%err, "finalized-head read failed; using depth fallback this poll");
+                    None
+                }
+                Err(_) => {
+                    tracing::warn!("finalized-head read timed out; using depth fallback this poll");
+                    None
+                }
+            }
+        }
+        FinalityPolicy::Depth(_) => None,
+    };
+
+    let was_fallback = finality.in_fallback;
+    let to_block = pick_to_block(finalized, tip, policy, finality, Instant::now());
+    if finality.in_fallback && !was_fallback {
+        tracing::warn!(
+            tip,
+            "⚠️ source finality stalled/unavailable — signing under the probabilistic depth fallback"
+        );
+    } else if !finality.in_fallback && was_fallback {
+        tracing::info!("✅ source finality recovered — signing the finalized head again");
+    }
+
+    if to_block <= *last_seen {
+        return Ok(());
+    }
+
+    // Chunk the scan into bounded block ranges (see `MAX_LOG_BLOCK_RANGE`). `last_seen` is
+    // advanced after each *successful* chunk so progress is durable: a failure part-way through a
+    // wide gap keeps everything already scanned, and a retry/restart resumes from there rather than
+    // re-attempting (or skipping) the whole span.
+    let mut from_block = *last_seen + 1;
+    while from_block <= to_block {
+        let chunk_to = to_block.min(from_block + MAX_LOG_BLOCK_RANGE - 1);
+        scan_range(provider, resolved, from_block, chunk_to, tx).await?;
+        *last_seen = chunk_to;
+        from_block = chunk_to + 1;
+    }
+    Ok(())
+}
+
+/// Fetch + index `MessagePublished` logs in the inclusive block range `[from_block, to_block]`.
+/// Returns `Err` (without the caller advancing `last_seen`) on an RPC failure or an ABI-mismatch
+/// decode error, so the exact range is retried rather than stepped over.
+async fn scan_range<P: Provider>(
+    provider: &P,
+    resolved: &ResolvedOutbox,
+    from_block: u64,
+    to_block: u64,
+    tx: &mpsc::Sender<IndexedMessage>,
+) -> Result<()> {
+    let filter = Filter::new()
+        .address(resolved.address)
+        .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
+        .from_block(from_block)
+        .to_block(to_block);
+
+    let logs = tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
+        .await
+        .with_context(|| format!("eth_getLogs from {from_block} to {to_block} timed out"))?
+        .with_context(|| format!("eth_getLogs from {from_block} to {to_block} failed"))?;
+
+    for log in logs {
+        match IOutbox::MessagePublished::decode_log(&log.inner, true) {
+            Ok(decoded) => {
+                let payload = decoded.data.payload.to_vec();
+                // `emitterAddress` is emitted as `bytes32` (cross-chain consistency); the 20-byte
+                // EVM address sits in the high bytes (`bytes32(bytes20(emitter))`). Recover it as an
+                // `Address` — the signed `messageHash` and `deliverMessage` both use `address`, so
+                // this must be the plain 20-byte value, not the padded word.
+                let emitter = Address::from_slice(&decoded.data.emitterAddress.as_slice()[..20]);
+                let hash = message_hash(
+                    decoded.data.messageId,
+                    emitter,
+                    resolved.destination_chain_key,
+                    resolved.creditcoin_chain_id,
+                    &payload,
+                );
+                let indexed = IndexedMessage {
+                    message_id: decoded.data.messageId,
+                    emitter,
+                    outbox: resolved.address,
+                    payload,
+                    message_hash: hash,
+                };
+                tracing::debug!(
+                    message_id = %indexed.message_id,
+                    message_hash = %indexed.message_hash,
+                    "📨 indexed finalized MessagePublished"
+                );
+                if tx.send(indexed).await.is_err() {
+                    anyhow::bail!("message channel closed — listener exiting");
+                }
+            }
+            Err(err) => {
+                // The log matched the MessagePublished topic filter but failed to decode. That is
+                // not a per-message data issue — it means our IOutbox ABI does not match the
+                // deployed contract, a systematic misconfiguration. Bail instead of skipping: we
+                // return before advancing `last_seen`, so the caller retries this exact range
+                // rather than silently stepping over an on-chain message that would then never be
+                // indexed, signed, or gossiped. Re-processing the range's already-sent logs on
+                // retry is harmless (the aggregator dedups by signer and the relayer dedups votes).
+                return Err(err).with_context(|| {
+                    format!(
+                        "failed to decode a MessagePublished log (block {:?}, tx {:?}) — IOutbox ABI likely does not match the deployed Outbox",
+                        log.block_number, log.transaction_hash
+                    )
+                });
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tracker(t0: Instant) -> FinalityTracker {
+        FinalityTracker::new(t0)
+    }
+
+    #[test]
+    fn ok_poll_resets_failure_budget() {
+        // A completed poll clears any accumulated stalls, with or without new blocks.
+        assert_eq!(next_failure_count(5, true, false), 0);
+        assert_eq!(next_failure_count(5, true, true), 0);
+    }
+
+    #[test]
+    fn progressing_backfill_never_counts_as_failure() {
+        // The core fix: an errored/timed-out poll that still advanced the scan resets the budget,
+        // so a slow backfill spanning many polls can't trip MAX_CONSECUTIVE_POLL_FAILURES.
+        let mut failures = 0;
+        for _ in 0..(MAX_CONSECUTIVE_POLL_FAILURES + 5) {
+            failures = next_failure_count(failures, false, true);
+            assert_eq!(failures, 0);
+        }
+    }
+
+    #[test]
+    fn stalled_polls_accumulate_to_the_limit() {
+        // Errored AND no progress is a real stall: it climbs until the restart threshold.
+        let mut failures = 0;
+        for expected in 1..=MAX_CONSECUTIVE_POLL_FAILURES {
+            failures = next_failure_count(failures, false, false);
+            assert_eq!(failures, expected);
+        }
+        assert!(failures >= MAX_CONSECUTIVE_POLL_FAILURES);
+    }
+
+    #[test]
+    fn one_progressing_poll_clears_a_stall_run() {
+        // A stall streak that later makes progress is forgiven — the budget resets rather than
+        // carrying prior stalls forward into an unrelated slow-but-advancing stretch.
+        let failures = next_failure_count(MAX_CONSECUTIVE_POLL_FAILURES - 1, false, true);
+        assert_eq!(failures, 0);
+    }
+
+    #[test]
+    fn depth_policy_uses_tip_minus_depth() {
+        let t0 = Instant::now();
+        let mut tr = tracker(t0);
+        assert_eq!(
+            pick_to_block(None, 110, &FinalityPolicy::Depth(3), &mut tr, t0),
+            107
+        );
+        assert!(!tr.in_fallback);
+        // depth 0 = index up to tip (the anvil e2e case).
+        assert_eq!(
+            pick_to_block(None, 110, &FinalityPolicy::Depth(0), &mut tr, t0),
+            110
+        );
+    }
+
+    #[test]
+    fn finalized_primary_uses_finalized_head() {
+        let t0 = Instant::now();
+        let pol = FinalityPolicy::Finalized { fallback_depth: 3 };
+        let mut tr = tracker(t0);
+        // First observation + subsequent advance both sign the finalized head, not tip-depth.
+        assert_eq!(pick_to_block(Some(100), 110, &pol, &mut tr, t0), 100);
+        assert!(!tr.in_fallback);
+        assert_eq!(
+            pick_to_block(Some(105), 120, &pol, &mut tr, t0 + Duration::from_secs(6)),
+            105
+        );
+        assert!(!tr.in_fallback);
+    }
+
+    #[test]
+    fn lagging_but_not_stalled_stays_at_finalized() {
+        let t0 = Instant::now();
+        let pol = FinalityPolicy::Finalized { fallback_depth: 3 };
+        let mut tr = tracker(t0);
+        assert_eq!(pick_to_block(Some(100), 110, &pol, &mut tr, t0), 100);
+        // Finalized frozen at 100 while tip climbs, but within the stall window → still 100.
+        let within = t0 + FINALITY_STALL_TIMEOUT - Duration::from_secs(1);
+        assert_eq!(pick_to_block(Some(100), 200, &pol, &mut tr, within), 100);
+        assert!(!tr.in_fallback);
+    }
+
+    #[test]
+    fn stalled_finality_falls_back_to_depth_bound() {
+        let t0 = Instant::now();
+        let pol = FinalityPolicy::Finalized { fallback_depth: 3 };
+        let mut tr = tracker(t0);
+        assert_eq!(pick_to_block(Some(100), 110, &pol, &mut tr, t0), 100);
+        // Finalized frozen past the stall timeout while tip advances → probabilistic bound,
+        // never below the last finalized head.
+        let past = t0 + FINALITY_STALL_TIMEOUT + Duration::from_secs(1);
+        assert_eq!(pick_to_block(Some(100), 200, &pol, &mut tr, past), 197);
+        assert!(tr.in_fallback);
+        // Then finality recovers (advances) → back to signing the finalized head.
+        assert_eq!(
+            pick_to_block(Some(210), 220, &pol, &mut tr, past + Duration::from_secs(6)),
+            210
+        );
+        assert!(!tr.in_fallback);
+    }
+
+    #[test]
+    fn no_finalized_head_uses_depth_bound() {
+        let t0 = Instant::now();
+        let pol = FinalityPolicy::Finalized { fallback_depth: 5 };
+        let mut tr = tracker(t0);
+        assert_eq!(pick_to_block(None, 100, &pol, &mut tr, t0), 95);
+        assert!(tr.in_fallback);
+    }
+
+    #[test]
+    fn no_finalized_head_never_regresses_below_last_finalized() {
+        // A prior good read established finalized head 100; a later `finalized`-read blip (None) with
+        // `tip - depth` = 96 must NOT regress below 100 and re-sign not-yet-finalized logs (bugbot).
+        let t0 = Instant::now();
+        let pol = FinalityPolicy::Finalized { fallback_depth: 5 };
+        let mut tr = tracker(t0);
+        assert_eq!(pick_to_block(Some(100), 100, &pol, &mut tr, t0), 100);
+        // Blip: no finalized head, tip advanced to 101 → tip-depth = 96, but clamp holds it at 100.
+        assert_eq!(pick_to_block(None, 101, &pol, &mut tr, t0), 100);
+        // Once tip-depth climbs past the last finalized head, the depth bound applies normally.
+        assert_eq!(pick_to_block(None, 110, &pol, &mut tr, t0), 105);
+    }
+}

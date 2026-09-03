@@ -64,6 +64,7 @@ updates:
       - "/common/prometheus"
       - "/common/indexer-client"
       - "/common/builder"
+      - "/common/write-ability"
       - "/common/streams/eth"
       - "/common/streams/cc3"
       - "/common/streams/attestation"
@@ -124,6 +125,8 @@ updates:
       - "/docs/smart-contract-development/with-ethers.js"
       - "/scripts"
       - "/scripts/changelog-warnings"
+      - "/usc-messaging"
+      - "/usc-messaging/contracts"
     groups:
       prod-dependencies:
         dependency-type: "production"

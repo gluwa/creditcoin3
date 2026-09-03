@@ -66,6 +66,11 @@ declare module '@polkadot/api-base/types/events' {
             AttestorActivated: AugmentedEvent<ApiType, [u64, AccountId32, U8aFixed]>;
             AttestorChilled: AugmentedEvent<ApiType, [u64, AccountId32]>;
             /**
+             * An attestor registered (or rotated) its write-ability EVM message-vote signing address
+             * for a chain: `(chain_key, attestor, evm_address)`.
+             **/
+            AttestorEvmAddressRegistered: AugmentedEvent<ApiType, [u64, AccountId32, H160]>;
+            /**
              * Emitted when an attestor is properly registered with the attestation system
              **/
             AttestorRegistered: AugmentedEvent<ApiType, [u64, AccountId32]>;
@@ -1258,6 +1263,29 @@ declare module '@polkadot/api-base/types/events' {
                     chainEncoding: AttestorPrimitivesChainEncodingVersion;
                     maturityStrategy: Text;
                 }
+            >;
+            /**
+             * The USC write-ability core (protocol) fee for a supported chain has been set.
+             * `amount` is attestcoin wei; a zero `amount` disables the fee.
+             **/
+            CoreFeeSet: AugmentedEvent<ApiType, [chainKey: u64, amount: U256], { chainKey: u64; amount: U256 }>;
+            /**
+             * The outbox factory for a supported chain has been registered.
+             * This signals to attestors that they can fetch the outbox
+             * address and begin listening for writability messages.
+             **/
+            OutboxFactoryRegistered: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, outboxFactoryAddr: H160],
+                { chainKey: u64; outboxFactoryAddr: H160 }
+            >;
+            /**
+             * The USC write-ability config for a supported chain has been set.
+             **/
+            WriteAbilityConfigSet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, writeAbilityChainKey: U8aFixed, messageAttestationEnabled: bool],
+                { chainKey: u64; writeAbilityChainKey: U8aFixed; messageAttestationEnabled: bool }
             >;
             /**
              * Generic event

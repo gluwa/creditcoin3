@@ -227,6 +227,46 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_attestor_evm_address() {
+        let stash_id = create_funded_user_with_balance::<T>("stash", 0);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
+        let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
+        Attestation::<T>::register_attestor(
+            att.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id.clone(),
+        )
+        .expect("register the attestor before registering its EVM address");
+
+        // Build a valid (address, proof) pair without a signing dependency (which would pull in
+        // `full_crypto`, unavailable in the wasm benchmark build): `secp256k1_ecdsa_recover`
+        // recovers *some* public key for any well-formed (r, s, v), so we recover the address our
+        // fixed proof yields over the real digest and register that — the PoP check then passes
+        // while exercising the true recover + keccak + storage path. Vary `r` until recovery
+        // succeeds (a well-formed signature recovers with overwhelming probability; 1-2 tries).
+        let digest = Attestation::<T>::evm_registration_digest(DEV_CHAIN_KEY, &attestor_id);
+        let mut proof = [0u8; 65];
+        let mut seed: u8 = 1;
+        let evm_address = loop {
+            proof[0..32].fill(seed);
+            proof[32..64].fill(seed.wrapping_add(1));
+            proof[64] = 0;
+            if let Some(addr) = Attestation::<T>::recover_evm_address(&proof, &digest) {
+                break addr;
+            }
+            seed = seed.wrapping_add(1);
+        };
+
+        #[extrinsic_call]
+        _(
+            att.attestor_origin as <T as frame_system::Config>::RuntimeOrigin,
+            DEV_CHAIN_KEY,
+            evm_address,
+            proof,
+        )
+    }
+
+    #[benchmark]
     fn unregister_attestor() {
         // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
