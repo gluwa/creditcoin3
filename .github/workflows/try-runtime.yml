@@ -23,7 +23,90 @@ env:
   CXXFLAGS: "-include cstdint"
 
 jobs:
+  # `runtime/src/lib.rs` has to stay in the trigger paths above, because the migration
+  # tuples live in it (`SingleBlockMigrations`, `pallet_migrations::Config::Migrations`).
+  # But that file also holds the entire rest of the runtime, so triggering on the filename
+  # alone runs this ~1h job for changes that cannot affect migrations at all -- an EVM
+  # config constant, a precompile bound, a weight tweak. This gate looks at what actually
+  # changed inside the file and only lets the expensive job through when the migration
+  # surface moved.
+  should-run:
+    runs-on: ubuntu-26.04
+    outputs:
+      migrations: ${{ steps.decide.outputs.migrations }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: "Examine which files have been modified by this PR"
+        uses: dorny/paths-filter@v4.0.2
+        id: filter
+        with:
+          filters: |
+            dedicated_migration_files:
+              - "**/migrations/**"
+              - "**/migrations.rs"
+            workflow:
+              - ".github/workflows/try-runtime.yml"
+            runtime_lib:
+              - "runtime/src/lib.rs"
+
+      - name: "Decide whether the migration surface changed"
+        id: decide
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Unambiguous: dedicated migration files, or this workflow itself.
+          if [ "${{ steps.filter.outputs.dedicated_migration_files }}" = "true" ] \
+             || [ "${{ steps.filter.outputs.workflow }}" = "true" ]; then
+            echo "INFO: migration files or this workflow changed"
+            echo "migrations=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # `runtime/src/lib.rs` changed. Inspect the diff hunks rather than the filename.
+          #
+          # The match is deliberately broad -- case-insensitive `migrat`, plus
+          # `OnRuntimeUpgrade` -- so that `SingleBlockMigrations`, `MultiBlockMigrator`,
+          # `pallet_x::migrations::v2::MigrateToV2` and `LazyMigrationV1ToV2` are all
+          # caught. A false positive only costs a needless run, which is today's status
+          # quo; a false negative would skip validation on a real migration.
+          #
+          # The checkout above is `fetch-depth: 0`, so `origin/$base_ref` is already here.
+          # Do not re-fetch it with `--depth=1`: that grafts the base branch even in a
+          # complete clone, and the three-dot diff then dies with "no merge base" for any
+          # PR whose base has moved ahead. If the diff cannot be taken at all, run the job
+          # rather than swallow the error -- the whole point of the gate is that a false
+          # negative is the one outcome we cannot accept.
+          if [ "${{ github.event_name }}" = "pull_request" ] \
+             && [ "${{ steps.filter.outputs.runtime_lib }}" = "true" ]; then
+            if ! diff_output=$(git diff --unified=0 \
+                 "origin/${{ github.base_ref }}...HEAD" -- runtime/src/lib.rs); then
+              echo "WARN: cannot diff runtime/src/lib.rs against the base -- running to be safe"
+              echo "migrations=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if printf '%s\n' "$diff_output" \
+                 | grep -E '^[+-]' \
+                 | grep -vE '^(\+\+\+|---)' \
+                 | grep -qiE 'migrat|OnRuntimeUpgrade'; then
+              echo "INFO: runtime/src/lib.rs changed and the migration surface moved"
+              echo "migrations=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "INFO: runtime/src/lib.rs changed, but not the migration surface -- skipping"
+          fi
+
+          echo "migrations=false" >> "$GITHUB_OUTPUT"
+
   try-runtime:
+    needs: should-run
+    # `needs:` alone would skip this job whenever the gate fails, taking the
+    # `workflow_dispatch` escape hatch down with it. `!cancelled()` keeps dispatch working
+    # regardless of what the gate did.
+    if: ${{ !cancelled() && (needs.should-run.outputs.migrations == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7

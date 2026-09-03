@@ -72,23 +72,40 @@ jobs:
       # where continue-on-error silently masked this for every PR build. Uses the read-only
       # gluwabot/DOCKERHUB_SCOUT_TOKEN credential (never DOCKER_PUSH_*) since PR builds run untrusted
       # Dockerfile/build-script content and must not see a push-capable credential.
-      - name: Docker Scout - CVE scan (${{ github.repository }})
+      # `compare`, not `cves`: a full-inventory scan is dominated by the base image's CVE
+      # backlog, identical on every PR and unrelated to its diff — which had gluwa-bot posting
+      # the same ~130-CVE wall on every Rust-touching PR. Comparing the PR's build against the
+      # *published* image instead makes the comment show only what the PR changes (packages and
+      # CVEs added/removed relative to what is deployed). NOTE: on PR runs `version-string` is
+      # literally "latest", so both sides of the compare print as `gluwa/creditcoin3:latest` —
+      # the `local://` / `registry://` schemes are what distinguish the PR's local build from
+      # the published Docker Hub image.
+      - name: Docker Scout - compare ${{ github.repository }} against published :latest
         continue-on-error: true
         uses: docker/scout-action@v1.23.1
         with:
-          command: cves
+          command: compare
           image: local://${{ github.repository }}:${{ inputs.version-string }}
+          to: registry://${{ github.repository }}:latest
+          # Keep the comment to the actual delta — unchanged packages are exactly the
+          # inventory noise this step exists to eliminate.
+          ignore-unchanged: true
           dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
           exit-code: false
-          # DO-2336/DO-2338: without this, the action's default "one comment per job"
-          # behavior means the 3rd scan below silently overwrites the first two's
-          # results in the same PR comment. keep-previous-comments preserves all 3.
-          keep-previous-comments: true
+          # This is now the only step that comments (the two scans below are summary-only), so
+          # the action's default replace-my-previous-comment behavior gives one live comparison
+          # per PR instead of the DO-2336 pile-up.
+          keep-previous-comments: false
           # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
           # couldn't be elevated without a hard startup_failure (see comment above).
           github-token: ${{ secrets.GLUWA_BOT_PR }}
 
+      # Summary-only (write-comment: false): no published moving tag exists for this image
+      # (only versioned indexer-for-<x.y.z>-<net> tags), so there is no stable baseline to compare
+      # against — and its base layers are shared with the node image, whose compare above
+      # already surfaces PR-introduced CVEs as the PR comment. Full inventory stays visible in
+      # the job summary and in the weekly Scout report.
       - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
         continue-on-error: true
         uses: docker/scout-action@v1.23.1
@@ -98,14 +115,13 @@ jobs:
           dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
           exit-code: false
-          # DO-2336/DO-2338: without this, the action's default "one comment per job"
-          # behavior means the 3rd scan below silently overwrites the first two's
-          # results in the same PR comment. keep-previous-comments preserves all 3.
-          keep-previous-comments: true
-          # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
-          # couldn't be elevated without a hard startup_failure (see comment above).
-          github-token: ${{ secrets.GLUWA_BOT_PR }}
+          write-comment: false
 
+      # Summary-only (write-comment: false): no published moving tag exists for this image
+      # (only versioned proof-gen-stress-test-for-<x.y.z>-<net> tags), so there is no stable baseline to compare
+      # against — and its base layers are shared with the node image, whose compare above
+      # already surfaces PR-introduced CVEs as the PR comment. Full inventory stays visible in
+      # the job summary and in the weekly Scout report.
       - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
         continue-on-error: true
         uses: docker/scout-action@v1.23.1
@@ -115,13 +131,7 @@ jobs:
           dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
           exit-code: false
-          # DO-2336/DO-2338: without this, the action's default "one comment per job"
-          # behavior means the 3rd scan below silently overwrites the first two's
-          # results in the same PR comment. keep-previous-comments preserves all 3.
-          keep-previous-comments: true
-          # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
-          # couldn't be elevated without a hard startup_failure (see comment above).
-          github-token: ${{ secrets.GLUWA_BOT_PR }}
+          write-comment: false
 
       - name: Export docker image into a file
         run: |
