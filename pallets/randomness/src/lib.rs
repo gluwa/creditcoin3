@@ -179,11 +179,8 @@ pub mod pallet {
     impl<T: Config> Pallet<T> {}
 
     impl<T: Config> RandomnessPalletProvider for Pallet<T> {
-        fn randomness_by_epoch_id(epoch_id: u64) -> Randomness {
-            RandomnessByEpochIndex::<T>::get()
-                .get(&epoch_id)
-                .copied()
-                .unwrap_or_default()
+        fn try_randomness_by_epoch_id(epoch_id: u64) -> Option<Randomness> {
+            RandomnessByEpochIndex::<T>::get().get(&epoch_id).copied()
         }
     }
 }

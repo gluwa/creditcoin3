@@ -134,8 +134,22 @@ declare module '@polkadot/api-base/types/submittable' {
             /**
              * Force trigger an attestor election.
              *
-             * A randomness of [0; 32] is used since randomness is not currently
-             * used in the election logic.
+             * Seeds the election with the real on-chain randomness for `epoch` (via
+             * [`Config::RandomnessProvider`]), matching the scheduled election path
+             * ([`OnRandomnessUpdate::on_new_epoch_randomness`]) instead of passing a hardcoded
+             * zero seed. The current selection logic does not subsample by randomness, but threading
+             * the real seed keeps forced and scheduled elections consistent and avoids advertising a
+             * misleading all-zero randomness value.
+             *
+             * The provider retains only a bounded window of recent epochs, so an epoch that has not
+             * happened yet — or has already aged out — has no entropy on record. That case is reported
+             * in [`Event::ForcedElection::randomness`] as `None` rather than being flattened to
+             * `[0; 32]`: a zero seed is indistinguishable from a real one on-chain, so silently
+             * substituting it would reintroduce the predictable seed this call was changed to stop
+             * using, with nothing in the event to show it happened. Election is still permitted,
+             * because `epoch` is currently only a label and selection does not consume the seed;
+             * whoever wires up randomness-dependent selection must decide whether `None` should
+             * become a hard error at that point.
              **/
             forceElection: AugmentedSubmittable<
                 (epoch: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
