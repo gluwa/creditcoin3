@@ -261,17 +261,22 @@ impl Attestor {
             .or_else(|| start_attestation.as_ref().map(|i| i.height + 1))
             .unwrap_or(genesis_height);
 
-        let target = cc3
-            .target_sample_size(chain_key)
-            .await
-            .map_err(|_| Error::MissingTargetSampleSize(chain_key))?;
-        let quorum = NonZero::new(attestor_primitives::calculate_threshold(target) as usize)
-            .expect("quorum > 0");
+        // Live quorum: `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`. Deriving this from
+        // `TargetSampleSize` alone would overshoot on any chain whose target sits above the
+        // active-attestor count — the recommended posture, since quorum intersection only holds
+        // while the cap does not bind — and the node would never reach its own threshold, so it
+        // would boot healthy and silently never submit an attestation.
+        let quorum = NonZero::new(
+            cc3.quorum(chain_key)
+                .await
+                .map_err(|_| Error::MissingTargetSampleSize(chain_key))? as usize,
+        )
+        .expect("quorum > 0");
         health.set_p2p_expected(quorum.get() > 1);
 
         // On-chain `MaxCatchup` (block-count bound per continuity proof). `Client::max_catchup`
         // uses `fetch_or_default`, so an `Ok` is always the effective runtime value — a transport
-        // failure is the *only* `Err`, and must fail the boot (like `target_sample_size` above)
+        // failure is the *only* `Err`, and must fail the boot (like the quorum above)
         // rather than silently substitute a default that would leave the pool / p2p / proof
         // windows permanently wrong until a `MaxCatchupChanged` event that may never arrive. The
         // `NonZero` fallback then only guards a chain whose runtime default is genuinely zero (the
