@@ -19,7 +19,7 @@ use alloy::rpc::types::eth::BlockNumberOrTag;
 use alloy::rpc::types::{BlockTransactionsKind, Filter};
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use write_ability::abi::IOutbox;
@@ -198,14 +198,18 @@ fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
 /// is preferred over `start_block`/head so a restart resumes exactly where it left off, and after
 /// every poll that advances the scan the new position is saved.
 ///
-/// The listener owns `provider` so it can replace it: after [`MAX_CONSECUTIVE_POLL_FAILURES`]
-/// stalled polls it calls `reconnect` and swaps the fresh connection in without leaving the loop
-/// (the scan cursor, finality tracker and cancellation wiring all survive). `reconnect` must
-/// produce the same provider type; in production that is `connect_l1_provider` bound to the
+/// `shared_provider` is the write-ability task's one Creditcoin L1 connection, shared with the
+/// Outbox rotation monitor and the reobservation worker. alloy provider clones share a single
+/// pubsub backend, so when that backend dies every clone dies with it. The listener is the one
+/// loop that counts stalls, so it is the one that heals: after [`MAX_CONSECUTIVE_POLL_FAILURES`]
+/// stalled polls it calls `reconnect`, swaps the fresh connection into its own hot path, and
+/// publishes it through the channel so the siblings pick it up on their next use — nobody leaves
+/// their loop (the scan cursor, finality tracker and cancellation wiring all survive). `reconnect`
+/// must produce the same provider type; in production that is `connect_l1_provider` bound to the
 /// configured RPC URL.
 #[allow(clippy::too_many_arguments)]
 pub async fn watch<P, R, Fut>(
-    mut provider: P,
+    shared_provider: watch::Sender<P>,
     reconnect: R,
     resolved: ResolvedOutbox,
     block_confirmation_depth: u64,
@@ -215,10 +219,14 @@ pub async fn watch<P, R, Fut>(
     token: CancellationToken,
 ) -> Result<()>
 where
-    P: Provider,
+    P: Provider + Clone,
     R: Fn() -> Fut,
     Fut: Future<Output = Result<P>>,
 {
+    // Local handle for the hot path; the channel is only touched on a rebuild. Cloning an alloy
+    // provider is an `Arc` bump. Start from whatever is current, which after a rotation re-spawn
+    // may already be a rebuilt connection rather than the boot-time one.
+    let mut provider = shared_provider.borrow().clone();
     // Cursor precedence: a persisted position wins over `start_block`/head so a restart resumes
     // rather than skipping down-time messages (default config) or replaying the whole history from
     // `start_block`. To force a different start position, remove the cursor file.
@@ -375,10 +383,14 @@ where
                             );
                             match reconnect().await {
                                 Ok(fresh) => {
+                                    // Publish first so the rotation monitor and reobservation
+                                    // worker stop using the dead backend on their next tick, then
+                                    // take it for our own hot path.
+                                    shared_provider.send_replace(fresh.clone());
                                     provider = fresh;
                                     tracing::info!(
                                         last_seen,
-                                        "🔌 Creditcoin L1 EVM provider rebuilt; resuming Outbox scan from cursor"
+                                        "🔌 Creditcoin L1 EVM provider rebuilt and shared with the rotation monitor and reobservation worker; resuming Outbox scan from cursor"
                                     );
                                 }
                                 Err(rebuild_err) => {

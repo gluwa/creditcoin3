@@ -678,7 +678,6 @@ pub async fn run(
 
     // Listener runs as a child task feeding us finalized messages; we sign, count, and publish.
     let (tx, mut rx) = mpsc::channel(common::constants::CAPACITY_CHANNEL);
-    let listener_provider = provider.clone();
     let listener_token = shared.token.clone();
     let confirmation_depth = cfg.block_confirmation_depth;
     // Fall back to the pre-resolution head (not "now") so the resolve-wait window is covered.
@@ -696,11 +695,16 @@ pub async fn run(
         "🗂️ persisting Outbox scan cursor across restarts"
     );
     let listener_tx = tx.clone();
-    // The listener owns its provider and rebuilds it through this hook after a sustained stall
-    // (see `listener::MAX_CONSECUTIVE_POLL_FAILURES`) instead of exiting the task — the sibling of
-    // the resolver's in-place rebuild above. Kept as an inline closure so its future yields the
-    // very same opaque provider type `listener_provider` has; a named helper would mint a second
-    // `impl Provider` that the listener's `P` could not unify with.
+    // One shared Creditcoin L1 handle for the listener, the rotation monitor and the reobservation
+    // worker. alloy clones share a pubsub backend, so a dead connection is dead for all three; the
+    // listener is the loop that detects the stall (see `listener::MAX_CONSECUTIVE_POLL_FAILURES`),
+    // rebuilds through the hook below and publishes the fresh provider here, and the two siblings
+    // clone the latest value before each use. Sibling of the resolver's in-place rebuild above;
+    // nobody exits the task any more. The hook is an inline closure on purpose: its future yields
+    // the very same opaque provider type the channel carries, where a named helper would mint a
+    // second `impl Provider` that the listener's `P` could not unify with.
+    let (l1_provider_tx, l1_provider_rx) = watch::channel(provider.clone());
+    let listener_provider = l1_provider_tx.clone();
     let listener_rpc = rpc.clone();
     let listener_reconnect = move || {
         let rpc = listener_rpc.clone();
@@ -730,7 +734,7 @@ pub async fn run(
     // recovers here instead of leaving the chain key paused indefinitely.
     let (resolved_tx, mut resolved_rx) = watch::channel(Some(resolved));
     let mut outbox_monitor = {
-        let provider = provider.clone();
+        let provider = l1_provider_rx.clone();
         let cfg = cfg.clone();
         let token = shared.token.clone();
         let destination_chain_key = state.destination_chain_key;
@@ -755,7 +759,7 @@ pub async fn run(
     // if the shared provider black-holes. The bounded `reobs_rx` channel already drops excess, so a
     // flood is bounded to serial, deadline-capped work here.
     let mut reobs_worker = {
-        let provider = provider.clone();
+        let provider = l1_provider_rx.clone();
         let state = state.clone();
         let shared = shared.clone();
         let signer = signer.clone();
@@ -901,7 +905,9 @@ pub async fn run(
                         new_outbox = %resolved.address,
                         "🔄 governance/factory rotation detected — switching Outbox listener"
                     );
-                    let listener_provider = provider.clone();
+                    // Hand the replacement listener the shared handle, not a boot-time clone: if
+                    // the previous listener rebuilt the connection, this one starts on the live one.
+                    let listener_provider = l1_provider_tx.clone();
                     let listener_token = shared.token.clone();
                     let cursor_store = cursor::CursorStore::new(
                         &cfg.state_dir,
@@ -1045,8 +1051,8 @@ fn child_exit_error(
 /// with no finalized replacement Outbox publishes `None` immediately so consumers stop signing the
 /// de-registered Outbox while discovery continues.
 #[allow(clippy::too_many_arguments)]
-async fn run_outbox_monitor<P: Provider>(
-    provider: P,
+async fn run_outbox_monitor<P: Provider + Clone>(
+    provider_rx: watch::Receiver<P>,
     cfg: Config,
     destination_chain_key: B256,
     mut cursor: resolver::OutboxDiscoveryCursor,
@@ -1072,6 +1078,10 @@ async fn run_outbox_monitor<P: Provider>(
                 // Same per-attempt bound as the activation loop: an unbounded resolve against a
                 // black-holed RPC would wedge rotation detection silently (the chunked cursor keeps
                 // whatever progress the attempt made, so a timeout costs nothing).
+                // Take the latest shared connection as a separate statement: a `borrow()` inside
+                // the `timeout(...)` expression would hold the watch read guard across the await
+                // and block the listener's `send_replace` for the length of an RPC attempt.
+                let provider = provider_rx.borrow().clone();
                 let attempt = tokio::time::timeout(
                     RPC_ATTEMPT_TIMEOUT,
                     resolver::resolve(
@@ -1181,8 +1191,8 @@ fn rotation_action(
 /// The bounded `reobs_rx` channel drops excess at the p2p ingest, so a flood is naturally bounded to
 /// serial, deadline-capped work here.
 #[allow(clippy::too_many_arguments)]
-async fn run_reobservation_worker<P: alloy::providers::Provider>(
-    provider: P,
+async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
+    provider_rx: watch::Receiver<P>,
     mut resolved_rx: watch::Receiver<Option<resolver::ResolvedOutbox>>,
     state: Arc<MessageVoteState>,
     shared: Arc<Shared>,
@@ -1211,6 +1221,9 @@ async fn run_reobservation_worker<P: alloy::providers::Provider>(
                     tracing::warn!(message_id = ?request.message_id, "dropping reobservation request while no Outbox is active");
                     continue;
                 };
+                // Latest shared connection, cloned as its own statement so the watch read guard is
+                // released before the deadline-capped RPC work below.
+                let provider = provider_rx.borrow().clone();
                 let handle = handle_reobservation(
                     &provider, &resolved, &state, &shared.metrics, &signer, our_address, chain_key,
                     confirmation_depth, &mut limiter, request,
