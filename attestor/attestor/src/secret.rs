@@ -8,6 +8,9 @@ pub struct Config {
     pub(crate) url_eth: RpcSecret,
     pub(crate) url_cc3: RpcSecret,
     pub(crate) secret: AttestorSecret,
+    /// Explicit source-chain family. `None` lets the eth client infer it from the RPC's
+    /// `eth_chainId` (see [`eth::ChainFamily::infer_from_chain_id`]).
+    pub(crate) eth_chain_family: Option<eth::ChainFamily>,
 }
 
 /// Secret used for the attestor identity: BIP39 mnemonic or raw 32-byte seed as hex.
