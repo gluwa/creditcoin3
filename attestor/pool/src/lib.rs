@@ -24,7 +24,7 @@
 //!
 //! See [`Sender`] for the chain-event seams (`note_attestation_finalization`,
 //! `note_attestation_interval_change`, `note_attestors_elected`,
-//! `note_target_sample_size_change`, `note_attestation_chain_reversion`).
+//! `note_quorum_change`, `note_attestation_chain_reversion`).
 
 mod error;
 
@@ -433,9 +433,14 @@ impl Sender {
         }
     }
 
-    pub fn note_target_sample_size_change(&self, target_sample_size: u32) {
-        let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
-        let Some(quorum_new) = NonZero::new(threshold) else {
+    /// Install `threshold` as the pool's quorum target.
+    ///
+    /// Takes an already-computed threshold rather than a `TargetSampleSize`. The quorum is
+    /// `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so the target alone no longer
+    /// determines it, and a caller passing one here would install a threshold the runtime does
+    /// not enforce. Callers get the authoritative number from `Client::quorum`.
+    pub fn note_quorum_change(&self, threshold: u32) {
+        let Some(quorum_new) = NonZero::new(threshold as usize) else {
             return;
         };
         let mutated = {
@@ -455,7 +460,8 @@ impl Sender {
     }
 
     /// The runtime rejected our submission at `height` with `MajorityNotReached` — meaning the
-    /// active `target_sample_size` on chain differs from ours and our quorum was insufficient.
+    /// live quorum on chain (`2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`) is higher
+    /// than the one we enforced, so our vote count was insufficient.
     /// Clear the local validation lock for this height so subsequent votes get admitted under
     /// the new threshold (production / production-on-other-attestors will gossipsub-retransmit).
     pub fn note_majority_not_reached(&self, height: Height) {
@@ -767,9 +773,13 @@ impl Forks {
     /// ≥ `target` votes that is strictly larger than every other quorum-qualified fork at the
     /// same height.
     ///
-    /// When the configured target is not proportional to the active set (see USCP2-004,
-    /// `target_sample_size` can put the threshold at or below half the committee), two
-    /// conflicting digests at one height can *both* reach the target with disjoint signer sets.
+    /// While `TargetSampleSize` caps the committee below the active set (see USCP2-004), the
+    /// threshold can sit at or below half the committee, so two conflicting digests at one height
+    /// can *both* reach the target with disjoint signer sets. Deriving the quorum from
+    /// `min(|ActiveAttestors|, TargetSampleSize)` removes that whenever the cap does not bind: the
+    /// threshold is then a strict majority of the active set and any two quorums must intersect.
+    /// The cap is still permitted to bind, and nothing selects a committee when it does
+    /// (sortition is unbuilt, RFC-0174), so the fail-closed handling below stays.
     /// Selecting one by index ordering would arbitrarily commit this node to a side of the
     /// split; instead the height is treated as ambiguous (fail closed) until one fork pulls
     /// strictly ahead, and lower heights remain eligible meanwhile.

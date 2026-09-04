@@ -150,18 +150,13 @@ async fn handle_quorum(
             pool_rx.mark_skipped(permit);
             return Ok(());
         }
-        Err(ValidationError::InsufficientVotes {
-            needed,
-            got,
-            target_sample_size,
-        }) => {
+        Err(ValidationError::InsufficientVotes { got, threshold }) => {
             // The live threshold is higher than the pool's configured quorum target — submitting
             // now would hit `MajorityNotReached` at runtime level. Two things must happen:
             //
             //   1. Raise the pool's target to the live value so it stops re-yielding this same
             //      sub-threshold fork on the next `recv()` (otherwise we busy-loop re-validating
-            //      it). `note_target_sample_size_change` is idempotent with production's own
-            //      handler.
+            //      it). `note_quorum_change` is idempotent with production's own handler.
             //   2. Drop the permit *without* `mark_valid`. `mark_valid` would `split_off` the
             //      fork (discarding the votes we still need) and lock the height, rejecting the
             //      very gossiped votes required to reach the bigger threshold. Dropping the
@@ -171,13 +166,11 @@ async fn handle_quorum(
             tracing::warn!(
                 ?digest,
                 height,
-                needed,
+                threshold,
                 got,
                 "🗳️ insufficient votes for current threshold — raising pool target, awaiting more votes"
             );
-            shared
-                .pool_send
-                .note_target_sample_size_change(target_sample_size);
+            shared.pool_send.note_quorum_change(threshold);
             // If stale/unverifiable votes still make the raw fork meet the raised target, prevent
             // `recv()` from immediately yielding it again. The votes remain intact and the fork
             // is reconsidered after a new vote or active-set refresh.
@@ -249,10 +242,12 @@ async fn handle_submission_result(
                 cc_client::cc3::attestation::Error::MajorityNotReached,
             )) => {
                 // The preemptive threshold check in `aggregate_and_validate` normally catches
-                // this before submission. Reaching here means the chain's `target_sample_size`
-                // flipped *between* our fetch and the runtime's verification (≤1-block race).
-                // Unlock the height so a future quorum can form; the held votes are re-injected
-                // below (a raised target then defers them until enough peer votes accumulate).
+                // this before submission. Reaching here means the chain's quorum flipped
+                // *between* our fetch and the runtime's verification (≤1-block race) — either
+                // input can move it, and the active set moves on chill/kick, not just at epoch
+                // boundaries. Unlock the height so a future quorum can form; the held votes are
+                // re-injected below (a raised threshold then defers them until enough peer votes
+                // accumulate).
                 tracing::warn!(
                     height,
                     "🔁 MajorityNotReached at runtime — chain-race window; unlocking height"
@@ -400,8 +395,9 @@ async fn handle_submission_result(
 ///
 /// 1. Drop votes whose signer left the active attestor set (the runtime filters `attestors` to
 ///    `ActiveAttestors`; a stale signer in the aggregate yields `InvalidBlsSignature`).
-/// 2. Re-fetch `target_sample_size` and require the surviving vote count to still satisfy the
-///    live threshold (otherwise the runtime rejects with `MajorityNotReached`).
+/// 2. Re-fetch the live quorum (`2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`) and
+///    require the surviving vote count to still satisfy it (otherwise the runtime rejects with
+///    `MajorityNotReached`).
 ///
 /// If signers were dropped but the quorum still stands, the BLS aggregate and attestor list are
 /// rebuilt from the surviving votes. Returns `None` when the quorum no longer satisfies the live
@@ -441,13 +437,14 @@ async fn revalidate_stashed(shared: &Arc<Shared>, stashed: SignedQuorum) -> Opti
     }
 
     let chain_key = shared.chain_key;
-    let target_sample_size =
-        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
-            cc3.target_sample_size(chain_key).await
-        })
-        .await
-        .ok()?;
-    let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
+    // `Client::quorum` reads the active set and the target from one storage snapshot. Deriving
+    // from the target alone would overshoot on any chain whose target sits above the
+    // active-attestor count and silently drop every stash.
+    let threshold = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc3.quorum(chain_key).await
+    })
+    .await
+    .ok()? as usize;
 
     let votes: Vec<Vote> = stashed
         .votes
@@ -504,16 +501,15 @@ enum ValidationError {
     /// the canonical fork as `KnownInvalid` while leaving the height open to rival forks.
     AlreadyOnChain,
     NoLocalProof,
-    /// Live `target_sample_size` is higher than our quorum size — submitting now would hit
+    /// The live quorum is higher than our vote count — submitting now would hit
     /// `MajorityNotReached` at runtime level. Bail before signing so we never burn fees/turns
     /// on an extrinsic the chain is guaranteed to reject; let the pool keep collecting until
-    /// enough peer votes gossip in. Carries the live `target_sample_size` so the handler can
-    /// raise the pool's quorum target to match (otherwise the pool keeps re-yielding the same
+    /// enough peer votes gossip in. Carries the live `threshold` so the handler can raise the
+    /// pool's quorum target to match (otherwise the pool keeps re-yielding the same
     /// sub-threshold fork).
     InsufficientVotes {
-        needed: usize,
         got: usize,
-        target_sample_size: u32,
+        threshold: u32,
     },
     External(Error),
 }
@@ -582,24 +578,21 @@ async fn aggregate_and_validate(
         );
     }
 
-    // Threshold gate: refresh `target_sample_size` from the chain and refuse to submit if our
-    // quorum is now under-threshold. The pool's quorum count is captured at startup; if the
-    // active `target_sample_size` grew (epoch rotation, runtime upgrade), an under-threshold
-    // submission would be rejected at runtime level (`MajorityNotReached`). Catch it here
-    // instead — fees are saved and the pool collects more votes from gossip before the next
-    // emission.
-    let target_sample_size =
-        crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
-            cc3.target_sample_size(chain_key).await
-        })
-        .await
-        .map_err(|e| ValidationError::External(Error::Rpc(e)))?;
-    let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
+    // Threshold gate: refresh the live quorum from the chain and refuse to submit if we are now
+    // under it. The pool's quorum count is captured at startup; if the quorum grew since — the
+    // active set gained members (election), or an operator raised `TargetSampleSize` while it
+    // caps the set — an under-threshold submission would be rejected at runtime level
+    // (`MajorityNotReached`). Catch it here instead — fees are saved and the pool collects more
+    // votes from gossip before the next emission.
+    let threshold = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc3.quorum(chain_key).await
+    })
+    .await
+    .map_err(|e| ValidationError::External(Error::Rpc(e)))? as usize;
     if votes_active.len() < threshold {
         return Err(ValidationError::InsufficientVotes {
-            needed: threshold,
             got: votes_active.len(),
-            target_sample_size,
+            threshold: threshold as u32,
         });
     }
 

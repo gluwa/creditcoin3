@@ -365,6 +365,38 @@ fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
     }
 }
 
+/// Recompute the quorum from live chain state and push it to the pool and the health gauge.
+///
+/// The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so it now moves with
+/// *membership* as well as with the target. Every seam that changes either input has to call
+/// this: election, chill, kick, and an operator retuning the target. Missing one leaves the node
+/// enforcing a stale threshold — too high and it stops submitting entirely, too low and it burns
+/// fees on `MajorityNotReached`.
+///
+/// `Client::quorum` reads both inputs from a single storage snapshot, so this cannot mix an
+/// active-set size from one block with a target from another. It reads at `latest` rather than
+/// trusting the event payload, matching the chill/kick path's existing reasoning: the
+/// authoritative set is what the chain holds now, not what an event carried.
+async fn refresh_quorum(shared: &Arc<Shared>) -> Result<(), Error> {
+    let chain_key = shared.chain_key;
+    let threshold = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc3.quorum(chain_key).await
+    })
+    .await
+    .map_err(Error::Rpc)?;
+
+    tracing::info!(threshold, "🧮 quorum refreshed");
+    shared.pool_send.note_quorum_change(threshold);
+    // Keep the health p2p-isolation axis in step with the live quorum — it was armed once at
+    // startup. Without this, a quorum dropping to 1 leaves a correctly-peerless sole attestor
+    // flagged `Isolated` (restart loop: a fresh pod won't conjure peers), and a quorum growing
+    // past 1 after a single-attestor start leaves isolation detection permanently disarmed.
+    // `set_p2p_expected` is idempotent and re-stamps the peerless clock on the disarm→arm
+    // transition, so re-arming gets a fresh grace window.
+    shared.health.set_p2p_expected(threshold > 1);
+    Ok(())
+}
+
 async fn handle_one(
     shared: &Arc<Shared>,
     stream_attestation: &mut stream::attestation::StreamAttestation,
@@ -415,19 +447,12 @@ async fn handle_one(
             shared.pool_send.note_attestation_interval_change(interval);
         }
 
-        // 3] new sample size
+        // 3] new target sample size (a *cap* on the committee, not the committee itself — the
+        // quorum is `2/3+1` of `min(|ActiveAttestors|, target)`, so the new threshold depends on
+        // the live active set too and cannot be derived from `target` alone).
         CcEvent::TargetSampleSizeChanged(_, target) => {
             tracing::info!(target, "📏 new target sample size");
-            shared.pool_send.note_target_sample_size_change(target);
-            // Keep the health p2p-isolation axis in step with the live quorum — it was armed
-            // once at startup from the then-current target. Without this, a target dropping to
-            // a quorum of 1 leaves a correctly-peerless sole attestor flagged `Isolated`
-            // (restart loop: a fresh pod won't conjure peers), and a target growing past 1
-            // after a single-attestor start leaves isolation detection permanently disarmed.
-            // `set_p2p_expected` is idempotent and re-stamps the peerless clock on the
-            // disarm→arm transition, so re-arming gets a fresh grace window.
-            let quorum = attestor_primitives::calculate_threshold(target) as usize;
-            shared.health.set_p2p_expected(quorum > 1);
+            refresh_quorum(shared).await?;
         }
 
         // 3b] new max catchup (block-count bound per continuity proof). Keep the off-chain view
@@ -461,6 +486,9 @@ async fn handle_one(
                 .await
                 .map_err(Error::Rpc)?;
             shared.pool_send.note_attestors_elected(attestors);
+            // Membership is half of the quorum denominator — an election that grows or shrinks
+            // the active set moves the threshold even though the target is unchanged.
+            refresh_quorum(shared).await?;
             apply_eligibility(shared, eligible);
         }
 
@@ -504,6 +532,10 @@ async fn handle_one(
                 .await
                 .map_err(Error::Rpc)?;
             shared.pool_send.note_attestors_elected(attestors);
+            // A chill/kick shrinks the active set immediately (not at the epoch boundary), so
+            // the quorum drops with it. Without this refresh the node keeps enforcing the
+            // pre-removal threshold and can no longer reach it.
+            refresh_quorum(shared).await?;
             apply_eligibility(shared, eligible);
 
             // Nudge the p2p task to evict this attestor's peer from the routing table / drop the
