@@ -354,6 +354,24 @@ declare module '@polkadot/api-base/types/storage' {
                 [AccountId32]
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
+            /**
+             * Per-chain **cap** on the voting committee, not the committee itself.
+             *
+             * The quorum `validate_attestation` enforces is `2/3+1` of
+             * `min(|ActiveAttestors|, TargetSampleSize)` (see
+             * [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). While fewer
+             * attestors are active than this value, the whole active set is the committee and the cap is
+             * inert; it only binds once the active set grows past it.
+             *
+             * Two consequences operators need to know:
+             *
+             * - Setting this **above** the active-attestor count is safe and is the recommended posture.
+             * Quorum intersection — the property that two conflicting quorums cannot both exist at one
+             * height — holds only while the cap does not bind, because nothing selects which attestors
+             * vote (sortition is unbuilt: see `do_start_election`'s unused `_randomness`, RFC-0174).
+             * - While the cap **does** bind, any self-selected `2/3+1` of the cap is a valid quorum, and
+             * two disjoint such groups can exist within a larger active set (USCP2-004).
+             **/
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
