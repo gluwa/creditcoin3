@@ -696,9 +696,20 @@ pub async fn run(
         "🗂️ persisting Outbox scan cursor across restarts"
     );
     let listener_tx = tx.clone();
+    // The listener owns its provider and rebuilds it through this hook after a sustained stall
+    // (see `listener::MAX_CONSECUTIVE_POLL_FAILURES`) instead of exiting the task — the sibling of
+    // the resolver's in-place rebuild above. Kept as an inline closure so its future yields the
+    // very same opaque provider type `listener_provider` has; a named helper would mint a second
+    // `impl Provider` that the listener's `P` could not unify with.
+    let listener_rpc = rpc.clone();
+    let listener_reconnect = move || {
+        let rpc = listener_rpc.clone();
+        async move { connect_l1_provider(rpc.as_str()).await }
+    };
     let listener = tokio::spawn(async move {
         listener::watch(
-            &listener_provider,
+            listener_provider,
+            listener_reconnect,
             resolved,
             confirmation_depth,
             scan_from,
@@ -906,9 +917,15 @@ pub async fn run(
                     // `scan_from` only when the log carried no block number keeps the old behaviour
                     // for that (not normally reachable) case.
                     let swap_start = resolved.created_at_block.or(scan_from);
+                    let listener_rpc = rpc.clone();
+                    let listener_reconnect = move || {
+                        let rpc = listener_rpc.clone();
+                        async move { connect_l1_provider(rpc.as_str()).await }
+                    };
                     listener = Some(tokio::spawn(async move {
                         listener::watch(
-                            &listener_provider,
+                            listener_provider,
+                            listener_reconnect,
                             resolved,
                             confirmation_depth,
                             swap_start,
