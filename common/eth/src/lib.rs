@@ -608,6 +608,10 @@ pub struct Client {
     /// (see [`ChainFamily::infer_from_chain_id`]) unless overridden with
     /// [`Client::with_chain_family`]. Preserved across [`Client::reconnect`].
     family: ChainFamily,
+    /// Operator-set family, if any. Wins over inference on every reconnect, so an explicit
+    /// `op-stack` for a rollup whose id is not in the well-known list survives a chain-id
+    /// change on the endpoint instead of silently degrading to `ethereum`.
+    family_override: Option<ChainFamily>,
     /// Optional in-process cache of finalized blocks (opt-in via [`Client::with_block_cache`]).
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
@@ -660,6 +664,7 @@ impl Client {
             fallback_providers: Vec::new(),
             chain_id,
             family: ChainFamily::infer_from_chain_id(chain_id),
+            family_override: None,
             mem_cache: None,
         })
     }
@@ -677,6 +682,7 @@ impl Client {
             );
         }
         self.family = family;
+        self.family_override = Some(family);
         self
     }
 
@@ -723,6 +729,7 @@ impl Client {
             fallback_providers,
             chain_id,
             family: ChainFamily::infer_from_chain_id(chain_id),
+            family_override: None,
             mem_cache: None,
         })
     }
@@ -772,15 +779,18 @@ impl Client {
         }
 
         if chain_id != self.chain_id {
-            // The endpoint now serves a different chain. Keep the operator's explicit family
-            // choice only if it still makes sense; otherwise re-infer so we don't read a
-            // plain-Ethereum chain as OP-Stack (or vice versa) by accident.
+            // The endpoint now serves a different chain. An operator-set family always wins;
+            // otherwise re-infer so we don't keep reading a plain-Ethereum chain as OP-Stack
+            // (or vice versa) by accident.
+            let family = resolve_chain_family(self.family_override, chain_id);
             tracing::warn!(
                 previous_chain_id = self.chain_id,
                 chain_id,
-                "⚠️ Primary RPC chain_id changed on reconnect; re-inferring chain family"
+                previous_family = %self.family,
+                family = %family,
+                "⚠️ Primary RPC chain_id changed on reconnect; chain family re-resolved"
             );
-            self.family = ChainFamily::infer_from_chain_id(chain_id);
+            self.family = family;
         }
         self.url = url;
         self.rpc_provider = rpc_provider;
@@ -1325,6 +1335,13 @@ impl Client {
     }
 }
 
+/// Family a client should read blocks with: the operator's explicit choice if there is one,
+/// otherwise the inference for `chain_id`. Pure so [`Client::reconnect`]'s behaviour is testable
+/// without an RPC.
+fn resolve_chain_family(override_: Option<ChainFamily>, chain_id: u64) -> ChainFamily {
+    override_.unwrap_or_else(|| ChainFamily::infer_from_chain_id(chain_id))
+}
+
 /// Decision returned by [`merge_provider_lookup`] once the sequential
 /// fallback walk finishes without any provider returning `Ok(Some(_))`.
 ///
@@ -1773,6 +1790,29 @@ mod chain_family_block_tests {
         );
         // Not a per-peer inconsistency: switching RPC endpoints would not help.
         assert!(!err.inconsistent_block_payload_for_fallback());
+    }
+
+    #[test]
+    fn explicit_family_survives_chain_id_change_and_inference_does_not() {
+        // Operator said op-stack for a rollup id we do not know: reconnect must keep it.
+        let unknown_rollup = 999_999;
+        assert_eq!(
+            resolve_chain_family(Some(ChainFamily::OpStack), unknown_rollup),
+            ChainFamily::OpStack
+        );
+        assert_eq!(
+            resolve_chain_family(Some(ChainFamily::OpStack), 11_155_111),
+            ChainFamily::OpStack
+        );
+        // No override: follow the chain id.
+        assert_eq!(
+            resolve_chain_family(None, chain_family::BASE_SEPOLIA_CHAIN_ID),
+            ChainFamily::OpStack
+        );
+        assert_eq!(
+            resolve_chain_family(None, unknown_rollup),
+            ChainFamily::Ethereum
+        );
     }
 
     #[test]
