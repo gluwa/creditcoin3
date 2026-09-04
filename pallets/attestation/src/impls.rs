@@ -15,8 +15,8 @@ use sp_std::{
 };
 
 use attestor_primitives::{
-    calculate_threshold, AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey,
-    BlsSignature, ChainKey, Digest, SignedAttestation,
+    calculate_quorum, AttestationCheckpoint, Attestor, AttestorStatus, BlsPublicKey, BlsSignature,
+    ChainKey, Digest, SignedAttestation,
 };
 use bls_signatures::key::aggregate_public_keys;
 use bls_signatures::{PublicKey, Serialize, Signature};
@@ -817,6 +817,18 @@ impl<T: Config> Pallet<T> {
         ActiveAttestors::<T>::get(chain_key).len() as u32
     }
 
+    /// The quorum `commit_attestation` enforces for `chain_key`: `2/3+1` of
+    /// `min(|ActiveAttestors|, TargetSampleSize)`.
+    ///
+    /// Exposed so off-chain consumers can read the authoritative number rather than re-deriving
+    /// it from two storage reads and risking a mismatch with `validate_attestation`.
+    pub fn quorum_threshold(chain_key: ChainKey) -> u32 {
+        calculate_quorum(
+            Self::working_set_size(chain_key),
+            Self::target_sample_size(chain_key),
+        )
+    }
+
     pub fn is_attestor(chain_key: ChainKey, address: &T::AccountId) -> bool {
         let active_attestors = ActiveAttestors::<T>::get(chain_key);
         active_attestors.contains(address)
@@ -973,9 +985,18 @@ impl<T: Config> Pallet<T> {
             .cloned()
             .collect();
 
-        // Threshold validation
+        // Threshold validation.
+        //
+        // The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, not of
+        // `TargetSampleSize` alone. The target is a *cap* on how large the voting committee has to
+        // get, so it only binds once the active set grows past it; below that the whole active set
+        // is the committee. Deriving from the target alone made a target above the active-attestor
+        // count unsatisfiable, which halted attestation for the chain permanently.
+        //
+        // `active_attestors` is the deduplicated live set gathered above, so this is the same
+        // denominator the eligibility filter was applied against.
         let target_sample_size = Self::target_sample_size(chain_key);
-        let threshold = calculate_threshold(target_sample_size);
+        let threshold = calculate_quorum(active_attestors.len() as u32, target_sample_size);
         ensure!(
             eligible_attestors.len() as u32 >= threshold,
             Error::<T>::MajorityNotReached
