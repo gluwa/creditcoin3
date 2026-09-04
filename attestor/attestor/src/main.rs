@@ -17,6 +17,7 @@ struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: attestor::secret::RpcSecret,
+    eth_chain_family: Option<eth::ChainFamily>,
     cc3_url: attestor::secret::RpcSecret,
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
@@ -70,6 +71,8 @@ struct ConfigFileP2P {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileEth {
     url: Option<url::Url>,
+    /// `ethereum` or `op-stack`. Omit to infer from the RPC chain id.
+    chain_family: Option<eth::ChainFamily>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -214,6 +217,19 @@ impl Config {
                     .env("ATTESTOR_ETH_URL")
                     .required(config_file.eth.url.is_none())
                     .value_parser(clap::value_parser!(url::Url)),
+            )
+            .arg(
+                clap::arg!(--"eth-chain-family" <FAMILY>)
+                    .help("Source chain family: `ethereum` or `op-stack`")
+                    .long_help(
+                        "Source chain family: `ethereum` (L1 and L1-shaped chains) or \
+                        `op-stack` (Base, OP Mainnet and other OP-Stack rollups, which carry \
+                        0x7e deposit transactions). Defaults to inferring the family from the \
+                        RPC's chain id; only well-known OP-Stack chain ids are recognised, so \
+                        set this explicitly for any other OP-Stack chain",
+                    )
+                    .env("ATTESTOR_ETH_CHAIN_FAMILY")
+                    .value_parser(clap::value_parser!(eth::ChainFamily)),
             )
             .arg(
                 clap::arg!(--"cc3-url" <URL>)
@@ -363,6 +379,11 @@ impl Config {
             attestor::secret::RpcSecret::new_opaque(eth_url)
         };
 
+        let eth_chain_family = matches
+            .get_one::<eth::ChainFamily>("eth-chain-family")
+            .copied()
+            .or(config_file.eth.chain_family);
+
         let cc3_url = match matches.get_one::<url::Url>("cc3-url") {
             Some(url) => url.clone(),
             None => config_file
@@ -398,6 +419,7 @@ impl Config {
             api_port,
             p2p_port,
             eth_url,
+            eth_chain_family,
             cc3_url,
             start_height,
             attestation_interval,
@@ -535,6 +557,7 @@ async fn main() -> anyhow::Result<()> {
         .with_stream(
             attestor::secret::ConfigBuilder::new()
                 .with_url_eth(args.eth_url)
+                .with_eth_chain_family(args.eth_chain_family)
                 .with_url_cc3(args.cc3_url)
                 .with_secret(args.secret)
                 .build(),

@@ -177,6 +177,15 @@ impl Attestor {
                 result.map_err(Error::Init)?
             }
         };
+        let eth = match self.config.stream.eth_chain_family {
+            Some(family) => eth.with_chain_family(family),
+            None => eth,
+        };
+        tracing::info!(
+            chain_id = eth.chain_id(),
+            chain_family = %eth.chain_family(),
+            "🧬 source chain family resolved"
+        );
 
         // ----------------------------------* chain config *----------------------------------- //
 

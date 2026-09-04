@@ -47,9 +47,20 @@ p2p:
 eth:
   # Eth RPC url
   #   Used to pull source chain data and generate continuity proofs. Attestors
-  #   are advised to run their own RPC server.
+  #   are advised to run their own RPC server. The node must serve
+  #   `eth_getBlockReceipts` (op-geth and geth do; some public gateways don't).
   #
   url: "ws://localhost:8545"
+
+  # Optional: Source chain family
+  #   ethereum: L1 and L1-shaped chains (Sepolia, Anvil, Polygon PoS)
+  #   op-stack: OP-Stack rollups such as Base / OP Mainnet, whose blocks carry
+  #             0x7e deposit transactions
+  #   If omitted, inferred from the RPC's chain id (Base and OP Mainnet plus
+  #   their Sepolia testnets map to op-stack, everything else to ethereum).
+  #   Set explicitly for OP-Stack chains with other chain ids.
+  #
+  # chain_family: op-stack
 
 cc3:
   # CC3 RPC url
