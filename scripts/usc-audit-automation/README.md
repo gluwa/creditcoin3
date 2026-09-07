@@ -5,8 +5,8 @@ A Deno-based TypeScript tool that runs attestation sanity checks on USC
 
 All configuration is loaded from a single JSON file. For CI, env overrides:
 `USC_NOTI_SLACK_BOT_TOKEN`, `USC_NOTI_SLACK_CHANNEL_ID`,
-`USC_SLACK_ALERT_GROUP`, `SEPOLIA_RPC_URL`, `BSC_RPC_URL`,
-`BSC_MAINNET_RPC_URL`, `MAINNET_RPC_URL`
+`USC_SLACK_ALERT_GROUP`, `SEPOLIA_RPC_URL`, `BSC_MAINNET_RPC_URL`,
+`MAINNET_RPC_URL`
 
 ## Features
 
@@ -49,8 +49,7 @@ variables.
       "chainKey": 2,
       "url": "wss://ethereum-sepolia.publicnode.com"
     },
-    { "chainId": 97, "chainKey": 3, "url": "wss://bsc-testnet.publicnode.com" },
-    { "chainId": 56, "chainKey": 8, "url": "wss://bsc-rpc.publicnode.com" }
+    { "chainId": 56, "chainKey": 8, "url": "https://bsc-rpc.publicnode.com" }
   ],
   "slackBotToken": "xxxx-xxxxxxxxxx-xx...",
   "slackChannelId": "C09DC0AAD..",
@@ -68,8 +67,7 @@ variables.
   only when not using `--no-slack`
 
 **Env overrides (CI)**: `SEPOLIA_RPC_URL` overrides url for chainId 11155111;
-`BSC_RPC_URL` for chainId 97, `BSC_MAINNET_RPC_URL` for chainId 56 and
-`MAINNET_RPC_URL` for chainId 1.
+`BSC_MAINNET_RPC_URL` for chainId 56 and `MAINNET_RPC_URL` for chainId 1.
 
 Devnet's chainId 56 entry ships a public BSC endpoint, so `BSC_MAINNET_RPC_URL`
 is optional; set it to move that check onto a private provider.
