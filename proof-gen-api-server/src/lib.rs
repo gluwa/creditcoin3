@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
@@ -30,14 +29,6 @@ pub use services::errors::ErrorResponse;
 /// crate keep working unchanged. The eth-side helper redacts both `?query`
 /// strings *and* secret-looking path segments (Chainstack/Alchemy style).
 use eth::redact_url_query;
-
-/// Max finalized source blocks held in the per-chain in-process block cache. Sized to comfortably
-/// cover a continuity range (last checkpoint → query height) plus recent inclusion-proof blocks,
-/// while bounding memory (each entry is one block's txs+receipts).
-const BLOCK_CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(512) {
-    Some(n) => n,
-    None => panic!("512 is non-zero"),
-};
 
 pub struct Server {
     config: Config,
@@ -217,7 +208,11 @@ impl Server {
                 // In-process cache of finalized source blocks. Overlapping continuity ranges and
                 // batched requests re-fetch the same low blocks every time; caching them removes
                 // the repeat RPC + merkle work. Finalized blocks are immutable, so no invalidation.
-                .with_block_cache(BLOCK_CACHE_CAPACITY)
+                //
+                // Each entry holds one block's *decoded* txs+receipts, so on a high-tx chain this
+                // is the largest single per-chain allocation - and it overlaps the merkle cache,
+                // which holds the same recent blocks in encoded form. Hence the per-chain knob.
+                .with_block_cache(chain.cache.block_cache_capacity)
         };
 
         let chain_id = eth_client.chain_id();
@@ -330,8 +325,16 @@ impl Server {
     pub async fn run(&self) -> Result<()> {
         let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
-        let service = services::continuity_service::ContinuityService::new(
+        let cache_configs = self
+            .config
+            .chains
+            .iter()
+            .map(|chain| (chain.chain_key, chain.cache.clone()))
+            .collect();
+
+        let service = services::continuity_service::ContinuityService::new_with_cache_configs(
             self.builders.clone(),
+            cache_configs,
             metrics.clone(),
             self.config.max_batch_size.get(),
             self.config.max_batch_span,
@@ -341,6 +344,7 @@ impl Server {
         let service = Arc::new(service);
 
         ProofGenMetrics::spawn_hardware_updater(self.prom_metrics.clone());
+        ContinuityService::spawn_cache_metrics_updater(service.clone());
         ContinuityService::spawn_merkle_backfill(service.clone());
 
         let allowed: std::collections::HashSet<u64> = self.config.chain_keys();

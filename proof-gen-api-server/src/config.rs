@@ -16,6 +16,68 @@ pub const DEFAULT_MAX_BATCH_SIZE: NonZeroUsize = match NonZeroUsize::new(10) {
 /// from forcing proof generation over an extremely large block range.
 pub const DEFAULT_MAX_BATCH_SPAN: u64 = 1_000;
 
+/// Default per-chain capacity (512 blocks) of the in-process raw block cache.
+///
+/// Each cached entry holds a whole source block's **decoded** transactions and receipts, so
+/// this is the single largest per-chain allocation on a high-tx chain. Override it per chain
+/// via `cache.block_cache_capacity`.
+pub const DEFAULT_BLOCK_CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(512) {
+    Some(n) => n,
+    None => panic!("512 is non-zero"),
+};
+
+/// Per-chain cache sizing, resolved from the optional `cache:` block of a chain entry.
+///
+/// Every field defaults to the historical behavior, so omitting `cache:` entirely changes
+/// nothing. These exist because cache memory used to be a function purely of the chain's
+/// on-chain attestation cadence and its transaction density -- neither of which this process
+/// controls -- which let a high-throughput chain exhaust the whole process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainCacheConfig {
+    /// Merkle-proof cache retention window, in source blocks.
+    ///
+    /// `None` derives it as `attestation_interval * checkpoint_interval * 4` from the chain's
+    /// live on-chain intervals. That coupling is the catch: raising `attestation_interval` to
+    /// *reduce* attestation load multiplies this window by the same factor. Pin it here to
+    /// size the cache independently of attestation cadence.
+    pub merkle_retention_blocks: Option<u64>,
+    /// Soft byte budget for the merkle-proof cache.
+    ///
+    /// `None` means unbudgeted. When set, the effective retention window is narrowed using the
+    /// cache's own measured bytes-per-block so the cache stays within budget regardless of how
+    /// many transactions the chain puts in a block. Eviction itself stays height-ordered.
+    pub merkle_max_bytes: Option<u64>,
+    /// Capacity of the raw (decoded) block cache, in blocks. Defaults to
+    /// [`DEFAULT_BLOCK_CACHE_CAPACITY`].
+    pub block_cache_capacity: NonZeroUsize,
+    /// Whether the background worker proactively fills the retention window.
+    ///
+    /// `true` (default) keeps the window warm at all times, which also means memory sits at
+    /// its ceiling continuously. `false` fills the cache only when a proof actually needs a
+    /// block, trading first-request latency for a much smaller resident set.
+    pub merkle_backfill_enabled: bool,
+    /// Cap on retained checkpoint-digest entries.
+    ///
+    /// `None` (default) retains every checkpoint, which is what proof serving needs: a proof
+    /// is bracketed by the checkpoint immediately *below* the queried block, and there is no
+    /// fallback to chain state on a miss. Setting this therefore caps how far back proofs can
+    /// be served -- roughly `max_entries * attestation_interval * checkpoint_interval` blocks
+    /// -- in exchange for bounding a cache that otherwise only ever grows. Opt in knowingly.
+    pub checkpoint_cache_max_entries: Option<usize>,
+}
+
+impl Default for ChainCacheConfig {
+    fn default() -> Self {
+        Self {
+            merkle_retention_blocks: None,
+            merkle_max_bytes: None,
+            block_cache_capacity: DEFAULT_BLOCK_CACHE_CAPACITY,
+            merkle_backfill_enabled: true,
+            checkpoint_cache_max_entries: None,
+        }
+    }
+}
+
 /// One source chain (EVM) served by this process, keyed on Creditcoin3.
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
@@ -41,6 +103,8 @@ pub struct ChainConfig {
     /// protection. That is the failure mode this change removes.
     /// See [`continuity::ContinuityConfig::block_confirmation_depth`].
     pub block_confirmation_depth: Option<u64>,
+    /// Per-chain cache sizing. Defaults reproduce the historical behavior.
+    pub cache: ChainCacheConfig,
 }
 
 /// Server configuration after CLI / file resolution.
@@ -70,6 +134,7 @@ impl Config {
                 archiver_url: None,
                 // Mock config has no chain to resolve against; pin explicitly.
                 block_confirmation_depth: Some(0),
+                cache: ChainCacheConfig::default(),
             }],
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
             max_batch_span: DEFAULT_MAX_BATCH_SPAN,
@@ -132,6 +197,32 @@ pub struct ChainConfigFile {
     /// deliberately pin a value; startup warns if it disagrees with the chain.
     #[serde(default)]
     pub block_confirmation_depth: Option<u64>,
+    /// Optional per-chain cache sizing. Omit the whole block to keep the defaults.
+    ///
+    /// ```yaml
+    /// cache:
+    ///   merkle_retention_blocks: 1000
+    ///   merkle_max_bytes: 805306368
+    ///   block_cache_capacity: 96
+    /// ```
+    #[serde(default)]
+    pub cache: ChainCacheConfigFile,
+}
+
+/// YAML layout of a chain's `cache:` block. Every field is optional; see
+/// [`ChainCacheConfig`] for what each one means and what omitting it does.
+#[derive(Debug, Default, Deserialize)]
+pub struct ChainCacheConfigFile {
+    #[serde(default)]
+    pub merkle_retention_blocks: Option<u64>,
+    #[serde(default)]
+    pub merkle_max_bytes: Option<u64>,
+    #[serde(default)]
+    pub block_cache_capacity: Option<NonZeroUsize>,
+    #[serde(default)]
+    pub merkle_backfill_enabled: Option<bool>,
+    #[serde(default)]
+    pub checkpoint_cache_max_entries: Option<usize>,
 }
 
 fn default_max_batch_size() -> NonZeroUsize {
@@ -155,12 +246,14 @@ impl ConfigFile {
             }
             let eth_rpc_fallback_urls =
                 validate_fallback_urls(c.chain_key, c.eth_rpc_fallback_urls)?;
+            let cache = resolve_cache_config(c.chain_key, c.cache)?;
             chains.push(ChainConfig {
                 chain_key: c.chain_key,
                 eth_rpc_url: c.eth_rpc_url,
                 eth_rpc_fallback_urls,
                 archiver_url: c.archiver_url,
                 block_confirmation_depth: c.block_confirmation_depth,
+                cache,
             });
         }
         Ok(Config {
@@ -173,6 +266,50 @@ impl ConfigFile {
             max_batch_span: self.max_batch_span,
         })
     }
+}
+
+/// Resolve a chain's `cache:` block, filling omitted fields with their defaults.
+///
+/// # Errors
+///
+/// A zero for any of the sizing knobs. Zero is never a meaningful value here and it reads as
+/// "unlimited" to the unwary, when it would in fact mean "cache nothing" -- so reject it and
+/// point at the field that actually expresses the intent.
+///
+/// `chain_key` is included in error messages to help users locate the offending entry in a
+/// multi-chain config.
+fn resolve_cache_config(chain_key: u64, file: ChainCacheConfigFile) -> Result<ChainCacheConfig> {
+    if file.merkle_retention_blocks == Some(0) {
+        bail!(
+            "chain_key {chain_key}: `cache.merkle_retention_blocks` must be greater than 0; \
+             omit it to derive the window from the chain's attestation intervals"
+        );
+    }
+    if file.merkle_max_bytes == Some(0) {
+        bail!(
+            "chain_key {chain_key}: `cache.merkle_max_bytes` must be greater than 0; \
+             omit it for an unbudgeted cache"
+        );
+    }
+    if file.checkpoint_cache_max_entries == Some(0) {
+        bail!(
+            "chain_key {chain_key}: `cache.checkpoint_cache_max_entries` must be greater than 0; \
+             omit it to retain every checkpoint"
+        );
+    }
+
+    let defaults = ChainCacheConfig::default();
+    Ok(ChainCacheConfig {
+        merkle_retention_blocks: file.merkle_retention_blocks,
+        merkle_max_bytes: file.merkle_max_bytes,
+        block_cache_capacity: file
+            .block_cache_capacity
+            .unwrap_or(defaults.block_cache_capacity),
+        merkle_backfill_enabled: file
+            .merkle_backfill_enabled
+            .unwrap_or(defaults.merkle_backfill_enabled),
+        checkpoint_cache_max_entries: file.checkpoint_cache_max_entries,
+    })
 }
 
 /// Validate a chain's `eth_rpc_fallback_urls` (purely structural — no network
@@ -351,5 +488,157 @@ chains:
             err.contains("`eth_rpc_fallback_urls[0]` is empty"),
             "expected empty-url error, got: {err}"
         );
+    }
+
+    #[test]
+    fn yaml_without_cache_block_uses_defaults() {
+        // Regression guard: omitting `cache:` must reproduce the historical behavior exactly,
+        // i.e. derive the retention window and leave the caches unbudgeted.
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+
+        assert_eq!(cfg.chains[0].cache, ChainCacheConfig::default());
+        assert_eq!(cfg.chains[0].cache.merkle_retention_blocks, None);
+        assert_eq!(cfg.chains[0].cache.merkle_max_bytes, None);
+        assert_eq!(cfg.chains[0].cache.checkpoint_cache_max_entries, None);
+        assert!(cfg.chains[0].cache.merkle_backfill_enabled);
+        assert_eq!(
+            cfg.chains[0].cache.block_cache_capacity,
+            DEFAULT_BLOCK_CACHE_CAPACITY
+        );
+    }
+
+    #[test]
+    fn yaml_with_cache_block_is_parsed() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    cache:
+      merkle_retention_blocks: 1000
+      merkle_max_bytes: 805306368
+      block_cache_capacity: 96
+      merkle_backfill_enabled: false
+      checkpoint_cache_max_entries: 20000
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        let cache = &cfg.chains[0].cache;
+
+        assert_eq!(cache.merkle_retention_blocks, Some(1000));
+        assert_eq!(cache.merkle_max_bytes, Some(805_306_368));
+        assert_eq!(cache.block_cache_capacity.get(), 96);
+        assert!(!cache.merkle_backfill_enabled);
+        assert_eq!(cache.checkpoint_cache_max_entries, Some(20_000));
+    }
+
+    #[test]
+    fn partial_cache_block_keeps_other_defaults() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    cache:
+      merkle_retention_blocks: 1000
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        let cache = &cfg.chains[0].cache;
+
+        assert_eq!(cache.merkle_retention_blocks, Some(1000));
+        assert_eq!(cache.block_cache_capacity, DEFAULT_BLOCK_CACHE_CAPACITY);
+        assert!(cache.merkle_backfill_enabled);
+    }
+
+    #[test]
+    fn cache_block_rejects_zero_sizes() {
+        for (field, value) in [
+            ("merkle_retention_blocks", "0"),
+            ("merkle_max_bytes", "0"),
+            ("checkpoint_cache_max_entries", "0"),
+        ] {
+            let yaml = format!(
+                r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    cache:
+      {field}: {value}
+"#
+            );
+            let err = parse(&yaml).expect_err("zero should be rejected");
+            let msg = err.to_string();
+            assert!(
+                msg.contains(field) && msg.contains("chain_key 8"),
+                "wrong error: {msg}"
+            );
+        }
+    }
+
+    #[test]
+    fn cache_block_rejects_zero_block_cache_capacity() {
+        // NonZeroUsize makes serde itself reject this one.
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    cache:
+      block_cache_capacity: 0
+"#;
+        assert!(parse(yaml).is_err(), "zero capacity should be rejected");
+    }
+
+    #[test]
+    fn shipped_example_config_parses() {
+        // The example file is the documentation for these knobs; keep it loadable so a stray
+        // edit to the commented blocks cannot ship broken YAML.
+        let yaml = include_str!("../config.example.yaml");
+        let cfg = parse(yaml).expect("config.example.yaml should parse");
+
+        assert!(!cfg.chains.is_empty());
+        // Everything under `cache:` is commented out there, so defaults must survive.
+        for chain in &cfg.chains {
+            assert_eq!(chain.cache, ChainCacheConfig::default());
+        }
+    }
+
+    #[test]
+    fn duplicate_chain_key_is_rejected() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8546"
+"#;
+        let err = parse(yaml).expect_err("duplicate chain_key should be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("duplicate chain_key 8"), "wrong error: {msg}");
+    }
+
+    #[test]
+    fn empty_chains_list_is_rejected() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains: []
+"#;
+        let err = parse(yaml).expect_err("empty chains should be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("at least one entry"), "wrong error: {msg}");
     }
 }

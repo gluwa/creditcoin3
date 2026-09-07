@@ -27,6 +27,25 @@ pub trait GetErrorType {
 
 /// Trait defining the metrics interface.
 /// Implemented by both `ProofGenMetrics` (real metrics) and `NoopMetrics` (no-op for testing).
+/// Occupancy of one chain's in-process caches, as reported to Prometheus.
+///
+/// Bundled into one struct so the sampler makes a single call per chain and the gauges can
+/// never be updated half-way to a new snapshot.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CacheOccupancy {
+    /// Blocks currently held in the merkle-proof cache.
+    pub merkle_blocks: u64,
+    /// Transactions indexed across those blocks.
+    pub merkle_txs: u64,
+    /// Approximate heap bytes held by those blocks.
+    pub merkle_bytes: u64,
+    /// Effective retention window in source blocks, after any byte-budget clamp. Compare with
+    /// the configured/derived value to see whether the budget is engaging.
+    pub merkle_retention_blocks: u64,
+    /// Retained checkpoint-digest entries.
+    pub checkpoint_entries: u64,
+}
+
 pub trait MetricsTrait: Send + Sync + Debug {
     // Request metrics
     fn inc_request(&self, endpoint: Endpoint, status: Status);
@@ -46,6 +65,7 @@ pub trait MetricsTrait: Send + Sync + Debug {
     fn observe_block_range(&self, block: u64);
     fn set_last_attested_height(&self, chain_key: u64, height: Option<u64>);
     fn set_last_checkpoint_height(&self, chain_key: u64, height: Option<u64>);
+    fn set_cache_occupancy(&self, chain_key: u64, occupancy: CacheOccupancy);
 }
 
 /// Metrics type alias for use throughout the codebase.
@@ -81,6 +101,7 @@ impl MetricsTrait for NoopMetrics {
     fn observe_block_range(&self, _block: u64) {}
     fn set_last_attested_height(&self, _chain_key: u64, _height: Option<u64>) {}
     fn set_last_checkpoint_height(&self, _chain_key: u64, _height: Option<u64>) {}
+    fn set_cache_occupancy(&self, _chain_key: u64, _occupancy: CacheOccupancy) {}
 }
 
 /// Comprehensive metrics for the proof-gen-api-server.
@@ -106,6 +127,14 @@ pub struct ProofGenMetrics {
     block_range: Histogram,
     last_attested_height: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
     last_checkpoint_height: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+
+    // Cache occupancy metrics. Without these there is no way to see a cache approaching the
+    // process memory limit before it OOMs.
+    merkle_cache_blocks: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    merkle_cache_txs: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    merkle_cache_bytes: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    merkle_cache_retention_blocks: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    checkpoint_cache_entries: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
     /// Server start time as Unix timestamp (seconds since epoch).
     /// Use PromQL `time() - proof_gen_start_time_seconds` to calculate uptime.
     /// This field is registered with Prometheus registry and accessed during encoding,
@@ -194,6 +223,43 @@ impl ProofGenMetrics {
             last_checkpoint_height.clone(),
         );
 
+        let merkle_cache_blocks = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_merkle_cache_blocks",
+            "Source blocks currently held in the merkle proof cache",
+            merkle_cache_blocks.clone(),
+        );
+
+        let merkle_cache_txs = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_merkle_cache_txs",
+            "Transactions indexed in the merkle proof cache",
+            merkle_cache_txs.clone(),
+        );
+
+        let merkle_cache_bytes = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_merkle_cache_bytes",
+            "Approximate heap bytes held by the merkle proof cache",
+            merkle_cache_bytes.clone(),
+        );
+
+        let merkle_cache_retention_blocks =
+            Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_merkle_cache_retention_blocks",
+            "Effective merkle proof cache retention window in source blocks, after any byte-budget clamp",
+            merkle_cache_retention_blocks.clone(),
+        );
+
+        let checkpoint_cache_entries =
+            Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_checkpoint_cache_entries",
+            "Checkpoint digests retained in the in-process checkpoint cache",
+            checkpoint_cache_entries.clone(),
+        );
+
         let start_time_seconds = Gauge::default();
         // Set start time once at initialization (Unix timestamp)
         let now = SystemTime::now()
@@ -254,6 +320,11 @@ impl ProofGenMetrics {
             block_range,
             last_attested_height,
             last_checkpoint_height,
+            merkle_cache_blocks,
+            merkle_cache_txs,
+            merkle_cache_bytes,
+            merkle_cache_retention_blocks,
+            checkpoint_cache_entries,
             start_time_seconds,
             cpu_usage_percent,
             memory_usage_bytes,
@@ -417,6 +488,26 @@ impl MetricsTrait for ProofGenMetrics {
         } else {
             let _ = self.last_checkpoint_height.remove(&labels);
         }
+    }
+
+    fn set_cache_occupancy(&self, chain_key: u64, occupancy: CacheOccupancy) {
+        let labels = labels::LabelChain { chain_key };
+
+        self.merkle_cache_blocks
+            .get_or_create(&labels)
+            .set(occupancy.merkle_blocks);
+        self.merkle_cache_txs
+            .get_or_create(&labels)
+            .set(occupancy.merkle_txs);
+        self.merkle_cache_bytes
+            .get_or_create(&labels)
+            .set(occupancy.merkle_bytes);
+        self.merkle_cache_retention_blocks
+            .get_or_create(&labels)
+            .set(occupancy.merkle_retention_blocks);
+        self.checkpoint_cache_entries
+            .get_or_create(&labels)
+            .set(occupancy.checkpoint_entries);
     }
 }
 

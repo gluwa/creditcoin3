@@ -79,6 +79,18 @@ impl KeccakMerkleTree {
             .unwrap_or_default()
     }
 
+    /// Approximate heap footprint of this tree, in bytes.
+    ///
+    /// Counts every level's hashes plus the per-level `Vec` headers. Callers that cache
+    /// trees need this to budget their memory, and `levels` is private so they cannot
+    /// measure it themselves.
+    pub fn heap_bytes(&self) -> usize {
+        let headers = core::mem::size_of::<Vec<H256>>().saturating_mul(self.levels.len());
+        self.levels.iter().fold(headers, |acc, level| {
+            acc.saturating_add(core::mem::size_of::<H256>().saturating_mul(level.len()))
+        })
+    }
+
     /// Generate a Merkle proof for a specific leaf index
     ///
     /// # Errors
@@ -244,5 +256,30 @@ mod tests {
                 max_index: 1,
             })
         );
+    }
+
+    #[test]
+    fn heap_bytes_grows_with_leaf_count_and_is_zero_when_empty() {
+        assert_eq!(KeccakMerkleTree::new(&[]).heap_bytes(), 0);
+
+        let small = KeccakMerkleTree::new(&[vec![1], vec![2]]);
+        let large = KeccakMerkleTree::new(&(0..64u8).map(|n| vec![n]).collect::<Vec<_>>());
+
+        assert!(small.heap_bytes() > 0);
+        assert!(
+            large.heap_bytes() > small.heap_bytes(),
+            "64 leaves ({}) should outweigh 2 leaves ({})",
+            large.heap_bytes(),
+            small.heap_bytes()
+        );
+    }
+
+    #[test]
+    fn heap_bytes_counts_every_level() {
+        // 4 leaves => levels of 4, 2, 1 hashes = 7 hashes across 3 level vecs.
+        let tree = KeccakMerkleTree::new(&[vec![1], vec![2], vec![3], vec![4]]);
+        let expected = 7 * core::mem::size_of::<H256>() + 3 * core::mem::size_of::<Vec<H256>>();
+
+        assert_eq!(tree.heap_bytes(), expected);
     }
 }

@@ -510,6 +510,137 @@ mod tests {
             .expect("service init should succeed with mocks")
     }
 
+    async fn make_service_with_cache_config(cache: ChainCacheConfig) -> ContinuityService {
+        let chain_key = 2;
+        let (cc_provider, _) = make_mock_providers(chain_key);
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
+            mock_config(chain_key),
+            cc_provider,
+            Arc::new(FoundEthProvider),
+        ));
+        ContinuityService::new_with_cache_configs(
+            vec![builder],
+            HashMap::from([(chain_key, cache)]),
+            NoopMetrics::new(),
+            10,
+            1_000,
+        )
+        .await
+        .expect("service init should succeed with mocks")
+    }
+
+    /// Fill a chain's merkle cache with `blocks` blocks of `txs_per_block` transactions each,
+    /// so the retention clamp has a real measured density to work from.
+    async fn fill_merkle_cache(
+        svc: &ContinuityService,
+        chain_key: u64,
+        blocks: u64,
+        txs_per_block: u64,
+        tx_len: usize,
+    ) {
+        let chain = svc.chain_state(chain_key).expect("chain should exist");
+        for height in 1..=blocks {
+            let txs = (0..txs_per_block)
+                .map(|n| {
+                    (
+                        H256::from_low_u64_be(height * 1_000 + n),
+                        vec![n as u8; tx_len],
+                    )
+                })
+                .collect();
+            chain
+                .merkle_proof_cache
+                .insert_block(height, txs)
+                .await
+                .expect("insert should succeed");
+        }
+    }
+
+    #[tokio::test]
+    async fn retention_defaults_to_the_derived_window() {
+        // mock_config uses attestation_interval 10 * checkpoint_interval 10 * multiplier 4.
+        let svc = make_service_with_cache_config(ChainCacheConfig::default()).await;
+        let chain = svc.chain_state(2).expect("chain should exist");
+
+        assert_eq!(svc.merkle_cache_retention_blocks(chain).await, 400);
+    }
+
+    #[tokio::test]
+    async fn configured_retention_overrides_the_derived_window() {
+        // The point of the knob: decouple cache size from attestation cadence.
+        let svc = make_service_with_cache_config(ChainCacheConfig {
+            merkle_retention_blocks: Some(1_000),
+            ..ChainCacheConfig::default()
+        })
+        .await;
+        let chain = svc.chain_state(2).expect("chain should exist");
+
+        assert_eq!(svc.merkle_cache_retention_blocks(chain).await, 1_000);
+    }
+
+    #[tokio::test]
+    async fn budget_does_not_clamp_while_the_cache_is_cold() {
+        let svc = make_service_with_cache_config(ChainCacheConfig {
+            merkle_retention_blocks: Some(1_000),
+            merkle_max_bytes: Some(1),
+            ..ChainCacheConfig::default()
+        })
+        .await;
+        let chain = svc.chain_state(2).expect("chain should exist");
+
+        // No density measured yet, so nothing to clamp against.
+        assert_eq!(svc.merkle_cache_retention_blocks(chain).await, 1_000);
+    }
+
+    #[tokio::test]
+    async fn budget_clamps_the_window_using_measured_density() {
+        let svc = make_service_with_cache_config(ChainCacheConfig {
+            merkle_retention_blocks: Some(4_000),
+            // Room for roughly 10 blocks at the density we are about to establish.
+            merkle_max_bytes: Some(10 * 20 * 1_024),
+            ..ChainCacheConfig::default()
+        })
+        .await;
+        fill_merkle_cache(&svc, 2, 4, 20, 1_024).await;
+        let chain = svc.chain_state(2).expect("chain should exist");
+
+        let effective = svc.merkle_cache_retention_blocks(chain).await;
+        assert!(
+            (5..=20).contains(&effective),
+            "budget should clamp 4000 to roughly 10 blocks, got {effective}"
+        );
+    }
+
+    #[tokio::test]
+    async fn budget_never_clamps_below_one_attestation_interval() {
+        // A tiny budget must still leave the current attestation bracket cached.
+        let svc = make_service_with_cache_config(ChainCacheConfig {
+            merkle_retention_blocks: Some(4_000),
+            merkle_max_bytes: Some(1),
+            ..ChainCacheConfig::default()
+        })
+        .await;
+        fill_merkle_cache(&svc, 2, 2, 50, 4_096).await;
+        let chain = svc.chain_state(2).expect("chain should exist");
+
+        // mock_config sets attestation_interval = 10.
+        assert_eq!(svc.merkle_cache_retention_blocks(chain).await, 10);
+    }
+
+    #[tokio::test]
+    async fn budget_leaves_a_comfortable_window_alone() {
+        let svc = make_service_with_cache_config(ChainCacheConfig {
+            merkle_retention_blocks: Some(400),
+            merkle_max_bytes: Some(8 * 1_024 * 1_024 * 1_024),
+            ..ChainCacheConfig::default()
+        })
+        .await;
+        fill_merkle_cache(&svc, 2, 4, 10, 256).await;
+        let chain = svc.chain_state(2).expect("chain should exist");
+
+        assert_eq!(svc.merkle_cache_retention_blocks(chain).await, 400);
+    }
+
     #[tokio::test]
     async fn tx_hash_found_returns_position() {
         let svc = make_service(Arc::new(FoundEthProvider)).await;
