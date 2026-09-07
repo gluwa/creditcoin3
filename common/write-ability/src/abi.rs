@@ -55,6 +55,68 @@ sol! {
         );
     }
 
+    /// OutboxDiscovery (asc-contracts #38) — the registry that replaces factory-log scanning as
+    /// the source of truth for "which Outbox serves this chain key". Only the surface we actually
+    /// read is mirrored.
+    ///
+    /// The timelock events matter to us specifically: `activeOutboxes` filters an Outbox out the
+    /// moment its scheduled removal time passes, so membership disappearing is NOT our signal to
+    /// stop watching one. These events give the effective time in advance, and the cancel events
+    /// stop us acting at a time that was called off.
+    #[sol(rpc)]
+    #[derive(Debug)]
+    contract IOutboxDiscovery {
+        /// Registered as active for `chainKey`. Its block is each listener's start block: the
+        /// registry exposes no creation height, and starting at the current head would silently
+        /// skip every `MessagePublished` below it.
+        event OutboxRegistered(
+            uint32 indexed chainKey,
+            address indexed outbox,
+            address indexed registrar
+        );
+
+        /// Removal scheduled. `effectiveBlock` is a source-chain BLOCK NUMBER, compared against
+        /// `block.number` (asc-contracts #46 moved the timelock off unix time so it cannot drift
+        /// with block production). Listeners are block-indexed too, so no conversion: keep the
+        /// Outbox listener alive until the finalized head passes `effectiveBlock`, then drop it
+        /// (drain-before-drop). `timelock()` and `MIN_TIMELOCK` (1200) are in blocks as well.
+        event OutboxRemovalScheduled(
+            uint32 indexed chainKey,
+            address indexed outbox,
+            uint64 effectiveBlock
+        );
+
+        /// Default change scheduled. Also fires with `effectiveBlock == block.number` when the
+        /// first live Outbox for a chain key auto-becomes the default (no delay, because there was
+        /// no prior default to drain).
+        event DefaultOutboxChangeScheduled(
+            uint32 indexed chainKey,
+            address indexed outbox,
+            uint64 effectiveBlock
+        );
+
+        event PendingDefaultCancelled(uint32 indexed chainKey);
+        event PendingRemovalCancelled(uint32 indexed chainKey, address indexed outbox);
+
+        /// Authoritative replacement for scanning `OutboxCreated`.
+        function defaultOutbox(uint32 chainKey) external view returns (address);
+
+        /// Every Outbox still serving `chainKey`, due-removed entries already filtered out. We
+        /// watch all of them and drain before dropping a listener.
+        function activeOutboxes(uint32 chainKey) external view returns (address[] memory);
+
+        function isActiveOutbox(uint32 chainKey, address outbox) external view returns (bool);
+
+        /// Sole home for the deployer address now that the runtime's stored factory address is
+        /// being retired (agreed with Kevin, 2026-09-01).
+        function defaultDeployer() external view returns (address);
+
+        /// Cold-start reads: an attestor booting after a schedule event still needs the pending
+        /// state, since the event is already in the past.
+        function pendingDefaultOutbox(uint32 chainKey) external view returns (address outbox, uint64 effectiveBlock);
+        function pendingRemovalBlock(uint32 chainKey, address outbox) external view returns (uint64 effectiveBlock);
+    }
+
     #[sol(rpc)]
     #[derive(Debug)]
     contract IChainInfo {

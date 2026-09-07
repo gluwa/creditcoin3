@@ -41,7 +41,7 @@ async function main() {
   const quoterAddr = addrs.source?.quoter;
   if (!quoterAddr) throw new Error(`no source.quoter in ${OUT}`);
 
-  const art = ART("write-ability/USCRelayingQuoter.sol", "USCRelayingQuoter");
+  const art = ART("write-ability/ASCRelayingQuoter.sol", "ASCRelayingQuoter");
   const quoter = new ethers.Contract(quoterAddr, art.abi, wallet);
 
   const already = await quoter.isAuthorizedQuoter(quoterEOA).catch(() => null);

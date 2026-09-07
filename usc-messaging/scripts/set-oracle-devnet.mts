@@ -43,7 +43,7 @@ async function main() {
   const addrs = JSON.parse(readFileSync(OUT, "utf8"));
   const targets: Array<[string, string, string, string]> = [
     ["TWAPReader", addrs.source?.twapReader, "write-ability/TWAPReader.sol", "TWAPReader"],
-    ["USCRelayingQuoter", addrs.source?.quoter, "write-ability/USCRelayingQuoter.sol", "USCRelayingQuoter"],
+    ["ASCRelayingQuoter", addrs.source?.quoter, "write-ability/ASCRelayingQuoter.sol", "ASCRelayingQuoter"],
   ];
   for (const [label, addr, artPath, artName] of targets) {
     if (!addr) throw new Error(`missing address for ${label} in ${OUT}`);
