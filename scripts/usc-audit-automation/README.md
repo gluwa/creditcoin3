@@ -71,6 +71,9 @@ variables.
 `BSC_RPC_URL` for chainId 97, `BSC_MAINNET_RPC_URL` for chainId 56 and
 `MAINNET_RPC_URL` for chainId 1.
 
+Devnet's chainId 56 entry ships a public BSC endpoint, so `BSC_MAINNET_RPC_URL`
+is optional; set it to move that check onto a private provider.
+
 Relative config paths (e.g. `config-devnet.json`) are resolved from the script
 directory, so it works regardless of current working directory.
 
