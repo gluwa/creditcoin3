@@ -707,7 +707,11 @@ jobs:
           # restart-to-rebuild path after a sustained failure budget ("N consecutive times"), and
           # alloy's close-frame notice when the ws endpoint is bounced. All three are designed
           # loud-recovery behavior during the induced outages, not faults.
-          ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed|Outbox resolution still failing after prolonged retrying|Outbox resolution failed [0-9]+ consecutive times|outbox poll stalled \(no progress\)|Received close frame'
+          # Deliberately NOT allowlisted: "outbox poll stalled". The Outbox listener used to die on
+          # a sustained stall and surface here as a `task failed` ERROR, which this gate waved
+          # through. It now rebuilds its provider in place at WARN level, so any ERROR carrying that
+          # phrase again is a regression the gate must catch.
+          ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed|Outbox resolution still failing after prolonged retrying|Outbox resolution failed [0-9]+ consecutive times|Received close frame'
           shopt -s nullglob
           LOGS=(./logs/attestor-*.json.*)
           if [ "${#LOGS[@]}" -eq 0 ]; then

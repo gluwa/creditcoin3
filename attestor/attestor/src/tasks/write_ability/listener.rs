@@ -10,6 +10,7 @@
 //! Polling (rather than `eth_subscribe`) avoids the silent-stream-stall failure mode, matching the
 //! relayer.
 
+use std::future::Future;
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, B256};
@@ -18,7 +19,7 @@ use alloy::rpc::types::eth::BlockNumberOrTag;
 use alloy::rpc::types::{BlockTransactionsKind, Filter};
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use write_ability::abi::IOutbox;
@@ -37,17 +38,23 @@ pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
 /// the listener.
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Consecutive *stalled* polls before the listener gives up and returns `Err`. Only a poll that
-/// errored **and** made no forward progress counts (see [`next_failure_count`]); a slow backfill
-/// that keeps advancing the scan resets the budget, so catching up across many polls never trips
-/// this. The write-ability task harvests the eventual error and propagates it to the supervisor,
-/// which restarts the pod — rebuilding the provider from scratch. This is the reconnect story for
-/// the write-ability EVM provider: unlike the block-attestation path (wrapped in the reconnecting
-/// `eth::Client`), this provider is a bare alloy connection whose pubsub service exits permanently
-/// after a single failed reconnect, so a routine RPC blip would otherwise silently kill message
-/// voting for the process lifetime (C1). At the 6s cadence this rides out ~1 minute of fast errors,
-/// or (with `RPC_TIMEOUT`) a few minutes of a black-holed endpoint, before restarting — long enough
-/// to absorb a transient blip, short enough that a dead provider does not strand quorum indefinitely.
+/// Consecutive *stalled* polls before the listener declares its provider dead and rebuilds it in
+/// place via the `reconnect` hook handed to [`watch`]. Only a poll that errored **and** made no
+/// forward progress counts (see [`next_failure_count`]); a slow backfill that keeps advancing the
+/// scan resets the budget, so catching up across many polls never trips this.
+///
+/// This is the reconnect story for the write-ability EVM provider: unlike the block-attestation
+/// path (wrapped in the reconnecting `eth::Client`), this provider is a bare alloy connection whose
+/// pubsub service exits permanently after a single failed reconnect (`backend connection task has
+/// stopped`), so a routine RPC blip would otherwise silently kill message voting for the process
+/// lifetime (C1). The listener used to return `Err` here and let the supervisor restart the whole
+/// attestor — which took block attestation down with it and, because every attestor in a cluster
+/// shares one RPC endpoint, killed whole clusters within seconds of each other (31 Aug 2026: all
+/// six kc/we attestors, two deliveries that day at exactly quorum). Rebuilding the connection in
+/// place is the same fix the Outbox resolver got in #1304. At the 6s cadence this rides out ~1
+/// minute of fast errors, or (with `RPC_TIMEOUT`) a few minutes of a black-holed endpoint, before
+/// the first rebuild attempt; a failed rebuild keeps the old handle and tries again after another
+/// full budget.
 const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
 
 /// Blocks to rewind a *persisted* cursor by on resume. The cursor is saved once a poll's range has
@@ -175,9 +182,8 @@ pub struct IndexedMessage {
 /// A poll that either completed (`poll_ok`) or advanced the scan (`made_progress`) resets the budget
 /// to zero; only a fully *stalled* poll — errored **and** zero forward progress — increments it.
 /// This is what stops a slow-but-progressing backfill (which may encounter a later RPC failure after
-/// advancing earlier chunks) from tripping [`MAX_CONSECUTIVE_POLL_FAILURES`] and restarting the
-/// whole process, block attestation included. Pure so the rule is unit-testable without an RPC or
-/// timers.
+/// advancing earlier chunks) from tripping [`MAX_CONSECUTIVE_POLL_FAILURES`] and rebuilding a
+/// provider that is in fact healthy. Pure so the rule is unit-testable without an RPC or timers.
 fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
     if poll_ok || made_progress {
         0
@@ -191,15 +197,36 @@ fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
 /// `cursor` persists the scan position (`last_seen`) across restarts: on boot the persisted value
 /// is preferred over `start_block`/head so a restart resumes exactly where it left off, and after
 /// every poll that advances the scan the new position is saved.
-pub async fn watch<P: Provider>(
-    provider: &P,
+///
+/// `shared_provider` is the write-ability task's one Creditcoin L1 connection, shared with the
+/// Outbox rotation monitor and the reobservation worker. alloy provider clones share a single
+/// pubsub backend, so when that backend dies every clone dies with it. The listener is the one
+/// loop that counts stalls, so it is the one that heals: after [`MAX_CONSECUTIVE_POLL_FAILURES`]
+/// stalled polls it calls `reconnect`, swaps the fresh connection into its own hot path, and
+/// publishes it through the channel so the siblings pick it up on their next use — nobody leaves
+/// their loop (the scan cursor, finality tracker and cancellation wiring all survive). `reconnect`
+/// must produce the same provider type; in production that is `connect_l1_provider` bound to the
+/// configured RPC URL.
+#[allow(clippy::too_many_arguments)]
+pub async fn watch<P, R, Fut>(
+    shared_provider: watch::Sender<P>,
+    reconnect: R,
     resolved: ResolvedOutbox,
     block_confirmation_depth: u64,
     start_block: Option<u64>,
     cursor: CursorStore,
     tx: mpsc::Sender<IndexedMessage>,
     token: CancellationToken,
-) -> Result<()> {
+) -> Result<()>
+where
+    P: Provider + Clone,
+    R: Fn() -> Fut,
+    Fut: Future<Output = Result<P>>,
+{
+    // Local handle for the hot path; the channel is only touched on a rebuild. Cloning an alloy
+    // provider is an `Arc` bump. Start from whatever is current, which after a rotation re-spawn
+    // may already be a rebuilt connection rather than the boot-time one.
+    let mut provider = shared_provider.borrow().clone();
     // Cursor precedence: a persisted position wins over `start_block`/head so a restart resumes
     // rather than skipping down-time messages (default config) or replaying the whole history from
     // `start_block`. To force a different start position, remove the cursor file.
@@ -293,7 +320,7 @@ pub async fn watch<P: Provider>(
                         return Ok(());
                     }
                     outcome = poll_once(
-                        provider, &resolved, &policy, &mut finality, &mut last_seen, &tx,
+                        &provider, &resolved, &policy, &mut finality, &mut last_seen, &tx,
                     ) => outcome,
                 };
 
@@ -320,11 +347,11 @@ pub async fn watch<P: Provider>(
 
                 // Progress-aware failure budget: a poll that either completed or *advanced the scan*
                 // resets the budget; only a fully stalled poll (errored AND zero forward progress)
-                // counts toward the restart threshold. A wide backfill (far-behind start_block, or a
+                // counts toward the rebuild threshold. A wide backfill (far-behind start_block, or a
                 // long Outbox-resolve wait) can legitimately advance several chunks before a later
                 // RPC fails — counting that progressing-but-unfinished poll as a failure would
-                // trip `MAX_CONSECUTIVE_POLL_FAILURES` and restart the whole process (taking block
-                // attestation down with it) even while it was catching up the entire time.
+                // trip `MAX_CONSECUTIVE_POLL_FAILURES` and tear down a healthy connection even
+                // while it was catching up the entire time.
                 consecutive_failures =
                     next_failure_count(consecutive_failures, outcome.is_ok(), made_progress);
                 match outcome {
@@ -340,23 +367,47 @@ pub async fn watch<P: Provider>(
                     }
                     // Stalled poll (no progress): the budget was incremented above.
                     Err(err) => {
-                        // Give up after a sustained *stalled* run. Returning Err lets the
-                        // write-ability task harvest it and restart the pod, which rebuilds this
-                        // (non-self-healing) provider — the only reconnect path it has (C1).
                         if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
-                            return Err(err).with_context(|| {
-                                format!(
-                                    "outbox poll stalled (no progress) {consecutive_failures} times \
-                                     in a row — RPC connection is likely dead; restarting to rebuild it"
-                                )
-                            });
+                            // The bare alloy connection does not come back on its own once its
+                            // pubsub task has exited (C1), so swap it for a fresh one here rather
+                            // than exiting and taking block attestation down with us. Reset the
+                            // budget either way: a failed rebuild keeps the old handle and earns
+                            // another full window before the next attempt, so a long RPC outage
+                            // produces a warning every ~minute instead of a crash loop.
+                            consecutive_failures = 0;
+                            tracing::warn!(
+                                error = %format!("{err:#}"),
+                                stalled_polls = MAX_CONSECUTIVE_POLL_FAILURES,
+                                last_seen,
+                                "🔌 outbox poll stalled for a full window — rebuilding the Creditcoin L1 EVM provider in place"
+                            );
+                            match reconnect().await {
+                                Ok(fresh) => {
+                                    // Publish first so the rotation monitor and reobservation
+                                    // worker stop using the dead backend on their next tick, then
+                                    // take it for our own hot path.
+                                    shared_provider.send_replace(fresh.clone());
+                                    provider = fresh;
+                                    tracing::info!(
+                                        last_seen,
+                                        "🔌 Creditcoin L1 EVM provider rebuilt and shared with the rotation monitor and reobservation worker; resuming Outbox scan from cursor"
+                                    );
+                                }
+                                Err(rebuild_err) => {
+                                    tracing::warn!(
+                                        error = %format!("{rebuild_err:#}"),
+                                        "🔌 could not rebuild the Creditcoin L1 EVM provider; keeping the current handle and retrying"
+                                    );
+                                }
+                            }
+                        } else {
+                            tracing::warn!(
+                                %err,
+                                consecutive_failures,
+                                max = MAX_CONSECUTIVE_POLL_FAILURES,
+                                "outbox poll stalled with no progress; will retry"
+                            );
                         }
-                        tracing::warn!(
-                            %err,
-                            consecutive_failures,
-                            max = MAX_CONSECUTIVE_POLL_FAILURES,
-                            "outbox poll stalled with no progress; will retry"
-                        );
                     }
                 }
             }
