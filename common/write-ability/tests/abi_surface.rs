@@ -181,8 +181,8 @@ fn mirrored_abi_surface_matches_compiled_contracts() {
             IOutboxDiscovery::pendingDefaultOutboxCall::SELECTOR,
         ),
         (
-            "pendingRemovalTime(uint32,address)",
-            IOutboxDiscovery::pendingRemovalTimeCall::SELECTOR,
+            "pendingRemovalBlock(uint32,address)",
+            IOutboxDiscovery::pendingRemovalBlockCall::SELECTOR,
         ),
     ] {
         assert_function_mirrored(&discovery, sig, selector);

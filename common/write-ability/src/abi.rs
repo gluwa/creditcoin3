@@ -75,21 +75,24 @@ sol! {
             address indexed registrar
         );
 
-        /// Removal scheduled. `effectiveTime` is a unix TIMESTAMP (seconds), not a block number —
-        /// listeners are block-indexed, so callers convert.
+        /// Removal scheduled. `effectiveBlock` is a source-chain BLOCK NUMBER, compared against
+        /// `block.number` (asc-contracts #46 moved the timelock off unix time so it cannot drift
+        /// with block production). Listeners are block-indexed too, so no conversion: keep the
+        /// Outbox listener alive until the finalized head passes `effectiveBlock`, then drop it
+        /// (drain-before-drop). `timelock()` and `MIN_TIMELOCK` (1200) are in blocks as well.
         event OutboxRemovalScheduled(
             uint32 indexed chainKey,
             address indexed outbox,
-            uint64 effectiveTime
+            uint64 effectiveBlock
         );
 
-        /// Default change scheduled. Also fires with `effectiveTime == block.timestamp` when the
+        /// Default change scheduled. Also fires with `effectiveBlock == block.number` when the
         /// first live Outbox for a chain key auto-becomes the default (no delay, because there was
         /// no prior default to drain).
         event DefaultOutboxChangeScheduled(
             uint32 indexed chainKey,
             address indexed outbox,
-            uint64 effectiveTime
+            uint64 effectiveBlock
         );
 
         event PendingDefaultCancelled(uint32 indexed chainKey);
@@ -110,8 +113,8 @@ sol! {
 
         /// Cold-start reads: an attestor booting after a schedule event still needs the pending
         /// state, since the event is already in the past.
-        function pendingDefaultOutbox(uint32 chainKey) external view returns (address outbox, uint64 effectiveTime);
-        function pendingRemovalTime(uint32 chainKey, address outbox) external view returns (uint64 effectiveTime);
+        function pendingDefaultOutbox(uint32 chainKey) external view returns (address outbox, uint64 effectiveBlock);
+        function pendingRemovalBlock(uint32 chainKey, address outbox) external view returns (uint64 effectiveBlock);
     }
 
     #[sol(rpc)]
