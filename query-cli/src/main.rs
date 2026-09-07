@@ -24,6 +24,7 @@ struct ConnectionConfig {
     cc3_evm_private_key: String,
     eth_rpc_url: String,
     eth_private_key: String,
+    eth_chain_family: Option<eth::ChainFamily>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +41,7 @@ pub struct NativeQueryParams {
     pub cc3_rpc_url: String,
     pub cc3_evm_private_key: String,
     pub eth_rpc_url: Option<String>,
+    pub eth_chain_family: Option<eth::ChainFamily>,
     pub block_height: Option<u64>,
     pub txn_hash: Option<String>,
     pub chain_key: u64,
@@ -60,6 +62,10 @@ pub struct QueryCli {
 
     #[arg(short, long)]
     verbose: bool,
+
+    /// Source family override; applies to verification, transfers, and batch queries.
+    #[arg(long, global = true, env = "ETH_CHAIN_FAMILY")]
+    eth_chain_family: Option<eth::ChainFamily>,
 
     #[command(subcommand)]
     command: Commands,
@@ -187,6 +193,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Otherwise, use interactive mode
             if eth_rpc_url.is_some() && block_height.is_some() && txn_hash.is_some() {
                 let params = NativeQueryParams {
+                    eth_chain_family: args.eth_chain_family,
                     cc3_rpc_url: args.cc3_rpc_url,
                     cc3_evm_private_key: args.cc3_evm_private_key,
                     eth_rpc_url,
@@ -203,6 +210,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     args.cc3_evm_private_key,
                     chain_key,
                     send_tx,
+                    args.eth_chain_family,
                 )
                 .await?;
             }
@@ -218,6 +226,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             send_tx,
         } => {
             let conn = ConnectionConfig {
+                eth_chain_family: args.eth_chain_family,
                 cc3_rpc_url: args.cc3_rpc_url,
                 cc3_evm_private_key: args.cc3_evm_private_key,
                 eth_rpc_url,
@@ -244,6 +253,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             ci_mode,
         } => {
             let conn = ConnectionConfig {
+                eth_chain_family: args.eth_chain_family,
                 cc3_rpc_url: args.cc3_rpc_url,
                 cc3_evm_private_key: args.cc3_evm_private_key,
                 eth_rpc_url,
@@ -278,8 +288,9 @@ async fn handle_transfer_and_query(
     let transfer_config = create_transfer_config(to_address, amount_wei);
 
     // Create workflow config
-    let workflow_config =
+    let mut workflow_config =
         create_workflow_config(query.wait_attestation, query.auto_query, query.send_tx);
+    workflow_config.eth_chain_family = conn.eth_chain_family;
 
     // Execute transfer with optional attestation and query
     let result = execute_transfer_with_query(
@@ -340,8 +351,9 @@ async fn handle_batch_transfer_and_query(
     };
 
     // Create workflow config
-    let workflow_config =
+    let mut workflow_config =
         create_workflow_config(query.wait_attestation, query.auto_query, query.send_tx);
+    workflow_config.eth_chain_family = conn.eth_chain_family;
 
     // Execute transfers with workflow
     let results = execute_batch_transfers_with_query(
@@ -392,7 +404,9 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
 
     // Step 2: Fetch block data from source chain
     println!("\n=== Fetching Block Data ===");
-    let query_eth_client = Client::new(&prompt_output.network.url(), None).await?;
+    let query_eth_client = Client::new(&prompt_output.network.url(), None)
+        .await?
+        .with_chain_family_override(params.eth_chain_family);
 
     let block = match query_eth_client
         .get_block(prompt_output.height, prompt_output.encoding)
@@ -460,11 +474,12 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     // Step 8: Generate continuity proof (using refactored module)
     println!("\n=== Continuity Proof Generation ===");
     println!("Configured chain key: {}", params.chain_key);
-    let continuity_blocks = continuity::builder::fetch_continuity_proof(
+    let continuity_blocks = continuity::builder::fetch_continuity_proof_with_chain_family(
         &params.cc3_rpc_url,
         &prompt_output.network.url(),
         params.chain_key,
         prompt_output.height,
+        params.eth_chain_family,
     )
     .await?;
     println!("Continuity blocks: {}", continuity_blocks.len());
@@ -498,6 +513,7 @@ pub async fn submit_native_query(params: NativeQueryParams) -> Result<(), Box<dy
     // Step 9: Verify the query (using refactored module)
     println!("\n=== Query Verification ===");
     let verification_config = verification::VerificationConfig {
+        eth_chain_family: params.eth_chain_family,
         cc3_rpc_url: params.cc3_rpc_url.clone(),
         cc3_evm_private_key: params.cc3_evm_private_key.clone(),
         eth_rpc_url: prompt_output.network.url(),
@@ -560,6 +576,7 @@ async fn handle_interactive_query(
     cc3_evm_private_key: String,
     chain_key: u64,
     send_tx: bool,
+    eth_chain_family: Option<eth::ChainFamily>,
 ) -> Result<(), Box<dyn Error>> {
     // Get query configuration from user
     let prompt_args = PromptArgs {
@@ -572,6 +589,7 @@ async fn handle_interactive_query(
     // Submit the query (encoding is resolved from CC3 inside submit_native_query,
     // which is the single point that actually fetches/decodes the block).
     let params = NativeQueryParams {
+        eth_chain_family,
         cc3_rpc_url,
         cc3_evm_private_key,
         eth_rpc_url: Some(prompt_output.network.url()),

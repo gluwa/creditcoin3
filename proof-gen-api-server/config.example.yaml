@@ -4,7 +4,7 @@
 # Creditcoin3 WebSocket URL: set CC3_RPC_URL in .env (or pass --cc3-rpc-url), not in this file.
 #
 # Without --config / PROOF_GEN_CONFIG_FILE: legacy single-chain mode (CLI/env only).
-# Supported chain key defaults to CHAIN_KEY (default 1); ETH RPC from --eth-rpc-url / ETH_RPC_URL.
+# Supported chain key defaults to CHAIN_KEY (default 2); ETH RPC from --eth-rpc-url.
 # Multi-chain allowlists and per-chain eth_rpc_url require this YAML (or equivalent env wiring).
 ---
 bind_host: "0.0.0.0"
@@ -14,15 +14,18 @@ bind_port: 3100
 chains:
   - chain_key: 2
     eth_rpc_url: "http://localhost:8545"
+    # Optional: ethereum or op-stack. Omit for chain-ID inference (Base/OP IDs are recognized).
+    # Set this consistently with the attestor and archiver for custom OP-Stack networks.
+    # eth_chain_family: op-stack
     # archiver_url: "http://localhost:8080"  # optional per chain
     block_confirmation_depth: 32  # Blocks to lag behind chain tip for reorg protection.
     #                              # Suggested: 32 for Ethereum-style L1 chains; tune per source chain.
-    #                              # Default when omitted: 0 (no lag), only safe for local/dev networks.
+    #                              # Default when omitted: derive from the on-chain maturity strategy.
     #
     # Ordered fallback RPC URLs (optional).
     # The eth client always tries `eth_rpc_url` (primary) first for every
     # operation, then walks `eth_rpc_fallback_urls` in declaration order
-    # whenever the primary returns "not found" or a transport error for
+    # whenever the primary returns "not found", a transport error, or an inconsistent payload for
     # a block fetch / tx-hash lookup. Useful when the primary is a cheap
     # "recent-only" endpoint and you keep a more expensive "archive"
     # endpoint as backup for old data.

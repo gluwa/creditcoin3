@@ -93,9 +93,7 @@ impl BatchVerifier {
     /// Generate a shared continuity chain for all queries
     pub async fn generate_shared_continuity(
         &self,
-        cc3_rpc_url: &str,
-        eth_rpc_url: &str,
-        chain_key: u64,
+        config: &VerificationConfig,
     ) -> Result<Vec<Block>> {
         if self.queries.is_empty() {
             return Ok(Vec::new());
@@ -105,13 +103,15 @@ impl BatchVerifier {
         let query_heights: Vec<u64> = self.queries.iter().map(|q| q.block_height).collect();
 
         // Use the refactored continuity module to generate shared continuity
-        let continuity_blocks = continuity::builder::fetch_continuity_proof_batch(
-            cc3_rpc_url,
-            eth_rpc_url,
-            chain_key,
-            &query_heights,
-        )
-        .await?;
+        let continuity_blocks =
+            continuity::builder::fetch_continuity_proof_batch_with_chain_family(
+                &config.cc3_rpc_url,
+                &config.eth_rpc_url,
+                config.chain_key,
+                &query_heights,
+                config.eth_chain_family,
+            )
+            .await?;
 
         Ok(continuity_blocks)
     }
@@ -138,13 +138,7 @@ impl BatchVerifier {
         // Use the chain_key from verification config (should be passed from CLI)
         let chain_key = verification_config.chain_key;
 
-        let shared_continuity = self
-            .generate_shared_continuity(
-                &verification_config.cc3_rpc_url,
-                &verification_config.eth_rpc_url,
-                chain_key,
-            )
-            .await?;
+        let shared_continuity = self.generate_shared_continuity(verification_config).await?;
 
         // Prepare batch data for the precompile
         let mut queries = Vec::new();
@@ -314,21 +308,22 @@ pub fn display_batch_results(results: &BatchVerificationResult) {
 
 /// Execute batch query for multiple transactions
 pub async fn execute_batch_query(
-    cc3_rpc_url: String,
-    cc3_evm_private_key: String,
-    eth_rpc_url: String,
+    verification_config: VerificationConfig,
     tx_hashes: Vec<String>,
     block_heights: Vec<u64>,
-    chain_key: u64,
     send_tx: bool,
 ) -> Result<()> {
     println!("\n=== Batch Query Execution ===");
     println!("Processing {} queries", tx_hashes.len());
 
     // Create Ethereum client
-    let eth_client = Client::new(&eth_rpc_url, None).await?;
+    let chain_key = verification_config.chain_key;
+    let eth_client = Client::new(&verification_config.eth_rpc_url, None)
+        .await?
+        .with_chain_family_override(verification_config.eth_chain_family);
     // Source-chain block encoding from CC3 metadata, instead of assuming V1.
-    let encoding = crate::encoding::resolve_chain_encoding(&cc3_rpc_url, chain_key).await;
+    let encoding =
+        crate::encoding::resolve_chain_encoding(&verification_config.cc3_rpc_url, chain_key).await;
 
     // Create batch verifier with eth_rpc_url stored
     let config = BatchVerificationConfig {
@@ -336,7 +331,6 @@ pub async fn execute_batch_query(
     };
 
     let mut verifier = BatchVerifier::new(config);
-    let eth_rpc_url_for_continuity = eth_rpc_url.clone();
 
     // Process each transaction
     for (i, (tx_hash, block_height)) in tx_hashes.iter().zip(block_heights.iter()).enumerate() {
@@ -375,16 +369,6 @@ pub async fn execute_batch_query(
     }
 
     // Execute batch verification
-    let verification_config = VerificationConfig {
-        cc3_rpc_url,
-        cc3_evm_private_key,
-        eth_rpc_url: eth_rpc_url_for_continuity,
-        chain_key,
-    };
-
-    // Override the generate_shared_continuity call to use the correct eth_rpc_url
-    // For now we'll use the hardcoded localhost:8545 in generate_shared_continuity
-    // A better solution would be to pass eth_rpc_url through VerificationConfig
     let results = verifier.verify_batch(&verification_config).await?;
 
     // Display results

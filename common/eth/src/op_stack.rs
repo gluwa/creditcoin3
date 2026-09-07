@@ -40,8 +40,11 @@
 //! | `chunks[1]` deposit | `(bytes32 sourceHash, uint256 mint, bool isSystemTx)` |
 //! | `chunks[2]` receipt | `(uint8 status, uint64 gasUsed, (address,bytes32[],bytes)[] logs, bytes logsBloom)` |
 //!
-//! `nonce` is the deposit nonce the sequencer assigned (reported as `nonce` on the RPC
-//! transaction). There are no signature fields: deposits are unsigned.
+//! `nonce` is the receipt's `depositNonce` when `depositReceiptVersion` is present (Canyon
+//! and later), so it is authenticated by `receiptsRoot`. Before Canyon neither the transaction
+//! nor receipt root commits to a nonce: the leaf uses **zero**, meaning unavailable, even if
+//! RPC metadata reports a nonzero execution nonce. Do not use that historical zero to derive
+//! a contract-creation address. There are no signature fields: deposits are unsigned.
 //!
 //! This layout is the source of truth until it is upstreamed into `usc-abi-encoding`; keep the
 //! two in sync when that happens.
@@ -77,13 +80,20 @@ pub enum DepositError {
     /// produces this shape.
     #[error("deposit receipt for {hash} has depositReceiptVersion but no depositNonce")]
     ReceiptMissingNonce { hash: B256 },
+    #[error("deposit receipt for {hash}: malformed field `{field}`")]
+    ReceiptField { hash: B256, field: &'static str },
+    #[error("deposit transaction {hash}: RPC nonce {transaction_nonce} differs from receipt nonce {receipt_nonce}")]
+    NonceMismatch {
+        hash: B256,
+        transaction_nonce: u64,
+        receipt_nonce: u64,
+    },
 }
 
 /// An OP-Stack deposit transaction as it appears in an L2 block.
 ///
-/// Field names follow the OP-Stack spec. `nonce` is not part of the consensus encoding (it is
-/// derived by the sequencer and surfaced on the RPC object) but it is what the leaf's common chunk
-/// reports as `nonce`, so it is carried along.
+/// Field names follow the OP-Stack spec. `nonce` is not part of the transaction's consensus
+/// encoding; see the module's leaf layout for its receipt-backed canonicalization.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DepositTransaction {
     /// Transaction hash as reported by the RPC, verified against our own encoding.
@@ -106,7 +116,7 @@ pub struct DepositTransaction {
     pub is_system_tx: bool,
     /// Calldata.
     pub input: Bytes,
-    /// Sequencer-assigned deposit nonce (RPC `nonce`).
+    /// Receipt-backed nonce since Canyon; zero (unavailable) before Canyon.
     pub nonce: u64,
 }
 
@@ -115,7 +125,10 @@ impl DepositTransaction {
     ///
     /// Fails with [`DepositError::NotADeposit`] if the transaction is anything else, so callers
     /// can match on the type byte first without a second inspection.
-    pub fn try_from_rpc(tx: &AnyRpcTransaction) -> Result<Self, DepositError> {
+    pub fn try_from_rpc(
+        tx: &AnyRpcTransaction,
+        receipt: DepositReceiptFields,
+    ) -> Result<Self, DepositError> {
         let unknown = match &tx.inner.inner {
             AnyTxEnvelope::Unknown(unknown) if unknown.inner.ty.0 == DEPOSIT_TX_TYPE => unknown,
             AnyTxEnvelope::Unknown(unknown) => {
@@ -131,13 +144,14 @@ impl DepositTransaction {
                 })
             }
         };
-        Self::try_from_unknown(unknown, tx.inner.from)
+        Self::try_from_unknown(unknown, tx.inner.from, receipt)
     }
 
     /// Parse a deposit from the catch-all envelope plus the RPC-level `from`.
     pub fn try_from_unknown(
         unknown: &UnknownTxEnvelope,
         from: Address,
+        receipt: DepositReceiptFields,
     ) -> Result<Self, DepositError> {
         let hash = unknown.hash;
         if unknown.inner.ty.0 != DEPOSIT_TX_TYPE {
@@ -184,11 +198,27 @@ impl DepositTransaction {
             .get_deserialized("input")
             .and_then(Result::ok)
             .ok_or(field("input"))?;
-        let nonce: u64 = fields
-            .get_deserialized::<U64>("nonce")
-            .and_then(Result::ok)
-            .ok_or(field("nonce"))?
-            .to();
+        // RPC transaction nonces are metadata, absent on some historical providers. Only
+        // Canyon receipts authenticate this field. Before Canyon use zero regardless of
+        // either RPC object's metadata so all providers produce the same leaf.
+        let nonce = receipt.canonical_nonce(hash)?;
+        if receipt.deposit_receipt_version.is_some() {
+            let rpc_nonce = fields
+                .get_deserialized::<Option<U64>>("nonce")
+                .transpose()
+                .map_err(|_| field("nonce"))?
+                .flatten();
+            if let Some(rpc_nonce) = rpc_nonce {
+                let transaction_nonce = rpc_nonce.to();
+                if transaction_nonce != nonce {
+                    return Err(DepositError::NonceMismatch {
+                        hash,
+                        transaction_nonce,
+                        receipt_nonce: nonce,
+                    });
+                }
+            }
+        }
 
         let deposit = Self {
             hash,
@@ -272,16 +302,33 @@ pub struct DepositReceiptFields {
 
 impl DepositReceiptFields {
     /// Read `depositNonce` / `depositReceiptVersion` from the receipt's catch-all extra fields.
-    pub fn from_other_fields(other: &alloy::serde::OtherFields) -> Self {
-        let read = |key: &str| {
+    pub fn from_other_fields(
+        other: &alloy::serde::OtherFields,
+        hash: B256,
+    ) -> Result<Self, DepositError> {
+        let read = |key: &'static str| {
             other
-                .get_deserialized::<U64>(key)
-                .and_then(Result::ok)
-                .map(|v| v.to::<u64>())
+                .get_deserialized::<Option<U64>>(key)
+                .transpose()
+                .map_err(|_| DepositError::ReceiptField { hash, field: key })
+                .map(|value| value.flatten().map(|v| v.to::<u64>()))
         };
-        Self {
-            deposit_nonce: read("depositNonce"),
-            deposit_receipt_version: read("depositReceiptVersion"),
+        let fields = Self {
+            deposit_nonce: read("depositNonce")?,
+            deposit_receipt_version: read("depositReceiptVersion")?,
+        };
+        fields.canonical_nonce(hash)?;
+        Ok(fields)
+    }
+
+    /// Only Canyon and later receipt roots commit to the nonce. Earlier metadata must not
+    /// influence an attestation leaf, even when a provider happens to include it.
+    pub fn canonical_nonce(self, hash: B256) -> Result<u64, DepositError> {
+        match self.deposit_receipt_version {
+            Some(_) => self
+                .deposit_nonce
+                .ok_or(DepositError::ReceiptMissingNonce { hash }),
+            None => Ok(0),
         }
     }
 }
@@ -455,14 +502,22 @@ mod tests {
 
     #[test]
     fn deposit_parses_and_self_verifies_hash() {
-        let (block, _) = fixture();
+        let (block, receipts) = fixture();
         let txs: Vec<_> = block
             .inner
             .transactions
             .clone()
             .into_transactions()
             .collect();
-        let deposit = DepositTransaction::try_from_rpc(&txs[0]).expect("index 0 is the deposit");
+        let deposit = DepositTransaction::try_from_rpc(
+            &txs[0],
+            DepositReceiptFields::from_other_fields(
+                &receipts[0].other,
+                receipts[0].transaction_hash,
+            )
+            .unwrap(),
+        )
+        .expect("index 0 is the deposit");
         assert_eq!(
             deposit.from,
             "0xdeaddeaddeaddeaddeaddeaddeaddeaddead0001"
@@ -493,7 +548,8 @@ mod tests {
             .clone()
             .into_transactions()
             .collect();
-        let err = DepositTransaction::try_from_rpc(&txs[1]).unwrap_err();
+        let err =
+            DepositTransaction::try_from_rpc(&txs[1], DepositReceiptFields::default()).unwrap_err();
         assert!(
             matches!(err, DepositError::NotADeposit { ty: 2, .. }),
             "{err}"
@@ -503,11 +559,19 @@ mod tests {
     #[test]
     fn deposit_receipt_fields_are_read_from_extra_fields() {
         let (_, receipts) = fixture();
-        let fields = DepositReceiptFields::from_other_fields(&receipts[0].other);
+        let fields = DepositReceiptFields::from_other_fields(
+            &receipts[0].other,
+            receipts[0].transaction_hash,
+        )
+        .unwrap();
         assert_eq!(fields.deposit_receipt_version, Some(1));
         assert_eq!(fields.deposit_nonce, Some(46_388_024));
         // A regular tx receipt has neither.
-        let none = DepositReceiptFields::from_other_fields(&receipts[1].other);
+        let none = DepositReceiptFields::from_other_fields(
+            &receipts[1].other,
+            receipts[1].transaction_hash,
+        )
+        .unwrap();
         assert_eq!(none, DepositReceiptFields::default());
     }
 
@@ -520,7 +584,15 @@ mod tests {
             .clone()
             .into_transactions()
             .collect();
-        let deposit = DepositTransaction::try_from_rpc(&txs[0]).unwrap();
+        let deposit = DepositTransaction::try_from_rpc(
+            &txs[0],
+            DepositReceiptFields::from_other_fields(
+                &receipts[0].other,
+                receipts[0].transaction_hash,
+            )
+            .unwrap(),
+        )
+        .unwrap();
         let leaf = abi_encode_deposit_leaf(&deposit, &receipts[0].inner).expect("encodes");
 
         let envelope = DynSolType::Tuple(vec![

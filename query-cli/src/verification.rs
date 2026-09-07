@@ -14,6 +14,7 @@ pub struct VerificationConfig {
     pub cc3_rpc_url: String,
     pub cc3_evm_private_key: String,
     pub eth_rpc_url: String,
+    pub eth_chain_family: Option<eth::ChainFamily>,
     pub chain_key: u64,
 }
 
