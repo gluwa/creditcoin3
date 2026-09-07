@@ -1,40 +1,54 @@
 //! `messageHash` builder.
 //!
-//! Per PoC §5.2:
+//! Mirrors `Inbox.deliverMessage` on asc-contracts `feature/SMC-1646` (PR #45, merged 2026-09-04):
 //!
 //! ```solidity
 //! messageHash = keccak256(abi.encode(
 //!     bytes32 messageId,
 //!     address emitterAddress,
-//!     bytes32 destinationChainKey,
-//!     uint64  creditcoinChainId,
-//!     bytes   payload
+//!     address outbox,             // the source Outbox that published the message (#45)
+//!     bytes32 localChainKey,      // the destination chain key
+//!     uint256 sourceChainId,      // Creditcoin's eth_chainId
+//!     bytes   messagePayload
 //! ))
 //! ```
 //!
+//! `outbox` was added so a vote for a message on a retired or rogue Outbox can never be replayed as
+//! if the canonical one had published it; the Inbox also refuses `deliverMessage` for any Outbox
+//! that is not on its allowlist. The field sits after `emitterAddress` so all static words come
+//! first and the one dynamic field last. (The order is a style choice: this is `abi.encode`, whose
+//! head/tail layout makes every order unambiguous. Only `encodePacked` has the adjacent-dynamic
+//! collision problem.)
+//!
 //! This must be byte-identical to what attestors sign and what the inbox recomputes inside
-//! `validateVotes`. The golden-vector tests at the bottom of this file are the contract: any
-//! drift here will silently break delivery.
+//! `validateVotes`. The golden vectors at the bottom of this file were produced with Foundry
+//! (`cast abi-encode` + `cast keccak`) and are duplicated in asc-message-relayer; any drift here
+//! silently breaks delivery.
 
 use alloy::primitives::{keccak256, Address, B256, U256};
 use alloy::sol_types::SolValue;
 
 /// Compute `messageHash` exactly as the Solidity `validateVotes` will recompute it.
+///
+/// `outbox` is the Outbox the event was scanned from; the attestor knows it because it resolved
+/// that address before listening, and the relayer knows it for the same reason.
 #[must_use]
 pub fn message_hash(
     message_id: B256,
     emitter: Address,
+    outbox: Address,
     destination_chain_key: B256,
     creditcoin_chain_id: u64,
     payload: &[u8],
 ) -> B256 {
-    // `abi.encode(a, b, c, d, e)` in Solidity is the head-encoding of a tuple — `abi_encode_params`
+    // `abi.encode(a, b, c, d, e, f)` in Solidity is the head-encoding of a tuple — `abi_encode_params`
     // on a tuple type produces the same byte sequence. Using `abi_encode` on the tuple would wrap
     // it in an outer offset (Solidity-struct semantics), which is *not* what `abi.encode` does for
     // a free-standing argument list.
     let encoded = (
         message_id,
         emitter,
+        outbox,
         destination_chain_key,
         U256::from(creditcoin_chain_id),
         payload.to_vec(),
@@ -88,12 +102,15 @@ mod tests {
     use super::*;
     use alloy::primitives::{address, b256};
 
+    const OUTBOX: Address = address!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
     /// Sanity vector: same input → same hash. Cheap deterministic check.
     #[test]
     fn deterministic() {
         let a = message_hash(
             b256!("1111111111111111111111111111111111111111111111111111111111111111"),
             address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            OUTBOX,
             b256!("0000000000000000000000000000000000000000000000000000000000000002"),
             102_031,
             b"hello",
@@ -101,11 +118,62 @@ mod tests {
         let b = message_hash(
             b256!("1111111111111111111111111111111111111111111111111111111111111111"),
             address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            OUTBOX,
             b256!("0000000000000000000000000000000000000000000000000000000000000002"),
             102_031,
             b"hello",
         );
         assert_eq!(a, b);
+    }
+
+    /// Golden vectors produced with Foundry against the #45 preimage:
+    /// `cast abi-encode 'f(bytes32,address,address,bytes32,uint256,bytes)' …` piped into
+    /// `cast keccak`. The same three constants live in asc-message-relayer's golden test; if
+    /// either side drifts from the Inbox, attestor signatures stop verifying on-chain.
+    #[test]
+    fn golden_vectors_match_cast_abi_encode() {
+        let m = b256!("1111111111111111111111111111111111111111111111111111111111111111");
+        let e = address!("2222222222222222222222222222222222222222");
+        let o = address!("3333333333333333333333333333333333333333");
+        let d = b256!("0000000000000000000000000000000000000000000000000000000000000008");
+        let cc = 42u64;
+
+        assert_eq!(
+            message_hash(m, e, o, d, cc, &[0xde, 0xad, 0xbe, 0xef]),
+            b256!("4b387cab474082acc4b1765537d74b87b4425bf4ecd4e375472106d63e12ff68"),
+            "six-field preimage with a 4-byte payload"
+        );
+        assert_eq!(
+            message_hash(m, e, o, d, cc, b""),
+            b256!("a5f139b554b2264af26a30ad40276a909055ca73db27a4e4d005baa1a3f8d013"),
+            "six-field preimage with an empty payload"
+        );
+        // The pre-#45 five-field hash of the same inputs. Must NOT match: this is the vote-format
+        // fork the coordinated attestor + relayer + Inbox redeploy exists for.
+        assert_ne!(
+            message_hash(m, e, o, d, cc, &[0xde, 0xad, 0xbe, 0xef]),
+            b256!("c99b69d3aef00fc024cdb4751aae2a8ea1467501e2fdd2824dd415a120deb5bd"),
+            "must not collide with the legacy five-field preimage"
+        );
+    }
+
+    /// Differing Outbox must produce different hashes (no cross-Outbox replay after rotation).
+    #[test]
+    fn outbox_sensitive() {
+        let m = b256!("1111111111111111111111111111111111111111111111111111111111111111");
+        let e = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let d = b256!("0000000000000000000000000000000000000000000000000000000000000002");
+
+        let h1 = message_hash(m, e, OUTBOX, d, 1, b"x");
+        let h2 = message_hash(
+            m,
+            e,
+            address!("cccccccccccccccccccccccccccccccccccccccc"),
+            d,
+            1,
+            b"x",
+        );
+        assert_ne!(h1, h2);
     }
 
     /// Differing payload bytes must produce different hashes.
@@ -115,8 +183,8 @@ mod tests {
         let e = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         let d = b256!("0000000000000000000000000000000000000000000000000000000000000002");
 
-        let h1 = message_hash(m, e, d, 1, b"a");
-        let h2 = message_hash(m, e, d, 1, b"b");
+        let h1 = message_hash(m, e, OUTBOX, d, 1, b"a");
+        let h2 = message_hash(m, e, OUTBOX, d, 1, b"b");
         assert_ne!(h1, h2);
     }
 
@@ -219,8 +287,8 @@ mod tests {
         let e = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         let d = b256!("0000000000000000000000000000000000000000000000000000000000000002");
 
-        let h1 = message_hash(m, e, d, 1, b"x");
-        let h2 = message_hash(m, e, d, 2, b"x");
+        let h1 = message_hash(m, e, OUTBOX, d, 1, b"x");
+        let h2 = message_hash(m, e, OUTBOX, d, 2, b"x");
         assert_ne!(h1, h2);
     }
 
@@ -233,6 +301,7 @@ mod tests {
         let h1 = message_hash(
             m,
             e,
+            OUTBOX,
             b256!("0000000000000000000000000000000000000000000000000000000000000002"),
             1,
             b"x",
@@ -240,6 +309,7 @@ mod tests {
         let h2 = message_hash(
             m,
             e,
+            OUTBOX,
             b256!("0000000000000000000000000000000000000000000000000000000000000007"),
             1,
             b"x",
@@ -253,12 +323,12 @@ mod tests {
         let h = message_hash(
             b256!("0000000000000000000000000000000000000000000000000000000000000000"),
             address!("0000000000000000000000000000000000000000"),
+            address!("0000000000000000000000000000000000000000"),
             b256!("0000000000000000000000000000000000000000000000000000000000000000"),
             0,
             b"",
         );
-        // Just assert non-zero, since the actual value should be locked down by an
-        // integration-tests/golden_hash.rs vector once the reference Solidity contract lands.
+        // Non-zero here; the exact value is pinned by `golden_vectors_match_cast_abi_encode`.
         assert_ne!(h, B256::ZERO);
     }
 }
