@@ -377,6 +377,8 @@ fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
 /// active-set size from one block with a target from another. It reads at `latest` rather than
 /// trusting the event payload, matching the chill/kick path's existing reasoning: the
 /// authoritative set is what the chain holds now, not what an event carried.
+/// Production is the sole writer of the pool's quorum after startup, keeping RPC reads and
+/// updates ordered. Validation must not write back thresholds from its concurrent RPC checks.
 async fn refresh_quorum(shared: &Arc<Shared>) -> Result<(), Error> {
     let chain_key = shared.chain_key;
     let threshold = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
