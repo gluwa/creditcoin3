@@ -54,7 +54,7 @@ async function main() {
   console.log("deployer:", owner, "balance:", ethers.formatEther(await provider.getBalance(owner)), "CTC, nonce:", await wallet.getNonce());
 
   const attest = await deploy("MockERC20", ART("mocks/MockERC20.sol", "MockERC20"), ["Attest", "ATTEST"]);
-  const proof = await deploy("USCProofVerifier", ART("write-ability/common/USCProofVerifier.sol", "USCProofVerifier"));
+  const proof = await deploy("ASCProofVerifier", ART("write-ability/common/ASCProofVerifier.sol", "ASCProofVerifier"));
   const decoder = await deploy("EVMDeliveryDecoder", ART("write-ability/common/EVMDeliveryDecoder.sol", "EVMDeliveryDecoder"), [owner]);
   const twap = await deploy("TWAPReader", ART("write-ability/TWAPReader.sol", "TWAPReader"), [owner, owner]);
   await (await (twap as any).setWindow(60)).wait();
@@ -62,7 +62,7 @@ async function main() {
   // Registry starts empty on devnet; owner can updateAttestorSet later if the vault flow needs it.
   const registry = await deploy("AttestorRegistry", ART("write-ability/AttestorRegistry.sol", "AttestorRegistry"), [owner, []]);
   const factory = await deploy("OutboxFactory", ART("write-ability/deployer/OutboxFactory.sol", "OutboxFactory"));
-  const quoter = await deploy("USCRelayingQuoter", ART("write-ability/USCRelayingQuoter.sol", "USCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
+  const quoter = await deploy("ASCRelayingQuoter", ART("write-ability/ASCRelayingQuoter.sol", "ASCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
 
   // Outbox.coreFee() reads through IFeeRegistry, NOT the quoter. This slot used to be handed the
   // quoter, which is a different interface: coreFee() then reverted, and fix-fee-registry.mts

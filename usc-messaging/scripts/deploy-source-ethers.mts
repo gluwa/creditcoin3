@@ -91,7 +91,7 @@ async function main() {
   console.log("deployer:", owner, "nonce:", await wallet.getNonce());
 
   const attest = await deploy("MockERC20", ART("mocks/MockERC20.sol", "MockERC20"), ["Attest", "ATTEST"]);
-  const proof = await deploy("USCProofVerifier", ART("write-ability/common/USCProofVerifier.sol", "USCProofVerifier"));
+  const proof = await deploy("ASCProofVerifier", ART("write-ability/common/ASCProofVerifier.sol", "ASCProofVerifier"));
   const decoder = await deploy("EVMDeliveryDecoder", ART("write-ability/common/EVMDeliveryDecoder.sol", "EVMDeliveryDecoder"), [owner]);
   const twap = await deploy("TWAPReader", ART("write-ability/TWAPReader.sol", "TWAPReader"), [owner, owner]);
   // Start the TWAP observation clock NOW with a short window: read() reverts
@@ -104,7 +104,7 @@ async function main() {
   const factory = await deploy("OutboxFactory", ART("write-ability/deployer/OutboxFactory.sol", "OutboxFactory"));
   // Indexer discovery is fail-closed: authenticate OutboxCreated against governance registration.
   await registerFactoryBeforeOutbox(await factory.getAddress());
-  const quoter = await deploy("USCRelayingQuoter", ART("write-ability/USCRelayingQuoter.sol", "USCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
+  const quoter = await deploy("ASCRelayingQuoter", ART("write-ability/ASCRelayingQuoter.sol", "ASCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
   // Outbox.coreFee() reads through IFeeRegistry, NOT the quoter — FeeRegistry wraps this chain's
   // own chain-info precompile (ICoreFeeProvider.get_core_fee(uint32), selector 0x5b023376, fixed
   // address AddressU64<4051> per runtime/src/precompiles.rs). An unconfigured chain_key reads back
