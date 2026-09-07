@@ -556,6 +556,50 @@ mod tests {
         }
     }
 
+    /// Regression: a warm cache must still shed blocks outside the retained window.
+    ///
+    /// A byte-budget clamp narrows the window into exactly this state -- every remaining height
+    /// already processed, so there is no fill work -- and the backfill tick used to return early
+    /// before pruning. The excluded blocks then stayed resident until the next checkpoint, or
+    /// indefinitely if attestations stalled and `cache_tip` stopped advancing.
+    #[tokio::test]
+    async fn backfill_prunes_outside_the_window_even_with_no_fill_work() {
+        let svc = make_service_with_cache_config(ChainCacheConfig {
+            merkle_retention_blocks: Some(10),
+            ..ChainCacheConfig::default()
+        })
+        .await;
+        let chain = svc.chain_state(2).expect("chain should exist");
+
+        // FoundEthProvider reports tip 1000 at depth 0, so cache_tip == 1000 and the retained
+        // window is [990, 1000]. Mark all of it processed so the tick finds nothing to fill.
+        {
+            let mut att = chain.attestation_cache.write().await;
+            att.clear();
+            att.insert(1000, H256::from_low_u64_be(1000));
+        }
+        for height in 990..=1000 {
+            chain.merkle_proof_cache.mark_processed_empty(height).await;
+        }
+
+        // Stale blocks far below the window, as a previously wider window would have left.
+        fill_merkle_cache(&svc, 2, 5, 20, 1_024).await;
+        assert_eq!(chain.merkle_proof_cache.size_stats().await.blocks, 5);
+
+        let chain = chain.clone();
+        svc.backfill_merkle_cache_for_chain(chain.clone())
+            .await
+            .expect("backfill tick should succeed");
+
+        assert_eq!(
+            chain.merkle_proof_cache.size_stats().await,
+            MerkleCacheStats::default(),
+            "blocks outside the retained window should be pruned on the warm path"
+        );
+        // The window itself is untouched.
+        assert!(chain.merkle_proof_cache.is_processed(1000).await);
+    }
+
     #[tokio::test]
     async fn retention_defaults_to_the_derived_window() {
         // mock_config uses attestation_interval 10 * checkpoint_interval 10 * multiplier 4.

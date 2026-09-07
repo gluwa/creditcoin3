@@ -470,11 +470,28 @@ impl ContinuityService {
             return Ok(());
         }
 
+        // Shed everything below the retained window *before* deciding whether there is fill
+        // work. A byte-budget clamp narrows the window precisely into the state where every
+        // remaining height is already processed, so pruning only on the fill path would leave
+        // the blocks the budget just excluded resident until the next checkpoint -- or
+        // indefinitely, if attestations stall and `cache_tip` stops advancing. Filling only
+        // ever adds heights inside the window, so one prune per tick is enough.
+        let removed = chain.merkle_proof_cache.prune_below(start).await;
+        if removed > 0 {
+            tracing::info!(
+                chain_key,
+                min_retained = start,
+                removed,
+                "pruned old merkle proof cache blocks outside the retained window"
+            );
+        }
+
         let heights = chain
             .merkle_proof_cache
             .unprocessed_heights_desc(start, cache_tip, MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK)
             .await;
         if heights.is_empty() {
+            let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
             tracing::info!(
                 chain_key,
                 confirmed_tip,
@@ -482,6 +499,10 @@ impl ContinuityService {
                 cache_tip,
                 retained_from = start,
                 retention_blocks,
+                total_cached_blocks = merkle_stats.blocks,
+                total_cached_txs = merkle_stats.txs,
+                total_cached_bytes = merkle_stats.bytes,
+                checkpoint_cache_entries = checkpoint_entries,
                 "merkle proof cache backfill already warm for retained range"
             );
             return Ok(());
@@ -533,17 +554,6 @@ impl ContinuityService {
                     );
                 }
             }
-        }
-
-        let min_retained = cache_tip.saturating_sub(retention_blocks).max(genesis);
-        let removed = chain.merkle_proof_cache.prune_below(min_retained).await;
-        if removed > 0 {
-            tracing::info!(
-                chain_key,
-                min_retained,
-                removed,
-                "pruned old merkle proof cache blocks after backfill"
-            );
         }
 
         let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
