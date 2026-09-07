@@ -19,7 +19,7 @@ export BASE_WS='wss://base-sepolia-rpc.publicnode.com'
 # and (for a WebSocket URL) receipt of a new block header.
 OP_STACK_RPC_URL="$BASE_WS" cargo test --locked -p eth --test op_stack_live -- --ignored --nocapture
 
-cargo build --locked --release -p attestor -p proof-gen-api-server -p query-cli -p archiver
+cargo build --locked --release -p attestor -p attestor_zombienet -p proof-gen-api-server -p query-cli -p archiver
 ```
 
 The smoke test defaults to 1,000 blocks behind the source tip. Set `OP_STACK_BLOCK_NUMBER` to a
@@ -62,6 +62,20 @@ target/release/attestor --config /path/to/attestor.yaml \
 The equivalent YAML field is `eth.chain_family: op-stack`; the environment variable is
 `ATTESTOR_ETH_CHAIN_FAMILY`. Start from the registered genesis height, or a correctly coordinated
 resume height. Do not independently override intervals on just one component.
+
+For a development/test network, the existing helper can fund, register, and launch a local set.
+Use a funding account with the required registration permissions and balance; the helper submits
+funding/registration transactions and generates the attestor secrets. For a three-attestor setup:
+
+```sh
+target/release/attestor_zombienet --number 3 --chain-key "$CHAIN_KEY" \
+  --bin "$(pwd)/target/release/attestor" --config "$(pwd)/attestor/config.yaml" \
+  --eth-url "$BASE_WS" --cc3-url "$CC3_RPC_URL" \
+  --funding-address "$CC3_FUNDING_SECRET" -- --eth-chain-family op-stack
+```
+
+This uses the genesis height already registered above. The helper allocates distinct local ports;
+check that all intended accounts become active before requesting a proof.
 
 ## 3. Start the proof API (and optionally the archiver)
 
