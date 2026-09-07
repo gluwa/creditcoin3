@@ -151,29 +151,19 @@ async fn handle_quorum(
             return Ok(());
         }
         Err(ValidationError::InsufficientVotes { got, threshold }) => {
-            // The live threshold is higher than the pool's configured quorum target — submitting
-            // now would hit `MajorityNotReached` at runtime level. Two things must happen:
-            //
-            //   1. Raise the pool's target to the live value so it stops re-yielding this same
-            //      sub-threshold fork on the next `recv()` (otherwise we busy-loop re-validating
-            //      it). `note_quorum_change` is idempotent with production's own handler.
-            //   2. Drop the permit *without* `mark_valid`. `mark_valid` would `split_off` the
-            //      fork (discarding the votes we still need) and lock the height, rejecting the
-            //      very gossiped votes required to reach the bigger threshold. Dropping the
-            //      permit leaves the fork in place so it re-surfaces once enough votes arrive.
-            //
-            // We never submitted, so no fees were burned and no on-chain race was created.
+            // Production owns the pool's quorum updates. This RPC result may predate a
+            // membership/target refresh; writing it back could overwrite a newer, lower quorum
+            // with an unreachable threshold. Defer just this fork to avoid a validation loop,
+            // preserving its votes and leaving the height open for additional signers.
             tracing::warn!(
                 ?digest,
                 height,
                 threshold,
                 got,
-                "🗳️ insufficient votes for current threshold — raising pool target, awaiting more votes"
+                "🗳️ insufficient votes for observed threshold — awaiting votes or a committee refresh"
             );
-            shared.pool_send.note_quorum_change(threshold);
-            // If stale/unverifiable votes still make the raw fork meet the raised target, prevent
-            // `recv()` from immediately yielding it again. The votes remain intact and the fork
-            // is reconsidered after a new vote or active-set refresh.
+            // `defer` ignores stale permits: if the committee or this fork changed while we
+            // awaited the RPC, the updated fork must remain available for revalidation.
             pool_rx.defer(permit);
             return Ok(());
         }
@@ -504,9 +494,8 @@ enum ValidationError {
     /// The live quorum is higher than our vote count — submitting now would hit
     /// `MajorityNotReached` at runtime level. Bail before signing so we never burn fees/turns
     /// on an extrinsic the chain is guaranteed to reject; let the pool keep collecting until
-    /// enough peer votes gossip in. Carries the live `threshold` so the handler can raise the
-    /// pool's quorum target to match (otherwise the pool keeps re-yielding the same
-    /// sub-threshold fork).
+    /// enough peer votes gossip in. Carries the observed `threshold` for logging; only production
+    /// updates the pool's quorum, while the handler defers this fork until its state changes.
     InsufficientVotes {
         got: usize,
         threshold: u32,
