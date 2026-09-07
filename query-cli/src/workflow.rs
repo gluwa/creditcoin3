@@ -13,6 +13,8 @@ use tracing::{info, warn};
 /// Configuration for transfer and query workflow
 #[derive(Debug, Clone)]
 pub struct TransferQueryConfig {
+    /// Use the same source family for transaction leaves and continuity blocks.
+    pub eth_chain_family: Option<eth::ChainFamily>,
     /// Whether to wait for attestation before querying
     pub wait_for_attestation: bool,
     /// Maximum time to wait for attestation
@@ -26,6 +28,7 @@ pub struct TransferQueryConfig {
 impl Default for TransferQueryConfig {
     fn default() -> Self {
         Self {
+            eth_chain_family: None,
             wait_for_attestation: true,
             attestation_timeout: Duration::from_secs(300),
             auto_query: true,
@@ -158,7 +161,7 @@ pub async fn execute_transfer_with_query(
             &format!("0x{:x}", transfer_result.tx_hash),
             transfer_result.block_number,
             chain_key,
-            workflow_config.send_tx,
+            &workflow_config,
         )
         .await?;
 
@@ -246,12 +249,15 @@ pub async fn execute_batch_transfers_with_query(
 
         // Execute batch query
         execute_batch_query(
-            cc3_rpc_url.to_string(),
-            cc3_evm_private_key.to_string(),
-            eth_rpc_url.to_string(),
+            crate::verification::VerificationConfig {
+                cc3_rpc_url: cc3_rpc_url.to_string(),
+                cc3_evm_private_key: cc3_evm_private_key.to_string(),
+                eth_rpc_url: eth_rpc_url.to_string(),
+                eth_chain_family: workflow_config.eth_chain_family,
+                chain_key,
+            },
             tx_hashes,
             block_heights,
-            chain_key,
             workflow_config.send_tx,
         )
         .await
@@ -277,19 +283,20 @@ async fn execute_transfer_query(
     tx_hash: &str,
     block_height: u64,
     chain_key: u64,
-    send_tx: bool,
+    workflow_config: &TransferQueryConfig,
 ) -> Result<QueryResult> {
     use crate::submit_native_query;
 
     // Call the existing native query submission
     let params = NativeQueryParams {
+        eth_chain_family: workflow_config.eth_chain_family,
         cc3_rpc_url: cc3_rpc_url.to_string(),
         cc3_evm_private_key: cc3_evm_private_key.to_string(),
         eth_rpc_url: Some(eth_rpc_url.to_string()),
         block_height: Some(block_height),
         txn_hash: Some(tx_hash.to_string()),
         chain_key,
-        send_tx,
+        send_tx: workflow_config.send_tx,
     };
     submit_native_query(params)
         .await
@@ -308,6 +315,7 @@ pub fn create_workflow_config(
     send_tx: bool,
 ) -> TransferQueryConfig {
     TransferQueryConfig {
+        eth_chain_family: None,
         wait_for_attestation: wait_attestation,
         attestation_timeout: Duration::from_secs(300),
         auto_query,

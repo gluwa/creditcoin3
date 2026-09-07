@@ -20,6 +20,8 @@ pub const DEFAULT_MAX_BATCH_SPAN: u64 = 1_000;
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
     pub chain_key: u64,
+    /// Source execution family; `None` infers it from the RPC chain ID.
+    pub eth_chain_family: Option<eth::ChainFamily>,
     /// Primary RPC URL: tried first for every operation, and the only URL
     /// used for tip-related calls (subscription, current block height).
     pub eth_rpc_url: String,
@@ -65,6 +67,7 @@ impl Config {
             cc3_key: None,
             chains: vec![ChainConfig {
                 chain_key,
+                eth_chain_family: None,
                 eth_rpc_url: "http://mock".to_string(),
                 eth_rpc_fallback_urls: Vec::new(),
                 archiver_url: None,
@@ -114,6 +117,8 @@ pub struct ConfigFile {
 #[derive(Debug, Deserialize)]
 pub struct ChainConfigFile {
     pub chain_key: u64,
+    #[serde(default)]
+    pub eth_chain_family: Option<eth::ChainFamily>,
     pub eth_rpc_url: String,
     /// Optional ordered list of fallback RPC URLs. The first non-empty
     /// answer wins; the primary `eth_rpc_url` is always tried first.
@@ -157,6 +162,7 @@ impl ConfigFile {
                 validate_fallback_urls(c.chain_key, c.eth_rpc_fallback_urls)?;
             chains.push(ChainConfig {
                 chain_key: c.chain_key,
+                eth_chain_family: c.eth_chain_family,
                 eth_rpc_url: c.eth_rpc_url,
                 eth_rpc_fallback_urls,
                 archiver_url: c.archiver_url,
@@ -305,6 +311,28 @@ chains:
 "#;
         let cfg = parse(yaml).expect("yaml should parse");
         assert!(cfg.chains[0].eth_rpc_fallback_urls.is_empty());
+        assert_eq!(cfg.chains[0].eth_chain_family, None);
+    }
+
+    #[test]
+    fn yaml_family_override_is_per_chain_and_rejects_unknown_values() {
+        let yaml = r#"
+bind_host: "127.0.0.1"
+bind_port: 3100
+chains:
+  - chain_key: 20
+    eth_rpc_url: "http://custom-rollup"
+    eth_chain_family: op-stack
+  - chain_key: 21
+    eth_rpc_url: "http://ethereum"
+"#;
+        let config = parse(yaml).unwrap();
+        assert_eq!(
+            config.chains[0].eth_chain_family,
+            Some(eth::ChainFamily::OpStack)
+        );
+        assert_eq!(config.chains[1].eth_chain_family, None);
+        assert!(parse(&yaml.replace("op-stack", "unsupported")).is_err());
     }
 
     #[test]

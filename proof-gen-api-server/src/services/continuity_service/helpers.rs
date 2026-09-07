@@ -551,6 +551,18 @@ mod tests {
             eth::Error::BlockHeaderRootsMismatch(11),
             eth::Error::TransactionsReceiptsMismatch(12),
             eth::Error::NotFullTransactionsFetched(13),
+            eth::Error::ReceiptTypeMismatch {
+                block: 14,
+                index: 0,
+                tx_ty: 126,
+                receipt_ty: 2,
+            },
+            eth::Error::Deposit {
+                block: 15,
+                source: eth::op_stack::DepositError::ReceiptMissingNonce {
+                    hash: Default::default(),
+                },
+            },
         ] {
             let block = variant
                 .inconsistent_block_number_hint()

@@ -103,8 +103,12 @@ async fn main() -> Result<()> {
     // If http and ws urls point to chains with different `chain_id`s, we treat that
     // as a fatal error.
     {
-        let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
-        let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+        let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
+            .await?
+            .with_chain_family_override(cfg.eth_chain_family);
+        let http_client = eth::Client::new(cfg.rpc_http.as_str(), None)
+            .await?
+            .with_chain_family_override(cfg.eth_chain_family);
         if ws_client.chain_id() != http_client.chain_id() {
             return Err(anyhow!(
                 "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -134,7 +138,9 @@ async fn main() -> Result<()> {
             for (gap_start, gap_end) in &gaps {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
-                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
+                    .await?
+                    .with_chain_family_override(cfg.eth_chain_family);
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
@@ -190,12 +196,16 @@ async fn main() -> Result<()> {
 
     // ── Connect to chain ────────────────────────────────────────────────
     // WS client for StreamRoots (subscriptions + block fetching).
-    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
     let chain_id = ws_client.chain_id();
     tracing::info!(chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
 
     // HTTP client for chain head tracking.
-    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None)
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
 
     // ── Root stream (with automatic reconnection) ───────────────────────
     let stream_config = stream_eth::roots::ConfigBuilder::new()
@@ -311,6 +321,7 @@ async fn main() -> Result<()> {
 
                     match eth::Client::new(cfg.rpc_ws.as_str(), None).await {
                         Ok(new_ws) => {
+                            let new_ws = new_ws.with_chain_family_override(cfg.eth_chain_family);
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
@@ -430,7 +441,9 @@ async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
     };
 
     // Temp eth client for checking that chain_id matches expected.
-    let eth_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+    let eth_client = eth::Client::new(cfg.rpc_http.as_str(), None)
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
 
     // Temp cc3 client for getting finalization lag
     let cc3_client =

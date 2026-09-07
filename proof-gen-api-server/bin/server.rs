@@ -35,6 +35,10 @@ pub struct ProofGenApiServer {
     #[arg(long, default_value = "ws://localhost:8545")]
     eth_rpc_url: String,
 
+    /// Source family override for single-chain mode; configure each chain in YAML otherwise.
+    #[arg(long, env = "ETH_CHAIN_FAMILY", conflicts_with = "config")]
+    eth_chain_family: Option<eth::ChainFamily>,
+
     #[arg(
         long,
         default_value = "0.0.0.0",
@@ -146,6 +150,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             chains: vec![ChainConfig {
                 chain_key,
                 eth_rpc_url: args.eth_rpc_url,
+                eth_chain_family: args.eth_chain_family,
                 // Fallback RPC URLs are only configurable via the multi-chain
                 // YAML; the legacy single-chain CLI path stays single-URL.
                 eth_rpc_fallback_urls: Vec::new(),

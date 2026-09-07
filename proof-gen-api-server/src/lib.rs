@@ -85,6 +85,7 @@ impl Server {
                 chain_key = chain.chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
                 eth_rpc_fallback_count = chain.eth_rpc_fallback_urls.len(),
+                eth_chain_family = ?chain.eth_chain_family,
                 archiver_url = ?chain.archiver_url.as_ref().map(|u| redact_url_query(u)),
                 "🚀 [startup] configuring source chain"
             );
@@ -218,6 +219,7 @@ impl Server {
                 // batched requests re-fetch the same low blocks every time; caching them removes
                 // the repeat RPC + merkle work. Finalized blocks are immutable, so no invalidation.
                 .with_block_cache(BLOCK_CACHE_CAPACITY)
+                .with_chain_family_override(chain.eth_chain_family)
         };
 
         let chain_id = eth_client.chain_id();
@@ -274,6 +276,7 @@ impl Server {
         let continuity_config = continuity::ContinuityConfig::builder()
             .cc3_rpc_url(global.cc3_rpc_url.clone())
             .eth_rpc_url(chain.eth_rpc_url.clone())
+            .eth_chain_family(chain.eth_chain_family)
             .chain_key(chain_key)
             .attestation_interval(attestation_interval)
             .checkpoint_interval(checkpoint_interval)

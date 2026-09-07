@@ -127,6 +127,8 @@ impl Error {
             Error::BlockHeaderRootsMismatch(_)
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
+                | Error::ReceiptTypeMismatch { .. }
+                | Error::Deposit { .. }
         )
     }
 
@@ -136,6 +138,7 @@ impl Error {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
             | Error::NotFullTransactionsFetched(n) => Some(*n),
+            Error::ReceiptTypeMismatch { block, .. } | Error::Deposit { block, .. } => Some(*block),
             _ => None,
         }
     }
@@ -399,8 +402,9 @@ impl OrderedBlock {
         // so a recomputed receipt root will not match the canonical header root even though the body
         // is consistent. Skip only the receipt-root check for that range; the transaction-root check
         // above still guards against reorg-induced cross-fetch mismatches.
-        let skip_receipt_root =
-            chain_id == ETHEREUM_MAINNET_CHAIN_ID && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
+        let skip_receipt_root = family == ChainFamily::Ethereum
+            && chain_id == ETHEREUM_MAINNET_CHAIN_ID
+            && expected_number < ETHEREUM_BYZANTIUM_BLOCK;
 
         if skip_receipt_root {
             trace!(
@@ -494,10 +498,15 @@ impl OrderedBlock {
                         receipt_ty,
                     });
                 }
-                let deposit =
-                    op_stack::DepositTransaction::try_from_unknown(unknown, tx.inner.from)
+                let deposit_fields =
+                    op_stack::DepositReceiptFields::from_other_fields(&rx.other, unknown.hash)
                         .map_err(|source| Error::Deposit { block, source })?;
-                let deposit_fields = op_stack::DepositReceiptFields::from_other_fields(&rx.other);
+                let deposit = op_stack::DepositTransaction::try_from_unknown(
+                    unknown,
+                    tx.inner.from,
+                    deposit_fields,
+                )
+                .map_err(|source| Error::Deposit { block, source })?;
                 Ok(TxRx::OpDeposit {
                     tx: Box::new(deposit),
                     rx: Box::new(rx.inner),
@@ -672,17 +681,25 @@ impl Client {
     /// Override the inferred [`ChainFamily`]. Use for OP-Stack chains whose id is not in
     /// [`chain_family::KNOWN_OP_STACK_CHAIN_IDS`], or to force the Ethereum reading of a chain.
     #[must_use]
-    pub fn with_chain_family(mut self, family: ChainFamily) -> Self {
-        if family != self.family {
+    pub fn with_chain_family(self, family: ChainFamily) -> Self {
+        self.with_chain_family_override(Some(family))
+    }
+
+    /// Apply operator configuration, or restore chain-id inference when it is omitted.
+    /// The distinction is retained across reconnects for both primary and fallback providers.
+    #[must_use]
+    pub fn with_chain_family_override(mut self, family: Option<ChainFamily>) -> Self {
+        let resolved = resolve_chain_family(family, self.chain_id);
+        if resolved != self.family {
             info!(
                 chain_id = self.chain_id,
                 inferred = %self.family,
-                configured = %family,
+                configured = %resolved,
                 "🔧 Overriding inferred source-chain family"
             );
         }
-        self.family = family;
-        self.family_override = Some(family);
+        self.family = resolved;
+        self.family_override = family;
         self
     }
 
@@ -1791,6 +1808,29 @@ mod error_classifier_tests {
         assert!(Error::BlockHeaderRootsMismatch(42).inconsistent_block_payload_for_fallback());
         assert!(Error::TransactionsReceiptsMismatch(42).inconsistent_block_payload_for_fallback());
         assert!(Error::NotFullTransactionsFetched(42).inconsistent_block_payload_for_fallback());
+        for error in [
+            Error::ReceiptTypeMismatch {
+                block: 42,
+                index: 0,
+                tx_ty: 126,
+                receipt_ty: 2,
+            },
+            Error::Deposit {
+                block: 42,
+                source: super::op_stack::DepositError::ReceiptMissingNonce {
+                    hash: Default::default(),
+                },
+            },
+        ] {
+            assert!(error.inconsistent_block_payload_for_fallback());
+            assert_eq!(error.inconsistent_block_number_hint(), Some(42));
+            let wrapped = anyhow::Error::new(error).context("fetch source block");
+            assert!(super::anyhow_chain_is_inconsistent_block_payload(&wrapped));
+            assert_eq!(
+                super::anyhow_chain_inconsistent_block_number_hint(&wrapped),
+                Some(42)
+            );
+        }
     }
 
     #[test]

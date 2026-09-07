@@ -2,6 +2,51 @@ use super::Network;
 use crate::query_builder::BlockscoutAbiProvider;
 use usc_query_builder::abi::query_builder::AbiProvider;
 
+#[test]
+fn source_family_flag_is_available_for_every_query_mode() {
+    use clap::Parser;
+    let common = [
+        "query-cli",
+        "--cc3-rpc-url",
+        "http://localhost:9944",
+        "--cc3-evm-private-key",
+        "test-key",
+    ];
+    for command in [
+        vec!["verify"],
+        vec![
+            "transfer",
+            "--eth-rpc-url",
+            "http://custom",
+            "--eth-private-key",
+            "test-key",
+            "--to-address",
+            "0x0000000000000000000000000000000000000001",
+            "--amount-wei",
+            "1",
+            "--chain-key",
+            "20",
+        ],
+        vec![
+            "batch-transfer",
+            "--eth-rpc-url",
+            "http://custom",
+            "--eth-private-key",
+            "test-key",
+            "--chain-key",
+            "20",
+        ],
+    ] {
+        let mut args = common.to_vec();
+        args.extend(command);
+        args.extend(["--eth-chain-family", "op-stack"]);
+        let parsed = super::QueryCli::try_parse_from(args.clone()).unwrap();
+        assert_eq!(parsed.eth_chain_family, Some(eth::ChainFamily::OpStack));
+        *args.last_mut().unwrap() = "unsupported";
+        assert!(super::QueryCli::try_parse_from(args).is_err());
+    }
+}
+
 #[tokio::test]
 // Ignoring this test in CI because it depends on Blockscout stability, which is flaky
 #[ignore]
