@@ -12,6 +12,11 @@
       "chainId": 1,
       "chainKey": 4,
       "url": ""
+    },
+    {
+      "chainId": 56,
+      "chainKey": 8,
+      "url": ""
     }
   ],
   "balanceChecks": [

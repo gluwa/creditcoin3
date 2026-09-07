@@ -93,11 +93,13 @@ export function loadConfig(): AuditConfig {
     | undefined;
   const sepoliaUrl = Deno.env.get("SEPOLIA_RPC_URL");
   const bscUrl = Deno.env.get("BSC_RPC_URL");
+  const bscMainnetUrl = Deno.env.get("BSC_MAINNET_RPC_URL");
   const mainnetEthUrl = Deno.env.get("MAINNET_RPC_URL");
   const ethRpc = (ethRpcRaw ?? []).map((r) => {
     let url = r.url;
     if (r.chainId === 11155111 && sepoliaUrl) url = sepoliaUrl;
     if (r.chainId === 97 && bscUrl) url = bscUrl;
+    if (r.chainId === 56 && bscMainnetUrl) url = bscMainnetUrl;
     if (r.chainId === 1 && mainnetEthUrl) url = mainnetEthUrl;
     return {
       chainId: r.chainId,
@@ -166,7 +168,8 @@ CONFIG FILE FORMAT (JSON):
     "graphqlUrl": "https://graphql-usc.cc3-devnet.creditcoin.network",
     "ethRpc": [
       { "chainId": 11155111, "chainKey": 2, "url": "wss://ethereum-sepolia.publicnode.com" },
-      { "chainId": 97, "chainKey": 3, "url": "wss://bsc-testnet.publicnode.com" }
+      { "chainId": 97, "chainKey": 3, "url": "wss://bsc-testnet.publicnode.com" },
+      { "chainId": 56, "chainKey": 8, "url": "wss://bsc-rpc.publicnode.com" }
     ],
     "slackBotToken": "xxxx-xxxxxxxxxx-xx..."
     "slackChannelId": "C09DC0AAD...",
@@ -198,8 +201,9 @@ CONFIG FILE FORMAT (JSON):
   slackBotToken, slackChannelId, slackAlertGroup: optional; required only when not using --no-slack
 
 ENV OVERRIDES (for CI):
-  SEPOLIA_RPC_URL   Override ethRpc url for chainId 11155111
-  BSC_RPC_URL       Override ethRpc url for chainId 97
-  MAINNET_RPC_URL   Override ethRpc url for chainId 1
+  SEPOLIA_RPC_URL       Override ethRpc url for chainId 11155111
+  BSC_RPC_URL           Override ethRpc url for chainId 97
+  BSC_MAINNET_RPC_URL   Override ethRpc url for chainId 56
+  MAINNET_RPC_URL       Override ethRpc url for chainId 1
 `);
 }
