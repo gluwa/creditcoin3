@@ -460,6 +460,14 @@ impl Client {
         self
     }
 
+    /// Handle to the in-process block cache, if one was enabled.
+    ///
+    /// Lets a caller observe cache occupancy without routing through the RPC provider traits.
+    #[must_use]
+    pub fn block_cache(&self) -> Option<std::sync::Arc<mem_block_cache::MemBlockCache>> {
+        self.mem_cache.clone()
+    }
+
     /// Build a [`Client`] with ordered fallback RPC URLs.
     ///
     /// `url` is the primary URL: tried first for every operation, and the

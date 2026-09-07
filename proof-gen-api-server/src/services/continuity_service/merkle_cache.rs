@@ -7,6 +7,15 @@ use tokio::sync::RwLock;
 
 use super::MerkleProofItem;
 
+/// Per-transaction cost of the cache-level tx-hash index, charged to the block that owns the
+/// transaction so a block's measured size covers everything caching it allocates.
+///
+/// Each transaction adds one `by_tx_hash` entry: a 32-byte `H256` key plus a `(u64, usize)`
+/// value, in a hashbrown table that holds spare capacity and a control byte per slot. Rounded up
+/// rather than derived exactly -- the true figure moves with the table's load factor, and a
+/// budget that understates its own cost is worse than one that is slightly conservative.
+const PER_TX_INDEX_OVERHEAD_BYTES: usize = 64;
+
 #[derive(Debug)]
 struct CachedMerkleBlock {
     header_number: u64,
@@ -51,9 +60,11 @@ impl CachedMerkleBlock {
             acc.saturating_add(tx.len())
                 .saturating_add(std::mem::size_of::<Vec<u8>>())
         });
+        let index = PER_TX_INDEX_OVERHEAD_BYTES.saturating_mul(tx_hashes.len());
 
         hashes
             .saturating_add(payloads)
+            .saturating_add(index)
             .saturating_add(tree.heap_bytes()) as u64
     }
 

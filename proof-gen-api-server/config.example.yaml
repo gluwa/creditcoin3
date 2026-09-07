@@ -58,7 +58,8 @@ chains:
     #   # within budget no matter how many transactions the chain puts in a block. Eviction
     #   # itself stays height-ordered, and the window never shrinks below one attestation
     #   # interval. Omit for an unbudgeted cache.
-    #   merkle_max_bytes: 805306368  # 768 MiB
+    #   # Accepts a readable size or a plain byte count: "768MiB", "1GiB", "800MB", 805306368.
+    #   merkle_max_bytes: "768MiB"
     #
     #   # Capacity of the raw block cache, in blocks (default 512). Each entry holds a whole
     #   # block's *decoded* transactions and receipts, which is the largest single per-chain

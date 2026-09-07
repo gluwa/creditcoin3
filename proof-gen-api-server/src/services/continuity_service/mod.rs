@@ -392,12 +392,24 @@ impl ContinuityService {
     /// Sampled rather than updated at each mutation site: these are observability gauges, the
     /// reads are cheap, and driving them from a single place keeps metric updates out of the
     /// cache write paths.
-    pub fn spawn_cache_metrics_updater(service: Arc<Self>) {
+    pub fn spawn_cache_metrics_updater(
+        service: Arc<Self>,
+        block_caches: HashMap<u64, Arc<eth::mem_block_cache::MemBlockCache>>,
+    ) {
         tokio::spawn(async move {
             loop {
                 for (chain_key, chain) in service.chains.iter() {
                     let (merkle, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
-                    let retention = service.merkle_cache_retention_blocks(chain.as_ref()).await;
+                    // One snapshot feeds both the gauges and the clamp.
+                    let retention = Self::retention_blocks_for(chain.as_ref(), merkle);
+                    let (block_cache_blocks, block_cache_txs, block_cache_capacity) =
+                        match block_caches.get(chain_key) {
+                            Some(cache) => {
+                                let (blocks, txs) = cache.occupancy();
+                                (blocks as u64, txs as u64, cache.capacity() as u64)
+                            }
+                            None => (0, 0, 0),
+                        };
 
                     service.metrics.set_cache_occupancy(
                         *chain_key,
@@ -407,6 +419,9 @@ impl ContinuityService {
                             merkle_bytes: merkle.bytes,
                             merkle_retention_blocks: retention,
                             checkpoint_entries,
+                            block_cache_blocks,
+                            block_cache_txs,
+                            block_cache_capacity,
                         },
                     );
                 }
@@ -669,6 +684,14 @@ impl ContinuityService {
     /// the window — a fill/evict thrash loop. Narrowing the window instead keeps
     /// height-ordered `prune_below` as the single eviction path and makes thrash impossible.
     async fn merkle_cache_retention_blocks(&self, chain: &ChainState) -> u64 {
+        let stats = chain.merkle_proof_cache.size_stats().await;
+
+        Self::retention_blocks_for(chain, stats)
+    }
+
+    /// [`Self::merkle_cache_retention_blocks`] against an already-taken occupancy snapshot, so a
+    /// caller that needs both does not read the cache twice.
+    fn retention_blocks_for(chain: &ChainState, stats: MerkleCacheStats) -> u64 {
         let configured = chain
             .cache_config
             .merkle_retention_blocks
@@ -679,12 +702,7 @@ impl ContinuityService {
         };
 
         // A cold cache has no density to measure yet; the clamp engages after the first tick.
-        let Some(mean_bytes) = chain
-            .merkle_proof_cache
-            .size_stats()
-            .await
-            .mean_bytes_per_block()
-        else {
+        let Some(mean_bytes) = stats.mean_bytes_per_block() else {
             return configured;
         };
 
@@ -1034,11 +1052,7 @@ impl ContinuityService {
                 // miss, so dropping old checkpoints caps how far back proofs can be served.
                 if let Some(max_entries) = chain.cache_config.checkpoint_cache_max_entries {
                     let mut dropped = 0usize;
-                    while cp.len() > max_entries {
-                        let Some(oldest) = cp.keys().next().copied() else {
-                            break;
-                        };
-                        cp.remove(&oldest);
+                    while cp.len() > max_entries && cp.pop_first().is_some() {
                         dropped += 1;
                     }
                     if dropped > 0 {

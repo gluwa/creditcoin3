@@ -215,7 +215,8 @@ pub struct ChainConfigFile {
 pub struct ChainCacheConfigFile {
     #[serde(default)]
     pub merkle_retention_blocks: Option<u64>,
-    #[serde(default)]
+    /// Accepts a plain byte count or a human-readable size (`"768MiB"`, `"1GiB"`, `"800MB"`).
+    #[serde(default, deserialize_with = "deserialize_byte_size")]
     pub merkle_max_bytes: Option<u64>,
     #[serde(default)]
     pub block_cache_capacity: Option<NonZeroUsize>,
@@ -223,6 +224,72 @@ pub struct ChainCacheConfigFile {
     pub merkle_backfill_enabled: Option<bool>,
     #[serde(default)]
     pub checkpoint_cache_max_entries: Option<usize>,
+}
+
+/// Deserialize a byte size written either as a number or as a human-readable string.
+///
+/// A raw byte count for something like 768 MiB is 805306368, which is easy to fat-finger by a
+/// factor of 1024 and impossible to eyeball in a review. Accepting `"768MiB"` keeps the
+/// operator-facing value legible while still allowing a plain integer.
+fn deserialize_byte_size<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Raw {
+        Int(u64),
+        Str(String),
+    }
+
+    match Option::<Raw>::deserialize(deserializer)? {
+        None => Ok(None),
+        Some(Raw::Int(bytes)) => Ok(Some(bytes)),
+        Some(Raw::Str(text)) => parse_byte_size(&text)
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+    }
+}
+
+/// Parse `"768MiB"` / `"800MB"` / `"1024"` into a byte count.
+///
+/// Binary units (`KiB`/`MiB`/`GiB`) are powers of 1024; decimal units (`KB`/`MB`/`GB`) are
+/// powers of 1000, matching how memory limits are usually quoted. Case-insensitive.
+fn parse_byte_size(text: &str) -> std::result::Result<u64, String> {
+    let trimmed = text.trim();
+    let split = trimmed
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(trimmed.len());
+    let (digits, unit) = trimmed.split_at(split);
+
+    if digits.is_empty() {
+        return Err(format!(
+            "invalid byte size {text:?}: expected a number optionally followed by \
+             B/KiB/MiB/GiB/KB/MB/GB"
+        ));
+    }
+
+    let multiplier = match unit.trim().to_ascii_lowercase().as_str() {
+        "" | "b" => 1_u64,
+        "kib" => 1 << 10,
+        "mib" => 1 << 20,
+        "gib" => 1 << 30,
+        "kb" => 1_000,
+        "mb" => 1_000_000,
+        "gb" => 1_000_000_000,
+        other => {
+            return Err(format!(
+                "invalid byte size unit {other:?} in {text:?}: expected one of \
+                 B, KiB, MiB, GiB, KB, MB, GB"
+            ))
+        }
+    };
+
+    digits
+        .parse::<u64>()
+        .map_err(|err| format!("invalid byte size {text:?}: {err}"))?
+        .checked_mul(multiplier)
+        .ok_or_else(|| format!("byte size {text:?} overflows u64"))
 }
 
 fn default_max_batch_size() -> NonZeroUsize {
@@ -598,6 +665,85 @@ chains:
       block_cache_capacity: 0
 "#;
         assert!(parse(yaml).is_err(), "zero capacity should be rejected");
+    }
+
+    #[test]
+    fn byte_sizes_accept_units_and_plain_numbers() {
+        for (text, expected) in [
+            ("1024", 1024_u64),
+            ("512B", 512),
+            ("768MiB", 768 * 1024 * 1024),
+            ("1GiB", 1024 * 1024 * 1024),
+            ("4KiB", 4096),
+            ("800MB", 800_000_000),
+            ("2gb", 2_000_000_000),
+            (" 768 MiB ", 768 * 1024 * 1024),
+        ] {
+            assert_eq!(
+                parse_byte_size(text),
+                Ok(expected),
+                "parsing {text:?} should give {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn byte_sizes_reject_nonsense() {
+        for text in ["", "MiB", "768 mib mib", "12 furlongs", "-5"] {
+            assert!(
+                parse_byte_size(text).is_err(),
+                "{text:?} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn merkle_max_bytes_accepts_a_readable_unit_in_yaml() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    cache:
+      merkle_max_bytes: "768MiB"
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        assert_eq!(
+            cfg.chains[0].cache.merkle_max_bytes,
+            Some(768 * 1024 * 1024)
+        );
+    }
+
+    #[test]
+    fn merkle_max_bytes_still_accepts_a_plain_integer() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    cache:
+      merkle_max_bytes: 805306368
+"#;
+        let cfg = parse(yaml).expect("yaml should parse");
+        assert_eq!(cfg.chains[0].cache.merkle_max_bytes, Some(805_306_368));
+    }
+
+    #[test]
+    fn merkle_max_bytes_rejects_a_bad_unit() {
+        let yaml = r#"
+bind_host: "0.0.0.0"
+bind_port: 3100
+chains:
+  - chain_key: 8
+    eth_rpc_url: "http://localhost:8545"
+    cache:
+      merkle_max_bytes: "768 gigglebytes"
+"#;
+        let err = parse(yaml).expect_err("bad unit should be rejected");
+        let msg = err.to_string();
+        assert!(msg.contains("invalid byte size unit"), "wrong error: {msg}");
     }
 
     #[test]

@@ -44,6 +44,14 @@ pub struct CacheOccupancy {
     pub merkle_retention_blocks: u64,
     /// Retained checkpoint-digest entries.
     pub checkpoint_entries: u64,
+    /// Blocks held in the raw (decoded) block cache.
+    pub block_cache_blocks: u64,
+    /// Transactions across those blocks.
+    pub block_cache_txs: u64,
+    /// Configured capacity of the raw block cache. Compare with `block_cache_blocks` to see
+    /// saturation -- this cache holds fully decoded transactions and receipts, so it is
+    /// typically the largest per-chain allocation in the process.
+    pub block_cache_capacity: u64,
 }
 
 pub trait MetricsTrait: Send + Sync + Debug {
@@ -135,6 +143,9 @@ pub struct ProofGenMetrics {
     merkle_cache_bytes: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
     merkle_cache_retention_blocks: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
     checkpoint_cache_entries: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    block_cache_blocks: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    block_cache_txs: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
+    block_cache_capacity: Family<labels::LabelChain, Gauge<u64, AtomicU64>>,
     /// Server start time as Unix timestamp (seconds since epoch).
     /// Use PromQL `time() - proof_gen_start_time_seconds` to calculate uptime.
     /// This field is registered with Prometheus registry and accessed during encoding,
@@ -260,6 +271,27 @@ impl ProofGenMetrics {
             checkpoint_cache_entries.clone(),
         );
 
+        let block_cache_blocks = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_block_cache_blocks",
+            "Source blocks held in the raw (decoded) block cache",
+            block_cache_blocks.clone(),
+        );
+
+        let block_cache_txs = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_block_cache_txs",
+            "Transactions held in the raw (decoded) block cache",
+            block_cache_txs.clone(),
+        );
+
+        let block_cache_capacity = Family::<labels::LabelChain, Gauge<u64, AtomicU64>>::default();
+        registry.register(
+            "proof_gen_block_cache_capacity",
+            "Configured capacity, in blocks, of the raw (decoded) block cache",
+            block_cache_capacity.clone(),
+        );
+
         let start_time_seconds = Gauge::default();
         // Set start time once at initialization (Unix timestamp)
         let now = SystemTime::now()
@@ -325,6 +357,9 @@ impl ProofGenMetrics {
             merkle_cache_bytes,
             merkle_cache_retention_blocks,
             checkpoint_cache_entries,
+            block_cache_blocks,
+            block_cache_txs,
+            block_cache_capacity,
             start_time_seconds,
             cpu_usage_percent,
             memory_usage_bytes,
@@ -508,6 +543,15 @@ impl MetricsTrait for ProofGenMetrics {
         self.checkpoint_cache_entries
             .get_or_create(&labels)
             .set(occupancy.checkpoint_entries);
+        self.block_cache_blocks
+            .get_or_create(&labels)
+            .set(occupancy.block_cache_blocks);
+        self.block_cache_txs
+            .get_or_create(&labels)
+            .set(occupancy.block_cache_txs);
+        self.block_cache_capacity
+            .get_or_create(&labels)
+            .set(occupancy.block_cache_capacity);
     }
 }
 
