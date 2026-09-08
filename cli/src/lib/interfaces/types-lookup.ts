@@ -1433,7 +1433,7 @@ declare module '@polkadot/types/lookup' {
         readonly asAuthorizedAttestorRemoved: ITuple<[u64, AccountId32]>;
         readonly isForcedElection: boolean;
         readonly asForcedElection: {
-            readonly epoch: u64;
+            readonly chainKey: u64;
         } & Struct;
         readonly isForcedUpdatesApplied: boolean;
         readonly isRevertedAttestationChainTo: boolean;
@@ -3456,7 +3456,7 @@ declare module '@polkadot/types/lookup' {
         } & Struct;
         readonly isForceElection: boolean;
         readonly asForceElection: {
-            readonly epoch: u64;
+            readonly chainKey: u64;
         } & Struct;
         readonly isSetMaxCatchup: boolean;
         readonly asSetMaxCatchup: {
