@@ -221,6 +221,10 @@ jobs:
             "historical/${TAG}/creditcoin3-node" --version
           done
 
+      - name: Start resource monitor
+        run: |
+          .github/resource-monitor.sh start validator-compatibility
+
       - name: Generate shared raw chainspec from SUT
         run: |
           set -euo pipefail
@@ -463,6 +467,12 @@ jobs:
             exit 1
           fi
           echo "DONE: all validators peered and agree on the chain at height ${COMMON}"
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report validator-compatibility
 
       - name: Scan node logs for errors
         if: always()

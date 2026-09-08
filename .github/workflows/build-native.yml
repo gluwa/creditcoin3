@@ -91,11 +91,21 @@ jobs:
           git apply /var/tmp/new-metadata.diff
           git diff --binary
 
+      - name: Start resource monitor
+        run: |
+          .github/resource-monitor.sh start build-native
+
       - name: Build SUT
         uses: gluwa/cargo@dev
         with:
           command: build
           args: ${{ inputs.build-options }}
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report build-native
 
       - name: Upload binaries
         uses: actions/upload-artifact@v7
