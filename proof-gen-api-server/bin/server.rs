@@ -35,7 +35,8 @@ pub struct ProofGenApiServer {
     #[arg(long, default_value = "ws://localhost:8545")]
     eth_rpc_url: String,
 
-    /// Source family override for single-chain mode; configure each chain in YAML otherwise.
+    /// Optional source family (default: `ethereum`) for single-chain mode.
+    /// Configure each chain in YAML otherwise; omitted YAML fields also default to Ethereum.
     #[arg(long, env = "ETH_CHAIN_FAMILY", conflicts_with = "config")]
     eth_chain_family: Option<eth::ChainFamily>,
 
@@ -167,4 +168,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🛑 Server exited");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn family_is_optional_in_single_chain_and_yaml_modes() {
+        for args in [
+            vec!["proof-gen-api-server"],
+            vec!["proof-gen-api-server", "--config", "chains.yaml"],
+        ] {
+            let config = ProofGenApiServer::try_parse_from(args).unwrap();
+            assert_eq!(config.eth_chain_family, None);
+        }
+        for family in ["ethereum", "op-stack"] {
+            let config = ProofGenApiServer::try_parse_from([
+                "proof-gen-api-server",
+                "--eth-chain-family",
+                family,
+            ])
+            .unwrap();
+            assert_eq!(config.eth_chain_family, Some(family.parse().unwrap()));
+        }
+        assert!(ProofGenApiServer::try_parse_from([
+            "proof-gen-api-server",
+            "--eth-chain-family",
+            "unsupported",
+        ])
+        .is_err());
+        assert!(ProofGenApiServer::try_parse_from([
+            "proof-gen-api-server",
+            "--config",
+            "chains.yaml",
+            "--eth-chain-family",
+            "op-stack",
+        ])
+        .is_err());
+    }
 }

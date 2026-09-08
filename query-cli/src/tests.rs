@@ -39,7 +39,12 @@ fn source_family_flag_is_available_for_every_query_mode() {
     ] {
         let mut args = common.to_vec();
         args.extend(command);
-        args.extend(["--eth-chain-family", "op-stack"]);
+        let omitted = super::QueryCli::try_parse_from(args.clone()).unwrap();
+        assert_eq!(omitted.eth_chain_family, None);
+        args.extend(["--eth-chain-family", "ethereum"]);
+        let explicit = super::QueryCli::try_parse_from(args.clone()).unwrap();
+        assert_eq!(explicit.eth_chain_family, Some(eth::ChainFamily::Ethereum));
+        *args.last_mut().unwrap() = "op-stack";
         let parsed = super::QueryCli::try_parse_from(args.clone()).unwrap();
         assert_eq!(parsed.eth_chain_family, Some(eth::ChainFamily::OpStack));
         *args.last_mut().unwrap() = "unsupported";

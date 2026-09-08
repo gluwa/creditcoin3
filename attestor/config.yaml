@@ -56,9 +56,8 @@ eth:
   #   ethereum: L1 and L1-shaped chains (Sepolia, Anvil, Polygon PoS)
   #   op-stack: OP-Stack rollups such as Base / OP Mainnet, whose blocks carry
   #             0x7e deposit transactions
-  #   If omitted, inferred from the RPC's chain id (Base and OP Mainnet plus
-  #   their Sepolia testnets map to op-stack, everything else to ethereum).
-  #   Set explicitly for OP-Stack chains with other chain ids.
+  #   If omitted, defaults to ethereum for every chain id.
+  #   Set op-stack explicitly for all OP-Stack chains, including Base and OP Mainnet.
   #
   # chain_family: op-stack
 

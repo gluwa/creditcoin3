@@ -30,7 +30,7 @@ All flags can also be set via environment variables (see below).
 |------|-----|---------|-------------|
 | `--rpc-http` | `RPC_HTTP` | *(required)* | HTTP RPC endpoint for block fetching |
 | `--rpc-ws` | `RPC_WS` | *(required)* | WebSocket RPC endpoint for new-head subscriptions |
-| `--eth-chain-family` | `ETH_CHAIN_FAMILY` | inferred from chain ID | `ethereum` or `op-stack`; applied to HTTP, WS, backfill, and reconnect clients |
+| `--eth-chain-family` | `ETH_CHAIN_FAMILY` | `ethereum` | `ethereum` or `op-stack`; applied to HTTP, WS, backfill, and reconnect clients |
 | `--cc3-rpc_url` | `CC3_RPC_URL` | `ws://localhost:9944` | Url for connecting to CC3 chain |
 | `--chain-key` | `CHAIN_KEY` | *(none)* | Chain key for supported chains entry of the chain we're archiving |
 | `--start-height` | `START_HEIGHT` | `0` | Block height to start from (ignored if DB has progress) |

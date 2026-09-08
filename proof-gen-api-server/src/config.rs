@@ -20,7 +20,7 @@ pub const DEFAULT_MAX_BATCH_SPAN: u64 = 1_000;
 #[derive(Debug, Clone)]
 pub struct ChainConfig {
     pub chain_key: u64,
-    /// Source execution family; `None` infers it from the RPC chain ID.
+    /// Source execution family; `None` defaults to Ethereum for every chain ID.
     pub eth_chain_family: Option<eth::ChainFamily>,
     /// Primary RPC URL: tried first for every operation, and the only URL
     /// used for tip-related calls (subscription, current block height).
@@ -332,6 +332,13 @@ chains:
             Some(eth::ChainFamily::OpStack)
         );
         assert_eq!(config.chains[1].eth_chain_family, None);
+        let null = parse(&yaml.replace("op-stack", "null")).unwrap();
+        assert_eq!(null.chains[0].eth_chain_family, None);
+        let ethereum = parse(&yaml.replace("op-stack", "ethereum")).unwrap();
+        assert_eq!(
+            ethereum.chains[0].eth_chain_family,
+            Some(eth::ChainFamily::Ethereum)
+        );
         assert!(parse(&yaml.replace("op-stack", "unsupported")).is_err());
     }
 

@@ -45,7 +45,7 @@ use continuity::{ContinuityBuilder, ContinuityConfig};
 let config = ContinuityConfig::builder()
     .cc3_rpc_url("wss://rpc.creditcoin.network")
     .eth_rpc_url("https://eth-rpc.example.com")
-    .eth_chain_family(Some(eth::ChainFamily::OpStack)) // optional; omit for chain-ID inference
+    .eth_chain_family(Some(eth::ChainFamily::OpStack)) // optional; omission defaults to Ethereum
     .chain_key(chain_key)
     .fetch_intervals()
     .await?;

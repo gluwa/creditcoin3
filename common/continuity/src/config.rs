@@ -32,7 +32,7 @@ pub struct ContinuityConfig {
     /// Example: `"https://eth-mainnet.g.alchemy.com/v2/KEY"` or `"http://localhost:8545"`
     pub eth_rpc_url: String,
 
-    /// Source execution family. Omit to infer it from the RPC chain ID.
+    /// Source execution family. Optional; defaults to Ethereum for every chain ID.
     pub eth_chain_family: Option<eth::ChainFamily>,
 
     /// Chain key for attestation lookup
