@@ -266,14 +266,6 @@ pub mod pallet {
             outbox_factory_addr: H160,
         },
 
-        /// The Outbox discovery-registry address for a supported chain has been registered.
-        /// This signals to attestors/relayers that they can resolve the Outbox for this chain
-        /// key from the registry instead of scanning the factory's `OutboxCreated` logs.
-        OutboxDiscoveryRegistered {
-            chain_key: ChainKey,
-            outbox_discovery_addr: H160,
-        },
-
         /// The USC write-ability config for a supported chain has been set.
         WriteAbilityConfigSet {
             chain_key: ChainKey,
@@ -286,6 +278,19 @@ pub mod pallet {
         CoreFeeSet {
             chain_key: ChainKey,
             amount: sp_core::U256,
+        },
+
+        /// The Outbox discovery-registry address for a supported chain has been registered.
+        /// This signals to attestors/relayers that they can resolve the Outbox for this chain
+        /// key from the registry instead of scanning the factory's `OutboxCreated` logs.
+        ///
+        /// Appended after `CoreFeeSet` rather than inserted where it's introduced above: SCALE
+        /// event indices come from declaration order, so inserting mid-enum would have shifted
+        /// `WriteAbilityConfigSet`/`CoreFeeSet` and broken any consumer decoding against metadata
+        /// from a different build (a pinned subxt client, an indexer, a cached `metadata.scale`).
+        OutboxDiscoveryRegistered {
+            chain_key: ChainKey,
+            outbox_discovery_addr: H160,
         },
     }
 
@@ -308,15 +313,20 @@ pub mod pallet {
         /// rejected to fail loudly instead of silently disabling write-ability for the chain.
         ZeroOutboxFactoryAddress,
 
+        /// The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
+        /// zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
+        ZeroWriteAbilityChainKey,
+
         /// The Outbox discovery-registry address is the zero address. A zero registry cannot be
         /// resolved by the attestor/relayer (it reads as "not registered"), so setting it via the
         /// operator path is rejected to fail loudly instead of silently disabling registry-based
         /// resolution for the chain.
+        ///
+        /// Appended after `ZeroWriteAbilityChainKey` rather than inserted where it's introduced
+        /// above: `DispatchError::Module` carries the pallet-error byte by declaration order, so
+        /// inserting mid-enum would have shifted it and made older metadata / operator tooling
+        /// misreport a rejected `set_write_ability_config` as this error instead.
         ZeroOutboxDiscoveryAddress,
-
-        /// The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
-        /// zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
-        ZeroWriteAbilityChainKey,
     }
 
     #[pallet::call]
