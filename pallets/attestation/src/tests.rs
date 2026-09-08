@@ -8104,6 +8104,53 @@ fn epoch_election_does_not_emit_attestors_elected_when_set_is_unchanged() {
 }
 
 #[test]
+fn election_ignores_active_set_ordering_after_kick() {
+    ExtBuilder.build_and_execute(|| {
+        // Three attestors so a `swap_remove` of the first one visibly reorders the stored set.
+        let attestors = [
+            Attestor::new(STASH_1, ATTESTOR_1),
+            Attestor::new(STASH_2, ATTESTOR_2),
+            Attestor::new(STASH_3, ATTESTOR_3),
+        ];
+        for attestor in &attestors {
+            register_and_attest(SUPPORTED_CHAIN_KEY, attestor);
+        }
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+        let elected = ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert_eq!(elected.len(), 3);
+
+        // Kick the attestor at the front: `remove_active_attestor_from_set` swap_removes it,
+        // moving the last entry into its slot.
+        let kicked = elected[0];
+        assert_ok!(Attestation::kick_active_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            kicked,
+            false,
+        ));
+        let after_kick = ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert_eq!(after_kick.len(), 2);
+        assert!(!after_kick.contains(&kicked));
+
+        // The next election yields the same two members in `iter_prefix` order. Membership is
+        // unchanged, so it must be recognised as such even if the order differs.
+        System::reset_events();
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_eq!(attestors_elected_events(), 0);
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY),
+            after_kick
+        );
+    });
+}
+
+#[test]
 fn force_election_only_elects_for_the_given_chain() {
     ExtBuilder.build_and_execute(|| {
         // Register a second supported chain alongside the genesis one.

@@ -62,7 +62,9 @@ describe('handleEventAttestorElected()', () => {
                 }`,
             );
             expect(response.data.attestorsElecteds.nodes).toBeTruthy();
-            const electedIds = response.data.attestorsElecteds.nodes.map((node: { attestorId: string }) => node.attestorId);
+            const electedIds = response.data.attestorsElecteds.nodes.map(
+                (node: { attestorId: string }) => node.attestorId,
+            );
             for (const active of activeAttestorsForAnvil1) {
                 expect(electedIds).toContain(active);
             }
