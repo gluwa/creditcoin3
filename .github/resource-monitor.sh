@@ -38,6 +38,25 @@ sample_once() {
         "$(date -u +%s)" "$used" "$swap_used" "${disk:-0}" "$load"
 }
 
+# Order matters here: these conditions are not mutually exclusive. A job can be
+# memory-light and CPU-idle while filling its disk -- live-sync-creditcoin
+# expands a 114 GB mainnet snapshot to 158 GB on disk while needing little RAM.
+# Linode bundles disk with RAM (g6-standard-6/8/16 = 320/640/1280 GB), so
+# "shrink the plan" on memory evidence alone would cut the disk such a job
+# depends on. Disk is therefore checked first, and the over-provisioned verdict
+# requires low disk as well as low memory and load.
+verdict() { # $1 = mem %, $2 = disk %, $3 = load %
+    if [ "$1" -gt 85 ] || [ "$2" -gt 85 ]; then
+        echo "**near a limit** - consider a larger plan"
+    elif [ "$2" -gt 50 ] && [ "$1" -lt 25 ]; then
+        echo "**disk-bound** - sized for its disk, not its RAM; do not shrink on memory alone"
+    elif [ "$1" -lt 25 ] && [ "$3" -lt 50 ] && [ "$2" -lt 50 ]; then
+        echo "**over-provisioned** - peak memory under a quarter of the VM, CPU never saturated, disk under half"
+    else
+        echo "sized about right"
+    fi
+}
+
 case "${1:-}" in
 start)
     mkdir -p "$STATE_DIR" || exit 0
@@ -93,12 +112,7 @@ report)
     echo "INFO: disk    ${PEAK_DISK} MB peak of ${DISK_TOTAL} MB on ${DISK_PATH} (${DISK_PCT}%)"
     echo "INFO: load1   ${PEAK_LOAD} peak across ${CPUS} vCPU (${LOAD_PCT}%)"
 
-    VERDICT="sized about right"
-    if [ "$MEM_PCT" -lt 25 ] && [ "$LOAD_PCT" -lt 50 ]; then
-        VERDICT="**over-provisioned** - peak memory used under a quarter of the VM, and CPU never saturated"
-    elif [ "$MEM_PCT" -gt 85 ] || [ "$DISK_PCT" -gt 85 ]; then
-        VERDICT="**near a limit** - consider a larger plan"
-    fi
+    VERDICT=$(verdict "$MEM_PCT" "$DISK_PCT" "$LOAD_PCT")
     echo "INFO: verdict ${VERDICT}"
 
     if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
