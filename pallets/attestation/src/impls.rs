@@ -718,9 +718,10 @@ impl<T: Config> Pallet<T> {
             })
             .collect::<Vec<_>>();
 
-        // `iter_prefix` walks storage in key-hash order, so a re-election of the same
-        // membership reproduces the stored vector exactly and compares equal here.
-        if attestors == ActiveAttestors::<T>::get(chain_key) {
+        // Compare as a membership set, not a sequence: `remove_active_attestor_from_set`
+        // (immediate chill / kick) `swap_remove`s from the stored vector, so the same
+        // committee can be stored in a different order than `iter_prefix` yields it.
+        if Self::same_membership(&attestors, &ActiveAttestors::<T>::get(chain_key)) {
             debug!("Attestor set for chain {chain_key} unchanged at epoch {epoch}");
             return;
         }
@@ -732,6 +733,18 @@ impl<T: Config> Pallet<T> {
             chain_key,
             attestors,
         });
+    }
+
+    /// Order-insensitive equality of two attestor lists (each list is duplicate-free: both
+    /// come from map keys or from a set that only ever removes entries).
+    fn same_membership(a: &[T::AccountId], b: &[T::AccountId]) -> bool {
+        if a.len() != b.len() {
+            return false;
+        }
+        let (mut a, mut b) = (a.to_vec(), b.to_vec());
+        a.sort_unstable();
+        b.sort_unstable();
+        a == b
     }
 
     /// Get the locked balance of an account
