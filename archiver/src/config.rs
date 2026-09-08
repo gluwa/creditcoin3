@@ -78,4 +78,17 @@ pub struct Config {
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]
     pub backfill: bool,
+
+    /// How blocks and receipts are fetched: `json` (eth_getBlockByNumber + eth_getBlockReceipts,
+    /// works everywhere) or `raw-rlp` (debug_getRawBlock + debug_getRawReceipts, needs the node's
+    /// `debug` namespace; smaller payloads and no JSON marshalling on the node, best for a
+    /// historical sweep against our own node).
+    #[arg(long, env = "FETCH_MODE", default_value = "json")]
+    pub fetch_mode: eth::BlockFetchMode,
+
+    /// Threads for merkle root computation. Defaults to `available CPUs - (max_fetch_tasks + 1)`,
+    /// floored at 1; set explicitly when running several shards on one box or under a cgroup
+    /// CPU quota, where that formula starves the compute pool.
+    #[arg(long, env = "MAX_COMPUTE_THREADS")]
+    pub max_compute_threads: Option<NonZeroUsize>,
 }
