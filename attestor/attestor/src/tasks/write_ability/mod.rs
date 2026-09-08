@@ -62,7 +62,7 @@ pub(super) const RPC_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(30);
 /// After this many consecutive failed resolves (~5 min at [`OUTBOX_RESOLVE_RETRY_SECS`]) the retry is
 /// probably no longer "waiting for on-chain registration" but a misconfiguration — most likely a
 /// deploy-ordering trap where the attestor was upgraded ahead of the runtime, so the renamed
-/// chain-info selector (`get_outbox_factory_address`) reverts and resolution can never succeed (S3).
+/// chain-info selector (`get_outbox_discovery_address`) reverts and resolution can never succeed (S3).
 /// Escalate the log to error-level at each multiple so it is alertable instead of buried in warns.
 const RESOLVE_ESCALATE_EVERY_ATTEMPTS: u64 = (5 * 60) / OUTBOX_RESOLVE_RETRY_SECS;
 
@@ -104,9 +104,10 @@ pub struct MessageVoteState {
     /// the write-ability task to verify + re-sign. `try_send` from the swarm loop (best effort:
     /// shedding a request under a full buffer just means that stall recovers on the next request).
     pub reobs_tx: mpsc::Sender<ReobservationRequest>,
-    /// The `bytes32` write-ability chain key bound into every `messageHash` and passed to
-    /// `IOutboxFactory.getOutbox`. Sourced from the on-chain `WriteAbilityConfigs` entry when one
-    /// is registered for this `chain_key`; derived locally (right-padded `u64`) otherwise.
+    /// The `bytes32` write-ability chain key bound into every `messageHash` and used to resolve the
+    /// Outbox via `OutboxDiscovery.defaultOutbox`. Sourced from the on-chain `WriteAbilityConfigs`
+    /// entry when one is registered for this `chain_key`; derived locally (right-padded `u64`)
+    /// otherwise.
     pub destination_chain_key: B256,
 }
 
@@ -460,55 +461,20 @@ pub async fn run(
             .map_err(|e| Error::WriteAbility(anyhow!("read Creditcoin L1 chain head: {e}")))?;
 
     // Resolve the Outbox, retrying until it's available rather than disabling for the whole run:
-    // an attestor can be started before the factory/Outbox is registered on-chain and will activate
-    // write-ability automatically once they are, with no restart. While unresolved it just keeps
-    // doing block attestation. The discovery cursor stays live after activation in
-    // `run_outbox_monitor`, which detects factory and Outbox rotations with the same polling.
+    // an attestor can be started before a discovery address is registered on-chain for its chain
+    // key and will activate write-ability automatically once one is, with no restart. While
+    // unresolved it just keeps doing block attestation. Resolution stays live after activation in
+    // `run_outbox_monitor`, which detects registry changes with the same polling.
     let mut resolve_attempts: u64 = 0;
     let mut consecutive_resolve_failures: u64 = 0;
-    // Durable factory-scan cursor: persists `OutboxCreated` discovery progress so a restart resumes
-    // the scan instead of rescanning the factory's full log history from genesis. Scoped only by
-    // chain_key — see `cursor::FactoryScanCursorStore`'s docs for how a stale (rotated-away)
-    // persisted factory is handled.
-    let factory_scan_store =
-        cursor::FactoryScanCursorStore::new(&cfg.state_dir, cfg.write_ability_chain_key);
-    // Discovery cursor: advances past confirmed blocks already scanned for `OutboxCreated` so each
-    // retry only scans new blocks instead of re-scanning the whole chain history every interval.
-    // Seeded from whatever `factory_scan_store` has on disk; a persisted factory that has since
-    // rotated away is discarded automatically by `resolve`'s on-chain factory comparison.
-    let mut outbox_cursor = match factory_scan_store.load() {
-        Some(persisted) => {
-            tracing::info!(
-                path = %factory_scan_store.path().display(),
-                factory = %persisted.factory,
-                scanned_to = persisted.scanned_to,
-                scan_floor = persisted.scan_floor,
-                found = ?persisted.found,
-                "🗂️ resuming OutboxCreated discovery from persisted factory-scan cursor"
-            );
-            resolver::OutboxDiscoveryCursor::from_persisted(persisted)
-        }
-        // Nothing persisted: start at the configured factory-scan genesis block rather than block
-        // 0, so a chain whose factory was deployed far above genesis does not scan the dead range
-        // below it on every fresh volume (`Config::factory_scan_genesis_block`).
-        None => resolver::OutboxDiscoveryCursor::starting_at(cfg.factory_scan_genesis_block),
-    };
     let resolved = loop {
-        // Progress-aware failure budget, mirroring the listener's `next_failure_count`. Outbox
-        // discovery is a *chunked* log scan, so one attempt legitimately exceeds
-        // `RPC_ATTEMPT_TIMEOUT` on a long chain while still advancing the cursor each chunk.
-        // Counting those as failures would trip `MAX_CONSECUTIVE_RESOLVE_FAILURES` and restart —
-        // and `outbox_cursor` is in-memory, so the restart discards every chunk already scanned,
-        // making it a loop that never activates rather than a recovery.
         let attempt = tokio::select! {
             attempt = tokio::time::timeout(
                 RPC_ATTEMPT_TIMEOUT,
                 resolver::resolve(
                     &provider,
-                    &cfg,
+                    cfg.write_ability_chain_key,
                     state.destination_chain_key,
-                    &mut outbox_cursor,
-                    Some(&factory_scan_store),
                 ),
             ) => attempt.unwrap_or_else(|_| {
                 Err(anyhow!(
@@ -564,7 +530,7 @@ pub async fn run(
                     tracing::warn!(
                         attempts = resolve_attempts,
                         elapsed_secs = resolve_attempts * OUTBOX_RESOLVE_RETRY_SECS,
-                        "⏳ Outbox still unresolved after prolonged retrying — if this chain is meant to serve write-ability, verify the on-chain WriteAbilityConfigs entry and the runtime/attestor deploy ordering (chain-info `get_outbox_factory_address` selector)"
+                        "⏳ Outbox still unresolved after prolonged retrying — if this chain is meant to serve write-ability, verify the on-chain WriteAbilityConfigs entry and the runtime/attestor deploy ordering (chain-info `get_outbox_discovery_address` selector)"
                     );
                 } else {
                     tracing::info!(
@@ -575,17 +541,7 @@ pub async fn run(
             }
             Err(err) => {
                 resolve_attempts += 1;
-                if outbox_cursor.advanced_last_call() {
-                    // Advanced before failing: this is a wide scan in progress, not a dead endpoint.
-                    consecutive_resolve_failures = 0;
-                    tracing::info!(
-                        scanned_to = outbox_cursor.scanned_to(),
-                        error = %format!("{err:#}"),
-                        "🐢 Outbox discovery advanced but did not finish this attempt; continuing (not counted as a failure)"
-                    );
-                } else {
-                    consecutive_resolve_failures += 1;
-                }
+                consecutive_resolve_failures += 1;
                 if consecutive_resolve_failures >= MAX_CONSECUTIVE_RESOLVE_FAILURES {
                     // Reset the window before the attempt, not after it: whether the rebuild
                     // succeeds or not we want the next one a full window away, rather than
@@ -615,7 +571,7 @@ pub async fn run(
                 }
                 // `{:#}` (alternate Display), not `%err`: these errors are built with
                 // `anyhow::Context`, whose plain Display prints ONLY the outermost context. Logging
-                // it that way reduced every failure to the bare phrase "…get_outbox_factory_address()
+                // it that way reduced every failure to the bare phrase "…get_outbox_discovery_address()
                 // reverted" and threw away the RPC/decode error underneath, which is why the message
                 // below could only *guess* at the cause. The alternate form prints the whole chain.
                 let err = format!("{err:#}");
@@ -725,13 +681,9 @@ pub async fn run(
     });
 
     // One live resolved-Outbox view feeds both the supervision loop below and the reobservation
-    // worker. The monitor inherits the discovery cursor from initial activation, so it scans only
-    // new finalized factory events — and resumes from the last factory-scan checkpoint (or, with
-    // `resume_rotation_from_checkpoint` off, restarts from `factory_scan_genesis_block`) when
-    // governance re-points the chain key at a different factory. A resumed scan that turns out to
-    // have started above the new factory's own `OutboxCreated` rewinds to that floor once on its
-    // own (`resolver::genesis_fallback_target`), so a rotation onto a pre-existing factory
-    // recovers here instead of leaving the chain key paused indefinitely.
+    // worker. The monitor re-polls the registry on the same cadence, so a rotation (governance
+    // called `setDefaultOutbox`/`removeOutbox` on `OutboxDiscovery`, or the chain key's registered
+    // discovery address itself changed) is picked up without a restart.
     let (resolved_tx, mut resolved_rx) = watch::channel(Some(resolved));
     let mut outbox_monitor = {
         let provider = l1_provider_rx.clone();
@@ -742,15 +694,13 @@ pub async fn run(
             provider,
             cfg,
             destination_chain_key,
-            outbox_cursor,
-            factory_scan_store,
             resolved,
             resolved_tx,
             token,
         ))
     };
-    // `listener` becomes `None` during a rotation gap (factory changed, replacement Outbox not yet
-    // finalized); `active_outbox` mirrors the last value taken from the watch for log context.
+    // `listener` becomes `None` during a rotation gap (registry changed, replacement Outbox not yet
+    // resolved); `active_outbox` mirrors the last value taken from the watch for log context.
     let mut listener = Some(listener);
     let mut active_outbox = Some(resolved);
 
@@ -903,7 +853,7 @@ pub async fn run(
                     tracing::warn!(
                         ?old_outbox,
                         new_outbox = %resolved.address,
-                        "🔄 governance/factory rotation detected — switching Outbox listener"
+                        "🔄 registry rotation detected — switching Outbox listener"
                     );
                     // Hand the replacement listener the shared handle, not a boot-time clone: if
                     // the previous listener rebuilt the connection, this one starts on the live one.
@@ -915,14 +865,12 @@ pub async fn run(
                         resolved.address,
                     );
                     let listener_tx = tx.clone();
-                    // Start the replacement listener at the new Outbox's creation height, not at the
-                    // boot-time `scan_from`. Its cursor file is keyed by address so there is nothing
-                    // persisted to resume from, and governance can point a chain key at an Outbox
-                    // created *before* this process booted — whose earlier `MessagePublished` events
-                    // would then sit below `scan_from` and never be scanned. Falling back to
-                    // `scan_from` only when the log carried no block number keeps the old behaviour
-                    // for that (not normally reachable) case.
-                    let swap_start = resolved.created_at_block.or(scan_from);
+                    // The registry doesn't report the Outbox's creation block, so the replacement
+                    // listener starts at the same boot-time floor as initial activation. Its cursor
+                    // file is keyed by address, so there is nothing persisted to resume from; a
+                    // rotation onto an Outbox that predates `scan_from` would miss its earlier
+                    // `MessagePublished` events, same as the initial-activation case.
+                    let swap_start = scan_from;
                     let listener_rpc = rpc.clone();
                     let listener_reconnect = move || {
                         let rpc = listener_rpc.clone();
@@ -1046,17 +994,14 @@ fn child_exit_error(
     }
 }
 
-/// Continue resolving after activation and publish a new value whenever governance points the chain
-/// key at another factory or the active factory emits a replacement Outbox. A factory transition
-/// with no finalized replacement Outbox publishes `None` immediately so consumers stop signing the
-/// de-registered Outbox while discovery continues.
+/// Continue resolving after activation and publish a new value whenever the discovery registry's
+/// `defaultOutbox` answer for this chain key changes. A read that comes back with nothing
+/// registered publishes `None` immediately so consumers stop signing the now-unlisted Outbox.
 #[allow(clippy::too_many_arguments)]
 async fn run_outbox_monitor<P: Provider + Clone>(
     provider_rx: watch::Receiver<P>,
     cfg: Config,
     destination_chain_key: B256,
-    mut cursor: resolver::OutboxDiscoveryCursor,
-    factory_scan_store: cursor::FactoryScanCursorStore,
     current: resolver::ResolvedOutbox,
     resolved_tx: watch::Sender<Option<resolver::ResolvedOutbox>>,
     token: tokio_util::sync::CancellationToken,
@@ -1065,19 +1010,10 @@ async fn run_outbox_monitor<P: Provider + Clone>(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     let mut active = Some(current);
-    // The factory the active Outbox was resolved from. The pause decision compares the cursor's
-    // live factory against THIS — never against the cursor's value on the previous tick: `resolve`
-    // records a governance transition into the cursor as soon as it reads the new registration, so
-    // an attempt that then fails (RPC error / timeout) would have already consumed the transition,
-    // and a tick-to-tick comparison would keep signing the superseded Outbox forever (bugbot).
-    let mut active_factory = cursor.factory();
     loop {
         tokio::select! {
             () = token.cancelled() => return,
             _ = tick.tick() => {
-                // Same per-attempt bound as the activation loop: an unbounded resolve against a
-                // black-holed RPC would wedge rotation detection silently (the chunked cursor keeps
-                // whatever progress the attempt made, so a timeout costs nothing).
                 // Take the latest shared connection as a separate statement: a `borrow()` inside
                 // the `timeout(...)` expression would hold the watch read guard across the await
                 // and block the listener's `send_replace` for the length of an RPC attempt.
@@ -1086,10 +1022,8 @@ async fn run_outbox_monitor<P: Provider + Clone>(
                     RPC_ATTEMPT_TIMEOUT,
                     resolver::resolve(
                         &provider,
-                        &cfg,
+                        cfg.write_ability_chain_key,
                         destination_chain_key,
-                        &mut cursor,
-                        Some(&factory_scan_store),
                     ),
                 )
                 .await
@@ -1098,7 +1032,7 @@ async fn run_outbox_monitor<P: Provider + Clone>(
                         "Outbox rotation check RPC attempt timed out after {RPC_ATTEMPT_TIMEOUT:?}"
                     ))
                 });
-                match rotation_action(&attempt, active.map(|o| o.address), active_factory, cursor.factory()) {
+                match rotation_action(&attempt, active.map(|o| o.address)) {
                     RotationAction::Swap(next) => {
                         tracing::info!(
                             old = ?active.map(|outbox| outbox.address),
@@ -1106,22 +1040,17 @@ async fn run_outbox_monitor<P: Provider + Clone>(
                             "🧭 replacement Outbox resolved"
                         );
                         active = Some(next);
-                        active_factory = cursor.factory();
                         if resolved_tx.send(Some(next)).is_err() {
                             return;
                         }
                     }
-                    RotationAction::KeepCurrent => {
-                        active_factory = cursor.factory();
-                    }
                     RotationAction::Pause => {
                         tracing::warn!(
                             old = ?active.map(|outbox| outbox.address),
-                            new_factory = ?cursor.factory(),
-                            "Outbox factory changed without a finalized replacement — pausing signing"
+                            "Outbox registry no longer reports a default Outbox for this chain \
+                             key — pausing signing"
                         );
                         active = None;
-                        active_factory = cursor.factory();
                         if resolved_tx.send(None).is_err() {
                             return;
                         }
@@ -1129,58 +1058,37 @@ async fn run_outbox_monitor<P: Provider + Clone>(
                     RotationAction::Nothing => {}
                 }
                 if let Err(err) = attempt {
-                    if cursor.advanced_last_call() {
-                        // Advanced before failing: a wide OutboxCreated backlog scan in progress
-                        // (the resolver already logged per-chunk progress for it), not a dead
-                        // endpoint — same distinction the activation loop draws below. Checking
-                        // `advanced_last_call()` rather than diffing `scanned_to()` before/after
-                        // matters here specifically: with `resume_rotation_from_checkpoint: false`
-                        // a rotation resets `from` back to 0 inside this same call, so a diff would
-                        // see a *lower* value after a call that did make progress and misreport it
-                        // as a stall (bugbot).
-                        tracing::info!(
-                            scanned_to = cursor.scanned_to(),
-                            error = %format!("{err:#}"),
-                            "🐢 Outbox rotation check advanced but did not finish this attempt; continuing"
-                        );
-                    } else {
-                        tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
-                    }
+                    tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
                 }
             }
         }
     }
 }
 
-/// What one rotation-monitor tick should do. Pure so the consumed-transition case is testable.
+/// What one rotation-monitor tick should do. Pure so it is testable without a live provider.
 #[derive(Debug, PartialEq)]
 enum RotationAction {
     /// A different Outbox resolved — hot-swap the listener to it.
     Swap(resolver::ResolvedOutbox),
-    /// The active Outbox re-resolved — just refresh the factory it is attributed to.
-    KeepCurrent,
-    /// The registered factory no longer matches the active Outbox's and no replacement has
-    /// resolved — publish `None` so signing stops on the superseded Outbox.
+    /// The registry no longer reports a default Outbox for this chain key — publish `None` so
+    /// signing stops on the now-unlisted Outbox.
     Pause,
     Nothing,
 }
 
-/// Pause fires on `cursor_factory != active_factory` even when the attempt ERRORED: the cursor's
-/// factory only changes when `resolve` actually read a different registered factory on-chain, so a
-/// scan failure after that read must not mask the transition (it would otherwise never re-fire —
-/// the cursor keeps the new factory, and later ticks would see no further change).
+/// A registry read is atomic and stateless, so a failed attempt carries no partial information
+/// about whether the registration actually changed — unlike the old log-scan cursor, there is
+/// nothing to consult but this attempt's own result. An `Err` therefore never pauses: a transient
+/// RPC failure must not drop an already-active listener, only the activation/quorum-outage failure
+/// budgets (elsewhere) escalate a truly dead provider.
 fn rotation_action(
     attempt: &anyhow::Result<Option<resolver::ResolvedOutbox>>,
     active: Option<Address>,
-    active_factory: Option<Address>,
-    cursor_factory: Option<Address>,
 ) -> RotationAction {
     match attempt {
         Ok(Some(next)) if active != Some(next.address) => RotationAction::Swap(*next),
-        Ok(Some(_)) => RotationAction::KeepCurrent,
-        Ok(None) | Err(_) if active.is_some() && cursor_factory != active_factory => {
-            RotationAction::Pause
-        }
+        Ok(Some(_)) => RotationAction::Nothing,
+        Ok(None) if active.is_some() => RotationAction::Pause,
         Ok(None) | Err(_) => RotationAction::Nothing,
     }
 }
@@ -1413,7 +1321,6 @@ mod tests {
             address: addr,
             destination_chain_key: B256::ZERO,
             creditcoin_chain_id: 42,
-            created_at_block: Some(1),
         }
     }
 
@@ -1450,70 +1357,46 @@ mod tests {
 
     const OUTBOX_A: Address = address!("00000000000000000000000000000000000000aa");
     const OUTBOX_B: Address = address!("00000000000000000000000000000000000000bb");
-    const FACTORY_1: Address = address!("00000000000000000000000000000000000000f1");
-    const FACTORY_2: Address = address!("00000000000000000000000000000000000000f2");
-
-    // The bugbot case this module exists for: `resolve` records the governance transition into the
-    // cursor (F1 -> F2) and then the SAME attempt fails, so the transition never coincides with a
-    // clean `Ok(None)`. A tick-to-tick factory comparison consumes it; comparing against the
-    // active Outbox's factory must keep firing until the pause actually happens.
-    #[test]
-    fn pause_survives_a_transition_consumed_by_a_failed_attempt() {
-        // Tick N: cursor already moved to F2, attempt errored (scan failed after the factory read).
-        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> =
-            Err(anyhow!("eth_getLogs failed"));
-        assert_eq!(
-            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
-            RotationAction::Pause,
-        );
-
-        // Tick N+1: clean Ok(None) — with the tick-to-tick rule this saw "no change" and kept
-        // signing forever; against the active factory it still pauses.
-        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(None);
-        assert_eq!(
-            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
-            RotationAction::Pause,
-        );
-    }
 
     #[test]
-    fn routine_failures_and_quiet_ticks_do_nothing() {
-        let err: anyhow::Result<Option<resolver::ResolvedOutbox>> = Err(anyhow!("rpc blip"));
-        assert_eq!(
-            rotation_action(&err, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_1)),
-            RotationAction::Nothing,
-        );
+    fn empty_registry_pauses_only_when_something_was_active() {
         let none: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(None);
         assert_eq!(
-            rotation_action(&none, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_1)),
-            RotationAction::Nothing,
+            rotation_action(&none, Some(OUTBOX_A)),
+            RotationAction::Pause
         );
         // Nothing active (already paused, or never resolved) — nothing to pause.
+        assert_eq!(rotation_action(&none, None), RotationAction::Nothing);
+    }
+
+    // A registry read is atomic: a failed attempt carries no information about whether the
+    // registration actually changed, so it must never pause an already-active listener — only a
+    // clean `Ok(None)` does. Retried on the next tick, same as any other transient RPC failure.
+    #[test]
+    fn a_failed_attempt_never_pauses() {
+        let err: anyhow::Result<Option<resolver::ResolvedOutbox>> = Err(anyhow!("rpc blip"));
         assert_eq!(
-            rotation_action(&none, None, None, Some(FACTORY_2)),
-            RotationAction::Nothing,
+            rotation_action(&err, Some(OUTBOX_A)),
+            RotationAction::Nothing
         );
+        assert_eq!(rotation_action(&err, None), RotationAction::Nothing);
     }
 
     #[test]
-    fn replacement_swaps_and_same_outbox_keeps_current() {
+    fn replacement_swaps_and_same_outbox_does_nothing() {
         let next = outbox(OUTBOX_B);
         let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(next));
         assert_eq!(
-            rotation_action(&attempt, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
+            rotation_action(&attempt, Some(OUTBOX_A)),
             RotationAction::Swap(next),
         );
         // Resuming from a pause is a swap too (nothing was active).
-        assert_eq!(
-            rotation_action(&attempt, None, None, Some(FACTORY_2)),
-            RotationAction::Swap(next),
-        );
-        // Same address re-resolved (e.g. a new factory adopting the same Outbox): keep signing,
-        // but re-attribute the active Outbox to the cursor's factory.
+        assert_eq!(rotation_action(&attempt, None), RotationAction::Swap(next));
+        // Same address re-resolved: nothing to do.
         let same: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(outbox(OUTBOX_A)));
         assert_eq!(
-            rotation_action(&same, Some(OUTBOX_A), Some(FACTORY_1), Some(FACTORY_2)),
-            RotationAction::KeepCurrent,
+            rotation_action(&same, Some(OUTBOX_A)),
+            RotationAction::Nothing,
         );
     }
 }
