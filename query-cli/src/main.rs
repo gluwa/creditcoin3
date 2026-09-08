@@ -63,7 +63,7 @@ pub struct QueryCli {
     #[arg(short, long)]
     verbose: bool,
 
-    /// Source family override; applies to verification, transfers, and batch queries.
+    /// Optional source family; defaults to `ethereum` for verification, transfers, and batch queries.
     #[arg(long, global = true, env = "ETH_CHAIN_FAMILY")]
     eth_chain_family: Option<eth::ChainFamily>,
 

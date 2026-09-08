@@ -8,8 +8,7 @@ pub struct Config {
     pub(crate) url_eth: RpcSecret,
     pub(crate) url_cc3: RpcSecret,
     pub(crate) secret: AttestorSecret,
-    /// Explicit source-chain family. `None` lets the eth client infer it from the RPC's
-    /// `eth_chainId` (see [`eth::ChainFamily::infer_from_chain_id`]).
+    /// Optional source-chain family. `None` defaults to Ethereum for every chain ID.
     pub(crate) eth_chain_family: Option<eth::ChainFamily>,
 }
 

@@ -51,6 +51,11 @@ Fund and make the intended attestor accounts eligible under that chain's bond/el
 One process alone cannot satisfy a three-attestor quorum. Each process needs its own secret,
 ports, log directory, and working P2P discovery. The attestor registers its BLS key during startup.
 
+Attestors need `(2 * target_sample_size) / 3 + 1` matching votes (integer division, see
+`calculate_threshold`) before a block is attested, so with `target_sample_size = 3` all three
+attestors must be running and meshed.
+Set `target_sample_size` to the number of attestors you will actually run.
+
 Run each attestor using the usual network configuration, with the source fields set consistently:
 
 ```sh
@@ -76,6 +81,14 @@ target/release/attestor_zombienet --number 3 --chain-key "$CHAIN_KEY" \
 
 This uses the genesis height already registered above. The helper allocates distinct local ports;
 check that all intended accounts become active before requesting a proof.
+
+Attestor elections run at epoch boundaries, so newly registered attestors can remain on
+"waiting on election" until then. The standard devnet runtime uses two-hour epochs; a build with
+`fast-runtime` uses 15 blocks. The node's `--dev` flag alone does not select the runtime's epoch
+length. Once every attestor has logged `attest() submitted`, trigger the election from a sudo or
+Operators account:
+`attestation.forceElection(<any epoch label>)`. An election submitted before the attestors have
+called `attest()` elects nobody; submit it again once they have.
 
 ## 3. Start the proof API (and optionally the archiver)
 
@@ -151,8 +164,10 @@ The chain-ID-dependent bridge/delivery paths remain separate from this readabili
 
 ## Family and nonce rules
 
-Base, Base Sepolia, OP Mainnet, and OP Sepolia infer `op-stack` automatically. Other rollup IDs
-need the same explicit override on every component:
+Every family setting below is optional. Omission (or YAML `null`) always selects `ethereum`,
+regardless of the RPC chain ID, and reconnects preserve the selected family. Existing Ethereum
+configurations need no new arguments or fields. All OP-Stack chains, including Base, Base Sepolia,
+OP Mainnet, and OP Sepolia, require an explicit `op-stack` setting on every source-reading component:
 
 | Component | Configuration |
 | --- | --- |

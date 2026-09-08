@@ -107,7 +107,7 @@ cargo run --bin query-cli -- \
 - `--cc3-rpc-url`: Creditcoin3 RPC URL (default: http://localhost:9944)
 - `--cc3-evm-private-key`: Private key for Creditcoin3 EVM operations
 - `--verbose`: Enable debug logging
-- `--eth-chain-family` / `ETH_CHAIN_FAMILY`: `ethereum` or `op-stack`. Omit for chain-ID inference. The override applies to direct and interactive verification, transfer queries, batch queries, and their continuity proofs.
+- `--eth-chain-family` / `ETH_CHAIN_FAMILY`: `ethereum` or `op-stack`. Optional; omitting it always selects `ethereum`, including for Base/OP chain IDs. The override applies to direct and interactive verification, transfer queries, batch queries, and their continuity proofs.
 
 ### Commands
 

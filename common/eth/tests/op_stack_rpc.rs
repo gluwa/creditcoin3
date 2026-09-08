@@ -4,7 +4,7 @@ use std::{
     io::{BufRead, Read, Write},
     net::TcpListener,
     sync::{
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
         Arc,
     },
     thread,
@@ -15,6 +15,7 @@ use usc_abi_encoding::common::EncodingVersion;
 struct RpcMock {
     url: String,
     reads: Arc<AtomicUsize>,
+    chain_id: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -27,6 +28,8 @@ impl RpcMock {
         let done = stop.clone();
         let reads = Arc::new(AtomicUsize::new(0));
         let read_count = reads.clone();
+        let chain_id = Arc::new(AtomicU64::new(chain_id));
+        let current_chain_id = chain_id.clone();
         let thread = thread::spawn(move || {
             while !done.load(Ordering::SeqCst) {
                 let (mut stream, _) = match listener.accept() {
@@ -62,7 +65,9 @@ impl RpcMock {
                 reader.read_exact(&mut body).unwrap();
                 let request: Value = serde_json::from_slice(&body).unwrap();
                 let result = match request["method"].as_str().unwrap() {
-                    "eth_chainId" => json!(format!("0x{chain_id:x}")),
+                    "eth_chainId" => {
+                        json!(format!("0x{:x}", current_chain_id.load(Ordering::SeqCst)))
+                    }
                     "eth_getBlockByNumber" => {
                         read_count.fetch_add(1, Ordering::SeqCst);
                         block.clone()
@@ -84,6 +89,7 @@ impl RpcMock {
         Self {
             url,
             reads,
+            chain_id,
             stop,
             thread: Some(thread),
         }
@@ -133,35 +139,85 @@ async fn bad_primary_deposit_and_receipt_payloads_use_the_healthy_fallback() {
 }
 
 #[tokio::test]
-async fn unlisted_rollup_override_survives_reconnect_and_inference_still_fails_fast() {
+async fn every_chain_id_defaults_to_ethereum_with_or_without_fallbacks() {
+    let (block, receipts) = fixture();
+    for chain_id in [1, 11_155_111, 31337, 8453, 84532, 10, 11_155_420, 999_999] {
+        let primary = RpcMock::start(chain_id, block.clone(), receipts.clone());
+        let backup = RpcMock::start(chain_id, block.clone(), receipts.clone());
+        let direct = Client::new(&primary.url, None).await.unwrap();
+        let fallback =
+            Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&backup.url), None)
+                .await
+                .unwrap();
+        for mut client in [direct, fallback] {
+            assert_eq!(client.chain_family(), ChainFamily::Ethereum);
+            client = client.with_chain_family_override(None);
+            let error = client
+                .get_block(46388021, EncodingVersion::V1)
+                .await
+                .unwrap_err();
+            assert!(format!("{error:?}").contains("UnsupportedTransactionType"));
+            client.reconnect().await.unwrap();
+            assert_eq!(client.chain_family(), ChainFamily::Ethereum);
+        }
+        // Family errors describe configuration, so trying another RPC cannot fix them.
+        assert_eq!(backup.reads.load(Ordering::SeqCst), 0);
+    }
+}
+
+#[tokio::test]
+async fn optional_family_survives_chain_id_changes_and_reset_detaches_cached_deposits() {
     let (block, receipts) = fixture();
     let primary = RpcMock::start(999999, block.clone(), receipts.clone());
     let backup = RpcMock::start(999999, block, receipts);
-    let client = Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&backup.url), None)
-        .await
-        .unwrap();
-    let inferred = client.clone().with_chain_family_override(None);
-    assert_eq!(inferred.chain_family(), ChainFamily::Ethereum);
-    let error = inferred
-        .get_block(46388021, EncodingVersion::V1)
-        .await
-        .unwrap_err();
-    assert!(format!("{error:?}").contains("UnsupportedTransactionType"));
-    assert_eq!(backup.reads.load(Ordering::SeqCst), 0);
-
-    let mut configured = client.with_chain_family_override(Some(ChainFamily::OpStack));
+    let mut configured =
+        Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&backup.url), None)
+            .await
+            .unwrap()
+            .with_chain_family_override(Some(ChainFamily::OpStack))
+            .with_block_cache(std::num::NonZeroUsize::new(10).unwrap());
     let first = configured
         .get_block(46388021, EncodingVersion::V1)
         .await
         .unwrap();
-    configured.reconnect().await.unwrap();
-    assert_eq!(configured.chain_family(), ChainFamily::OpStack);
-    let reconnected = configured
-        .get_block(46388021, EncodingVersion::V1)
-        .await
-        .unwrap();
-    assert_eq!(
-        eth::simple_merkle_tree(&first).root(),
-        eth::simple_merkle_tree(&reconnected).root()
-    );
+    for chain_id in [84532, 1] {
+        primary.chain_id.store(chain_id, Ordering::SeqCst);
+        backup.chain_id.store(chain_id, Ordering::SeqCst);
+        configured.reconnect().await.unwrap();
+        assert_eq!(configured.chain_family(), ChainFamily::OpStack);
+        let reads = primary.reads.load(Ordering::SeqCst);
+        let reconnected = configured
+            .get_block(46388021, EncodingVersion::V1)
+            .await
+            .unwrap();
+        assert!(
+            primary.reads.load(Ordering::SeqCst) > reads,
+            "chain change must drop cached blocks"
+        );
+        assert_eq!(
+            eth::simple_merkle_tree(&first).root(),
+            eth::simple_merkle_tree(&reconnected).root()
+        );
+    }
+
+    for family in [None, Some(ChainFamily::Ethereum)] {
+        let mut ethereum = configured.clone().with_chain_family_override(family);
+        assert_eq!(ethereum.chain_family(), ChainFamily::Ethereum);
+        let error = ethereum
+            .get_block(46388021, EncodingVersion::V1)
+            .await
+            .unwrap_err();
+        assert!(format!("{error:?}").contains("UnsupportedTransactionType"));
+        primary.chain_id.store(10, Ordering::SeqCst);
+        backup.chain_id.store(10, Ordering::SeqCst);
+        ethereum.reconnect().await.unwrap();
+        assert_eq!(ethereum.chain_family(), ChainFamily::Ethereum);
+        // The reset must not invalidate or contaminate the original OP client's shared cache.
+        let reads = primary.reads.load(Ordering::SeqCst);
+        configured
+            .get_block(46388021, EncodingVersion::V1)
+            .await
+            .unwrap();
+        assert_eq!(primary.reads.load(Ordering::SeqCst), reads);
+    }
 }

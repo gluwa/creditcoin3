@@ -16,8 +16,8 @@
 //! The family is an **off-chain** setting: it changes how an attestor *reads* a block, not what
 //! it attests to. Two attestors that disagree on the family for a chain would compute different
 //! leaves and simply fail to reach quorum with each other, so misconfiguration is loud, not
-//! unsafe. By default the family is inferred from the RPC's `eth_chainId` via
-//! [`ChainFamily::infer_from_chain_id`]; operators can override it explicitly.
+//! unsafe. The default is always [`ChainFamily::Ethereum`], regardless of the RPC's
+//! `eth_chainId`. Every OP-Stack chain requires explicit `op-stack` configuration.
 
 use std::fmt;
 use std::str::FromStr;
@@ -44,30 +44,7 @@ pub const BASE_MAINNET_CHAIN_ID: u64 = 8453;
 /// Base Sepolia.
 pub const BASE_SEPOLIA_CHAIN_ID: u64 = 84_532;
 
-/// Chain ids known to be OP-Stack rollups. Used by [`ChainFamily::infer_from_chain_id`].
-pub const KNOWN_OP_STACK_CHAIN_IDS: &[u64] = &[
-    OP_MAINNET_CHAIN_ID,
-    OP_SEPOLIA_CHAIN_ID,
-    BASE_MAINNET_CHAIN_ID,
-    BASE_SEPOLIA_CHAIN_ID,
-];
-
 impl ChainFamily {
-    /// Best-effort family for a chain id: the well-known OP-Stack ids map to
-    /// [`ChainFamily::OpStack`], everything else to [`ChainFamily::Ethereum`].
-    ///
-    /// This is a convenience default so Base / OP work out of the box. An OP-Stack chain that is
-    /// not in [`KNOWN_OP_STACK_CHAIN_IDS`] must be configured explicitly, otherwise its blocks
-    /// are rejected with [`crate::Error::UnsupportedTransactionType`] the moment the first
-    /// deposit transaction is seen — which is at block one, so the mistake surfaces immediately.
-    pub fn infer_from_chain_id(chain_id: u64) -> Self {
-        if KNOWN_OP_STACK_CHAIN_IDS.contains(&chain_id) {
-            Self::OpStack
-        } else {
-            Self::Ethereum
-        }
-    }
-
     /// Whether this family admits the given EIP-2718 transaction type byte.
     pub fn supports_tx_type(self, ty: u8) -> bool {
         match self {
@@ -115,28 +92,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn infers_op_stack_for_known_ids_and_ethereum_otherwise() {
-        assert_eq!(
-            ChainFamily::infer_from_chain_id(BASE_MAINNET_CHAIN_ID),
-            ChainFamily::OpStack
-        );
-        assert_eq!(
-            ChainFamily::infer_from_chain_id(BASE_SEPOLIA_CHAIN_ID),
-            ChainFamily::OpStack
-        );
-        assert_eq!(
-            ChainFamily::infer_from_chain_id(OP_MAINNET_CHAIN_ID),
-            ChainFamily::OpStack
-        );
-        assert_eq!(ChainFamily::infer_from_chain_id(1), ChainFamily::Ethereum);
-        assert_eq!(
-            ChainFamily::infer_from_chain_id(11_155_111),
-            ChainFamily::Ethereum
-        );
-        assert_eq!(
-            ChainFamily::infer_from_chain_id(31337),
-            ChainFamily::Ethereum
-        );
+    fn defaults_to_ethereum() {
+        assert_eq!(ChainFamily::default(), ChainFamily::Ethereum);
     }
 
     #[test]

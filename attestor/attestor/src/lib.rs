@@ -187,10 +187,7 @@ impl Attestor {
                 result.map_err(Error::Init)?
             }
         };
-        let eth = match self.config.stream.eth_chain_family {
-            Some(family) => eth.with_chain_family(family),
-            None => eth,
-        };
+        let eth = eth.with_chain_family_override(self.config.stream.eth_chain_family);
         tracing::info!(
             chain_id = eth.chain_id(),
             chain_family = %eth.chain_family(),

@@ -286,10 +286,14 @@ impl BlockItem for TxRx {
                     .to_vec()
             }
             // The deposit leaf layout is versioned alongside V1 (additive: types 0–4 are
-            // byte-identical). There is only one encoding version today; when a second one
-            // lands this match must route on `encoding` like the Ethereum arm does.
-            Self::OpDeposit { tx, rx, .. } => op_stack::abi_encode_deposit_leaf(tx, rx)
-                .expect("Deposit transaction and receipt should be encodable."),
+            // byte-identical). Matching exhaustively on `encoding` makes a future encoding
+            // version a compile error here instead of a silently V1-shaped deposit leaf.
+            Self::OpDeposit {
+                tx, rx, encoding, ..
+            } => match encoding {
+                EncodingVersion::V1 => op_stack::abi_encode_deposit_leaf(tx, rx)
+                    .expect("Deposit transaction and receipt should be encodable."),
+            },
         }
     }
 
@@ -613,14 +617,9 @@ pub struct Client {
     // what chain id is implied here? Maybe need to define internal chain ids for different attestation chains
     // and not rely on ethereum chain ids?
     chain_id: u64,
-    /// Execution-layer dialect of the source chain. Inferred from `chain_id` at construction
-    /// (see [`ChainFamily::infer_from_chain_id`]) unless overridden with
+    /// Execution-layer dialect of the source chain. Defaults to Ethereum unless configured with
     /// [`Client::with_chain_family`]. Preserved across [`Client::reconnect`].
     family: ChainFamily,
-    /// Operator-set family, if any. Wins over inference on every reconnect, so an explicit
-    /// `op-stack` for a rollup whose id is not in the well-known list survives a chain-id
-    /// change on the endpoint instead of silently degrading to `ethereum`.
-    family_override: Option<ChainFamily>,
     /// Optional in-process cache of finalized blocks (opt-in via [`Client::with_block_cache`]).
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
@@ -672,34 +671,38 @@ impl Client {
             rpc_provider,
             fallback_providers: Vec::new(),
             chain_id,
-            family: ChainFamily::infer_from_chain_id(chain_id),
-            family_override: None,
+            family: ChainFamily::default(),
             mem_cache: None,
         })
     }
 
-    /// Override the inferred [`ChainFamily`]. Use for OP-Stack chains whose id is not in
-    /// [`chain_family::KNOWN_OP_STACK_CHAIN_IDS`], or to force the Ethereum reading of a chain.
+    /// Set the source [`ChainFamily`]. All OP-Stack chains require explicit configuration,
+    /// including Base and OP Mainnet; chain IDs never select a family automatically.
     #[must_use]
     pub fn with_chain_family(self, family: ChainFamily) -> Self {
         self.with_chain_family_override(Some(family))
     }
 
-    /// Apply operator configuration, or restore chain-id inference when it is omitted.
-    /// The distinction is retained across reconnects for both primary and fallback providers.
+    /// Apply operator configuration, or restore the Ethereum default when it is omitted.
+    /// The selected family is retained across reconnects for primary and fallback providers.
     #[must_use]
     pub fn with_chain_family_override(mut self, family: Option<ChainFamily>) -> Self {
-        let resolved = resolve_chain_family(family, self.chain_id);
+        let resolved = family.unwrap_or_default();
         if resolved != self.family {
             info!(
                 chain_id = self.chain_id,
-                inferred = %self.family,
+                previous = %self.family,
                 configured = %resolved,
-                "🔧 Overriding inferred source-chain family"
+                "🔧 Configuring source-chain family"
             );
+            // Clones may share a cache populated under the previous family. Detach it so
+            // resetting to Ethereum cannot return cached deposit blocks from an OP client.
+            self.mem_cache = self
+                .mem_cache
+                .as_ref()
+                .map(|cache| std::sync::Arc::new(cache.empty_with_same_capacity()));
         }
         self.family = resolved;
-        self.family_override = family;
         self
     }
 
@@ -745,8 +748,7 @@ impl Client {
             rpc_provider,
             fallback_providers,
             chain_id,
-            family: ChainFamily::infer_from_chain_id(chain_id),
-            family_override: None,
+            family: ChainFamily::default(),
             mem_cache: None,
         })
     }
@@ -796,18 +798,16 @@ impl Client {
         }
 
         if chain_id != self.chain_id {
-            // The endpoint now serves a different chain. An operator-set family always wins;
-            // otherwise re-infer so we don't keep reading a plain-Ethereum chain as OP-Stack
-            // (or vice versa) by accident.
-            let family = resolve_chain_family(self.family_override, chain_id);
             tracing::warn!(
                 previous_chain_id = self.chain_id,
                 chain_id,
-                previous_family = %self.family,
-                family = %family,
-                "⚠️ Primary RPC chain_id changed on reconnect; chain family re-resolved"
+                family = %self.family,
+                "⚠️ Primary RPC chain_id changed on reconnect; retaining configured chain family"
             );
-            self.family = family;
+            self.mem_cache = self
+                .mem_cache
+                .as_ref()
+                .map(|cache| std::sync::Arc::new(cache.empty_with_same_capacity()));
         }
         self.url = url;
         self.rpc_provider = rpc_provider;
@@ -1350,13 +1350,6 @@ impl Client {
 
         Ok(Some((block_number, tx_index)))
     }
-}
-
-/// Family a client should read blocks with: the operator's explicit choice if there is one,
-/// otherwise the inference for `chain_id`. Pure so [`Client::reconnect`]'s behaviour is testable
-/// without an RPC.
-fn resolve_chain_family(override_: Option<ChainFamily>, chain_id: u64) -> ChainFamily {
-    override_.unwrap_or_else(|| ChainFamily::infer_from_chain_id(chain_id))
 }
 
 /// Decision returned by [`merge_provider_lookup`] once the sequential
@@ -1990,29 +1983,6 @@ mod chain_family_block_tests {
         );
         // Not a per-peer inconsistency: switching RPC endpoints would not help.
         assert!(!err.inconsistent_block_payload_for_fallback());
-    }
-
-    #[test]
-    fn explicit_family_survives_chain_id_change_and_inference_does_not() {
-        // Operator said op-stack for a rollup id we do not know: reconnect must keep it.
-        let unknown_rollup = 999_999;
-        assert_eq!(
-            resolve_chain_family(Some(ChainFamily::OpStack), unknown_rollup),
-            ChainFamily::OpStack
-        );
-        assert_eq!(
-            resolve_chain_family(Some(ChainFamily::OpStack), 11_155_111),
-            ChainFamily::OpStack
-        );
-        // No override: follow the chain id.
-        assert_eq!(
-            resolve_chain_family(None, chain_family::BASE_SEPOLIA_CHAIN_ID),
-            ChainFamily::OpStack
-        );
-        assert_eq!(
-            resolve_chain_family(None, unknown_rollup),
-            ChainFamily::Ethereum
-        );
     }
 
     #[test]

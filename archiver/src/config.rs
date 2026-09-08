@@ -22,7 +22,7 @@ pub struct Config {
     #[arg(long, env = "RPC_WS", required = true)]
     pub rpc_ws: Url,
 
-    /// Source execution family. Omit to infer it from the source RPC chain ID.
+    /// Source execution family. Optional; defaults to `ethereum` for every chain ID.
     #[arg(long, env = "ETH_CHAIN_FAMILY")]
     pub eth_chain_family: Option<eth::ChainFamily>,
 
@@ -99,6 +99,8 @@ mod tests {
             "--eth-chain-family",
             "op-stack",
         ];
+        let omitted = Config::try_parse_from(&args[..5]).unwrap();
+        assert_eq!(omitted.eth_chain_family, None);
         let config = Config::try_parse_from(args).unwrap();
         assert_eq!(config.eth_chain_family, Some(eth::ChainFamily::OpStack));
         let mut invalid = args;
