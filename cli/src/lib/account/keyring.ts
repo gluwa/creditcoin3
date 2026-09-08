@@ -70,12 +70,29 @@ export function getStringFromEnvVar(envVar: string | undefined): string {
     return envVar;
 }
 
+/** `0x` followed by exactly 64 hex digits — a 32-byte secret. */
+const HEX_SECRET_RE = /^0x[0-9a-fA-F]{64}$/;
+
 /**
- * Read a raw secret (BIP39 mnemonic) from the given env var, or prompt the user
- * for one when stdin is a TTY and `--input` was not disabled. Mirrors
- * {@link initKeyringFromEnvOrPrompt} but returns the secret string itself,
- * which is what EVM/precompile-based commands need (they derive the EVM key
- * via `HDNodeWallet.fromPhrase`, not a Substrate `KeyringPair`).
+ * True for the `0x`-prefixed 32-byte form of a secret rather than a BIP39
+ * phrase. The attestor binary's `--secret` accepts the same two forms, so an
+ * operator can keep one value for both.
+ */
+export function isHexSecret(input: string): boolean {
+    return HEX_SECRET_RE.test(input);
+}
+
+/** Accept either secret form: a BIP39 mnemonic, or a 32-byte hex secret. */
+export function secretValidate(input: string): boolean {
+    return mnemonicValidate(input) || isHexSecret(input);
+}
+
+/**
+ * Read a raw secret (BIP39 mnemonic, or `0x` + 64 hex) from the given env var,
+ * or prompt the user for one when stdin is a TTY and `--input` was not
+ * disabled. Mirrors {@link initKeyringFromEnvOrPrompt} but returns the secret
+ * string itself, which is what EVM/precompile-based commands need (they derive
+ * the EVM key directly, not a Substrate `KeyringPair`).
  *
  * Used by attestor commands that go through the attestor-stash precompile
  * (`register`, `unregister`, `chill`, `withdraw-unbonded`) so they keep the
@@ -87,12 +104,15 @@ export async function getSecretFromEnvOrPrompt(
     options: OptionValues,
 ): Promise<string> {
     const interactive = setInteractivity(options);
-    const inputName = 'seed phrase';
+    const inputName = 'seed phrase or 0x hex secret';
 
     if (typeof process.env[envVar] === 'string') {
         const input = getStringFromEnvVar(process.env[envVar]);
-        if (!mnemonicValidate(input)) {
-            throw new Error(`Error: Seed phrase provided in environment variable ${envVar} is invalid.`);
+        if (!secretValidate(input)) {
+            throw new Error(
+                `Error: Secret provided in environment variable ${envVar} is invalid. ` +
+                    'Expected a BIP39 seed phrase, or 0x followed by 64 hex digits.',
+            );
         }
         return input;
     }
@@ -108,7 +128,7 @@ export async function getSecretFromEnvOrPrompt(
             type: 'password',
             name: 'seed',
             message: `Specify a ${inputName} for the ${accountRole} account`,
-            validate: (input) => mnemonicValidate(input as string),
+            validate: (input) => secretValidate(input as string),
         },
     ]);
 
