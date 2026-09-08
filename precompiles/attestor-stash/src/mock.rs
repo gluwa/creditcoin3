@@ -284,6 +284,8 @@ impl pallet_attestation::Config for Runtime {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
+    // Forced elections are not exercised here; any fixed epoch label will do.
+    type CurrentEpochIndex = ConstU64<0>;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
     type Currency = Balances;
     type CurrencyBalance = Balance;
