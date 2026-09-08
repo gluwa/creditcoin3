@@ -988,6 +988,11 @@ declare module '@polkadot/api-base/types/errors' {
              * resolved by the attestor/relayer (it reads as "not registered"), so setting it via the
              * operator path is rejected to fail loudly instead of silently disabling registry-based
              * resolution for the chain.
+             *
+             * Appended after `ZeroWriteAbilityChainKey` rather than inserted where it's introduced
+             * above: `DispatchError::Module` carries the pallet-error byte by declaration order, so
+             * inserting mid-enum would have shifted it and made older metadata / operator tooling
+             * misreport a rejected `set_write_ability_config` as this error instead.
              **/
             ZeroOutboxDiscoveryAddress: AugmentedError<ApiType>;
             /**

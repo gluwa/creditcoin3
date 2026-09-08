@@ -1522,11 +1522,6 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly outboxFactoryAddr: H160;
         } & Struct;
-        readonly isOutboxDiscoveryRegistered: boolean;
-        readonly asOutboxDiscoveryRegistered: {
-            readonly chainKey: u64;
-            readonly outboxDiscoveryAddr: H160;
-        } & Struct;
         readonly isWriteAbilityConfigSet: boolean;
         readonly asWriteAbilityConfigSet: {
             readonly chainKey: u64;
@@ -1538,13 +1533,18 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly amount: U256;
         } & Struct;
+        readonly isOutboxDiscoveryRegistered: boolean;
+        readonly asOutboxDiscoveryRegistered: {
+            readonly chainKey: u64;
+            readonly outboxDiscoveryAddr: H160;
+        } & Struct;
         readonly type:
             | 'ChainRegistered'
             | 'ChainRemoved'
             | 'OutboxFactoryRegistered'
-            | 'OutboxDiscoveryRegistered'
             | 'WriteAbilityConfigSet'
-            | 'CoreFeeSet';
+            | 'CoreFeeSet'
+            | 'OutboxDiscoveryRegistered';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (109) */
@@ -4347,16 +4347,16 @@ declare module '@polkadot/types/lookup' {
         readonly isArithmetic: boolean;
         readonly isInvalidMaturityStrategy: boolean;
         readonly isZeroOutboxFactoryAddress: boolean;
-        readonly isZeroOutboxDiscoveryAddress: boolean;
         readonly isZeroWriteAbilityChainKey: boolean;
+        readonly isZeroOutboxDiscoveryAddress: boolean;
         readonly type:
             | 'ChainAlreadyRegistered'
             | 'ChainNotSupported'
             | 'Arithmetic'
             | 'InvalidMaturityStrategy'
             | 'ZeroOutboxFactoryAddress'
-            | 'ZeroOutboxDiscoveryAddress'
-            | 'ZeroWriteAbilityChainKey';
+            | 'ZeroWriteAbilityChainKey'
+            | 'ZeroOutboxDiscoveryAddress';
     }
 
     /** @name PalletRandomnessError (459) */
