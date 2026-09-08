@@ -1,0 +1,9 @@
+{
+    "name": "@creditcoin3/usc-messaging-contracts",
+    "version": "0.1.0",
+    "private": true,
+    "dependencies": {
+        "@gluwa/usc-contracts": "0.1.2",
+        "@openzeppelin/contracts": "^5.1.0"
+    }
+}
