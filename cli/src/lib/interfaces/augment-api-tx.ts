@@ -132,13 +132,17 @@ declare module '@polkadot/api-base/types/submittable' {
              **/
             forceApplyUpdates: AugmentedSubmittable<() => SubmittableExtrinsic<ApiType>, []>;
             /**
-             * Force trigger an attestor election.
+             * Force an attestor election for a single chain, without waiting for the epoch
+             * boundary.
              *
-             * A randomness of [0; 32] is used since randomness is not currently
-             * used in the election logic.
+             * Runs the same selection the epoch hook runs for `chain_key` only: `Waiting`
+             * attestors are admitted per the chain's election policy, `Leaving` attestors are
+             * retired, and `AttestorsElected` is emitted if the resulting set differs from the
+             * current one. Other chains are untouched. The election is labelled with the current
+             * epoch index.
              **/
             forceElection: AugmentedSubmittable<
-                (epoch: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                (chainKey: u64 | AnyNumber | Uint8Array) => SubmittableExtrinsic<ApiType>,
                 [u64]
             >;
             /**

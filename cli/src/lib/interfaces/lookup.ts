@@ -1122,7 +1122,7 @@ export default {
             AuthorizedAttestorAdded: '(u64,AccountId32)',
             AuthorizedAttestorRemoved: '(u64,AccountId32)',
             ForcedElection: {
-                epoch: 'u64',
+                chainKey: 'u64',
             },
             ForcedUpdatesApplied: 'Null',
             RevertedAttestationChainTo: {
@@ -2927,7 +2927,7 @@ export default {
                 unregister: 'bool',
             },
             force_election: {
-                epoch: 'u64',
+                chainKey: 'u64',
             },
             set_max_catchup: {
                 chainKey: 'u64',
