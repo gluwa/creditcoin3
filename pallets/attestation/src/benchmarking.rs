@@ -690,12 +690,10 @@ mod benchmarks {
             ));
         }
 
-        let epoch: u64 = 1;
-
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            epoch,
+            DEV_CHAIN_KEY,
         )
     }
 

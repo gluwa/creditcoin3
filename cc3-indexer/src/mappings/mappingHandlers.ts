@@ -1372,7 +1372,7 @@ export async function handleForcedElection(event: SubstrateEvent): Promise<void>
 
     const {
         event: {
-            data: [epoch],
+            data: [chainKey],
         },
     } = event;
 
@@ -1382,7 +1382,7 @@ export async function handleForcedElection(event: SubstrateEvent): Promise<void>
         id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
-        epoch: BigInt(epoch.toString()),
+        chainKey: BigInt(chainKey.toString()),
     });
 
     await forcedElection.save();
