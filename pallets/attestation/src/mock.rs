@@ -274,6 +274,14 @@ parameter_types! {
     pub const DefaultAttestationChainGenesisBlockNumber: u64 = 0;
 }
 
+/// Current epoch index as tracked by `pallet-randomness`, for labelling forced elections.
+pub struct RandomnessEpochIndex;
+impl frame_support::traits::Get<u64> for RandomnessEpochIndex {
+    fn get() -> u64 {
+        RandomnessPallet::epoch_index()
+    }
+}
+
 // Ensure origin for members of the Operators membership.
 type EnsureOperators = frame_system::EnsureSignedBy<Operators, AccountId>;
 // Ensure origin for either root or members of the Operators membership.
@@ -291,6 +299,7 @@ impl attestation_poc::Config for Test {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
+    type CurrentEpochIndex = RandomnessEpochIndex;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
     type Currency = Balances;
     type CurrencyBalance = Balance;

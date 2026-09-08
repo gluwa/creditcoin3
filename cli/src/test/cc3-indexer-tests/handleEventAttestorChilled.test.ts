@@ -34,9 +34,8 @@ describe('handleEventAttestorChilled()', () => {
             .signAndSend(attestor.keyring, { nonce: await api.rpc.system.accountNextIndex(attestor.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
 
-        const epoch = (await api.query.babe.epochIndex()).toNumber();
         await api.tx.sudo
-            .sudo(api.tx.attestation.forceElection(epoch + 1))
+            .sudo(api.tx.attestation.forceElection(chain_Anvil1_Key))
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
         await forElapsedBlocks(api, { minBlocks: 3 });
     }, 120_000);
