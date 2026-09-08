@@ -1,0 +1,23 @@
+attestor:
+  name: "my-attestor"
+  chain_key: <eth-mainnet-chain-key>     # Ethereum Mainnet on CC3 mainnet or CC3 Testnet
+  secret: "<your 12/24-word mnemonic>"   # or a 0x-prefixed 32-byte hex seed
+
+api:
+  port: 9100
+
+p2p:
+  port: 9000
+  no_mdns: true                      # recommended outside a local network
+  boot_nodes:
+    # Ask the Creditcoin team for this. See hint above.
+    - "<attestor-boot-node-addr>"
+
+eth:
+  # External provider websocket (wss), or your own node, e.g. ws://eth-host:8546
+  url: "<ethereum-mainnet-rpc>"
+
+cc3:
+  # Option A: <public-creditcoin-rpc>
+  # Option B: your own node, e.g. ws://<your-cc3-host>:9944
+  url: "<public-creditcoin-rpc>"
