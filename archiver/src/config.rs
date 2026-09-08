@@ -140,4 +140,11 @@ pub struct Config {
     /// the bound keeps a misbehaving RPC from wiping the archive.
     #[arg(long, env = "REANCHOR_MAX_DEPTH", default_value = "0")]
     pub reanchor_max_depth: u64,
+
+    /// How blocks and receipts are fetched: `json` (eth_getBlockByNumber + eth_getBlockReceipts,
+    /// works everywhere) or `raw-rlp` (debug_getRawBlock + debug_getRawReceipts, needs the node's
+    /// `debug` namespace; smaller payloads and no JSON marshalling on the node, best for a
+    /// historical sweep against our own node).
+    #[arg(long, env = "FETCH_MODE", default_value = "json")]
+    pub fetch_mode: eth::BlockFetchMode,
 }

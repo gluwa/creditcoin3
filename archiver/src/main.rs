@@ -34,6 +34,14 @@ fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::Non
 }
 
 mod anchor;
+
+/// WS client used for block fetching: [`dial`] (fallbacks + deadline) with the configured fetch
+/// mode applied.
+async fn new_fetch_client(cfg: &Config, deadline: Duration) -> Result<eth::Client> {
+    Ok(dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, deadline)
+        .await?
+        .with_fetch_mode(cfg.fetch_mode))
+}
 mod api;
 mod config;
 mod health;
@@ -390,7 +398,7 @@ async fn main() -> Result<()> {
                         tracing::info!("backfill interrupted by shutdown before dialing");
                         return Ok(());
                     }
-                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c?,
+                    c = new_fetch_client(&cfg, rpc_timeout) => c?,
                 };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
@@ -484,11 +492,14 @@ async fn main() -> Result<()> {
 
     // ── Connect to chain ────────────────────────────────────────────────
     // Reuse the verified clients: WS for StreamRoots (subscriptions + block fetching),
-    // HTTP for chain head tracking.
+    // HTTP for chain head tracking. Apply fetch_mode to the WS client so historical
+    // sweeps can use raw-RLP without opening a second pair of connections.
+    let ws_client = ws_client.with_fetch_mode(cfg.fetch_mode);
     tracing::info!(
         chain_id = source_chain_id,
         ws = %eth::redact_url_query(cfg.rpc_ws.as_str()),
         http = %eth::redact_url_query(cfg.rpc_http.as_str()),
+        fetch_mode = %cfg.fetch_mode,
         "connected to chain"
     );
 
@@ -613,7 +624,7 @@ async fn main() -> Result<()> {
 
                     let connect = tokio::select! {
                         _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
-                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c,
+                        c = new_fetch_client(&cfg, rpc_timeout) => c,
                     };
                     match connect {
                         // The endpoint must still be the chain this archive is pinned to. A
