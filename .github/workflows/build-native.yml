@@ -118,11 +118,21 @@ jobs:
         if: ${{ inputs.use-new-metadata }}
         run: git diff --binary
 
+      - name: Start resource monitor
+        run: |
+          .github/resource-monitor.sh start build-native
+
       - name: Build SUT
         uses: gluwa/cargo@dev
         with:
           command: build
           args: ${{ inputs.build-options }}
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report build-native
 
       - name: Upload binaries
         if: ${{ inputs.upload-artifacts }}
