@@ -1,12 +1,14 @@
 use alloy::{
     consensus::{
         proofs::{calculate_receipt_root, calculate_transaction_root},
-        TxEnvelope,
+        Block as ConsensusBlock, ReceiptEnvelope, Transaction as ConsensusTransaction, TxEnvelope,
     },
+    eips::eip2718::Decodable2718,
     hex::ToHexExt,
     network::{Ethereum, EthereumWallet},
-    primitives::{BlockHash, TxHash},
+    primitives::{keccak256, BlockHash, Bytes, TxHash},
     providers::{
+        ext::DebugApi,
         fillers::{
             BlobGasFiller, ChainIdFiller, FillProvider, GasFiller, JoinFill, NonceFiller,
             WalletFiller,
@@ -14,11 +16,12 @@ use alloy::{
         network::TransactionResponse,
         Identity, Provider, ProviderBuilder, RootProvider,
     },
+    rlp::{Decodable, Header as RlpHeader},
     rpc::{
         client::WsConnect,
         types::{
-            eth::{Block, BlockId, BlockNumberOrTag},
-            ConversionError, Transaction, TransactionReceipt,
+            eth::{Block, BlockId, BlockNumberOrTag, BlockTransactions, Header as RpcHeader},
+            ConversionError, Log as RpcLog, Transaction, TransactionReceipt,
         },
     },
     signers::{k256::ecdsa::SigningKey, local::PrivateKeySigner},
@@ -80,6 +83,58 @@ pub enum Error {
     UrlParseError(#[from] url::ParseError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
     UnsupportedUrl(String),
+    #[error("Failed to decode raw RLP block {0}: {1}")]
+    RawBlockDecode(u64, String),
+    #[error("Failed to decode raw receipt {1} of block {0}: {2}")]
+    RawReceiptDecode(u64, usize, String),
+    #[error("Failed to recover the sender of transaction {1} in block {0}: {2}")]
+    SenderRecovery(u64, usize, String),
+    #[error("Unknown block fetch mode {0:?}; expected one of: json, raw-rlp")]
+    UnknownFetchMode(String),
+}
+
+/// How [`Client::get_block`] pulls a block and its receipts from the RPC node.
+///
+/// Both modes end in [`OrderedBlock::try_from_fetched_block`], so the header root checks and the
+/// leaf encoding are identical; only the wire format differs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BlockFetchMode {
+    /// `eth_getBlockByNumber(n, true)` + `eth_getBlockReceipts(n)`. Works on every node and
+    /// provider; the node builds JSON objects for every transaction and receipt.
+    #[default]
+    Json,
+    /// `debug_getRawBlock(n)` + `debug_getRawReceipts(n)`: the node hands back the RLP it stores
+    /// and this client decodes it. Roughly 3 to 5× smaller payloads and no JSON marshalling on the
+    /// node, at the cost of recovering transaction senders locally. Needs the `debug` namespace,
+    /// which public providers generally do not expose; meant for a node we operate ourselves.
+    RawRlp,
+}
+
+impl BlockFetchMode {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Json => "json",
+            Self::RawRlp => "raw-rlp",
+        }
+    }
+}
+
+impl std::fmt::Display for BlockFetchMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for BlockFetchMode {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "json" => Ok(Self::Json),
+            "raw-rlp" | "raw_rlp" | "raw" | "rlp" => Ok(Self::RawRlp),
+            other => Err(Error::UnknownFetchMode(other.to_owned())),
+        }
+    }
 }
 
 impl Error {
@@ -344,6 +399,139 @@ impl OrderedRawBlock {
     }
 }
 
+/// Hash of the block header as the node computed it: keccak of the header's own RLP bytes,
+/// sliced out of the raw block RLP without re-encoding. Re-encoding a decoded header would only
+/// reproduce the hash if this client knows every header field the chain uses; slicing does not
+/// depend on that.
+fn header_hash_from_raw_block(raw: &[u8]) -> Result<BlockHash, alloy::rlp::Error> {
+    let mut buf = raw;
+    let outer = RlpHeader::decode(&mut buf)?;
+    if !outer.list {
+        return Err(alloy::rlp::Error::UnexpectedString);
+    }
+    let header_bytes = buf;
+    let mut probe = buf;
+    let header_item = RlpHeader::decode(&mut probe)?;
+    if !header_item.list {
+        return Err(alloy::rlp::Error::UnexpectedString);
+    }
+    let prefix_len = header_bytes.len() - probe.len();
+    let total = prefix_len + header_item.payload_length;
+    let bytes = header_bytes
+        .get(..total)
+        .ok_or(alloy::rlp::Error::InputTooShort)?;
+    Ok(keccak256(bytes))
+}
+
+/// Rebuild the rpc-shaped [`Block`] and [`TransactionReceipt`]s from the RLP a node returns for
+/// `debug_getRawBlock` and `debug_getRawReceipts`.
+///
+/// Everything the V1 leaf encoding reads is reconstructed exactly as the JSON path would report
+/// it: the consensus transaction envelope, the recovered sender, receipt status, per-transaction
+/// gas used (delta of the cumulative counters), logs and the logs bloom. Positional metadata
+/// (block hash/number, transaction and log indices) is filled in from the block itself.
+///
+/// `raw_receipts` must be in transaction order, one entry per transaction; each entry is an
+/// EIP-2718 typed receipt (legacy receipts are the bare RLP list).
+pub fn rpc_block_from_raw(
+    number: u64,
+    raw_block: &[u8],
+    raw_receipts: &[Bytes],
+) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+    let hash = header_hash_from_raw_block(raw_block)
+        .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+    let block: ConsensusBlock<TxEnvelope> = ConsensusBlock::decode(&mut &raw_block[..])
+        .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+    if block.header.number != number {
+        return Err(Error::FailedToGetBlock(number));
+    }
+    if block.body.transactions.len() != raw_receipts.len() {
+        return Err(Error::TransactionsReceiptsMismatch(number));
+    }
+
+    let base_fee = block.header.base_fee_per_gas;
+    let timestamp = block.header.timestamp;
+    let mut txs = Vec::with_capacity(block.body.transactions.len());
+    let mut receipts = Vec::with_capacity(raw_receipts.len());
+    let mut previous_cumulative_gas: u64 = 0;
+    let mut log_index: u64 = 0;
+
+    for (index, (envelope, raw_receipt)) in block
+        .body
+        .transactions
+        .into_iter()
+        .zip(raw_receipts.iter())
+        .enumerate()
+    {
+        let tx_index = index as u64;
+        let from = envelope
+            .recover_signer()
+            .map_err(|e| Error::SenderRecovery(number, index, e.to_string()))?;
+        let tx_hash = *envelope.tx_hash();
+        let effective_gas_price = envelope.effective_gas_price(base_fee);
+        let to = envelope.to();
+        let contract_address = to.is_none().then(|| from.create(envelope.nonce()));
+
+        let receipt: ReceiptEnvelope = ReceiptEnvelope::decode_2718(&mut &raw_receipt[..])
+            .map_err(|e| Error::RawReceiptDecode(number, index, e.to_string()))?;
+        let cumulative_gas_used = receipt.cumulative_gas_used();
+        let gas_used = cumulative_gas_used.saturating_sub(previous_cumulative_gas);
+        previous_cumulative_gas = cumulative_gas_used;
+
+        let inner = receipt.map_logs(|log| {
+            let rpc_log = RpcLog {
+                inner: log,
+                block_hash: Some(hash),
+                block_number: Some(number),
+                block_timestamp: Some(timestamp),
+                transaction_hash: Some(tx_hash),
+                transaction_index: Some(tx_index),
+                log_index: Some(log_index),
+                removed: false,
+            };
+            log_index += 1;
+            rpc_log
+        });
+
+        receipts.push(TransactionReceipt {
+            inner,
+            transaction_hash: tx_hash,
+            transaction_index: Some(tx_index),
+            block_hash: Some(hash),
+            block_number: Some(number),
+            gas_used,
+            effective_gas_price,
+            blob_gas_used: None,
+            blob_gas_price: None,
+            from,
+            to,
+            contract_address,
+        });
+        txs.push(Transaction {
+            inner: envelope,
+            block_hash: Some(hash),
+            block_number: Some(number),
+            transaction_index: Some(tx_index),
+            effective_gas_price: Some(effective_gas_price),
+            from,
+        });
+    }
+
+    let uncles = block.body.ommers.iter().map(|h| h.hash_slow()).collect();
+    let rpc_block = Block {
+        header: RpcHeader {
+            hash,
+            inner: block.header,
+            total_difficulty: None,
+            size: None,
+        },
+        uncles,
+        transactions: BlockTransactions::Full(txs),
+        withdrawals: block.body.withdrawals,
+    };
+    Ok((rpc_block, receipts))
+}
+
 type AlloyProvider = FillProvider<ExeFiller, RootProvider<Ethereum>, Ethereum>;
 pub type AlloyB256 = BlockHash;
 
@@ -398,6 +586,8 @@ pub struct Client {
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
     mem_cache: Option<std::sync::Arc<mem_block_cache::MemBlockCache>>,
+    /// Wire format used for block + receipts fetches. Survives [`Client::reconnect`].
+    fetch_mode: BlockFetchMode,
 }
 
 impl Client {
@@ -446,6 +636,7 @@ impl Client {
             fallback_providers: Vec::new(),
             chain_id,
             mem_cache: None,
+            fetch_mode: BlockFetchMode::default(),
         })
     }
 
@@ -458,6 +649,18 @@ impl Client {
             capacity,
         )));
         self
+    }
+
+    /// Select how blocks and receipts are fetched (see [`BlockFetchMode`]). Applies to the
+    /// primary and every fallback provider; all of them must support the chosen mode.
+    #[must_use]
+    pub fn with_fetch_mode(mut self, mode: BlockFetchMode) -> Self {
+        self.fetch_mode = mode;
+        self
+    }
+
+    pub fn fetch_mode(&self) -> BlockFetchMode {
+        self.fetch_mode
     }
 
     /// Build a [`Client`] with ordered fallback RPC URLs.
@@ -487,6 +690,7 @@ impl Client {
             fallback_providers,
             chain_id,
             mem_cache: None,
+            fetch_mode: BlockFetchMode::default(),
         })
     }
 
@@ -666,7 +870,7 @@ impl Client {
             let mut payload_inconsistent_errs: Vec<(String, Error)> = Vec::new();
 
             for (label, provider) in self.providers_with_labels() {
-                match Self::fetch_block_and_receipts_from_provider(provider, number).await {
+                match self.fetch_pair_from_provider(provider, number).await {
                     Ok((block, receipts)) => {
                         match OrderedBlock::try_from_fetched_block(
                             self.chain_id,
@@ -796,6 +1000,43 @@ impl Client {
         };
         let (block, receipts) = tokio::try_join!(block_fut, receipts_fut)?;
         Ok((block, receipts))
+    }
+
+    /// Fetch the block + receipts pair from one provider in the configured [`BlockFetchMode`].
+    async fn fetch_pair_from_provider(
+        &self,
+        provider: &AlloyProvider,
+        number: u64,
+    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+        match self.fetch_mode {
+            BlockFetchMode::Json => {
+                Self::fetch_block_and_receipts_from_provider(provider, number).await
+            }
+            BlockFetchMode::RawRlp => {
+                Self::fetch_raw_block_and_receipts_from_provider(provider, number).await
+            }
+        }
+    }
+
+    /// Raw-RLP counterpart of [`Self::fetch_block_and_receipts_from_provider`]: pulls
+    /// `debug_getRawBlock` and `debug_getRawReceipts` from the **same** provider, then decodes
+    /// and re-shapes them into the rpc types the JSON path yields, so the downstream header
+    /// root checks and leaf encoding are shared. Decoding and sender recovery are CPU-bound
+    /// (one ECDSA recovery per transaction) and run on the blocking pool.
+    async fn fetch_raw_block_and_receipts_from_provider(
+        provider: &AlloyProvider,
+        number: u64,
+    ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
+        let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
+        let block_fut = async { provider.debug_get_raw_block(block_id).await };
+        let receipts_fut = async { provider.debug_get_raw_receipts(block_id).await };
+        let (raw_block, raw_receipts) = tokio::try_join!(block_fut, receipts_fut)?;
+        if raw_block.is_empty() {
+            return Err(Error::FailedToGetBlock(number));
+        }
+        tokio::task::spawn_blocking(move || rpc_block_from_raw(number, &raw_block, &raw_receipts))
+            .await
+            .map_err(|e| Error::ClientError(anyhow::anyhow!("raw block decode task failed: {e}")))?
     }
 
     pub async fn get_block(
@@ -1449,5 +1690,303 @@ mod error_classifier_tests {
             super::anyhow_chain_inconsistent_block_number_hint(&transport),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod raw_rlp_tests {
+    use super::*;
+    use alloy::{
+        consensus::{
+            BlockBody, Header as ConsensusHeader, Receipt, SignableTransaction, TxEip1559, TxLegacy,
+        },
+        eips::eip2718::Encodable2718,
+        primitives::{address, Log as PrimitiveLog, LogData, TxKind, B256, U256},
+        signers::{local::PrivateKeySigner, SignerSync},
+    };
+
+    const CHAIN_ID: u64 = 56;
+
+    fn signed_legacy(signer: &PrivateKeySigner, nonce: u64) -> TxEnvelope {
+        let tx = TxLegacy {
+            chain_id: Some(CHAIN_ID),
+            nonce,
+            gas_price: 5_000_000_000,
+            gas_limit: 21_000,
+            to: TxKind::Call(address!("000000000000000000000000000000000000dEaD")),
+            value: U256::from(1_000_000_000_000_000u64),
+            input: Bytes::new(),
+        };
+        let sig = signer.sign_hash_sync(&tx.signature_hash()).unwrap();
+        TxEnvelope::Legacy(tx.into_signed(sig))
+    }
+
+    fn signed_eip1559_create(signer: &PrivateKeySigner, nonce: u64) -> TxEnvelope {
+        let tx = TxEip1559 {
+            chain_id: CHAIN_ID,
+            nonce,
+            gas_limit: 100_000,
+            max_fee_per_gas: 10_000_000_000,
+            max_priority_fee_per_gas: 1_000_000_000,
+            to: TxKind::Create,
+            value: U256::ZERO,
+            access_list: Default::default(),
+            input: Bytes::from(vec![0x60, 0x00, 0x60, 0x00, 0xa0, 0x00]),
+        };
+        let sig = signer.sign_hash_sync(&tx.signature_hash()).unwrap();
+        TxEnvelope::Eip1559(tx.into_signed(sig))
+    }
+
+    fn log(topic: u8, data: &[u8]) -> PrimitiveLog {
+        PrimitiveLog {
+            address: address!("5FbDB2315678afecb367f032d93F642f64180aa3"),
+            data: LogData::new_unchecked(
+                vec![B256::with_last_byte(topic)],
+                Bytes::copy_from_slice(data),
+            ),
+        }
+    }
+
+    /// A two-transaction block (legacy transfer, then a 1559 contract creation that emits two
+    /// logs) with a header whose tx/receipt roots match, exactly as a node would store it.
+    fn fixture() -> (
+        PrivateKeySigner,
+        ConsensusBlock<TxEnvelope>,
+        Vec<ReceiptEnvelope>,
+    ) {
+        let signer = PrivateKeySigner::random();
+        let txs = vec![signed_legacy(&signer, 7), signed_eip1559_create(&signer, 8)];
+        let receipts = vec![
+            ReceiptEnvelope::Legacy(
+                Receipt {
+                    status: true.into(),
+                    cumulative_gas_used: 21_000,
+                    logs: vec![],
+                }
+                .with_bloom(),
+            ),
+            ReceiptEnvelope::Eip1559(
+                Receipt {
+                    status: true.into(),
+                    cumulative_gas_used: 21_000 + 64_321,
+                    logs: vec![log(1, b"first"), log(2, b"second")],
+                }
+                .with_bloom(),
+            ),
+        ];
+        let header = ConsensusHeader {
+            number: 120_000_000,
+            timestamp: 1_788_000_000,
+            base_fee_per_gas: Some(1_000_000_000),
+            gas_used: 21_000 + 64_321,
+            gas_limit: 140_000_000,
+            transactions_root: calculate_transaction_root(&txs),
+            receipts_root: calculate_receipt_root(&receipts),
+            ..Default::default()
+        };
+        let block = ConsensusBlock {
+            header,
+            body: BlockBody {
+                transactions: txs,
+                ommers: vec![],
+                withdrawals: None,
+            },
+        };
+        (signer, block, receipts)
+    }
+
+    fn raw(
+        block: &ConsensusBlock<TxEnvelope>,
+        receipts: &[ReceiptEnvelope],
+    ) -> (Vec<u8>, Vec<Bytes>) {
+        (
+            alloy::rlp::encode(block),
+            receipts
+                .iter()
+                .map(|r| Bytes::from(r.encoded_2718()))
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn header_hash_is_sliced_from_raw_block() {
+        let (_, block, receipts) = fixture();
+        let (raw_block, _) = raw(&block, &receipts);
+        assert_eq!(
+            header_hash_from_raw_block(&raw_block).unwrap(),
+            block.header.hash_slow()
+        );
+    }
+
+    #[test]
+    fn raw_path_reproduces_the_json_shaped_block() {
+        let (signer, block, receipts) = fixture();
+        let number = block.header.number;
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+
+        let (rpc_block, rpc_receipts) =
+            rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+
+        assert_eq!(rpc_block.header.hash, block.header.hash_slow());
+        assert_eq!(rpc_block.header.number, number);
+        let txs: Vec<Transaction> = rpc_block.transactions.clone().into_transactions().collect();
+        assert_eq!(txs.len(), 2);
+        // Sender recovered from the signature, not trusted from anywhere.
+        assert!(txs.iter().all(|t| t.from == signer.address()));
+        assert_eq!(
+            txs.iter().map(|t| t.transaction_index).collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+        // Per-transaction gas is the delta of the cumulative counters.
+        assert_eq!(rpc_receipts[0].gas_used, 21_000);
+        assert_eq!(rpc_receipts[1].gas_used, 64_321);
+        assert!(rpc_receipts[0].contract_address.is_none());
+        assert_eq!(
+            rpc_receipts[1].contract_address,
+            Some(signer.address().create(8))
+        );
+        assert_eq!(rpc_receipts[1].inner.logs().len(), 2);
+        assert_eq!(
+            rpc_receipts[1]
+                .inner
+                .logs()
+                .iter()
+                .map(|l| l.log_index)
+                .collect::<Vec<_>>(),
+            vec![Some(0), Some(1)]
+        );
+        assert_eq!(rpc_receipts[1].inner.logs_bloom(), receipts[1].logs_bloom());
+    }
+
+    #[test]
+    fn raw_path_yields_the_same_root_as_hand_built_rpc_types() {
+        let (signer, block, receipts) = fixture();
+        let number = block.header.number;
+        let hash = block.header.hash_slow();
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+
+        // What the JSON path would hand us: rpc types built independently of the converter.
+        let json_txs: Vec<Transaction> = block
+            .body
+            .transactions
+            .iter()
+            .enumerate()
+            .map(|(i, env)| Transaction {
+                inner: env.clone(),
+                block_hash: Some(hash),
+                block_number: Some(number),
+                transaction_index: Some(i as u64),
+                effective_gas_price: None,
+                from: signer.address(),
+            })
+            .collect();
+        let gas_used = [21_000u64, 64_321];
+        let json_receipts: Vec<TransactionReceipt> = receipts
+            .iter()
+            .enumerate()
+            .map(|(i, env)| TransactionReceipt {
+                inner: env.clone().map_logs(|log| RpcLog {
+                    inner: log,
+                    block_hash: None,
+                    block_number: None,
+                    block_timestamp: None,
+                    transaction_hash: None,
+                    transaction_index: None,
+                    log_index: None,
+                    removed: false,
+                }),
+                transaction_hash: *block.body.transactions[i].tx_hash(),
+                transaction_index: Some(i as u64),
+                block_hash: Some(hash),
+                block_number: Some(number),
+                gas_used: gas_used[i],
+                effective_gas_price: 0,
+                blob_gas_used: None,
+                blob_gas_price: None,
+                from: signer.address(),
+                to: None,
+                contract_address: None,
+            })
+            .collect();
+        let json_block = Block {
+            header: RpcHeader {
+                hash,
+                inner: block.header.clone(),
+                total_difficulty: None,
+                size: None,
+            },
+            uncles: vec![],
+            transactions: BlockTransactions::Full(json_txs),
+            withdrawals: None,
+        };
+
+        let via_json = OrderedBlock::try_from_fetched_block(
+            CHAIN_ID,
+            json_block,
+            json_receipts,
+            number,
+            EncodingVersion::V1,
+        )
+        .unwrap();
+        let (rpc_block, rpc_receipts) =
+            rpc_block_from_raw(number, &raw_block, &raw_receipts).unwrap();
+        let via_raw = OrderedBlock::try_from_fetched_block(
+            CHAIN_ID,
+            rpc_block,
+            rpc_receipts,
+            number,
+            EncodingVersion::V1,
+        )
+        .unwrap();
+
+        assert_eq!(via_raw.hash(), via_json.hash());
+        assert_eq!(via_raw.items().len(), via_json.items().len());
+        assert_eq!(
+            simple_merkle_tree(&via_raw).root(),
+            simple_merkle_tree(&via_json).root()
+        );
+    }
+
+    #[test]
+    fn raw_path_rejects_inconsistent_input() {
+        let (_, block, receipts) = fixture();
+        let number = block.header.number;
+        let (raw_block, raw_receipts) = raw(&block, &receipts);
+
+        assert!(matches!(
+            rpc_block_from_raw(number, &raw_block, &raw_receipts[..1]),
+            Err(Error::TransactionsReceiptsMismatch(n)) if n == number
+        ));
+        assert!(matches!(
+            rpc_block_from_raw(number + 1, &raw_block, &raw_receipts),
+            Err(Error::FailedToGetBlock(n)) if n == number + 1
+        ));
+        assert!(matches!(
+            rpc_block_from_raw(number, &[0xc0, 0x01], &raw_receipts),
+            Err(Error::RawBlockDecode(..))
+        ));
+        let mut bad = raw_receipts.clone();
+        bad[1] = Bytes::from_static(&[0x02, 0xff]);
+        assert!(matches!(
+            rpc_block_from_raw(number, &raw_block, &bad),
+            Err(Error::RawReceiptDecode(_, 1, _))
+        ));
+    }
+
+    #[test]
+    fn fetch_mode_parses_and_defaults_to_json() {
+        assert_eq!(BlockFetchMode::default(), BlockFetchMode::Json);
+        assert_eq!(
+            "json".parse::<BlockFetchMode>().unwrap(),
+            BlockFetchMode::Json
+        );
+        for s in ["raw-rlp", "raw_rlp", "RAW", "rlp"] {
+            assert_eq!(s.parse::<BlockFetchMode>().unwrap(), BlockFetchMode::RawRlp);
+        }
+        assert!(matches!(
+            "yaml".parse::<BlockFetchMode>(),
+            Err(Error::UnknownFetchMode(_))
+        ));
+        assert_eq!(BlockFetchMode::RawRlp.to_string(), "raw-rlp");
     }
 }

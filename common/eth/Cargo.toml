@@ -8,7 +8,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-alloy = { workspace = true, features = ["full"] }
+alloy = { workspace = true, features = ["full", "rlp"] }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
@@ -27,3 +27,6 @@ attestor-primitives = { workspace = true }
 merkle = { workspace = true }
 user = { workspace = true }
 utils = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

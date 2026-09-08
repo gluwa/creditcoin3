@@ -30,6 +30,13 @@ fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::Non
     std::num::NonZeroUsize::new(parallelism).unwrap_or(std::num::NonZeroUsize::MIN)
 }
 
+/// WS client used for block fetching, carrying the configured fetch mode.
+async fn new_fetch_client(cfg: &Config) -> anyhow::Result<eth::Client> {
+    Ok(eth::Client::new(cfg.rpc_ws.as_str(), None)
+        .await?
+        .with_fetch_mode(cfg.fetch_mode))
+}
+
 mod api;
 mod config;
 mod store;
@@ -134,7 +141,7 @@ async fn main() -> Result<()> {
             for (gap_start, gap_end) in &gaps {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
-                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+                let ws_client = new_fetch_client(&cfg).await?;
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
@@ -190,9 +197,9 @@ async fn main() -> Result<()> {
 
     // ── Connect to chain ────────────────────────────────────────────────
     // WS client for StreamRoots (subscriptions + block fetching).
-    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+    let ws_client = new_fetch_client(&cfg).await?;
     let chain_id = ws_client.chain_id();
-    tracing::info!(chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
+    tracing::info!(chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, fetch_mode = %cfg.fetch_mode, "connected to chain");
 
     // HTTP client for chain head tracking.
     let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
@@ -309,7 +316,7 @@ async fn main() -> Result<()> {
                     tokio::time::sleep(delay).await;
                     tracing::info!(resume_from, "attempting stream reconnection...");
 
-                    match eth::Client::new(cfg.rpc_ws.as_str(), None).await {
+                    match new_fetch_client(&cfg).await {
                         Ok(new_ws) => {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
