@@ -18,15 +18,17 @@ const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
 /// Maximum delay between reconnection attempts.
 const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
 
-/// Compute parallelism for merkle root computation based on available CPUs
-/// and how many threads are reserved for block fetching.
-fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::NonZeroUsize {
+/// Threads for merkle root computation: the explicit `--max-compute-threads` when given,
+/// otherwise available CPUs minus the threads reserved for block fetching (+1 for the main
+/// loop), floored at 1.
+fn compute_parallelism(cfg: &Config) -> std::num::NonZeroUsize {
+    if let Some(explicit) = cfg.max_compute_threads {
+        return explicit;
+    }
     let available = std::thread::available_parallelism()
         .unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
         .get();
-    // Reserve threads for fetch tasks + 1 for the main loop, use the rest for computation.
-    let parallelism = available.saturating_sub(max_fetch_tasks.get() + 1);
-    // Defaults to at least 1 thread for computation.
+    let parallelism = available.saturating_sub(cfg.max_fetch_tasks.get() + 1);
     std::num::NonZeroUsize::new(parallelism).unwrap_or(std::num::NonZeroUsize::MIN)
 }
 
@@ -147,7 +149,7 @@ async fn main() -> Result<()> {
                     .with_start_height(*gap_start)
                     .with_finalization_lag(finaliztion_lag)
                     .with_max_concurrency(cfg.max_fetch_tasks)
-                    .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                    .with_max_parallelism(compute_parallelism(&cfg))
                     .build();
 
                 let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await;
@@ -210,7 +212,7 @@ async fn main() -> Result<()> {
         .with_start_height(start_height)
         .with_finalization_lag(finaliztion_lag)
         .with_max_concurrency(cfg.max_fetch_tasks)
-        .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+        .with_max_parallelism(compute_parallelism(&cfg))
         .build();
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await;
@@ -323,7 +325,7 @@ async fn main() -> Result<()> {
                                 .with_start_height(resume_from)
                                 .with_finalization_lag(finaliztion_lag)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
-                                .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                                .with_max_parallelism(compute_parallelism(&cfg))
                                 .build();
                             root_stream = stream_eth::StreamRoots::new(new_config).await;
                             break;

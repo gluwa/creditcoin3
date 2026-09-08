@@ -85,4 +85,10 @@ pub struct Config {
     /// historical sweep against our own node).
     #[arg(long, env = "FETCH_MODE", default_value = "json")]
     pub fetch_mode: eth::BlockFetchMode,
+
+    /// Threads for merkle root computation. Defaults to `available CPUs - (max_fetch_tasks + 1)`,
+    /// floored at 1; set explicitly when running several shards on one box or under a cgroup
+    /// CPU quota, where that formula starves the compute pool.
+    #[arg(long, env = "MAX_COMPUTE_THREADS")]
+    pub max_compute_threads: Option<NonZeroUsize>,
 }
