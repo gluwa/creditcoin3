@@ -619,7 +619,7 @@ type ForcedElection @entity {
 
     date: Date
 
-    epoch: BigInt!
+    chainKey: BigInt!
 }
 
 type RevertedAttestationChainTo @entity {
