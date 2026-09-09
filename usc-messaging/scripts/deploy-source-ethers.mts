@@ -84,6 +84,43 @@ async function registerFactoryBeforeOutbox(factory: string) {
   }
 }
 
+async function registerOutboxDiscoveryAddr(discovery: string) {
+  const ws = process.env.CREDITCOIN_SUBSTRATE_WS_URL ?? "ws://127.0.0.1:9944";
+  const api = await ApiPromise.create({ provider: new WsProvider(ws), noInitWarn: true });
+  try {
+    await api.isReady;
+    await cryptoWaitReady();
+    const sudo = new Keyring({ type: "sr25519" }).addFromUri("//Alice");
+    console.log(`  registering OutboxDiscovery ${discovery} on-chain (attestor/relayer resolution)…`);
+    await new Promise<void>((resolve, reject) => {
+      let unsubscribe: (() => void) | undefined;
+      void api.tx.sudo
+        .sudo(api.tx.supportedChains.setOutboxDiscoveryAddr(CHAIN_KEY, discovery))
+        .signAndSend(sudo, ({ status, dispatchError }) => {
+          if (dispatchError) {
+            unsubscribe?.();
+            reject(new Error(dispatchError.toString()));
+          } else if (status.isInBlock || status.isFinalized) {
+            unsubscribe?.();
+            resolve();
+          }
+        })
+        .then((unsub) => {
+          unsubscribe = unsub;
+        })
+        .catch(reject);
+    });
+    const registered = await api.query.supportedChains.outboxDiscoveries(CHAIN_KEY);
+    const registeredAddress = registered.isSome ? registered.unwrap().toString() : "none";
+    if (registeredAddress.toLowerCase() !== discovery.toLowerCase()) {
+      throw new Error(`discovery registration did not land: expected ${discovery}, got ${registeredAddress}`);
+    }
+    console.log("  OutboxDiscovery governance registration confirmed on-chain");
+  } finally {
+    await api.disconnect();
+  }
+}
+
 // Destination-side admin call: Inbox.setSupportedOutbox(outbox, true) as the Inbox owner (anvil
 // account 0, the same key deploy-dest-ethers.mts deploys with). Verified by reading it back.
 async function allowlistOutboxOnInbox(dest: { rpc: string; chainId: number; inbox: string }, outboxAddr: string) {
@@ -121,6 +158,31 @@ async function main() {
   const factory = await deploy("OutboxFactory", ART("write-ability/deployer/OutboxFactory.sol", "OutboxFactory"));
   // Indexer discovery is fail-closed: authenticate OutboxCreated against governance registration.
   await registerFactoryBeforeOutbox(await factory.getAddress());
+
+  // Write-ability's attestor/relayer resolve the Outbox exclusively through the on-chain
+  // OutboxDiscovery registry now (registry-only, fail-closed — the OutboxCreated log scan and the
+  // relayer's config-driven override were both removed). Deploy the registry behind its UUPS proxy
+  // — same pattern the contract's own Hardhat suite uses (OutboxDiscoveryProxy is a thin ERC-1967
+  // wrapper compiled from asc-contracts' test mocks) — so the Outbox created below can be
+  // registered as this chain key's default.
+  const chainRegistry = await deploy("ChainRegistry", ART("write-ability/deployer/ChainRegistry.sol", "ChainRegistry"), [owner]);
+  await (await (chainRegistry as any).setChain(CHAIN_KEY, DEST_CHAIN_ID)).wait();
+  const discoveryImpl = await deploy("OutboxDiscovery (impl)", ART("write-ability/deployer/OutboxDiscovery.sol", "OutboxDiscovery"));
+  const discoveryInitData = (discoveryImpl as any).interface.encodeFunctionData("initialize", [
+    owner,
+    await chainRegistry.getAddress(),
+  ]);
+  const discoveryProxy = await deploy(
+    "OutboxDiscoveryProxy",
+    ART("mocks/OutboxDeployerMocks.sol", "OutboxDiscoveryProxy"),
+    [await discoveryImpl.getAddress(), discoveryInitData],
+  );
+  const discovery = new ethers.Contract(
+    await discoveryProxy.getAddress(),
+    ART("write-ability/deployer/OutboxDiscovery.sol", "OutboxDiscovery").abi,
+    wallet,
+  );
+
   const quoter = await deploy("ASCRelayingQuoter", ART("write-ability/ASCRelayingQuoter.sol", "ASCRelayingQuoter"), [owner, await twap.getAddress(), owner]);
   // Outbox.coreFee() reads through IFeeRegistry, NOT the quoter — FeeRegistry wraps this chain's
   // own chain-info precompile (ICoreFeeProvider.get_core_fee(uint32), selector 0x5b023376, fixed
@@ -158,6 +220,19 @@ async function main() {
   const outboxAddr = created.args.outbox as string;
   if (outboxAddr.toLowerCase() !== obAddr.toLowerCase()) throw new Error("outbox CREATE2 mismatch");
   console.log("  Outbox →", outboxAddr);
+
+  // `owner` is also OutboxDiscovery's owner (see initialize() above), and registerOutbox is
+  // `onlyOwnerOrDeployer` — no separate OutboxDeployer authorization needed for this e2e. This is
+  // the first (and only) Outbox registered for CHAIN_KEY, so it auto-becomes the default
+  // immediately (no timelock wait: there was no prior default to drain).
+  console.log("  registering Outbox with OutboxDiscovery…");
+  await (await (discovery as any).registerOutbox(CHAIN_KEY, outboxAddr)).wait();
+  const registeredDefault = await (discovery as any).defaultOutbox(CHAIN_KEY);
+  if (registeredDefault.toLowerCase() !== outboxAddr.toLowerCase()) {
+    throw new Error(`OutboxDiscovery default did not land: expected ${outboxAddr}, got ${registeredDefault}`);
+  }
+  console.log("  OutboxDiscovery.defaultOutbox confirmed:", registeredDefault);
+  await registerOutboxDiscoveryAddr(await discoveryProxy.getAddress());
 
   const outbox = new ethers.Contract(outboxAddr, ART("write-ability/Outbox.sol", "Outbox").abi, wallet);
   await (await outbox.setTrustedForwarder(rcAddr, true)).wait();
@@ -201,6 +276,7 @@ async function main() {
     quoter: quoterAddr, feeRegistry: feeRegistryAddr, factory: await factory.getAddress(),
     attestorVault: avAddr, outbox: outboxAddr, relayerFeeVault: fvAddr, relayerContract: rcAddr,
     ackValidator: ackAddr,
+    chainRegistry: await chainRegistry.getAddress(), outboxDiscovery: await discoveryProxy.getAddress(),
     quoterEOA: QUOTER_EOA, coreFee: ethers.parseEther("1").toString(),
   };
   writeFileSync(OUT, JSON.stringify(addrs, null, 2));

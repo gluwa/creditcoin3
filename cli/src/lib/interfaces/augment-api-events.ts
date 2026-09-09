@@ -1270,6 +1270,21 @@ declare module '@polkadot/api-base/types/events' {
              **/
             CoreFeeSet: AugmentedEvent<ApiType, [chainKey: u64, amount: U256], { chainKey: u64; amount: U256 }>;
             /**
+             * The Outbox discovery-registry address for a supported chain has been registered.
+             * This signals to attestors/relayers that they can resolve the Outbox for this chain
+             * key from the registry instead of scanning the factory's `OutboxCreated` logs.
+             *
+             * Appended after `CoreFeeSet` rather than inserted where it's introduced above: SCALE
+             * event indices come from declaration order, so inserting mid-enum would have shifted
+             * `WriteAbilityConfigSet`/`CoreFeeSet` and broken any consumer decoding against metadata
+             * from a different build (a pinned subxt client, an indexer, a cached `metadata.scale`).
+             **/
+            OutboxDiscoveryRegistered: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, outboxDiscoveryAddr: H160],
+                { chainKey: u64; outboxDiscoveryAddr: H160 }
+            >;
+            /**
              * The outbox factory for a supported chain has been registered.
              * This signals to attestors that they can fetch the outbox
              * address and begin listening for writability messages.

@@ -127,6 +127,18 @@ sol! {
             external
             view
             returns (address factoryAddr, bool exists);
+
+        /// `chain-info` precompile accessor exposing the per-chain Outbox discovery-registry
+        /// address (`OutboxDiscovery` in asc-contracts) registered in
+        /// `SupportedChains::OutboxDiscoveries`. Unlike the factory above, this address is safe to
+        /// trust directly: it is only ever written through an access-controlled deploy path, so a
+        /// resolver can bind the Outbox from its `defaultOutbox` getter instead of scanning the
+        /// permissionless factory's `OutboxCreated` logs. `exists` is false when no registry has
+        /// been set for `chainKey`.
+        function get_outbox_discovery_address(uint64 chainKey)
+            external
+            view
+            returns (address discoveryAddr, bool exists);
     }
 
     #[sol(rpc)]

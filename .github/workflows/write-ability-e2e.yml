@@ -205,8 +205,11 @@ jobs:
         # quoter, vaults, RelayerContract and the AcknowledgmentValidator (wired as the Outbox
         # validator). The source deploy registers the factory in the CC runtime BEFORE creating the
         # Outbox — the ordering the indexer admits directly; the reverse order is recovered via its
-        # quarantine/backfill path, exercised separately by handleOutboxBackfill.test.ts. Addresses
-        # land in /tmp/e2e-deploy.json.
+        # quarantine/backfill path, exercised separately by handleOutboxBackfill.test.ts. It also
+        # deploys OutboxDiscovery (behind its UUPS proxy), registers the Outbox as this chain key's
+        # default, and calls set_outbox_discovery_addr via sudo — resolution is registry-only and
+        # fail-closed now (the OutboxCreated log scan was removed), so without this the attestors
+        # below never activate write-ability. Addresses land in /tmp/e2e-deploy.json.
         run: |
           npx tsx scripts/deploy-dest-ethers.mts
           npx tsx scripts/deploy-source-ethers.mts

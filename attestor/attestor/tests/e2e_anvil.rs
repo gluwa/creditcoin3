@@ -75,17 +75,14 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         .expect("deploy TestOutbox");
 
     // 3. Build the resolved Outbox directly, pointing the listener at the fixture we just deployed.
-    //    `resolver::resolve` now resolves on-chain via the chain-info precompile + Outbox factory,
-    //    which this bare anvil node does not provide. TODO(write-ability): exercise `resolve` once
-    //    the fixture deploys a factory and registers it with the precompile.
+    //    `resolver::resolve` now resolves on-chain via the chain-info precompile + Outbox discovery
+    //    registry, which this bare anvil node does not provide. TODO(write-ability): exercise
+    //    `resolve` once the fixture deploys a discovery registry and registers it with the precompile.
     let creditcoin_chain_id = provider.get_chain_id().await.unwrap();
     let resolved = resolver::ResolvedOutbox {
         address: *outbox.address(),
         destination_chain_key: ck_b32,
         creditcoin_chain_id,
-        // The fixture hands the Outbox over directly rather than discovering it, so there is no
-        // `OutboxCreated` log to take a height from; this test drives `watch` with an explicit start.
-        created_at_block: None,
     };
     assert_eq!(resolved.address, *outbox.address());
     assert_eq!(resolved.destination_chain_key, ck_b32);

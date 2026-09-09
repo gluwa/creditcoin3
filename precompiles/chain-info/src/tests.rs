@@ -4,7 +4,7 @@ use crate::{
         *,
     },
     BoundsCheckResult, ChainInfo, ChainInfoResult, CoreFees, HashResult, HeightHashResult,
-    HeightResult, OutboxFactories, OutboxFactoryResult,
+    HeightResult, OutboxDiscoveries, OutboxDiscoveryResult, OutboxFactories, OutboxFactoryResult,
 };
 
 use attestor_primitives::{AttestationCheckpoint, AttestationData, SignedAttestation};
@@ -147,6 +147,68 @@ fn get_outbox_factory_address_returns_default_when_not_set() {
                     alice,
                     Precompile,
                     PCall::get_outbox_factory_address {
+                        chain_key: unknown_chain_key,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_outbox_discovery_address_works() {
+    let alice: H160 = Alice.into();
+
+    let discovery_addr = H160::repeat_byte(0x22);
+
+    let expected_result = OutboxDiscoveryResult {
+        discovery_addr: Address(discovery_addr),
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Insert discovery address
+            OutboxDiscoveries::<Runtime>::insert(SUPPORTED_CHAIN_KEY, discovery_addr);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_outbox_discovery_address {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+#[test]
+fn get_outbox_discovery_address_returns_default_when_not_set() {
+    let alice: H160 = Alice.into();
+
+    let unknown_chain_key: u64 = 9999;
+
+    let expected_result = OutboxDiscoveryResult {
+        discovery_addr: Address(H160::zero()),
+        exists: false,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            // Ensure chain does NOT exist (or at least no discovery address set)
+            assert!(!OutboxDiscoveries::<Runtime>::contains_key(
+                unknown_chain_key
+            ));
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_outbox_discovery_address {
                         chain_key: unknown_chain_key,
                     },
                 )

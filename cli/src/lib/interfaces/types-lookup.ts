@@ -1533,8 +1533,18 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly amount: U256;
         } & Struct;
+        readonly isOutboxDiscoveryRegistered: boolean;
+        readonly asOutboxDiscoveryRegistered: {
+            readonly chainKey: u64;
+            readonly outboxDiscoveryAddr: H160;
+        } & Struct;
         readonly type:
-            'ChainRegistered' | 'ChainRemoved' | 'OutboxFactoryRegistered' | 'WriteAbilityConfigSet' | 'CoreFeeSet';
+            | 'ChainRegistered'
+            | 'ChainRemoved'
+            | 'OutboxFactoryRegistered'
+            | 'WriteAbilityConfigSet'
+            | 'CoreFeeSet'
+            | 'OutboxDiscoveryRegistered';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (109) */
@@ -3589,8 +3599,18 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly amount: U256;
         } & Struct;
+        readonly isSetOutboxDiscoveryAddr: boolean;
+        readonly asSetOutboxDiscoveryAddr: {
+            readonly chainKey: u64;
+            readonly address: H160;
+        } & Struct;
         readonly type:
-            'RegisterChain' | 'RemoveChain' | 'SetOutboxFactoryAddr' | 'SetWriteAbilityConfig' | 'SetCoreFee';
+            | 'RegisterChain'
+            | 'RemoveChain'
+            | 'SetOutboxFactoryAddr'
+            | 'SetWriteAbilityConfig'
+            | 'SetCoreFee'
+            | 'SetOutboxDiscoveryAddr';
     }
 
     /** @name PalletRandomnessCall (352) */
@@ -4328,13 +4348,15 @@ declare module '@polkadot/types/lookup' {
         readonly isInvalidMaturityStrategy: boolean;
         readonly isZeroOutboxFactoryAddress: boolean;
         readonly isZeroWriteAbilityChainKey: boolean;
+        readonly isZeroOutboxDiscoveryAddress: boolean;
         readonly type:
             | 'ChainAlreadyRegistered'
             | 'ChainNotSupported'
             | 'Arithmetic'
             | 'InvalidMaturityStrategy'
             | 'ZeroOutboxFactoryAddress'
-            | 'ZeroWriteAbilityChainKey';
+            | 'ZeroWriteAbilityChainKey'
+            | 'ZeroOutboxDiscoveryAddress';
     }
 
     /** @name PalletRandomnessError (459) */

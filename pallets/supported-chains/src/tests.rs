@@ -1,6 +1,6 @@
 use crate::{
-    self as pallet, mock, mock::SupportedChain, mock::*, CoreFees, Error, OutboxFactories,
-    SupportedChains, WriteAbilityConfigs,
+    self as pallet, mock, mock::SupportedChain, mock::*, CoreFees, Error, OutboxDiscoveries,
+    OutboxFactories, SupportedChains, WriteAbilityConfigs,
 };
 use attestor_primitives::ChainEncodingVersion;
 use frame_support::{assert_noop, assert_ok};
@@ -304,7 +304,7 @@ fn remove_chain_works() {
 
         // Seed every piece of per-chain state so one test proves removal clears all of it (folds the
         // former remove_chain_clears_write_ability_config / remove_chain_clears_core_fee tests and
-        // adds the OutboxFactories assertion).
+        // adds the OutboxFactories/OutboxDiscoveries assertions).
         assert_ok!(SupportedChain::set_write_ability_config(
             RuntimeOrigin::root(),
             chain_key,
@@ -321,9 +321,15 @@ fn remove_chain_works() {
             chain_key,
             H160::repeat_byte(0x55),
         ));
+        assert_ok!(SupportedChain::set_outbox_discovery_addr(
+            RuntimeOrigin::root(),
+            chain_key,
+            H160::repeat_byte(0x66),
+        ));
         assert!(WriteAbilityConfigs::<Test>::get(chain_key).is_some());
         assert!(CoreFees::<Test>::get(chain_key).is_some());
         assert!(OutboxFactories::<Test>::get(chain_key).is_some());
+        assert!(OutboxDiscoveries::<Test>::get(chain_key).is_some());
 
         // chain has already been added therefore index is now 2
         assert_eq!(SupportedChain::chain_key_value(), 2);
@@ -338,6 +344,7 @@ fn remove_chain_works() {
         assert_eq!(WriteAbilityConfigs::<Test>::get(chain_key), None);
         assert_eq!(CoreFees::<Test>::get(chain_key), None);
         assert_eq!(OutboxFactories::<Test>::get(chain_key), None);
+        assert_eq!(OutboxDiscoveries::<Test>::get(chain_key), None);
 
         // internal index should not change
         assert_eq!(SupportedChain::chain_key_value(), 2);
@@ -683,6 +690,109 @@ fn set_outbox_factory_addr_should_error_when_zero_address() {
 }
 
 #[test]
+fn set_outbox_discovery_addr_works() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_eq!(OutboxDiscoveries::<Test>::get(chain_key), None);
+
+        assert_ok!(SupportedChain::set_outbox_discovery_addr(
+            RuntimeOrigin::root(),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxDiscoveries::<Test>::get(chain_key), Some(address));
+
+        System::assert_last_event(
+            crate::Event::OutboxDiscoveryRegistered {
+                chain_key,
+                outbox_discovery_addr: address,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_outbox_discovery_addr_should_error_when_not_signed() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_discovery_addr(RuntimeOrigin::none(), chain_key, address,),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_outbox_discovery_addr_should_error_when_not_signed_by_operator() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_discovery_addr(
+                RuntimeOrigin::signed(2),
+                chain_key,
+                address,
+            ),
+            BadOrigin
+        );
+
+        assert_ok!(SupportedChain::set_outbox_discovery_addr(
+            RuntimeOrigin::signed(OPERATOR_ACCOUNT),
+            chain_key,
+            address,
+        ));
+
+        assert_eq!(OutboxDiscoveries::<Test>::get(chain_key), Some(address));
+    });
+}
+
+#[test]
+fn set_outbox_discovery_addr_should_error_when_chain_is_not_supported() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+        let address = H160::repeat_byte(0x11);
+
+        assert_noop!(
+            SupportedChain::set_outbox_discovery_addr(RuntimeOrigin::root(), chain_key, address,),
+            Error::<Test>::ChainNotSupported
+        );
+
+        assert_eq!(OutboxDiscoveries::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
+fn set_outbox_discovery_addr_should_error_when_zero_address() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let chain_key = 1;
+
+        assert_noop!(
+            SupportedChain::set_outbox_discovery_addr(
+                RuntimeOrigin::root(),
+                chain_key,
+                H160::zero(),
+            ),
+            Error::<Test>::ZeroOutboxDiscoveryAddress
+        );
+
+        assert_eq!(OutboxDiscoveries::<Test>::get(chain_key), None);
+    });
+}
+
+#[test]
 fn set_write_ability_config_works() {
     // Parametrized over both accepted origins: root and an Operators member.
     for origin in [
@@ -832,6 +942,7 @@ fn genesis_seeds_write_ability_configs() {
         )],
         write_ability_configs: vec![(1, write_ability_chain_key, true)],
         outbox_factories: Default::default(),
+        outbox_discoveries: Default::default(),
         _phantom: Default::default(),
     };
     pallet_genesis.assimilate_storage(&mut storage).unwrap();
@@ -864,6 +975,7 @@ fn genesis_seeds_outbox_factories() {
         )],
         write_ability_configs: Default::default(),
         outbox_factories: vec![(1, address)],
+        outbox_discoveries: Default::default(),
         _phantom: Default::default(),
     };
     pallet_genesis.assimilate_storage(&mut storage).unwrap();
@@ -874,6 +986,38 @@ fn genesis_seeds_outbox_factories() {
         // The provider method backing the runtime API returns the same value.
         assert_eq!(
             <SupportedChain as SupportedChainsProvider>::get_outbox_factory_address(1),
+            Some(address)
+        );
+    });
+}
+
+#[test]
+fn genesis_seeds_outbox_discoveries() {
+    let mut storage = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+
+    let address = H160::repeat_byte(0x55);
+    let pallet_genesis = crate::pallet::GenesisConfig::<Test> {
+        supported_chains: vec![(
+            200,
+            "Ethereum".as_bytes().to_vec(),
+            ChainEncodingVersion::V1,
+            MATURITY_FIXED_DELAY_10.to_string(),
+        )],
+        write_ability_configs: Default::default(),
+        outbox_factories: Default::default(),
+        outbox_discoveries: vec![(1, address)],
+        _phantom: Default::default(),
+    };
+    pallet_genesis.assimilate_storage(&mut storage).unwrap();
+
+    let mut ext: sp_io::TestExternalities = storage.into();
+    ext.execute_with(|| {
+        assert_eq!(OutboxDiscoveries::<Test>::get(1), Some(address));
+        // The provider method backing the runtime API returns the same value.
+        assert_eq!(
+            <SupportedChain as SupportedChainsProvider>::get_outbox_discovery_address(1),
             Some(address)
         );
     });
