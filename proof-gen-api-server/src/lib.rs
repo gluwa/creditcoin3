@@ -143,57 +143,78 @@ impl Server {
             .ok_or_else(|| anyhow!("Failed to get supported chain for chain_key {chain_key}"))?;
         let supported_chain_id = supported_chain.chain_id;
 
-        // Reorg-protection depth. The source of truth is the chain's MaturityStrategy in the
+        // Reorg protection. The source of truth is the chain's MaturityStrategy in the
         // supported-chains pallet -- the same value the attestors act on -- so derive it from the
-        // `supported_chain` we already fetched unless the operator pinned an override. An
-        // unparseable or depth-less strategy is a real misconfiguration and fails startup
-        // outright: a prover guessing its reorg window is worse than one that is down.
-        let on_chain_depth: u64 = {
-            let strategy = supported_chains_primitives::MaturityStrategy::try_from(
-                supported_chain.maturity_strategy.as_str(),
+        // `supported_chain` we already fetched unless the operator pinned a depth override. An
+        // unparseable strategy is a real misconfiguration and fails startup outright: a prover
+        // guessing its reorg window is worse than one that is down.
+        //
+        // Offset strategies (`EvmSafe`, `FixedDelay: n`, ...) become a fixed confirmation depth;
+        // the RPC-tag strategies (`RpcSafe`, `RpcFinalized`) become a block-tag lookup against the
+        // source node, so the prover confirms on exactly the schedule the attestors attest on.
+        let strategy = supported_chains_primitives::MaturityStrategy::try_from(
+            supported_chain.maturity_strategy.as_str(),
+        )
+        .map_err(|e| {
+            anyhow!(
+                "chain_key {chain_key}: invalid on-chain maturity strategy {:?}: {e:?}",
+                supported_chain.maturity_strategy
             )
-            .map_err(|e| {
-                anyhow!(
-                    "chain_key {chain_key}: invalid on-chain maturity strategy {:?}: {e:?}",
-                    supported_chain.maturity_strategy
-                )
-            })?;
-            strategy.maturity_delay().ok_or_else(|| {
-                anyhow!(
-                    "chain_key {chain_key}: maturity strategy {strategy:?} has no block-depth \
-                     equivalent; set block_confirmation_depth explicitly"
-                )
-            })?
-        };
-        let block_confirmation_depth = match chain.block_confirmation_depth {
-            None => {
+        })?;
+        let on_chain_tag: Option<eth::BlockTag> = strategy.rpc_tag().map(|tag| match tag {
+            supported_chains_primitives::RpcBlockTag::Safe => eth::BlockTag::Safe,
+            supported_chains_primitives::RpcBlockTag::Finalized => eth::BlockTag::Finalized,
+        });
+        let on_chain_depth: Option<u64> = strategy.maturity_delay();
+        if on_chain_tag.is_none() && on_chain_depth.is_none() {
+            return Err(anyhow!(
+                "chain_key {chain_key}: maturity strategy {strategy:?} has neither a block-depth \
+                 nor a block-tag equivalent; set block_confirmation_depth explicitly"
+            ));
+        }
+        let (block_confirmation_depth, confirmation_tag) = match (
+            chain.block_confirmation_depth,
+            on_chain_tag,
+        ) {
+            (None, Some(tag)) => {
                 tracing::info!(
                     chain_key,
-                    block_confirmation_depth = on_chain_depth,
+                    confirmation_tag = %tag,
+                    maturity_strategy = %supported_chain.maturity_strategy,
+                    "⛓️  reorg protection follows the source node's block tag, derived from on-chain MaturityStrategy"
+                );
+                (0, Some(tag))
+            }
+            (None, None) => {
+                let depth = on_chain_depth.expect("checked above: depth or tag is present");
+                tracing::info!(
+                    chain_key,
+                    block_confirmation_depth = depth,
                     maturity_strategy = %supported_chain.maturity_strategy,
                     "⛓️  reorg-protection depth derived from on-chain MaturityStrategy"
                 );
-                on_chain_depth
+                (depth, None)
             }
-            Some(explicit) if explicit == on_chain_depth => {
+            (Some(explicit), _) if on_chain_depth == Some(explicit) => {
                 tracing::info!(
                     chain_key,
                     block_confirmation_depth = explicit,
                     "⛓️  reorg-protection depth pinned in config; matches on-chain MaturityStrategy"
                 );
-                explicit
+                (explicit, None)
             }
-            Some(explicit) => {
+            (Some(explicit), _) => {
                 tracing::warn!(
                     chain_key,
                     configured = explicit,
-                    on_chain = on_chain_depth,
+                    on_chain_depth = ?on_chain_depth,
+                    on_chain_tag = ?on_chain_tag,
                     maturity_strategy = %supported_chain.maturity_strategy,
                     "⛓️  reorg-protection depth pinned in config DISAGREES with the on-chain \
                      MaturityStrategy the attestors use; this prover will confirm blocks on a \
                      different schedule from them. Remove block_confirmation_depth to derive it."
                 );
-                explicit
+                (explicit, None)
             }
         };
         // Source-chain block encoding from CC3 metadata, rather than assuming V1.
@@ -291,9 +312,16 @@ impl Server {
             .checkpoint_interval(checkpoint_interval)
             .last_checkpoint_block(last_checkpoint_block)
             .block_confirmation_depth(block_confirmation_depth)
+            .confirmation_tag(confirmation_tag)
             .build();
 
-        if block_confirmation_depth > 0 {
+        if let Some(tag) = confirmation_tag {
+            debug!(
+                chain_key,
+                %tag,
+                "⛓️  EVM reorg protection: accepting blocks only up to the source node's `{tag}` block"
+            );
+        } else if block_confirmation_depth > 0 {
             debug!(
                 chain_key,
                 block_confirmation_depth,

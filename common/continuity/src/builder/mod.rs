@@ -559,12 +559,21 @@ impl ContinuityBuilder {
 
     /// Get both the raw chain tip and the confirmed block height for reorg protection.
     ///
-    /// Returns `(tip, tip - block_confirmation_depth)` (confirmed saturates at 0).
+    /// With a [`confirmation_tag`](ContinuityConfig::confirmation_tag) the confirmed height is
+    /// the node's tagged block (clamped to the tip); otherwise it is
+    /// `tip - block_confirmation_depth` (saturating at 0).
     /// Use the confirmed value to decide whether to accept a requested block;
     /// use the tip value in user-facing error messages so clients see the real chain height.
     pub async fn get_confirmed_last_block(&self) -> Result<(u64, u64)> {
         let tip = self.eth_provider.get_last_block().await?;
-        let confirmed = tip.saturating_sub(self.config.block_confirmation_depth);
+        let confirmed = match self.config.confirmation_tag {
+            Some(tag) => self
+                .eth_provider
+                .get_block_number_by_tag(tag)
+                .await?
+                .min(tip),
+            None => tip.saturating_sub(self.config.block_confirmation_depth),
+        };
         Ok((tip, confirmed))
     }
 

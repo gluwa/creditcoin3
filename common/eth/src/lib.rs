@@ -40,7 +40,10 @@ pub use alloy::core::primitives::Address;
 
 pub mod continuity;
 pub mod evm;
+pub mod maturity;
 pub mod mem_block_cache;
+
+pub use maturity::{BlockTag, Maturity};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -76,6 +79,8 @@ pub enum Error {
     HexDecodingError(#[from] FromHexError),
     #[error("Failed to get block by hash {0}")]
     FailedToGetBlockByHash(String),
+    #[error("Failed to get the `{0}` block: no provider returned it (does the node serve this block tag?)")]
+    FailedToGetBlockByTag(BlockTag),
     #[error("Failed to path rpc url {0}")]
     UrlParseError(#[from] url::ParseError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
@@ -912,6 +917,62 @@ impl Client {
 
     pub async fn get_last_block(&self) -> Result<u64, Error> {
         Ok(self.rpc_provider.get_block_number().await?)
+    }
+
+    /// Number of the block the node currently reports for a settlement `tag` (`safe` or
+    /// `finalized`), walking the fallback providers on transport errors like the block fetches
+    /// do. A node that answers `null` for the tag counts as "not found".
+    pub async fn get_block_number_by_tag(&self, tag: BlockTag) -> Result<u64, Error> {
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            match provider
+                .get_block(BlockId::Number(tag.into()), false.into())
+                .await
+            {
+                Ok(Some(block)) => {
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            %tag,
+                            error = %err,
+                            "block tag lookup: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(block.header.number);
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, Error::from(e))),
+            }
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        %tag,
+                        error = %err,
+                        "block tag lookup: provider errored but another said `not found`"
+                    );
+                }
+                Err(Error::FailedToGetBlockByTag(tag))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(provider = %label, %tag, error = %err, "block tag lookup: additional provider error");
+                }
+                let (first_label, first_err) = first;
+                tracing::warn!(provider = %first_label, %tag, error = %first_err, "block tag lookup: all providers errored");
+                Err(first_err)
+            }
+        }
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, Error> {

@@ -1,7 +1,8 @@
 #[derive(builder::Builder, Clone)]
 pub struct Config {
     pub client: eth::Client,
-    pub finalization_lag: attestor_primitives::Height,
+    /// How the mature tip is derived from each new source head. See [`eth::Maturity`].
+    pub maturity: eth::Maturity,
     pub start_height: attestor_primitives::Height,
 }
 
@@ -61,11 +62,26 @@ impl StreamTip {
             loop {
                 match stream_headers.next().await {
                     Some(header) => {
-                        if let Some(tip_new) = header.number.checked_sub(config.finalization_lag) {
-                            if tip.is_none_or(|tip| tip_new > tip) {
-                                tip = Some(tip_new);
-                                yield tip_new
+                        // Resolve the mature height for this head. A fixed lag is arithmetic; a
+                        // block tag is one RPC round-trip on the same client. A failed lookup is
+                        // logged and skipped — the next head retries, and the tip only ever moves
+                        // forward, so a transient RPC error can never rewind it.
+                        let tip_new = match config.maturity.mature_height(&config.client, header.number).await {
+                            Ok(Some(tip_new)) => tip_new,
+                            Ok(None) => continue,
+                            Err(err) => {
+                                tracing::warn!(
+                                    head = header.number,
+                                    maturity = %config.maturity,
+                                    %err,
+                                    "could not resolve mature tip for this head; retrying on the next one"
+                                );
+                                continue;
                             }
+                        };
+                        if tip.is_none_or(|tip| tip_new > tip) {
+                            tip = Some(tip_new);
+                            yield tip_new
                         }
                     },
                     None => {

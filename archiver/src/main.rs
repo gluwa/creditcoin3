@@ -106,7 +106,7 @@ async fn main() -> Result<()> {
     // Previously this lookup only ran when FINALIZATION_LAG was unset, so every
     // deployment that pinned the lag skipped the chain_id verification along with it.
     // The verification now runs whenever CHAIN_KEY is available.
-    let on_chain_lag = match cfg.chain_key {
+    let on_chain_maturity = match cfg.chain_key {
         Some(chain_key) => {
             let cc3_client = CcClient::new_read_only(&cfg.cc3_rpc_url)
                 .await
@@ -145,7 +145,7 @@ async fn main() -> Result<()> {
                 "source chain verified against Creditcoin registration"
             );
 
-            Some(on_chain_finalization_lag(chain.maturity_strategy.as_str())?)
+            Some(on_chain_maturity(chain.maturity_strategy.as_str())?)
         }
         None => {
             tracing::warn!(
@@ -157,8 +157,8 @@ async fn main() -> Result<()> {
         }
     };
 
-    // ── Determine finalization lag ──────────────────────────────────────
-    let finaliztion_lag = resolve_finalization_lag(cfg.finalization_lag_override, on_chain_lag)?;
+    // ── Determine maturity (fixed lag or RPC block tag) ─────────────────
+    let maturity = resolve_maturity(cfg.finalization_lag_override, on_chain_maturity)?;
 
     // ── Backfill gaps ────────────────────────────────────────────────────
     if cfg.backfill {
@@ -184,7 +184,7 @@ async fn main() -> Result<()> {
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
-                    .with_finalization_lag(finaliztion_lag)
+                    .with_maturity(maturity)
                     .with_max_concurrency(cfg.max_fetch_tasks)
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
@@ -243,7 +243,7 @@ async fn main() -> Result<()> {
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
-        .with_finalization_lag(finaliztion_lag)
+        .with_maturity(maturity)
         .with_max_concurrency(cfg.max_fetch_tasks)
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
@@ -356,7 +356,7 @@ async fn main() -> Result<()> {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
-                                .with_finalization_lag(finaliztion_lag)
+                                .with_maturity(maturity)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();
@@ -461,39 +461,44 @@ fn format_eta(remaining: u64, rate: f64) -> String {
     }
 }
 
-/// Maturity delay implied by an on-chain `MaturityStrategy` string
-/// (e.g. `"EvmFinalized"` → 64, `"FixedDelay: 5"` → 5).
-fn on_chain_finalization_lag(maturity_strategy: &str) -> Result<u64> {
+/// Maturity implied by an on-chain `MaturityStrategy` string: a fixed lag
+/// (e.g. `"EvmFinalized"` → 64 blocks, `"FixedDelay: 5"` → 5) or an RPC block tag
+/// (`"RpcSafe"` / `"RpcFinalized"`), resolved exactly as the attestors resolve it.
+fn on_chain_maturity(maturity_strategy: &str) -> Result<eth::Maturity> {
     let strategy: supported_chains_primitives::MaturityStrategy = maturity_strategy
         .try_into()
         .map_err(|e| anyhow!("Invalid maturity strategy: {e:?}"))?;
 
-    strategy
-        .maturity_delay()
-        .ok_or_else(|| anyhow!("No maturity delay for strategy: {strategy:?}"))
+    stream_eth::maturity_from_strategy(&strategy).ok_or_else(|| {
+        anyhow!("Unsupported maturity strategy (no fixed delay and no RPC block tag): {strategy:?}")
+    })
 }
 
-/// Pick the finalization lag. An explicit `FINALIZATION_LAG` always wins so operators
-/// keep an escape hatch, but a value that disagrees with the on-chain registration is
-/// logged loudly: the attestors follow the on-chain strategy, and a lag below theirs
-/// means the archiver flushes roots for blocks they do not yet consider mature.
-fn resolve_finalization_lag(override_lag: Option<u64>, on_chain_lag: Option<u64>) -> Result<u64> {
-    match (override_lag, on_chain_lag) {
-        (Some(lag), Some(on_chain)) if lag != on_chain => {
+/// Pick the maturity. An explicit `FINALIZATION_LAG` always wins so operators keep an
+/// escape hatch, but a value that disagrees with the on-chain registration is logged
+/// loudly: the attestors follow the on-chain strategy, and a lag below theirs (or a fixed
+/// lag where they follow a block tag) means the archiver flushes roots for blocks they do
+/// not yet consider mature.
+fn resolve_maturity(
+    override_lag: Option<u64>,
+    on_chain: Option<eth::Maturity>,
+) -> Result<eth::Maturity> {
+    match (override_lag, on_chain) {
+        (Some(lag), Some(on_chain)) if on_chain != eth::Maturity::FixedLag(lag) => {
             tracing::warn!(
                 lag,
-                on_chain,
+                %on_chain,
                 "FINALIZATION_LAG differs from the on-chain MaturityStrategy the attestors use"
             );
-            Ok(lag)
+            Ok(eth::Maturity::FixedLag(lag))
         }
         (Some(lag), _) => {
             tracing::info!(lag, "Using cfg.finalization_lag_override");
-            Ok(lag)
+            Ok(eth::Maturity::FixedLag(lag))
         }
-        (None, Some(lag)) => {
-            tracing::info!(lag, "Using on chain lag from MaturityStrategy");
-            Ok(lag)
+        (None, Some(maturity)) => {
+            tracing::info!(%maturity, "Using on-chain MaturityStrategy");
+            Ok(maturity)
         }
         (None, None) => Err(anyhow!(
             "Either FINALIZATION_LAG or CHAIN_KEY (with CC3_RPC_URL) must be set"
@@ -504,33 +509,72 @@ fn resolve_finalization_lag(override_lag: Option<u64>, on_chain_lag: Option<u64>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eth::{BlockTag, Maturity};
 
     #[test]
-    fn on_chain_lag_follows_maturity_strategy() {
-        assert_eq!(on_chain_finalization_lag("EvmFinalized").unwrap(), 64);
-        assert_eq!(on_chain_finalization_lag("EvmSafe").unwrap(), 32);
-        assert_eq!(on_chain_finalization_lag("FixedDelay: 5").unwrap(), 5);
+    fn on_chain_maturity_follows_maturity_strategy() {
+        assert_eq!(
+            on_chain_maturity("EvmFinalized").unwrap(),
+            Maturity::FixedLag(64)
+        );
+        assert_eq!(
+            on_chain_maturity("EvmSafe").unwrap(),
+            Maturity::FixedLag(32)
+        );
+        assert_eq!(
+            on_chain_maturity("FixedDelay: 5").unwrap(),
+            Maturity::FixedLag(5)
+        );
+        assert_eq!(
+            on_chain_maturity("RpcSafe").unwrap(),
+            Maturity::Tag(BlockTag::Safe)
+        );
+        assert_eq!(
+            on_chain_maturity("RpcFinalized").unwrap(),
+            Maturity::Tag(BlockTag::Finalized)
+        );
     }
 
     #[test]
-    fn on_chain_lag_rejects_unknown_strategy() {
-        assert!(on_chain_finalization_lag("Bogus").is_err());
+    fn on_chain_maturity_rejects_unknown_strategy() {
+        assert!(on_chain_maturity("Bogus").is_err());
     }
 
     #[test]
     fn override_wins_even_when_it_disagrees_with_chain() {
-        assert_eq!(resolve_finalization_lag(Some(64), Some(64)).unwrap(), 64);
-        assert_eq!(resolve_finalization_lag(Some(10), Some(64)).unwrap(), 10);
-        assert_eq!(resolve_finalization_lag(Some(0), None).unwrap(), 0);
+        assert_eq!(
+            resolve_maturity(Some(64), Some(Maturity::FixedLag(64))).unwrap(),
+            Maturity::FixedLag(64)
+        );
+        assert_eq!(
+            resolve_maturity(Some(10), Some(Maturity::FixedLag(64))).unwrap(),
+            Maturity::FixedLag(10)
+        );
+        // A fixed override over a tag-following chain stays an escape hatch, but is warned.
+        assert_eq!(
+            resolve_maturity(Some(10), Some(Maturity::Tag(BlockTag::Safe))).unwrap(),
+            Maturity::FixedLag(10)
+        );
+        assert_eq!(
+            resolve_maturity(Some(0), None).unwrap(),
+            Maturity::FixedLag(0)
+        );
     }
 
     #[test]
-    fn on_chain_lag_used_without_override() {
-        assert_eq!(resolve_finalization_lag(None, Some(5)).unwrap(), 5);
+    fn on_chain_maturity_used_without_override() {
+        assert_eq!(
+            resolve_maturity(None, Some(Maturity::FixedLag(5))).unwrap(),
+            Maturity::FixedLag(5)
+        );
+        assert_eq!(
+            resolve_maturity(None, Some(Maturity::Tag(BlockTag::Finalized))).unwrap(),
+            Maturity::Tag(BlockTag::Finalized)
+        );
     }
 
     #[test]
     fn neither_source_is_an_error() {
-        assert!(resolve_finalization_lag(None, None).is_err());
+        assert!(resolve_maturity(None, None).is_err());
     }
 }

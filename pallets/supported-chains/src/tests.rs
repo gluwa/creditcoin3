@@ -5,7 +5,8 @@ use rstest::rstest;
 use sp_runtime::traits::BadOrigin;
 use supported_chains_primitives::{
     provider::SupportedChainsProvider, MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST,
-    MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY, MATURITY_FIXED_DELAY_10,
+    MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY, MATURITY_FIXED_DELAY_10, MATURITY_RPC_FINALIZED,
+    MATURITY_RPC_SAFE,
 };
 
 #[test]
@@ -473,6 +474,8 @@ fn build_should_panic_with_duplicate_chains_in_genesis() {
 #[rstest]
 #[case(MATURITY_EVM_FINALIZED.to_string())]
 #[case(MATURITY_EVM_SAFE.to_string())]
+#[case(MATURITY_RPC_SAFE.to_string())]
+#[case(MATURITY_RPC_FINALIZED.to_string())]
 #[case(MATURITY_EVM_LATEST.to_string())]
 #[case(format!("{MATURITY_FIXED_DELAY}10"))]
 #[case(format!("{MATURITY_FIXED_DELAY} 10"))]
@@ -518,6 +521,8 @@ fn register_chain_accepts_valid_maturity_strategy_and_stores_it(#[case] strategy
 #[case("invalid".to_string())]
 #[case(format!("{MATURITY_FIXED_DELAY}"))]
 #[case(format!("{MATURITY_FIXED_DELAY}abc"))]
+#[case("rpcsafe".to_string())]
+#[case("RpcLatest".to_string())]
 #[case(format!("{MATURITY_FIXED_DELAY}{MATURITY_FIXED_DELAY}10"))]
 fn register_chain_rejects_invalid_maturity_strategy(#[case] strategy: String) {
     new_test_ext().execute_with(|| {
