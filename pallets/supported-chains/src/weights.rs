@@ -64,8 +64,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `457`
 		//  Estimated: `3922`
-		// Minimum execution time: 71_550_000 picoseconds.
-		Weight::from_parts(73_870_000, 0)
+		// Minimum execution time: 118_449_000 picoseconds.
+		Weight::from_parts(138_910_000, 0)
 			.saturating_add(Weight::from_parts(0, 3922))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(11))
@@ -122,17 +122,19 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `SupportedChains::ChainIdAndNameToUniqKey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::OutboxFactories` (r:0 w:1)
 	/// Proof: `SupportedChains::OutboxFactories` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::OutboxDiscoveries` (r:0 w:1)
+	/// Proof: `SupportedChains::OutboxDiscoveries` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::CoreFees` (r:0 w:1)
 	/// Proof: `SupportedChains::CoreFees` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn remove_chain() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `976`
 		//  Estimated: `4441`
-		// Minimum execution time: 156_761_000 picoseconds.
-		Weight::from_parts(161_841_000, 0)
+		// Minimum execution time: 275_471_000 picoseconds.
+		Weight::from_parts(314_701_000, 0)
 			.saturating_add(Weight::from_parts(0, 4441))
 			.saturating_add(T::DbWeight::get().reads(10))
-			.saturating_add(T::DbWeight::get().writes(23))
+			.saturating_add(T::DbWeight::get().writes(24))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -150,22 +152,12 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 29_110_000 picoseconds.
-		Weight::from_parts(30_430_000, 0)
+		// Minimum execution time: 33_700_000 picoseconds.
+		Weight::from_parts(52_991_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
-	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
-	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -178,29 +170,34 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::OutboxDiscoveries` (r:0 w:1)
 	/// Proof: `SupportedChains::OutboxDiscoveries` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	//
-	// Not benchmarked (no `creditcoin3-node` binary available in this environment) — a copy of
-	// `set_outbox_factory_addr`'s weight, since the storage shape (one `SupportedChains` read plus
-	// a single map write) is identical. Re-run `benchmark pallet` for this extrinsic before
-	// shipping to a network where weight accuracy is enforced.
 	fn set_outbox_discovery_addr() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 29_510_000 picoseconds.
-		Weight::from_parts(30_880_000, 0)
+		// Minimum execution time: 36_830_000 picoseconds.
+		Weight::from_parts(50_581_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::WriteAbilityConfigs` (r:0 w:1)
 	/// Proof: `SupportedChains::WriteAbilityConfigs` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn set_write_ability_config() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 29_890_000 picoseconds.
-		Weight::from_parts(31_970_000, 0)
+		// Minimum execution time: 32_820_000 picoseconds.
+		Weight::from_parts(50_440_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -221,8 +218,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 28_660_000 picoseconds.
-		Weight::from_parts(29_600_000, 0)
+		// Minimum execution time: 32_490_000 picoseconds.
+		Weight::from_parts(49_310_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
