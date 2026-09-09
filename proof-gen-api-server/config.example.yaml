@@ -16,8 +16,11 @@ chains:
     eth_rpc_url: "http://localhost:8545"
     # archiver_url: "http://localhost:8080"  # optional per chain
     block_confirmation_depth: 32  # Blocks to lag behind chain tip for reorg protection.
-    #                              # Suggested: 32 for Ethereum-style L1 chains; tune per source chain.
-    #                              # Default when omitted: 0 (no lag), only safe for local/dev networks.
+    #                              # OMIT THIS to derive it from the chain's on-chain
+    #                              # MaturityStrategy -- the same value the attestors act on, so
+    #                              # this process cannot disagree with them. That is the
+    #                              # recommended setting. Set it only to deliberately pin a
+    #                              # value; startup warns if it disagrees with the chain.
     #
     # Ordered fallback RPC URLs (optional).
     # The eth client always tries `eth_rpc_url` (primary) first for every
@@ -37,6 +40,45 @@ chains:
   # Second local chain (e.g. second Anvil on another port) — uncomment for multi-chain dev/CI:
   - chain_key: 3
     eth_rpc_url: "http://localhost:8546"
+    #
+    # Per-chain cache sizing (all optional; omit the whole `cache:` block for the defaults).
+    #
+    # Why this exists: by default the merkle-proof cache retains
+    # `attestation_interval * checkpoint_interval * 4` source blocks, all read from chain. That
+    # couples cache memory to attestation cadence, so raising `attestation_interval` to *reduce*
+    # attestation load on a fast chain multiplies this cache by the same factor. On a chain with
+    # both a wide window and dense blocks that is enough to exhaust the process.
+    # cache:
+    #   # Retention window in source blocks. Omit to derive it as described above.
+    #   # Pin it to size the cache independently of attestation cadence.
+    #   merkle_retention_blocks: 1000
+    #
+    #   # Soft byte budget for the merkle cache. When set, the effective retention window is
+    #   # narrowed using the cache's own measured bytes-per-block, so the resident set stays
+    #   # within budget no matter how many transactions the chain puts in a block. Eviction
+    #   # itself stays height-ordered, and the window never shrinks below one attestation
+    #   # interval. Omit for an unbudgeted cache.
+    #   # Accepts a readable size or a plain byte count: "768MiB", "1GiB", "800MB", 805306368.
+    #   merkle_max_bytes: "768MiB"
+    #
+    #   # Capacity of the raw block cache, in blocks (default 512). Each entry holds a whole
+    #   # block's *decoded* transactions and receipts, which is the largest single per-chain
+    #   # allocation on a high-tx chain, and it overlaps the merkle cache above. Lower it for
+    #   # dense chains.
+    #   block_cache_capacity: 96
+    #
+    #   # Whether the background worker keeps the retention window warm (default true).
+    #   # true  => window always full, so memory sits at its ceiling continuously.
+    #   # false => fill only when a proof needs a block; much smaller resident set, at the cost
+    #   #          of first-request latency for any uncached block.
+    #   merkle_backfill_enabled: true
+    #
+    #   # Cap on retained checkpoint digests. Omit (the default) to retain every checkpoint.
+    #   # CAUTION: a proof is bracketed by the checkpoint immediately BELOW the queried block,
+    #   # and a cache miss has no fallback to chain state -- the request fails. Setting this
+    #   # therefore caps how far back proofs can be served, to roughly
+    #   # `max_entries * attestation_interval * checkpoint_interval` blocks. Opt in knowingly.
+    #   checkpoint_cache_max_entries: 20000
 
 max_batch_size: 10
 # Maximum allowed block span (highest − lowest block) in a single batch request.

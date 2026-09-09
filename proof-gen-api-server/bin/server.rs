@@ -151,6 +151,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eth_rpc_fallback_urls: Vec::new(),
                 archiver_url: args.archiver_url,
                 block_confirmation_depth: args.block_confirmation_depth,
+                // Per-chain cache sizing is expressed in the YAML config only, like
+                // `eth_rpc_fallback_urls`. Legacy single-chain mode takes the defaults.
+                cache: proof_gen_api_server::config::ChainCacheConfig::default(),
             }],
             max_batch_size: args.max_batch_size,
             max_batch_span: args.max_batch_span,

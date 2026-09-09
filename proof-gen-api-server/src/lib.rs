@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::{oneshot::channel, RwLock};
 use tokio::{select, signal};
@@ -31,19 +30,15 @@ pub use services::errors::ErrorResponse;
 /// strings *and* secret-looking path segments (Chainstack/Alchemy style).
 use eth::redact_url_query;
 
-/// Max finalized source blocks held in the per-chain in-process block cache. Sized to comfortably
-/// cover a continuity range (last checkpoint → query height) plus recent inclusion-proof blocks,
-/// while bounding memory (each entry is one block's txs+receipts).
-const BLOCK_CACHE_CAPACITY: NonZeroUsize = match NonZeroUsize::new(512) {
-    Some(n) => n,
-    None => panic!("512 is non-zero"),
-};
-
 pub struct Server {
     config: Config,
     cc3_client: CcClient,
     /// One continuity builder per configured source chain.
     builders: Vec<Arc<ContinuityBuilder>>,
+    /// Per-chain handle to the raw block cache, so its occupancy can be reported. Each entry
+    /// holds a whole block's decoded txs and receipts, which is the largest per-chain
+    /// allocation on a high-throughput chain -- and the one with no other way to observe it.
+    block_caches: HashMap<u64, Arc<eth::mem_block_cache::MemBlockCache>>,
     checkpoint_intervals: events::CheckpointIntervalMap,
     last_checkpoint_blocks: events::LastCheckpointBlockMap,
     prom_metrics: Arc<ProofGenMetrics>,
@@ -75,6 +70,8 @@ impl Server {
         debug!("🚀 ✅ [startup] Creditcoin3 client connected");
 
         let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(config.chains.len());
+        let mut block_caches: HashMap<u64, Arc<eth::mem_block_cache::MemBlockCache>> =
+            HashMap::with_capacity(config.chains.len());
         let checkpoint_intervals = Arc::new(RwLock::new(HashMap::new()));
         let last_checkpoint_blocks = Arc::new(RwLock::new(HashMap::new()));
 
@@ -96,7 +93,7 @@ impl Server {
                     "[startup] eth_rpc fallback registered"
                 );
             }
-            let builder = Self::build_continuity_for_chain(
+            let (builder, block_cache) = Self::build_continuity_for_chain(
                 &config,
                 cc3_client.clone(),
                 chain,
@@ -105,12 +102,16 @@ impl Server {
             )
             .await?;
             builders.push(builder);
+            if let Some(block_cache) = block_cache {
+                block_caches.insert(chain.chain_key, block_cache);
+            }
         }
 
         Ok(Server {
             config,
             cc3_client,
             builders,
+            block_caches,
             checkpoint_intervals,
             last_checkpoint_blocks,
             prom_metrics,
@@ -123,7 +124,10 @@ impl Server {
         chain: &ChainConfig,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
         last_checkpoint_blocks: &Arc<RwLock<HashMap<u64, u64>>>,
-    ) -> Result<Arc<ContinuityBuilder>> {
+    ) -> Result<(
+        Arc<ContinuityBuilder>,
+        Option<Arc<eth::mem_block_cache::MemBlockCache>>,
+    )> {
         let chain_key = chain.chain_key;
 
         debug!(
@@ -217,8 +221,16 @@ impl Server {
                 // In-process cache of finalized source blocks. Overlapping continuity ranges and
                 // batched requests re-fetch the same low blocks every time; caching them removes
                 // the repeat RPC + merkle work. Finalized blocks are immutable, so no invalidation.
-                .with_block_cache(BLOCK_CACHE_CAPACITY)
+                //
+                // Each entry holds one block's *decoded* txs+receipts, so on a high-tx chain this
+                // is the largest single per-chain allocation - and it overlaps the merkle cache,
+                // which holds the same recent blocks in encoded form. Hence the per-chain knob.
+                .with_block_cache(chain.cache.block_cache_capacity)
         };
+
+        // Grab the cache handle before the client is moved into the RPC providers; going back
+        // through the provider traits later would mean widening them for a metrics read.
+        let block_cache = eth_client.block_cache();
 
         let chain_id = eth_client.chain_id();
         if supported_chain_id != chain_id {
@@ -324,14 +336,22 @@ impl Server {
             .await
             .insert(chain_key, checkpoint_interval);
 
-        Ok(builder)
+        Ok((builder, block_cache))
     }
 
     pub async fn run(&self) -> Result<()> {
         let metrics: Metrics = self.prom_metrics.clone() as Metrics;
 
-        let service = services::continuity_service::ContinuityService::new(
+        let cache_configs = self
+            .config
+            .chains
+            .iter()
+            .map(|chain| (chain.chain_key, chain.cache.clone()))
+            .collect();
+
+        let service = services::continuity_service::ContinuityService::new_with_cache_configs(
             self.builders.clone(),
+            cache_configs,
             metrics.clone(),
             self.config.max_batch_size.get(),
             self.config.max_batch_span,
@@ -341,6 +361,7 @@ impl Server {
         let service = Arc::new(service);
 
         ProofGenMetrics::spawn_hardware_updater(self.prom_metrics.clone());
+        ContinuityService::spawn_cache_metrics_updater(service.clone(), self.block_caches.clone());
         ContinuityService::spawn_merkle_backfill(service.clone());
 
         let allowed: std::collections::HashSet<u64> = self.config.chain_keys();
