@@ -32,6 +32,10 @@
     "ackValidator": "0x651D52054c8ac4b19191d7427C2633797567D39c",
     "quoterEOA": "0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac",
     "coreFee": "1000000000000000000",
-    "feeRegistry": "0xcCEd4FA7c35209De0a52476A8e63ba7115971876"
+    "feeRegistry": "0xcCEd4FA7c35209De0a52476A8e63ba7115971876",
+    "chainRegistry": "0x68A54b2826EF3f230996A8CD324a2177d7f6041E",
+    "outboxDiscovery": "0x6B544e279684cEf4fC9aBCFfd7D1de0D0c926e84",
+    "outboxDiscoveryImpl": "0x43d70f01b32a219ec85965239C3F0E29a1A543e1",
+    "outboxDiscoveryDeployedAt": "2026-09-09T09:06:01.442Z"
   }
 }
