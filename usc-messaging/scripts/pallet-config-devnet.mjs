@@ -3,15 +3,17 @@
 // OutboxDiscovery registry address for chain_key 8.
 // Env: SUDO_URI (seed/uri of the devnet sudo account), optional CORE_FEE_WEI (default: skip),
 //      optional ONLY_DISCOVERY=true to run just the set_outbox_discovery_addr step.
-// Reads the factory / discovery addresses from usc-dev-deploy.json (written by
-// deploy-source-devnet / deploy-discovery-devnet).
+// Reads the factory / discovery addresses from the committed usc-dev-deploy.json (or DEPLOY_OUT),
+// written by deploy-source-devnet / deploy-discovery-devnet.
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { readFileSync } from "node:fs";
 
 const CHAIN_KEY = 8n;
 const WS = process.env.CREDITCOIN_SUBSTRATE_WS_URL || "wss://rpc.usc-devnet.creditcoin.network";
-const OUT = process.env.DEPLOY_OUT ?? "/tmp/usc-dev-deploy.json";
+// Same file deploy-discovery-devnet.mts / publish-lite-devnet.mts use: the committed
+// usc-dev-deploy.json next to this scripts dir (DEPLOY_OUT overrides, e.g. /tmp for a fresh deploy).
+const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
 const source = JSON.parse(readFileSync(OUT, "utf8")).source ?? {};
 const factory = source.factory;
 const discovery = process.env.DISCOVERY_ADDR ?? source.outboxDiscovery;

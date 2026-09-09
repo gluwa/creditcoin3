@@ -24,8 +24,12 @@ const REVOKE_OLD = (process.env.REVOKE_OLD ?? "false") === "true";
 
 const addrs = JSON.parse(readFileSync(OUT, "utf8"));
 const s = addrs.source;
-const oldInbox: string = addrs.dest.inbox;
-if (oldInbox.toLowerCase() === NEW_INBOX.toLowerCase()) throw new Error(`NEW_INBOX equals the current dest.inbox ${oldInbox}`);
+// First run: dest.inbox is the old Inbox. Re-run (e.g. REVOKE_OLD=true later): dest.inbox is
+// already NEW_INBOX and the previous one lives in dest.oldInbox; every step below is idempotent.
+const alreadyRepointed = (addrs.dest.inbox as string).toLowerCase() === NEW_INBOX.toLowerCase();
+const oldInbox: string | undefined = alreadyRepointed ? addrs.dest.oldInbox : addrs.dest.inbox;
+if (alreadyRepointed) console.log(`  dest.inbox is already ${NEW_INBOX}; old Inbox from dest.oldInbox: ${oldInbox ?? "none recorded"}`);
+if (REVOKE_OLD && !oldInbox) throw new Error("REVOKE_OLD=true but no old Inbox is known (dest.oldInbox missing)");
 
 const provider = new ethers.JsonRpcProvider(process.env.CC_RPC ?? s.rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
 provider.pollingInterval = 1000;
@@ -66,16 +70,22 @@ if (!(await ack.trustedInboxes(NEW_INBOX))) {
   await (await ack.updateTrustedInbox(NEW_INBOX, true)).wait();
   console.log(`  AcknowledgmentValidator.updateTrustedInbox(${NEW_INBOX}, true)`);
 } else console.log("  ack validator already trusts the new Inbox");
-if (REVOKE_OLD && (await ack.trustedInboxes(oldInbox))) {
-  await (await ack.updateTrustedInbox(oldInbox, false)).wait();
-  console.log(`  AcknowledgmentValidator.updateTrustedInbox(${oldInbox}, false)`);
+if (REVOKE_OLD && oldInbox) {
+  if (await ack.trustedInboxes(oldInbox)) {
+    await (await ack.updateTrustedInbox(oldInbox, false)).wait();
+    console.log(`  AcknowledgmentValidator.updateTrustedInbox(${oldInbox}, false)`);
+  } else console.log(`  old Inbox ${oldInbox} already untrusted`);
 }
 if ((await decoder.trustedInboxes(DEST_CHAIN_ID)).toLowerCase() !== NEW_INBOX.toLowerCase()) {
   await (await decoder.setTrustedInbox(DEST_CHAIN_ID, NEW_INBOX)).wait();
   console.log(`  EVMDeliveryDecoder.setTrustedInbox(${DEST_CHAIN_ID}, ${NEW_INBOX})`);
 } else console.log("  decoder already points at the new Inbox");
 
-addrs.dest = { ...addrs.dest, inbox: NEW_INBOX, oldInbox, inboxRepointedAt: new Date().toISOString() };
+addrs.dest = {
+  ...addrs.dest, inbox: NEW_INBOX, oldInbox: oldInbox ?? addrs.dest.oldInbox ?? null,
+  inboxRepointedAt: alreadyRepointed ? addrs.dest.inboxRepointedAt : new Date().toISOString(),
+  ...(REVOKE_OLD && oldInbox ? { oldInboxRevokedAt: new Date().toISOString() } : {}),
+};
 writeFileSync(OUT, JSON.stringify(addrs, null, 2));
 console.log(`✅ Creditcoin side repointed to ${NEW_INBOX}. Now set inboxAddress in the relayer IaC and roll attestors + relayer together.`);
 process.exit(0);
