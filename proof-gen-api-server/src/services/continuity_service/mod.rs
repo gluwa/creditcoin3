@@ -802,12 +802,16 @@ impl ContinuityService {
                 confirmed_block,
                 chain_key,
                 block_confirmation_depth = chain.builder.config.block_confirmation_depth,
+                confirmation_tag = ?chain.builder.config.confirmation_tag,
                 "⚠️  ⛓️ Requested block is not yet confirmed on source chain (within reorg window)"
             );
+            // Report the *effective* window (`tip - confirmed`): with a block-tag policy the
+            // configured depth is 0 and the real window is however far `safe` / `finalized`
+            // currently trails the tip.
             return Err(ServiceError::BlockNotOnSourceChain {
                 requested_block: header_number,
                 current_block: tip_block,
-                confirmation_depth: chain.builder.config.block_confirmation_depth,
+                confirmation_depth: tip_block.saturating_sub(confirmed_block),
             });
         }
         let current_block = confirmed_block;

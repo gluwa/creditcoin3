@@ -89,14 +89,14 @@ async fn main() -> Result<()> {
     // ── Determine finalization lag ────────────────────────────────────────────────────
     // If a finalization lag parameter is passed, we use that. Otherwise fall back to
     // the lag from our on chain MaturityStrategy.
-    let finaliztion_lag = if let Some(lag) = cfg.finalization_lag_override {
+    let maturity = if let Some(lag) = cfg.finalization_lag_override {
         tracing::info!(lag = lag, "Using cfg.finalization_lag_override");
-        lag
+        eth::Maturity::FixedLag(lag)
     } else {
         // Fetch maturity strategy
-        let lag = get_on_chain_finalization_lag(&cfg).await?;
-        tracing::info!(lag = lag, "Using on chain lag from MaturityStrategy");
-        lag
+        let maturity = get_on_chain_maturity(&cfg).await?;
+        tracing::info!(%maturity, "Using on-chain MaturityStrategy");
+        maturity
     };
 
     // ── Url Consistency Checks ────────────────────────────────────────────────────
@@ -138,7 +138,7 @@ async fn main() -> Result<()> {
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
-                    .with_finalization_lag(finaliztion_lag)
+                    .with_maturity(maturity)
                     .with_max_concurrency(cfg.max_fetch_tasks)
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
@@ -201,7 +201,7 @@ async fn main() -> Result<()> {
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
-        .with_finalization_lag(finaliztion_lag)
+        .with_maturity(maturity)
         .with_max_concurrency(cfg.max_fetch_tasks)
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
@@ -314,7 +314,7 @@ async fn main() -> Result<()> {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
-                                .with_finalization_lag(finaliztion_lag)
+                                .with_maturity(maturity)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();
@@ -419,7 +419,7 @@ fn format_eta(remaining: u64, rate: f64) -> String {
     }
 }
 
-async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
+async fn get_on_chain_maturity(cfg: &Config) -> Result<eth::Maturity> {
     // Check that chain_key is present in config
     let chain_key = if let Some(ck) = cfg.chain_key {
         ck
@@ -467,8 +467,8 @@ async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
         .try_into()
         .map_err(|e| anyhow!("Invalid maturity strategy: {e:?}"))?;
 
-    // Return final maturity delay
-    strategy_enum.maturity_delay().ok_or(anyhow!(
-        "No maturity delay for strategy: strategy_enum: {strategy_enum:?}"
+    // Fixed lag or RPC block tag, same resolution the attestors use.
+    stream_eth::maturity_from_strategy(&strategy_enum).ok_or(anyhow!(
+        "Unsupported maturity strategy (no fixed delay and no RPC block tag): {strategy_enum:?}"
     ))
 }

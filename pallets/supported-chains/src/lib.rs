@@ -3,6 +3,7 @@
 pub use pallet::*;
 use supported_chains_primitives::{
     MATURITY_EVM_FINALIZED, MATURITY_EVM_LATEST, MATURITY_EVM_SAFE, MATURITY_FIXED_DELAY,
+    MATURITY_RPC_FINALIZED, MATURITY_RPC_SAFE,
 };
 
 #[cfg(test)]
@@ -316,7 +317,11 @@ pub mod pallet {
 
 fn is_valid_maturity_strategy(strategy: &str) -> bool {
     match strategy {
-        MATURITY_EVM_FINALIZED | MATURITY_EVM_SAFE | MATURITY_EVM_LATEST => true,
+        MATURITY_EVM_FINALIZED
+        | MATURITY_EVM_SAFE
+        | MATURITY_EVM_LATEST
+        | MATURITY_RPC_SAFE
+        | MATURITY_RPC_FINALIZED => true,
         s if s.starts_with(MATURITY_FIXED_DELAY) => {
             // Split off the number part and trim whitespace
             if let Some(num_str) = s.strip_prefix(MATURITY_FIXED_DELAY) {
