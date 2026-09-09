@@ -92,6 +92,10 @@ jobs:
           git diff --binary
 
       - name: Start resource monitor
+        # The use-new-metadata path checks out the PR *head branch*, which for
+        # any PR opened before this landed does not contain the script. Guard
+        # so rebuild-new-metadata cannot fail on a missing file.
+        if: hashFiles('.github/resource-monitor.sh') != ''
         run: |
           .github/resource-monitor.sh start build-native
 
@@ -100,12 +104,6 @@ jobs:
         with:
           command: build
           args: ${{ inputs.build-options }}
-
-      - name: Report resource usage
-        if: always()
-        continue-on-error: true
-        run: |
-          .github/resource-monitor.sh report build-native
 
       - name: Upload binaries
         uses: actions/upload-artifact@v7
@@ -166,3 +164,12 @@ jobs:
           author_email: creditcoin@gluwa.com
           message: "Auto-update metadata & TypeScript type definitions"
           github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+      - name: Report resource usage
+        # Last step on purpose: Install subkey / Install subxt are full cargo
+        # compiles on the release path and would otherwise land outside the
+        # sampling window.
+        if: always() && hashFiles('.github/resource-monitor.sh') != ''
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report build-native

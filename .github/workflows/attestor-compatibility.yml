@@ -47,6 +47,7 @@ name: Attestor Compatibility
       - "node/**"
       - "runtime/**"
       - ".github/workflows/attestor-compatibility.yml"
+      - ".github/resource-monitor.sh"
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -196,6 +197,9 @@ jobs:
           mkdir -p "${LOG_DIR}" "${DATA_DIR}"
 
       - name: Start resource monitor
+        # DATA_DIR/LOG_DIR live under /var/tmp, not the workspace.
+        env:
+          RESOURCE_MONITOR_DISK_PATH: /var/tmp
         run: |
           .github/resource-monitor.sh start attestor-compatibility
 

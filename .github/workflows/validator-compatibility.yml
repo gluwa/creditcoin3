@@ -30,6 +30,7 @@ name: Validator Compatibility
       - "runtime/**"
       - "chainspecs/**"
       - ".github/workflows/validator-compatibility.yml"
+      - ".github/resource-monitor.sh"
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -222,6 +223,9 @@ jobs:
           done
 
       - name: Start resource monitor
+        # DATA_DIR/LOG_DIR live under /var/tmp, not the workspace.
+        env:
+          RESOURCE_MONITOR_DISK_PATH: /var/tmp
         run: |
           .github/resource-monitor.sh start validator-compatibility
 
