@@ -521,6 +521,7 @@ async fn scan_range<P: Provider>(
                 let hash = message_hash(
                     decoded.data.messageId,
                     emitter,
+                    resolved.address,
                     resolved.destination_chain_key,
                     resolved.creditcoin_chain_id,
                     &payload,

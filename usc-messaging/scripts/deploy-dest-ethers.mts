@@ -58,8 +58,11 @@ const validator = await deploy("EOAValidator", ART("write-ability/EOAValidator.s
   [wallet.address, await registry.getAddress(), 3, 20, 1]);
 const dapp = await deploy("MockDestination", ART("mocks/TestMocks.sol", "MockDestination"));
 // Inbox requires its messageDispatcher to already have code, so the dApp must be deployed first.
+// asc-contracts #48: the Inbox only delivers from allowlisted source Outboxes (`initialOutboxes`,
+// `setSupportedOutbox`). The Outbox does not exist yet at this point — deploy-source-ethers.mts
+// creates it via CREATE2 and allowlists it on this Inbox right after — so start empty.
 const inbox = await deploy("Inbox", ART("write-ability/Inbox.sol", "Inbox"),
-  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, await validator.getAddress(), await dapp.getAddress(), wallet.address]);
+  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, await validator.getAddress(), await dapp.getAddress(), wallet.address, []]);
 
 const addrs = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : {};
 addrs.dest = {

@@ -47,6 +47,27 @@ async function deploy(name: string, art: any, args: any[] = []) {
   return c;
 }
 
+// Destination-side admin call: Inbox.setSupportedOutbox(outbox, true) on Sepolia. Idempotent
+// (EnumerableSet add of an existing member is a no-op) and verified by reading it back.
+async function allowlistOutboxOnInbox(inboxAddr: string, outboxAddr: string) {
+  const sepoliaRpc = process.env.SEPOLIA_RPC;
+  if (!sepoliaRpc) throw new Error("set SEPOLIA_RPC so the new Outbox can be allowlisted on the destination Inbox");
+  const destProvider = new ethers.JsonRpcProvider(sepoliaRpc, DEST_CHAIN_ID, { staticNetwork: true, polling: true });
+  const destWallet = new ethers.Wallet(key, destProvider);
+  const inbox = new ethers.Contract(inboxAddr, ART("write-ability/Inbox.sol", "Inbox").abi, destWallet);
+  if (await (inbox as any).isSupportedOutbox(outboxAddr)) {
+    console.log(`  Inbox ${inboxAddr} already allowlists ${outboxAddr}`);
+  } else {
+    console.log(`  allowlisting Outbox ${outboxAddr} on Sepolia Inbox ${inboxAddr}…`);
+    await (await (inbox as any).setSupportedOutbox(outboxAddr, true)).wait();
+    if (!(await (inbox as any).isSupportedOutbox(outboxAddr))) {
+      throw new Error(`Inbox.setSupportedOutbox did not land for ${outboxAddr}`);
+    }
+    console.log("  Inbox.isSupportedOutbox confirmed");
+  }
+  destProvider.destroy();
+}
+
 async function main() {
   const addrs = JSON.parse(readFileSync(OUT, "utf8"));
   if (!addrs.dest?.inbox) throw new Error("need dest.inbox — run deploy-dest-devnet first");
@@ -104,6 +125,11 @@ async function main() {
 
   const outbox = new ethers.Contract(outboxAddr, ART("write-ability/Outbox.sol", "Outbox").abi, wallet);
   await (await outbox.setTrustedForwarder(rcAddr, true)).wait();
+
+  // asc-contracts #48: the Sepolia Inbox delivers only from allowlisted Outboxes. When
+  // deploy-dest-devnet.mts ran without INITIAL_OUTBOXES (this Outbox did not exist yet) its
+  // allowlist is empty, so add the new Outbox now, as the Inbox owner (same DEPLOYER_KEY).
+  await allowlistOutboxOnInbox(addrs.dest.inbox, outboxAddr);
 
   const ackValidator = await deploy("AcknowledgmentValidator",
     ART("write-ability/AcknowledgementValidator.sol", "AcknowledgmentValidator"),

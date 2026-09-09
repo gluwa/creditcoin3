@@ -84,6 +84,23 @@ async function registerFactoryBeforeOutbox(factory: string) {
   }
 }
 
+// Destination-side admin call: Inbox.setSupportedOutbox(outbox, true) as the Inbox owner (anvil
+// account 0, the same key deploy-dest-ethers.mts deploys with). Verified by reading it back.
+async function allowlistOutboxOnInbox(dest: { rpc: string; chainId: number; inbox: string }, outboxAddr: string) {
+  const ANVIL0 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+  const destProvider = new ethers.JsonRpcProvider(dest.rpc, dest.chainId, { staticNetwork: true });
+  destProvider.pollingInterval = 500;
+  const destWallet = new ethers.Wallet(ANVIL0, destProvider);
+  const inbox = new ethers.Contract(dest.inbox, ART("write-ability/Inbox.sol", "Inbox").abi, destWallet);
+  console.log(`  allowlisting Outbox ${outboxAddr} on destination Inbox ${dest.inbox}…`);
+  await (await (inbox as any).setSupportedOutbox(outboxAddr, true)).wait();
+  if (!(await (inbox as any).isSupportedOutbox(outboxAddr))) {
+    throw new Error(`Inbox.setSupportedOutbox did not land for ${outboxAddr}`);
+  }
+  console.log("  Inbox.isSupportedOutbox confirmed");
+  destProvider.destroy();
+}
+
 async function main() {
   const addrs = JSON.parse(readFileSync(OUT, "utf8"));
   if (!addrs.dest?.inbox) throw new Error("need dest.inbox");
@@ -144,6 +161,11 @@ async function main() {
 
   const outbox = new ethers.Contract(outboxAddr, ART("write-ability/Outbox.sol", "Outbox").abi, wallet);
   await (await outbox.setTrustedForwarder(rcAddr, true)).wait();
+
+  // asc-contracts #48: the destination Inbox delivers only from allowlisted Outboxes and binds the
+  // Outbox into the attested messageHash. deploy-dest-ethers.mts deployed it with an empty
+  // allowlist (this Outbox did not exist yet); add it now, from the same anvil admin key.
+  await allowlistOutboxOnInbox(addrs.dest, outboxAddr);
 
   // Acknowledgment round-trip: deploy the AcknowledgmentValidator for the destination chain key,
   // make it the Outbox's validator (only it may call acknowledgeMessage), then point it at the

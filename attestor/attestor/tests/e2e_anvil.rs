@@ -130,6 +130,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     let expected = message_hash(
         message_id,
         emitter,
+        resolved.address,
         ck_b32,
         resolved.creditcoin_chain_id,
         &payload,

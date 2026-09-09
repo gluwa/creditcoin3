@@ -109,7 +109,7 @@ jobs:
           # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
           # could pass or fail as the relayer's default branch moved). Bump this deliberately when
           # a relayer change needs to be exercised here.
-          ref: ea6a0b2802f878b51f8943a74baec9eb60931d92 # v0.5.0 (#43) — cursor persistence, settlement metrics, genesis fallback; bump deliberately
+          ref: f17231928ff611bf18298d7de75d27b53bb91e1b # main @ 2026-09-09 (#60 outbox in the message hash, 5-arg deliverMessage; includes #59 OutboxDiscovery mirror + #61 finalized-head scan) — bump deliberately
           path: asc-message-relayer
 
       # Fee-integrated write-ability contracts. The plain-ethers deploy scripts read their compiled
@@ -118,7 +118,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: gluwa/asc-contracts
-          ref: 434073943ec6828c3271bcf39114a04304e97d7f # main @ 2026-09-04 (#46 block-based timelock) — bump deliberately
+          ref: c83b3372349712dac96d6f4927a3f321282ec39d # main @ 2026-09-09 (#48 outbox in messageHash + Inbox allowlist, on top of #46) — bump deliberately
           path: asc-contracts
           # asc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
           # gets "Repository not found". Use the org bot PAT (same one build-native uses cross-repo).
