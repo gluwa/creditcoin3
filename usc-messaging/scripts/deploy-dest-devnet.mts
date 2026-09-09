@@ -47,8 +47,15 @@ console.log("deployer:", wallet.address, "balance:", ethers.formatEther(await pr
 // Post-#23: SimpleInbox is gone; Inbox(chainKey, creditcoinChainId, validator, messageDispatcher, owner)
 // where the dispatcher must be a deployed contract — so the consumer dApp goes first.
 const dapp = await deploy("MockDestination", ART("mocks/TestMocks.sol", "MockDestination"));
+// asc-contracts #48: Inbox(…, initialOutboxes) — comma-separated source Outbox addresses in
+// INITIAL_OUTBOXES, or empty and the owner calls setSupportedOutbox(outbox, true) before delivery.
+const INITIAL_OUTBOXES = (process.env.INITIAL_OUTBOXES ?? "").split(",").map((a) => a.trim()).filter(Boolean)
+  .map((a) => ethers.getAddress(a));
 const inbox = await deploy("Inbox", ART("write-ability/Inbox.sol", "Inbox"),
-  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, VALIDATOR, await dapp.getAddress(), wallet.address]);
+  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, VALIDATOR, await dapp.getAddress(), wallet.address, INITIAL_OUTBOXES]);
+console.log(INITIAL_OUTBOXES.length
+  ? `  Inbox allowlist: ${INITIAL_OUTBOXES.join(", ")}`
+  : "  Inbox allowlist empty — call Inbox.setSupportedOutbox(outbox, true) before the relayer can deliver");
 
 const addrs = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : {};
 addrs.dest = {
