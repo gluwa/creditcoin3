@@ -135,6 +135,19 @@ pub fn anyhow_chain_is_inconsistent_block_payload(err: &anyhow::Error) -> bool {
     })
 }
 
+/// True when any cause in the [`anyhow::Error`] chain is [`Error::FailedToGetBlockByTag`]: every
+/// provider answered `null` for the requested tag. That is a property of the node (it does not
+/// serve `safe` / `finalized`), not of the connection, so callers must not reconnect-and-retry
+/// on it; the answer will not change.
+pub fn anyhow_chain_is_unsupported_block_tag(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<Error>(),
+            Some(Error::FailedToGetBlockByTag(_))
+        )
+    })
+}
+
 /// Walks the [`anyhow::Error`] chain looking for an [`Error`] that carries a block-number
 /// hint via [`Error::inconsistent_block_number_hint`] and returns the first hit.
 pub fn anyhow_chain_inconsistent_block_number_hint(err: &anyhow::Error) -> Option<u64> {
@@ -1518,5 +1531,29 @@ mod error_classifier_tests {
             super::anyhow_chain_inconsistent_block_number_hint(&transport),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod error_classification_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_block_tag_is_recognised_through_anyhow_context() {
+        let err = anyhow::Error::from(Error::FailedToGetBlockByTag(BlockTag::Safe))
+            .context("Failed to get the `safe` block")
+            .context("get_block_number_by_tag failed");
+        assert!(anyhow_chain_is_unsupported_block_tag(&err));
+        // Not an inconsistent-payload case: those are a different retry class.
+        assert!(!anyhow_chain_is_inconsistent_block_payload(&err));
+    }
+
+    #[test]
+    fn other_errors_are_not_unsupported_block_tag() {
+        let transport = anyhow::Error::from(Error::FailedToGetBlock(7)).context("x");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&transport));
+        // A stringified error loses the type and must not be classified as permanent.
+        let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
     }
 }

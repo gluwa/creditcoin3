@@ -195,7 +195,20 @@ impl Server {
                 );
                 (depth, None)
             }
-            (Some(explicit), _) if on_chain_depth == Some(explicit) => {
+            // A fixed depth cannot reproduce a tag schedule: `safe`/`finalized` advance in
+            // batches (minutes on rollups) while `tip - n` advances every block, so this prover
+            // would serve blocks the attestors have not attested. Refuse to start rather than
+            // run with a silent disagreement.
+            (Some(explicit), Some(tag)) => {
+                return Err(anyhow!(
+                    "chain_key {chain_key}: block_confirmation_depth={explicit} is pinned in config \
+                     but the on-chain MaturityStrategy {:?} follows the source node's `{tag}` tag, \
+                     which a fixed depth cannot reproduce; remove block_confirmation_depth so this \
+                     prover confirms on the same schedule as the attestors",
+                    supported_chain.maturity_strategy
+                ));
+            }
+            (Some(explicit), None) if on_chain_depth == Some(explicit) => {
                 tracing::info!(
                     chain_key,
                     block_confirmation_depth = explicit,
@@ -203,12 +216,11 @@ impl Server {
                 );
                 (explicit, None)
             }
-            (Some(explicit), _) => {
+            (Some(explicit), None) => {
                 tracing::warn!(
                     chain_key,
                     configured = explicit,
                     on_chain_depth = ?on_chain_depth,
-                    on_chain_tag = ?on_chain_tag,
                     maturity_strategy = %supported_chain.maturity_strategy,
                     "⛓️  reorg-protection depth pinned in config DISAGREES with the on-chain \
                      MaturityStrategy the attestors use; this prover will confirm blocks on a \
