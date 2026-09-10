@@ -45,6 +45,14 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             defaultMaxCatchup: u32 & AugmentedConst<ApiType>;
             defaultMinBondRequirement: u128 & AugmentedConst<ApiType>;
+            /**
+             * Default committee **cap** for chains registered without an explicit one.
+             *
+             * This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
+             * active-attestor count means the cap binds on every newly registered chain, which is
+             * the regime where quorum intersection is lost, so it should sit comfortably above the
+             * largest fleet a chain is expected to run.
+             **/
             defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;

@@ -24,7 +24,7 @@
 //!
 //! See [`Sender`] for the chain-event seams (`note_attestation_finalization`,
 //! `note_attestation_interval_change`, `note_attestors_elected`,
-//! `note_target_sample_size_change`, `note_attestation_chain_reversion`).
+//! `note_quorum_change`, `note_attestation_chain_reversion`).
 
 mod error;
 
@@ -211,6 +211,9 @@ struct Pool {
     /// double-stash the same height (production keeps gossiping; new votes form a fresh fork
     /// at the same height; pool re-yields a quorum; validation stashes again).
     locally_validated_height: Option<Height>,
+    /// Changes whenever the committee is refreshed or the vote pool is reset. A validation
+    /// result from an older generation must not defer a fork in the refreshed pool.
+    validation_generation: u64,
 }
 
 impl Pool {
@@ -239,6 +242,7 @@ impl Pool {
             metrics,
             digest_local: None,
             locally_validated_height: None,
+            validation_generation: 0,
         }
     }
 
@@ -294,6 +298,7 @@ impl Pool {
         let digest = fork.digest;
         let chain_key = fork.chain_key;
         let votes = fork.votes.clone();
+        let vote_count = votes.len();
 
         if let Some(elapsed) = self.delays.pop(height) {
             tracing::debug!(
@@ -312,7 +317,12 @@ impl Pool {
                 chain_key,
                 votes,
             },
-            Permit { height, digest },
+            Permit {
+                height,
+                digest,
+                validation_generation: self.validation_generation,
+                vote_count,
+            },
         ))
     }
 
@@ -376,6 +386,7 @@ impl Sender {
     pub fn note_attestation_interval_change(&self, interval_new: NonZero<Height>) {
         let mut guard = self.inner.pool.lock();
         if let State::Open(pool) = &mut *guard {
+            pool.validation_generation = pool.validation_generation.wrapping_add(1);
             pool.forks.clear();
             pool.valid.clear();
             pool.delays.clear();
@@ -389,6 +400,7 @@ impl Sender {
         let mutated = {
             let mut guard = self.inner.pool.lock();
             if let State::Open(pool) = &mut *guard {
+                pool.validation_generation = pool.validation_generation.wrapping_add(1);
                 pool.validate_attestor = ValidateAttestor::new(attestors);
                 // Revalidate stored state against the new set: votes already pooled by signers
                 // that just left the active set can no longer contribute to an on-chain quorum
@@ -433,15 +445,21 @@ impl Sender {
         }
     }
 
-    pub fn note_target_sample_size_change(&self, target_sample_size: u32) {
-        let threshold = attestor_primitives::calculate_threshold(target_sample_size) as usize;
-        let Some(quorum_new) = NonZero::new(threshold) else {
+    /// Install `threshold` as the pool's quorum target.
+    ///
+    /// Takes an already-computed threshold rather than a `TargetSampleSize`. The quorum is
+    /// `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so the target alone no longer
+    /// determines it, and a caller passing one here would install a threshold the runtime does
+    /// not enforce. Callers get the authoritative number from `Client::quorum`.
+    pub fn note_quorum_change(&self, threshold: u32) {
+        let Some(quorum_new) = NonZero::new(threshold as usize) else {
             return;
         };
         let mutated = {
             let mut guard = self.inner.pool.lock();
             if let State::Open(pool) = &mut *guard {
                 pool.validate_quorum.target = quorum_new;
+                pool.validation_generation = pool.validation_generation.wrapping_add(1);
                 pool.forks.deferred.clear();
                 true
             } else {
@@ -455,7 +473,8 @@ impl Sender {
     }
 
     /// The runtime rejected our submission at `height` with `MajorityNotReached` — meaning the
-    /// active `target_sample_size` on chain differs from ours and our quorum was insufficient.
+    /// live quorum on chain (`2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`) is higher
+    /// than the one we enforced, so our vote count was insufficient.
     /// Clear the local validation lock for this height so subsequent votes get admitted under
     /// the new threshold (production / production-on-other-attestors will gossipsub-retransmit).
     pub fn note_majority_not_reached(&self, height: Height) {
@@ -484,6 +503,7 @@ impl Sender {
     pub fn note_attestation_chain_reversion(&self, height: Height, digest: Digest) {
         let mut guard = self.inner.pool.lock();
         if let State::Open(pool) = &mut *guard {
+            pool.validation_generation = pool.validation_generation.wrapping_add(1);
             pool.forks.clear();
             pool.valid.clear();
             pool.delays.clear();
@@ -551,11 +571,21 @@ impl Receiver {
 
     /// Temporarily suppress a quorum that fell below the live runtime threshold after validation
     /// filtered stale/unverifiable votes. The fork's votes are preserved; a new vote or
-    /// active-set refresh makes it eligible for consideration again.
+    /// committee refresh makes it eligible for consideration again. If either arrived since
+    /// the permit was issued, leave the fork eligible so the stale result cannot lose that retry.
     pub fn defer(&self, permit: Permit) {
         let mut guard = self.inner.pool.lock();
         if let State::Open(pool) = &mut *guard {
-            pool.forks.deferred.insert((permit.height, permit.digest));
+            let key = (permit.height, permit.digest);
+            if pool.validation_generation == permit.validation_generation
+                && pool
+                    .forks
+                    .by_digest
+                    .get(&key)
+                    .is_some_and(|fork| fork.votes.len() == permit.vote_count)
+            {
+                pool.forks.deferred.insert(key);
+            }
         }
     }
 
@@ -647,6 +677,8 @@ pub struct Quorum {
 pub struct Permit {
     height: Height,
     digest: Digest,
+    validation_generation: u64,
+    vote_count: usize,
 }
 
 impl Permit {
@@ -767,9 +799,13 @@ impl Forks {
     /// ≥ `target` votes that is strictly larger than every other quorum-qualified fork at the
     /// same height.
     ///
-    /// When the configured target is not proportional to the active set (see USCP2-004,
-    /// `target_sample_size` can put the threshold at or below half the committee), two
-    /// conflicting digests at one height can *both* reach the target with disjoint signer sets.
+    /// While `TargetSampleSize` caps the committee below the active set (see USCP2-004), the
+    /// threshold can sit at or below half the committee, so two conflicting digests at one height
+    /// can *both* reach the target with disjoint signer sets. Deriving the quorum from
+    /// `min(|ActiveAttestors|, TargetSampleSize)` removes that whenever the cap does not bind: the
+    /// threshold is then a strict majority of the active set and any two quorums must intersect.
+    /// The cap is still permitted to bind, and nothing selects a committee when it does
+    /// (sortition is unbuilt, RFC-0174), so the fail-closed handling below stays.
     /// Selecting one by index ordering would arbitrarily commit this node to a side of the
     /// split; instead the height is treated as ambiguous (fail closed) until one fork pulls
     /// strictly ahead, and lower heights remain eligible meanwhile.
@@ -1051,6 +1087,19 @@ mod tests {
         )
     }
 
+    fn pool_channels(target: usize) -> (Sender, Receiver) {
+        attestation_pool(Config {
+            attestors: (0..5).map(account).collect(),
+            quorum: NonZero::new(target).unwrap(),
+            attestation_interval: NonZero::new(1).unwrap(),
+            start_height: 0,
+            max_catchup: NonZero::new(1_000).unwrap(),
+            start_digest: None,
+            start_height_finalized: None,
+            metrics: Box::new(NoMetrics),
+        })
+    }
+
     /// `best()` returns the highest height that has ≥ target votes on the same digest. A
     /// higher height with only sub-quorum support must not shadow a lower height with quorum.
     #[test]
@@ -1269,6 +1318,106 @@ mod tests {
             p.peek().is_some(),
             "new signer should re-enable the deferred fork"
         );
+    }
+
+    #[tokio::test]
+    async fn quorum_refresh_during_validation_keeps_fork_ready() {
+        // Include a quorum returning to its original value: comparing thresholds alone would
+        // miss the intervening refresh and suppress the fork after the last event.
+        for threshold in [1, 2] {
+            let (tx, rx) = pool_channels(2);
+            tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+            tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+            let (_, old_permit) = rx.recv().await.unwrap();
+
+            // While validation is awaiting an RPC that observes quorum 3, production catches
+            // up with an increase followed by a decrease. No further events or votes arrive.
+            tx.note_quorum_change(3);
+            tx.note_quorum_change(threshold);
+            rx.defer(old_permit);
+
+            let (quorum, permit) =
+                tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+                    .await
+                    .expect("stale validation must not suppress the refreshed quorum")
+                    .unwrap();
+            assert_eq!(quorum.height, 10);
+            assert_eq!(quorum.votes.len(), 2, "pooled votes must be preserved");
+            rx.mark_valid(permit);
+
+            // The lower production threshold must also apply to subsequent heights.
+            for signer in 0..threshold {
+                tx.send(vote(signer as u8, 11, 0xbb)).unwrap().unwrap();
+            }
+            let (next, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+                .await
+                .expect("new forks must use the refreshed quorum")
+                .unwrap();
+            assert_eq!(next.height, 11);
+            assert_eq!(next.votes.len(), threshold as usize);
+        }
+    }
+
+    #[tokio::test]
+    async fn membership_refresh_during_validation_keeps_fork_ready() {
+        let (tx, rx) = pool_channels(2);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_, permit) = rx.recv().await.unwrap();
+
+        // A refreshed BLS/active set can make the same two votes verifiable. Neither the
+        // threshold nor this fork's vote count changes, but its validation must be retried.
+        tx.note_attestors_elected(vec![account(0), account(1)]);
+        rx.defer(permit);
+        let (quorum, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("stale validation must not suppress a membership refresh")
+            .unwrap();
+        assert_eq!(quorum.votes.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn new_vote_during_validation_keeps_fork_ready() {
+        let (tx, rx) = pool_channels(2);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_, permit) = rx.recv().await.unwrap();
+
+        // Validation saw only two votes, but the third arrives before its failure is handled.
+        tx.send(vote(2, 10, 0xaa)).unwrap().unwrap();
+        rx.defer(permit);
+        let (quorum, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("stale validation must not suppress the additional vote")
+            .unwrap();
+        assert_eq!(quorum.votes.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn deferred_quorum_waits_for_refresh_without_busy_looping() {
+        let (tx, rx) = pool_channels(2);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        let (_, permit) = rx.recv().await.unwrap();
+
+        // Duplicates before and after deferral must not count as new information.
+        tx.send(vote(1, 10, 0xaa)).unwrap().unwrap();
+        rx.defer(permit);
+        tx.send(vote(0, 10, 0xaa)).unwrap().unwrap();
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), rx.recv())
+                .await
+                .is_err(),
+            "an unchanged fork must stay deferred"
+        );
+
+        // A quorum change alone must release the deferred fork, without discarding any votes.
+        tx.note_quorum_change(1);
+        let (quorum, _) = tokio::time::timeout(std::time::Duration::from_secs(2), rx.recv())
+            .await
+            .expect("quorum refresh must release the deferred fork")
+            .unwrap();
+        assert_eq!(quorum.votes.len(), 2);
     }
 
     /// An election refresh must WAKE a parked receiver, not just clear `deferred`:

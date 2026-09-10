@@ -118,6 +118,12 @@ pub mod pallet {
         type DefaultAttestationsPerCheckpoint: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
+        /// Default committee **cap** for chains registered without an explicit one.
+        ///
+        /// This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
+        /// active-attestor count means the cap binds on every newly registered chain, which is
+        /// the regime where quorum intersection is lost, so it should sit comfortably above the
+        /// largest fleet a chain is expected to run.
         #[pallet::constant]
         type DefaultTargetSampleSize: Get<u32>;
         /// The default maximum catchup bound, expressed in **blocks**.
@@ -362,6 +368,22 @@ pub mod pallet {
     pub type PendingTargetSampleSize<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
 
+    /// Per-chain **cap** on the voting committee, not the committee itself.
+    ///
+    /// The quorum `validate_attestation` enforces is `2/3+1` of
+    /// `min(|ActiveAttestors|, TargetSampleSize)` (see
+    /// [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). While fewer
+    /// attestors are active than this value, the whole active set is the committee and the cap is
+    /// inert; it only binds once the active set grows past it.
+    ///
+    /// Two consequences operators need to know:
+    ///
+    /// - Setting this **above** the active-attestor count is safe and is the recommended posture.
+    ///   Quorum intersection — the property that two conflicting quorums cannot both exist at one
+    ///   height — holds only while the cap does not bind, because nothing selects which attestors
+    ///   vote (sortition is unbuilt: see `do_start_election`'s unused `_randomness`, RFC-0174).
+    /// - While the cap **does** bind, any self-selected `2/3+1` of the cap is a valid quorum, and
+    ///   two disjoint such groups can exist within a larger active set (USCP2-004).
     #[pallet::storage]
     #[pallet::getter(fn target_sample_size)]
     pub type TargetSampleSize<T: Config> =
@@ -908,6 +930,13 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Set the per-chain committee **cap** (see [`TargetSampleSize`]). Applies at the next
+        /// epoch via [`PendingTargetSampleSize`].
+        ///
+        /// This does not by itself set the quorum: the quorum is `2/3+1` of
+        /// `min(|ActiveAttestors|, TargetSampleSize)`. Raising this above the active-attestor
+        /// count makes the whole active set the committee, which is the posture that preserves
+        /// quorum intersection.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::set_target_sample_size())]
         pub fn set_target_sample_size(
