@@ -13,6 +13,13 @@ name: Reusable workflow to build docker image
       runs-on:
         required: true
         type: string
+      # Lets a caller build only the auxiliary images (indexer, stress-test) and skip
+      # the node image, whose Rust compile is ~27 of this job's ~29 minutes. Defaults
+      # to true, so release.yml and any other caller that omits it are unaffected.
+      build-node-image:
+        required: false
+        type: boolean
+        default: true
     secrets:
       GLUWA_BOT_PR:
         description: gluwa-bot PAT (pull-requests:write only) so Docker Scout can post PR comments — GITHUB_TOKEN's own permissions couldn't be elevated (see DO-2338)
@@ -50,6 +57,7 @@ jobs:
           lfs: true
 
       - name: Build ${{ github.repository }} docker image
+        if: ${{ inputs.build-node-image }}
         run: |
           docker build -t ${{ github.repository }}:${{ inputs.version-string }} --build-arg="${{ inputs.build-options }}" --sbom=true --provenance=mode=max .
           docker images
@@ -81,6 +89,7 @@ jobs:
       # the `local://` / `registry://` schemes are what distinguish the PR's local build from
       # the published Docker Hub image.
       - name: Docker Scout - compare ${{ github.repository }} against published :latest
+        if: ${{ inputs.build-node-image }}
         continue-on-error: true
         uses: docker/scout-action@v1.23.1
         with:
@@ -134,19 +143,23 @@ jobs:
           write-comment: false
 
       - name: Export docker image into a file
+        if: ${{ inputs.build-node-image }}
         run: |
           mkdir -p "${{ runner.temp }}/gluwa/"
           docker image save ${{ github.repository }}:${{ inputs.version-string }} > ${{ runner.temp }}/${{ github.repository }}.tar
 
       - name: Upload exported image for use by other CI jobs
-        if: always()
+        if: ${{ always() && inputs.build-node-image }}
         uses: actions/upload-artifact@v7
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/${{ github.repository }}.tar
 
       - name: Push docker images
-        # executes only when credentials are specified in the caller workflow
+        # executes only when credentials are specified in the caller workflow.
+        # Safe alongside build-node-image: only PR builds ever pass it as false, and
+        # those deliberately have no DOCKER_PUSH_* secrets (see docker.yml), so this
+        # step never runs in a build where the node image was skipped.
         if: env.DOCKER_PUSH_USERNAME
         env:
           DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
