@@ -58,6 +58,7 @@ describe('BlockAttested events', (): void => {
             '2': 0,
             '4': 0,
         };
+        let epochBoundaries = 0;
         const initialBlock = (await getChainStatus(api)).bestNumber;
 
         return new Promise((resolve, reject): void => {
@@ -104,6 +105,7 @@ describe('BlockAttested events', (): void => {
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
                             const [epochIndex] = event.data;
                             const epochAsNum = (epochIndex as U64).toNumber();
+                            epochBoundaries++;
 
                             if (epochAsNum % 2 === 0) {
                                 const defaultInterval = (
@@ -149,8 +151,13 @@ describe('BlockAttested events', (): void => {
             // `AttestorsElected` fires only when a chain's attestor set changes, never as a per-epoch
             // heartbeat. The fleet is steady for the whole run, so at most a straggler from a
             // previous scenario (e.g. a chilled attestor retiring at the boundary) may show up.
+            // The epoch hook itself is observed through pallet-randomness: we must have seen the
+            // boundaries the election count is being compared against.
+            expect(epochBoundaries).toBeGreaterThanOrEqual(5);
             expect(electionEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(2);
             expect(electionEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(2);
+            expect(electionEvents[chain_Anvil1_Key]).toBeLessThan(epochBoundaries);
+            expect(electionEvents[chain_Anvil2_Key]).toBeLessThan(epochBoundaries);
 
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);

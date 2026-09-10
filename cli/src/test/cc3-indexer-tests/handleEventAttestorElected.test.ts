@@ -62,17 +62,20 @@ describe('handleEventAttestorElected()', () => {
                 }`,
             );
             expect(response.data.attestorsElecteds.nodes).toBeTruthy();
-            const electedIds = response.data.attestorsElecteds.nodes.map(
+            const electedIds: string[] = response.data.attestorsElecteds.nodes.map(
                 (node: { attestorId: string }) => node.attestorId,
             );
-            for (const active of activeAttestorsForAnvil1) {
-                expect(electedIds).toContain(active);
-            }
+            // The latest election IS the current committee: no immediate-removal path (kick or
+            // chill of a Waiting attestor) touches Anvil 1 in this suite, so the two sets must be
+            // identical, one row per member and no duplicates.
+            expect(electedIds.length).toEqual(activeAttestorsForAnvil1.length);
+            expect(new Set(electedIds)).toEqual(new Set(activeAttestorsForAnvil1));
 
             for (const node of response.data.attestorsElecteds.nodes) {
                 expect(node.id).toBeTruthy();
                 expect(BigInt(node.epoch)).toEqual(latestElectionEpoch);
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
+                expect(activeAttestorsForAnvil1).toContain(node.attestorId);
 
                 const response2 = await graphQLQuery(
                     `query { attestorsElected(id: "${node.id}") { id, epoch, chainKey, attestorId }}`,

@@ -1000,15 +1000,6 @@ type EnsureOperators = frame_system::EnsureSignedBy<Operators, AccountId>;
 type EnsureRootOrOperators =
     frame_support::traits::EitherOfDiverse<frame_system::EnsureRoot<AccountId>, EnsureOperators>;
 
-/// Current epoch index as tracked by `pallet-randomness`, so elections forced mid-epoch are
-/// labelled with the same epoch the epoch hook would use.
-pub struct RandomnessEpochIndex;
-impl Get<u64> for RandomnessEpochIndex {
-    fn get() -> u64 {
-        Randomness::epoch_index()
-    }
-}
-
 impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type DefaultAttestationInterval = DefaultAttestationInterval;
@@ -1021,7 +1012,8 @@ impl pallet_attestation::Config for Runtime {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
-    type CurrentEpochIndex = RandomnessEpochIndex;
+    // Forced elections are labelled with the same epoch index the epoch hook receives.
+    type CurrentEpochIndex = pallet_randomness::EpochIndex<Runtime>;
     type Currency = Balances;
     type CurrencyBalance = Balance;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;

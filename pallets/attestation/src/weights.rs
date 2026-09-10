@@ -647,15 +647,23 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn force_election() -> Weight {
+	/// The range of component `a` is `[1, 99]`.
+	fn force_election(a: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `1546`
-		//  Estimated: `17386`
+		//  Measured:  `1546 + a * (200 ±0)`
+		//  Estimated: `17386 + a * (2600 ±0)`
 		// Minimum execution time: 235_731_000 picoseconds.
-		Weight::from_parts(272_349_000, 0)
+		// Placeholder linear coefficients pending the benchmark run: one Attestors read, one
+		// conditional write and one event per registered attestor on top of the 5-attestor fixture.
+		Weight::from_parts(200_000_000, 0)
 			.saturating_add(Weight::from_parts(0, 17386))
-			.saturating_add(T::DbWeight::get().reads(14))
-			.saturating_add(T::DbWeight::get().writes(8))
+			// Standard Error: 0
+			.saturating_add(Weight::from_parts(15_000_000, 0).saturating_mul(a.into()))
+			.saturating_add(T::DbWeight::get().reads(9))
+			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(a.into())))
+			.saturating_add(T::DbWeight::get().writes(3))
+			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(a.into())))
+			.saturating_add(Weight::from_parts(0, 2600).saturating_mul(a.into()))
 	}
 	/// Storage: `Attestation::PendingAttestationInterval` (r:2 w:1)
 	/// Proof: `Attestation::PendingAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
