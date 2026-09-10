@@ -15,12 +15,10 @@ name: rust-coverage
   schedule:
     # 02:30 UTC on weekdays, so a report is waiting each working morning.
     - cron: "30 2 * * 1-5"
+  # No inputs: workflow_dispatch already offers a ref selector, and actions/checkout
+  # defaults to the dispatched ref, so a `ref` input was both redundant and tripped
+  # checkov CKV_GHA_7 (user parameters must not determine the build's source location).
   workflow_dispatch:
-    inputs:
-      ref:
-        description: "Ref to measure coverage for (defaults to the default branch)"
-        required: false
-        type: string
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -40,8 +38,6 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref || '' }}
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -98,7 +94,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref || '' }}
           token: ${{ secrets.GLUWA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Install protobuf
