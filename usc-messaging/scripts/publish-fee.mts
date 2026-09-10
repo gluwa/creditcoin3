@@ -1,6 +1,7 @@
 // Plain-ethers fee-publish: quote from the live quoter → approve → publishAndCollectRelayerFee.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { memoEnvelope } from "./evm-envelope.mjs";
 
 const a = JSON.parse(readFileSync("/tmp/e2e-deploy.json", "utf8"));
 const s = a.source;
@@ -8,9 +9,16 @@ const provider = new ethers.JsonRpcProvider("http://127.0.0.1:9944", 42, { stati
 provider.pollingInterval = 800;
 const payer = new ethers.Wallet("0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b", provider);
 
-// Post-#23: Inbox always dispatches to its fixed messageDispatcher (the dApp, wired at deploy
-// time) — the payload is opaque dApp-specific data, no longer (address destinationContract, bytes).
-const payload = ethers.toUtf8Bytes(`e2e delivery ${process.argv[2] ?? "1"}`);
+// asc-contracts #36: the Inbox's messageDispatcher is the DispatcherRouter, which decodes the
+// payload as abi.encode(destination, nativeCoinValue, gasLimit, payloadData) and calls
+// `destination` (here MockDestination = dest.dapp, whose fallback bumps `calls()`) with
+// payloadData ++ bytes20(emitter). The quoter's payloadHash covers the FULL envelope — that is what
+// the Outbox stores, attestors sign and the relayer forwards.
+if (!a.dest?.dapp) throw new Error("need dest.dapp (run deploy-dest-ethers.mts first)");
+const payload = ethers.getBytes(memoEnvelope(a.dest.dapp, `e2e delivery ${process.argv[2] ?? "1"}`));
+// Quote gasLimit funds the whole Inbox.deliverMessage tx (vote validation + router hop + the
+// envelope's 200k destination budget); the relayer pins its delivery tx to this value.
+const QUOTE_GAS_LIMIT = 500_000;
 
 // Do every on-chain prerequisite BEFORE fetching the quote: the quote's expectedCompletion/expiry
 // clock starts ticking at fetch time, and each of these is a separate mined transaction — fetching
@@ -29,7 +37,7 @@ await (await outbox.approveForwarder(s.relayerContract, true)).wait();
 
 const res = await fetch("http://localhost:3010/quote", {
   method: "POST", headers: { "content-type": "application/json" },
-  body: JSON.stringify({ destinationChain: s.chainKey, targetContract: payer.address, payloadHash: ethers.keccak256(payload), gasLimit: 300000, requiresAck: true }),
+  body: JSON.stringify({ destinationChain: s.chainKey, targetContract: payer.address, payloadHash: ethers.keccak256(payload), gasLimit: QUOTE_GAS_LIMIT, requiresAck: true }),
 });
 const body = await res.json();
 if (!body.signedQuote) throw new Error("quoter: " + JSON.stringify(body));

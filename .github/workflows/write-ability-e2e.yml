@@ -1,6 +1,8 @@
 ---
 # USC write-ability end-to-end: dApp -> Outbox -> attestors (gossip votes) -> relayer
-# (2N/3+1 quorum) -> EOAValidator.validateVotes -> Inbox.deliverMessage -> destination dApp,
+# (2N/3+1 quorum) -> EOAValidator.validateVotes -> Inbox.deliverMessage -> DispatcherRouter
+# (decodes the abi.encode(destination, nativeCoinValue, gasLimit, payloadData) envelope,
+# asc-contracts #36) -> destination dApp (MockDestination.calls++),
 # then the proof-based acknowledgment round-trip: proof-gen serves a native USC delivery proof
 # (block-prover precompile: merkle inclusion + continuity) for the attested destination block ->
 # relayer submits it to AcknowledgmentValidator -> Outbox.acknowledgeMessage (acknowledged=true).
@@ -118,7 +120,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: gluwa/asc-contracts
-          ref: c83b3372349712dac96d6f4927a3f321282ec39d # main @ 2026-09-09 (#48 outbox in messageHash + Inbox allowlist, on top of #46) — bump deliberately
+          ref: a9791c371205571c921c03f6ed9db41910fe1b94 # main @ 2026-09-10 (#36 DispatcherRouter + envelope, on top of #48) — bump deliberately
           path: asc-contracts
           # asc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
           # gets "Repository not found". Use the org bot PAT (same one build-native uses cross-repo).
@@ -209,7 +211,10 @@ jobs:
         # deploys OutboxDiscovery (behind its UUPS proxy), registers the Outbox as this chain key's
         # default, and calls set_outbox_discovery_addr via sudo — resolution is registry-only and
         # fail-closed now (the OutboxCreated log scan was removed), so without this the attestors
-        # below never activate write-ability. Addresses land in /tmp/e2e-deploy.json.
+        # below never activate write-ability. The dest deploy puts the #36 DispatcherRouter in front
+        # of the Inbox (MockDestination is only the envelope destination); the source deploy then
+        # allowlists the freshly created Outbox on that Inbox (#48 setSupportedOutbox). Addresses
+        # land in /tmp/e2e-deploy.json.
         run: |
           npx tsx scripts/deploy-dest-ethers.mts
           npx tsx scripts/deploy-source-ethers.mts
@@ -313,7 +318,8 @@ jobs:
       - name: Publish a fee'd cross-chain message (requiresAck)
         working-directory: ./usc-messaging
         run: |
-          # Quotes from the live quoter, approves ATTEST, calls
+          # Wraps the memo in the #36 envelope abi.encode(dest.dapp, 0, 200k, memo), quotes from the
+          # live quoter (payloadHash over the full envelope), approves ATTEST, calls
           # RelayerContract.publishAndCollectRelayerFee, and records the messageId to
           # /tmp/e2e-published.json for the ack + claim assertions.
           # Fail the step if publish fails, but still surface the log first — otherwise a failed
@@ -330,6 +336,9 @@ jobs:
         run: |
           export PATH="$HOME/.foundry/bin:$PATH"
           set -a; source .env; set +a
+          # MockDestination.calls() is bumped by its payable fallback, which is what the
+          # DispatcherRouter/DefaultDispatcher hit with `memo ++ bytes20(emitter)` (still exposed at
+          # the a9791c37 pin: contracts/mocks/TestMocks.sol).
           for _ in $(seq 1 40); do
             CNT="$(cast call "$DAPP_CONTRACT_ADDR" 'calls()(uint256)' --rpc-url http://127.0.0.1:8545 2>/dev/null || echo 0)"
             if [ "${CNT:-0}" != "0" ]; then

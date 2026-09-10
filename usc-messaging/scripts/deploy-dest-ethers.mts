@@ -1,9 +1,16 @@
-// Plain-ethers destination-stack deploy (anvil): AttestorRegistry + EOAValidator + Inbox +
-// MockDestination. Artifacts come from the usc-contracts hardhat build. Run with tsx (Node 22).
-// Post-#23: SimpleInbox is gone — Inbox takes a fixed messageDispatcher (the dApp) set at
-// construction, and EOAValidator delegates its attestor set to a shared AttestorRegistry.
+// Plain-ethers destination-stack deploy (anvil): AttestorRegistry + EOAValidator + MockDestination
+// + DefaultDispatcher + DispatcherRouter + Inbox. Artifacts come from the asc-contracts hardhat
+// build. Run with tsx (Node 22).
+//
+// asc-contracts #36 (main a9791c37): the Inbox no longer calls the dApp directly — its fixed
+// messageDispatcher is the DispatcherRouter, which decodes the Outbox payload as the EVM envelope
+// abi.encode(destination, nativeCoinValue, gasLimit, payloadData) and calls `destination` with
+// payloadData ++ bytes20(emitter). MockDestination is therefore just the envelope's destination
+// (dest.dapp); publish-fee.mts wraps its memo in that envelope. See dispatcher-stack.mts for the
+// deploy order / constructor args and the hardhat reference they mirror.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { deployRouterStackWithInbox, ensureDestinationTrusts } from "./dispatcher-stack.mjs";
 
 // asc-contracts checkout: $ASC_CONTRACTS_DIR, else the sibling of this repo (…/Projects/asc-contracts).
 function ascContractsDir(): string {
@@ -56,20 +63,28 @@ const registry = await deploy("AttestorRegistry", ART("write-ability/AttestorReg
 // 2/3 + 1 quorum (numerator 20 / THRESHOLD_DENOMINATOR 30, addition 1), minAttestorCount at the floor.
 const validator = await deploy("EOAValidator", ART("write-ability/EOAValidator.sol", "EOAValidator"),
   [wallet.address, await registry.getAddress(), 3, 20, 1]);
+const validatorAddr = await validator.getAddress();
 const dapp = await deploy("MockDestination", ART("mocks/TestMocks.sol", "MockDestination"));
-// Inbox requires its messageDispatcher to already have code, so the dApp must be deployed first.
-// asc-contracts #48: the Inbox only delivers from allowlisted source Outboxes (`initialOutboxes`,
-// `setSupportedOutbox`). The Outbox does not exist yet at this point — deploy-source-ethers.mts
-// creates it via CREATE2 and allowlists it on this Inbox right after — so start empty.
-const inbox = await deploy("Inbox", ART("write-ability/Inbox.sol", "Inbox"),
-  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, await validator.getAddress(), await dapp.getAddress(), wallet.address, []]);
+
+// DefaultDispatcher → DispatcherRouter → Inbox (nonce-predicted; see dispatcher-stack.mts).
+// Inbox(bytes32 chainKey, uint256 sourceChainId /* Creditcoin EVM chain id, still 42 */, validator,
+//       messageDispatcher = router, owner, initialOutboxes). The Outbox does not exist yet on anvil
+// (deploy-source-ethers.mts creates it next and calls Inbox.setSupportedOutbox), so start empty.
+const stack = await deployRouterStackWithInbox({
+  wallet, ART,
+  inboxArgsFor: (router) => [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, validatorAddr, router, wallet.address, []],
+});
+await ensureDestinationTrusts(wallet, await dapp.getAddress(), {
+  DispatcherRouter: stack.dispatcherRouter, DefaultDispatcher: stack.defaultDispatcher,
+});
 
 const addrs = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : {};
 addrs.dest = {
   chainId: 31337, rpc: "http://127.0.0.1:8545", chainKey: CHAIN_KEY,
   creditcoinChainId: CREDITCOIN_CHAIN_ID, localChainKey: LOCAL_CHAIN_KEY,
   voteValidator: await validator.getAddress(), attestorRegistry: await registry.getAddress(),
-  inbox: await inbox.getAddress(), dapp: await dapp.getAddress(), admin: wallet.address,
+  inbox: stack.inbox, dispatcherRouter: stack.dispatcherRouter, defaultDispatcher: stack.defaultDispatcher,
+  dapp: await dapp.getAddress(), admin: wallet.address,
 };
 writeFileSync(OUT, JSON.stringify(addrs, null, 2));
 console.log("✅ dest stack deployed →", OUT);

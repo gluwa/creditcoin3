@@ -1,8 +1,19 @@
-// usc-dev destination-stack deploy (real Sepolia): SimpleInbox + MockDestination, REUSING the
-// live EOAValidator (attestor _3 + relayer 0.1.1 already speak it; set is synced 10/7).
-// Env: SEPOLIA_RPC, DEPLOYER_KEY. Artifacts from $ASC_CONTRACTS_DIR (post-#23 build).
+// usc-dev destination-stack deploy (real Sepolia, chain key 8): MockDestination + DefaultDispatcher
+// + DispatcherRouter + Inbox, REUSING the live EOAValidator (attestors + relayer already speak it).
+//
+// asc-contracts #36 (main a9791c37): the Inbox's messageDispatcher is the DispatcherRouter, not the
+// dApp; publishers wrap their memo in the EVM envelope abi.encode(dest.dapp, 0, gasLimit, memo)
+// (see evm-envelope.mts). Deploy order / constructor args: dispatcher-stack.mts.
+//
+// The Inbox allowlists source.outbox at construction when the deploy JSON already has one (#48);
+// otherwise deploy-source-devnet.mts must call Inbox.setSupportedOutbox afterwards. Follow up with
+// repoint-inbox-devnet.mts so the Creditcoin-side ack validator + delivery decoder trust the new Inbox.
+//
+// Env: SEPOLIA_RPC, DEPLOYER_KEY (becomes Inbox/router owner), DEPLOY_OUT. Artifacts from
+// $ASC_CONTRACTS_DIR (main a9791c37+ build). DEVNET-ONLY keys.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { deployRouterStackWithInbox, ensureDestinationTrusts } from "./dispatcher-stack.mjs";
 
 function ascContractsDir(): string {
   // ASC_CONTRACTS_DIR since the repo was renamed usc-contracts -> asc-contracts; the old name is
@@ -43,26 +54,32 @@ async function deploy(name: string, art: any, args: any[] = []) {
   return c;
 }
 
-console.log("deployer:", wallet.address, "balance:", ethers.formatEther(await provider.getBalance(wallet.address)), "ETH");
-// Post-#23: SimpleInbox is gone; Inbox(chainKey, creditcoinChainId, validator, messageDispatcher, owner)
-// where the dispatcher must be a deployed contract — so the consumer dApp goes first.
-const dapp = await deploy("MockDestination", ART("mocks/TestMocks.sol", "MockDestination"));
-// asc-contracts #48: Inbox(…, initialOutboxes) — comma-separated source Outbox addresses in
-// INITIAL_OUTBOXES, or empty and the owner calls setSupportedOutbox(outbox, true) before delivery.
-const INITIAL_OUTBOXES = (process.env.INITIAL_OUTBOXES ?? "").split(",").map((a) => a.trim()).filter(Boolean)
-  .map((a) => ethers.getAddress(a));
-const inbox = await deploy("Inbox", ART("write-ability/Inbox.sol", "Inbox"),
-  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, VALIDATOR, await dapp.getAddress(), wallet.address, INITIAL_OUTBOXES]);
-console.log(INITIAL_OUTBOXES.length
-  ? `  Inbox allowlist: ${INITIAL_OUTBOXES.join(", ")}`
-  : "  Inbox allowlist empty — call Inbox.setSupportedOutbox(outbox, true) before the relayer can deliver");
-
 const addrs = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : {};
+// Allowlist at construction (Inbox #48 six-arg ctor): INITIAL_OUTBOXES (comma-separated) when set,
+// else the already-deployed Creditcoin Outbox from the deploy JSON, else empty (owner calls
+// setSupportedOutbox(outbox, true) after the source deploy).
+const initialOutboxes: string[] = process.env.INITIAL_OUTBOXES
+  ? process.env.INITIAL_OUTBOXES.split(",").map((a) => a.trim()).filter(Boolean).map((a) => ethers.getAddress(a))
+  : addrs.source?.outbox ? [ethers.getAddress(addrs.source.outbox)] : [];
+
+console.log("deployer:", wallet.address, "balance:", ethers.formatEther(await provider.getBalance(wallet.address)), "ETH");
+console.log("initialOutboxes:", initialOutboxes.length ? initialOutboxes.join(", ") : "(none — run Inbox.setSupportedOutbox after the source deploy)");
+const dapp = await deploy("MockDestination", ART("mocks/TestMocks.sol", "MockDestination"));
+const stack = await deployRouterStackWithInbox({
+  wallet, ART,
+  inboxArgsFor: (router) => [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, VALIDATOR, router, wallet.address, initialOutboxes],
+});
+await ensureDestinationTrusts(wallet, await dapp.getAddress(), {
+  DispatcherRouter: stack.dispatcherRouter, DefaultDispatcher: stack.defaultDispatcher,
+});
+
 addrs.dest = {
   chainId: SEPOLIA_CHAIN_ID, chainKey: CHAIN_KEY, creditcoinChainId: CREDITCOIN_CHAIN_ID,
   localChainKey: LOCAL_CHAIN_KEY, voteValidator: VALIDATOR,
-  inbox: await inbox.getAddress(), dapp: await dapp.getAddress(), admin: wallet.address,
+  inbox: stack.inbox, dispatcherRouter: stack.dispatcherRouter, defaultDispatcher: stack.defaultDispatcher,
+  dapp: await dapp.getAddress(), admin: wallet.address, deployedAt: new Date().toISOString(),
 };
 writeFileSync(OUT, JSON.stringify(addrs, null, 2));
 console.log("✅ dest stack deployed →", OUT);
+console.log("   Next: repoint-inbox-devnet.mts NEW_INBOX=" + stack.inbox + " (ack validator + delivery decoder), then roll the relayer IaC inboxAddress.");
 process.exit(0);

@@ -14,9 +14,14 @@
 // Env: DEPLOYER_KEY, QUOTER_TEST_KEY, optional MEMO, REQUIRES_ACK=false, DEPLOY_OUT.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { memoEnvelope } from "./evm-envelope.mjs";
 
 const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
-const s = JSON.parse(readFileSync(OUT, "utf8")).source;
+const deployJson = JSON.parse(readFileSync(OUT, "utf8"));
+const s = deployJson.source;
+// Envelope destination: the MockDestination behind the #36 DispatcherRouter (override with DESTINATION).
+const destination: string | undefined = process.env.DESTINATION ?? deployJson.dest?.dapp;
+if (!destination) throw new Error("need dest.dapp in the deploy JSON (or DESTINATION) — the #36 envelope needs a destination contract");
 if ((s.relayerContractKind ?? "") !== "RelayerContractLite") {
   throw new Error(`source.relayerContractKind is ${s.relayerContractKind ?? "unset"}; this script is for RelayerContractLite`);
 }
@@ -53,7 +58,10 @@ const chainKey = Number(await outbox.chainKey());
 const liveCoreFee: bigint = await outbox.coreFee();
 const now = BigInt((await provider.getBlock("latest"))!.timestamp);
 
-const payload = ethers.getBytes(ethers.toUtf8Bytes(process.env.MEMO ?? `usc-dev lite smoke ${new Date().toISOString()}`));
+// asc-contracts #36 envelope: abi.encode(destination, nativeCoinValue = 0, gasLimit, utf8 memo). The
+// DispatcherRouter decodes it on the destination and calls `destination` with memo ++ bytes20(emitter).
+// payloadHash hashes the FULL envelope — that is what the Outbox stores and the relayer forwards.
+const payload = ethers.getBytes(memoEnvelope(destination, process.env.MEMO ?? `usc-dev lite smoke ${new Date().toISOString()}`));
 const payloadHash = ethers.keccak256(payload);
 
 // RelayerTypes.Quote. coreFee is a CAP the contract checks against outbox.coreFee() at publish; it
@@ -62,7 +70,7 @@ const q = {
   coreFee: liveCoreFee * 2n,
   relayPrice: ethers.parseEther("1"),                                   // ATTEST (payInNative=false)
   acknowledgmentPrice: requiresAck ? ethers.parseEther("1") : 0n,       // nonzero ⇒ Outbox canAck
-  gasLimit: 300000n,                                                     // relayer refuses if its estimate exceeds this
+  gasLimit: 500000n,                                                     // funds the whole deliverMessage tx (votes + router hop + 200k envelope budget); relayer pins to it
   destinationChain: chainKey,
   payloadHash,
   targetContract: payer.address,                                        // == msg.sender

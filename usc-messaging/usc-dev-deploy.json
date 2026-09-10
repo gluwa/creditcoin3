@@ -11,7 +11,11 @@
     "attestorRegistry": "0xcFd1ef75e9e6Ebd94694DF9560b023E6d5B64F8B",
     "oldVoteValidator": "0x71A21Ea8d28D3a0618d61d478Ee20DCB64be8082",
     "oldInbox": "0x58D2eCdd35Fb5F4ca999087614C224a4214b90F8",
-    "inboxRepointedAt": "2026-09-09T18:04:51.215Z"
+    "inboxRepointedAt": "2026-09-09T18:04:51.215Z",
+    "dispatcherRouter": "0x7ABc588eD63155590BFe2c58c94E52929ed2b85C",
+    "defaultDispatcher": "0xEA503aC3b594985279E59E45c7B18e71361327BF",
+    "previousMessageDispatcher": "0x5585547745D46748e11Ff7d1a4758DD39262a27F",
+    "routerDeployedAt": "2026-09-10T07:26:27.268Z"
   },
   "source": {
     "chainId": 42,
@@ -39,5 +43,44 @@
     "outboxDiscovery": "0x6B544e279684cEf4fC9aBCFfd7D1de0D0c926e84",
     "outboxDiscoveryImpl": "0x43d70f01b32a219ec85965239C3F0E29a1A543e1",
     "outboxDiscoveryDeployedAt": "2026-09-09T09:06:01.442Z"
+  },
+  "chains": {
+    "9": {
+      "chainKey": 9,
+      "destChainId": 84532,
+      "destChainName": "Base Sepolia",
+      "registeredAt": "2026-09-10T07:27:55.516Z",
+      "dest": {
+        "chainId": 84532,
+        "rpc": "https://base-sepolia.core.chainstack.com",
+        "chainKey": 9,
+        "creditcoinChainId": 42,
+        "localChainKey": "0x0000000000000000000000000000000000000000000000000000000000000009",
+        "voteValidator": "0xb2290622223188d73d26D27849c96f5534e4163a",
+        "attestorRegistry": "0x22CB7EDe671D5d990FF3D33D41b0c1a126f0634C",
+        "inbox": "0x8359dc5fd1Cc729bF2a33d21611bc3998AFAB39E",
+        "dispatcherRouter": "0xF592eaA1040aaCF336B5B24b5eEafafCD9304A4e",
+        "defaultDispatcher": "0x1Cb074ceEF177848916c2EbFA79a024A4166AfF5",
+        "dapp": "0xEDc5d07954B502DD3617654fb33D6443aFf4Fd27",
+        "admin": "0x97c2cdaB56E1ee6EafC2a8d32e8A8358905b8162",
+        "initialAttestors": [
+          "0x0000000000000000000000000000000000000001",
+          "0x0000000000000000000000000000000000000002",
+          "0x0000000000000000000000000000000000000003"
+        ],
+        "deployedAt": "2026-09-10T07:35:52.451Z"
+      },
+      "source": {
+        "outbox": "0xf3223D5DB16e45b97cC9e1526ae5b816ea7f506b",
+        "attestorVault": "0x78552b3360212Ae9D4219361Bbf9b8286bD10fd6",
+        "relayerFeeVault": "0xa1ab4Ab6A2E0A370460AFBE39414Dd5200E7C3A9",
+        "relayerContract": "0x7C689f7A9905905FF825f67CF9EDb475eA3156D8",
+        "relayerContractKind": "RelayerContractLite",
+        "ackValidator": "0x18C3682237cE6F832253Df827DD9FDa217459715",
+        "quoterEOA": "0x7CC15788445190C8EaADa403b010196f96A0f28d",
+        "deployedAt": "2026-09-10T07:36:40.511Z",
+        "wiredAt": "2026-09-10T07:37:41.391Z"
+      }
+    }
   }
 }

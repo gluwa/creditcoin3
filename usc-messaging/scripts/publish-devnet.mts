@@ -3,16 +3,22 @@
 // Env: DEPLOYER_KEY (payer + quoter EOA), optional MEMO.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { memoEnvelope } from "./evm-envelope.mjs";
 
 const OUT = process.env.DEPLOY_OUT ?? "/tmp/usc-dev-deploy.json";
 const a = JSON.parse(readFileSync(OUT, "utf8"));
 const s = a.source;
+// Envelope destination: the MockDestination behind the #36 DispatcherRouter (override with DESTINATION).
+const destination: string | undefined = process.env.DESTINATION ?? a.dest?.dapp;
+if (!destination) throw new Error("need dest.dapp in the deploy JSON (or DESTINATION) — the #36 envelope needs a destination contract");
 
 const provider = new ethers.JsonRpcProvider(s.rpc, s.chainId, { staticNetwork: true, polling: true });
 provider.pollingInterval = 1000;
 const payer = new ethers.Wallet(process.env.DEPLOYER_KEY!, provider);
 
-const payload = ethers.getBytes(ethers.toUtf8Bytes(process.env.MEMO ?? `usc-dev smoke ${new Date().toISOString()}`));
+// asc-contracts #36 envelope: abi.encode(destination, 0, gasLimit, utf8 memo); payloadHash covers the
+// FULL envelope (what the Outbox stores and the relayer forwards to the DispatcherRouter).
+const payload = ethers.getBytes(memoEnvelope(destination, process.env.MEMO ?? `usc-dev smoke ${new Date().toISOString()}`));
 const payloadHash = ethers.keccak256(payload);
 const now = BigInt((await provider.getBlock("latest"))!.timestamp);
 
@@ -21,7 +27,7 @@ const q = {
   coreFee: ethers.parseEther("1"),            // cap == live USCRelayingQuoter core fee
   relayPrice: ethers.parseEther("1"),         // ATTEST (payInNative=false)
   acknowledgmentPrice: ethers.parseEther("1"),// nonzero ⇒ canAck
-  gasLimit: 300000n,
+  gasLimit: 500000n,                          // whole deliverMessage tx: votes + router hop + 200k envelope budget
   destinationChain: s.chainKey,               // uint32 chain key (8)
   payloadHash,
   targetContract: payer.address,              // must equal msg.sender

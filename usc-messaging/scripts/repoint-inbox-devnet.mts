@@ -41,10 +41,11 @@ if (process.env.SEPOLIA_RPC) {
   const sep = new ethers.JsonRpcProvider(process.env.SEPOLIA_RPC, DEST_CHAIN_ID, { staticNetwork: true });
   const inbox = new ethers.Contract(NEW_INBOX, [
     "function isSupportedOutbox(address) view returns (bool)",
-    "function creditcoinChainId() view returns (uint256)",
+    // #36 renamed creditcoinChainId() → sourceChainId(); the value is still the Creditcoin EVM chain id.
+    "function sourceChainId() view returns (uint256)",
   ], sep);
   if (!(await inbox.isSupportedOutbox(s.outbox))) throw new Error(`${NEW_INBOX} does not allowlist Outbox ${s.outbox}; owner must setSupportedOutbox first`);
-  if (Number(await inbox.creditcoinChainId()) !== CC_CHAIN_ID) throw new Error("new Inbox creditcoinChainId != 42");
+  if (Number(await inbox.sourceChainId()) !== CC_CHAIN_ID) throw new Error("new Inbox sourceChainId != 42");
   console.log(`  Sepolia Inbox ${NEW_INBOX} allowlists ${s.outbox}`);
   sep.destroy();
 } else {

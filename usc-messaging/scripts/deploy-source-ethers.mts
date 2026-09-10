@@ -263,6 +263,21 @@ async function main() {
   await (await (decoder as any).setTrustedInbox(DEST_CHAIN_ID, addrs.dest.inbox)).wait();
   console.log("  wired: forwarder, feeVault, destEvmChainId, quoter EOA, coreFee, trustedInbox");
 
+  // asc-contracts #48 (in the a9791c37 pin): the Inbox only accepts deliveries from allowlisted
+  // source Outboxes. The dest stack was deployed before this Outbox existed (initialOutboxes = []),
+  // so allowlist it now as the Inbox owner (anvil account 0) or the relayer's first delivery
+  // reverts UnsupportedOutbox.
+  const destProvider = new ethers.JsonRpcProvider(addrs.dest.rpc ?? "http://127.0.0.1:8545", addrs.dest.chainId ?? DEST_CHAIN_ID, { staticNetwork: true });
+  destProvider.pollingInterval = 500;
+  const ANVIL0 = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+  const destOwner = new ethers.Wallet(ANVIL0, destProvider);
+  const inbox = new ethers.Contract(addrs.dest.inbox, ART("write-ability/Inbox.sol", "Inbox").abi, destOwner);
+  if (!(await inbox.isSupportedOutbox(outboxAddr))) {
+    await (await inbox.setSupportedOutbox(outboxAddr, true)).wait();
+    console.log("  Inbox.setSupportedOutbox(Outbox, true) on", addrs.dest.inbox);
+  } else console.log("  Inbox already allowlists the Outbox");
+  destProvider.destroy();
+
   // seed prices (deployer == oracleService)
   await (await (twap as any).update(ethers.parseEther("1"))).wait();
   await (await (quoter as any).setPricingMode(0, 10_000_000_000n)).wait();
