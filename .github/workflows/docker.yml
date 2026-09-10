@@ -10,7 +10,12 @@ name: Docker
       - '**Cargo**'
       - '**Dockerfile**'
       - 'docker-compose.**'
-      - 'cli/src/**'
+      # NOTE: cli/src/** deliberately absent. A CLI-only change cannot affect the Rust
+      # binaries, and the one thing this workflow uniquely proved about the CLI -- that
+      # it packages and installs, then answers --help -- is already checked on EVERY PR
+      # by sanity.yml's npm-packages job (yarn build; npm install -g .; which creditcoin;
+      # creditcoin help/wizard --help/attestor --help), which is a superset of the
+      # docker-test check and costs ~1 minute instead of ~29.
       - 'cc3-indexer/**'
       - '.github/workflows/build-docker.yml'
       - '.github/workflows/docker.yml'
@@ -29,8 +34,42 @@ concurrency:
 permissions: read-all
 
 jobs:
+  # The node image's Rust compile is ~27 of this workflow's ~29 build minutes, and a
+  # third of Docker runs historically rebuilt it for changes that cannot affect it
+  # (measured over 160 commits). The indexer and stress-test images are built from
+  # their own external base images (subql-node-substrate, deno) and never derive from
+  # the node image, so they are unaffected when it is skipped.
+  detect-changes:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    outputs:
+      # A manual run has no base ref to diff against, so build everything rather than
+      # silently skipping the image the operator most likely wanted.
+      node_image: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.node_image }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4.0.2
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            node_image:
+              - '**.rs'
+              - '**.toml'
+              - '**Cargo**'
+              # The root Dockerfile only. cc3-indexer/Dockerfile and
+              # scripts/stress-test/Dockerfile still trigger this workflow via the
+              # '**Dockerfile**' path above, but build their own images, not this one.
+              - 'Dockerfile'
+              # docker-compose.yaml runs `image: gluwa/creditcoin3`, which docker-test
+              # exercises in its "Start validator via compose" step.
+              - 'docker-compose.**'
+              - '.github/workflows/build-docker.yml'
+              - '.github/workflows/docker.yml'
+
   docker-build:
     needs:
+      - detect-changes
       - deploy-runner-docker-build
     uses: ./.github/workflows/build-docker.yml
     # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
@@ -47,11 +86,16 @@ jobs:
       build-options: "BUILD_ARGS="
       version-string: "latest"
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
+      build-node-image: ${{ needs.detect-changes.outputs.node_image == 'true' }}
 
   docker-test:
     needs:
+      - detect-changes
       - docker-build
+    # Every assertion here runs against the node image, which was not rebuilt.
+    if: ${{ needs.detect-changes.outputs.node_image == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - name: Download locally built docker image
         uses: actions/download-artifact@v8

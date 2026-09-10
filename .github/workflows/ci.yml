@@ -18,6 +18,7 @@ permissions: read-all
 jobs:
   should-run:
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     outputs:
       changes: ${{ steps.filter.outputs.changes }}
       archiver: ${{ steps.filter.outputs.archiver }}
@@ -152,6 +153,7 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: Install Node Dependencies
@@ -210,6 +212,7 @@ jobs:
       - should-run
     if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -786,15 +789,6 @@ jobs:
             ./logs
           include-hidden-files: true
 
-  trigger-integration-test-cli:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-      - should-run
-    if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
   integration-test-cli:
     strategy:
       fail-fast: false
@@ -821,11 +815,16 @@ jobs:
             proxy_type: All
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    # Gated directly rather than through a separate no-op `trigger-` job, which burned a
+    # runner on a bare checkout and, because it also waited on the node build, could only
+    # report its skip decision after that build had finished.
+    if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
     needs:
       - build-creditcoin-node-for-testing-ci
-      - trigger-integration-test-cli
+      - should-run
       - regenerate-metadata
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
         with:
@@ -937,6 +936,7 @@ jobs:
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -1112,6 +1112,7 @@ jobs:
       - should-run
     if: ${{ needs.should-run.outputs.docs_smart_contract == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
@@ -1304,6 +1305,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
@@ -1520,6 +1522,7 @@ jobs:
       - regenerate-metadata
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
 
@@ -1650,6 +1653,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' || needs.should-run.outputs.integration_test_cli == 'true' || needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -1845,6 +1849,7 @@ jobs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
