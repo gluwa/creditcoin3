@@ -384,9 +384,16 @@ async fn main() -> Result<()> {
         count += 1;
 
         let end_reached = cfg.end_height.is_some_and(|end| height >= end);
+        let target = cfg
+            .end_height
+            .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
+        let remaining = target.saturating_sub(height);
+        let at_tip = at_tip(remaining, cfg.flush_every);
 
-        // Flush batch when full or at end.
-        if batch_buf.len() >= flush_size || end_reached {
+        // Write the batch when full, at the end, or whenever we are at the tip: batching there
+        // only delays when the API can serve a root that is already mature, which is what
+        // proof-gen and the attestors are waiting on. Deep catch-up keeps the batched writes.
+        if batch_buf.len() >= flush_size || end_reached || at_tip {
             store.put_roots(&batch_buf)?;
             batch_buf.clear();
         }
@@ -397,8 +404,8 @@ async fn main() -> Result<()> {
             break;
         }
 
-        // Periodic flush + logging
-        let is_flush = height % cfg.flush_every.get() == 0;
+        // Durability flush + logging: every block at the tip, every `flush_every` otherwise.
+        let is_flush = at_tip || height % cfg.flush_every.get() == 0;
         let is_log = is_flush || count % cfg.flush_every.get() == 0;
 
         if is_flush {
@@ -412,10 +419,6 @@ async fn main() -> Result<()> {
             } else {
                 0.0
             };
-            let target = cfg
-                .end_height
-                .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
-            let remaining = target.saturating_sub(height);
             let label = if is_flush { "flushed" } else { "✓" };
             tracing::info!(
                 height,
@@ -445,6 +448,16 @@ async fn main() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// True when the archiver is close enough to the chain head that batching would delay the
+/// visibility of mature roots: within one `flush_every` window of the target. At the tip
+/// `remaining` settles at the finalization lag (plus a little head-tracker latency), which is
+/// far below any sane `flush_every`, so tip-following writes and flushes every block without
+/// operators having to set `FLUSH_EVERY=1`. If the head tracker has no value yet (`0`),
+/// `remaining` is `0` and we err on the side of flushing.
+fn at_tip(remaining: u64, flush_every: std::num::NonZeroU64) -> bool {
+    remaining < flush_every.get()
 }
 
 fn format_eta(remaining: u64, rate: f64) -> String {
@@ -503,6 +516,35 @@ fn resolve_finalization_lag(override_lag: Option<u64>, on_chain_lag: Option<u64>
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn at_tip_within_one_flush_window_of_the_head() {
+        let every = std::num::NonZeroU64::new(10_000).unwrap();
+        // Deep catch-up keeps batching.
+        assert!(!at_tip(45_000_000, every));
+        assert!(!at_tip(10_000, every));
+        // Inside the last window, and at the head itself (remaining == finalization lag).
+        assert!(at_tip(9_999, every));
+        assert!(at_tip(10, every));
+        assert!(at_tip(0, every));
+    }
+
+    #[test]
+    fn at_tip_with_flush_every_one_keeps_the_old_meaning() {
+        let one = std::num::NonZeroU64::new(1).unwrap();
+        assert!(at_tip(0, one));
+        assert!(!at_tip(1, one));
+    }
+
+    #[test]
+    fn missing_head_tracker_value_flushes_conservatively() {
+        // chain_head defaults to 0 when the HTTP head fetch fails; remaining saturates to 0.
+        let remaining = 0u64.saturating_sub(123_456);
+        assert!(at_tip(
+            remaining,
+            std::num::NonZeroU64::new(10_000).unwrap()
+        ));
+    }
+
     use super::*;
 
     #[test]
