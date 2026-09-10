@@ -107,21 +107,31 @@ impl<T: Config> OnRuntimeUpgrade for MigrateV1ToV2<T> {
         )
     }
 
+    /// Records whether the migration will run (on-chain version below 2). `post_upgrade` may only
+    /// assert the map is empty in that case: on a chain already at V2 the migration is skipped and
+    /// `CoreFees` legitimately holds the fees set since (usc-devnet had two when it went 131 → 136).
     #[cfg(feature = "try-runtime")]
     fn pre_upgrade() -> Result<Vec<u8>, TryRuntimeError> {
-        Ok(Vec::new())
+        use parity_scale_codec::Encode;
+        let will_run = Pallet::<T>::on_chain_storage_version() < StorageVersion::new(2);
+        Ok(will_run.encode())
     }
 
     #[cfg(feature = "try-runtime")]
-    fn post_upgrade(_state: Vec<u8>) -> Result<(), TryRuntimeError> {
+    fn post_upgrade(state: Vec<u8>) -> Result<(), TryRuntimeError> {
+        use parity_scale_codec::Decode;
         ensure!(
             Pallet::<T>::on_chain_storage_version() >= StorageVersion::new(2),
             "post_upgrade: storage version not updated"
         );
-        ensure!(
-            CoreFees::<T>::iter().next().is_none(),
-            "post_upgrade: CoreFees still has entries after the clear"
-        );
+        let ran = bool::decode(&mut &state[..])
+            .map_err(|_| TryRuntimeError::Other("post_upgrade: bad pre_upgrade state"))?;
+        if ran {
+            ensure!(
+                CoreFees::<T>::iter().next().is_none(),
+                "post_upgrade: CoreFees still has entries after the clear"
+            );
+        }
         Ok(())
     }
 }
