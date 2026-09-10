@@ -126,7 +126,10 @@ export async function ensureDestinationTrusts(wallet: ethers.Wallet, destination
     try {
       trusted = Boolean(await dest.isTrustedInbox(caller));
     } catch {
-      throw new Error(`destination ${destination} does not implement isTrustedInbox — its owner must make it trust ${label} ${caller}`);
+      // Pre-#36 destinations (e.g. the old MockDestination) have no trust list. DestinationCall does
+      // not require one — the router just calls the destination — so this is informational only.
+      console.log(`  destination ${destination} has no isTrustedInbox — skipping trust for ${label} ${caller} (not required by DestinationCall)`);
+      continue;
     }
     if (trusted) { console.log(`  destination already trusts ${label}`); continue; }
     await (await dest.setTrustedInbox(caller, true)).wait();

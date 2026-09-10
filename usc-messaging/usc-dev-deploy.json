@@ -11,7 +11,11 @@
     "attestorRegistry": "0xcFd1ef75e9e6Ebd94694DF9560b023E6d5B64F8B",
     "oldVoteValidator": "0x71A21Ea8d28D3a0618d61d478Ee20DCB64be8082",
     "oldInbox": "0x58D2eCdd35Fb5F4ca999087614C224a4214b90F8",
-    "inboxRepointedAt": "2026-09-09T18:04:51.215Z"
+    "inboxRepointedAt": "2026-09-09T18:04:51.215Z",
+    "dispatcherRouter": "0x7ABc588eD63155590BFe2c58c94E52929ed2b85C",
+    "defaultDispatcher": "0xEA503aC3b594985279E59E45c7B18e71361327BF",
+    "previousMessageDispatcher": "0x5585547745D46748e11Ff7d1a4758DD39262a27F",
+    "routerDeployedAt": "2026-09-10T07:26:27.268Z"
   },
   "source": {
     "chainId": 42,
@@ -39,5 +43,13 @@
     "outboxDiscovery": "0x6B544e279684cEf4fC9aBCFfd7D1de0D0c926e84",
     "outboxDiscoveryImpl": "0x43d70f01b32a219ec85965239C3F0E29a1A543e1",
     "outboxDiscoveryDeployedAt": "2026-09-09T09:06:01.442Z"
+  },
+  "chains": {
+    "9": {
+      "chainKey": 9,
+      "destChainId": 84532,
+      "destChainName": "Base Sepolia",
+      "registeredAt": "2026-09-10T07:27:55.516Z"
+    }
   }
 }
