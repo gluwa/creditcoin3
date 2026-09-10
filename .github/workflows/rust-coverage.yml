@@ -1,0 +1,149 @@
+---
+name: rust-coverage
+
+# Coverage instrumentation and the long proptest soak used to run in rust.yml's
+# cargo-test job on every pull request. Between them they were most of that job's
+# ~55 minutes: cargo llvm-cov injects -C instrument-coverage into RUSTFLAGS, which
+# changes the fingerprint of every dependency and forces a from-cold compile of the
+# whole graph, and PROPTEST_CASES=10000 is a soak rather than a unit test.
+#
+# Nothing gated on either: there is no codecov/coveralls upload, no threshold and no
+# PR comment, only an HTML artifact that a human opens to satisfy the "Coverage tools
+# report all newly added lines as covered" checkbox in the PR template. So both run
+# here on a schedule instead, and on demand when someone wants a report for a PR.
+"on":
+  schedule:
+    # 02:30 UTC on weekdays, so a report is waiting each working morning.
+    - cron: "30 2 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Ref to measure coverage for (defaults to the default branch)"
+        required: false
+        type: string
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+env:
+  CXXFLAGS: "-include cstdint"
+
+jobs:
+  coverage:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || '' }}
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install libclang
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          components: llvm-tools-preview, rust-src
+          targets: wasm32v1-none
+
+      # Its own key: the coverage build's RUSTFLAGS make its artifacts unusable by any
+      # other job, so sharing a key would only evict entries those jobs still need.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-coverage
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@v2.85.4
+        with:
+          tool: cargo-llvm-cov@0.6.24
+
+      - name: Run tests with coverage
+        run: |
+          cargo llvm-cov \
+              --release \
+              --workspace --html --show-missing-lines --hide-instantiations \
+              --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
+
+      - name: Upload coverage report as artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-report
+          path: target/llvm-cov/html/
+
+  # The proptest soak. Kept in its own job so a coverage failure does not hide a
+  # simulation bug, and so it can push regression files without the coverage job
+  # needing write access.
+  simulation-soak:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref || '' }}
+          token: ${{ secrets.GLUWA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install libclang
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32v1-none
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-test
+          save-if: false
+
+      - name: Run simulations
+        id: simulation
+        env:
+          PROPTEST_CASES: 10000
+          SKIP_WASM_BUILD: 1
+        run: |
+          cargo test \
+            --release \
+            --features simulation \
+            -p stream_attestation \
+            simulate
+
+      - name: Commit regression files
+        uses: EndBug/add-and-commit@v10
+        if: always()
+        with:
+          push: true
+          add: common/streams/attestation/proptest-regressions/simulation/mod.txt
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "test(simulation): found new bug"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}

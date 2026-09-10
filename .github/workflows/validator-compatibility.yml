@@ -54,9 +54,13 @@ jobs:
   # ---------------------------------------------------------------------------
   discover-versions:
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     outputs:
       versions: ${{ steps.collect.outputs.versions }}
       count: ${{ steps.collect.outputs.count }}
+      # Short digest of the version list, safe to embed in a cache key
+      # (the raw JSON array contains quotes and commas).
+      digest: ${{ steps.collect.outputs.digest }}
     steps:
       - name: Install jq
         run: |
@@ -114,8 +118,13 @@ jobs:
           VERSIONS_JSON=$(echo "${TAGS}" | jq -R . | jq -c -s .)
           COUNT=$(echo "${TAGS}" | wc -l | tr -d ' ')
 
-          echo "versions=${VERSIONS_JSON}" >> "$GITHUB_OUTPUT"
-          echo "count=${COUNT}" >> "$GITHUB_OUTPUT"
+          # digest is a short hash of the version list, safe to embed in a cache
+          # key (the raw JSON array contains quotes and commas).
+          {
+            echo "versions=${VERSIONS_JSON}"
+            echo "count=${COUNT}"
+            echo "digest=$(printf %s "${VERSIONS_JSON}" | sha256sum | cut -c1-16)"
+          } >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
   # Build the SUT binary from the current PR / usc-dev branch on a GitHub-hosted
@@ -162,6 +171,7 @@ jobs:
       - build-sut
     runs-on:
       [self-hosted, "workflow-${{ github.run_id }}", "type-validator-compatibility"]
+    timeout-minutes: 90
     env:
       VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
       LOG_DIR: /var/tmp/validator-compatibility
@@ -194,6 +204,18 @@ jobs:
           name: binary-for-PR
           path: sut
 
+      # Published release assets are immutable, so re-fetching them on every run is
+      # pure waste. The key is the discovered version list: a new release changes the
+      # list and therefore the key, and nothing else can change the contents.
+      - name: Restore cached historical node binaries
+        uses: actions/cache@v4
+        with:
+          # Only the archives: the unzipped copies are re-derived cheaply below, and
+          # caching both would double this entry against the repo-wide 10 GB cache
+          # budget that the Rust build caches also draw on.
+          path: historical/*.zip
+          key: validator-historical-${{ needs.discover-versions.outputs.digest }}
+
       - name: Download historical release binaries
         env:
           GH_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
@@ -204,15 +226,23 @@ jobs:
           mkdir -p historical
           for TAG in $(echo "${VERSIONS_JSON}" | jq -r '.[]'); do
             ASSET="creditcoin-${TAG}-x86_64-unknown-linux-gnu.zip"
-            echo "INFO: downloading ${ASSET}"
-            curl --silent --location --fail \
-              --header "Authorization: Bearer ${GH_TOKEN}" \
-              --header "Accept: application/octet-stream" \
-              "https://api.github.com/repos/${OWNER_REPO}/releases/assets/$(
-                curl --silent --header "Authorization: Bearer ${GH_TOKEN}" \
-                  "https://api.github.com/repos/${OWNER_REPO}/releases/tags/${TAG}" \
-                | jq -r ".assets[] | select(.name == \"${ASSET}\") | .id"
-              )" -o "historical/${TAG}.zip"
+
+            # Served from the cache restored above: skip the download, but still unzip
+            # and run --version below so a corrupt or partial cache entry fails loudly
+            # rather than silently testing nothing.
+            if [ -s "historical/${TAG}.zip" ]; then
+              echo "INFO: ${ASSET} already present (cache hit)"
+            else
+              echo "INFO: downloading ${ASSET}"
+              curl --silent --location --fail \
+                --header "Authorization: Bearer ${GH_TOKEN}" \
+                --header "Accept: application/octet-stream" \
+                "https://api.github.com/repos/${OWNER_REPO}/releases/assets/$(
+                  curl --silent --header "Authorization: Bearer ${GH_TOKEN}" \
+                    "https://api.github.com/repos/${OWNER_REPO}/releases/tags/${TAG}" \
+                  | jq -r ".assets[] | select(.name == \"${ASSET}\") | .id"
+                )" -o "historical/${TAG}.zip"
+            fi
 
             mkdir -p "historical/${TAG}"
             unzip -o "historical/${TAG}.zip" -d "historical/${TAG}"
