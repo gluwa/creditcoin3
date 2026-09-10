@@ -10,12 +10,13 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
-use crate::prom::Metrics;
+use crate::config::ChainCacheConfig;
+use crate::prom::{CacheOccupancy, Metrics};
 use crate::services::continuity_service::helpers::*;
 use attestor_primitives::block::ContinuityProof;
 use continuity::ContinuityBuilder;
 use merkle::proof::TransactionMerkleProof;
-use merkle_cache::MerkleProofCache;
+use merkle_cache::{MerkleCacheStats, MerkleProofCache};
 
 pub mod helpers;
 mod merkle_cache;
@@ -38,6 +39,8 @@ pub struct ChainState {
     /// pod counts as healthy until real events land (same convention as the attestor's
     /// liveness watchdog).
     pub last_cache_advance: std::sync::Mutex<Instant>,
+    /// Per-chain cache sizing. Defaults reproduce the pre-configuration behavior.
+    pub cache_config: ChainCacheConfig,
 }
 
 impl ChainState {
@@ -209,6 +212,8 @@ pub struct CacheFreshness {
     pub stale_chains: Vec<u64>,
 }
 
+/// How often cache-occupancy gauges are refreshed.
+const CACHE_METRICS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const MERKLE_BACKFILL_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK: usize = 50;
 const MERKLE_BACKFILL_MAX_CONCURRENCY: usize = 8;
@@ -221,6 +226,32 @@ impl ContinuityService {
     /// Returns an error if the attestation genesis block cannot be fetched from RPC.
     pub async fn new(
         builders: Vec<Arc<ContinuityBuilder>>,
+        metrics: Metrics,
+        max_batch_size: usize,
+        max_batch_span: u64,
+    ) -> anyhow::Result<Self> {
+        Self::new_with_cache_configs(
+            builders,
+            HashMap::new(),
+            metrics,
+            max_batch_size,
+            max_batch_span,
+        )
+        .await
+    }
+
+    /// Like [`Self::new`], but with per-chain cache sizing.
+    ///
+    /// Cache tuning is deliberately routed here rather than through [`continuity::ContinuityConfig`]:
+    /// that type lives in a crate shared with the attestors, and how this process budgets its own
+    /// caches is none of their business. Chains absent from `cache_configs` get
+    /// [`ChainCacheConfig::default`], i.e. the historical behavior.
+    ///
+    /// # Errors
+    /// Returns an error if the attestation genesis block cannot be fetched from RPC.
+    pub async fn new_with_cache_configs(
+        builders: Vec<Arc<ContinuityBuilder>>,
+        cache_configs: HashMap<u64, ChainCacheConfig>,
         metrics: Metrics,
         max_batch_size: usize,
         max_batch_span: u64,
@@ -315,6 +346,7 @@ impl ContinuityService {
             metrics.set_last_attested_height(chain_key, latest_attested_height);
             let checkpoint_interval = builder.config.checkpoint_interval;
             let attestation_interval = builder.config.attestation_interval;
+            let cache_config = cache_configs.get(&chain_key).cloned().unwrap_or_default();
 
             chains.insert(
                 chain_key,
@@ -327,6 +359,7 @@ impl ContinuityService {
                     checkpoint_interval: AtomicU64::new(checkpoint_interval),
                     attestation_interval: AtomicU64::new(attestation_interval),
                     last_cache_advance: std::sync::Mutex::new(Instant::now()),
+                    cache_config,
                 }),
             );
         }
@@ -354,9 +387,61 @@ impl ContinuityService {
         self.chains.keys().copied().collect()
     }
 
+    /// Sample every chain's cache occupancy into Prometheus on a fixed tick.
+    ///
+    /// Sampled rather than updated at each mutation site: these are observability gauges, the
+    /// reads are cheap, and driving them from a single place keeps metric updates out of the
+    /// cache write paths.
+    pub fn spawn_cache_metrics_updater(
+        service: Arc<Self>,
+        block_caches: HashMap<u64, Arc<eth::mem_block_cache::MemBlockCache>>,
+    ) {
+        tokio::spawn(async move {
+            loop {
+                for (chain_key, chain) in service.chains.iter() {
+                    let (merkle, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
+                    // One snapshot feeds both the gauges and the clamp.
+                    let retention = Self::retention_blocks_for(chain.as_ref(), merkle);
+                    let (block_cache_blocks, block_cache_txs, block_cache_capacity) =
+                        match block_caches.get(chain_key) {
+                            Some(cache) => {
+                                let (blocks, txs) = cache.occupancy();
+                                (blocks as u64, txs as u64, cache.capacity() as u64)
+                            }
+                            None => (0, 0, 0),
+                        };
+
+                    service.metrics.set_cache_occupancy(
+                        *chain_key,
+                        CacheOccupancy {
+                            merkle_blocks: merkle.blocks,
+                            merkle_txs: merkle.txs,
+                            merkle_bytes: merkle.bytes,
+                            merkle_retention_blocks: retention,
+                            checkpoint_entries,
+                            block_cache_blocks,
+                            block_cache_txs,
+                            block_cache_capacity,
+                        },
+                    );
+                }
+                tokio::time::sleep(CACHE_METRICS_POLL_INTERVAL).await;
+            }
+        });
+    }
+
     pub fn spawn_merkle_backfill(service: Arc<Self>) {
         for chain in service.chains.values().cloned().collect::<Vec<_>>() {
             let service = service.clone();
+            if !chain.cache_config.merkle_backfill_enabled {
+                // Pruning still happens on every checkpoint, so skipping the worker cannot let
+                // the cache grow without bound - it just fills on demand instead of eagerly.
+                tracing::info!(
+                    chain_key = chain.builder.config.chain_key,
+                    "merkle proof cache backfill disabled by config; filling on demand only"
+                );
+                continue;
+            }
             tokio::spawn(async move {
                 tracing::info!(
                     chain_key = chain.builder.config.chain_key,
@@ -392,7 +477,7 @@ impl ContinuityService {
             return Ok(());
         };
         let cache_tip = latest_attested_height.min(confirmed_tip);
-        let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref());
+        let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref()).await;
         let genesis = chain.attestation_genesis_block.load(Ordering::Relaxed);
         let start = cache_tip.saturating_sub(retention_blocks).max(genesis);
 
@@ -400,11 +485,28 @@ impl ContinuityService {
             return Ok(());
         }
 
+        // Shed everything below the retained window *before* deciding whether there is fill
+        // work. A byte-budget clamp narrows the window precisely into the state where every
+        // remaining height is already processed, so pruning only on the fill path would leave
+        // the blocks the budget just excluded resident until the next checkpoint -- or
+        // indefinitely, if attestations stall and `cache_tip` stops advancing. Filling only
+        // ever adds heights inside the window, so one prune per tick is enough.
+        let removed = chain.merkle_proof_cache.prune_below(start).await;
+        if removed > 0 {
+            tracing::info!(
+                chain_key,
+                min_retained = start,
+                removed,
+                "pruned old merkle proof cache blocks outside the retained window"
+            );
+        }
+
         let heights = chain
             .merkle_proof_cache
             .unprocessed_heights_desc(start, cache_tip, MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK)
             .await;
         if heights.is_empty() {
+            let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
             tracing::info!(
                 chain_key,
                 confirmed_tip,
@@ -412,6 +514,10 @@ impl ContinuityService {
                 cache_tip,
                 retained_from = start,
                 retention_blocks,
+                total_cached_blocks = merkle_stats.blocks,
+                total_cached_txs = merkle_stats.txs,
+                total_cached_bytes = merkle_stats.bytes,
+                checkpoint_cache_entries = checkpoint_entries,
                 "merkle proof cache backfill already warm for retained range"
             );
             return Ok(());
@@ -465,30 +571,25 @@ impl ContinuityService {
             }
         }
 
+        let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
         tracing::info!(
             chain_key,
             confirmed_tip,
             latest_attested_height,
             cache_tip,
             retained_from = start,
+            retention_blocks,
             min_height,
             max_height,
             cached_blocks,
             cached_txs,
             failed_blocks,
+            total_cached_blocks = merkle_stats.blocks,
+            total_cached_txs = merkle_stats.txs,
+            total_cached_bytes = merkle_stats.bytes,
+            checkpoint_cache_entries = checkpoint_entries,
             "merkle proof cache backfill tick completed"
         );
-
-        let min_retained = cache_tip.saturating_sub(retention_blocks).max(genesis);
-        let removed = chain.merkle_proof_cache.prune_below(min_retained).await;
-        if removed > 0 {
-            tracing::info!(
-                chain_key,
-                min_retained,
-                removed,
-                "pruned old merkle proof cache blocks after backfill"
-            );
-        }
 
         Ok(())
     }
@@ -557,12 +658,68 @@ impl ContinuityService {
         Ok(item)
     }
 
-    fn merkle_cache_retention_blocks(&self, chain: &ChainState) -> u64 {
+    /// Retention window derived from the chain's live on-chain attestation cadence.
+    ///
+    /// Note what this couples: raising `attestation_interval` to *reduce* attestation load on a
+    /// fast chain multiplies this window by the same factor. That is why it can be overridden
+    /// per chain via `cache.merkle_retention_blocks`.
+    fn derived_retention_blocks(chain: &ChainState) -> u64 {
         let checkpoint_interval = chain.checkpoint_interval.load(Ordering::Relaxed);
         let attestation_interval = chain.attestation_interval.load(Ordering::Relaxed);
         attestation_interval
             .saturating_mul(checkpoint_interval)
             .saturating_mul(MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER)
+    }
+
+    /// Effective retention window for a chain's merkle cache, in source blocks.
+    ///
+    /// Starts from the configured or derived window, then — when a byte budget is set — narrows
+    /// it using the cache's own measured bytes-per-block so the resident set stays inside the
+    /// budget however many transactions the chain puts in a block.
+    ///
+    /// The budget deliberately moves this window rather than evicting blocks directly.
+    /// [`MerkleProofCache::unprocessed_heights_desc`] drives the backfill worker off
+    /// `processed_blocks`, so a block evicted purely for size would either be treated as
+    /// still-cached (and never refilled) or be refilled immediately because it remains inside
+    /// the window — a fill/evict thrash loop. Narrowing the window instead keeps
+    /// height-ordered `prune_below` as the single eviction path and makes thrash impossible.
+    async fn merkle_cache_retention_blocks(&self, chain: &ChainState) -> u64 {
+        let stats = chain.merkle_proof_cache.size_stats().await;
+
+        Self::retention_blocks_for(chain, stats)
+    }
+
+    /// [`Self::merkle_cache_retention_blocks`] against an already-taken occupancy snapshot, so a
+    /// caller that needs both does not read the cache twice.
+    fn retention_blocks_for(chain: &ChainState, stats: MerkleCacheStats) -> u64 {
+        let configured = chain
+            .cache_config
+            .merkle_retention_blocks
+            .unwrap_or_else(|| Self::derived_retention_blocks(chain));
+
+        let Some(budget) = chain.cache_config.merkle_max_bytes else {
+            return configured;
+        };
+
+        // A cold cache has no density to measure yet; the clamp engages after the first tick.
+        let Some(mean_bytes) = stats.mean_bytes_per_block() else {
+            return configured;
+        };
+
+        // Never shrink below one attestation bracket, so the window a proof is most likely to
+        // need stays resident even under a tight budget.
+        let floor = chain.attestation_interval.load(Ordering::Relaxed).max(1);
+        let affordable = (budget / mean_bytes).max(floor);
+
+        configured.min(affordable)
+    }
+
+    /// Occupancy of a chain's caches, for metrics and logging.
+    async fn cache_occupancy(chain: &ChainState) -> (MerkleCacheStats, u64) {
+        let merkle = chain.merkle_proof_cache.size_stats().await;
+        let checkpoints = chain.checkpoint_cache.read().await.len() as u64;
+
+        (merkle, checkpoints)
     }
 
     /// Update the continuity builder's last-checkpoint hint (from on-chain events).
@@ -887,11 +1044,27 @@ impl ContinuityService {
     pub async fn insert_checkpoint(&self, chain_key: u64, block_number: u64, digest: H256) {
         if let Some(chain) = self.chains.get(&chain_key) {
             {
-                chain
-                    .checkpoint_cache
-                    .write()
-                    .await
-                    .insert(block_number, digest);
+                let mut cp = chain.checkpoint_cache.write().await;
+                cp.insert(block_number, digest);
+
+                // Optional cap. Off by default: proof serving resolves a query against the
+                // checkpoint immediately *below* it and has no fallback to chain state on a
+                // miss, so dropping old checkpoints caps how far back proofs can be served.
+                if let Some(max_entries) = chain.cache_config.checkpoint_cache_max_entries {
+                    let mut dropped = 0usize;
+                    while cp.len() > max_entries && cp.pop_first().is_some() {
+                        dropped += 1;
+                    }
+                    if dropped > 0 {
+                        tracing::debug!(
+                            chain_key,
+                            dropped,
+                            max_entries,
+                            oldest_retained = ?cp.keys().next(),
+                            "🔧 🧹 dropped oldest checkpoints to honor checkpoint_cache_max_entries"
+                        );
+                    }
+                }
             }
             chain.touch_cache();
             tracing::debug!(
@@ -905,8 +1078,9 @@ impl ContinuityService {
                 Self::cached_checkpoint_height(chain.as_ref()).await,
             );
 
-            let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref());
-            let min_retained = block_number.saturating_sub(retention_blocks);
+            let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref()).await;
+            let genesis = chain.attestation_genesis_block.load(Ordering::Relaxed);
+            let min_retained = block_number.saturating_sub(retention_blocks).max(genesis);
             let removed = chain.merkle_proof_cache.prune_below(min_retained).await;
             if removed > 0 {
                 tracing::debug!(

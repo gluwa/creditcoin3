@@ -50,6 +50,28 @@ impl MemBlockCache {
         evict_to_capacity(&mut map, self.capacity);
     }
 
+    /// Configured maximum number of blocks.
+    #[must_use]
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    /// Occupancy snapshot: `(blocks, transactions)`.
+    ///
+    /// Each entry holds a whole block's *decoded* transactions and receipts, which on a
+    /// high-throughput chain is the largest per-chain allocation in the process. A byte figure
+    /// is not offered on purpose: the decoded alloy types are deeply nested, so any cheap
+    /// estimate would be more misleading than the counts. Blocks against
+    /// [`Self::capacity`] shows saturation; transactions show scale.
+    #[must_use]
+    pub fn occupancy(&self) -> (usize, usize) {
+        let map = self.lock();
+        let blocks = map.len();
+        let transactions = map.values().map(|block| block.items.len()).sum();
+
+        (blocks, transactions)
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<u64, OrderedBlock>> {
         // A poisoned lock only happens if a holder panicked while mutating; the map is plain data
         // with no broken invariant, so recover the guard rather than propagate the panic.
@@ -82,6 +104,17 @@ mod tests {
         evict_to_capacity(&mut map, 3);
         // The 3 highest block numbers survive; the lowest 7 are evicted.
         assert_eq!(map.keys().copied().collect::<Vec<_>>(), vec![8, 9, 10]);
+    }
+
+    #[test]
+    fn capacity_is_reported_as_configured() {
+        use super::MemBlockCache;
+        use std::num::NonZeroUsize;
+
+        let cache = MemBlockCache::new(NonZeroUsize::new(96).expect("96 is non-zero"));
+        assert_eq!(cache.capacity(), 96);
+        // Nothing cached yet, so no blocks and no transactions.
+        assert_eq!(cache.occupancy(), (0, 0));
     }
 
     #[test]
