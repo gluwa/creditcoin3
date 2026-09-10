@@ -62,7 +62,9 @@ pub struct Config {
     #[arg(long, env = "API_BIND", default_value = "0.0.0.0:8080")]
     pub api_bind: SocketAddr,
 
-    /// How often to flush the sled database to disk (every N blocks).
+    /// How often to write and flush roots while catching up (every N blocks). Once the archiver
+    /// is within N blocks of the chain head it writes and flushes every block automatically, so
+    /// this only needs tuning for backfill throughput; tip-following never needs `1`.
     #[arg(long, env = "FLUSH_EVERY", default_value = "10000")]
     pub flush_every: NonZeroU64,
 
