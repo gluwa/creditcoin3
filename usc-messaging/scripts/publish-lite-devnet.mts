@@ -18,9 +18,18 @@ import { memoEnvelope } from "./evm-envelope.mjs";
 
 const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
 const deployJson = JSON.parse(readFileSync(OUT, "utf8"));
-const s = deployJson.source;
+// CHAIN_KEY selects a secondary destination registered by register-chain-devnet / deploy-*-chain-devnet
+// (e.g. 9 = Base Sepolia): its per-chain source stack (Outbox, Lite, vault) overlays the shared
+// `source` fields (rpc, chainId, attest, …). Unset = the original Sepolia route (chain key 8).
+const CHAIN_KEY_SEL = process.env.CHAIN_KEY ? Number(process.env.CHAIN_KEY) : undefined;
+const chainEntry = CHAIN_KEY_SEL !== undefined && CHAIN_KEY_SEL !== Number(deployJson.source.chainKey)
+  ? deployJson.chains?.[String(CHAIN_KEY_SEL)] : undefined;
+if (CHAIN_KEY_SEL !== undefined && CHAIN_KEY_SEL !== Number(deployJson.source.chainKey) && !chainEntry?.source) {
+  throw new Error(`no chains.${CHAIN_KEY_SEL}.source in the deploy JSON — run deploy-source-chain-devnet first`);
+}
+const s = chainEntry ? { ...deployJson.source, ...chainEntry.source, chainKey: CHAIN_KEY_SEL } : deployJson.source;
 // Envelope destination: the MockDestination behind the #36 DispatcherRouter (override with DESTINATION).
-const destination: string | undefined = process.env.DESTINATION ?? deployJson.dest?.dapp;
+const destination: string | undefined = process.env.DESTINATION ?? (chainEntry ? chainEntry.dest?.dapp : deployJson.dest?.dapp);
 if (!destination) throw new Error("need dest.dapp in the deploy JSON (or DESTINATION) — the #36 envelope needs a destination contract");
 if ((s.relayerContractKind ?? "") !== "RelayerContractLite") {
   throw new Error(`source.relayerContractKind is ${s.relayerContractKind ?? "unset"}; this script is for RelayerContractLite`);

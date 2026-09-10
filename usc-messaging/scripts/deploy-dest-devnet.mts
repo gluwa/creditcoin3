@@ -37,7 +37,8 @@ const OUT = process.env.DEPLOY_OUT ?? "./usc-dev-deploy.json";
 const CHAIN_KEY = 8;
 const CREDITCOIN_CHAIN_ID = 42;
 const SEPOLIA_CHAIN_ID = 11155111;
-const VALIDATOR = "0x71A21Ea8d28D3a0618d61d478Ee20DCB64be8082"; // live EOAValidator — reused
+// EOAValidator to reuse: env VALIDATOR, else the deploy JSON's dest.voteValidator (the live one).
+const VALIDATOR_ENV = process.env.VALIDATOR;
 const LOCAL_CHAIN_KEY = ethers.zeroPadValue(ethers.toBeHex(CHAIN_KEY), 32);
 
 const rpc = process.env.SEPOLIA_RPC!;
@@ -55,6 +56,7 @@ async function deploy(name: string, art: any, args: any[] = []) {
 }
 
 const addrs = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : {};
+const VALIDATOR: string = ethers.getAddress(VALIDATOR_ENV ?? addrs.dest?.voteValidator ?? (() => { throw new Error("need VALIDATOR or dest.voteValidator"); })());
 // Allowlist at construction (Inbox #48 six-arg ctor): INITIAL_OUTBOXES (comma-separated) when set,
 // else the already-deployed Creditcoin Outbox from the deploy JSON, else empty (owner calls
 // setSupportedOutbox(outbox, true) after the source deploy).
