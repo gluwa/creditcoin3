@@ -1,5 +1,6 @@
 // usc-dev: deploy the DESTINATION-chain write-ability stack for a newly registered chain key
-// (e.g. Base Sepolia, chain id 84532) — AttestorRegistry, EOAValidator, MockDestination, Inbox.
+// (e.g. Base Sepolia, chain id 84532) — AttestorRegistry, EOAValidator, MockDestination,
+// DefaultDispatcher, DispatcherRouter, Inbox.
 //
 // Step 2 of 3 when adding a destination chain to usc-devnet (Creditcoin EVM chain id 42):
 //   1. register-chain-devnet.mjs        — pallet side, assigns CHAIN_KEY
@@ -10,9 +11,16 @@
 // On-chain calls (destination chain, DEPLOYER_KEY):
 //   AttestorRegistry(owner, INITIAL_ATTESTORS)
 //   EOAValidator(owner, registry, MIN_ATTESTOR_COUNT, THRESHOLD_NUMERATOR, THRESHOLD_ADDITION)
-//   MockDestination()                                        // Inbox needs a dispatcher WITH code
-//   Inbox(bytes32(CHAIN_KEY), 42, validator, mockDestination, owner, [] /* initialOutboxes */)
+//   MockDestination()                                        // envelope destination (dest.dapp)
+//   DefaultDispatcher(predictedInbox, owner)                 // asc-contracts #36 — see dispatcher-stack.mts
+//   DispatcherRouter(predictedInbox, owner, defaultDispatcher, [])
+//   Inbox(bytes32(CHAIN_KEY), 42 /* sourceChainId */, validator, router, owner, [] /* initialOutboxes */)
+//   DefaultDispatcher.setRouter(router); MockDestination.setTrustedInbox(router | default, true)
 //   AttestorRegistry.setUpdater(validator, true)             // lets submitAttestorSetUpdate rotate the set
+//
+// Since #36 the Inbox hands every validated message to the DispatcherRouter, which decodes the
+// Outbox payload as abi.encode(destination, nativeCoinValue, gasLimit, payloadData) and calls
+// `destination`; publishers must send that envelope (evm-envelope.mts), with dest.dapp as destination.
 //
 // The registry cannot start empty: EOAValidator's constructor reverts "below minimum" unless the
 // registry already holds >= MIN_ATTESTOR_COUNT attestors, so INITIAL_ATTESTORS defaults to the
@@ -28,16 +36,17 @@
 //   DEPLOYER_KEY          destination-chain deployer, needs native gas       (required)
 //   INITIAL_ATTESTORS     comma-separated EVM addresses (default: 3 placeholders, see above)
 //   MIN_ATTESTOR_COUNT / THRESHOLD_NUMERATOR / THRESHOLD_ADDITION   default 3 / 20 / 1
-//   ASC_CONTRACTS_DIR     compiled asc-contracts checkout (main c83b3372+)
+//   ASC_CONTRACTS_DIR     compiled asc-contracts checkout (main a9791c37+, #36 DispatcherRouter)
 //   DEPLOY_OUT            default ../usc-dev-deploy.json
 //
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { deployRouterStackWithInbox, ensureDestinationTrusts } from "./dispatcher-stack.mjs";
 
 function ascContractsDir(): string {
   const dir = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
-  if (!dir) throw new Error("set ASC_CONTRACTS_DIR to a compiled asc-contracts checkout (main c83b3372+, `npx hardhat compile`)");
+  if (!dir) throw new Error("set ASC_CONTRACTS_DIR to a compiled asc-contracts checkout (main a9791c37+, `npx hardhat compile`)");
   return dir;
 }
 const UC = ascContractsDir();
@@ -119,14 +128,17 @@ const registryAddr = await registry.getAddress();
 const validator = await deploy("EOAValidator", ART("write-ability/EOAValidator.sol", "EOAValidator"),
   [owner, registryAddr, MIN_ATTESTOR_COUNT, THRESHOLD_NUMERATOR, THRESHOLD_ADDITION]);
 const validatorAddr = await validator.getAddress();
-// Inbox requires messageDispatcher to already have code, so the dApp goes first.
 const dapp = await deploy("MockDestination", ART("mocks/TestMocks.sol", "MockDestination"));
 const dappAddr = await dapp.getAddress();
-// asc-contracts #48: six-arg constructor; initialOutboxes stays empty — the Outbox only exists after
-// deploy-source-chain-devnet, which allowlists it via setSupportedOutbox.
-const inbox = await deploy("Inbox", ART("write-ability/Inbox.sol", "Inbox"),
-  [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, validatorAddr, dappAddr, owner, []]);
-const inboxAddr = await inbox.getAddress();
+// asc-contracts #36: DefaultDispatcher → DispatcherRouter → Inbox with the router as messageDispatcher
+// (nonce-predicted, see dispatcher-stack.mts). #48 six-arg constructor; initialOutboxes stays empty —
+// the Outbox only exists after deploy-source-chain-devnet, which allowlists it via setSupportedOutbox.
+const stack = await deployRouterStackWithInbox({
+  wallet, ART,
+  inboxArgsFor: (router) => [LOCAL_CHAIN_KEY, CREDITCOIN_CHAIN_ID, validatorAddr, router, owner, []],
+});
+const inboxAddr = stack.inbox;
+await ensureDestinationTrusts(wallet, dappAddr, { DispatcherRouter: stack.dispatcherRouter, DefaultDispatcher: stack.defaultDispatcher });
 
 // Same as asc-contracts scripts/hardhat/deployWriteAbility.ts: the validator's
 // submitAttestorSetUpdate writes through to the registry, so it must be an authorised updater.
@@ -137,10 +149,12 @@ if (!(await registryC.isUpdater(validatorAddr))) {
 } else console.log("  AttestorRegistry already has EOAValidator as updater");
 
 // Read-back sanity.
-const inboxC = inbox as unknown as ethers.Contract;
+const inboxC = new ethers.Contract(inboxAddr, ART("write-ability/Inbox.sol", "Inbox").abi, wallet);
 if ((await inboxC.localChainKey()).toLowerCase() !== LOCAL_CHAIN_KEY.toLowerCase()) throw new Error("Inbox.localChainKey() mismatch");
-if (Number(await inboxC.creditcoinChainId()) !== CREDITCOIN_CHAIN_ID) throw new Error("Inbox.creditcoinChainId() != 42");
+// #36 renamed the getter creditcoinChainId() → sourceChainId(); the value is still the Creditcoin EVM chain id.
+if (Number(await inboxC.sourceChainId()) !== CREDITCOIN_CHAIN_ID) throw new Error("Inbox.sourceChainId() != 42");
 if ((await inboxC.defaultVoteValidator()).toLowerCase() !== validatorAddr.toLowerCase()) throw new Error("Inbox.defaultVoteValidator() mismatch");
+if ((await inboxC.messageDispatcher()).toLowerCase() !== stack.dispatcherRouter.toLowerCase()) throw new Error("Inbox.messageDispatcher() is not the DispatcherRouter");
 
 deployJson.chains[String(CHAIN_KEY)] = {
   ...entry,
@@ -148,7 +162,8 @@ deployJson.chains[String(CHAIN_KEY)] = {
     chainId: DEST_CHAIN_ID, rpc: rpcForRecord, chainKey: CHAIN_KEY,
     creditcoinChainId: CREDITCOIN_CHAIN_ID, localChainKey: LOCAL_CHAIN_KEY,
     voteValidator: validatorAddr, attestorRegistry: registryAddr,
-    inbox: inboxAddr, dapp: dappAddr, admin: owner,
+    inbox: inboxAddr, dispatcherRouter: stack.dispatcherRouter, defaultDispatcher: stack.defaultDispatcher,
+    dapp: dappAddr, admin: owner,
     initialAttestors: INITIAL_ATTESTORS, deployedAt: new Date().toISOString(),
   },
 };
