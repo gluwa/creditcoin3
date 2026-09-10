@@ -1123,6 +1123,7 @@ export default {
             AuthorizedAttestorRemoved: '(u64,AccountId32)',
             ForcedElection: {
                 chainKey: 'u64',
+                epoch: 'u64',
             },
             ForcedUpdatesApplied: 'Null',
             RevertedAttestationChainTo: {
@@ -2926,9 +2927,7 @@ export default {
                 attestorId: 'AccountId32',
                 unregister: 'bool',
             },
-            force_election: {
-                chainKey: 'u64',
-            },
+            __Unused25: 'Null',
             set_max_catchup: {
                 chainKey: 'u64',
                 maxCatchup: 'u32',
@@ -2942,6 +2941,9 @@ export default {
                 chainKey: 'u64',
                 wipeSuffix: 'bool',
                 checkpoints: 'Vec<AttestorPrimitivesAttestationCheckpoint>',
+            },
+            force_election: {
+                chainKey: 'u64',
             },
         },
     },
