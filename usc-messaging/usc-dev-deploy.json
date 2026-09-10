@@ -25,7 +25,7 @@
     "chainKey": 8,
     "attest": "0xb5F73112516ebeB89c7EF67a507513b441Ac28fA",
     "proofVerifier": "0x7acc1aC65892CF3547b1b0590066FB93199b430D",
-    "deliveryDecoder": "0x78D714e1b47Bb86FE15788B917C9CC7B77975529",
+    "deliveryDecoder": "0x5638FB95E5978206E30132A4c8e1514Bb10842BF",
     "twapReader": "0x85b108660f47caDfAB9e0503104C08C1c96e0DA9",
     "attestorRegistry": "0xe78A45427B4797ae9b1852427476A956037B5bC2",
     "quoter": "0xad856F238CBeafd064b80D12EadAea3981fB21B5",
@@ -44,7 +44,10 @@
     "chainRegistry": "0x68A54b2826EF3f230996A8CD324a2177d7f6041E",
     "outboxDiscovery": "0x6B544e279684cEf4fC9aBCFfd7D1de0D0c926e84",
     "outboxDiscoveryImpl": "0x43d70f01b32a219ec85965239C3F0E29a1A543e1",
-    "outboxDiscoveryDeployedAt": "2026-09-09T09:06:01.442Z"
+    "outboxDiscoveryDeployedAt": "2026-09-09T09:06:01.442Z",
+    "oldDeliveryDecoder": "0x78D714e1b47Bb86FE15788B917C9CC7B77975529",
+    "deliveryDecoderSelector": "0x1d36ca7b",
+    "deliveryDecoderRedeployedAt": "2026-09-10T10:45:00.982Z"
   },
   "chains": {
     "9": {
