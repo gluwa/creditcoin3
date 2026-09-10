@@ -90,6 +90,18 @@ impl ReconnectingEthRpcProvider {
                         );
                         return Err(err);
                     }
+                    // Every provider answered `null` for a block tag: the node does not serve
+                    // that tag. Deterministic and permanent, so reconnecting only churns the
+                    // shared client for every other in-flight request.
+                    if eth::anyhow_chain_is_unsupported_block_tag(&err) {
+                        warn!(
+                            op,
+                            attempt,
+                            error = %err,
+                            "ETH RPC node does not serve the requested block tag; not retrying with reconnect",
+                        );
+                        return Err(err);
+                    }
                     warn!(
                         op,
                         attempt,
@@ -286,6 +298,16 @@ pub trait EthRpcProvider: Send + Sync {
 
     /// Get the current source chain block height.
     async fn get_last_block(&self) -> Result<u64>;
+
+    /// Height of the block the source node reports for a settlement `tag` (`safe` /
+    /// `finalized`). Providers that cannot answer this (archived roots, test doubles) keep the
+    /// default, which errors; callers only reach it when a chain is configured with an RPC-tag
+    /// maturity strategy.
+    async fn get_block_number_by_tag(&self, tag: eth::BlockTag) -> Result<u64> {
+        Err(anyhow!(
+            "this ETH provider cannot resolve the `{tag}` block tag"
+        ))
+    }
 
     /// Get the source chain ID.
     ///
@@ -489,6 +511,19 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
                 .get_last_block()
                 .await
                 .map_err(|e| anyhow!("Failed to get current block height: {e}"))
+        })
+        .await
+    }
+
+    async fn get_block_number_by_tag(&self, tag: eth::BlockTag) -> Result<u64> {
+        self.run("get_block_number_by_tag", move |client| async move {
+            // Keep the typed cause in the chain: `run` needs to recognise a node that does not
+            // serve this tag (`FailedToGetBlockByTag`) as permanent rather than reconnecting.
+            client
+                .get_block_number_by_tag(tag)
+                .await
+                .map_err(anyhow::Error::from)
+                .with_context(|| format!("Failed to get the `{tag}` block"))
         })
         .await
     }

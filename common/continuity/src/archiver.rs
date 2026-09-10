@@ -304,6 +304,11 @@ impl EthRpcProvider for ArchiverEthProvider {
         self.eth_fallback.get_block_tx_data(block_number).await
     }
 
+    async fn get_block_number_by_tag(&self, tag: eth::BlockTag) -> Result<u64> {
+        // Block tags are a live property of the source node; the archiver only stores roots.
+        self.eth_fallback.get_block_number_by_tag(tag).await
+    }
+
     async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {
         self.eth_fallback.get_tx_position_by_hash(tx_hash).await
     }

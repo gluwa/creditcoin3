@@ -196,9 +196,9 @@ impl Attestor {
             .as_str()
             .try_into()
             .map_err(|e| Error::InvalidMaturityStrategy(chain_key, e))?;
-        let maturity_delay = strategy
-            .maturity_delay()
-            .ok_or(Error::NoMaturityDelayForStrategy(strategy))?;
+        let maturity = stream::eth::maturity_from_strategy(&strategy)
+            .ok_or(Error::UnsupportedMaturityStrategy(strategy))?;
+        tracing::info!(chain_key, %maturity, "⏳ block maturity resolved from on-chain strategy");
         let encoding =
             usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
 
@@ -400,7 +400,7 @@ impl Attestor {
 
             interval_attestation: parking_lot::RwLock::new(interval_attestation),
             max_catchup: parking_lot::RwLock::new(max_catchup),
-            maturity_delay,
+            maturity,
             start_height,
             genesis: genesis_height,
 

@@ -47,7 +47,7 @@ pub async fn run(
     let roots_cfg = stream::eth::roots::ConfigBuilder::new()
         .with_client(shared.eth.clone())
         .with_start_height(start_height)
-        .with_finalization_lag(shared.maturity_delay)
+        .with_maturity(shared.maturity)
         .with_max_concurrency(common::constants::MAX_CONCURRENT_RPC_CALLS)
         .with_max_parallelism(max_parallelism)
         .with_encoding(shared.encoding)
@@ -56,7 +56,7 @@ pub async fn run(
 
     let tip_cfg = stream::eth::tip::ConfigBuilder::new()
         .with_client(shared.eth.clone())
-        .with_finalization_lag(shared.maturity_delay)
+        .with_maturity(shared.maturity)
         .with_start_height(start_height)
         .build();
     let stream_tip = stream::eth::StreamTip::new(tip_cfg).await;
