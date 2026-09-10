@@ -166,6 +166,12 @@ pub mod pallet {
 
         type SupportedChains: SupportedChainsProvider;
 
+        /// The current epoch index. Elections run from the epoch hook are labelled with the
+        /// epoch that hook was called for; elections forced via [`Pallet::force_election`]
+        /// happen mid-epoch and read the current index from here so `AttestorsElected`
+        /// carries the same epoch either way.
+        type CurrentEpochIndex: Get<u64>;
+
         #[pallet::constant]
         type MaxAttestationsPerBlock: Get<u32>;
         #[pallet::constant]
@@ -197,7 +203,9 @@ pub mod pallet {
         fn authorize_attestor() -> Weight;
         fn remove_authorized_attestor() -> Weight;
         fn kick_active_attestor() -> Weight;
-        fn force_election() -> Weight;
+        /// `a` = attestors registered on the chain (every one is visited; `Waiting`/`Leaving`
+        /// ones are rewritten).
+        fn force_election(a: u32) -> Weight;
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
@@ -683,8 +691,11 @@ pub mod pallet {
         AuthorizedAttestorAdded(ChainKey, T::AccountId),
         /// An attestor was unauthorized for a specific chain.
         AuthorizedAttestorRemoved(ChainKey, T::AccountId),
-        /// A force election was triggered via sudo.
+        /// An operator forced an election for a single chain's attestor set. `epoch` is the
+        /// epoch index the election was labelled with (the same value a scheduled election at
+        /// that time would carry).
         ForcedElection {
+            chain_key: ChainKey,
             epoch: u64,
         },
         /// Pending updates were force-applied via operator call.
@@ -877,6 +888,12 @@ pub mod pallet {
 
     /// Deprecation notice: The extrinsics with indexes 8, 12, 15 and 17 have been removed.
     /// The functionality of these extrinsics has been eliminated.
+    ///
+    /// Index 25 (`force_election(epoch: u64)`, an all-chains election) is retired and must not
+    /// be reused: its replacement `force_election(chain_key)` takes a single `u64` too, so a
+    /// call encoded against the old metadata would otherwise decode as a per-chain election of
+    /// whatever chain key the epoch number happens to name. Under a fresh index such a stale
+    /// submission fails to decode instead.
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
@@ -1323,18 +1340,28 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Force trigger an attestor election.
+        /// Force an attestor election for a single chain, without waiting for the epoch
+        /// boundary.
         ///
-        /// A randomness of [0; 32] is used since randomness is not currently
-        /// used in the election logic.
-        #[pallet::call_index(25)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_election())]
-        pub fn force_election(origin: OriginFor<T>, epoch: u64) -> DispatchResult {
+        /// Runs the same selection the epoch hook runs for `chain_key` only: `Waiting`
+        /// attestors are admitted per the chain's election policy, `Leaving` attestors are
+        /// retired, and `AttestorsElected` is emitted if the resulting set differs from the
+        /// current one. Other chains are untouched. The election is labelled with the current
+        /// epoch index.
+        #[pallet::call_index(30)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_election(AttestorsCount::<T>::get(chain_key)))]
+        pub fn force_election(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
-            Self::do_start_election(epoch, [0; 32])?;
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
 
-            Self::deposit_event(Event::<T>::ForcedElection { epoch });
+            let epoch = T::CurrentEpochIndex::get();
+            Self::elect_attestors_for_chain(chain_key, epoch);
+
+            Self::deposit_event(Event::<T>::ForcedElection { chain_key, epoch });
 
             Ok(())
         }

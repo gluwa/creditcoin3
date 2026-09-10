@@ -1,5 +1,6 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
+import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
 
@@ -7,8 +8,6 @@ describe('handleForcedElection()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
     let startingBlock: bigint;
-
-    const epoch = 999;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -25,14 +24,15 @@ describe('handleForcedElection()', () => {
             expect(startingBlock).toBeGreaterThan(0n);
 
             await api.tx.sudo
-                .sudo(api.tx.attestation.forceElection(epoch))
+                .sudo(api.tx.attestation.forceElection(chain_Anvil1_Key))
                 .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
             await forElapsedBlocks(api, { minBlocks: 2 });
         }, 30_000);
 
         it('graphQL returns ForcedElection entity', async () => {
+            const currentEpoch = (await api.query.babe.epochIndex()).toBigInt();
             const response = await graphQLQuery(
-                `query { forcedElections(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, epoch }}}`,
+                `query { forcedElections(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, chainKey, epoch }}}`,
             );
             expect(response.data.forcedElections.nodes).toBeTruthy();
             expect(response.data.forcedElections.nodes.length).toBeGreaterThanOrEqual(1);
@@ -42,7 +42,10 @@ describe('handleForcedElection()', () => {
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
-                expect(Number(node.epoch)).toEqual(epoch);
+                expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
+                // labelled with the epoch current at submission (allow one rollover since)
+                expect(BigInt(node.epoch)).toBeGreaterThanOrEqual(currentEpoch - 1n);
+                expect(BigInt(node.epoch)).toBeLessThanOrEqual(currentEpoch);
             }
         });
     });

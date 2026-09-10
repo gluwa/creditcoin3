@@ -102,9 +102,11 @@ declare module '@polkadot/api-base/types/events' {
              **/
             ClearedStorageForRemovedChain: AugmentedEvent<ApiType, [u64]>;
             /**
-             * A force election was triggered via sudo.
+             * An operator forced an election for a single chain's attestor set. `epoch` is the
+             * epoch index the election was labelled with (the same value a scheduled election at
+             * that time would carry).
              **/
-            ForcedElection: AugmentedEvent<ApiType, [epoch: u64], { epoch: u64 }>;
+            ForcedElection: AugmentedEvent<ApiType, [chainKey: u64, epoch: u64], { chainKey: u64; epoch: u64 }>;
             /**
              * Pending updates were force-applied via operator call.
              **/

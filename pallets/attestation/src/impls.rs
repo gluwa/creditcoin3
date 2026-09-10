@@ -642,87 +642,105 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Start a new election for the given epoch
-    /// This will select the active attestors for the given epoch
-    /// All attestors with `Active` status will be selected
-    /// Attestors with `Waiting` status will be selected based on the election policy
-    /// Attestors with `Leaving` status become `Idle` and are not selected (deferred voluntary chill)
+    /// Start a new election for the given epoch across every supported chain.
+    ///
+    /// See [`Self::elect_attestors_for_chain`] for the per-chain rules.
     ///
     /// `_randomness` is the per-epoch babe entropy supplied by `pallet-randomness`. Selection is
     /// deterministic today so it is unused, but the parameter is kept wired through: it is the
     /// entropy input for the future stake-weighted sortition in RFC-0174 (see the `pallet-randomness`
     /// crate docs).
     pub fn do_start_election(epoch: u64, _randomness: Randomness) -> DispatchResult {
-        let supported_chains = T::SupportedChains::supported_chains();
+        for chain_key in T::SupportedChains::supported_chains() {
+            Self::elect_attestors_for_chain(chain_key, epoch);
+        }
 
-        for chain_key in supported_chains {
-            let chain_election_policy = ChainElectionPolicy::<T>::get(chain_key);
-            let prefix: Vec<_> = Attestors::<T>::iter_prefix(chain_key).collect();
-            let prefix_len = prefix.len();
+        Ok(())
+    }
 
-            let attestors = prefix
-                .into_iter()
-                .filter_map(|(account, mut attestor)| {
-                    match attestor.status {
-                        AttestorStatus::Active => Some(account),
-                        AttestorStatus::Waiting => {
-                            match chain_election_policy {
-                                AttestorElectionPolicy::OpenToAny => {
+    /// Elect the active attestor set for a single chain.
+    ///
+    /// All attestors with `Active` status are selected.
+    /// Attestors with `Waiting` status are selected based on the chain's election policy.
+    /// Attestors with `Leaving` status become `Idle` and are not selected (deferred voluntary chill).
+    ///
+    /// `ActiveAttestors` is only rewritten, and `AttestorsElected` only emitted, when the elected
+    /// set differs from the one currently stored. A steady-state fleet therefore produces no
+    /// election event at the epoch boundary; consumers (the attestor client, the indexer) treat
+    /// the event as "the set changed", not as a heartbeat.
+    pub fn elect_attestors_for_chain(chain_key: ChainKey, epoch: u64) {
+        let chain_election_policy = ChainElectionPolicy::<T>::get(chain_key);
+
+        let attestors = Attestors::<T>::iter_prefix(chain_key)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .filter_map(|(account, mut attestor)| {
+                match attestor.status {
+                    AttestorStatus::Active => Some(account),
+                    AttestorStatus::Waiting => {
+                        match chain_election_policy {
+                            AttestorElectionPolicy::OpenToAny => {
+                                // Transition from Waiting to Active
+                                attestor.status = AttestorStatus::Active;
+                                Attestors::<T>::insert(chain_key, &account, attestor);
+                                Some(account)
+                            }
+                            AttestorElectionPolicy::AuthorizedOnly => {
+                                // If the attestor is not authorized, skip them
+                                if !AuthorizedAttestors::<T>::contains_key(chain_key, &account) {
+                                    debug!(
+                                        "Skipping attestor {account:?} for chain {chain_key} as they are not authorized",
+                                    );
+                                    None
+                                } else {
                                     // Transition from Waiting to Active
                                     attestor.status = AttestorStatus::Active;
                                     Attestors::<T>::insert(chain_key, &account, attestor);
                                     Some(account)
                                 }
-                                AttestorElectionPolicy::AuthorizedOnly => {
-                                    // If the attestor is not authorized, skip them
-                                    if !AuthorizedAttestors::<T>::contains_key(chain_key, &account)
-                                    {
-                                        debug!(
-                                            "Skipping attestor {account:?} for chain {chain_key} as they are not authorized",
-                                        );
-                                        None
-                                    } else {
-                                        // Transition from Waiting to Active
-                                        attestor.status = AttestorStatus::Active;
-                                        Attestors::<T>::insert(chain_key, &account, attestor);
-                                        Some(account)
-                                    }
-                                },
-                                AttestorElectionPolicy::DeniedToAll => {
-                                    debug!(
-                                        "Skipping attestor {account:?} for chain {chain_key} as election policy is DeniedToAll",
-                                    );
-                                    None
-                                }
+                            }
+                            AttestorElectionPolicy::DeniedToAll => {
+                                debug!(
+                                    "Skipping attestor {account:?} for chain {chain_key} as election policy is DeniedToAll",
+                                );
+                                None
                             }
                         }
-                        AttestorStatus::Idle => None,
-                        AttestorStatus::Leaving => {
-                            attestor.status = AttestorStatus::Idle;
-                            Attestors::<T>::insert(chain_key, &account, attestor);
-                            Self::deposit_event(Event::<T>::AttestorChilled(chain_key, account.clone()));
-                            None
-                        }
                     }
-                })
-                .collect::<Vec<_>>();
+                    AttestorStatus::Idle => None,
+                    AttestorStatus::Leaving => {
+                        attestor.status = AttestorStatus::Idle;
+                        Attestors::<T>::insert(chain_key, &account, attestor);
+                        Self::deposit_event(Event::<T>::AttestorChilled(chain_key, account.clone()));
+                        None
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
 
-            // We still need an event if the number of attestors went from non-zero to zero
-            if attestors.is_empty() && prefix_len == 0 {
-                debug!("No active attestors for chain {chain_key}");
-                continue;
-            }
-
-            ActiveAttestors::<T>::insert(chain_key, &attestors);
-
-            Self::deposit_event(Event::<T>::AttestorsElected {
-                epoch,
-                chain_key,
-                attestors,
-            });
+        // Compare as a membership set, not a sequence: `remove_active_attestor_from_set`
+        // (immediate chill / kick) `swap_remove`s from the stored vector, so the same
+        // committee can be stored in a different order than `iter_prefix` yields it.
+        if Self::same_membership(&attestors, &ActiveAttestors::<T>::get(chain_key)) {
+            debug!("Attestor set for chain {chain_key} unchanged at epoch {epoch}");
+            return;
         }
 
-        Ok(())
+        ActiveAttestors::<T>::insert(chain_key, &attestors);
+
+        Self::deposit_event(Event::<T>::AttestorsElected {
+            epoch,
+            chain_key,
+            attestors,
+        });
+    }
+
+    /// Order-insensitive equality of two attestor lists. Both are duplicate-free (one comes
+    /// from map keys, the other from a set that only ever removes entries), so equal length
+    /// plus one-way containment is set equality. Quadratic, but bounded by `MaxAttestors`
+    /// (100) and allocation-free, which matters inside the epoch hook.
+    fn same_membership(a: &[T::AccountId], b: &[T::AccountId]) -> bool {
+        a.len() == b.len() && a.iter().all(|x| b.contains(x))
     }
 
     /// Get the locked balance of an account
@@ -1671,13 +1689,20 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
 
 impl<T: Config> OnRandomnessUpdateWeight for Pallet<T> {
     fn on_new_epoch_randomness_weight() -> Weight {
-        // `on_new_epoch_randomness` runs the same work as `force_election`
-        // (`do_start_election`) followed by `force_apply_updates`
-        // (`apply_interval_updates`). Charge for both so `pallet-randomness`'s
+        // `on_new_epoch_randomness` runs one `force_election` worth of work
+        // (`elect_attestors_for_chain`) per supported chain, each scaling with that
+        // chain's registered attestor count, followed by `force_apply_updates`
+        // (`apply_interval_updates`). Charge for all of it so `pallet-randomness`'s
         // epoch-change `on_initialize` accounts for the listener cost instead of
         // under-weighting it (the randomness benchmark deliberately excludes the
         // listener, so this is the only place that cost is charged).
-        <T as Config>::WeightInfo::force_election()
+        T::SupportedChains::supported_chains()
+            .into_iter()
+            .fold(Weight::zero(), |acc, chain_key| {
+                acc.saturating_add(<T as Config>::WeightInfo::force_election(
+                    AttestorsCount::<T>::get(chain_key),
+                ))
+            })
             .saturating_add(<T as Config>::WeightInfo::force_apply_updates())
     }
 }

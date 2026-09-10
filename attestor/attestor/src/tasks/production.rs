@@ -327,6 +327,35 @@ fn eligibility_action(prev_target: bool, new_eligible: bool) -> EligibilityActio
     }
 }
 
+/// Re-read `ActiveAttestors` from the chain and refresh the local committee view (BLS store,
+/// pool allow-set, `can_attest`) from it.
+///
+/// Used for chill/kick and for the once-per-epoch reconcile. `with_retries`, matching the
+/// election path: a transient RPC blip must ride out with backoff, not bubble up and terminate
+/// the whole production task (the unscoped `staking::Kicked` event makes the chill/kick handler
+/// fire more often than actual committee changes). Eligibility is derived from the refreshed
+/// on-chain membership rather than from any event: `staking::Kicked` carries no chain scope, so
+/// trusting the event could wrongly chill us on an unrelated kick — the authoritative active set
+/// can't. The BLS/pool refresh runs before `apply_eligibility` for the reason given at the
+/// `AttestorsElected` handler.
+async fn reconcile_committee_from_chain(shared: &Arc<Shared>) -> Result<(), Error> {
+    let chain_key = shared.chain_key;
+    let attestors = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc3.get_attestor_active_set(chain_key).await
+    })
+    .await
+    .map_err(Error::Rpc)?;
+    let eligible = attestors.contains(&shared.account_id);
+    shared
+        .bls_store
+        .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
+        .await
+        .map_err(Error::Rpc)?;
+    shared.pool_send.note_attestors_elected(attestors);
+    apply_eligibility(shared, eligible);
+    Ok(())
+}
+
 fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
     use std::sync::atomic::Ordering;
     let prev_target = shared.attest_target.swap(eligible, Ordering::SeqCst);
@@ -473,7 +502,9 @@ async fn handle_one(
         // Chill / kick removes the attestor from `ActiveAttestors` on-chain immediately. Refresh
         // BlsStore and the pool's allow-set on every chill/kick — not just for the local node —
         // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
-        // Without this, pool pollution persists until the next `AttestorsElected` epoch.
+        // `AttestorsElected` is only emitted when the committee changes, so there is no
+        // per-epoch event to fall back on; the `RandomnessChanged` reconcile below is the
+        // periodic safety net if this refresh ever reads a lagging node.
         CcEvent::AttestorChilled(_, who) | CcEvent::AttestorKicked(who) => {
             let is_local = who == shared.account_id;
             if is_local {
@@ -481,30 +512,7 @@ async fn handle_one(
             } else {
                 tracing::info!(attestor = %who, "🪫 peer deactivated/kicked");
             }
-            // `with_retries`, matching the election path: a transient RPC blip here must ride
-            // out with backoff, not bubble up and terminate the whole production task (the
-            // unscoped `staking::Kicked` event makes this handler fire more often than actual
-            // committee changes).
-            let chain_key = shared.chain_key;
-            let attestors =
-                crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
-                    cc3.get_attestor_active_set(chain_key).await
-                })
-                .await
-                .map_err(Error::Rpc)?;
-            // Derive `can_attest` from the refreshed on-chain membership rather than from the
-            // event itself: `staking::Kicked` carries no chain scope, so trusting the event
-            // could wrongly chill us on an unrelated kick — the authoritative active set can't.
-            let eligible = attestors.contains(&shared.account_id);
-            // Refresh the committee view before arming the warm-up — see the AttestorsElected
-            // handler above for why `apply_eligibility` must run after the BLS/pool refresh.
-            shared
-                .bls_store
-                .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
-                .await
-                .map_err(Error::Rpc)?;
-            shared.pool_send.note_attestors_elected(attestors);
-            apply_eligibility(shared, eligible);
+            reconcile_committee_from_chain(shared).await?;
 
             // Nudge the p2p task to evict this attestor's peer from the routing table / drop the
             // connection. Sent *after* the `bls_store` refresh above so the p2p task's active-set
@@ -530,8 +538,13 @@ async fn handle_one(
             tracing::info!(interval = i, "🔢 new checkpoint interval");
         }
 
+        // Every epoch boundary, re-derive the committee view from storage. `AttestorsElected`
+        // fires only on membership changes, so this once-per-epoch reconcile is what corrects a
+        // view that went stale through a missed event or a chill/kick refresh that read a lagging
+        // node. Cheap: one storage read plus the BLS key fetches for the set.
         CcEvent::RandomnessChanged((epoch, _)) => {
             tracing::info!(epoch, "🎲 new epoch");
+            reconcile_committee_from_chain(shared).await?;
         }
 
         CcEvent::RevertedAttestationChainTo(_, height, digest) => {

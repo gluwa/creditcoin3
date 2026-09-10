@@ -1012,6 +1012,8 @@ impl pallet_attestation::Config for Runtime {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
+    // Forced elections are labelled with the same epoch index the epoch hook receives.
+    type CurrentEpochIndex = pallet_randomness::EpochIndex<Runtime>;
     type Currency = Balances;
     type CurrencyBalance = Balance;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;

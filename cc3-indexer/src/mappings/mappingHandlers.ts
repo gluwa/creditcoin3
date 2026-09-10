@@ -1370,11 +1370,21 @@ export async function handleAuthorizedAttestorRemoved(event: SubstrateEvent): Pr
 export async function handleForcedElection(event: SubstrateEvent): Promise<void> {
     logger.info(`ForcedElection event found at block ${event.block.block.header.number.toString()}`);
 
-    const {
-        event: {
-            data: [epoch],
-        },
-    } = event;
+    // Two on-chain shapes exist and both are a run of u64s, so positional destructuring alone
+    // cannot tell them apart when reindexing history:
+    //   * legacy `ForcedElection { epoch }` (all-chains election, runtimes before force_election
+    //     became per-chain),
+    //   * current `ForcedElection { chain_key, epoch }`.
+    // Field names from the runtime metadata disambiguate.
+    const names: string[] = (event.event.data as unknown as { names?: string[] | null }).names ?? [];
+    const indexOf = (...candidates: string[]): number =>
+        candidates.map((c) => names.indexOf(c)).find((i) => i >= 0) ?? -1;
+    const chainKeyIdx = indexOf('chainKey', 'chain_key');
+    const epochIdx = indexOf('epoch');
+
+    const data = event.event.data;
+    const chainKey = chainKeyIdx >= 0 ? BigInt(data[chainKeyIdx].toString()) : undefined;
+    const epoch = epochIdx >= 0 ? BigInt(data[epochIdx].toString()) : BigInt(data[0].toString());
 
     const blockNumber = event.block.block.header.number.toBigInt();
 
@@ -1382,7 +1392,8 @@ export async function handleForcedElection(event: SubstrateEvent): Promise<void>
         id: `${blockNumber}-${event.idx}`,
         blockNumber,
         date: event.block.timestamp,
-        epoch: BigInt(epoch.toString()),
+        epoch,
+        chainKey,
     });
 
     await forcedElection.save();

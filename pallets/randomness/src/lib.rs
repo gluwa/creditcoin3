@@ -79,6 +79,17 @@ pub mod pallet {
     #[pallet::getter(fn epoch_index)]
     pub type LastSeenEpochIndex<T> = StorageValue<_, u64, ValueQuery>;
 
+    /// [`Get<u64>`] view of [`LastSeenEpochIndex`], for pallets that need the current epoch
+    /// index as a `Config` type (e.g. `pallet_attestation::Config::CurrentEpochIndex`) without
+    /// depending on this pallet's `Config`. `StorageValue` itself does not implement `Get`.
+    pub struct EpochIndex<T>(core::marker::PhantomData<T>);
+
+    impl<T: Config> Get<u64> for EpochIndex<T> {
+        fn get() -> u64 {
+            LastSeenEpochIndex::<T>::get()
+        }
+    }
+
     /// Randomness keyed by epoch index, bounded to the latest
     /// [`Config::MaxRandomnessEntries`] epochs. Backed by a [`BoundedBTreeMap`] so
     /// entries stay ordered by epoch index, which makes evicting the oldest entry
