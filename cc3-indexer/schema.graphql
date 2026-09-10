@@ -146,6 +146,12 @@ type AuthorizedAttestors @entity {
     attestor: Account! @index
 }
 
+"""
+One row per attestor per election that changed a chain's committee. This is a changelog, not a
+per-epoch roster: elections whose result equals the current `ActiveAttestors` set emit no event,
+so a steady committee produces no rows for many epochs. For the current committee query
+`Attestor` entities with `status: 0` (Active) instead.
+"""
 type AttestorsElected @entity {
     """
     id field is always required and must look like this
@@ -609,6 +615,11 @@ type AuthorizedAttestorRemoved @entity {
     attestor: Account!
 }
 
+"""
+An operator-forced attestor election. `epoch` is the epoch index the election was labelled with.
+`chainKey` is set for per-chain forced elections (runtimes where force_election takes a chain
+key) and null for legacy all-chains forced elections.
+"""
 type ForcedElection @entity {
     """
     id field is always required and must look like this
@@ -619,7 +630,9 @@ type ForcedElection @entity {
 
     date: Date
 
-    chainKey: BigInt!
+    epoch: BigInt!
+
+    chainKey: BigInt
 }
 
 type RevertedAttestationChainTo @entity {

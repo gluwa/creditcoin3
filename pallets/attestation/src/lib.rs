@@ -203,7 +203,9 @@ pub mod pallet {
         fn authorize_attestor() -> Weight;
         fn remove_authorized_attestor() -> Weight;
         fn kick_active_attestor() -> Weight;
-        fn force_election() -> Weight;
+        /// `a` = attestors registered on the chain (every one is visited; `Waiting`/`Leaving`
+        /// ones are rewritten).
+        fn force_election(a: u32) -> Weight;
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
@@ -689,9 +691,12 @@ pub mod pallet {
         AuthorizedAttestorAdded(ChainKey, T::AccountId),
         /// An attestor was unauthorized for a specific chain.
         AuthorizedAttestorRemoved(ChainKey, T::AccountId),
-        /// An operator forced an election for a single chain's attestor set.
+        /// An operator forced an election for a single chain's attestor set. `epoch` is the
+        /// epoch index the election was labelled with (the same value a scheduled election at
+        /// that time would carry).
         ForcedElection {
             chain_key: ChainKey,
+            epoch: u64,
         },
         /// Pending updates were force-applied via operator call.
         ForcedUpdatesApplied,
@@ -883,6 +888,12 @@ pub mod pallet {
 
     /// Deprecation notice: The extrinsics with indexes 8, 12, 15 and 17 have been removed.
     /// The functionality of these extrinsics has been eliminated.
+    ///
+    /// Index 25 (`force_election(epoch: u64)`, an all-chains election) is retired and must not
+    /// be reused: its replacement `force_election(chain_key)` takes a single `u64` too, so a
+    /// call encoded against the old metadata would otherwise decode as a per-chain election of
+    /// whatever chain key the epoch number happens to name. Under a fresh index such a stale
+    /// submission fails to decode instead.
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
@@ -1337,8 +1348,8 @@ pub mod pallet {
         /// retired, and `AttestorsElected` is emitted if the resulting set differs from the
         /// current one. Other chains are untouched. The election is labelled with the current
         /// epoch index.
-        #[pallet::call_index(25)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_election())]
+        #[pallet::call_index(30)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_election(AttestorsCount::<T>::get(chain_key)))]
         pub fn force_election(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
@@ -1347,9 +1358,10 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
-            Self::elect_attestors_for_chain(chain_key, T::CurrentEpochIndex::get());
+            let epoch = T::CurrentEpochIndex::get();
+            Self::elect_attestors_for_chain(chain_key, epoch);
 
-            Self::deposit_event(Event::<T>::ForcedElection { chain_key });
+            Self::deposit_event(Event::<T>::ForcedElection { chain_key, epoch });
 
             Ok(())
         }

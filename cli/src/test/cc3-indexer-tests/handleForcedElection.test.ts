@@ -30,8 +30,9 @@ describe('handleForcedElection()', () => {
         }, 30_000);
 
         it('graphQL returns ForcedElection entity', async () => {
+            const currentEpoch = (await api.query.babe.epochIndex()).toBigInt();
             const response = await graphQLQuery(
-                `query { forcedElections(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, chainKey }}}`,
+                `query { forcedElections(orderBy: BLOCK_NUMBER_ASC, last: 1) { nodes { id, blockNumber, date, chainKey, epoch }}}`,
             );
             expect(response.data.forcedElections.nodes).toBeTruthy();
             expect(response.data.forcedElections.nodes.length).toBeGreaterThanOrEqual(1);
@@ -42,6 +43,9 @@ describe('handleForcedElection()', () => {
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
                 expect(Date.parse(node.date)).toBeLessThan(Date.now());
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
+                // labelled with the epoch current at submission (allow one rollover since)
+                expect(BigInt(node.epoch)).toBeGreaterThanOrEqual(currentEpoch - 1n);
+                expect(BigInt(node.epoch)).toBeLessThanOrEqual(currentEpoch);
             }
         });
     });

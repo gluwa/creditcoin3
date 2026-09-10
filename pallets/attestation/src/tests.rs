@@ -7895,10 +7895,45 @@ fn force_election_should_emit_forced_election_event() {
         System::assert_last_event(
             Event::ForcedElection {
                 chain_key: SUPPORTED_CHAIN_KEY,
+                epoch: RandomnessPallet::epoch_index(),
             }
             .into(),
         );
     })
+}
+
+#[test]
+fn force_election_labels_events_with_the_current_epoch_index() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // Mock epochs are 3 slots; block 8 lands in epoch 2.
+        progress_to_block(8);
+        let epoch = RandomnessPallet::epoch_index();
+        assert!(epoch >= 2, "test premise: at least two epochs passed");
+
+        register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+        System::reset_events();
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+
+        System::assert_has_event(
+            Event::AttestorsElected {
+                epoch,
+                chain_key: SUPPORTED_CHAIN_KEY,
+                attestors: vec![ATTESTOR_1],
+            }
+            .into(),
+        );
+        System::assert_last_event(
+            Event::ForcedElection {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                epoch,
+            }
+            .into(),
+        );
+    });
 }
 
 #[test]
@@ -8055,6 +8090,7 @@ fn force_election_does_not_emit_attestors_elected_when_set_is_unchanged() {
         System::assert_last_event(
             Event::ForcedElection {
                 chain_key: SUPPORTED_CHAIN_KEY,
+                epoch: RandomnessPallet::epoch_index(),
             }
             .into(),
         );

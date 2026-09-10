@@ -139,7 +139,24 @@ pub async fn wait_for_eligible(
                 }
             }
             _ = tick.tick() => {
-                tracing::info!(%account_id, "⏲️ waiting on election...");
+                // Storage is authoritative. An election finalized between the initial read above
+                // and the moment the event stream was seeded is never delivered as an event, and
+                // since elections are only emitted when the committee changes there is no later
+                // heartbeat to catch it. Re-reading here closes that gap.
+                match cc3.get_attestor_active_set(chain_key).await {
+                    Ok(list) if list.contains(account_id) => {
+                        tracing::info!(%account_id, "☀️ found in the active set — warming up before attesting");
+                        tokio::select! {
+                            _ = token.cancelled() => return Err(Error::ShutdownDuringStartup),
+                            _ = tokio::time::sleep(common::constants::POST_ELECTION_WARMUP) => {}
+                        }
+                        return Ok(list);
+                    }
+                    Ok(_) => tracing::info!(%account_id, "⏲️ waiting on election..."),
+                    Err(err) => {
+                        tracing::warn!(%account_id, error = %err, "⏲️ waiting on election (active-set re-read failed; will retry)")
+                    }
+                }
             }
         }
     }

@@ -735,16 +735,12 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Order-insensitive equality of two attestor lists (each list is duplicate-free: both
-    /// come from map keys or from a set that only ever removes entries).
+    /// Order-insensitive equality of two attestor lists. Both are duplicate-free (one comes
+    /// from map keys, the other from a set that only ever removes entries), so equal length
+    /// plus one-way containment is set equality. Quadratic, but bounded by `MaxAttestors`
+    /// (100) and allocation-free, which matters inside the epoch hook.
     fn same_membership(a: &[T::AccountId], b: &[T::AccountId]) -> bool {
-        if a.len() != b.len() {
-            return false;
-        }
-        let (mut a, mut b) = (a.to_vec(), b.to_vec());
-        a.sort_unstable();
-        b.sort_unstable();
-        a == b
+        a.len() == b.len() && a.iter().all(|x| b.contains(x))
     }
 
     /// Get the locked balance of an account
@@ -1694,15 +1690,19 @@ impl<T: Config> OnRandomnessUpdate for Pallet<T> {
 impl<T: Config> OnRandomnessUpdateWeight for Pallet<T> {
     fn on_new_epoch_randomness_weight() -> Weight {
         // `on_new_epoch_randomness` runs one `force_election` worth of work
-        // (`elect_attestors_for_chain`) per supported chain, followed by
-        // `force_apply_updates` (`apply_interval_updates`). Charge for all of it so
-        // `pallet-randomness`'s epoch-change `on_initialize` accounts for the
-        // listener cost instead of under-weighting it (the randomness benchmark
-        // deliberately excludes the listener, so this is the only place that cost
-        // is charged).
-        let chains = T::SupportedChains::supported_chains().len() as u64;
-        <T as Config>::WeightInfo::force_election()
-            .saturating_mul(chains.max(1))
+        // (`elect_attestors_for_chain`) per supported chain, each scaling with that
+        // chain's registered attestor count, followed by `force_apply_updates`
+        // (`apply_interval_updates`). Charge for all of it so `pallet-randomness`'s
+        // epoch-change `on_initialize` accounts for the listener cost instead of
+        // under-weighting it (the randomness benchmark deliberately excludes the
+        // listener, so this is the only place that cost is charged).
+        T::SupportedChains::supported_chains()
+            .into_iter()
+            .fold(Weight::zero(), |acc, chain_key| {
+                acc.saturating_add(<T as Config>::WeightInfo::force_election(
+                    AttestorsCount::<T>::get(chain_key),
+                ))
+            })
             .saturating_add(<T as Config>::WeightInfo::force_apply_updates())
     }
 }
