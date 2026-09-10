@@ -35,7 +35,6 @@
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
-import { stringToU8a } from "@polkadot/util";
 import { readFileSync, writeFileSync } from "node:fs";
 
 const WS = process.env.CREDITCOIN_SUBSTRATE_WS_URL || "wss://rpc.usc-devnet.creditcoin.network";
@@ -102,7 +101,9 @@ const submit = (label, call) =>
 
 // Key 2 of ChainIdAndNameToUniqKey is Vec<u8> of the UTF-8 name; pass bytes so polkadot-js never
 // tries to interpret the name as hex.
-const nameBytes = stringToU8a(DEST_CHAIN_NAME);
+// polkadot-js encodes a JS string as SCALE Bytes for the map key; a raw Uint8Array is mis-read as
+// already-encoded bytes (length prefix), so pass the string itself.
+const nameBytes = DEST_CHAIN_NAME;
 const lookupChainKey = async () => {
   const k = await api.query.supportedChains.chainIdAndNameToUniqKey(DEST_CHAIN_ID, nameBytes);
   return k.isSome ? BigInt(k.unwrap().toString()) : null;
