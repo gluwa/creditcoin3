@@ -446,6 +446,21 @@ async fn timed<T>(
     }
 }
 
+/// Whether a configured endpoint string and a dialled [`Url`] name the same endpoint.
+///
+/// A dialled provider carries the *parsed* URL, and `Url` normalises on parse: scheme and host are
+/// lowercased, a default port is dropped, an empty path becomes `/`. Comparing that back to the
+/// raw configured string therefore misses a working backup whenever the operator wrote
+/// `HTTPS://Host:443` and the parser stored `https://host/`. Parse the configured string the same
+/// way and compare the normalised forms; only if it does not parse fall back to a trailing-slash
+/// insensitive string compare.
+fn same_endpoint(configured: &str, dialed: &Url) -> bool {
+    match Url::parse(configured) {
+        Ok(url) => url == *dialed,
+        Err(_) => configured.trim_end_matches('/') == dialed.as_str().trim_end_matches('/'),
+    }
+}
+
 /// The block a source node reports for a settlement tag, identified by hash as well as height.
 /// See [`Client::get_block_by_tag`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -527,6 +542,11 @@ pub const DEFAULT_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_
 const HTTP_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 /// TCP/TLS connect deadline on the HTTP transport.
 const HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Default bound on re-dialling the primary in [`Client::reconnect`].
+pub const DEFAULT_PRIMARY_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Bound on re-dialling one fallback during [`Client::reconnect_with_deadline`]. Fallbacks are
+/// best-effort there; a slow one must not hold a repaired primary hostage.
+pub const FALLBACK_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
@@ -641,8 +661,41 @@ impl Client {
         })
     }
 
+    /// Re-dial the primary under [`DEFAULT_PRIMARY_DIAL_TIMEOUT`]; see
+    /// [`Self::reconnect_with_deadline`].
     pub async fn reconnect(&mut self) -> Result<(), Error> {
-        let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
+        self.reconnect_with_deadline(DEFAULT_PRIMARY_DIAL_TIMEOUT)
+            .await
+    }
+
+    /// Re-dial the primary under `primary_deadline`, then each fallback under its own
+    /// [`FALLBACK_DIAL_TIMEOUT`].
+    ///
+    /// Success means the client can serve again: the primary came back, or at least one
+    /// fallback is connected. A fallback that hangs or fails keeps its previous provider (if
+    /// any) and is logged; it never discards a primary connection that already came up. And a
+    /// primary that stays down does not stop the fallbacks from being refreshed: a backup that
+    /// was unreachable at startup (and so never became a provider) is dialled here too, so the
+    /// tip, tag and block walks have something to fail over to while the primary is out. Only
+    /// when nothing at all is reachable does this return the primary's error.
+    pub async fn reconnect_with_deadline(
+        &mut self,
+        primary_deadline: std::time::Duration,
+    ) -> Result<(), Error> {
+        let primary = tokio::time::timeout(primary_deadline, Self::init_rpc(self.url.as_ref()))
+            .await
+            .map_err(|_| {
+                Error::ClientError(anyhow::anyhow!(
+                    "primary RPC dial timed out after {primary_deadline:?}"
+                ))
+            })
+            .and_then(|r| r);
+        // Fallbacks are verified against the chain the client is pinned to: the freshly dialled
+        // primary's id when it came up, the id recorded at construction otherwise.
+        let chain_id = match &primary {
+            Ok((_, _, id)) => *id,
+            Err(_) => self.chain_id,
+        };
 
         // Reconnect each fallback against its own URL too, otherwise a
         // recovered primary would silently keep using a stale fallback
@@ -659,11 +712,19 @@ impl Client {
         // retried here instead of being lost for the life of the process.
         let mut new_fallbacks = Vec::with_capacity(self.fallback_urls.len());
         for (idx, raw_url) in self.fallback_urls.iter().enumerate() {
-            let previous = self.fallback_providers.iter().find(|fp| {
-                fp.url.as_str() == raw_url.as_str()
-                    || fp.url.as_str().trim_end_matches('/') == raw_url.trim_end_matches('/')
-            });
-            match Self::init_rpc(raw_url).await {
+            let previous = self
+                .fallback_providers
+                .iter()
+                .find(|fp| same_endpoint(raw_url, &fp.url));
+            let dialed = tokio::time::timeout(FALLBACK_DIAL_TIMEOUT, Self::init_rpc(raw_url))
+                .await
+                .map_err(|_| {
+                    Error::ClientError(anyhow::anyhow!(
+                        "fallback dial timed out after {FALLBACK_DIAL_TIMEOUT:?}"
+                    ))
+                })
+                .and_then(|r| r);
+            match dialed {
                 Ok((fp_url, fp_provider, fp_chain_id)) => {
                     if fp_chain_id != chain_id {
                         tracing::error!(
@@ -697,12 +758,30 @@ impl Client {
             }
         }
 
-        self.url = url;
-        self.rpc_provider = rpc_provider;
-        self.fallback_providers = new_fallbacks;
-        self.chain_id = chain_id;
-
-        Ok(())
+        match primary {
+            Ok((url, rpc_provider, chain_id)) => {
+                self.url = url;
+                self.rpc_provider = rpc_provider;
+                self.fallback_providers = new_fallbacks;
+                self.chain_id = chain_id;
+                Ok(())
+            }
+            Err(err) if new_fallbacks.is_empty() => Err(err),
+            Err(err) => {
+                // The primary is out but a backup is up: keep the (dead) primary handle so the
+                // walks still try it first and pick the primary back up the moment it answers,
+                // and serve from the fallbacks meanwhile. The old primary connection is not
+                // replaced; a later repair re-dials it again.
+                tracing::error!(
+                    primary_url = %redact_url_query(self.url.as_str()),
+                    error = %err,
+                    fallbacks = new_fallbacks.len(),
+                    "⛔ primary RPC re-dial failed; serving from the fallback provider(s) until it returns"
+                );
+                self.fallback_providers = new_fallbacks;
+                Ok(())
+            }
+        }
     }
 
     /// Connect to each fallback URL in declaration order and verify each
@@ -1896,5 +1975,32 @@ mod error_classification_tests {
         // A stringified error loses the type and must not be classified as permanent.
         let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
         assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
+    }
+}
+
+#[cfg(test)]
+mod same_endpoint_tests {
+    use super::*;
+
+    #[test]
+    fn a_configured_url_matches_its_own_normalised_dialled_form() {
+        let dialed = Url::parse("https://host.example/v1/KEY").unwrap();
+        assert!(same_endpoint("https://host.example/v1/KEY", &dialed));
+        assert!(
+            same_endpoint("HTTPS://Host.Example:443/v1/KEY", &dialed),
+            "scheme and host case and the default port are normalised on parse"
+        );
+        let root = Url::parse("http://127.0.0.1:8545").unwrap();
+        assert!(same_endpoint("http://127.0.0.1:8545/", &root));
+        assert!(same_endpoint("http://127.0.0.1:8545", &root));
+    }
+
+    #[test]
+    fn different_endpoints_do_not_match() {
+        let dialed = Url::parse("https://host.example/v1/KEY").unwrap();
+        assert!(!same_endpoint("https://host.example/v1/OTHER", &dialed));
+        assert!(!same_endpoint("https://other.example/v1/KEY", &dialed));
+        assert!(!same_endpoint("wss://host.example/v1/KEY", &dialed));
+        assert!(!same_endpoint("not a url", &dialed));
     }
 }

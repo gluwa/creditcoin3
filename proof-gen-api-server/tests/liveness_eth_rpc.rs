@@ -21,7 +21,11 @@ async fn rpc_fixture(server: &MockServer, fail_tip: bool, delay: Duration) {
                 json!({"jsonrpc": "2.0", "id": req["id"],
                        "error": {"code": -32000, "message": "upstream unavailable"}})
             } else {
-                let result = if req["method"] == "eth_chainId" { "0x7a69" } else { "0x3e8" };
+                let result = if req["method"] == "eth_chainId" {
+                    "0x7a69"
+                } else {
+                    "0x3e8"
+                };
                 json!({"jsonrpc": "2.0", "id": req["id"], "result": result})
             };
             ResponseTemplate::new(200)
@@ -61,6 +65,60 @@ async fn health_reports_serving_ability_not_primary_reachability() {
         0,
         "a served read must not trigger a repair"
     );
+}
+
+#[tokio::test]
+async fn health_fails_over_from_a_hung_primary_inside_the_probe_budget() {
+    // The primary dials fine (fast `eth_chainId`) but black-holes the tip read.
+    let primary = MockServer::start().await;
+    Mock::given(method("POST"))
+        .respond_with(|request: &wiremock::Request| {
+            let req: Value = request.body_json().unwrap();
+            if req["method"] == "eth_blockNumber" {
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_secs(30))
+                    .set_body_json(json!({"jsonrpc": "2.0", "id": req["id"], "result": "0x3e8"}))
+            } else {
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"jsonrpc": "2.0", "id": req["id"], "result": "0x7a69"}))
+            }
+        })
+        .mount(&primary)
+        .await;
+    let fallback = MockServer::start().await;
+    rpc_fixture(&fallback, false, Duration::ZERO).await;
+    let client = eth::Client::new_with_fallbacks(&primary.uri(), &[fallback.uri()], None)
+        .await
+        .unwrap();
+    let provider = ReconnectingEthRpcProvider::new(client, ENCODING);
+
+    // `/health` gives the probe 5 s in total; the hung primary must be abandoned well inside
+    // that so the fallback's answer still counts.
+    let healthy = tokio::time::timeout(Duration::from_secs(5), provider.is_healthy())
+        .await
+        .expect("the probe must finish inside the health budget")
+        .unwrap();
+    assert!(healthy);
+    assert_eq!(
+        provider.generation(),
+        0,
+        "the probe observes; it never starts a repair of the shared client"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_health_probe_reports_but_does_not_repair() {
+    let primary = MockServer::start().await;
+    rpc_fixture(&primary, true, Duration::ZERO).await;
+    let client = eth::Client::new_with_fallbacks(&primary.uri(), &[], None)
+        .await
+        .unwrap();
+    let provider = ReconnectingEthRpcProvider::new(client, ENCODING);
+
+    assert!(provider.is_healthy().await.is_err());
+    // No repair dial: `eth_chainId` was only called by the initial connect.
+    assert_eq!(count_method(&primary, "eth_chainId").await, 1);
+    assert_eq!(provider.generation(), 0);
 }
 
 #[tokio::test]
@@ -132,7 +190,11 @@ async fn concurrent_failures_share_one_repair_dial() {
     rpc_fixture(&server, false, Duration::ZERO).await;
     let client = eth::Client::new(&server.uri(), None).await.unwrap();
     let provider = Arc::new(ReconnectingEthRpcProvider::new(client, ENCODING));
-    assert_eq!(count_method(&server, "eth_chainId").await, 1, "initial connect");
+    assert_eq!(
+        count_method(&server, "eth_chainId").await,
+        1,
+        "initial connect"
+    );
 
     // Tip reads always fail; each repair dial takes 400 ms.
     server.reset().await;
@@ -160,6 +222,45 @@ async fn concurrent_failures_share_one_repair_dial() {
     // there is exactly one dial per retry round.
     assert_eq!(count_method(&server, "eth_chainId").await, 2);
     assert_eq!(provider.generation(), 2);
+}
+
+#[tokio::test]
+async fn a_fallback_that_comes_up_later_serves_while_the_primary_is_down() {
+    let primary = MockServer::start().await;
+    rpc_fixture(&primary, false, Duration::ZERO).await;
+
+    // The backup is not listening yet when the client is built: it is skipped at startup, so
+    // the client starts with a primary and no connected fallback.
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let fallback_addr = reserved.local_addr().unwrap();
+    drop(reserved);
+    let fallback_url = format!("http://{fallback_addr}");
+    let client = eth::Client::new_with_fallbacks(&primary.uri(), &[fallback_url], None)
+        .await
+        .unwrap();
+    let provider = ReconnectingEthRpcProvider::new(client, ENCODING);
+
+    // Now the backup comes up ...
+    let fallback = MockServer::builder()
+        .listener(std::net::TcpListener::bind(fallback_addr).unwrap())
+        .start()
+        .await;
+    rpc_fixture(&fallback, false, Duration::ZERO).await;
+    // ... and the primary dies for good (every call, including the re-dial, is refused).
+    primary.reset().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&primary)
+        .await;
+
+    // The failed read triggers a repair; the primary re-dial fails, but the repair must still
+    // walk the configured fallbacks and connect the backup, and the retried read then serves
+    // from it instead of the replica staying down until the primary returns.
+    assert_eq!(provider.get_last_block().await.unwrap(), 1000);
+    assert!(
+        provider.generation() >= 1,
+        "the repair with a dead primary but a live fallback counts as a repair"
+    );
 }
 
 #[tokio::test]

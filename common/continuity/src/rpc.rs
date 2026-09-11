@@ -33,8 +33,20 @@ const RECONNECT_MAX_ATTEMPTS: usize = 5;
 /// none, and no deadline at all means a single hung request pins a caller (and its batch)
 /// forever. Generous on purpose: a 1000-block continuity range on a slow RPC is minutes.
 const ETH_RPC_CALL_TIMEOUT: Duration = Duration::from_secs(300);
-/// Upper bound on one repair: re-dialling the primary and every fallback and reading their
-/// chain ids.
+/// Extra deadline granted per block to a range fetch (`build_continuity_blocks`), on top of
+/// `call_timeout`. Hangs inside the range are already cut off by the transports' own deadlines
+/// and the eth client's fallback walk; this outer bound only has to catch a wedged future, so
+/// it scales with the work instead of failing a merely slow 1000-block range at a flat 300 s
+/// and retrying it from scratch until the proof fails.
+const ETH_RPC_PER_BLOCK_BUDGET: Duration = Duration::from_secs(2);
+/// Per-provider deadline for the health probe's tip read. The `/health` route gives the whole
+/// probe 5 s, so a primary that accepts TCP and never answers must be given up on fast enough
+/// for the fallback to still answer inside that budget; the regular `call_timeout` (15 s) would
+/// overrun it and report a replica degraded that can serve everything from its fallback.
+const HEALTH_PROBE_CALL_TIMEOUT: Duration = Duration::from_secs(2);
+/// Upper bound on re-dialling the *primary* during one repair (chain-id read included).
+/// Fallbacks are re-dialled after it under `eth`'s own per-fallback bound and never decide
+/// the repair's outcome.
 const ETH_RPC_DIAL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// ETH RPC provider that owns one long-lived [`eth::Client`] and reconnects it on transport
@@ -78,7 +90,7 @@ impl ReconnectingEthRpcProvider {
         }
     }
 
-    /// Override the per-attempt call deadline and the per-repair dial deadline.
+    /// Override the per-attempt call deadline and the per-repair primary dial deadline.
     #[must_use]
     pub fn with_timeouts(mut self, call_timeout: Duration, dial_timeout: Duration) -> Self {
         self.call_timeout = call_timeout;
@@ -98,10 +110,25 @@ impl ReconnectingEthRpcProvider {
         (guard.clone(), generation)
     }
 
-    /// Run an RPC call, reconnecting and retrying on failure.
+    /// Run a single RPC call under `call_timeout`, reconnecting and retrying on failure.
     ///
     /// `op` is a short identifier (e.g. `"get_chain_id"`) used in tracing.
-    async fn run<T, F, Fut>(&self, op: &'static str, mut call: F) -> Result<T>
+    async fn run<T, F, Fut>(&self, op: &'static str, call: F) -> Result<T>
+    where
+        F: FnMut(eth::Client) -> Fut,
+        Fut: Future<Output = Result<T>>,
+    {
+        self.run_within(op, self.call_timeout, call).await
+    }
+
+    /// Run an RPC operation with an explicit per-attempt `deadline`, reconnecting and retrying
+    /// on failure. Every attempt gets the full deadline again.
+    async fn run_within<T, F, Fut>(
+        &self,
+        op: &'static str,
+        deadline: Duration,
+        mut call: F,
+    ) -> Result<T>
     where
         F: FnMut(eth::Client) -> Fut,
         Fut: Future<Output = Result<T>>,
@@ -110,7 +137,7 @@ impl ReconnectingEthRpcProvider {
 
         for attempt in 1..=ETH_RPC_MAX_ATTEMPTS {
             let (client, generation) = self.snapshot().await;
-            let err = match tokio::time::timeout(self.call_timeout, call(client)).await {
+            let err = match tokio::time::timeout(deadline, call(client)).await {
                 Ok(Ok(value)) => return Ok(value),
                 Ok(Err(err)) => {
                     // A user-initiated shutdown (Ctrl+C / service stop) surfaces here as an
@@ -149,10 +176,7 @@ impl ReconnectingEthRpcProvider {
                     }
                     err
                 }
-                Err(_elapsed) => anyhow!(
-                    "{op} timed out after {:?} (attempt {attempt})",
-                    self.call_timeout
-                ),
+                Err(_elapsed) => anyhow!("{op} timed out after {deadline:?} (attempt {attempt})"),
             };
             warn!(
                 op,
@@ -201,9 +225,9 @@ impl ReconnectingEthRpcProvider {
         tokio_retry::Retry::spawn(strategy, || async {
             warn!(op, "reconnecting ETH RPC client");
             let mut candidate = self.client.read().await.clone();
-            tokio::time::timeout(self.dial_timeout, candidate.reconnect())
+            candidate
+                .reconnect_with_deadline(self.dial_timeout)
                 .await
-                .map_err(|_| anyhow!("dial timed out after {:?}", self.dial_timeout))?
                 .map_err(|e| anyhow!("{e}"))?;
             *self.client.write().await = candidate;
             self.generation
@@ -219,6 +243,14 @@ impl ReconnectingEthRpcProvider {
 
 /// Abstraction over Creditcoin3 RPC operations.
 ///
+/// Deadline for one attempt at fetching the `start..=end` range: `call_timeout` plus a per-block
+/// budget, see [`ETH_RPC_PER_BLOCK_BUDGET`]. An inverted range counts as one block.
+fn range_deadline(call_timeout: Duration, start: u64, end: u64) -> Duration {
+    let blocks = end.saturating_sub(start).saturating_add(1);
+    let blocks = u32::try_from(blocks).unwrap_or(u32::MAX);
+    call_timeout.saturating_add(ETH_RPC_PER_BLOCK_BUDGET.saturating_mul(blocks))
+}
+
 /// This trait defines all CC3 chain operations required for continuity proof generation.
 /// It's implemented by `cc_client::Client` and can be mocked for testing.
 ///
@@ -466,12 +498,17 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
         end: u64,
     ) -> Result<Vec<Block>> {
         let encoding = self.encoding;
-        self.run("build_continuity_blocks", move |client| async move {
-            ContinuityManager::new(start, end, &client)
-                .create(lower_digest, encoding)
-                .await
-                .context("Failed to create continuity blocks")
-        })
+        let deadline = range_deadline(self.call_timeout, start, end);
+        self.run_within(
+            "build_continuity_blocks",
+            deadline,
+            move |client| async move {
+                ContinuityManager::new(start, end, &client)
+                    .create(lower_digest, encoding)
+                    .await
+                    .context("Failed to create continuity blocks")
+            },
+        )
         .await
     }
 
@@ -588,7 +625,16 @@ impl EthRpcProvider for ReconnectingEthRpcProvider {
         // every fallback under per-provider deadlines, so a replica whose primary is down but
         // whose fallback still answers tip and block reads reports healthy, instead of being
         // marked degraded and repaired for a connection it is not depending on.
-        self.get_last_block()
+        //
+        // Observe, do not repair. The probe deliberately bypasses `run()`: a failed probe is a
+        // *report* for `/health`, not a transport fault to recover from, and `/health` cancels
+        // the probe at its 5 s budget, which would otherwise abort a shared repair halfway and
+        // leave every other caller retrying against a half-repaired client. Serving calls
+        // repair on their own failures; the probe just reads whatever client they use.
+        let (client, _generation) = self.snapshot().await;
+        client
+            .with_call_timeout(HEALTH_PROBE_CALL_TIMEOUT)
+            .get_last_block()
             .await
             .map(|_| true)
             .map_err(|e| anyhow!("Failed to read the source tip: {e}"))
@@ -606,3 +652,26 @@ pub type SharedCcProvider = Arc<dyn CcRpcProvider>;
 /// This allows multiple builders or services to share the same ETH client,
 /// which is especially useful when block caching is enabled.
 pub type SharedEthProvider = Arc<dyn EthRpcProvider>;
+
+#[cfg(test)]
+mod range_deadline_tests {
+    use super::*;
+
+    #[test]
+    fn a_range_fetch_gets_a_deadline_that_scales_with_its_size() {
+        let base = Duration::from_secs(300);
+        assert_eq!(
+            range_deadline(base, 10, 10),
+            base + ETH_RPC_PER_BLOCK_BUDGET
+        );
+        assert_eq!(
+            range_deadline(base, 1, 1000),
+            base + ETH_RPC_PER_BLOCK_BUDGET * 1000
+        );
+        assert_eq!(
+            range_deadline(base, 5, 1),
+            base + ETH_RPC_PER_BLOCK_BUDGET,
+            "an inverted range is one block, never a panic"
+        );
+    }
+}
