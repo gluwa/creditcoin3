@@ -462,7 +462,7 @@ async fn main() -> Result<()> {
     let flush_size = cfg.flush_every.get() as usize;
     let mut batch_buf = Vec::with_capacity(flush_size);
 
-    let stream_timeout = Duration::from_secs(cfg.stream_timeout_secs);
+    let stream_timeout = Duration::from_secs(cfg.stream_timeout_secs.get());
     let mut last_height: Option<u64> = None;
     // Stamped in the past so the first block at the tip is flushed immediately.
     let mut last_tip_flush = Instant::now() - TIP_FLUSH_INTERVAL;
