@@ -122,8 +122,9 @@ async fn main() -> Result<()> {
     // `CHAIN_KEY` is set that `chain_id` must be the one registered on Creditcoin for
     // this archiver's chain key. Both are fatal: archiving the wrong chain under a
     // given archive name silently corrupts every proof later built from it.
-    let ws_client = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls).await?;
-    let http_client = dial(cfg.rpc_http.as_str(), &cfg.rpc_fallback_urls).await?;
+    let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
+    let ws_client = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout).await?;
+    let http_client = dial(cfg.rpc_http.as_str(), &cfg.rpc_fallback_urls, rpc_timeout).await?;
     if ws_client.chain_id() != http_client.chain_id() {
         return Err(anyhow!(
             "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -210,7 +211,6 @@ async fn main() -> Result<()> {
     // yet sit behind a different (lagging, load-balanced) node still on the abandoned fork, and a
     // tip verified there says nothing about the blocks WS will splice on. Reconnect does the same
     // with the freshly dialled WS client.
-    let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
     let anchored = anchor::reconcile(&store, cfg.reanchor_max_depth, |h| {
         canonical_block_hash(&ws_client, h, rpc_timeout)
     })
@@ -263,6 +263,90 @@ async fn main() -> Result<()> {
         resolve_maturity(cfg.finalization_lag_override, on_chain)
     };
 
+    // The bound and the head tracker start here, ahead of the shutdown wiring and a possibly
+    // hours-long `--backfill`, so probes see the real startup phase (lag against the target)
+    // rather than a stale "handshake not complete" or "source head never observed".
+    let (boundary, attested) = match mode {
+        TipMode::Attested { chain_key } => {
+            let (cc3_client, _, _) = registered
+                .as_ref()
+                .expect("tip_mode only picks Attested when CHAIN_KEY is set");
+            let rx = follow_attested_height(
+                cc3_client.clone(),
+                chain_key,
+                Duration::from_secs(cfg.attested_poll_secs),
+            );
+            (stream_eth::roots::Boundary::Attested(rx.clone()), Some(rx))
+        }
+        TipMode::Source => (
+            stream_eth::roots::Boundary::Source(source_maturity()?),
+            None,
+        ),
+    };
+    // ── Health / freshness bookkeeping ──────────────────────────────────
+    // Readiness is judged against the same number the stream fetches up to: the attested height
+    // clamped to the source head, or the source-resolved mature height. It is re-derived with
+    // every head sample, so an idle chain stays ready and a stalled archiver does not.
+    let ready_target = match &attested {
+        Some(rx) => ReadyTarget::Attested(rx.clone()),
+        None => ReadyTarget::Source(source_maturity()?),
+    };
+    // Identity verified, pinned and the bound decided: `/ready` may now turn green.
+    health.set_source(source_chain_id, ready_target.to_string());
+    // ── Chain head tracker (for ETA, stall judgement and freshness) ─────
+    // `chain_head` is 0 until the first successful read, and `head_seen_at` is the wall-clock
+    // second of the last one, so consumers can tell a real head from "never read" or "stale
+    // because HTTP has been failing"; see `known_head`. The poller runs on the same cadence as
+    // the stream's head poll (`--head-poll-interval-secs`), so `/ready` freshness and the
+    // stream's own liveness floor move together and a sample is stale after three missed
+    // polls. Every read is bounded by the RPC call timeout: a hung HTTP node must age the
+    // sample out, not freeze the poller.
+    let head_poll_interval = Duration::from_secs(cfg.head_poll_interval_secs.get());
+    let head_stale_after = head_poll_interval * HEAD_STALE_AFTER_POLLS;
+    let current_head = match ready_target.sample(&http_client, rpc_timeout).await {
+        Ok((h, target)) => {
+            health.note_head(h);
+            health.note_mature_target(target);
+            h
+        }
+        Err(e) => {
+            tracing::warn!("initial head read failed: {e}");
+            0
+        }
+    };
+    let chain_head = Arc::new(AtomicU64::new(current_head));
+    let head_seen_at = Arc::new(AtomicU64::new(if current_head > 0 {
+        now_secs()
+    } else {
+        0
+    }));
+    {
+        let head = chain_head.clone();
+        let seen_at = head_seen_at.clone();
+        let client = http_client.clone();
+        let health = health.clone();
+        let mut ready_target = ready_target.clone();
+        tokio::spawn(async move {
+            loop {
+                // A new attested height re-samples at once rather than on the next tick, so
+                // `/ready` leaves "target unknown" as soon as Creditcoin has been read.
+                tokio::select! {
+                    _ = tokio::time::sleep(head_poll_interval) => {}
+                    _ = ready_target.changed() => {}
+                }
+                match ready_target.sample(&client, rpc_timeout).await {
+                    Ok((h, target)) => {
+                        head.store(h, Ordering::Release);
+                        seen_at.store(now_secs(), Ordering::Release);
+                        health.note_head(h);
+                        health.note_mature_target(target);
+                    }
+                    Err(e) => tracing::warn!("head poll failed: {e}"),
+                }
+            }
+        });
+    }
+
     // ── Shutdown signal (SIGINT + SIGTERM) ──────────────────────────────
     // A `watch` rather than a oneshot so every phase (main loop, reconnect backoff, stream
     // construction) can select on it repeatedly. Kubernetes stops pods with SIGTERM, so
@@ -305,7 +389,7 @@ async fn main() -> Result<()> {
                         tracing::info!("backfill interrupted by shutdown before dialing");
                         return Ok(());
                     }
-                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls) => c?,
+                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c?,
                 };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
@@ -403,23 +487,6 @@ async fn main() -> Result<()> {
     tracing::info!(chain_id = source_chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
 
     // ── Root stream (with automatic reconnection) ───────────────────────
-    let (boundary, attested) = match mode {
-        TipMode::Attested { chain_key } => {
-            let (cc3_client, _, _) = registered
-                .as_ref()
-                .expect("tip_mode only picks Attested when CHAIN_KEY is set");
-            let rx = follow_attested_height(
-                cc3_client.clone(),
-                chain_key,
-                Duration::from_secs(cfg.attested_poll_secs),
-            );
-            (stream_eth::roots::Boundary::Attested(rx.clone()), Some(rx))
-        }
-        TipMode::Source => (
-            stream_eth::roots::Boundary::Source(source_maturity()?),
-            None,
-        ),
-    };
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
@@ -438,73 +505,6 @@ async fn main() -> Result<()> {
         }
         s = stream_eth::StreamRoots::new(stream_config) => s,
     };
-
-    // ── Health / freshness bookkeeping ──────────────────────────────────
-    // Readiness is judged against the same number the stream fetches up to: the attested height
-    // clamped to the source head, or the source-resolved mature height. It is re-derived with
-    // every head sample, so an idle chain stays ready and a stalled archiver does not.
-    let ready_target = match &attested {
-        Some(rx) => ReadyTarget::Attested(rx.clone()),
-        None => ReadyTarget::Source(source_maturity()?),
-    };
-    // The source identity is verified and pinned and the bound is decided: `/ready` may now
-    // turn green.
-    health.set_source(source_chain_id, ready_target.to_string());
-
-    // ── Chain head tracker (for ETA, stall judgement and freshness) ─────
-    // `chain_head` is 0 until the first successful read, and `head_seen_at` is the wall-clock
-    // second of the last one, so consumers can tell a real head from "never read" or "stale
-    // because HTTP has been failing"; see `known_head`. The poller runs on the same cadence as
-    // the stream's head poll (`--head-poll-interval-secs`), so `/ready` freshness and the
-    // stream's own liveness floor move together and a sample is stale after three missed
-    // polls. Every read is bounded by the RPC call timeout: a hung HTTP node must age the
-    // sample out, not freeze the poller.
-    let head_call_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
-    let head_poll_interval = Duration::from_secs(cfg.head_poll_interval_secs.get());
-    let head_stale_after = head_poll_interval * HEAD_STALE_AFTER_POLLS;
-    let current_head = match ready_target.sample(&http_client, head_call_timeout).await {
-        Ok((h, target)) => {
-            health.note_head(h);
-            health.note_mature_target(target);
-            h
-        }
-        Err(e) => {
-            tracing::warn!("initial head read failed: {e}");
-            0
-        }
-    };
-    let chain_head = Arc::new(AtomicU64::new(current_head));
-    let head_seen_at = Arc::new(AtomicU64::new(if current_head > 0 {
-        now_secs()
-    } else {
-        0
-    }));
-    {
-        let head = chain_head.clone();
-        let seen_at = head_seen_at.clone();
-        let client = http_client.clone();
-        let health = health.clone();
-        let mut ready_target = ready_target.clone();
-        tokio::spawn(async move {
-            loop {
-                // A new attested height re-samples at once rather than on the next tick, so
-                // `/ready` leaves "target unknown" as soon as Creditcoin has been read.
-                tokio::select! {
-                    _ = tokio::time::sleep(head_poll_interval) => {}
-                    _ = ready_target.changed() => {}
-                }
-                match ready_target.sample(&client, head_call_timeout).await {
-                    Ok((h, target)) => {
-                        head.store(h, Ordering::Release);
-                        seen_at.store(now_secs(), Ordering::Release);
-                        health.note_head(h);
-                        health.note_mature_target(target);
-                    }
-                    Err(e) => tracing::warn!("head poll failed: {e}"),
-                }
-            }
-        });
-    }
 
     tracing::info!(
         start = start_height,
@@ -607,7 +607,7 @@ async fn main() -> Result<()> {
 
                     let connect = tokio::select! {
                         _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
-                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls) => c,
+                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c,
                     };
                     match connect {
                         // The endpoint must still be the chain this archive is pinned to. A
@@ -807,18 +807,33 @@ fn should_request_flush(
 /// Dial an RPC endpoint with the configured fallbacks. A fallback that cannot be reached (or
 /// serves another chain) must never keep the archiver from starting or reconnecting on a
 /// healthy primary, so on fallback failure the dial is retried with the primary alone.
-async fn dial(url: &str, fallback_urls: &[String]) -> Result<eth::Client> {
+///
+/// Every dial runs under `deadline`: alloy transports have no default timeout, so without one a
+/// black-holed fallback (or primary) would hang the handshake or a reconnect attempt forever.
+async fn dial(url: &str, fallback_urls: &[String], deadline: Duration) -> Result<eth::Client> {
+    let primary_only = || async {
+        tokio::time::timeout(deadline, eth::Client::new(url, None))
+            .await
+            .map_err(|_| anyhow!("timed out after {deadline:?} dialing {url}"))?
+    };
     if fallback_urls.is_empty() {
-        return eth::Client::new(url, None).await;
+        return primary_only().await;
     }
-    match eth::Client::new_with_fallbacks(url, fallback_urls, None).await {
+    let with_fallbacks = tokio::time::timeout(
+        deadline,
+        eth::Client::new_with_fallbacks(url, fallback_urls, None),
+    )
+    .await
+    .map_err(|_| anyhow!("timed out after {deadline:?} dialing {url} with fallbacks"))
+    .and_then(|r| r);
+    match with_fallbacks {
         Ok(client) => Ok(client),
         Err(e) => {
             tracing::warn!(
                 fallbacks = fallback_urls.len(),
                 "dial with fallback RPCs failed, retrying with the primary only: {e:#}"
             );
-            eth::Client::new(url, None).await
+            primary_only().await
         }
     }
 }
