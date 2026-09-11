@@ -41,7 +41,7 @@ futures = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["signal", "rt-multi-thread"] }
 tokio-tungstenite = { workspace = true, features = ["url"] }
-tokio-util = "0.7"
+tokio-util = { workspace = true }
 
 # P2P
 libp2p = { workspace = true, features = [

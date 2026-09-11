@@ -22,7 +22,9 @@ use crate::{
     config::ContinuityConfig,
     errors::ContinuityError,
     proof::BuiltContinuityProof,
-    rpc::{ReconnectingEthRpcProvider, SharedCcProvider, SharedEthProvider},
+    rpc::{
+        ReconnectingCcRpcProvider, ReconnectingEthRpcProvider, SharedCcProvider, SharedEthProvider,
+    },
 };
 use anyhow::{Context, Result};
 use cc_client::Client as CcClient;
@@ -186,7 +188,10 @@ impl ContinuityBuilder {
 
         Ok(Self::new_with_providers(
             config,
-            Arc::new(cc_client),
+            Arc::new(ReconnectingCcRpcProvider::new(
+                cc_client,
+                std::time::Duration::from_secs(15),
+            )),
             Arc::new(ReconnectingEthRpcProvider::new(eth_client, encoding)),
         ))
     }

@@ -19,7 +19,6 @@ pub mod bls;
 pub mod error;
 pub mod health;
 pub mod proof_cache;
-pub mod retry;
 pub mod secret;
 pub mod shared;
 pub mod startup;

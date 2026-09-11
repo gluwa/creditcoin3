@@ -60,6 +60,7 @@ pub fn compiled_metadata() -> Result<subxt::Metadata, anyhow::Error> {
 
 pub mod api;
 pub mod attestation;
+pub mod retry;
 pub mod signer;
 
 pub type Randomness = [u8; 32];
