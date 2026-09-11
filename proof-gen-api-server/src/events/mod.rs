@@ -44,7 +44,7 @@ pub fn get_last_attestation(chain_key: u64) -> Option<LastAttestation> {
 /// apply every update, and rebind when the stream ends or when another task's `reconnect()`
 /// swapped the connection under us (a cloned `OnlineClient` keeps the old backend alive, so the
 /// stale subscription would never end on its own).
-async fn run_runtime_updater(cc3: CcClient) {
+async fn run_runtime_updater(cc3: Arc<CcClient>) {
     const REBIND_CHECK: Duration = Duration::from_secs(5);
     const RETRY_DELAY: Duration = Duration::from_secs(5);
     loop {
@@ -107,13 +107,19 @@ pub async fn start_cc3_event_subscription(
         "no chains configured for event subscription"
     );
 
+    // One shared handle for the stream AND the updater. `Client::clone()` gives each value clone
+    // its own `ArcSwap`, so a `reconnect()` performed by the stream would be invisible to an
+    // updater holding a different clone; through the same `Arc` the updater sees the swapped
+    // connection via `connection_id()` and rebinds to the client the decoder actually uses.
+    let cc3 = Arc::new(cc3_client);
+
     // Keep the client's metadata in step with the chain across runtime upgrades (see
     // `run_runtime_updater`). Without it every event from a pallet whose layout changed in a
     // `setCode` fails to decode and the caches below silently stop updating.
-    tokio::spawn(run_runtime_updater(cc3_client.clone()));
+    tokio::spawn(run_runtime_updater(cc3.clone()));
 
     let config = stream::cc3::ConfigBuilder::new()
-        .with_cc3(cc3_client.clone())
+        .with_cc3(cc3)
         .with_chain_keys(chain_keys.iter().copied().collect::<Vec<_>>())
         .build();
     let mut events = stream::cc3::StreamCC3::new(config).await?.flatten();
