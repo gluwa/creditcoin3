@@ -10936,6 +10936,7 @@ dependencies = [
  "serde_yaml",
  "sp-core",
  "stream",
+ "subxt 0.44.3",
  "supported-chains-primitives",
  "sysinfo 0.37.2",
  "thiserror 1.0.69",
