@@ -1,0 +1,120 @@
+// Level-2 relayer payout: prove the destination MessageDelivered tx via proof-gen and call
+// RelayerContract.claimDelivery on the source (CC EVM). The claim is permissionless — msg.sender
+// (a dedicated claimant EOA here, funded with gas only) receives the funded relayFee (+tip).
+// Post-#23: claimDelivery/getMessageInfo moved from RelayerFeeVault to RelayerContract — the vault
+// is now a dumb fund holder that only RelayerContract instructs via `pay`.
+//
+// Manual/local use only: a relayer started with --relayer-contract-address (the normal
+// configuration) auto-claims via its own AckAndClaim worker before this script would ever get a
+// chance to race it — see assert-relay-claimed.mts, which the e2e uses instead to verify that
+// auto-claim. Run this one directly against a relayer that has claiming disabled, or with no
+// relayer running at all, to demonstrate the permissionless claim path itself.
+//
+// Proof bundle comes from the same proof-gen `proof-by-tx` endpoint the ack path uses; it is only
+// available once the destination block is attested on CC3 (i.e. after the ack round-trip lands).
+import { ethers } from "ethers";
+import { readFileSync } from "node:fs";
+
+const PROOF_GEN = process.env.PROOF_GEN_URL ?? "http://127.0.0.1:3100";
+const DEST_CHAIN_KEY = 2; // anvil destination — proof-gen path param + claimDelivery chainKey
+const BALTHATHAR = "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b";
+// Dedicated claimant (anvil #8 key, reused as a plain CC-EVM keypair): starts with 0 ATTEST so the
+// payout delta is exactly relayFee (+tip). Gas is topped up from Balthathar below.
+const CLAIMANT_KEY = "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97";
+
+const a = JSON.parse(readFileSync("/tmp/e2e-deploy.json", "utf8"));
+const pub = JSON.parse(readFileSync("/tmp/e2e-published.json", "utf8"));
+const messageId: string = pub.messageId;
+const src = a.source;
+const dest = a.dest;
+
+const srcProvider = new ethers.JsonRpcProvider("http://127.0.0.1:9944", 42, { staticNetwork: true });
+srcProvider.pollingInterval = 800;
+const destProvider = new ethers.JsonRpcProvider("http://127.0.0.1:8545", 31337, { staticNetwork: true });
+destProvider.pollingInterval = 500;
+
+const funder = new ethers.Wallet(BALTHATHAR, srcProvider);
+const claimant = new ethers.Wallet(CLAIMANT_KEY, srcProvider);
+
+// ── 1. Find the destination delivery tx (Inbox.MessageDelivered), retrying until it's visible ─────
+const deliveredSig = ethers.id("MessageDelivered(bytes32,address,address)");
+let deliveryTx: string | undefined;
+for (let i = 0; i < 40; i++) {
+  const logs = await destProvider.getLogs({ address: dest.inbox, topics: [deliveredSig, messageId], fromBlock: 0, toBlock: "latest" });
+  if (logs.length > 0) { deliveryTx = logs[0].transactionHash; break; }
+  if (i % 5 === 0) console.log(`  waiting for MessageDelivered on dest… [${i}]`);
+  await new Promise((s) => setTimeout(s, 3000));
+}
+if (!deliveryTx) throw new Error(`no MessageDelivered for ${messageId} on Inbox ${dest.inbox}`);
+console.log("  delivery tx (dest):", deliveryTx);
+
+// ── 2. Read the funded route from RelayerContract's fee ledger (gives the canonical dest chain key) ─
+const attest = new ethers.Contract(src.attest, ["function balanceOf(address) view returns (uint256)"], srcProvider);
+const rcAbi = [
+  "function getMessageInfo(bytes32) view returns ((address payer,uint32 destinationChain,uint256 gasLimit,uint256 relayFee,uint256 tip,uint256 tipExpiry,uint256 deliveryDeadline,bool relaySettled,bool feesInNative))",
+  "function claimDelivery(bytes32 messageId, bytes32 chainKey, uint64 blockHeight, (uint8 kind, bytes32 root, bytes data) inclusionProof, (bytes32 lowerEndpointDigest, bytes32[] roots) continuityProof)",
+  "event DeliveryClaimed(bytes32 indexed messageId, address indexed relayer, address indexed submitter, uint256 relayFee, uint256 tip)",
+];
+const rc = new ethers.Contract(src.relayerContract, rcAbi, claimant);
+const infoBefore = await rc.getMessageInfo(messageId);
+if (infoBefore.relaySettled) throw new Error("relay already settled before claim — nothing to prove");
+// Derive chainKey from the funded route, not a hardcoded constant: claimDelivery requires
+// chainKey == bytes32(uint256(fd.destinationChain)).
+const chainKey = ethers.zeroPadValue(ethers.toBeHex(Number(infoBefore.destinationChain)), 32);
+console.log("  funded relayFee:", ethers.formatEther(infoBefore.relayFee), "tip:", ethers.formatEther(infoBefore.tip), "destChain:", Number(infoBefore.destinationChain));
+
+// ── 3. Fetch the native USC proof for the delivery tx (retry while the block is still attested) ──
+type ProofResp = {
+  headerNumber: number;
+  txBytes: string | null;
+  continuityProof: { lowerEndpointDigest: string; roots: string[] };
+  merkleProof: { root: string; siblings: { hash: string; isLeft: boolean }[] };
+};
+let proof: ProofResp | undefined;
+for (let i = 0; i < 60; i++) {
+  const r = await fetch(`${PROOF_GEN}/api/v1/proof-by-tx/${DEST_CHAIN_KEY}/${deliveryTx}`);
+  if (r.status === 422) { if (i % 5 === 0) console.log(`  proof not ready (422), waiting… [${i}]`); await new Promise((s) => setTimeout(s, 3000)); continue; }
+  if (!r.ok) throw new Error(`proof-gen ${r.status}: ${await r.text()}`);
+  const body = (await r.json()) as ProofResp;
+  // A continuity-only response (no txBytes) means the merkle inclusion isn't ready yet — keep waiting.
+  if (!body.txBytes) { if (i % 5 === 0) console.log(`  proof continuity-only (no txBytes), waiting… [${i}]`); await new Promise((s) => setTimeout(s, 3000)); continue; }
+  proof = body; break;
+}
+if (!proof || !proof.txBytes) throw new Error("proof-gen never returned a usable proof (no txBytes)");
+console.log("  proof ready: headerNumber", proof.headerNumber, "siblings", proof.merkleProof.siblings.length);
+
+// ── 4. Build the BlockProverTypes structs claimDelivery expects ──────────────────────────────────
+// InclusionProof.data = abi.encode(bytes txBytes, MerkleProofEntry[] siblings), entry {bytes32 sibling, bool isLeft}.
+const data = ethers.AbiCoder.defaultAbiCoder().encode(
+  ["bytes", "tuple(bytes32 sibling, bool isLeft)[]"],
+  [proof.txBytes, proof.merkleProof.siblings.map((s) => ({ sibling: s.hash, isLeft: s.isLeft }))],
+);
+const inclusionProof = { kind: 0, root: proof.merkleProof.root, data }; // ProofKind.BinaryMerkle = 0
+const continuityProof = { lowerEndpointDigest: proof.continuityProof.lowerEndpointDigest, roots: proof.continuityProof.roots };
+
+// ── 5. Top up claimant gas, snapshot balance, claim ──────────────────────────────────────────────
+await (await funder.sendTransaction({ to: claimant.address, value: ethers.parseEther("1") })).wait(); // gas
+const balBefore = await attest.balanceOf(claimant.address);
+
+const rcpt = await (await rc.claimDelivery(messageId, chainKey, proof.headerNumber, inclusionProof, continuityProof)).wait();
+const claimed = rcpt.logs.map((l: any) => { try { return rc.interface.parseLog(l); } catch { return null; } }).find((e: any) => e?.name === "DeliveryClaimed");
+
+const balAfter = await attest.balanceOf(claimant.address);
+const infoAfter = await rc.getMessageInfo(messageId);
+const delta = balAfter - balBefore;
+
+// ── 6. Assert the payout against the FUNDED amounts, not just the event's own numbers ────────────
+console.log("  DeliveryClaimed:", claimed ? `relayFee=${ethers.formatEther(claimed.args.relayFee)} tip=${ethers.formatEther(claimed.args.tip)}` : "MISSING");
+console.log("  claimant ATTEST delta:", ethers.formatEther(delta), "relaySettled:", infoAfter.relaySettled);
+
+if (!claimed) throw new Error("FAIL: no DeliveryClaimed event");
+if (!infoAfter.relaySettled) throw new Error("FAIL: relaySettled did not flip to true");
+// Compare to the funded amounts: checking only the event's own fields would mask an underpayment
+// (e.g. a lapsed tipExpiry pays the relayer tip=0 while the event self-consistently reports tip=0).
+if (claimed.args.relayFee !== infoBefore.relayFee) throw new Error(`FAIL: paid relayFee ${claimed.args.relayFee} != funded ${infoBefore.relayFee}`);
+if (claimed.args.tip !== infoBefore.tip) throw new Error(`FAIL: paid tip ${claimed.args.tip} != funded ${infoBefore.tip} (tipExpiry may have lapsed — relayer underpaid)`);
+const expected = infoBefore.relayFee + infoBefore.tip;
+if (delta !== expected) throw new Error(`FAIL: ATTEST delta ${delta} != funded relayFee+tip ${expected}`);
+
+console.log(`✅✅ CLAIM PASS — relayer paid ${ethers.formatEther(delta)} ATTEST (full funded relayFee+tip), relaySettled=true`);
+process.exit(0);

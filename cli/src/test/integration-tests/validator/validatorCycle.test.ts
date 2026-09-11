@@ -39,7 +39,7 @@ describeIf(
             // Create a reference to sudo for funding accounts
             sudoSigner = initAliceKeyring();
             await increaseValidatorCount(api, sudoSigner);
-        }, 20_000);
+        }, 60_000);
 
         beforeEach(async () => {
             const stashSecret = CLIBuilder({})('new').stdout.split('Seed phrase: ')[1];

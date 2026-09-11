@@ -484,6 +484,9 @@ impl ExtBuilder {
                 SUPPORTED_CHAIN_ENCODING,
                 MATURITY_FIXED_DELAY_10.to_string(),
             )],
+            write_ability_configs: vec![],
+            outbox_factories: Default::default(),
+            outbox_discoveries: Default::default(),
             _phantom: Default::default(),
         };
         chains.assimilate_storage(&mut t).unwrap();

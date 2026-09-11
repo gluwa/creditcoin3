@@ -26,6 +26,22 @@ struct ChainInfoResult {
 }
 
 /**
+ * @dev get_outbox_factory_address result structure
+ */
+struct OutboxFactoryResult {
+    address factoryAddr;
+    bool exists;
+}
+
+/**
+ * @dev get_outbox_discovery_address result structure
+ */
+struct OutboxDiscoveryResult {
+    address discoveryAddr;
+    bool exists;
+}
+
+/**
  * @dev Height result structure
  */
 struct HeightResult {
@@ -78,11 +94,47 @@ interface ChainInfoContract {
     function get_supported_chains() external view returns (ChainInfo[] memory chains);
 
     /**
-     * @dev Get specific chain information by chain ID
+     * @dev Get specific chain information by chainKey
      * @param chainKey The chain Key to look up
      * @return result Chain information if found
      */
     function get_chain_by_key(uint64 chainKey) external view returns (ChainInfoResult memory result);
+
+    /**
+     * @dev Get the outbox factory for a given chainKey
+     * @param chainKey The chain key for which to get the outbox factory
+     * @return result outbox factory address if found
+     */
+    function get_outbox_factory_address(uint64 chainKey) external view returns (OutboxFactoryResult memory result);
+
+    /**
+     * @dev Get the Outbox discovery-registry address for a given chainKey — the
+     *      OutboxDeployer/OutboxDiscovery in asc-contracts, whose outboxOf/defaultOutbox getter
+     *      is the authoritative source for the current Outbox. Prefer this over
+     *      get_outbox_factory_address for resolving the Outbox: this address is only ever
+     *      written through an access-controlled deploy path, so it is safe to trust directly,
+     *      unlike the permissionless factory's OutboxCreated log stream.
+     * @param chainKey The chain key for which to get the Outbox discovery registry
+     * @return result discovery registry address if found
+     */
+    function get_outbox_discovery_address(uint64 chainKey) external view returns (OutboxDiscoveryResult memory result);
+
+    /**
+     * @dev Get the USC write-ability core (protocol) fee for a given chainKey, charged by that
+     * chain's Outbox on every publishMessage. Governance-set; read live so fee changes take
+     * effect on the next publish without contract redeploys.
+     *
+     * The fee is always denominated in attestcoin — the Outbox pulls it with transferFrom and has
+     * no native-currency path — so there is deliberately no token field. An unconfigured chain
+     * returns 0, which means "charge nothing", same as an explicit zero amount.
+     *
+     * NOTE: chainKey is uint32 here, unlike the uint64 used elsewhere in this interface. It matches
+     * the chain-key width the USC contracts use, and ICoreFeeProvider in usc-contracts staticcalls
+     * this exact selector (0x5b023376) — do not widen it without changing that consumer.
+     * @param chainKey The chain key for which to get the core fee
+     * @return amount core fee in attestcoin wei, or 0 when no fee is configured
+     */
+    function get_core_fee(uint32 chainKey) external view returns (uint256 amount);
 
     /**
      * @dev Get attestation genesis height for a chain

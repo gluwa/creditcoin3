@@ -28,7 +28,14 @@ use crate::{
     ledger::{AttestorLedger, UnlockChunk},
 };
 
+use sp_core::H160;
+
 use super::pallet::*;
+
+/// Domain separator for the write-ability EVM address proof-of-possession digest. Distinct from any
+/// other signed payload so a signature proving key ownership here cannot be replayed as a message
+/// vote (or vice versa).
+const EVM_REGISTRATION_DOMAIN: &[u8] = b"usc/write-ability/evm-attestor-registration/v1";
 
 // One tenth of a CTC in micro units
 pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
@@ -359,6 +366,11 @@ impl<T: Config> Pallet<T> {
 
         // Remove the attestor (BLS key may remain in [`RetiredAttestorBlsKeys`] until unbond ends)
         Attestors::<T>::remove(chain_key, &attestor_id);
+        // Drop any write-ability EVM address claim (and its reverse index) — unlike the BLS key it
+        // is not needed for verifying in-flight attestations, so it clears immediately.
+        if let Some(addr) = AttestorEvmAddress::<T>::take(chain_key, &attestor_id) {
+            EvmAddressOwner::<T>::remove(chain_key, addr);
+        }
         // Keep [`AttestorsCount`] in lock-step with [`Attestors`]. `saturating_sub`
         // defends against drift if the counter and map ever diverge; the decrement pairs
         // with the attestor removal above.
@@ -369,6 +381,32 @@ impl<T: Config> Pallet<T> {
         Self::deposit_event(Event::<T>::AttestorUnregistered(chain_key, attestor_id));
 
         Ok(())
+    }
+
+    /// The 32-byte digest an attestor signs (raw, no EIP-191 prefix) to prove ownership of the EVM
+    /// address it registers via [`set_attestor_evm_address`](crate::pallet::Pallet::set_attestor_evm_address).
+    /// Binds the domain, the `chain_key`, and the attestor account so a signature cannot be replayed
+    /// to claim the same address under a different identity or chain.
+    pub fn evm_registration_digest(chain_key: ChainKey, who: &T::AccountId) -> [u8; 32] {
+        let mut preimage = sp_std::vec::Vec::new();
+        preimage.extend_from_slice(EVM_REGISTRATION_DOMAIN);
+        preimage.extend_from_slice(&chain_key.to_be_bytes());
+        preimage.extend_from_slice(&who.encode());
+        sp_io::hashing::keccak_256(&preimage)
+    }
+
+    /// Recover the EVM (secp256k1) address that produced the 65-byte `(r, s, v)` `signature` over
+    /// `message`. Returns `None` if recovery fails. The recovery id (`v`) is normalized so both the
+    /// Ethereum convention (27/28) and the raw parity (0/1) are accepted.
+    pub fn recover_evm_address(signature: &[u8; 65], message: &[u8; 32]) -> Option<H160> {
+        let mut sig = *signature;
+        if sig[64] >= 27 {
+            sig[64] -= 27;
+        }
+        let pubkey = sp_io::crypto::secp256k1_ecdsa_recover(&sig, message).ok()?;
+        // Ethereum address = last 20 bytes of keccak256(uncompressed pubkey without the 0x04 tag).
+        let hash = sp_io::hashing::keccak_256(&pubkey);
+        Some(H160::from_slice(&hash[12..]))
     }
 
     pub(crate) fn do_commit_attestation(
