@@ -44,11 +44,26 @@ tokio = { workspace = true, features = [
 tracing = { workspace = true }
 usc-abi-encoding = { workspace = true, optional = true }
 
+# `ws-fixture` only: an in-process fake Creditcoin WebSocket node for liveness tests.
+futures = { workspace = true, optional = true }
+hex = { workspace = true, features = ["alloc"], optional = true }
+serde_json = { workspace = true, features = ["std"], optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
+
 [features]
 default = ["std"]
+# Disposable loopback Creditcoin node (`cc_client::ws_fixture`) for tests in this workspace.
+# Never enable in a production build.
 std = [
     "sp-core/std",
     "attestor-primitives/std",
     "supported-chains-primitives/std",
     "usc-abi-encoding",
+]
+ws-fixture = [
+    "dep:futures",
+    "dep:hex",
+    "dep:serde_json",
+    "dep:tokio-tungstenite",
+    "tokio/net",
 ]

@@ -73,9 +73,9 @@ default = []
 integration-tests = []
 
 [dev-dependencies]
-alloy-node-bindings = "0.11"             # kept at 0.11 due to compatibility with alloy
+alloy-node-bindings = "0.11"                                # kept at 0.11 due to compatibility with alloy
 async-trait = { workspace = true }
+cc-client = { workspace = true, features = ["ws-fixture"] }
 parameterized = "2.1.0"
 reqwest = { workspace = true }
-tokio-tungstenite = { workspace = true }
 wiremock = "0.6"
