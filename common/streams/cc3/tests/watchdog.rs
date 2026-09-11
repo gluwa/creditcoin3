@@ -119,3 +119,85 @@ async fn seed_does_not_hang_on_a_subscription_that_never_delivers() {
         .unwrap();
     assert_eq!(next_height(&mut stream).await, 1);
 }
+
+/// `resume_from` marks everything at or below it as already known: the node's catch-up
+/// pushes 1..=3 on subscribe, only 2 and 3 are yielded.
+#[tokio::test]
+async fn resume_from_skips_known_blocks_and_yields_the_rest() {
+    let fixture = WsFixture::start().await;
+    fixture.finalize(3);
+    let cc3 = Arc::new(
+        cc_client::Client::new_read_only(&fixture.url)
+            .await
+            .unwrap(),
+    );
+    let progress = Arc::new(stream_cc3::Progress::default());
+    let config = stream_cc3::ConfigBuilder::new()
+        .with_cc3(cc3)
+        .with_chain_keys(vec![1])
+        .with_progress(Some(progress.clone()))
+        .with_resume_from(Some(1))
+        .build();
+    let mut stream = stream_cc3::StreamCC3::new(config).await.unwrap();
+    assert_eq!(next_height(&mut stream).await, 2);
+    assert_eq!(next_height(&mut stream).await, 3);
+    assert_eq!(progress.height(), Some(3));
+    let idle = tokio::time::timeout(Duration::from_millis(300), stream.next()).await;
+    assert!(idle.is_err(), "nothing else to yield");
+}
+
+/// Without `resume_from` the first subscribed block is yielded as before.
+#[tokio::test]
+async fn without_resume_from_the_first_block_is_yielded() {
+    let fixture = WsFixture::start().await;
+    fixture.finalize(2);
+    let (mut stream, progress) = stream_with(&fixture, Duration::from_secs(5)).await;
+    assert_eq!(next_height(&mut stream).await, 1);
+    assert_eq!(next_height(&mut stream).await, 2);
+    assert_eq!(progress.height(), Some(2));
+}
+
+/// Without a resume point nothing is known yet, so the very first subscribed block is yielded,
+/// genesis included. "First height minus one" has no answer at height 0 and used to skip it.
+/// The fixture only pushes heads on `finalize`, so genesis is pushed once the subscription is up.
+#[tokio::test]
+async fn the_first_subscribed_block_is_yielded_even_when_it_is_genesis() {
+    let fixture = WsFixture::start().await;
+    let cc3 = Arc::new(
+        cc_client::Client::new_read_only(&fixture.url)
+            .await
+            .unwrap(),
+    );
+    let progress = Arc::new(stream_cc3::Progress::default());
+    let config = stream_cc3::ConfigBuilder::new()
+        .with_cc3(cc3)
+        .with_chain_keys(vec![1])
+        .with_progress_timeout(Duration::from_secs(5))
+        .with_progress(Some(progress.clone()))
+        .build();
+    let construction = tokio::spawn(stream_cc3::StreamCC3::new(config));
+    let subscribed = async {
+        while fixture.chain.subscriptions() == 0 {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    };
+    tokio::time::timeout(Duration::from_secs(5), subscribed)
+        .await
+        .expect("the stream must subscribe");
+    fixture.finalize(0);
+    let mut stream = tokio::time::timeout(Duration::from_secs(10), construction)
+        .await
+        .expect("stream construction must not hang")
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        next_height(&mut stream).await,
+        0,
+        "genesis is a block like any other"
+    );
+    assert_eq!(progress.height(), Some(0));
+
+    fixture.finalize(1);
+    assert_eq!(next_height(&mut stream).await, 1);
+}
