@@ -105,13 +105,6 @@ async fn main() -> Result<()> {
     }
     let source_chain_id = ws_client.chain_id();
 
-    // Pin the archive to this chain. A database that was built from another chain (or an
-    // endpoint that now serves another chain under the same name) is refused outright.
-    match store.pin_chain_id(source_chain_id)? {
-        None => tracing::info!(chain_id = source_chain_id, "pinned archive to source chain"),
-        Some(pinned) => tracing::debug!(chain_id = pinned, "archive chain pin verified"),
-    }
-
     // ── Registered chain (Creditcoin) ───────────────────────────────────
     // Previously this lookup only ran when FINALIZATION_LAG was unset, so every
     // deployment that pinned the lag skipped the chain_id verification along with it.
@@ -167,6 +160,15 @@ async fn main() -> Result<()> {
         }
     };
 
+    // Pin the archive to this chain, only now that the endpoint has passed every identity
+    // check above (ws/http agreement and, when `CHAIN_KEY` is set, the Creditcoin
+    // registration). Pinning earlier would record a wrong RPC's chain id on a first start
+    // that then exits on the registry mismatch, bricking an archive that never stored a root.
+    match store.pin_chain_id(source_chain_id)? {
+        None => tracing::info!(chain_id = source_chain_id, "pinned archive to source chain"),
+        Some(pinned) => tracing::debug!(chain_id = pinned, "archive chain pin verified"),
+    }
+
     // ── Determine finalization lag ──────────────────────────────────────
     let finaliztion_lag = resolve_finalization_lag(cfg.finalization_lag_override, on_chain_lag)?;
 
@@ -204,6 +206,17 @@ async fn main() -> Result<()> {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
                 let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+                // Same identity rule as startup and reconnect: a fresh dial that lands on
+                // another chain must not fill gaps with foreign roots (the reorg guard only
+                // fires for heights that already exist, so gaps have no second line of
+                // defence).
+                if ws_client.chain_id() != source_chain_id {
+                    return Err(anyhow!(
+                        "backfill: WS endpoint serves chain_id {} but this archive is pinned to {}; aborting",
+                        ws_client.chain_id(),
+                        source_chain_id
+                    ));
+                }
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
