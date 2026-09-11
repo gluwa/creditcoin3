@@ -242,6 +242,13 @@ impl StreamCC3 {
                 first = first_height,
                 "🛟 cc3 stream resuming from consumer snapshot"
             );
+            // The consumer is consistent up to `from` and the subscription is live: that is
+            // progress in its own right. Usually the first subscribed block *is* the snapshot
+            // height, gets skipped below, and nothing else arrives for a while; without this
+            // note the consumer would report "not caught up" until the next finalized block.
+            if let Some(p) = &progress {
+                p.note(from);
+            }
         }
 
         let stream = async_stream::stream! {

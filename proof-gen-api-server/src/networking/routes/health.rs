@@ -168,7 +168,13 @@ pub async fn health_check(
 
     let event_stream_dead = service.event_stream_dead();
     let progress = service.cc3_progress();
-    let readiness = service.readiness();
+    let mut readiness = service.readiness();
+    if !eth_connected {
+        readiness.ready = false;
+        readiness
+            .reasons
+            .push("source-chain RPC probe failed on at least one chain".to_owned());
+    }
     let status = if freshness.fresh && eth_connected && event_stream_dead.is_none() {
         "healthy".to_string()
     } else {
@@ -185,7 +191,7 @@ pub async fn health_check(
         cc3_finalized_age_seconds: progress.age_seconds(),
         cc3_silent_recoveries: progress.silent_recoveries(),
         cc3_event_stream_dead: event_stream_dead,
-        ready: readiness.ready && eth_connected,
+        ready: readiness.ready,
         not_ready_reasons: readiness.reasons,
         uptime_seconds: service.uptime_seconds(),
     })
