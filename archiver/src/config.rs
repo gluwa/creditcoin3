@@ -62,11 +62,18 @@ pub struct Config {
     #[arg(long, env = "API_BIND", default_value = "0.0.0.0:8080")]
     pub api_bind: SocketAddr,
 
-    /// How often to write and flush roots while catching up (every N blocks). Once the archiver
-    /// is within N blocks of the chain head it writes and flushes every block automatically, so
-    /// this only needs tuning for backfill throughput; tip-following never needs `1`.
+    /// Batch size while catching up: roots are written (and a durability flush requested)
+    /// every N blocks. Only affects backfill throughput; tip-following is governed by
+    /// `--tip-window` and never needs `1`.
     #[arg(long, env = "FLUSH_EVERY", default_value = "10000")]
     pub flush_every: NonZeroU64,
+
+    /// Blocks from the target (chain head or `--end-height`) within which every root is
+    /// written as soon as it is computed, so the API can serve mature roots immediately.
+    /// Must comfortably exceed the finalization lag plus head-poll latency (12 s). Durability
+    /// flushes at the tip are throttled to about one per second regardless.
+    #[arg(long, env = "TIP_WINDOW", default_value = "256")]
+    pub tip_window: NonZeroU64,
 
     /// Finalization lag: number of blocks behind the chain tip to consider finalized.
     /// By default the archiver will use the on-chain finalization lag for this source
