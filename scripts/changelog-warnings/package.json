@@ -19,9 +19,9 @@
     "devDependencies": {
         "@types/js-yaml": "^4.0.9",
         "@types/minimatch": "^5.1.2",
-        "@types/node": "^26.2.0",
-        "@typescript-eslint/eslint-plugin": "8.67.0",
-        "@typescript-eslint/parser": "8.67.0",
+        "@types/node": "^26.4.0",
+        "@typescript-eslint/eslint-plugin": "8.68.0",
+        "@typescript-eslint/parser": "8.68.0",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
         "prettier": "3.9.4",
