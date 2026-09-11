@@ -779,6 +779,16 @@ impl ContinuityService {
             };
 
             if leader {
+                // Cleanup lives in a guard so it also runs when this future is *dropped*: the
+                // admission deadline and `try_join!` cancel handlers by dropping them, and a
+                // leader that vanished without removing its entry would leave every later
+                // caller for this height (requests and backfill alike) waiting on a `Notify`
+                // that never fires.
+                let _cleanup = FillGuard {
+                    chain,
+                    header_number,
+                    notify: &notify,
+                };
                 let result =
                     async {
                         let _permit = chain.fill_permits.acquire().await.map_err(|_| {
@@ -789,14 +799,6 @@ impl ContinuityService {
                         self.fetch_and_cache_block(chain, header_number).await
                     }
                     .await;
-                // Remove first, then wake: a follower that registered before the removal is
-                // woken; one that registers after sees no entry and re-checks on its own.
-                chain
-                    .in_flight_fills
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .remove(&header_number);
-                notify.notify_waiters();
                 if result.is_ok() {
                     tracing::debug!(
                         chain_key = chain.builder.config.chain_key,
@@ -832,7 +834,31 @@ impl ContinuityService {
     ) -> ServiceResult<usize> {
         self.fill_block_single_flight(chain, header_number).await
     }
+}
 
+/// Releases a single-flight leadership slot: removes the height from `in_flight_fills` and
+/// wakes the followers. Runs on normal completion *and* on cancellation (drop), so a leader
+/// cut off by a deadline never leaves its followers waiting forever. Remove first, then wake:
+/// a follower that registered before the removal is woken; one that registers after sees no
+/// entry and re-checks on its own.
+struct FillGuard<'a> {
+    chain: &'a Arc<ChainState>,
+    header_number: u64,
+    notify: &'a Arc<tokio::sync::Notify>,
+}
+
+impl Drop for FillGuard<'_> {
+    fn drop(&mut self) {
+        self.chain
+            .in_flight_fills
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&self.header_number);
+        self.notify.notify_waiters();
+    }
+}
+
+impl ContinuityService {
     async fn precompute_merkle_cache_block_for_tx(
         &self,
         chain: &Arc<ChainState>,
