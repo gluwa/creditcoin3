@@ -28,8 +28,9 @@ All flags can also be set via environment variables (see below).
 
 | Flag | Env | Default | Description |
 |------|-----|---------|-------------|
-| `--rpc-http` | `RPC_HTTP` | *(required)* | HTTP RPC endpoint for block fetching |
-| `--rpc-ws` | `RPC_WS` | *(required)* | WebSocket RPC endpoint for new-head subscriptions |
+| `--rpc-http` | `RPC_HTTP` | *(required)* | HTTP RPC endpoint for chain-head tracking and the canonical-anchor check |
+| `--rpc-ws` | `RPC_WS` | *(required)* | WebSocket RPC endpoint for the new-head subscription and block fetching |
+| `--rpc-fallback-urls` | `RPC_FALLBACK_URLS` | *(none)* | Comma-separated extra RPCs tried in order when the primary returns "not found" or a transport error for a block fetch; must serve the same chain id; if any is unreachable at dial time the archiver warns and continues with the primary alone |
 | `--cc3-rpc_url` | `CC3_RPC_URL` | `ws://localhost:9944` | Url for connecting to CC3 chain |
 | `--chain-key` | `CHAIN_KEY` | *(none)* | Chain key for supported chains entry of the chain we're archiving |
 | `--start-height` | `START_HEIGHT` | `0` | Block height to start from (ignored if DB has progress) |
@@ -52,6 +53,10 @@ All flags can also be set via environment variables (see below).
 A `.env` file in the working directory is loaded automatically.
 
 ## API Endpoints
+
+The API binds before the source-chain handshake, so `/status` and `/roots*` answer during the
+handshake, the anchor check and a long `--backfill`. `/ready` is 503 with
+`source chain handshake not complete` until the source identity is verified and pinned.
 
 ### `GET /status`
 
@@ -118,7 +123,7 @@ Chain (WS) ──► StreamRoots ──► Merkle root computation ──► Sle
                        (exponential backoff)              (resume height)
 ```
 
-1. **StreamRoots** subscribes to new block headers via WebSocket and fetches full blocks via HTTP
+1. **StreamRoots** subscribes to new block headers over the WebSocket client and fetches full blocks and receipts over that same client (falling back to `--rpc-fallback-urls` on "not found" / transport errors); the HTTP endpoint is used for chain-head tracking and the canonical-anchor check
 2. Blocks are merkleized in parallel using `spawn_blocking` to avoid blocking the async runtime
 3. Roots are batched and written to sled in height order
 4. On restart, the archiver reads the latest stored height and resumes from there

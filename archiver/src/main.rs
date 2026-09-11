@@ -59,6 +59,33 @@ async fn main() -> Result<()> {
 
     let store = RootStore::open(&cfg.sled_db_path)?;
 
+    // ── HTTP API + health, before any network handshake ─────────────────
+    // The source-chain handshake, the anchor check and especially `--backfill` can take a long
+    // time. Probes and `/roots` readers must be able to see the process during all of it, so
+    // the API binds first; `/ready` stays 503 ("handshake not complete") until the source
+    // identity is verified below.
+    let health = Arc::new(health::Health::new(
+        cfg.ready_lag_blocks,
+        Duration::from_secs(cfg.stale_after_secs.get()),
+    ));
+    let api_state = Arc::new(api::AppState {
+        store: store.clone(),
+        max_api_range: cfg.max_api_range,
+        health: health.clone(),
+    });
+    let api_router = api::router(api_state);
+    let listener = tokio::net::TcpListener::bind(cfg.api_bind).await?;
+    tracing::info!(bind = %cfg.api_bind, "HTTP API listening");
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, api_router)
+            .with_graceful_shutdown(async {
+                shutdown_rx.await.ok();
+            })
+            .await
+            .ok();
+    });
+
     // ── Determine resume height ─────────────────────────────────────────
     let latest_stored = store.latest_height()?;
 
@@ -84,8 +111,8 @@ async fn main() -> Result<()> {
     // `CHAIN_KEY` is set that `chain_id` must be the one registered on Creditcoin for
     // this archiver's chain key. Both are fatal: archiving the wrong chain under a
     // given archive name silently corrupts every proof later built from it.
-    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
-    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+    let ws_client = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls).await?;
+    let http_client = dial(cfg.rpc_http.as_str(), &cfg.rpc_fallback_urls).await?;
     if ws_client.chain_id() != http_client.chain_id() {
         return Err(anyhow!(
             "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -243,7 +270,7 @@ async fn main() -> Result<()> {
                         tracing::info!("backfill interrupted by shutdown before dialing");
                         return Ok(());
                     }
-                    c = eth::Client::new(cfg.rpc_ws.as_str(), None) => c?,
+                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls) => c?,
                 };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
@@ -363,13 +390,8 @@ async fn main() -> Result<()> {
     let cfg_rpc_timeout_secs = cfg.rpc_timeout_secs.get();
     let head_poll_interval = Duration::from_secs(cfg.head_poll_interval_secs.get());
 
-    // ── Health / freshness bookkeeping ──────────────────────────────────
-    let health = Arc::new(health::Health::new(
-        source_chain_id,
-        finaliztion_lag,
-        cfg.ready_lag_blocks,
-        Duration::from_secs(cfg.stale_after_secs.get()),
-    ));
+    // The source identity is verified and pinned: `/ready` may now turn green.
+    health.set_source(source_chain_id, finaliztion_lag);
 
     // ── Chain head tracker (for ETA and freshness) ─────────────────────
     let current_head = match http_client.get_last_block().await {
@@ -415,27 +437,6 @@ async fn main() -> Result<()> {
         api = %cfg.api_bind,
         "starting archiver"
     );
-
-    // ── HTTP API ────────────────────────────────────────────────────────
-    let api_state = Arc::new(api::AppState {
-        store: store.clone(),
-        max_api_range: cfg.max_api_range,
-        health: health.clone(),
-    });
-
-    let api_router = api::router(api_state);
-    let listener = tokio::net::TcpListener::bind(cfg.api_bind).await?;
-    tracing::info!(bind = %cfg.api_bind, "HTTP API listening");
-
-    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(async move {
-        axum::serve(listener, api_router)
-            .with_graceful_shutdown(async {
-                shutdown_rx.await.ok();
-            })
-            .await
-            .ok();
-    });
 
     // ── Background flush task ───────────────────────────────────────────
     let flush_store = store.clone();
@@ -501,7 +502,7 @@ async fn main() -> Result<()> {
 
                     let connect = tokio::select! {
                         _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
-                        c = eth::Client::new(cfg.rpc_ws.as_str(), None) => c,
+                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls) => c,
                     };
                     match connect {
                         // The endpoint must still be the chain this archive is pinned to. A
@@ -689,6 +690,25 @@ fn should_request_flush(
 }
 
 /// Resolves once the shutdown signal has fired. Cheap to call repeatedly from `select!`.
+/// Dial an RPC endpoint with the configured fallbacks. A fallback that cannot be reached (or
+/// serves another chain) must never keep the archiver from starting or reconnecting on a
+/// healthy primary, so on fallback failure the dial is retried with the primary alone.
+async fn dial(url: &str, fallback_urls: &[String]) -> Result<eth::Client> {
+    if fallback_urls.is_empty() {
+        return eth::Client::new(url, None).await;
+    }
+    match eth::Client::new_with_fallbacks(url, fallback_urls, None).await {
+        Ok(client) => Ok(client),
+        Err(e) => {
+            tracing::warn!(
+                fallbacks = fallback_urls.len(),
+                "dial with fallback RPCs failed, retrying with the primary only: {e:#}"
+            );
+            eth::Client::new(url, None).await
+        }
+    }
+}
+
 /// Hash of the canonical block at `height` as seen by `client`, under the RPC deadline.
 async fn canonical_block_hash(
     client: &eth::Client,
