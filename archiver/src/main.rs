@@ -33,6 +33,7 @@ fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::Non
     std::num::NonZeroUsize::new(parallelism).unwrap_or(std::num::NonZeroUsize::MIN)
 }
 
+mod anchor;
 mod api;
 mod config;
 mod health;
@@ -61,7 +62,7 @@ async fn main() -> Result<()> {
     // ── Determine resume height ─────────────────────────────────────────
     let latest_stored = store.latest_height()?;
 
-    let start_height = match latest_stored {
+    let mut start_height = match latest_stored {
         Some(latest) => {
             let resume = latest + 1;
             tracing::info!(
@@ -77,18 +78,6 @@ async fn main() -> Result<()> {
             cfg.start_height
         }
     };
-
-    // Check if we've already passed the end height.
-    if let Some(end) = cfg.end_height {
-        if end < start_height {
-            tracing::info!(
-                end_height = end,
-                start_height,
-                "already archived past end-height, nothing to do"
-            );
-            return Ok(());
-        }
-    }
 
     // ── Source chain identity ───────────────────────────────────────────
     // Connect both RPC endpoints up front. They must agree on `chain_id`, and when
@@ -168,6 +157,46 @@ async fn main() -> Result<()> {
     match store.pin_chain_id(source_chain_id)? {
         None => tracing::info!(chain_id = source_chain_id, "pinned archive to source chain"),
         Some(pinned) => tracing::debug!(chain_id = pinned, "archive chain pin verified"),
+    }
+
+    // ── Canonical anchor ────────────────────────────────────────────────
+    // The stored tip must still be the canonical block at that height; otherwise the tail
+    // sits on an abandoned fork and resuming from `tip + 1` would splice canonical roots on
+    // top of fork roots. Fail closed unless the operator allowed bounded re-anchoring.
+    let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
+    let anchored = anchor::reconcile(&store, cfg.reanchor_max_depth, |h| {
+        canonical_block_hash(&http_client, h, rpc_timeout)
+    })
+    .await?;
+    match anchored {
+        anchor::Anchor::Empty => {}
+        anchor::Anchor::Verified { tip } => tracing::info!(tip, "stored tip is canonical"),
+        anchor::Anchor::Unverifiable { tip } => tracing::warn!(
+            tip,
+            "stored tip predates the block-hash column; canonical anchor cannot be verified"
+        ),
+        anchor::Anchor::Reanchored { tip, removed } => {
+            tracing::warn!(
+                tip,
+                removed,
+                "stored tail was on an abandoned fork; dropped it and re-anchored"
+            );
+        }
+    }
+    if let Some(resume) = anchored.resume_from() {
+        start_height = resume;
+    }
+
+    // Check if we've already passed the end height.
+    if let Some(end) = cfg.end_height {
+        if end < start_height {
+            tracing::info!(
+                end_height = end,
+                start_height,
+                "already archived past end-height, nothing to do"
+            );
+            return Ok(());
+        }
     }
 
     // ── Determine finalization lag ──────────────────────────────────────
@@ -460,7 +489,7 @@ async fn main() -> Result<()> {
                 // Reconnect with exponential backoff. Every wait here selects on the shutdown
                 // signal, so a SIGTERM during an outage (or a stuck stream constructor) still
                 // exits through the final-flush path instead of needing a kill.
-                let resume_from = last_height.map(|h| h + 1).unwrap_or(start_height);
+                let mut resume_from = last_height.map(|h| h + 1).unwrap_or(start_height);
                 let mut delay = RECONNECT_BASE_DELAY;
                 let mut shutting_down = false;
                 loop {
@@ -486,6 +515,40 @@ async fn main() -> Result<()> {
                             );
                         }
                         Ok(new_ws) => {
+                            // The chain may have reorged past our tail while we were away.
+                            // Same rule as startup: verify the anchor, fail closed unless
+                            // bounded re-anchoring is allowed. An RPC error here is just a
+                            // failed reconnect attempt and is retried.
+                            let anchored = tokio::select! {
+                                _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                                a = anchor::reconcile(&store, cfg.reanchor_max_depth, |h| {
+                                    canonical_block_hash(&new_ws, h, rpc_timeout)
+                                }) => a,
+                            };
+                            match anchored {
+                                Ok(anchor::Anchor::Reanchored { tip, removed }) => {
+                                    tracing::warn!(
+                                        tip,
+                                        removed,
+                                        "stored tail was on an abandoned fork; dropped it and re-anchored"
+                                    );
+                                    resume_from = tip + 1;
+                                    last_height = Some(tip);
+                                }
+                                Ok(a) => {
+                                    if let Some(resume) = a.resume_from() {
+                                        resume_from = resume;
+                                    }
+                                }
+                                Err(e) if e.downcast_ref::<store::StoreError>().is_some() => {
+                                    return Err(e);
+                                }
+                                Err(e) => {
+                                    tracing::warn!("anchor check failed on reconnect: {e:#}");
+                                    delay = (delay * 2).min(RECONNECT_MAX_DELAY);
+                                    continue;
+                                }
+                            }
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
@@ -626,6 +689,18 @@ fn should_request_flush(
 }
 
 /// Resolves once the shutdown signal has fired. Cheap to call repeatedly from `select!`.
+/// Hash of the canonical block at `height` as seen by `client`, under the RPC deadline.
+async fn canonical_block_hash(
+    client: &eth::Client,
+    height: u64,
+    timeout: Duration,
+) -> Result<sp_core::H256> {
+    let block = tokio::time::timeout(timeout, client.get_eth_block(height))
+        .await
+        .map_err(|_| anyhow!("timed out fetching block {height}"))??;
+    Ok(sp_core::H256::from_slice(block.header.hash.as_slice()))
+}
+
 async fn cancelled(rx: &mut tokio::sync::watch::Receiver<bool>) {
     if *rx.borrow() {
         return;
