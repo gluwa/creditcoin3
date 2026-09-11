@@ -111,8 +111,9 @@ async fn main() -> Result<()> {
     // `CHAIN_KEY` is set that `chain_id` must be the one registered on Creditcoin for
     // this archiver's chain key. Both are fatal: archiving the wrong chain under a
     // given archive name silently corrupts every proof later built from it.
-    let ws_client = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls).await?;
-    let http_client = dial(cfg.rpc_http.as_str(), &cfg.rpc_fallback_urls).await?;
+    let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
+    let ws_client = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout).await?;
+    let http_client = dial(cfg.rpc_http.as_str(), &cfg.rpc_fallback_urls, rpc_timeout).await?;
     if ws_client.chain_id() != http_client.chain_id() {
         return Err(anyhow!(
             "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -190,7 +191,6 @@ async fn main() -> Result<()> {
     // The stored tip must still be the canonical block at that height; otherwise the tail
     // sits on an abandoned fork and resuming from `tip + 1` would splice canonical roots on
     // top of fork roots. Fail closed unless the operator allowed bounded re-anchoring.
-    let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
     let anchored = anchor::reconcile(&store, cfg.reanchor_max_depth, |h| {
         canonical_block_hash(&http_client, h, rpc_timeout)
     })
@@ -228,6 +228,11 @@ async fn main() -> Result<()> {
 
     // ── Determine finalization lag ──────────────────────────────────────
     let finaliztion_lag = resolve_finalization_lag(cfg.finalization_lag_override, on_chain_lag)?;
+
+    // Identity verified, pinned and lag known: publish it now, before the anchor check and a
+    // possibly hours-long `--backfill`, so probes see the real startup phase (lag against the
+    // head) rather than a stale "handshake not complete".
+    health.set_source(source_chain_id, finaliztion_lag);
 
     // ── Shutdown signal (SIGINT + SIGTERM) ──────────────────────────────
     // A `watch` rather than a oneshot so every phase (main loop, reconnect backoff, stream
@@ -270,7 +275,7 @@ async fn main() -> Result<()> {
                         tracing::info!("backfill interrupted by shutdown before dialing");
                         return Ok(());
                     }
-                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls) => c?,
+                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c?,
                 };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
@@ -390,9 +395,6 @@ async fn main() -> Result<()> {
     let cfg_rpc_timeout_secs = cfg.rpc_timeout_secs.get();
     let head_poll_interval = Duration::from_secs(cfg.head_poll_interval_secs.get());
 
-    // The source identity is verified and pinned: `/ready` may now turn green.
-    health.set_source(source_chain_id, finaliztion_lag);
-
     // ── Chain head tracker (for ETA and freshness) ─────────────────────
     let current_head = match http_client.get_last_block().await {
         Ok(h) => {
@@ -502,7 +504,7 @@ async fn main() -> Result<()> {
 
                     let connect = tokio::select! {
                         _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
-                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls) => c,
+                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c,
                     };
                     match connect {
                         // The endpoint must still be the chain this archive is pinned to. A
@@ -693,18 +695,33 @@ fn should_request_flush(
 /// Dial an RPC endpoint with the configured fallbacks. A fallback that cannot be reached (or
 /// serves another chain) must never keep the archiver from starting or reconnecting on a
 /// healthy primary, so on fallback failure the dial is retried with the primary alone.
-async fn dial(url: &str, fallback_urls: &[String]) -> Result<eth::Client> {
+///
+/// Every dial runs under `deadline`: alloy transports have no default timeout, so without one a
+/// black-holed fallback (or primary) would hang the handshake or a reconnect attempt forever.
+async fn dial(url: &str, fallback_urls: &[String], deadline: Duration) -> Result<eth::Client> {
+    let primary_only = || async {
+        tokio::time::timeout(deadline, eth::Client::new(url, None))
+            .await
+            .map_err(|_| anyhow!("timed out after {deadline:?} dialing {url}"))?
+    };
     if fallback_urls.is_empty() {
-        return eth::Client::new(url, None).await;
+        return primary_only().await;
     }
-    match eth::Client::new_with_fallbacks(url, fallback_urls, None).await {
+    let with_fallbacks = tokio::time::timeout(
+        deadline,
+        eth::Client::new_with_fallbacks(url, fallback_urls, None),
+    )
+    .await
+    .map_err(|_| anyhow!("timed out after {deadline:?} dialing {url} with fallbacks"))
+    .and_then(|r| r);
+    match with_fallbacks {
         Ok(client) => Ok(client),
         Err(e) => {
             tracing::warn!(
                 fallbacks = fallback_urls.len(),
                 "dial with fallback RPCs failed, retrying with the primary only: {e:#}"
             );
-            eth::Client::new(url, None).await
+            primary_only().await
         }
     }
 }
