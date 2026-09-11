@@ -192,6 +192,9 @@ pub struct ContinuityService {
     /// the supervisor exits the process right after setting this, so the flag mostly serves
     /// the in-flight drain window and diagnostics.
     event_stream_dead: std::sync::Mutex<Option<String>>,
+    /// Finalized-block progress of the cc3 event stream (height + when it last advanced),
+    /// written by the stream's watchdog, read by `/health`.
+    cc3_progress: Arc<stream::cc3::Progress>,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
@@ -373,6 +376,7 @@ impl ContinuityService {
             chains,
             start_time: Instant::now(),
             event_stream_dead: std::sync::Mutex::new(None),
+            cc3_progress: Arc::new(stream::cc3::Progress::default()),
             metrics,
             max_batch_size,
             max_batch_span,
@@ -834,6 +838,11 @@ impl ContinuityService {
         if guard.is_none() {
             *guard = Some(reason.to_owned());
         }
+    }
+
+    /// Shared finalized-block progress record for the cc3 event stream.
+    pub fn cc3_progress(&self) -> Arc<stream::cc3::Progress> {
+        self.cc3_progress.clone()
     }
 
     /// Why the cc3 event task ended, if it has. `None` while it is (believed) running.
