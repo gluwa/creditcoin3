@@ -64,7 +64,18 @@ pub struct ChainCacheConfig {
     /// be served -- roughly `max_entries * attestation_interval * checkpoint_interval` blocks
     /// -- in exchange for bounding a cache that otherwise only ever grows. Opt in knowingly.
     pub checkpoint_cache_max_entries: Option<usize>,
+    /// Upper bound on simultaneous source-block fetches for this chain's merkle cache, across
+    /// every request and the backfill worker together. Without it R concurrent cold requests
+    /// meant R block fetches in flight plus the backfill's own; this caps the RPC amplification
+    /// per chain.
+    pub max_concurrent_block_fills: NonZeroUsize,
 }
+
+/// Default [`ChainCacheConfig::max_concurrent_block_fills`].
+pub const DEFAULT_MAX_CONCURRENT_BLOCK_FILLS: NonZeroUsize = match NonZeroUsize::new(16) {
+    Some(n) => n,
+    None => unreachable!(),
+};
 
 impl Default for ChainCacheConfig {
     fn default() -> Self {
@@ -74,8 +85,88 @@ impl Default for ChainCacheConfig {
             block_cache_capacity: DEFAULT_BLOCK_CACHE_CAPACITY,
             merkle_backfill_enabled: true,
             checkpoint_cache_max_entries: None,
+            max_concurrent_block_fills: DEFAULT_MAX_CONCURRENT_BLOCK_FILLS,
         }
     }
+}
+
+/// Process-wide request admission. Bounds what the HTTP layer lets in so a burst of cold
+/// requests degrades into fast `503`s instead of unbounded RPC fan-out, memory growth and
+/// requests that never finish.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdmissionConfig {
+    /// Proof requests (single, by-tx, batch) in flight across all chains. Health, readiness
+    /// and metrics are never counted or refused.
+    pub max_in_flight_requests: NonZeroUsize,
+    /// Proof requests in flight per chain, so one chain's storm cannot starve the others.
+    pub max_in_flight_per_chain: NonZeroUsize,
+    /// Deadline for one proof request end to end. Exceeding it answers `504`.
+    pub request_timeout: std::time::Duration,
+}
+
+impl Default for AdmissionConfig {
+    fn default() -> Self {
+        Self {
+            max_in_flight_requests: NonZeroUsize::new(64).expect("non-zero"),
+            max_in_flight_per_chain: NonZeroUsize::new(32).expect("non-zero"),
+            request_timeout: std::time::Duration::from_secs(120),
+        }
+    }
+}
+
+impl AdmissionConfig {
+    /// Apply `MAX_IN_FLIGHT_REQUESTS`, `MAX_IN_FLIGHT_PER_CHAIN` and `REQUEST_TIMEOUT_SECS`
+    /// from the environment when set and valid; anything else is left untouched.
+    pub fn apply_env_overrides(&mut self) {
+        if let Some(n) = std::env::var("MAX_IN_FLIGHT_REQUESTS")
+            .ok()
+            .and_then(|raw| raw.parse::<NonZeroUsize>().ok())
+        {
+            self.max_in_flight_requests = n;
+        }
+        if let Some(n) = std::env::var("MAX_IN_FLIGHT_PER_CHAIN")
+            .ok()
+            .and_then(|raw| raw.parse::<NonZeroUsize>().ok())
+        {
+            self.max_in_flight_per_chain = n;
+        }
+        if let Some(secs) = std::env::var("REQUEST_TIMEOUT_SECS")
+            .ok()
+            .and_then(|raw| raw.parse::<u64>().ok())
+            .filter(|secs| *secs > 0)
+        {
+            self.request_timeout = std::time::Duration::from_secs(secs);
+        }
+    }
+}
+
+/// YAML `admission:` block; every field optional.
+#[derive(Debug, Default, Deserialize)]
+pub struct AdmissionFile {
+    #[serde(default)]
+    pub max_in_flight_requests: Option<NonZeroUsize>,
+    #[serde(default)]
+    pub max_in_flight_per_chain: Option<NonZeroUsize>,
+    #[serde(default)]
+    pub request_timeout_secs: Option<u64>,
+}
+
+fn resolve_admission(file: AdmissionFile) -> Result<AdmissionConfig> {
+    if file.request_timeout_secs == Some(0) {
+        bail!("`admission.request_timeout_secs` must be greater than 0; omit it for the default");
+    }
+    let defaults = AdmissionConfig::default();
+    Ok(AdmissionConfig {
+        max_in_flight_requests: file
+            .max_in_flight_requests
+            .unwrap_or(defaults.max_in_flight_requests),
+        max_in_flight_per_chain: file
+            .max_in_flight_per_chain
+            .unwrap_or(defaults.max_in_flight_per_chain),
+        request_timeout: file
+            .request_timeout_secs
+            .map_or(defaults.request_timeout, std::time::Duration::from_secs),
+    })
 }
 
 /// One source chain (EVM) served by this process, keyed on Creditcoin3.
@@ -117,6 +208,7 @@ pub struct Config {
     pub chains: Vec<ChainConfig>,
     pub max_batch_size: NonZeroUsize,
     pub max_batch_span: u64,
+    pub admission: AdmissionConfig,
 }
 
 impl Config {
@@ -138,6 +230,7 @@ impl Config {
             }],
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
             max_batch_span: DEFAULT_MAX_BATCH_SPAN,
+            admission: AdmissionConfig::default(),
         }
     }
 
@@ -174,6 +267,9 @@ pub struct ConfigFile {
     pub max_batch_size: NonZeroUsize,
     #[serde(default = "default_max_batch_span")]
     pub max_batch_span: u64,
+    /// Optional request admission limits; omit the block for the defaults.
+    #[serde(default)]
+    pub admission: AdmissionFile,
 }
 
 #[derive(Debug, Deserialize)]
@@ -224,6 +320,8 @@ pub struct ChainCacheConfigFile {
     pub merkle_backfill_enabled: Option<bool>,
     #[serde(default)]
     pub checkpoint_cache_max_entries: Option<usize>,
+    #[serde(default)]
+    pub max_concurrent_block_fills: Option<NonZeroUsize>,
 }
 
 /// Deserialize a byte size written either as a number or as a human-readable string.
@@ -331,6 +429,7 @@ impl ConfigFile {
             chains,
             max_batch_size: self.max_batch_size,
             max_batch_span: self.max_batch_span,
+            admission: resolve_admission(self.admission)?,
         })
     }
 }
@@ -376,6 +475,9 @@ fn resolve_cache_config(chain_key: u64, file: ChainCacheConfigFile) -> Result<Ch
             .merkle_backfill_enabled
             .unwrap_or(defaults.merkle_backfill_enabled),
         checkpoint_cache_max_entries: file.checkpoint_cache_max_entries,
+        max_concurrent_block_fills: file
+            .max_concurrent_block_fills
+            .unwrap_or(defaults.max_concurrent_block_fills),
     })
 }
 

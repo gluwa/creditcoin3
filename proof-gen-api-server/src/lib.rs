@@ -369,7 +369,12 @@ impl Server {
         ContinuityService::spawn_merkle_backfill(service.clone());
 
         let allowed: std::collections::HashSet<u64> = self.config.chain_keys();
-        let app = build_app(service.clone(), allowed, self.prom_metrics.clone());
+        let app = networking::build_app_with_admission(
+            service.clone(),
+            allowed,
+            self.prom_metrics.clone(),
+            self.config.admission.clone(),
+        );
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         let bind_host = &self.config.bind_host;
