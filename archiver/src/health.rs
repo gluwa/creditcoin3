@@ -6,7 +6,7 @@
 //! return HTTP 200 on `/status`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -16,8 +16,9 @@ const NEVER: u64 = u64::MAX;
 
 pub struct Health {
     started: Instant,
-    pub chain_id: u64,
-    pub finalization_lag: u64,
+    /// `(chain_id, finalization_lag)`, known only once the source-chain handshake completes.
+    /// The API is up before that so probes can see the process; until then it is not ready.
+    source: OnceLock<(u64, u64)>,
     ready_lag_blocks: u64,
     stale_after: Duration,
 
@@ -34,8 +35,9 @@ pub struct Health {
 /// What `/status` and `/ready` serialize. Ages are milliseconds; `null` means "never".
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HealthSnapshot {
-    pub chain_id: u64,
-    pub finalization_lag: u64,
+    /// `null` until the source-chain handshake has completed.
+    pub chain_id: Option<u64>,
+    pub finalization_lag: Option<u64>,
     pub uptime_ms: u64,
     pub latest_archived_block: Option<u64>,
     pub total_blocks: usize,
@@ -56,16 +58,10 @@ pub struct HealthSnapshot {
 }
 
 impl Health {
-    pub fn new(
-        chain_id: u64,
-        finalization_lag: u64,
-        ready_lag_blocks: u64,
-        stale_after: Duration,
-    ) -> Self {
+    pub fn new(ready_lag_blocks: u64, stale_after: Duration) -> Self {
         Self {
             started: Instant::now(),
-            chain_id,
-            finalization_lag,
+            source: OnceLock::new(),
             ready_lag_blocks,
             stale_after,
             source_head: AtomicU64::new(0),
@@ -77,6 +73,12 @@ impl Health {
             last_flush_error: Mutex::new(None),
             reconnects: AtomicU64::new(0),
         }
+    }
+
+    /// Record the verified source identity. Called once the ws/http/Creditcoin handshake and
+    /// the chain-id pin have passed; a second call is ignored.
+    pub fn set_source(&self, chain_id: u64, finalization_lag: u64) {
+        let _ = self.source.set((chain_id, finalization_lag));
     }
 
     fn now_ms(&self) -> u64 {
@@ -128,7 +130,11 @@ impl Health {
         let head_at = self.source_head_at.load(Ordering::Acquire);
         let source_head = (head_at != NEVER).then(|| self.source_head.load(Ordering::Acquire));
         let source_head_age_ms = self.age(head_at);
-        let mature_target = source_head.map(|h| h.saturating_sub(self.finalization_lag));
+        let source = self.source.get().copied();
+        let mature_target = match (source_head, source) {
+            (Some(h), Some((_, lag))) => Some(h.saturating_sub(lag)),
+            _ => None,
+        };
         let lag_blocks = match (mature_target, latest_archived_block) {
             (Some(target), Some(latest)) => Some(target.saturating_sub(latest)),
             (Some(target), None) => Some(target),
@@ -141,6 +147,9 @@ impl Health {
             .clone();
 
         let mut not_ready_reasons = Vec::new();
+        if source.is_none() {
+            not_ready_reasons.push("source chain handshake not complete".to_owned());
+        }
         match source_head_age_ms {
             None => not_ready_reasons.push("source head never observed".to_owned()),
             Some(age) if age > self.stale_after.as_millis() as u64 => {
@@ -163,8 +172,8 @@ impl Health {
         }
 
         HealthSnapshot {
-            chain_id: self.chain_id,
-            finalization_lag: self.finalization_lag,
+            chain_id: source.map(|(id, _)| id),
+            finalization_lag: source.map(|(_, lag)| lag),
             uptime_ms: self.now_ms(),
             latest_archived_block,
             total_blocks,
@@ -188,7 +197,30 @@ mod tests {
     use super::*;
 
     fn health() -> Health {
-        Health::new(56, 10, 1_000, Duration::from_secs(60))
+        let h = Health::new(1_000, Duration::from_secs(60));
+        h.set_source(56, 10);
+        h
+    }
+
+    #[test]
+    fn not_ready_before_the_handshake_even_with_a_fresh_head() {
+        let h = Health::new(1_000, Duration::from_secs(60));
+        h.note_head(500);
+        let s = h.snapshot(Some(490), 491);
+        assert!(!s.ready);
+        assert_eq!(s.chain_id, None);
+        assert_eq!(s.mature_target, None, "no lag known, no target");
+        assert_eq!(
+            s.not_ready_reasons,
+            vec!["source chain handshake not complete".to_owned()]
+        );
+        h.set_source(56, 10);
+        let s = h.snapshot(Some(490), 491);
+        assert!(s.ready, "{:?}", s.not_ready_reasons);
+        assert_eq!(s.chain_id, Some(56));
+        // A second set_source is ignored.
+        h.set_source(99, 0);
+        assert_eq!(h.snapshot(None, 0).chain_id, Some(56));
     }
 
     #[test]
@@ -256,7 +288,8 @@ mod tests {
 
     #[test]
     fn empty_archive_reports_the_whole_target_as_lag() {
-        let h = Health::new(1, 0, 100, Duration::from_secs(60));
+        let h = Health::new(100, Duration::from_secs(60));
+        h.set_source(1, 0);
         h.note_head(250);
         let s = h.snapshot(None, 0);
         assert_eq!(s.lag_blocks, Some(250));
