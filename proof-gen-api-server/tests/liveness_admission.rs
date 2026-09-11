@@ -25,6 +25,8 @@ struct CountingEth {
     peak_tip: AtomicUsize,
     block_fetches: AtomicUsize,
     tip_delay: Duration,
+    /// Delay applied to the first block fetch only (the later ones are fast).
+    first_fetch_delay: Duration,
 }
 
 impl CountingEth {
@@ -34,6 +36,7 @@ impl CountingEth {
             peak_tip: AtomicUsize::new(0),
             block_fetches: AtomicUsize::new(0),
             tip_delay,
+            first_fetch_delay: Duration::from_millis(100),
         }
     }
 }
@@ -68,8 +71,13 @@ impl EthRpcProvider for CountingEth {
         &self,
         height: u64,
     ) -> anyhow::Result<Vec<(sp_core::H256, Vec<u8>)>> {
-        self.block_fetches.fetch_add(1, Ordering::SeqCst);
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        let n = self.block_fetches.fetch_add(1, Ordering::SeqCst);
+        let delay = if n == 0 {
+            self.first_fetch_delay
+        } else {
+            Duration::from_millis(100)
+        };
+        tokio::time::sleep(delay).await;
         continuity::mocks::MockEthRpcProvider
             .get_block_tx_data(height)
             .await
@@ -233,4 +241,30 @@ async fn health_and_readiness_are_never_subject_to_admission() {
         );
     }
     assert_eq!(slow.await.unwrap().0, StatusCode::OK);
+}
+
+/// A fill leader cut off by the request deadline must release the height: the next caller
+/// becomes leader and succeeds instead of waiting on a `Notify` that never fires.
+#[tokio::test]
+async fn a_leader_cancelled_by_the_deadline_does_not_stall_the_height() {
+    let mut provider = CountingEth::new(Duration::ZERO);
+    provider.first_fetch_delay = Duration::from_secs(2);
+    let provider = Arc::new(provider);
+    let admission = AdmissionConfig {
+        request_timeout: Duration::from_millis(300),
+        ..AdmissionConfig::default()
+    };
+    let (app, uri) = app_with(provider.clone(), admission).await;
+
+    let (status, _) = get(&app, &uri).await;
+    assert_eq!(status, StatusCode::GATEWAY_TIMEOUT, "first fetch is slow");
+    assert_eq!(provider.block_fetches.load(Ordering::SeqCst), 1);
+
+    let (status, body) = get(&app, &uri).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        provider.block_fetches.load(Ordering::SeqCst),
+        2,
+        "the second caller took over the fill instead of waiting on the cancelled leader"
+    );
 }
