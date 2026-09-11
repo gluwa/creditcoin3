@@ -1,3 +1,4 @@
+use axum::http::StatusCode;
 use axum::{Extension, Json};
 use serde::Serialize;
 use std::sync::Arc;
@@ -38,7 +39,78 @@ pub struct HealthCheckResponse {
     /// about to exit; it must not receive new traffic.
     #[serde(skip_serializing_if = "Option::is_none")]
     cc3_event_stream_dead: Option<String>,
+    /// Same verdict `/readyz` encodes in its status code. This endpoint always answers 200
+    /// for compatibility; point traffic-withdrawal checks at `/readyz`.
+    ready: bool,
+    not_ready_reasons: Vec<String>,
     uptime_seconds: u64,
+}
+
+/// `/readyz` body.
+#[derive(Serialize, ToSchema)]
+pub struct ReadinessResponse {
+    ready: bool,
+    /// Why the replica is not ready; empty when it is.
+    reasons: Vec<String>,
+    eth_rpc_connected: bool,
+    cc3_finalized_height: Option<u64>,
+    cc3_finalized_age_seconds: Option<u64>,
+    /// Creditcoin finalized height the startup snapshot was pinned to.
+    cc3_snapshot_height: Option<u64>,
+}
+
+/// Liveness: the process answers HTTP. Nothing else is judged here on purpose. A dependency
+/// outage must withdraw readiness, not restart every replica at once; an internal wedge that
+/// stops the event task exits the process by itself (see `Server::run`).
+#[utoipa::path(
+    get,
+    path = "/livez",
+    responses((status = 200, description = "Process is alive"))
+)]
+pub async fn livez() -> Json<serde_json::Value> {
+    Json(serde_json::json!({"status": "alive"}))
+}
+
+/// Readiness: 200 only while this replica can serve current proofs, 503 otherwise with the
+/// reasons in the body. Point Kubernetes readiness probes and load-balancer health checks
+/// here. Ready means the cc3 event task is alive and caught up to the startup snapshot, a
+/// Creditcoin finalized block was processed recently, and the source-chain RPC answers.
+#[utoipa::path(
+    get,
+    path = "/readyz",
+    responses(
+        (status = 200, description = "Ready to serve proofs", body = ReadinessResponse),
+        (status = 503, description = "Not ready; see reasons", body = ReadinessResponse),
+    )
+)]
+pub async fn readyz(
+    Extension(service): Extension<Arc<ContinuityService>>,
+) -> (StatusCode, Json<ReadinessResponse>) {
+    let eth_connected = probe("eth_rpc", service.check_eth_connectivity()).await;
+    let mut readiness = service.readiness();
+    if !eth_connected {
+        readiness.ready = false;
+        readiness
+            .reasons
+            .push("source-chain RPC probe failed on at least one chain".to_owned());
+    }
+    let progress = service.cc3_progress();
+    let code = if readiness.ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        code,
+        Json(ReadinessResponse {
+            ready: readiness.ready,
+            reasons: readiness.reasons,
+            eth_rpc_connected: eth_connected,
+            cc3_finalized_height: progress.height(),
+            cc3_finalized_age_seconds: progress.age_seconds(),
+            cc3_snapshot_height: service.cc3_snapshot_height(),
+        }),
+    )
 }
 
 /// Run one upstream probe under the shared timeout, logging why it failed if it does.
@@ -96,6 +168,7 @@ pub async fn health_check(
 
     let event_stream_dead = service.event_stream_dead();
     let progress = service.cc3_progress();
+    let readiness = service.readiness();
     let status = if freshness.fresh && eth_connected && event_stream_dead.is_none() {
         "healthy".to_string()
     } else {
@@ -112,6 +185,8 @@ pub async fn health_check(
         cc3_finalized_age_seconds: progress.age_seconds(),
         cc3_silent_recoveries: progress.silent_recoveries(),
         cc3_event_stream_dead: event_stream_dead,
+        ready: readiness.ready && eth_connected,
+        not_ready_reasons: readiness.reasons,
         uptime_seconds: service.uptime_seconds(),
     })
 }

@@ -276,6 +276,42 @@ pub trait CcRpcProvider: Send + Sync {
     /// Returns the number of attestations between checkpoints.
     /// For example, if checkpoints occur every 10 attestations, this returns `10`.
     async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u64>>;
+
+    /// Hash and height of the Creditcoin node's current finalized head, so a caller can take
+    /// every startup read at one block and replay events from there. `None` when the provider
+    /// cannot pin reads to a block (mocks); callers then read latest state.
+    async fn finalized_head(&self) -> Result<Option<(H256, u64)>> {
+        Ok(None)
+    }
+
+    /// [`Self::get_attestations_for_chain`] as of block `at`. Defaults to the latest read for
+    /// providers that cannot pin.
+    async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        self.get_attestations_for_chain(chain_key).await
+    }
+
+    /// [`Self::get_checkpoints_for_chain`] as of block `at`.
+    async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        self.get_checkpoints_for_chain(chain_key).await
+    }
+
+    /// [`Self::get_attestation_chain_genesis_block_number`] as of block `at`.
+    async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<u64> {
+        self.get_attestation_chain_genesis_block_number(chain_key)
+            .await
+    }
 }
 
 /// Abstraction over source chain (Ethereum/EVM) RPC operations.
@@ -444,6 +480,48 @@ impl CcRpcProvider for CcClient {
             .await
             .map_err(|e| anyhow!("Failed to fetch checkpoint interval: {e}"))
     }
+
+    async fn finalized_head(&self) -> Result<Option<(H256, u64)>> {
+        let (hash, number) = CcClient::finalized_head(self)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch finalized head: {e}"))?;
+        Ok(Some((H256::from_slice(hash.as_bytes()), number)))
+    }
+
+    async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        CcClient::get_attestations_for_chain_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .context("Failed to fetch attestations at snapshot")
+    }
+
+    async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        CcClient::get_checkpoints_for_chain_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .context("Failed to fetch checkpoints at snapshot")
+    }
+
+    async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<u64> {
+        CcClient::get_attestation_chain_genesis_block_number_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .map_err(|e| anyhow!("Failed to fetch genesis block number at snapshot: {e}"))
+    }
+}
+
+/// `sp_core::H256` → the cc-client's (subxt) `H256`; same 32 bytes, different crates.
+fn cc_hash(hash: H256) -> cc_client::H256 {
+    cc_client::H256::from_slice(hash.as_bytes())
 }
 
 #[async_trait]

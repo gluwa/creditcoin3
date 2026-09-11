@@ -42,6 +42,8 @@ pub fn build_app(
     let router = Router::new()
         .route("/", get(|| async { Redirect::permanent("/api/swagger") }))
         .route("/api/v1/health", get(health::health_check))
+        .route("/livez", get(health::livez))
+        .route("/readyz", get(health::readyz))
         .route(
             "/api/v1/attested-height/{chain_key}",
             get(attested_height::attested_height),

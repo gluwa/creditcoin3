@@ -62,7 +62,9 @@ pub struct Progress {
 }
 
 impl Progress {
-    fn note(&self, height: u64) {
+    /// Record that `height` has been processed. Driven by the stream; public so consumers
+    /// and tests can seed it.
+    pub fn note(&self, height: u64) {
         use std::sync::atomic::Ordering;
         self.height.store(height, Ordering::Release);
         self.advanced_at_unix_ms
@@ -158,6 +160,13 @@ pub struct Config {
     /// Optional shared progress record for health reporting.
     #[default(None)]
     progress: Option<std::sync::Arc<Progress>>,
+    /// Height the consumer's state is already consistent up to (typically the finalized
+    /// height its startup snapshot was read at). Blocks at or below it are not yielded; the
+    /// blocks between it and the first subscribed block are backfilled through the parent
+    /// walk, so nothing that landed between snapshot and subscription is skipped. `None`
+    /// starts from the first subscribed block.
+    #[default(None)]
+    resume_from: Option<u64>,
 }
 
 pub struct StreamCC3 {
@@ -174,6 +183,7 @@ impl StreamCC3 {
         let backfill_min_interval = config.backfill_min_interval;
         let progress_timeout = config.progress_timeout;
         let progress = config.progress;
+        let resume_from = config.resume_from;
 
         // Initial subscription + first-block seed, under the same unbounded
         // reconnect-and-re-subscribe policy as the steady-state repair loop below. A
@@ -182,7 +192,7 @@ impl StreamCC3 {
         // in place (and a crash-loop under a persistently flappy RPC). Cancellation point is
         // the sleep: callers race construction against the root token / the bounded shutdown
         // drain, so an endless outage cannot pin shutdown.
-        let (finalized, mut latest, first_events) = {
+        let (finalized, first) = {
             let mut backoff = RESUBSCRIBE_BACKOFF_START;
             loop {
                 let attempt = async {
@@ -202,9 +212,7 @@ impl StreamCC3 {
                         .map_err(|_| Error::NoProgress(progress_timeout))?
                         .map_err(Error::Subxt)?
                         .ok_or(Error::EndOfStream)?;
-                    let latest = first.number() as u64;
-                    let events = first.events().await.map_err(Error::Subxt)?;
-                    Ok::<_, Error>((finalized, latest, events))
+                    Ok::<_, Error>((finalized, first))
                 };
                 match attempt.await {
                     Ok(seed) => break seed,
@@ -221,14 +229,24 @@ impl StreamCC3 {
             }
         };
 
-        if let Some(p) = &progress {
-            p.note(latest);
+        // Everything at or below `latest` is already known to the consumer. With `resume_from`
+        // that is the consumer's snapshot height and the gap up to the first subscribed block
+        // is backfilled by the parent walk below like any reconnect gap; without it the first
+        // subscribed block is the first thing yielded (it goes through the same head path,
+        // so its events fetch gets the same retry policy as every later block).
+        let first_height = first.number() as u64;
+        let mut latest = resume_from.unwrap_or_else(|| first_height.saturating_sub(1));
+        if let Some(from) = resume_from {
+            tracing::info!(
+                from,
+                first = first_height,
+                "🛟 cc3 stream resuming from consumer snapshot"
+            );
         }
 
         let stream = async_stream::stream! {
-            yield StreamEvents::new(latest as attestor_primitives::Height, first_events, &chain_keys);
-
             let mut finalized = finalized;
+            let mut pending = Some(first);
             // Reusable scratch buffer for the parent-walk backfill. Capacity tuned for
             // typical disconnects of <16 blocks; grows if needed.
             let mut backfill: Vec<(u64, subxt::events::Events<subxt::SubstrateConfig>)> =
@@ -238,7 +256,9 @@ impl StreamCC3 {
                 // Progress watchdog. `try_next` alone can pend forever on a socket that is
                 // open but no longer delivering (subscription dropped server-side, a proxy
                 // that stopped forwarding, a peer that answers pings and nothing else).
-                let next = match tokio::time::timeout(progress_timeout, finalized.try_next()).await {
+                let next = if let Some(first) = pending.take() {
+                    Ok(Some(first))
+                } else { match tokio::time::timeout(progress_timeout, finalized.try_next()).await {
                     Ok(next) => next,
                     Err(_elapsed) => match cc3.finalized_head_number().await {
                         Ok(head) if head > latest => {
@@ -268,7 +288,7 @@ impl StreamCC3 {
                             Err(subxt::Error::Other(format!("progress probe failed: {err}")))
                         }
                     },
-                };
+                } };
                 match next {
                     Ok(Some(mut block)) => {
                         let n = block.number() as u64;

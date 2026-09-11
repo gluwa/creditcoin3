@@ -34,11 +34,16 @@ pub fn get_last_attestation(chain_key: u64) -> Option<LastAttestation> {
 
 /// Start a single CC3 event subscription for all configured chain keys (one finalized-block stream).
 /// Will automatically reconnect to the CC3 node if the connection is lost.
+///
+/// `resume_from` is the Creditcoin finalized height the service's caches were snapshotted at;
+/// events after it are replayed before the live flow so nothing between snapshot and
+/// subscription is skipped.
 pub async fn start_cc3_event_subscription(
     cc3_client: Arc<CcClient>,
     checkpoint_intervals: CheckpointIntervalMap,
     last_checkpoint_blocks: LastCheckpointBlockMap,
     service: Arc<ContinuityService>,
+    resume_from: Option<u64>,
 ) -> Result<()> {
     let chain_keys = service.configured_chain_keys();
 
@@ -54,6 +59,7 @@ pub async fn start_cc3_event_subscription(
         // per-block signal of its own, and attestation writes are too sparse on a quiet
         // chain to tell "subscription dead" from "nothing attested lately".
         .with_progress(Some(service.cc3_progress()))
+        .with_resume_from(resume_from)
         .build();
     let mut events = stream::cc3::StreamCC3::new(config).await?.flatten();
 

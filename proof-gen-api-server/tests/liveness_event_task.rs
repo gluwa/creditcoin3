@@ -102,6 +102,7 @@ async fn pruned_history_makes_the_event_task_return_an_error() {
             Arc::default(),
             Arc::default(),
             service.clone(),
+            None,
         ),
     )
     .await

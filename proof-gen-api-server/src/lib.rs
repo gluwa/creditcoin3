@@ -397,6 +397,7 @@ impl Server {
             checkpoint_intervals_clone,
             last_checkpoint_blocks_clone,
             service.clone(),
+            service.cc3_snapshot_height(),
         ));
 
         supervise(
