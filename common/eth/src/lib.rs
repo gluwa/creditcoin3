@@ -80,6 +80,8 @@ pub enum Error {
     UrlParseError(#[from] url::ParseError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
     UnsupportedUrl(String),
+    #[error("RPC endpoint changed chain on reconnect: expected chain_id {expected}, node now reports {got}; keeping the previous connection")]
+    ChainIdChanged { expected: u64, got: u64 },
 }
 
 impl Error {
@@ -500,6 +502,23 @@ impl Client {
 
     pub async fn reconnect(&mut self) -> Result<(), Error> {
         let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
+
+        // Fail closed if the endpoint now serves a different chain (DNS / load-balancer /
+        // provider flip). Every caller treats a reconnect error as "retry later", which is
+        // exactly right: keep the old (dead) connection rather than silently continuing
+        // against foreign data.
+        if chain_id != self.chain_id {
+            tracing::error!(
+                url = %redact_url_query(url.as_str()),
+                expected = self.chain_id,
+                got = chain_id,
+                "⛔ RPC endpoint changed chain_id on reconnect; refusing to switch"
+            );
+            return Err(Error::ChainIdChanged {
+                expected: self.chain_id,
+                got: chain_id,
+            });
+        }
 
         // Reconnect each fallback against its own URL too, otherwise a
         // recovered primary would silently keep using a stale fallback

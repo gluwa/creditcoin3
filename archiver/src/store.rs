@@ -39,6 +39,21 @@ pub enum StoreError {
         incoming_root: H256,
         incoming_hash: H256,
     },
+    /// The database was built from a different source chain than the one the RPC endpoints
+    /// now serve. Archiving foreign roots under this archive name would silently corrupt
+    /// every proof later built from it, so this is fatal.
+    #[error("archive was built from chain_id {stored} but the source RPC now serves chain_id {live}; refusing to write foreign roots")]
+    ChainIdMismatch { stored: u64, live: u64 },
+    /// The highest stored block is no longer the canonical block at that height on the
+    /// source chain: the archive's tail sits on an abandoned fork. Resuming from `tip + 1`
+    /// would splice canonical roots on top of fork roots, so this is fatal unless the
+    /// operator opted into bounded re-anchoring (`--reanchor-max-depth`).
+    #[error("stored tip {height} is not canonical: stored block hash {stored_hash:?}, canonical block hash {canonical_hash:?}; the archive tail sits on an abandoned fork")]
+    AnchorMismatch {
+        height: u64,
+        stored_hash: H256,
+        canonical_hash: H256,
+    },
 }
 
 /// A stored entry: the merkle root plus the source block hash it was derived from.
@@ -63,6 +78,9 @@ const META_TREE: &[u8] = b"__archiver_meta";
 
 /// Key inside [`META_TREE`] that stores the cached entry counter as a u64-BE.
 const META_KEY_COUNT: &[u8] = b"count";
+/// Key inside [`META_TREE`] that pins the source chain id (u64-BE) this archive was built
+/// from. Set on the first run; every later run and every RPC reconnect must match it.
+const META_KEY_CHAIN_ID: &[u8] = b"chain_id";
 
 /// Thread-safe handle to the root store. Cheap to clone (wraps Arc<sled::Db>).
 #[derive(Clone)]
@@ -132,6 +150,32 @@ impl RootStore {
     /// backfill replays). Legacy entries (32-byte, hash unknown) only conflict on the
     /// root: a matching root with a previously-unknown hash is accepted and upgraded to
     /// the 64-byte layout.
+    /// Pin the source chain id this archive belongs to.
+    ///
+    /// The first call records `live`; every later call must pass the same value or fails
+    /// with [`StoreError::ChainIdMismatch`]. Returns the previously pinned id (`None` when
+    /// this call pinned it). A database written before this column existed is pinned on
+    /// its first start with the new binary.
+    pub fn pin_chain_id(&self, live: u64) -> Result<Option<u64>> {
+        match self.meta.get(META_KEY_CHAIN_ID)? {
+            Some(raw) => {
+                let bytes: [u8; 8] = raw.as_ref().try_into().with_context(|| {
+                    format!("invalid chain_id length: expected 8, got {}", raw.len())
+                })?;
+                let stored = u64::from_be_bytes(bytes);
+                if stored != live {
+                    return Err(StoreError::ChainIdMismatch { stored, live }.into());
+                }
+                Ok(Some(stored))
+            }
+            None => {
+                self.meta.insert(META_KEY_CHAIN_ID, &live.to_be_bytes())?;
+                self.meta.flush()?;
+                Ok(None)
+            }
+        }
+    }
+
     pub fn put_roots(&self, roots: &[(u64, H256, H256)]) -> Result<()> {
         // Reorg / inconsistency guard. Scan first; this is a cheap point-read per entry
         // and means we never run the batch insert with a mixed-conflict payload.
@@ -191,6 +235,43 @@ impl RootStore {
             tracing::warn!(error = %e, "failed to persist entry count to meta tree");
         }
         Ok(())
+    }
+
+    /// Delete every stored entry with `height > keep_through` and return how many were
+    /// removed. Used to drop a tail that turned out to sit on an abandoned fork so the
+    /// stream can recompute those heights from the canonical chain.
+    ///
+    /// The entry counter is corrected and persisted; the roots batch and the counter write
+    /// are not atomic (same best-effort contract as `put_roots`), so a crash in between
+    /// drifts the counter by at most this call until the next successful `put_roots`.
+    pub fn truncate_above(&self, keep_through: u64) -> Result<u64> {
+        let Some(first_removed) = keep_through.checked_add(1) else {
+            return Ok(0);
+        };
+        let mut batch = sled::Batch::default();
+        let mut removed = 0_u64;
+        for item in self.db.range(first_removed.to_be_bytes()..) {
+            let (key, _) = item.context("failed to read from sled")?;
+            batch.remove(key);
+            removed += 1;
+        }
+        if removed == 0 {
+            return Ok(0);
+        }
+        self.db
+            .apply_batch(batch)
+            .context("failed to apply truncate batch")?;
+        let new_total = self
+            .entry_count
+            .fetch_sub(removed as usize, Ordering::AcqRel)
+            .saturating_sub(removed as usize);
+        if let Err(e) = self
+            .meta
+            .insert(META_KEY_COUNT, &(new_total as u64).to_be_bytes())
+        {
+            tracing::warn!(error = %e, "failed to persist entry count to meta tree");
+        }
+        Ok(removed)
     }
 
     /// Get roots for an inclusive block range [from, to].
@@ -304,6 +385,32 @@ mod tests {
     /// Test helper: build a `(height, root, block_hash)` tuple with a random hash.
     fn entry(height: u64, root: H256) -> (u64, H256, H256) {
         (height, root, H256::random())
+    }
+
+    #[test]
+    fn truncate_above_drops_only_the_tail_and_fixes_the_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        let entries: Vec<_> = (10..=15).map(|h| entry(h, H256::random())).collect();
+        store.put_roots(&entries).unwrap();
+        assert_eq!(store.count(), 6);
+
+        assert_eq!(store.truncate_above(12).unwrap(), 3);
+        assert_eq!(store.count(), 3);
+        assert_eq!(store.latest_height().unwrap(), Some(12));
+        assert!(store.get_range(13, 15).unwrap().is_empty());
+        assert_eq!(store.get_range(12, 12).unwrap()[0].1.root, entries[2].1);
+
+        // Nothing above: a no-op that leaves the count alone.
+        assert_eq!(store.truncate_above(12).unwrap(), 0);
+        assert_eq!(store.truncate_above(u64::MAX).unwrap(), 0);
+        assert_eq!(store.count(), 3);
+
+        // The corrected count survives reopen (persisted to meta).
+        drop(store);
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        assert_eq!(store.count(), 3);
+        assert_eq!(store.latest_height().unwrap(), Some(12));
     }
 
     #[test]
@@ -595,5 +702,38 @@ mod tests {
 
         let gaps = store.find_gaps(Some(5)).unwrap();
         assert_eq!(gaps, vec![(5, 9), (12, 14), (16, 19)]);
+    }
+
+    #[test]
+    fn chain_id_pins_on_first_run_and_matches_afterwards() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        assert_eq!(store.pin_chain_id(56).unwrap(), None);
+        assert_eq!(store.pin_chain_id(56).unwrap(), Some(56));
+        // Persisted in the meta tree (the reopen path is exercised by the sibling reopen
+        // tests; not repeated here to avoid the sled lock-release race they guard against).
+        assert_eq!(
+            store.meta.get(META_KEY_CHAIN_ID).unwrap().unwrap().as_ref(),
+            &56u64.to_be_bytes()
+        );
+    }
+
+    #[test]
+    fn chain_id_mismatch_is_fatal_and_leaves_the_pin_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        store.pin_chain_id(56).unwrap();
+        let err = store.pin_chain_id(1).unwrap_err();
+        assert!(
+            matches!(
+                err.downcast_ref::<StoreError>(),
+                Some(StoreError::ChainIdMismatch {
+                    stored: 56,
+                    live: 1
+                })
+            ),
+            "{err:?}"
+        );
+        assert_eq!(store.pin_chain_id(56).unwrap(), Some(56));
     }
 }
