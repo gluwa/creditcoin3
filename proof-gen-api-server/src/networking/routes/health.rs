@@ -25,6 +25,10 @@ pub struct HealthCheckResponse {
     cc3_cache_fresh: bool,
     /// Seconds since the least-recently-advanced chain's cache last changed.
     cc3_cache_age_seconds: u64,
+    /// Why the cc3 event task ended, when it has. A replica in this state is draining and
+    /// about to exit; it must not receive new traffic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cc3_event_stream_dead: Option<String>,
     uptime_seconds: u64,
 }
 
@@ -81,7 +85,8 @@ pub async fn health_check(
         );
     }
 
-    let status = if freshness.fresh && eth_connected {
+    let event_stream_dead = service.event_stream_dead();
+    let status = if freshness.fresh && eth_connected && event_stream_dead.is_none() {
         "healthy".to_string()
     } else {
         "degraded".to_string()
@@ -93,6 +98,7 @@ pub async fn health_check(
         eth_rpc_connected: eth_connected,
         cc3_cache_fresh: freshness.fresh,
         cc3_cache_age_seconds: freshness.max_age_seconds,
+        cc3_event_stream_dead: event_stream_dead,
         uptime_seconds: service.uptime_seconds(),
     })
 }
