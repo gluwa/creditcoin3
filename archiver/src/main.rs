@@ -15,6 +15,9 @@ use futures::StreamExt;
 
 /// Base delay between reconnection attempts (doubles each retry, capped at [`RECONNECT_MAX_DELAY`]).
 const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
+/// Minimum spacing between explicit durability flushes while following the tip. sled also
+/// flushes on its own timer (500 ms by default), so a per-block fsync buys nothing.
+const TIP_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 /// Maximum delay between reconnection attempts.
 const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
 
@@ -102,6 +105,13 @@ async fn main() -> Result<()> {
     }
     let source_chain_id = ws_client.chain_id();
 
+    // Pin the archive to this chain. A database that was built from another chain (or an
+    // endpoint that now serves another chain under the same name) is refused outright.
+    match store.pin_chain_id(source_chain_id)? {
+        None => tracing::info!(chain_id = source_chain_id, "pinned archive to source chain"),
+        Some(pinned) => tracing::debug!(chain_id = pinned, "archive chain pin verified"),
+    }
+
     // ── Registered chain (Creditcoin) ───────────────────────────────────
     // Previously this lookup only ran when FINALIZATION_LAG was unset, so every
     // deployment that pinned the lag skipped the chain_id verification along with it.
@@ -160,6 +170,19 @@ async fn main() -> Result<()> {
     // ── Determine finalization lag ──────────────────────────────────────
     let finaliztion_lag = resolve_finalization_lag(cfg.finalization_lag_override, on_chain_lag)?;
 
+    // ── Shutdown signal (SIGINT + SIGTERM) ──────────────────────────────
+    // A `watch` rather than a oneshot so every phase (main loop, reconnect backoff, stream
+    // construction) can select on it repeatedly. Kubernetes stops pods with SIGTERM, so
+    // it must take the same final-batch / final-flush path as Ctrl+C.
+    let (cancel_tx, cancel_rx) = tokio::sync::watch::channel(false);
+    tokio::spawn(async move {
+        wait_for_shutdown_signal().await;
+        tracing::info!("shutting down...");
+        let _ = cancel_tx.send(true);
+    });
+    let mut cancel_rx = cancel_rx;
+    let mut backfill_cancel = cancel_rx.clone();
+
     // ── Backfill gaps ────────────────────────────────────────────────────
     if cfg.backfill {
         // Pass `cfg.start_height` so the gap-finder also reports a pre-first-stored gap
@@ -194,7 +217,17 @@ async fn main() -> Result<()> {
                 let flush_size = cfg.flush_every.get() as usize;
                 let mut batch_buf = Vec::with_capacity(flush_size);
 
-                while let Some(info) = gap_stream.next().await {
+                loop {
+                    let info = tokio::select! {
+                        _ = cancelled(&mut backfill_cancel) => {
+                            tracing::info!("backfill interrupted by shutdown; writing pending batch");
+                            break;
+                        }
+                        next = gap_stream.next() => match next {
+                            Some(info) => info,
+                            None => break,
+                        },
+                    };
                     let done = info.height >= *gap_end;
                     // Store the source block hash alongside the root so canonical
                     // replacements (same root, different block) are reconciled across
@@ -221,7 +254,15 @@ async fn main() -> Result<()> {
                     }
                 }
 
+                if !batch_buf.is_empty() {
+                    store.put_roots(&batch_buf)?;
+                    batch_buf.clear();
+                }
                 store.flush().await?;
+                if *backfill_cancel.borrow() {
+                    tracing::info!(from = gap_start, filled, "backfill: stopped by shutdown");
+                    return Ok(());
+                }
                 tracing::info!(
                     from = gap_start,
                     to = gap_end,
@@ -295,14 +336,6 @@ async fn main() -> Result<()> {
             .ok();
     });
 
-    // ── Ctrl+C handler ──────────────────────────────────────────────────
-    let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
-    tokio::spawn(async move {
-        tokio::signal::ctrl_c().await.ok();
-        tracing::info!("shutting down...");
-        let _ = cancel_tx.send(());
-    });
-
     // ── Background flush task ───────────────────────────────────────────
     let flush_store = store.clone();
     let (flush_tx, mut flush_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -322,10 +355,12 @@ async fn main() -> Result<()> {
 
     let stream_timeout = Duration::from_secs(cfg.stream_timeout_secs);
     let mut last_height: Option<u64> = None;
+    // Stamped in the past so the first block at the tip is flushed immediately.
+    let mut last_tip_flush = Instant::now() - TIP_FLUSH_INTERVAL;
 
     loop {
         let next_item = tokio::select! {
-            _ = &mut cancel_rx => break,
+            _ = cancelled(&mut cancel_rx) => break,
             result = tokio::time::timeout(stream_timeout, root_stream.next()) => result,
         };
 
@@ -344,14 +379,34 @@ async fn main() -> Result<()> {
                     batch_buf.clear();
                 }
 
-                // Reconnect with exponential backoff.
+                // Reconnect with exponential backoff. Every wait here selects on the shutdown
+                // signal, so a SIGTERM during an outage (or a stuck stream constructor) still
+                // exits through the final-flush path instead of needing a kill.
                 let resume_from = last_height.map(|h| h + 1).unwrap_or(start_height);
                 let mut delay = RECONNECT_BASE_DELAY;
+                let mut shutting_down = false;
                 loop {
-                    tokio::time::sleep(delay).await;
+                    tokio::select! {
+                        _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                        _ = tokio::time::sleep(delay) => {}
+                    }
                     tracing::info!(resume_from, "attempting stream reconnection...");
 
-                    match eth::Client::new(cfg.rpc_ws.as_str(), None).await {
+                    let connect = tokio::select! {
+                        _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                        c = eth::Client::new(cfg.rpc_ws.as_str(), None) => c,
+                    };
+                    match connect {
+                        // The endpoint must still be the chain this archive is pinned to. A
+                        // DNS / load-balancer / provider flip to another chain is refused and
+                        // retried, never archived.
+                        Ok(new_ws) if new_ws.chain_id() != source_chain_id => {
+                            tracing::error!(
+                                expected = source_chain_id,
+                                got = new_ws.chain_id(),
+                                "⛔ reconnected WS endpoint serves a different chain; refusing it"
+                            );
+                        }
                         Ok(new_ws) => {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
@@ -360,7 +415,11 @@ async fn main() -> Result<()> {
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();
-                            root_stream = stream_eth::StreamRoots::new(new_config).await;
+                            let built = tokio::select! {
+                                _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
+                                s = stream_eth::StreamRoots::new(new_config) => s,
+                            };
+                            root_stream = built;
                             break;
                         }
                         Err(e) => {
@@ -369,6 +428,9 @@ async fn main() -> Result<()> {
                     }
 
                     delay = (delay * 2).min(RECONNECT_MAX_DELAY);
+                }
+                if shutting_down {
+                    break;
                 }
                 continue;
             }
@@ -388,7 +450,7 @@ async fn main() -> Result<()> {
             .end_height
             .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
         let remaining = target.saturating_sub(height);
-        let at_tip = at_tip(remaining, cfg.flush_every);
+        let at_tip = at_tip(remaining, cfg.tip_window);
 
         // Write the batch when full, at the end, or whenever we are at the tip: batching there
         // only delays when the API can serve a root that is already mature, which is what
@@ -404,12 +466,16 @@ async fn main() -> Result<()> {
             break;
         }
 
-        // Durability flush + logging: every block at the tip, every `flush_every` otherwise.
-        let is_flush = at_tip || height % cfg.flush_every.get() == 0;
+        // Durability flush + logging: at the tip at most once per `TIP_FLUSH_INTERVAL` (the
+        // write above already made the root visible; sled's own timer flushes too), every
+        // `flush_every` blocks otherwise.
+        let is_flush =
+            should_request_flush(at_tip, height, cfg.flush_every, last_tip_flush.elapsed());
         let is_log = is_flush || count % cfg.flush_every.get() == 0;
 
         if is_flush {
             let _ = flush_tx.try_send(());
+            last_tip_flush = Instant::now();
         }
 
         if is_log {
@@ -451,13 +517,66 @@ async fn main() -> Result<()> {
 }
 
 /// True when the archiver is close enough to the chain head that batching would delay the
-/// visibility of mature roots: within one `flush_every` window of the target. At the tip
-/// `remaining` settles at the finalization lag (plus a little head-tracker latency), which is
-/// far below any sane `flush_every`, so tip-following writes and flushes every block without
-/// operators having to set `FLUSH_EVERY=1`. If the head tracker has no value yet (`0`),
-/// `remaining` is `0` and we err on the side of flushing.
-fn at_tip(remaining: u64, flush_every: std::num::NonZeroU64) -> bool {
-    remaining < flush_every.get()
+/// visibility of mature roots: within `tip_window` blocks of the target. At the tip
+/// `remaining` settles at the finalization lag (plus head-poll latency), which the default
+/// window covers with margin, so tip-following writes every block without operators having
+/// to set `FLUSH_EVERY=1`, while catch-up keeps batched writes right up to the last few
+/// hundred blocks. If the head tracker has no value yet (`0`), `remaining` is `0` and we err
+/// on the side of writing.
+fn at_tip(remaining: u64, tip_window: std::num::NonZeroU64) -> bool {
+    remaining < tip_window.get()
+}
+
+/// Whether to request a durability flush after this block. Catch-up flushes every
+/// `flush_every` blocks. At the tip, flushes are throttled to one per
+/// [`TIP_FLUSH_INTERVAL`]: the root is already visible from the write, and fsync-per-block
+/// was measured at ~9× slower for the final window of a catch-up.
+fn should_request_flush(
+    at_tip: bool,
+    height: u64,
+    flush_every: std::num::NonZeroU64,
+    since_last_tip_flush: Duration,
+) -> bool {
+    (at_tip && since_last_tip_flush >= TIP_FLUSH_INTERVAL) || height % flush_every.get() == 0
+}
+
+/// Resolves once the shutdown signal has fired. Cheap to call repeatedly from `select!`.
+async fn cancelled(rx: &mut tokio::sync::watch::Receiver<bool>) {
+    if *rx.borrow() {
+        return;
+    }
+    while rx.changed().await.is_ok() {
+        if *rx.borrow() {
+            return;
+        }
+    }
+    // Sender dropped: treat as shutdown so nothing waits forever.
+}
+
+/// SIGINT (Ctrl+C) or SIGTERM (what systemd / Kubernetes send). Either way the caller takes
+/// the graceful path: pending batch written, final flush, API drained.
+async fn wait_for_shutdown_signal() {
+    #[cfg(unix)]
+    {
+        let mut term = match tokio::signal::unix::signal(
+            tokio::signal::unix::SignalKind::terminate(),
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!("failed to register SIGTERM handler: {e}; only Ctrl+C will shut down gracefully");
+                tokio::signal::ctrl_c().await.ok();
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = term.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::signal::ctrl_c().await.ok();
+    }
 }
 
 fn format_eta(remaining: u64, rate: f64) -> String {
@@ -517,22 +636,39 @@ fn resolve_finalization_lag(override_lag: Option<u64>, on_chain_lag: Option<u64>
 #[cfg(test)]
 mod tests {
     #[test]
-    fn at_tip_within_one_flush_window_of_the_head() {
-        let every = std::num::NonZeroU64::new(10_000).unwrap();
-        // Deep catch-up keeps batching.
-        assert!(!at_tip(45_000_000, every));
-        assert!(!at_tip(10_000, every));
-        // Inside the last window, and at the head itself (remaining == finalization lag).
-        assert!(at_tip(9_999, every));
-        assert!(at_tip(10, every));
-        assert!(at_tip(0, every));
+    fn at_tip_within_the_tip_window_of_the_head() {
+        let window = std::num::NonZeroU64::new(256).unwrap();
+        // Deep catch-up keeps batching, including the last FLUSH_EVERY-sized stretch.
+        assert!(!at_tip(45_000_000, window));
+        assert!(!at_tip(9_999, window));
+        assert!(!at_tip(256, window));
+        // Inside the window, and at the head itself (remaining == finalization lag).
+        assert!(at_tip(255, window));
+        assert!(at_tip(10, window));
+        assert!(at_tip(0, window));
     }
 
     #[test]
-    fn at_tip_with_flush_every_one_keeps_the_old_meaning() {
-        let one = std::num::NonZeroU64::new(1).unwrap();
-        assert!(at_tip(0, one));
-        assert!(!at_tip(1, one));
+    fn tip_flushes_are_throttled_and_catch_up_flushes_are_periodic() {
+        let every = std::num::NonZeroU64::new(10_000).unwrap();
+        // At the tip: only once the interval has elapsed since the last flush.
+        assert!(should_request_flush(true, 7, every, TIP_FLUSH_INTERVAL));
+        assert!(!should_request_flush(
+            true,
+            7,
+            every,
+            TIP_FLUSH_INTERVAL / 2
+        ));
+        // Catching up: every `flush_every` blocks regardless of timing.
+        assert!(should_request_flush(false, 20_000, every, Duration::ZERO));
+        assert!(!should_request_flush(
+            false,
+            20_001,
+            every,
+            Duration::from_secs(60)
+        ));
+        // A periodic boundary at the tip still flushes even inside the throttle window.
+        assert!(should_request_flush(true, 30_000, every, Duration::ZERO));
     }
 
     #[test]
