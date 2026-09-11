@@ -306,6 +306,64 @@ mod tests {
         (height, root, H256::random())
     }
 
+    /// Reopen a store at `path`, tolerating a lock the previous handle has not released yet.
+    ///
+    /// Dropping a `sled::Db` does not synchronously release its file lock: the context is shared
+    /// with a background flusher thread, so the `flock` can outlive the `Drop` that closed our
+    /// handle. Under CI load — the whole workspace in release under `llvm-cov`, where that thread
+    /// is starved of CPU — the gap is wide enough that an immediate reopen fails with
+    /// `WouldBlock`, which read as `count_recovers_from_missing_meta` failing rather than as the
+    /// scheduling artefact it is.
+    ///
+    /// Bounded deliberately tight: a genuine open failure (a corrupt database, a bad path) still
+    /// surfaces in about a second rather than being buried under a long backoff.
+    fn open_after_close(path: &Path) -> RootStore {
+        const ATTEMPTS: usize = 20;
+        const WAIT: std::time::Duration = std::time::Duration::from_millis(50);
+
+        let mut last = None;
+        for _ in 0..ATTEMPTS {
+            match RootStore::open(path) {
+                Ok(store) => return store,
+                Err(e) => {
+                    last = Some(e);
+                    std::thread::sleep(WAIT);
+                }
+            }
+        }
+        panic!(
+            "could not reopen {} after {ATTEMPTS} attempts over {:?}: {:?}",
+            path.display(),
+            WAIT * ATTEMPTS as u32,
+            last.expect("at least one attempt failed"),
+        )
+    }
+
+    /// Covers the helper above, since the condition it exists for only appears under CI load.
+    /// Also asserts its premise: if sled ever stops locking per handle, this fails and tells us the
+    /// retry is now pointless, rather than passing silently and leaving dead scaffolding behind.
+    #[test]
+    fn open_after_close_waits_for_a_held_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sled");
+        let holder = RootStore::open(&path).unwrap();
+
+        assert!(
+            RootStore::open(&path).is_err(),
+            "sled no longer refuses a second handle — open_after_close has nothing left to ride out"
+        );
+
+        let releaser = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            drop(holder);
+        });
+
+        // Would fail immediately without the retry; must succeed once the holder lets go.
+        let reopened = open_after_close(&path);
+        assert_eq!(reopened.count(), 0);
+        releaser.join().expect("releaser thread panicked");
+    }
+
     #[test]
     fn roundtrip_put_get() {
         let dir = tempfile::tempdir().unwrap();
@@ -366,7 +424,7 @@ mod tests {
             // Drop the store, closing the database.
         }
 
-        let reopened = RootStore::open(&path).unwrap();
+        let reopened = open_after_close(&path);
         // Count must be restored from the meta tree without a full scan.
         assert_eq!(reopened.count(), 7);
 
@@ -392,7 +450,7 @@ mod tests {
             store.db.flush().unwrap();
         }
 
-        let reopened = RootStore::open(&path).unwrap();
+        let reopened = open_after_close(&path);
         // The one-time fallback scan should have recovered the count.
         assert_eq!(reopened.count(), 5);
         // And persisted it for next time.
