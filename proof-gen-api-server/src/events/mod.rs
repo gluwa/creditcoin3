@@ -50,6 +50,10 @@ pub async fn start_cc3_event_subscription(
     let config = stream::cc3::ConfigBuilder::new()
         .with_cc3(cc3_client.clone())
         .with_chain_keys(chain_keys.iter().copied().collect::<Vec<_>>())
+        // Finalized-block progress feeds /health: the flattened event stream below has no
+        // per-block signal of its own, and attestation writes are too sparse on a quiet
+        // chain to tell "subscription dead" from "nothing attested lately".
+        .with_progress(Some(service.cc3_progress()))
         .build();
     let mut events = stream::cc3::StreamCC3::new(config).await?.flatten();
 
