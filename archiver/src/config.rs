@@ -87,4 +87,15 @@ pub struct Config {
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]
     pub backfill: bool,
+
+    /// Seconds between `eth_blockNumber` polls that run alongside the `newHeads` subscription.
+    /// The poll is the liveness floor: a subscription that acknowledges but stops delivering
+    /// headers cannot stall archiving for longer than this.
+    #[arg(long, env = "HEAD_POLL_INTERVAL_SECS", default_value = "12")]
+    pub head_poll_interval_secs: NonZeroU64,
+
+    /// Deadline in seconds for each RPC call made while (re)establishing the block stream
+    /// (subscribe, initial head read, head polls). alloy transports have no default timeout.
+    #[arg(long, env = "RPC_TIMEOUT_SECS", default_value = "30")]
+    pub rpc_timeout_secs: NonZeroU64,
 }
