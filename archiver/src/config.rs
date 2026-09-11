@@ -59,9 +59,14 @@ pub struct Config {
     #[arg(long, env = "MAX_API_RANGE", default_value = "1000")]
     pub max_api_range: u64,
 
-    /// Timeout in seconds for the stream before treating it as stalled.
-    #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "120")]
-    pub stream_timeout_secs: u64,
+    /// Seconds without a new root before the stream is declared stalled and rebuilt
+    /// (reconnect + anchor check). This is the outer watchdog; it must be longer than the
+    /// block-fetch retry budget inside the eth client (5 sweeps over `[primary, fallbacks]`
+    /// with 10/20/40/60 s back-off, i.e. 130 s of waiting) or the watchdog tears the stream
+    /// down while the client is still walking its fallbacks, and a block that only a fallback
+    /// can serve never gets served.
+    #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "180")]
+    pub stream_timeout_secs: NonZeroU64,
 
     /// Path to the sled database directory for root storage.
     #[arg(long, env = "SLED_DB_PATH", default_value = "./data/roots.sled")]
