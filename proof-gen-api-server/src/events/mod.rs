@@ -47,6 +47,19 @@ pub async fn start_cc3_event_subscription(
         "no chains configured for event subscription"
     );
 
+    // Keep the client's metadata in step with the chain across runtime upgrades. subxt decodes
+    // block events with the metadata it fetched at connect time; after a `setCode` every event
+    // whose pallet layout changed fails with "Metadata error: Variant with index N not found"
+    // and the caches below silently stop updating (usc-devnet 131 -> 136, 10 Sep 2026). The
+    // attestor tolerates this by exiting on metadata drift and being restarted; proof-gen is
+    // long-lived, so follow the runtime instead.
+    let updater = cc3_client.api().updater();
+    tokio::spawn(async move {
+        if let Err(e) = updater.perform_runtime_updates().await {
+            error!("❌ 🔗 runtime metadata updater stopped: {e}");
+        }
+    });
+
     let config = stream::cc3::ConfigBuilder::new()
         .with_cc3(cc3_client.clone())
         .with_chain_keys(chain_keys.iter().copied().collect::<Vec<_>>())
