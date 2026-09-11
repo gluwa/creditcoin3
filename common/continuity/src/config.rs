@@ -32,6 +32,9 @@ pub struct ContinuityConfig {
     /// Example: `"https://eth-mainnet.g.alchemy.com/v2/KEY"` or `"http://localhost:8545"`
     pub eth_rpc_url: String,
 
+    /// Source execution family. Optional; defaults to Ethereum for every chain ID.
+    pub eth_chain_family: Option<eth::ChainFamily>,
+
     /// Chain key for attestation lookup
     ///
     /// Identifies which source chain this configuration is for.
@@ -188,6 +191,7 @@ impl ContinuityConfig {
 pub struct ConfigBuilder {
     cc3_rpc_url: Option<String>,
     eth_rpc_url: Option<String>,
+    eth_chain_family: Option<eth::ChainFamily>,
     chain_key: Option<u64>,
     attestation_interval: Option<u64>,
     checkpoint_interval: Option<u64>,
@@ -213,6 +217,12 @@ impl ConfigBuilder {
     /// * `url` - HTTP or WebSocket endpoint (e.g., "https://eth-mainnet.infura.io/v3/KEY")
     pub fn eth_rpc_url(mut self, url: impl Into<String>) -> Self {
         self.eth_rpc_url = Some(url.into());
+        self
+    }
+
+    /// Override the source execution family, consistently with the attestor and archiver.
+    pub fn eth_chain_family(mut self, family: Option<eth::ChainFamily>) -> Self {
+        self.eth_chain_family = family;
         self
     }
 
@@ -312,6 +322,7 @@ impl ConfigBuilder {
         ContinuityConfig {
             cc3_rpc_url: self.cc3_rpc_url.expect("cc3_rpc_url is required"),
             eth_rpc_url: self.eth_rpc_url.expect("eth_rpc_url is required"),
+            eth_chain_family: self.eth_chain_family,
             chain_key: self.chain_key.expect("chain_key is required"),
             attestation_interval: self
                 .attestation_interval
@@ -391,5 +402,29 @@ impl ConfigBuilder {
             .attestation_interval(attestation_interval)
             .checkpoint_interval(checkpoint_interval)
             .build())
+    }
+}
+
+#[cfg(test)]
+mod family_tests {
+    use super::*;
+
+    #[test]
+    fn family_override_is_optional_and_survives_building() {
+        for family in [
+            None,
+            Some(eth::ChainFamily::OpStack),
+            Some(eth::ChainFamily::Ethereum),
+        ] {
+            let config = ContinuityConfig::builder()
+                .cc3_rpc_url("ws://localhost:9944")
+                .eth_rpc_url("http://custom-rollup")
+                .chain_key(20)
+                .attestation_interval(10)
+                .checkpoint_interval(10)
+                .eth_chain_family(family)
+                .build();
+            assert_eq!(config.eth_chain_family, family);
+        }
     }
 }

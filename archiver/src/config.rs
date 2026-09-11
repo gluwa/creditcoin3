@@ -22,6 +22,10 @@ pub struct Config {
     #[arg(long, env = "RPC_WS", required = true)]
     pub rpc_ws: Url,
 
+    /// Source execution family. Optional; defaults to `ethereum` for every chain ID.
+    #[arg(long, env = "ETH_CHAIN_FAMILY")]
+    pub eth_chain_family: Option<eth::ChainFamily>,
+
     /// Creditcoin3 RPC (WebSocket). `CC3_RPC_URL` or `--cc3-rpc-url` (CLI overrides env; not in YAML).
     #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
     pub cc3_rpc_url: String,
@@ -78,4 +82,29 @@ pub struct Config {
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]
     pub backfill: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_explicit_source_family_and_rejects_unknown_family() {
+        let args = [
+            "archiver",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--rpc-ws",
+            "ws://localhost:8545",
+            "--eth-chain-family",
+            "op-stack",
+        ];
+        let omitted = Config::try_parse_from(&args[..5]).unwrap();
+        assert_eq!(omitted.eth_chain_family, None);
+        let config = Config::try_parse_from(args).unwrap();
+        assert_eq!(config.eth_chain_family, Some(eth::ChainFamily::OpStack));
+        let mut invalid = args;
+        invalid[6] = "unsupported";
+        assert!(Config::try_parse_from(invalid).is_err());
+    }
 }

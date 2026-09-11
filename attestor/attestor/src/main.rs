@@ -17,6 +17,7 @@ struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: attestor::secret::RpcSecret,
+    eth_chain_family: Option<eth::ChainFamily>,
     cc3_url: attestor::secret::RpcSecret,
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
@@ -73,6 +74,8 @@ struct ConfigFileP2P {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileEth {
     url: Option<url::Url>,
+    /// `ethereum` or `op-stack`. Optional; defaults to `ethereum` for every chain ID.
+    chain_family: Option<eth::ChainFamily>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -146,9 +149,14 @@ impl Config {
                 .unwrap_or(Ok(ConfigFile::default()))?,
         };
 
+        let matches = Self::command(&config_file).get_matches();
+        Self::from_matches(config_file, matches)
+    }
+
+    fn command(config_file: &ConfigFile) -> clap::Command {
         // -------------------------------* Read config from cli/env *-----------------------------
 
-        let matches = clap::command!()
+        clap::command!()
             .arg(
                 clap::arg!(-n --name <NAME>)
                     .help("Local attestors name")
@@ -249,6 +257,19 @@ impl Config {
                     .value_parser(clap::value_parser!(url::Url)),
             )
             .arg(
+                clap::arg!(--"eth-chain-family" <FAMILY>)
+                    .help("Source chain family: `ethereum` or `op-stack`")
+                    .long_help(
+                        "Source chain family: `ethereum` (L1 and L1-shaped chains) or \
+                        `op-stack` (Base, OP Mainnet and other OP-Stack rollups, which carry \
+                        0x7e deposit transactions). Optional; defaults to ethereum for every \
+                        chain id. Set op-stack explicitly for all OP-Stack chains.",
+                    )
+                    .env("ATTESTOR_ETH_CHAIN_FAMILY")
+                    .required(false)
+                    .value_parser(clap::value_parser!(eth::ChainFamily)),
+            )
+            .arg(
                 clap::arg!(--"cc3-url" <URL>)
                     .help("CC3 RPC url")
                     .long_help(
@@ -327,11 +348,10 @@ impl Config {
                     .env("ATTESTOR_CONFIG")
                     .value_parser(clap::value_parser!(std::path::PathBuf)),
             )
-            .get_matches();
+    }
 
+    fn from_matches(config_file: ConfigFile, matches: clap::ArgMatches) -> anyhow::Result<Self> {
         // ---------------------------------* Merge Configurations *-------------------------------
-
-        // TODO: add some unit tests for this!
 
         let name = match matches.get_one::<String>("name") {
             Some(name) => name.to_string(),
@@ -409,6 +429,11 @@ impl Config {
             attestor::secret::RpcSecret::new_opaque(eth_url_raw.clone())
         };
 
+        let eth_chain_family = matches
+            .get_one::<eth::ChainFamily>("eth-chain-family")
+            .copied()
+            .or(config_file.eth.chain_family);
+
         let cc3_url_raw = match matches.get_one::<url::Url>("cc3-url") {
             Some(url) => url.clone(),
             None => config_file
@@ -452,6 +477,7 @@ impl Config {
             api_port,
             p2p_port,
             eth_url,
+            eth_chain_family,
             cc3_url,
             start_height,
             attestation_interval,
@@ -643,6 +669,7 @@ async fn main() -> anyhow::Result<()> {
         .with_stream(
             attestor::secret::ConfigBuilder::new()
                 .with_url_eth(args.eth_url)
+                .with_eth_chain_family(args.eth_chain_family)
                 .with_url_cc3(args.cc3_url)
                 .with_secret(args.secret)
                 .build(),
@@ -673,4 +700,40 @@ async fn main() -> anyhow::Result<()> {
     attestor::Attestor::new(config).run().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::*;
+
+    #[test]
+    fn family_is_optional_and_cli_overrides_yaml() {
+        for yaml_family in [
+            "",
+            "  chain_family: null",
+            "  chain_family: ethereum",
+            "  chain_family: op-stack",
+        ] {
+            for cli_family in [None, Some("ethereum"), Some("op-stack")] {
+                let yaml = format!(
+                    "attestor:\n  name: test\n  chain_key: 2\n  secret: '0x{}'\neth:\n  url: ws://localhost:8545\n{}\ncc3:\n  url: ws://localhost:9944\n",
+                    "11".repeat(32), yaml_family,
+                );
+                let file: ConfigFile = serde_yaml::from_str(&yaml).unwrap();
+                let expected = cli_family
+                    .map(|v| v.parse().unwrap())
+                    .or(file.eth.chain_family);
+                let mut args = vec!["attestor"];
+                if let Some(family) = cli_family {
+                    args.extend(["--eth-chain-family", family]);
+                }
+                let matches = Config::command(&file).try_get_matches_from(args).unwrap();
+                let config = Config::from_matches(file, matches).unwrap();
+                assert_eq!(config.eth_chain_family, expected);
+            }
+        }
+        let omitted: ConfigFile = serde_yaml::from_str("{}").unwrap();
+        assert_eq!(omitted.eth.chain_family, None);
+        assert!(serde_yaml::from_str::<ConfigFile>("eth: {chain_family: unsupported}").is_err());
+    }
 }

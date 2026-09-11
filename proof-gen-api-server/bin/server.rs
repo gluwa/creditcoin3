@@ -35,6 +35,11 @@ pub struct ProofGenApiServer {
     #[arg(long, default_value = "ws://localhost:8545")]
     eth_rpc_url: String,
 
+    /// Optional source family (default: `ethereum`) for single-chain mode.
+    /// Configure each chain in YAML otherwise; omitted YAML fields also default to Ethereum.
+    #[arg(long, env = "ETH_CHAIN_FAMILY", conflicts_with = "config")]
+    eth_chain_family: Option<eth::ChainFamily>,
+
     #[arg(
         long,
         default_value = "0.0.0.0",
@@ -146,6 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             chains: vec![ChainConfig {
                 chain_key,
                 eth_rpc_url: args.eth_rpc_url,
+                eth_chain_family: args.eth_chain_family,
                 // Fallback RPC URLs are only configurable via the multi-chain
                 // YAML; the legacy single-chain CLI path stays single-URL.
                 eth_rpc_fallback_urls: Vec::new(),
@@ -162,4 +168,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("🛑 Server exited");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn family_is_optional_in_single_chain_and_yaml_modes() {
+        for args in [
+            vec!["proof-gen-api-server"],
+            vec!["proof-gen-api-server", "--config", "chains.yaml"],
+        ] {
+            let config = ProofGenApiServer::try_parse_from(args).unwrap();
+            assert_eq!(config.eth_chain_family, None);
+        }
+        for family in ["ethereum", "op-stack"] {
+            let config = ProofGenApiServer::try_parse_from([
+                "proof-gen-api-server",
+                "--eth-chain-family",
+                family,
+            ])
+            .unwrap();
+            assert_eq!(config.eth_chain_family, Some(family.parse().unwrap()));
+        }
+        assert!(ProofGenApiServer::try_parse_from([
+            "proof-gen-api-server",
+            "--eth-chain-family",
+            "unsupported",
+        ])
+        .is_err());
+        assert!(ProofGenApiServer::try_parse_from([
+            "proof-gen-api-server",
+            "--config",
+            "chains.yaml",
+            "--eth-chain-family",
+            "op-stack",
+        ])
+        .is_err());
+    }
 }
