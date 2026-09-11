@@ -205,7 +205,16 @@ async fn main() -> Result<()> {
             for (gap_start, gap_end) in &gaps {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
-                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+                // Both the dial and `StreamRoots::new` (which retries the initial subscribe
+                // without bound) must yield to SIGTERM, or a shutdown during a source outage
+                // never reaches the final flush below.
+                let ws_client = tokio::select! {
+                    _ = cancelled(&mut backfill_cancel) => {
+                        tracing::info!("backfill interrupted by shutdown before dialing");
+                        return Ok(());
+                    }
+                    c = eth::Client::new(cfg.rpc_ws.as_str(), None) => c?,
+                };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
                 // fires for heights that already exist, so gaps have no second line of
@@ -225,7 +234,13 @@ async fn main() -> Result<()> {
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
 
-                let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await;
+                let mut gap_stream = tokio::select! {
+                    _ = cancelled(&mut backfill_cancel) => {
+                        tracing::info!("backfill interrupted by shutdown before subscribing");
+                        return Ok(());
+                    }
+                    s = stream_eth::StreamRoots::new(gap_config) => s,
+                };
                 let mut filled = 0u64;
                 let flush_size = cfg.flush_every.get() as usize;
                 let mut batch_buf = Vec::with_capacity(flush_size);
@@ -302,7 +317,14 @@ async fn main() -> Result<()> {
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
 
-    let mut root_stream = stream_eth::StreamRoots::new(stream_config).await;
+    // The initial subscribe retries without bound while the source is down; let SIGTERM win.
+    let mut root_stream = tokio::select! {
+        _ = cancelled(&mut cancel_rx) => {
+            tracing::info!("shutdown requested before the root stream connected; exiting");
+            return Ok(());
+        }
+        s = stream_eth::StreamRoots::new(stream_config) => s,
+    };
 
     // ── Chain head tracker (for ETA) ───────────────────────────────────
     let current_head = http_client.get_last_block().await.unwrap_or(0);
