@@ -7875,7 +7875,143 @@ fn force_election_should_emit_forced_election_event() {
 
         assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
 
-        System::assert_last_event(Event::ForcedElection { epoch }.into());
+        // No randomness is recorded for epoch 42 in this fixture, so the event reports `None`.
+        System::assert_last_event(
+            Event::ForcedElection {
+                epoch,
+                randomness: None,
+            }
+            .into(),
+        );
+    })
+}
+
+// Regression for #26: `force_election` used to pass a hardcoded `[0; 32]` seed. The fix threads
+// the real on-chain randomness for the requested epoch via `Config::RandomnessProvider`. Rather
+// than compare against a hardcoded seed, iterate over several epochs and assert the provider
+// returns a *distinct* value per epoch (i.e. the source is real per-epoch randomness, not a
+// constant). Checking the seed source is independent of calling `force_election`.
+#[test]
+fn randomness_provider_returns_distinct_value_per_epoch() {
+    use randomness_primitives::provider::RandomnessPalletProvider;
+
+    ExtBuilder.build_and_execute(|| {
+        let epochs = [3u64, 4, 5, 6, 7];
+
+        // Seed each epoch with a different, non-zero randomness value.
+        pallet_randomness::RandomnessByEpochIndex::<Test>::mutate(|map| {
+            for (i, epoch) in epochs.iter().enumerate() {
+                let seed = [(i as u8).wrapping_add(1); 32];
+                map.try_insert(*epoch, seed).expect("room for entry");
+            }
+        });
+
+        // The provider the pallet uses for `force_election` must return a different value for
+        // each epoch (no constant / no all-zero seed).
+        let mut seen = sp_std::collections::btree_set::BTreeSet::new();
+        for epoch in epochs {
+            let value = <Test as Config>::RandomnessProvider::randomness_by_epoch_id(epoch);
+            assert_ne!(
+                value, [0u8; 32],
+                "epoch {epoch} randomness must not be zero"
+            );
+            assert!(
+                seen.insert(value),
+                "epoch {epoch} randomness collided with an earlier epoch"
+            );
+        }
+    })
+}
+
+// `force_election` must seed the election from the randomness recorded for the *requested* epoch.
+//
+// Asserting only that the call succeeds proves nothing: `do_start_election` ignores the seed today,
+// so a hardcoded `[0; 32]` satisfies a success-only test identically. The discriminating assertion
+// is on the emitted seed — this test fails if the seed is hardcoded, keyed on the wrong epoch, or
+// flattened to a default when absent.
+#[test]
+fn force_election_seeds_the_election_with_the_requested_epochs_randomness() {
+    ExtBuilder.build_and_execute(|| {
+        let recorded = 7u64;
+        let unrecorded = 8u64;
+        let seed = [0xABu8; 32];
+
+        pallet_randomness::RandomnessByEpochIndex::<Test>::mutate(|map| {
+            map.try_insert(recorded, seed).expect("room for one entry");
+        });
+
+        // The recorded epoch's real seed reaches the event...
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), recorded));
+        System::assert_last_event(
+            Event::ForcedElection {
+                epoch: recorded,
+                randomness: Some(seed),
+            }
+            .into(),
+        );
+
+        // ...while a neighbouring epoch with nothing on record reports `None` rather than a zero
+        // seed. This also pins the lookup to the `epoch` argument: an implementation keyed on the
+        // current epoch, or on any fixed value, would answer both calls identically.
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            unrecorded
+        ));
+        System::assert_last_event(
+            Event::ForcedElection {
+                epoch: unrecorded,
+                randomness: None,
+            }
+            .into(),
+        );
+    })
+}
+
+// The provider keeps only `MaxRandomnessEntries` epochs, so "no randomness on record" is the
+// *normal* state just outside that narrow window — including the next epoch, which is the natural
+// thing for an operator to force. The election is still allowed (the seed is unused today), but the
+// event has to say the seed was absent so a seedless forced election stays auditable.
+#[test]
+fn force_election_reports_absent_randomness_outside_the_retention_window() {
+    ExtBuilder.build_and_execute(|| {
+        let capacity =
+            <<Test as pallet_randomness::Config>::MaxRandomnessEntries as Get<u32>>::get() as u64;
+
+        // Fill the retention window to capacity with consecutive epochs.
+        pallet_randomness::RandomnessByEpochIndex::<Test>::mutate(|map| {
+            for epoch in 1..=capacity {
+                map.try_insert(epoch, [epoch as u8; 32])
+                    .expect("filling to capacity");
+            }
+            // The window really is bounded: one more entry does not fit.
+            assert!(
+                map.try_insert(capacity + 1, [0xFFu8; 32]).is_err(),
+                "retention window should be full at {capacity} entries"
+            );
+        });
+
+        // The newest retained epoch still carries its real seed.
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), capacity));
+        System::assert_last_event(
+            Event::ForcedElection {
+                epoch: capacity,
+                randomness: Some([capacity as u8; 32]),
+            }
+            .into(),
+        );
+
+        // Just past the window there is no entropy, and the event says so.
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            capacity + 1
+        ));
+        System::assert_last_event(
+            Event::ForcedElection {
+                epoch: capacity + 1,
+                randomness: None,
+            }
+            .into(),
+        );
     })
 }
 

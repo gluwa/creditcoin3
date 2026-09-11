@@ -1123,6 +1123,7 @@ export default {
             AuthorizedAttestorRemoved: '(u64,AccountId32)',
             ForcedElection: {
                 epoch: 'u64',
+                randomness: 'Option<[u8;32]>',
             },
             ForcedUpdatesApplied: 'Null',
             RevertedAttestationChainTo: {
@@ -1151,7 +1152,7 @@ export default {
         _enum: ['OpenToAny', 'AuthorizedOnly', 'DeniedToAll'],
     },
     /**
-     * Lookup108: pallet_supported_chains::pallet::Event<T>
+     * Lookup109: pallet_supported_chains::pallet::Event<T>
      **/
     PalletSupportedChainsEvent: {
         _enum: {
@@ -1172,13 +1173,13 @@ export default {
         },
     },
     /**
-     * Lookup109: attestor_primitives::ChainEncodingVersion
+     * Lookup110: attestor_primitives::ChainEncodingVersion
      **/
     AttestorPrimitivesChainEncodingVersion: {
         _enum: ['__Unused0', 'V1'],
     },
     /**
-     * Lookup110: pallet_randomness::pallet::Event<T>
+     * Lookup111: pallet_randomness::pallet::Event<T>
      **/
     PalletRandomnessEvent: {
         _enum: {
@@ -1189,13 +1190,13 @@ export default {
         },
     },
     /**
-     * Lookup111: pallet_membership::pallet::Event<T, I>
+     * Lookup112: pallet_membership::pallet::Event<T, I>
      **/
     PalletMembershipEvent: {
         _enum: ['MemberAdded', 'MemberRemoved', 'MembersSwapped', 'MembersReset', 'KeyChanged', 'Dummy'],
     },
     /**
-     * Lookup112: pallet_migrations::pallet::Event<T>
+     * Lookup113: pallet_migrations::pallet::Event<T>
      **/
     PalletMigrationsEvent: {
         _enum: {
@@ -1225,7 +1226,7 @@ export default {
         },
     },
     /**
-     * Lookup114: frame_system::Phase
+     * Lookup115: frame_system::Phase
      **/
     FrameSystemPhase: {
         _enum: {
@@ -1235,21 +1236,21 @@ export default {
         },
     },
     /**
-     * Lookup117: frame_system::LastRuntimeUpgradeInfo
+     * Lookup118: frame_system::LastRuntimeUpgradeInfo
      **/
     FrameSystemLastRuntimeUpgradeInfo: {
         specVersion: 'Compact<u32>',
         specName: 'Text',
     },
     /**
-     * Lookup119: frame_system::CodeUpgradeAuthorization<T>
+     * Lookup120: frame_system::CodeUpgradeAuthorization<T>
      **/
     FrameSystemCodeUpgradeAuthorization: {
         codeHash: 'H256',
         checkVersion: 'bool',
     },
     /**
-     * Lookup120: frame_system::pallet::Call<T>
+     * Lookup121: frame_system::pallet::Call<T>
      **/
     FrameSystemCall: {
         _enum: {
@@ -1294,7 +1295,7 @@ export default {
         },
     },
     /**
-     * Lookup124: frame_system::limits::BlockWeights
+     * Lookup125: frame_system::limits::BlockWeights
      **/
     FrameSystemLimitsBlockWeights: {
         baseBlock: 'SpWeightsWeightV2Weight',
@@ -1302,7 +1303,7 @@ export default {
         perClass: 'FrameSupportDispatchPerDispatchClassWeightsPerClass',
     },
     /**
-     * Lookup125: frame_support::dispatch::PerDispatchClass<frame_system::limits::WeightsPerClass>
+     * Lookup126: frame_support::dispatch::PerDispatchClass<frame_system::limits::WeightsPerClass>
      **/
     FrameSupportDispatchPerDispatchClassWeightsPerClass: {
         normal: 'FrameSystemLimitsWeightsPerClass',
@@ -1310,7 +1311,7 @@ export default {
         mandatory: 'FrameSystemLimitsWeightsPerClass',
     },
     /**
-     * Lookup126: frame_system::limits::WeightsPerClass
+     * Lookup127: frame_system::limits::WeightsPerClass
      **/
     FrameSystemLimitsWeightsPerClass: {
         baseExtrinsic: 'SpWeightsWeightV2Weight',
@@ -1319,13 +1320,13 @@ export default {
         reserved: 'Option<SpWeightsWeightV2Weight>',
     },
     /**
-     * Lookup128: frame_system::limits::BlockLength
+     * Lookup129: frame_system::limits::BlockLength
      **/
     FrameSystemLimitsBlockLength: {
         max: 'FrameSupportDispatchPerDispatchClassU32',
     },
     /**
-     * Lookup129: frame_support::dispatch::PerDispatchClass<T>
+     * Lookup130: frame_support::dispatch::PerDispatchClass<T>
      **/
     FrameSupportDispatchPerDispatchClassU32: {
         normal: 'u32',
@@ -1333,14 +1334,14 @@ export default {
         mandatory: 'u32',
     },
     /**
-     * Lookup130: sp_weights::RuntimeDbWeight
+     * Lookup131: sp_weights::RuntimeDbWeight
      **/
     SpWeightsRuntimeDbWeight: {
         read: 'u64',
         write: 'u64',
     },
     /**
-     * Lookup131: sp_version::RuntimeVersion
+     * Lookup132: sp_version::RuntimeVersion
      **/
     SpVersionRuntimeVersion: {
         specName: 'Text',
@@ -1353,7 +1354,7 @@ export default {
         systemVersion: 'u8',
     },
     /**
-     * Lookup136: frame_system::pallet::Error<T>
+     * Lookup137: frame_system::pallet::Error<T>
      **/
     FrameSystemError: {
         _enum: [
@@ -1369,11 +1370,11 @@ export default {
         ],
     },
     /**
-     * Lookup139: sp_consensus_babe::app::Public
+     * Lookup140: sp_consensus_babe::app::Public
      **/
     SpConsensusBabeAppPublic: '[u8;32]',
     /**
-     * Lookup142: sp_consensus_babe::digests::NextConfigDescriptor
+     * Lookup143: sp_consensus_babe::digests::NextConfigDescriptor
      **/
     SpConsensusBabeDigestsNextConfigDescriptor: {
         _enum: {
@@ -1385,13 +1386,13 @@ export default {
         },
     },
     /**
-     * Lookup144: sp_consensus_babe::AllowedSlots
+     * Lookup145: sp_consensus_babe::AllowedSlots
      **/
     SpConsensusBabeAllowedSlots: {
         _enum: ['PrimarySlots', 'PrimaryAndSecondaryPlainSlots', 'PrimaryAndSecondaryVRFSlots'],
     },
     /**
-     * Lookup148: sp_consensus_babe::digests::PreDigest
+     * Lookup149: sp_consensus_babe::digests::PreDigest
      **/
     SpConsensusBabeDigestsPreDigest: {
         _enum: {
@@ -1402,7 +1403,7 @@ export default {
         },
     },
     /**
-     * Lookup149: sp_consensus_babe::digests::PrimaryPreDigest
+     * Lookup150: sp_consensus_babe::digests::PrimaryPreDigest
      **/
     SpConsensusBabeDigestsPrimaryPreDigest: {
         authorityIndex: 'u32',
@@ -1410,21 +1411,21 @@ export default {
         vrfSignature: 'SpCoreSr25519VrfVrfSignature',
     },
     /**
-     * Lookup150: sp_core::sr25519::vrf::VrfSignature
+     * Lookup151: sp_core::sr25519::vrf::VrfSignature
      **/
     SpCoreSr25519VrfVrfSignature: {
         preOutput: '[u8;32]',
         proof: '[u8;64]',
     },
     /**
-     * Lookup152: sp_consensus_babe::digests::SecondaryPlainPreDigest
+     * Lookup153: sp_consensus_babe::digests::SecondaryPlainPreDigest
      **/
     SpConsensusBabeDigestsSecondaryPlainPreDigest: {
         authorityIndex: 'u32',
         slot: 'u64',
     },
     /**
-     * Lookup153: sp_consensus_babe::digests::SecondaryVRFPreDigest
+     * Lookup154: sp_consensus_babe::digests::SecondaryVRFPreDigest
      **/
     SpConsensusBabeDigestsSecondaryVRFPreDigest: {
         authorityIndex: 'u32',

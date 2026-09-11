@@ -104,7 +104,11 @@ declare module '@polkadot/api-base/types/events' {
             /**
              * A force election was triggered via sudo.
              **/
-            ForcedElection: AugmentedEvent<ApiType, [epoch: u64], { epoch: u64 }>;
+            ForcedElection: AugmentedEvent<
+                ApiType,
+                [epoch: u64, randomness: Option<U8aFixed>],
+                { epoch: u64; randomness: Option<U8aFixed> }
+            >;
             /**
              * Pending updates were force-applied via operator call.
              **/
