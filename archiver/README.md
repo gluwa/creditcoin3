@@ -44,6 +44,8 @@ All flags can also be set via environment variables (see below).
 | `--backfill` | — | `false` | Scan for gaps and fill them before resuming |
 | `--head-poll-interval-secs` | `HEAD_POLL_INTERVAL_SECS` | `12` | `eth_blockNumber` poll alongside the `newHeads` subscription; bounds how long a silent subscription can stall archiving |
 | `--rpc-timeout-secs` | `RPC_TIMEOUT_SECS` | `30` | Deadline per RPC call while (re)establishing the block stream |
+| `--ready-lag-blocks` | `READY_LAG_BLOCKS` | `1000` | `/ready` is 503 when more than this many blocks behind the mature target |
+| `--stale-after-secs` | `STALE_AFTER_SECS` | `60` | `/ready` is 503 when the source head has not been sampled for this long |
 | `--finalization_lag_override` | - | *(none)* | Configurable finalization lag override |
 
 A `.env` file in the working directory is loaded automatically.
@@ -52,14 +54,38 @@ A `.env` file in the working directory is loaded automatically.
 
 ### `GET /status`
 
-Returns archiver status.
+Liveness plus freshness. Always `200` while the store is readable (a store error is `500`), so a
+stale archive is visible in the body rather than hidden behind a status code. Ages are
+milliseconds; `null` means "never".
 
 ```json
 {
+  "chain_id": 56,
+  "finalization_lag": 10,
+  "uptime_ms": 86400000,
   "latest_archived_block": 1234567,
-  "total_blocks": 1234568
+  "total_blocks": 1234568,
+  "source_head": 1234580,
+  "source_head_age_ms": 2100,
+  "mature_target": 1234570,
+  "lag_blocks": 3,
+  "last_progress_age_ms": 900,
+  "last_flush_ok_age_ms": 400,
+  "flush_errors": 0,
+  "last_flush_error": null,
+  "reconnects": 2,
+  "ready": true,
+  "not_ready_reasons": []
 }
 ```
+
+### `GET /ready`
+
+Same body as `/status`; `200` only when the source head was sampled within `STALE_AFTER_SECS`,
+`lag_blocks <= READY_LAG_BLOCKS`, and the last durability flush succeeded, otherwise `503`.
+Point Kubernetes readiness probes and the proof provider's health check here. A halted source
+chain with a fresh head sample and full coverage is ready; a silently stale subscription with an
+unchanged height is not.
 
 ### `GET /roots/latest`
 

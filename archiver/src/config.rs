@@ -98,4 +98,16 @@ pub struct Config {
     /// (subscribe, initial head read, head polls). alloy transports have no default timeout.
     #[arg(long, env = "RPC_TIMEOUT_SECS", default_value = "30")]
     pub rpc_timeout_secs: NonZeroU64,
+
+    /// `/ready` reports 503 when the archive is more than this many blocks behind the mature
+    /// target (`source head - finalization lag`). Size it to the chain's block rate: it is the
+    /// catch-up debt you are willing to serve proofs from.
+    #[arg(long, env = "READY_LAG_BLOCKS", default_value = "1000")]
+    pub ready_lag_blocks: u64,
+
+    /// `/ready` reports 503 when the source head has not been sampled successfully for this
+    /// many seconds. Distinguishes "the chain is idle" (fresh sample, no new blocks: ready)
+    /// from "we lost sight of the chain" (not ready).
+    #[arg(long, env = "STALE_AFTER_SECS", default_value = "60")]
+    pub stale_after_secs: NonZeroU64,
 }

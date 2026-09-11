@@ -35,6 +35,7 @@ fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::Non
 
 mod api;
 mod config;
+mod health;
 mod store;
 
 use config::Config;
@@ -330,17 +331,48 @@ async fn main() -> Result<()> {
         s = stream_eth::StreamRoots::new(stream_config) => s,
     };
 
-    // ── Chain head tracker (for ETA) ───────────────────────────────────
-    let current_head = http_client.get_last_block().await.unwrap_or(0);
+    let cfg_rpc_timeout_secs = cfg.rpc_timeout_secs.get();
+    let head_poll_interval = Duration::from_secs(cfg.head_poll_interval_secs.get());
+
+    // ── Health / freshness bookkeeping ──────────────────────────────────
+    let health = Arc::new(health::Health::new(
+        source_chain_id,
+        finaliztion_lag,
+        cfg.ready_lag_blocks,
+        Duration::from_secs(cfg.stale_after_secs.get()),
+    ));
+
+    // ── Chain head tracker (for ETA and freshness) ─────────────────────
+    let current_head = match http_client.get_last_block().await {
+        Ok(h) => {
+            health.note_head(h);
+            h
+        }
+        Err(e) => {
+            tracing::warn!("initial head read failed: {e}");
+            0
+        }
+    };
     let chain_head = Arc::new(AtomicU64::new(current_head));
     {
         let head = chain_head.clone();
         let client = http_client.clone();
+        let health = health.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(12)).await;
-                if let Ok(h) = client.get_last_block().await {
-                    head.store(h, Ordering::Release);
+                tokio::time::sleep(head_poll_interval).await;
+                match tokio::time::timeout(
+                    Duration::from_secs(cfg_rpc_timeout_secs),
+                    client.get_last_block(),
+                )
+                .await
+                {
+                    Ok(Ok(h)) => {
+                        head.store(h, Ordering::Release);
+                        health.note_head(h);
+                    }
+                    Ok(Err(e)) => tracing::warn!("head poll failed: {e}"),
+                    Err(_) => tracing::warn!("head poll timed out"),
                 }
             }
         });
@@ -359,6 +391,7 @@ async fn main() -> Result<()> {
     let api_state = Arc::new(api::AppState {
         store: store.clone(),
         max_api_range: cfg.max_api_range,
+        health: health.clone(),
     });
 
     let api_router = api::router(api_state);
@@ -377,11 +410,16 @@ async fn main() -> Result<()> {
 
     // ── Background flush task ───────────────────────────────────────────
     let flush_store = store.clone();
+    let flush_health = health.clone();
     let (flush_tx, mut flush_rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
         while flush_rx.recv().await.is_some() {
-            if let Err(e) = flush_store.flush().await {
-                tracing::error!("flush failed: {e}");
+            match flush_store.flush().await {
+                Ok(()) => flush_health.note_flush_ok(),
+                Err(e) => {
+                    tracing::error!("flush failed: {e}");
+                    flush_health.note_flush_error(&e);
+                }
             }
         }
     });
@@ -411,6 +449,7 @@ async fn main() -> Result<()> {
                     _ => "ended unexpectedly",
                 };
                 tracing::warn!(?last_height, reason = msg, "stream died, reconnecting...");
+                health.note_reconnect();
 
                 // Flush any pending batch before reconnecting.
                 if !batch_buf.is_empty() {
@@ -489,6 +528,7 @@ async fn main() -> Result<()> {
         // Persist the source block hash with the root for reorg reconciliation.
         batch_buf.push((height, root, block_hash));
         count += 1;
+        health.note_progress(height);
 
         let end_reached = cfg.end_height.is_some_and(|end| height >= end);
         let target = cfg
