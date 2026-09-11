@@ -440,6 +440,26 @@ async fn a_forked_primary_ahead_of_honest_fallbacks_is_still_challenged() {
     }
 }
 
+/// The tip read walks the providers in order, so a black-holed *primary* must fail over to the
+/// fallback within the per-call timeout instead of pinning the walk on the transport's deadline.
+#[tokio::test]
+async fn a_black_holed_primary_fails_the_tip_read_over_to_the_fallback_in_time() {
+    let black_hole = Mock::start_black_hole();
+    let healthy = Mock::start(Some(90), Some(70), false);
+    let client =
+        Client::new_with_fallbacks(&black_hole.url, std::slice::from_ref(&healthy.url), None)
+            .await
+            .unwrap()
+            .with_call_timeout(std::time::Duration::from_millis(300));
+    let started = std::time::Instant::now();
+    assert_eq!(client.get_last_block().await.unwrap(), 100);
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(2),
+        "the primary's hang must be cut off by the per-call timeout, took {:?}",
+        started.elapsed()
+    );
+}
+
 /// A provider that accepts the connection and never answers must not hang the lookup, and with it
 /// the tip stream that awaits the lookup inline.
 #[tokio::test]
