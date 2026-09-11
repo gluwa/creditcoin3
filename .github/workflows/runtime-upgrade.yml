@@ -9,6 +9,7 @@ name: Runtime Upgrade
       - '**.toml'
       - '**Cargo**'
       - '.github/workflows/runtime-upgrade.yml'
+      - '.github/resource-monitor.sh'
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -180,6 +181,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Start resource monitor
+        # This job's chain data goes to /mnt, not the workspace.
+        env:
+          RESOURCE_MONITOR_DISK_PATH: /mnt
+        run: |
+          .github/resource-monitor.sh start fork-creditcoin
+
       - name: Download creditcoin3-node for release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
         with:
@@ -251,6 +259,12 @@ jobs:
           name: fork-creditcoin-logs
           path: "*.log"
 
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report fork-creditcoin
+
       - name: Upload creditcoin-fork.json
         uses: actions/upload-artifact@v7
         with:
@@ -272,6 +286,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Start resource monitor
+        # This job's chain data goes to /mnt, not the workspace.
+        env:
+          RESOURCE_MONITOR_DISK_PATH: /mnt
+        run: |
+          .github/resource-monitor.sh start live-sync-creditcoin
 
       - name: Install azure-cli
         run: |
@@ -349,6 +370,12 @@ jobs:
           killall -KILL creditcoin3-node
           sleep 120
 
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report live-sync-creditcoin
+
       - name: Upload logs
         uses: actions/upload-artifact@v7
         if: always()
@@ -368,6 +395,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Start resource monitor
+        # This job's chain data goes to /mnt, not the workspace.
+        env:
+          RESOURCE_MONITOR_DISK_PATH: /mnt
+        run: |
+          .github/resource-monitor.sh start test-against-fork-current-release
 
       - name: Download creditcoin3-node from current PR
         uses: actions/download-artifact@v8
@@ -470,6 +504,12 @@ jobs:
           name: test-against-fork-current-release-logs
           path: "*.log"
 
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report test-against-fork-current-release
+
       - name: Kill creditcoin3-node
         if: always()
         run: |
@@ -488,6 +528,13 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+
+      - name: Start resource monitor
+        # This job's chain data goes to /mnt, not the workspace.
+        env:
+          RESOURCE_MONITOR_DISK_PATH: /mnt
+        run: |
+          .github/resource-monitor.sh start test-against-fork-latest-release
 
       - name: Download creditcoin3-node from release ${{ needs.setup.outputs.release_tag }}
         uses: i3h/download-release-asset@v1
@@ -596,6 +643,12 @@ jobs:
         with:
           name: test-against-fork-latest-release-logs
           path: "*.log"
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report test-against-fork-latest-release
 
       - name: Kill creditcoin3-node
         if: always()

@@ -47,6 +47,7 @@ name: Attestor Compatibility
       - "node/**"
       - "runtime/**"
       - ".github/workflows/attestor-compatibility.yml"
+      - ".github/resource-monitor.sh"
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -194,6 +195,13 @@ jobs:
             || echo "WARNING: optional visual-debugging tools not installed"
           sudo dpkg --configure -a || true
           mkdir -p "${LOG_DIR}" "${DATA_DIR}"
+
+      - name: Start resource monitor
+        # DATA_DIR/LOG_DIR live under /var/tmp, not the workspace.
+        env:
+          RESOURCE_MONITOR_DISK_PATH: /var/tmp
+        run: |
+          .github/resource-monitor.sh start attestor-compatibility
 
       - name: Download SUT binaries from current PR
         uses: actions/download-artifact@v8
@@ -621,6 +629,12 @@ jobs:
             echo "ERROR: one or more attestors hit a fatal/incompatibility error (see above)" >&2
             exit 1
           fi
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report attestor-compatibility
 
       - name: Upload logs
         if: always()
