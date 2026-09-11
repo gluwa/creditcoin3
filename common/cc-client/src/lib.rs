@@ -412,10 +412,11 @@ impl Client {
         Ok(RpcClient::new(client))
     }
 
-    /// Height of the node's current finalized head, read point-to-point (not from a
-    /// subscription). Used by stream watchdogs to tell "the chain stopped finalizing" from
-    /// "my subscription stopped delivering".
-    pub async fn finalized_head_number(&self) -> Result<u64, Error> {
+    /// Hash and height of the node's current finalized head, read point-to-point (not from a
+    /// subscription). Consumers pin their startup snapshot to this block and replay events
+    /// from it; watchdogs use the height to tell "the chain stopped finalizing" from "my
+    /// subscription stopped delivering".
+    pub async fn finalized_head(&self) -> Result<(H256, u64), Error> {
         let legacy = self.legacy();
         let hash = legacy.chain_get_finalized_head().await?;
         let header = legacy.chain_get_header(Some(hash)).await?.ok_or_else(|| {
@@ -423,7 +424,25 @@ impl Client {
                 "finalized head {hash:?} has no header"
             )))
         })?;
-        Ok(u64::from(header.number))
+        Ok((hash, u64::from(header.number)))
+    }
+
+    /// Height of the node's current finalized head. See [`Self::finalized_head`].
+    pub async fn finalized_head_number(&self) -> Result<u64, Error> {
+        Ok(self.finalized_head().await?.1)
+    }
+
+    /// Storage view at `at`, or at the latest block when `None`.
+    async fn storage_at(
+        &self,
+        at: Option<H256>,
+    ) -> Result<subxt::storage::Storage<SubstrateConfig, OnlineClient<SubstrateConfig>>, Error>
+    {
+        let storage = self.api().storage();
+        Ok(match at {
+            Some(hash) => storage.at(hash),
+            None => storage.at_latest().await?,
+        })
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
@@ -1028,6 +1047,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>, Error> {
+        self.get_attestations_for_chain_at(chain_key, None).await
+    }
+
+    /// All retained attestations for `chain_key` as of block `at` (latest when `None`).
+    pub async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: ChainKey,
+        at: Option<H256>,
+    ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>, Error> {
         let mut attestations: Vec<SignedAttestation<Digest, AccountId32>> = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -1035,13 +1063,7 @@ impl Client {
         // a ChainKey
         let address = cc3::storage().attestation().attestations_iter1(chain_key);
 
-        let mut iter = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .iter(address)
-            .await?;
+        let mut iter = self.storage_at(at).await?.iter(address).await?;
 
         // Propagate iterator errors — a partial result silently truncated at the first error
         // would be indistinguishable from a complete one.
@@ -1067,6 +1089,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Vec<AttestationCheckpoint>, Error> {
+        self.get_checkpoints_for_chain_at(chain_key, None).await
+    }
+
+    /// All checkpoints for `chain_key` as of block `at` (latest when `None`).
+    pub async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: ChainKey,
+        at: Option<H256>,
+    ) -> Result<Vec<AttestationCheckpoint>, Error> {
         let mut checkpoints = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -1074,13 +1105,7 @@ impl Client {
         // a ChainKey.
         let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
 
-        let mut iter = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .iter(address)
-            .await?;
+        let mut iter = self.storage_at(at).await?.iter(address).await?;
 
         // Propagate iterator errors — a partial result silently truncated at the first error
         // would be indistinguishable from a complete one.
@@ -1295,17 +1320,21 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<u64, Error> {
+        self.get_attestation_chain_genesis_block_number_at(chain_key, None)
+            .await
+    }
+
+    /// Attestation-chain genesis for `chain_key` as of block `at` (latest when `None`).
+    pub async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: ChainKey,
+        at: Option<H256>,
+    ) -> Result<u64, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .attestation_chain_genesis_block_number(chain_key);
 
-        let result = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&storage_query)
-            .await?;
+        let result = self.storage_at(at).await?.fetch(&storage_query).await?;
 
         Ok(result.unwrap_or_default())
     }

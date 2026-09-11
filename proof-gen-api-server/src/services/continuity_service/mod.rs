@@ -193,8 +193,12 @@ pub struct ContinuityService {
     /// the in-flight drain window and diagnostics.
     event_stream_dead: std::sync::Mutex<Option<String>>,
     /// Finalized-block progress of the cc3 event stream (height + when it last advanced),
-    /// written by the stream's watchdog, read by `/health`.
+    /// written by the stream's watchdog, read by `/health` and `/readyz`.
     cc3_progress: Arc<stream::cc3::Progress>,
+    /// Creditcoin finalized height every startup read was pinned to, when the provider could
+    /// pin. The event stream resumes from here; the replica is not ready before the stream
+    /// has caught up to it.
+    cc3_snapshot_height: Option<u64>,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
@@ -208,6 +212,55 @@ pub struct ContinuityService {
 /// How long the caches may go without an event-driven write before the cc3 subscription is
 /// considered dead for health purposes. See [`ContinuityService::cc3_cache_freshness`].
 pub const CC3_CACHE_STALE_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// How long the event stream may go without processing a Creditcoin finalized block before
+/// the replica withdraws readiness. Finality lands every 5-15 s; the stream's own watchdog
+/// replaces a silent subscription after 90 s, so 180 s only trips when recovery itself is
+/// failing.
+pub const CC3_FINALIZED_STALE_AFTER: Duration = Duration::from_secs(180);
+
+/// Result of [`ContinuityService::readiness`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Readiness {
+    pub ready: bool,
+    /// Human-readable reasons when `ready` is false; empty otherwise.
+    pub reasons: Vec<String>,
+}
+
+/// Bounded retry for the startup snapshot reads. A transient cc3 blip must not turn into an
+/// empty cache; a persistent failure is fatal so the orchestrator restarts a replica that
+/// cannot seed instead of it serving wrong `BlockNotReady`s until someone notices.
+async fn retry_startup<T, F, Fut>(what: &str, mut op: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    const ATTEMPTS: usize = 5;
+    let mut delay = Duration::from_millis(250);
+    let mut last_err = None;
+    for attempt in 1..=ATTEMPTS {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                tracing::warn!(
+                    what,
+                    attempt,
+                    max = ATTEMPTS,
+                    error = %err,
+                    "⚠️ 🔗 startup read failed"
+                );
+                last_err = Some(err);
+                if attempt < ATTEMPTS {
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(2));
+                }
+            }
+        }
+    }
+    Err(last_err
+        .unwrap_or_else(|| anyhow::anyhow!("no error captured"))
+        .context(format!("{what}: failed after {ATTEMPTS} attempts")))
+}
 
 /// Result of [`ContinuityService::cc3_cache_freshness`].
 #[derive(Debug, Clone)]
@@ -268,26 +321,71 @@ impl ContinuityService {
             anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
         }
 
+        // One consistent snapshot for every chain: read the finalized head once and take every
+        // startup read at that block. The event stream then replays from that height
+        // (`resume_from`), so an event landing between snapshot and subscription is never
+        // skipped and old boundaries never go missing for the life of the process. A provider
+        // that cannot pin reads (mocks) reports no head; reads fall back to latest state.
+        let snapshot = {
+            let provider = builders[0].cc_provider.clone();
+            retry_startup("cc3 finalized head", || {
+                let provider = provider.clone();
+                async move { provider.finalized_head().await }
+            })
+            .await?
+        };
+        let snapshot_hash = snapshot.map(|(hash, _)| hash);
+        let snapshot_height = snapshot.map(|(_, height)| height);
+        match snapshot {
+            Some((hash, height)) => tracing::info!(
+                ?hash,
+                height,
+                "🚀 📸 startup snapshot pinned to cc3 finalized head"
+            ),
+            None => tracing::debug!(
+                "🚀 📸 cc3 provider cannot pin a block; startup reads use latest state"
+            ),
+        }
+
         let mut chains = HashMap::new();
         for builder in builders {
             let chain_key = builder.config.chain_key;
             if chains.contains_key(&chain_key) {
                 anyhow::bail!("duplicate ContinuityBuilder for chain_key {chain_key}");
             }
+            let provider = builder.cc_provider.clone();
 
-            // Fetch genesis block at startup - fail fast if RPC is unavailable
+            // Every startup read is retried a bounded number of times and is fatal if it
+            // still fails. The previous behaviour - warn and start with an empty cache - made
+            // a transient cc3 blip into a replica that answered `BlockNotReady` for already
+            // attested data until someone restarted it.
             tracing::debug!(
                 chain_key,
                 "🚀 🔗 [startup] ContinuityService: fetching attestation genesis block from CC3"
             );
-            let attestation_genesis_block = builder
-                .get_attestation_genesis_block()
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to fetch attestation genesis block during ContinuityService init (chain_key={chain_key}); CC3 RPC used by this builder may be down or misconfigured"
-                    )
-                })?;
+            let attestation_genesis_block = retry_startup("attestation genesis block", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => {
+                            provider
+                                .get_attestation_chain_genesis_block_number_at(chain_key, at)
+                                .await
+                        }
+                        None => {
+                            provider
+                                .get_attestation_chain_genesis_block_number(chain_key)
+                                .await
+                        }
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to fetch attestation genesis block during ContinuityService init (chain_key={chain_key}); CC3 RPC used by this builder may be down or misconfigured"
+                )
+            })?;
 
             tracing::debug!(
                 chain_key,
@@ -300,17 +398,19 @@ impl ContinuityService {
                 chain_key,
                 "🚀 ⏳ 📝 Populating checkpoint cache from CC3 (this may take a while)..."
             );
-            let checkpoints = builder
-                .cc_provider
-                .get_checkpoints_for_chain(chain_key)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(
-                        chain_key,
-                        "⚠️ 🔗 Failed to fetch checkpoints on startup: {e}, starting with empty cache"
-                    );
-                    Vec::new()
-                });
+            let checkpoints = retry_startup("checkpoints", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => provider.get_checkpoints_for_chain_at(chain_key, at).await,
+                        None => provider.get_checkpoints_for_chain(chain_key).await,
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!("Failed to fetch checkpoints on startup (chain_key={chain_key})")
+            })?;
             let checkpoint_map: BTreeMap<u64, H256> = checkpoints
                 .into_iter()
                 .map(|cp| (cp.block_number, cp.digest))
@@ -329,17 +429,19 @@ impl ContinuityService {
                 chain_key,
                 "🚀 ⏳ 📜 Populating attestation cache from CC3 (this may take a while)..."
             );
-            let attestations = builder
-                .cc_provider
-                .get_attestations_for_chain(chain_key)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(
-                        chain_key,
-                        "⚠️ 🔗 Failed to fetch attestations on startup: {e}, starting with empty cache"
-                    );
-                    Vec::new()
-                });
+            let attestations = retry_startup("attestations", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => provider.get_attestations_for_chain_at(chain_key, at).await,
+                        None => provider.get_attestations_for_chain(chain_key).await,
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!("Failed to fetch attestations on startup (chain_key={chain_key})")
+            })?;
             let attestation_map: BTreeMap<u64, H256> = attestations
                 .into_iter()
                 .map(|att| (att.attestation.header_number, att.attestation.digest()))
@@ -377,6 +479,7 @@ impl ContinuityService {
             start_time: Instant::now(),
             event_stream_dead: std::sync::Mutex::new(None),
             cc3_progress: Arc::new(stream::cc3::Progress::default()),
+            cc3_snapshot_height: snapshot_height,
             metrics,
             max_batch_size,
             max_batch_span,
@@ -843,6 +946,52 @@ impl ContinuityService {
     /// Shared finalized-block progress record for the cc3 event stream.
     pub fn cc3_progress(&self) -> Arc<stream::cc3::Progress> {
         self.cc3_progress.clone()
+    }
+
+    /// Creditcoin finalized height the startup snapshot was read at, if the provider could pin
+    /// one. Hand it to the event stream as `resume_from`.
+    pub fn cc3_snapshot_height(&self) -> Option<u64> {
+        self.cc3_snapshot_height
+    }
+
+    /// Whether this replica should receive traffic, and why not if it should not.
+    ///
+    /// Ready means: the event task is alive, it has caught up to (at least) the startup
+    /// snapshot, and it processed a finalized block within [`CC3_FINALIZED_STALE_AFTER`].
+    /// Freshness is judged on finalized-block progress, not on attestation writes: a quiet
+    /// chain attests rarely but still finalizes, and a dead subscription does neither. The
+    /// source-chain probe is the caller's to add (it is async and per chain).
+    pub fn readiness(&self) -> Readiness {
+        let mut reasons = Vec::new();
+        if let Some(reason) = self.event_stream_dead() {
+            reasons.push(format!("cc3 event stream ended: {reason}"));
+        }
+        match self.cc3_progress.height() {
+            None => {
+                reasons.push("cc3 event stream has not processed a finalized block yet".to_owned())
+            }
+            Some(height) => {
+                if let Some(snapshot) = self.cc3_snapshot_height {
+                    if height < snapshot {
+                        reasons.push(format!(
+                            "catching up: processed finalized block {height}, startup snapshot was taken at {snapshot}"
+                        ));
+                    }
+                }
+                if let Some(age) = self.cc3_progress.age_seconds() {
+                    if age > CC3_FINALIZED_STALE_AFTER.as_secs() {
+                        reasons.push(format!(
+                            "no finalized block processed for {age} s (stale after {} s)",
+                            CC3_FINALIZED_STALE_AFTER.as_secs()
+                        ));
+                    }
+                }
+            }
+        }
+        Readiness {
+            ready: reasons.is_empty(),
+            reasons,
+        }
     }
 
     /// Why the cc3 event task ended, if it has. `None` while it is (believed) running.
