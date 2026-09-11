@@ -44,6 +44,16 @@ pub enum StoreError {
     /// every proof later built from it, so this is fatal.
     #[error("archive was built from chain_id {stored} but the source RPC now serves chain_id {live}; refusing to write foreign roots")]
     ChainIdMismatch { stored: u64, live: u64 },
+    /// The highest stored block is no longer the canonical block at that height on the
+    /// source chain: the archive's tail sits on an abandoned fork. Resuming from `tip + 1`
+    /// would splice canonical roots on top of fork roots, so this is fatal unless the
+    /// operator opted into bounded re-anchoring (`--reanchor-max-depth`).
+    #[error("stored tip {height} is not canonical: stored block hash {stored_hash:?}, canonical block hash {canonical_hash:?}; the archive tail sits on an abandoned fork")]
+    AnchorMismatch {
+        height: u64,
+        stored_hash: H256,
+        canonical_hash: H256,
+    },
 }
 
 /// A stored entry: the merkle root plus the source block hash it was derived from.
@@ -227,6 +237,43 @@ impl RootStore {
         Ok(())
     }
 
+    /// Delete every stored entry with `height > keep_through` and return how many were
+    /// removed. Used to drop a tail that turned out to sit on an abandoned fork so the
+    /// stream can recompute those heights from the canonical chain.
+    ///
+    /// The entry counter is corrected and persisted; the roots batch and the counter write
+    /// are not atomic (same best-effort contract as `put_roots`), so a crash in between
+    /// drifts the counter by at most this call until the next successful `put_roots`.
+    pub fn truncate_above(&self, keep_through: u64) -> Result<u64> {
+        let Some(first_removed) = keep_through.checked_add(1) else {
+            return Ok(0);
+        };
+        let mut batch = sled::Batch::default();
+        let mut removed = 0_u64;
+        for item in self.db.range(first_removed.to_be_bytes()..) {
+            let (key, _) = item.context("failed to read from sled")?;
+            batch.remove(key);
+            removed += 1;
+        }
+        if removed == 0 {
+            return Ok(0);
+        }
+        self.db
+            .apply_batch(batch)
+            .context("failed to apply truncate batch")?;
+        let new_total = self
+            .entry_count
+            .fetch_sub(removed as usize, Ordering::AcqRel)
+            .saturating_sub(removed as usize);
+        if let Err(e) = self
+            .meta
+            .insert(META_KEY_COUNT, &(new_total as u64).to_be_bytes())
+        {
+            tracing::warn!(error = %e, "failed to persist entry count to meta tree");
+        }
+        Ok(removed)
+    }
+
     /// Get roots for an inclusive block range [from, to].
     /// Returns `(block_number, StoredRoot)` pairs in ascending order.
     pub fn get_range(&self, from: u64, to: u64) -> Result<Vec<(u64, StoredRoot)>> {
@@ -338,6 +385,32 @@ mod tests {
     /// Test helper: build a `(height, root, block_hash)` tuple with a random hash.
     fn entry(height: u64, root: H256) -> (u64, H256, H256) {
         (height, root, H256::random())
+    }
+
+    #[test]
+    fn truncate_above_drops_only_the_tail_and_fixes_the_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        let entries: Vec<_> = (10..=15).map(|h| entry(h, H256::random())).collect();
+        store.put_roots(&entries).unwrap();
+        assert_eq!(store.count(), 6);
+
+        assert_eq!(store.truncate_above(12).unwrap(), 3);
+        assert_eq!(store.count(), 3);
+        assert_eq!(store.latest_height().unwrap(), Some(12));
+        assert!(store.get_range(13, 15).unwrap().is_empty());
+        assert_eq!(store.get_range(12, 12).unwrap()[0].1.root, entries[2].1);
+
+        // Nothing above: a no-op that leaves the count alone.
+        assert_eq!(store.truncate_above(12).unwrap(), 0);
+        assert_eq!(store.truncate_above(u64::MAX).unwrap(), 0);
+        assert_eq!(store.count(), 3);
+
+        // The corrected count survives reopen (persisted to meta).
+        drop(store);
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        assert_eq!(store.count(), 3);
+        assert_eq!(store.latest_height().unwrap(), Some(12));
     }
 
     #[test]

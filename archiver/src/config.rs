@@ -110,4 +110,12 @@ pub struct Config {
     /// from "we lost sight of the chain" (not ready).
     #[arg(long, env = "STALE_AFTER_SECS", default_value = "60")]
     pub stale_after_secs: NonZeroU64,
+
+    /// On start and on every reconnect the stored tip is re-fetched from the source and its
+    /// hash compared with the stored one. A mismatch means the archive tail sits on an
+    /// abandoned fork. `0` (default) fails closed. `N > 0` lets the archiver walk back at most
+    /// `N` stored blocks to the last canonical one, drop everything above it and recompute;
+    /// the bound keeps a misbehaving RPC from wiping the archive.
+    #[arg(long, env = "REANCHOR_MAX_DEPTH", default_value = "0")]
+    pub reanchor_max_depth: u64,
 }

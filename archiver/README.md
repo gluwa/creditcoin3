@@ -46,6 +46,7 @@ All flags can also be set via environment variables (see below).
 | `--rpc-timeout-secs` | `RPC_TIMEOUT_SECS` | `30` | Deadline per RPC call while (re)establishing the block stream |
 | `--ready-lag-blocks` | `READY_LAG_BLOCKS` | `1000` | `/ready` is 503 when more than this many blocks behind the mature target |
 | `--stale-after-secs` | `STALE_AFTER_SECS` | `60` | `/ready` is 503 when the source head has not been sampled for this long |
+| `--reanchor-max-depth` | `REANCHOR_MAX_DEPTH` | `0` | Stored blocks the archiver may drop to re-anchor on the canonical chain when the stored tip is on a fork; `0` fails closed |
 | `--finalization_lag_override` | - | *(none)* | Configurable finalization lag override |
 
 A `.env` file in the working directory is loaded automatically.
@@ -122,6 +123,27 @@ Chain (WS) ──► StreamRoots ──► Merkle root computation ──► Sle
 3. Roots are batched and written to sled in height order
 4. On restart, the archiver reads the latest stored height and resumes from there
 5. The `--backfill` flag scans for any gaps and fills them before continuing
+
+## Canonical anchor
+
+The reorg guard in the store only fires when an already-stored height is written again with
+different content. Resuming after a restart and reconnecting after a stream death both continue
+from `stored tip + 1`, so on its own that guard cannot notice a reorg that happened while the
+archiver was away (or a finalization lag that was set too small).
+
+Before (re)starting the stream the archiver therefore re-fetches the block at the stored tip and
+compares its hash with the one persisted next to the root:
+
+- match → resume from `tip + 1`
+- legacy entry without a stored hash → warn, resume (cannot be verified)
+- mismatch → the tail sits on an abandoned fork. With the default `--reanchor-max-depth 0` the
+  archiver exits with `AnchorMismatch` and leaves the store untouched. With `N > 0` it walks back
+  at most `N` stored blocks to the last canonical one, deletes everything above it and resumes
+  from there; if no canonical block is found within `N` it still fails closed. The bound is what
+  keeps an RPC that serves the wrong chain from wiping the archive.
+
+Note: the chain-id pin (`ChainIdMismatch`) catches an endpoint that serves a *different* chain;
+the anchor check catches the *same* chain having moved under us.
 
 ## Reconnection
 
