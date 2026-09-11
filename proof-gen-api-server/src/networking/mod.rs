@@ -21,17 +21,38 @@ use routes::{attested_height, continuity, health};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
+pub mod admission;
 pub mod extract;
 pub mod middleware;
 pub mod openapi;
 pub mod routes;
 
+/// Build the router with default [`crate::config::AdmissionConfig`].
 pub fn build_app(
     service: Arc<ContinuityService>,
     allowed_chain_keys: HashSet<u64>,
     prom_metrics: Arc<ProofGenMetrics>,
 ) -> Router {
+    build_app_with_admission(
+        service,
+        allowed_chain_keys,
+        prom_metrics,
+        crate::config::AdmissionConfig::default(),
+    )
+}
+
+pub fn build_app_with_admission(
+    service: Arc<ContinuityService>,
+    allowed_chain_keys: HashSet<u64>,
+    prom_metrics: Arc<ProofGenMetrics>,
+    admission_config: crate::config::AdmissionConfig,
+) -> Router {
     let metrics: Metrics = prom_metrics.clone() as Metrics;
+    let admission = Arc::new(admission::Admission::new(
+        &admission_config,
+        allowed_chain_keys.iter().copied(),
+        prom_metrics.clone(),
+    ));
     let allowed_chain_keys = Arc::new(allowed_chain_keys);
     // Configure CORS to allow browser-based applications to access the API
     let cors = CorsLayer::new()
@@ -78,7 +99,12 @@ pub fn build_app(
                 .config(openapi::swagger_config()),
         )
         .layer(Extension(service))
-        .layer(Extension(prom_metrics.clone()));
+        .layer(Extension(prom_metrics.clone()))
+        // Admission sits directly around the handlers: rejected requests still pass through
+        // the request-metrics, chain-key and CORS layers below (outer), so they are counted
+        // and carry CORS headers like any other response.
+        .layer(axum::middleware::from_fn(admission::admission_middleware))
+        .layer(Extension(admission));
 
     router
         // Request metrics middleware - tracks count, duration, and sizes

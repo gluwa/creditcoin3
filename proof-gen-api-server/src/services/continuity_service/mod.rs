@@ -41,6 +41,11 @@ pub struct ChainState {
     pub last_cache_advance: std::sync::Mutex<Instant>,
     /// Per-chain cache sizing. Defaults reproduce the pre-configuration behavior.
     pub cache_config: ChainCacheConfig,
+    /// Bounds simultaneous source-block fetches for the merkle cache (requests + backfill).
+    pub fill_permits: Arc<tokio::sync::Semaphore>,
+    /// Heights currently being filled, so concurrent misses for one block share a single
+    /// fetch+build instead of each doing their own.
+    pub in_flight_fills: std::sync::Mutex<HashMap<u64, Arc<tokio::sync::Notify>>>,
 }
 
 impl ChainState {
@@ -469,6 +474,10 @@ impl ContinuityService {
                     checkpoint_interval: AtomicU64::new(checkpoint_interval),
                     attestation_interval: AtomicU64::new(attestation_interval),
                     last_cache_advance: std::sync::Mutex::new(Instant::now()),
+                    fill_permits: Arc::new(tokio::sync::Semaphore::new(
+                        cache_config.max_concurrent_block_fills.get(),
+                    )),
+                    in_flight_fills: std::sync::Mutex::new(HashMap::new()),
                     cache_config,
                 }),
             );
@@ -707,7 +716,9 @@ impl ContinuityService {
         Ok(())
     }
 
-    async fn precompute_merkle_cache_block(
+    /// Fetch one block and populate the merkle cache with it. Callers go through
+    /// [`Self::fill_block_single_flight`], which bounds concurrency and dedupes.
+    async fn fetch_and_cache_block(
         &self,
         chain: &Arc<ChainState>,
         header_number: u64,
@@ -733,41 +744,121 @@ impl ContinuityService {
             .map_err(|message| ServiceError::MerkleError { message })
     }
 
+    /// Make sure `header_number` has been processed into the merkle cache, fetching it at most
+    /// once no matter how many callers ask concurrently, and never with more than
+    /// `max_concurrent_block_fills` fetches in flight for the chain.
+    ///
+    /// The first caller for a height becomes the leader and does the fetch; everyone else
+    /// waits on its `Notify` and re-checks the cache when woken. A leader that fails wakes
+    /// the followers too; each then retries as leader on its own, so one bad fetch is not
+    /// broadcast as everyone's error and a transient failure heals on the next attempt.
+    /// Returns the transaction count the leader inserted, or `0` for followers and for blocks
+    /// that were already processed.
+    async fn fill_block_single_flight(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        loop {
+            if chain.merkle_proof_cache.is_processed(header_number).await {
+                return Ok(0);
+            }
+            let (leader, notify) = {
+                let mut fills = chain
+                    .in_flight_fills
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                match fills.get(&header_number) {
+                    Some(existing) => (false, existing.clone()),
+                    None => {
+                        let fresh = Arc::new(tokio::sync::Notify::new());
+                        fills.insert(header_number, fresh.clone());
+                        (true, fresh)
+                    }
+                }
+            };
+
+            if leader {
+                let result =
+                    async {
+                        let _permit = chain.fill_permits.acquire().await.map_err(|_| {
+                            ServiceError::Internal {
+                                message: "block fill semaphore closed".to_owned(),
+                            }
+                        })?;
+                        self.fetch_and_cache_block(chain, header_number).await
+                    }
+                    .await;
+                // Remove first, then wake: a follower that registered before the removal is
+                // woken; one that registers after sees no entry and re-checks on its own.
+                chain
+                    .in_flight_fills
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(&header_number);
+                notify.notify_waiters();
+                if result.is_ok() {
+                    tracing::debug!(
+                        chain_key = chain.builder.config.chain_key,
+                        header_number,
+                        "merkle proof cache fill completed"
+                    );
+                }
+                return result;
+            }
+
+            // Follower: register interest *before* checking whether the leader is still at
+            // work, otherwise a notify between the check and the await would be lost.
+            let notified = notify.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
+            let still_in_flight = chain
+                .in_flight_fills
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains_key(&header_number);
+            if still_in_flight {
+                notified.await;
+            }
+            // Loop: the cache is either populated now, or the leader failed and this caller
+            // takes its turn.
+        }
+    }
+
+    async fn precompute_merkle_cache_block(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        self.fill_block_single_flight(chain, header_number).await
+    }
+
     async fn precompute_merkle_cache_block_for_tx(
         &self,
         chain: &Arc<ChainState>,
         header_number: u64,
         tx_index: u64,
     ) -> ServiceResult<Option<MerkleProofItem>> {
-        let txs = chain
-            .builder
-            .get_block_tx_data(header_number)
-            .await
-            .map_err(|err| map_eth_rpc_anyhow_to_service_error(err, header_number))?;
-
-        if txs.is_empty() {
-            chain
-                .merkle_proof_cache
-                .mark_processed_empty(header_number)
-                .await;
-            return Ok(None);
-        }
-
-        let (tx_count, item) = chain
+        let chain_key = chain.builder.config.chain_key;
+        if let Some(item) = chain
             .merkle_proof_cache
-            .insert_block_and_get(chain.builder.config.chain_key, header_number, txs, tx_index)
+            .get_by_block_index(chain_key, header_number, tx_index)
             .await
-            .map_err(|message| ServiceError::MerkleError { message })?;
-
+        {
+            return Ok(Some(item));
+        }
+        self.fill_block_single_flight(chain, header_number).await?;
+        let item = chain
+            .merkle_proof_cache
+            .get_by_block_index(chain_key, header_number, tx_index)
+            .await;
         tracing::info!(
-            chain_key = chain.builder.config.chain_key,
+            chain_key,
             header_number,
             tx_index,
-            tx_count,
             cache_hit = item.is_some(),
             "merkle proof cache on-demand fill completed"
         );
-
         Ok(item)
     }
 
