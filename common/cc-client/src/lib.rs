@@ -61,6 +61,8 @@ pub fn compiled_metadata() -> Result<subxt::Metadata, anyhow::Error> {
 pub mod api;
 pub mod attestation;
 pub mod signer;
+#[cfg(feature = "ws-fixture")]
+pub mod ws_fixture;
 
 pub type Randomness = [u8; 32];
 
@@ -283,6 +285,15 @@ fn now_unix_ms() -> u64 {
 /// schedule.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// WebSocket ping cadence on the Creditcoin connection. jsonrpsee ships with pings disabled,
+/// so a half-open socket (peer gone, no FIN/RST ever arrives) stayed "connected" forever and
+/// every subscription on it went silent without an error. With pings on, a peer that stops
+/// answering is torn down after `WS_PING_INACTIVE_LIMIT` and the transport error reaches every
+/// subscriber, which then reconnects. This does not catch a peer that answers pings but has
+/// stopped producing notifications; the stream-level progress watchdog covers that.
+const WS_PING_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
+const WS_PING_INACTIVE_LIMIT: std::time::Duration = std::time::Duration::from_secs(45);
+
 /// Per-`Client` reconnect rate-limit. `next_attempt_at` advances every time a reconnect
 /// fails; it resets to "now" on success. All concurrent callers wait on the same `Mutex`
 /// guarding this struct, so the delay is observed once across the binary, not per-task.
@@ -367,10 +378,71 @@ impl Client {
     /// Open a fresh subxt connection (RPC + `OnlineClient` + `LegacyRpcMethods`)
     /// against `url`. Used by both [`Client::new`] and [`Client::reconnect`].
     async fn build_inner(url: &str) -> Result<ClientInner, Error> {
-        let rpc = RpcClient::from_insecure_url(url.to_owned()).await?;
+        let rpc = Self::build_rpc_client(url).await?;
         let api = OnlineClient::<SubstrateConfig>::from_rpc_client(rpc.clone()).await?;
         let legacy = LegacyRpcMethods::<SubstrateConfig>::new(rpc.clone());
         Ok(ClientInner { rpc, api, legacy })
+    }
+
+    /// Open the raw JSON-RPC WebSocket. Mirrors what `RpcClient::from_insecure_url` builds
+    /// (same per-subscription buffer) plus WebSocket ping/pong, which subxt leaves off.
+    async fn build_rpc_client(url: &str) -> Result<RpcClient, Error> {
+        use subxt::ext::jsonrpsee::{
+            client_transport::ws::{Url, WsTransportClientBuilder},
+            core::client::{async_client::PingConfig, Client as JsonRpcClient},
+        };
+        let parsed = Url::parse(url).map_err(|_| Error::InvalidUrl)?;
+        let (sender, receiver) = WsTransportClientBuilder::default()
+            .build(parsed)
+            .await
+            .map_err(|e| {
+                Error::SubxtError(subxt::Error::Other(format!(
+                    "websocket transport to {url}: {e}"
+                )))
+            })?;
+        let client = JsonRpcClient::builder()
+            .max_buffer_capacity_per_subscription(4096)
+            .enable_ws_ping(
+                PingConfig::new()
+                    .ping_interval(WS_PING_INTERVAL)
+                    .inactive_limit(WS_PING_INACTIVE_LIMIT)
+                    .max_failures(1),
+            )
+            .build_with_tokio(sender, receiver);
+        Ok(RpcClient::new(client))
+    }
+
+    /// Hash and height of the node's current finalized head, read point-to-point (not from a
+    /// subscription). Consumers pin their startup snapshot to this block and replay events
+    /// from it; watchdogs use the height to tell "the chain stopped finalizing" from "my
+    /// subscription stopped delivering".
+    pub async fn finalized_head(&self) -> Result<(H256, u64), Error> {
+        let legacy = self.legacy();
+        let hash = legacy.chain_get_finalized_head().await?;
+        let header = legacy.chain_get_header(Some(hash)).await?.ok_or_else(|| {
+            Error::SubxtError(subxt::Error::Other(format!(
+                "finalized head {hash:?} has no header"
+            )))
+        })?;
+        Ok((hash, u64::from(header.number)))
+    }
+
+    /// Height of the node's current finalized head. See [`Self::finalized_head`].
+    pub async fn finalized_head_number(&self) -> Result<u64, Error> {
+        Ok(self.finalized_head().await?.1)
+    }
+
+    /// Storage view at `at`, or at the latest block when `None`.
+    async fn storage_at(
+        &self,
+        at: Option<H256>,
+    ) -> Result<subxt::storage::Storage<SubstrateConfig, OnlineClient<SubstrateConfig>>, Error>
+    {
+        let storage = self.api().storage();
+        Ok(match at {
+            Some(hash) => storage.at(hash),
+            None => storage.at_latest().await?,
+        })
     }
 
     /// Atomically replace the live subxt connection with a freshly-opened one.
@@ -975,6 +1047,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>, Error> {
+        self.get_attestations_for_chain_at(chain_key, None).await
+    }
+
+    /// All retained attestations for `chain_key` as of block `at` (latest when `None`).
+    pub async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: ChainKey,
+        at: Option<H256>,
+    ) -> Result<Vec<SignedAttestation<Digest, AccountId32>>, Error> {
         let mut attestations: Vec<SignedAttestation<Digest, AccountId32>> = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -982,13 +1063,7 @@ impl Client {
         // a ChainKey
         let address = cc3::storage().attestation().attestations_iter1(chain_key);
 
-        let mut iter = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .iter(address)
-            .await?;
+        let mut iter = self.storage_at(at).await?.iter(address).await?;
 
         // Propagate iterator errors — a partial result silently truncated at the first error
         // would be indistinguishable from a complete one.
@@ -1014,6 +1089,15 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Vec<AttestationCheckpoint>, Error> {
+        self.get_checkpoints_for_chain_at(chain_key, None).await
+    }
+
+    /// All checkpoints for `chain_key` as of block `at` (latest when `None`).
+    pub async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: ChainKey,
+        at: Option<H256>,
+    ) -> Result<Vec<AttestationCheckpoint>, Error> {
         let mut checkpoints = Vec::new();
 
         // Address to the root of a storage entry that we'd like to iterate over
@@ -1021,13 +1105,7 @@ impl Client {
         // a ChainKey.
         let address = cc3::storage().attestation().checkpoints_iter1(chain_key);
 
-        let mut iter = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .iter(address)
-            .await?;
+        let mut iter = self.storage_at(at).await?.iter(address).await?;
 
         // Propagate iterator errors — a partial result silently truncated at the first error
         // would be indistinguishable from a complete one.
@@ -1242,17 +1320,21 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<u64, Error> {
+        self.get_attestation_chain_genesis_block_number_at(chain_key, None)
+            .await
+    }
+
+    /// Attestation-chain genesis for `chain_key` as of block `at` (latest when `None`).
+    pub async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: ChainKey,
+        at: Option<H256>,
+    ) -> Result<u64, Error> {
         let storage_query = cc3::storage()
             .attestation()
             .attestation_chain_genesis_block_number(chain_key);
 
-        let result = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&storage_query)
-            .await?;
+        let result = self.storage_at(at).await?.fetch(&storage_query).await?;
 
         Ok(result.unwrap_or_default())
     }

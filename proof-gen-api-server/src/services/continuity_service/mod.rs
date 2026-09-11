@@ -41,6 +41,11 @@ pub struct ChainState {
     pub last_cache_advance: std::sync::Mutex<Instant>,
     /// Per-chain cache sizing. Defaults reproduce the pre-configuration behavior.
     pub cache_config: ChainCacheConfig,
+    /// Bounds simultaneous source-block fetches for the merkle cache (requests + backfill).
+    pub fill_permits: Arc<tokio::sync::Semaphore>,
+    /// Heights currently being filled, so concurrent misses for one block share a single
+    /// fetch+build instead of each doing their own.
+    pub in_flight_fills: std::sync::Mutex<HashMap<u64, Arc<tokio::sync::Notify>>>,
 }
 
 impl ChainState {
@@ -187,6 +192,18 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 pub struct ContinuityService {
     chains: HashMap<u64, Arc<ChainState>>,
     start_time: Instant,
+    /// Set (with the reason) when the cc3 event task has ended for good. From that moment
+    /// the caches no longer track the chain and this replica must not be considered ready;
+    /// the supervisor exits the process right after setting this, so the flag mostly serves
+    /// the in-flight drain window and diagnostics.
+    event_stream_dead: std::sync::Mutex<Option<String>>,
+    /// Finalized-block progress of the cc3 event stream (height + when it last advanced),
+    /// written by the stream's watchdog, read by `/health` and `/readyz`.
+    cc3_progress: Arc<stream::cc3::Progress>,
+    /// Creditcoin finalized height every startup read was pinned to, when the provider could
+    /// pin. The event stream resumes from here; the replica is not ready before the stream
+    /// has caught up to it.
+    cc3_snapshot_height: Option<u64>,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
@@ -200,6 +217,55 @@ pub struct ContinuityService {
 /// How long the caches may go without an event-driven write before the cc3 subscription is
 /// considered dead for health purposes. See [`ContinuityService::cc3_cache_freshness`].
 pub const CC3_CACHE_STALE_AFTER: Duration = Duration::from_secs(10 * 60);
+
+/// How long the event stream may go without processing a Creditcoin finalized block before
+/// the replica withdraws readiness. Finality lands every 5-15 s; the stream's own watchdog
+/// replaces a silent subscription after 90 s, so 180 s only trips when recovery itself is
+/// failing.
+pub const CC3_FINALIZED_STALE_AFTER: Duration = Duration::from_secs(180);
+
+/// Result of [`ContinuityService::readiness`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Readiness {
+    pub ready: bool,
+    /// Human-readable reasons when `ready` is false; empty otherwise.
+    pub reasons: Vec<String>,
+}
+
+/// Bounded retry for the startup snapshot reads. A transient cc3 blip must not turn into an
+/// empty cache; a persistent failure is fatal so the orchestrator restarts a replica that
+/// cannot seed instead of it serving wrong `BlockNotReady`s until someone notices.
+async fn retry_startup<T, F, Fut>(what: &str, mut op: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    const ATTEMPTS: usize = 5;
+    let mut delay = Duration::from_millis(250);
+    let mut last_err = None;
+    for attempt in 1..=ATTEMPTS {
+        match op().await {
+            Ok(value) => return Ok(value),
+            Err(err) => {
+                tracing::warn!(
+                    what,
+                    attempt,
+                    max = ATTEMPTS,
+                    error = %err,
+                    "⚠️ 🔗 startup read failed"
+                );
+                last_err = Some(err);
+                if attempt < ATTEMPTS {
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(2));
+                }
+            }
+        }
+    }
+    Err(last_err
+        .unwrap_or_else(|| anyhow::anyhow!("no error captured"))
+        .context(format!("{what}: failed after {ATTEMPTS} attempts")))
+}
 
 /// Result of [`ContinuityService::cc3_cache_freshness`].
 #[derive(Debug, Clone)]
@@ -260,26 +326,71 @@ impl ContinuityService {
             anyhow::bail!("ContinuityService requires at least one ContinuityBuilder");
         }
 
+        // One consistent snapshot for every chain: read the finalized head once and take every
+        // startup read at that block. The event stream then replays from that height
+        // (`resume_from`), so an event landing between snapshot and subscription is never
+        // skipped and old boundaries never go missing for the life of the process. A provider
+        // that cannot pin reads (mocks) reports no head; reads fall back to latest state.
+        let snapshot = {
+            let provider = builders[0].cc_provider.clone();
+            retry_startup("cc3 finalized head", || {
+                let provider = provider.clone();
+                async move { provider.finalized_head().await }
+            })
+            .await?
+        };
+        let snapshot_hash = snapshot.map(|(hash, _)| hash);
+        let snapshot_height = snapshot.map(|(_, height)| height);
+        match snapshot {
+            Some((hash, height)) => tracing::info!(
+                ?hash,
+                height,
+                "🚀 📸 startup snapshot pinned to cc3 finalized head"
+            ),
+            None => tracing::debug!(
+                "🚀 📸 cc3 provider cannot pin a block; startup reads use latest state"
+            ),
+        }
+
         let mut chains = HashMap::new();
         for builder in builders {
             let chain_key = builder.config.chain_key;
             if chains.contains_key(&chain_key) {
                 anyhow::bail!("duplicate ContinuityBuilder for chain_key {chain_key}");
             }
+            let provider = builder.cc_provider.clone();
 
-            // Fetch genesis block at startup - fail fast if RPC is unavailable
+            // Every startup read is retried a bounded number of times and is fatal if it
+            // still fails. The previous behaviour - warn and start with an empty cache - made
+            // a transient cc3 blip into a replica that answered `BlockNotReady` for already
+            // attested data until someone restarted it.
             tracing::debug!(
                 chain_key,
                 "🚀 🔗 [startup] ContinuityService: fetching attestation genesis block from CC3"
             );
-            let attestation_genesis_block = builder
-                .get_attestation_genesis_block()
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to fetch attestation genesis block during ContinuityService init (chain_key={chain_key}); CC3 RPC used by this builder may be down or misconfigured"
-                    )
-                })?;
+            let attestation_genesis_block = retry_startup("attestation genesis block", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => {
+                            provider
+                                .get_attestation_chain_genesis_block_number_at(chain_key, at)
+                                .await
+                        }
+                        None => {
+                            provider
+                                .get_attestation_chain_genesis_block_number(chain_key)
+                                .await
+                        }
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to fetch attestation genesis block during ContinuityService init (chain_key={chain_key}); CC3 RPC used by this builder may be down or misconfigured"
+                )
+            })?;
 
             tracing::debug!(
                 chain_key,
@@ -292,17 +403,19 @@ impl ContinuityService {
                 chain_key,
                 "🚀 ⏳ 📝 Populating checkpoint cache from CC3 (this may take a while)..."
             );
-            let checkpoints = builder
-                .cc_provider
-                .get_checkpoints_for_chain(chain_key)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(
-                        chain_key,
-                        "⚠️ 🔗 Failed to fetch checkpoints on startup: {e}, starting with empty cache"
-                    );
-                    Vec::new()
-                });
+            let checkpoints = retry_startup("checkpoints", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => provider.get_checkpoints_for_chain_at(chain_key, at).await,
+                        None => provider.get_checkpoints_for_chain(chain_key).await,
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!("Failed to fetch checkpoints on startup (chain_key={chain_key})")
+            })?;
             let checkpoint_map: BTreeMap<u64, H256> = checkpoints
                 .into_iter()
                 .map(|cp| (cp.block_number, cp.digest))
@@ -321,17 +434,19 @@ impl ContinuityService {
                 chain_key,
                 "🚀 ⏳ 📜 Populating attestation cache from CC3 (this may take a while)..."
             );
-            let attestations = builder
-                .cc_provider
-                .get_attestations_for_chain(chain_key)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!(
-                        chain_key,
-                        "⚠️ 🔗 Failed to fetch attestations on startup: {e}, starting with empty cache"
-                    );
-                    Vec::new()
-                });
+            let attestations = retry_startup("attestations", || {
+                let provider = provider.clone();
+                async move {
+                    match snapshot_hash {
+                        Some(at) => provider.get_attestations_for_chain_at(chain_key, at).await,
+                        None => provider.get_attestations_for_chain(chain_key).await,
+                    }
+                }
+            })
+            .await
+            .with_context(|| {
+                format!("Failed to fetch attestations on startup (chain_key={chain_key})")
+            })?;
             let attestation_map: BTreeMap<u64, H256> = attestations
                 .into_iter()
                 .map(|att| (att.attestation.header_number, att.attestation.digest()))
@@ -359,6 +474,10 @@ impl ContinuityService {
                     checkpoint_interval: AtomicU64::new(checkpoint_interval),
                     attestation_interval: AtomicU64::new(attestation_interval),
                     last_cache_advance: std::sync::Mutex::new(Instant::now()),
+                    fill_permits: Arc::new(tokio::sync::Semaphore::new(
+                        cache_config.max_concurrent_block_fills.get(),
+                    )),
+                    in_flight_fills: std::sync::Mutex::new(HashMap::new()),
                     cache_config,
                 }),
             );
@@ -367,6 +486,9 @@ impl ContinuityService {
         Ok(Self {
             chains,
             start_time: Instant::now(),
+            event_stream_dead: std::sync::Mutex::new(None),
+            cc3_progress: Arc::new(stream::cc3::Progress::default()),
+            cc3_snapshot_height: snapshot_height,
             metrics,
             max_batch_size,
             max_batch_span,
@@ -594,7 +716,9 @@ impl ContinuityService {
         Ok(())
     }
 
-    async fn precompute_merkle_cache_block(
+    /// Fetch one block and populate the merkle cache with it. Callers go through
+    /// [`Self::fill_block_single_flight`], which bounds concurrency and dedupes.
+    async fn fetch_and_cache_block(
         &self,
         chain: &Arc<ChainState>,
         header_number: u64,
@@ -620,41 +744,121 @@ impl ContinuityService {
             .map_err(|message| ServiceError::MerkleError { message })
     }
 
+    /// Make sure `header_number` has been processed into the merkle cache, fetching it at most
+    /// once no matter how many callers ask concurrently, and never with more than
+    /// `max_concurrent_block_fills` fetches in flight for the chain.
+    ///
+    /// The first caller for a height becomes the leader and does the fetch; everyone else
+    /// waits on its `Notify` and re-checks the cache when woken. A leader that fails wakes
+    /// the followers too; each then retries as leader on its own, so one bad fetch is not
+    /// broadcast as everyone's error and a transient failure heals on the next attempt.
+    /// Returns the transaction count the leader inserted, or `0` for followers and for blocks
+    /// that were already processed.
+    async fn fill_block_single_flight(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        loop {
+            if chain.merkle_proof_cache.is_processed(header_number).await {
+                return Ok(0);
+            }
+            let (leader, notify) = {
+                let mut fills = chain
+                    .in_flight_fills
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                match fills.get(&header_number) {
+                    Some(existing) => (false, existing.clone()),
+                    None => {
+                        let fresh = Arc::new(tokio::sync::Notify::new());
+                        fills.insert(header_number, fresh.clone());
+                        (true, fresh)
+                    }
+                }
+            };
+
+            if leader {
+                let result =
+                    async {
+                        let _permit = chain.fill_permits.acquire().await.map_err(|_| {
+                            ServiceError::Internal {
+                                message: "block fill semaphore closed".to_owned(),
+                            }
+                        })?;
+                        self.fetch_and_cache_block(chain, header_number).await
+                    }
+                    .await;
+                // Remove first, then wake: a follower that registered before the removal is
+                // woken; one that registers after sees no entry and re-checks on its own.
+                chain
+                    .in_flight_fills
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .remove(&header_number);
+                notify.notify_waiters();
+                if result.is_ok() {
+                    tracing::debug!(
+                        chain_key = chain.builder.config.chain_key,
+                        header_number,
+                        "merkle proof cache fill completed"
+                    );
+                }
+                return result;
+            }
+
+            // Follower: register interest *before* checking whether the leader is still at
+            // work, otherwise a notify between the check and the await would be lost.
+            let notified = notify.notified();
+            let mut notified = std::pin::pin!(notified);
+            notified.as_mut().enable();
+            let still_in_flight = chain
+                .in_flight_fills
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .contains_key(&header_number);
+            if still_in_flight {
+                notified.await;
+            }
+            // Loop: the cache is either populated now, or the leader failed and this caller
+            // takes its turn.
+        }
+    }
+
+    async fn precompute_merkle_cache_block(
+        &self,
+        chain: &Arc<ChainState>,
+        header_number: u64,
+    ) -> ServiceResult<usize> {
+        self.fill_block_single_flight(chain, header_number).await
+    }
+
     async fn precompute_merkle_cache_block_for_tx(
         &self,
         chain: &Arc<ChainState>,
         header_number: u64,
         tx_index: u64,
     ) -> ServiceResult<Option<MerkleProofItem>> {
-        let txs = chain
-            .builder
-            .get_block_tx_data(header_number)
-            .await
-            .map_err(|err| map_eth_rpc_anyhow_to_service_error(err, header_number))?;
-
-        if txs.is_empty() {
-            chain
-                .merkle_proof_cache
-                .mark_processed_empty(header_number)
-                .await;
-            return Ok(None);
-        }
-
-        let (tx_count, item) = chain
+        let chain_key = chain.builder.config.chain_key;
+        if let Some(item) = chain
             .merkle_proof_cache
-            .insert_block_and_get(chain.builder.config.chain_key, header_number, txs, tx_index)
+            .get_by_block_index(chain_key, header_number, tx_index)
             .await
-            .map_err(|message| ServiceError::MerkleError { message })?;
-
+        {
+            return Ok(Some(item));
+        }
+        self.fill_block_single_flight(chain, header_number).await?;
+        let item = chain
+            .merkle_proof_cache
+            .get_by_block_index(chain_key, header_number, tx_index)
+            .await;
         tracing::info!(
-            chain_key = chain.builder.config.chain_key,
+            chain_key,
             header_number,
             tx_index,
-            tx_count,
             cache_hit = item.is_some(),
             "merkle proof cache on-demand fill completed"
         );
-
         Ok(item)
     }
 
@@ -817,6 +1021,76 @@ impl ContinuityService {
 
     pub fn uptime_seconds(&self) -> u64 {
         self.start_time.elapsed().as_secs()
+    }
+
+    /// Record that the cc3 event task has ended permanently. Idempotent; the first reason wins.
+    pub fn mark_event_stream_dead(&self, reason: &str) {
+        let mut guard = self
+            .event_stream_dead
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if guard.is_none() {
+            *guard = Some(reason.to_owned());
+        }
+    }
+
+    /// Shared finalized-block progress record for the cc3 event stream.
+    pub fn cc3_progress(&self) -> Arc<stream::cc3::Progress> {
+        self.cc3_progress.clone()
+    }
+
+    /// Creditcoin finalized height the startup snapshot was read at, if the provider could pin
+    /// one. Hand it to the event stream as `resume_from`.
+    pub fn cc3_snapshot_height(&self) -> Option<u64> {
+        self.cc3_snapshot_height
+    }
+
+    /// Whether this replica should receive traffic, and why not if it should not.
+    ///
+    /// Ready means: the event task is alive, it has caught up to (at least) the startup
+    /// snapshot, and it processed a finalized block within [`CC3_FINALIZED_STALE_AFTER`].
+    /// Freshness is judged on finalized-block progress, not on attestation writes: a quiet
+    /// chain attests rarely but still finalizes, and a dead subscription does neither. The
+    /// source-chain probe is the caller's to add (it is async and per chain).
+    pub fn readiness(&self) -> Readiness {
+        let mut reasons = Vec::new();
+        if let Some(reason) = self.event_stream_dead() {
+            reasons.push(format!("cc3 event stream ended: {reason}"));
+        }
+        match self.cc3_progress.height() {
+            None => {
+                reasons.push("cc3 event stream has not processed a finalized block yet".to_owned())
+            }
+            Some(height) => {
+                if let Some(snapshot) = self.cc3_snapshot_height {
+                    if height < snapshot {
+                        reasons.push(format!(
+                            "catching up: processed finalized block {height}, startup snapshot was taken at {snapshot}"
+                        ));
+                    }
+                }
+                if let Some(age) = self.cc3_progress.age_seconds() {
+                    if age > CC3_FINALIZED_STALE_AFTER.as_secs() {
+                        reasons.push(format!(
+                            "no finalized block processed for {age} s (stale after {} s)",
+                            CC3_FINALIZED_STALE_AFTER.as_secs()
+                        ));
+                    }
+                }
+            }
+        }
+        Readiness {
+            ready: reasons.is_empty(),
+            reasons,
+        }
+    }
+
+    /// Why the cc3 event task ended, if it has. `None` while it is (believed) running.
+    pub fn event_stream_dead(&self) -> Option<String> {
+        self.event_stream_dead
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Live cc3 RPC probe: a lightweight storage read on **every** configured chain.
