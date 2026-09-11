@@ -11,7 +11,7 @@
 //! so this module never decides maturity itself.
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -36,9 +36,11 @@ pub enum MatureTarget {
 
 pub struct Health {
     started: Instant,
-    pub chain_id: u64,
-    /// Human-readable description of what bounds the archive (see [`HealthSnapshot::bound`]).
-    pub bound: String,
+    /// `(chain_id, bound)`, known only once the source-chain handshake completes and the
+    /// tip mode is decided. The API is up before that so probes can see the process; until
+    /// then it is not ready. `bound` describes what the archive is measured against (see
+    /// [`HealthSnapshot::bound`]).
+    source: OnceLock<(u64, String)>,
     ready_lag_blocks: u64,
     stale_after: Duration,
 
@@ -57,9 +59,11 @@ pub struct Health {
 /// What `/status` and `/ready` serialize. Ages are milliseconds; `null` means "never".
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct HealthSnapshot {
-    pub chain_id: u64,
+    /// `null` until the source-chain handshake has completed.
+    pub chain_id: Option<u64>,
     /// What the archive is bounded by: the attested height, or a source-resolved maturity.
-    pub bound: String,
+    /// `null` until the handshake has completed.
+    pub bound: Option<String>,
     pub uptime_ms: u64,
     pub latest_archived_block: Option<u64>,
     pub total_blocks: usize,
@@ -81,16 +85,10 @@ pub struct HealthSnapshot {
 }
 
 impl Health {
-    pub fn new(
-        chain_id: u64,
-        bound: impl Into<String>,
-        ready_lag_blocks: u64,
-        stale_after: Duration,
-    ) -> Self {
+    pub fn new(ready_lag_blocks: u64, stale_after: Duration) -> Self {
         Self {
             started: Instant::now(),
-            chain_id,
-            bound: bound.into(),
+            source: OnceLock::new(),
             ready_lag_blocks,
             stale_after,
             source_head: AtomicU64::new(0),
@@ -103,6 +101,13 @@ impl Health {
             last_flush_error: Mutex::new(None),
             reconnects: AtomicU64::new(0),
         }
+    }
+
+    /// Record the verified source identity and what the archive is bounded by. Called once the
+    /// ws/http/Creditcoin handshake and the chain-id pin have passed and the tip mode is
+    /// decided; a second call is ignored.
+    pub fn set_source(&self, chain_id: u64, bound: impl Into<String>) {
+        let _ = self.source.set((chain_id, bound.into()));
     }
 
     fn now_ms(&self) -> u64 {
@@ -165,6 +170,7 @@ impl Health {
         let head_at = self.source_head_at.load(Ordering::Acquire);
         let source_head = (head_at != NEVER).then(|| self.source_head.load(Ordering::Acquire));
         let source_head_age_ms = self.age(head_at);
+        let source = self.source.get();
         let raw_target = self.mature_target.load(Ordering::Acquire);
         let target_known = raw_target != NEVER;
         let mature_target = Some(raw_target).filter(|t| *t != NEVER && *t != NOTHING_MATURE);
@@ -180,6 +186,9 @@ impl Health {
             .clone();
 
         let mut not_ready_reasons = Vec::new();
+        if source.is_none() {
+            not_ready_reasons.push("source chain handshake not complete".to_owned());
+        }
         match source_head_age_ms {
             None => not_ready_reasons.push("source head never observed".to_owned()),
             Some(age) if age > self.stale_after.as_millis() as u64 => {
@@ -209,8 +218,8 @@ impl Health {
         }
 
         HealthSnapshot {
-            chain_id: self.chain_id,
-            bound: self.bound.clone(),
+            chain_id: source.map(|(id, _)| *id),
+            bound: source.map(|(_, bound)| bound.clone()),
             uptime_ms: self.now_ms(),
             latest_archived_block,
             total_blocks,
@@ -234,13 +243,37 @@ mod tests {
     use super::*;
 
     fn health() -> Health {
-        Health::new(56, "test bound", 1_000, Duration::from_secs(60))
+        let h = Health::new(1_000, Duration::from_secs(60));
+        h.set_source(56, "test bound");
+        h
     }
 
     /// A head sample with a fixed lag of 10 behind it, the way the poller feeds both at once.
     fn observe(h: &Health, head: u64) {
         h.note_head(head);
         h.note_mature_target(MatureTarget::Height(head - 10));
+    }
+
+    #[test]
+    fn not_ready_before_the_handshake_even_with_a_fresh_head() {
+        let h = Health::new(1_000, Duration::from_secs(60));
+        observe(&h, 500);
+        let s = h.snapshot(Some(490), 491);
+        assert!(!s.ready);
+        assert_eq!(s.chain_id, None);
+        assert_eq!(s.bound, None);
+        assert_eq!(
+            s.not_ready_reasons,
+            vec!["source chain handshake not complete".to_owned()]
+        );
+        h.set_source(56, "test bound");
+        let s = h.snapshot(Some(490), 491);
+        assert!(s.ready, "{:?}", s.not_ready_reasons);
+        assert_eq!(s.chain_id, Some(56));
+        assert_eq!(s.bound.as_deref(), Some("test bound"));
+        // A second set_source is ignored.
+        h.set_source(99, "other");
+        assert_eq!(h.snapshot(None, 0).chain_id, Some(56));
     }
 
     #[test]
@@ -308,7 +341,8 @@ mod tests {
 
     #[test]
     fn empty_archive_reports_the_whole_target_as_lag() {
-        let h = Health::new(1, "test bound", 100, Duration::from_secs(60));
+        let h = Health::new(100, Duration::from_secs(60));
+        h.set_source(1, "test bound");
         h.note_head(250);
         h.note_mature_target(MatureTarget::Height(250));
         let s = h.snapshot(None, 0);
