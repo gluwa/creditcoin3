@@ -252,6 +252,8 @@ async fn main() -> Result<()> {
                     .with_bound(stream_eth::roots::Boundary::Source(maturity))
                     .with_max_concurrency(cfg.max_fetch_tasks)
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                    .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
+                    .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
                     .build();
 
                 let mut gap_stream = tokio::select! {
@@ -352,6 +354,8 @@ async fn main() -> Result<()> {
         .with_bound(boundary.clone())
         .with_max_concurrency(cfg.max_fetch_tasks)
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+        .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
+        .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
         .build();
 
     // The initial subscribe retries without bound while the source is down; let SIGTERM win.
@@ -524,6 +528,12 @@ async fn main() -> Result<()> {
                                 .with_bound(boundary.clone())
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                                .with_head_poll_interval(Duration::from_secs(
+                                    cfg.head_poll_interval_secs.get(),
+                                ))
+                                .with_rpc_call_timeout(Duration::from_secs(
+                                    cfg.rpc_timeout_secs.get(),
+                                ))
                                 .build();
                             let built = tokio::select! {
                                 _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }

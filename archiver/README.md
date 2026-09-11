@@ -42,6 +42,8 @@ All flags can also be set via environment variables (see below).
 | `--flush-every` | `FLUSH_EVERY` | `10000` | Catch-up batch size: write roots (and request a flush) every N blocks |
 | `--tip-window` | `TIP_WINDOW` | `256` | Within N blocks of the head, write every root immediately; durability flushes throttled to ~1/s |
 | `--backfill` | — | `false` | Scan for gaps and fill them before resuming |
+| `--head-poll-interval-secs` | `HEAD_POLL_INTERVAL_SECS` | `12` | `eth_blockNumber` poll alongside the `newHeads` subscription; bounds how long a silent subscription can stall archiving |
+| `--rpc-timeout-secs` | `RPC_TIMEOUT_SECS` | `30` | Deadline per RPC call while (re)establishing the block stream |
 | `--finalization_lag_override` | - | *(none)* | Configurable finalization lag override |
 
 A `.env` file in the working directory is loaded automatically.
