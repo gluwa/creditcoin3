@@ -71,7 +71,11 @@ pub async fn register_bls(
             return Ok(());
         }
         Some(other) => {
-        tracing::info!(status = ?other, %account_id, "ℹ️ skipping attest() — already registered");
+            tracing::info!(
+                status = ?other,
+                %account_id,
+                "ℹ️ skipping attest() — already registered"
+            );
             return Ok(());
         }
     }
