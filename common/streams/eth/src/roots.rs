@@ -324,13 +324,16 @@ async fn stream_rpc(
     let subscribed = stream_headers.map(|header| Some(header.number));
     let poll_client = config.client.clone();
     let poll_timeout = config.rpc_call_timeout;
-    let polled = futures::stream::unfold(
-        tokio::time::interval(config.head_poll_interval),
-        |mut ticker| async move {
-            ticker.tick().await;
-            Some(((), ticker))
-        },
-    )
+    // `Delay` rather than tokio's default `Burst`: this stream is not polled while
+    // `expand_heads` drains the seeded `start..=head` range, and after a long catch-up the
+    // missed ticks would otherwise fire back-to-back as a flood of `eth_blockNumber` calls on
+    // the same socket that carries block fetches and `newHeads`.
+    let mut ticker = tokio::time::interval(config.head_poll_interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let polled = futures::stream::unfold(ticker, |mut ticker| async move {
+        ticker.tick().await;
+        Some(((), ticker))
+    })
     .skip(1) // the first tick fires immediately; the seed above already covered it
     .then(move |_| {
         let client = poll_client.clone();
