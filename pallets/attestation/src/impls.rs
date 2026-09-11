@@ -1,11 +1,11 @@
 use frame_support::{
     pallet_prelude::*,
-    traits::{ConstU32, Currency, DefensiveSaturating},
+    traits::{tokens::fungibles::Inspect, ConstU32, Currency, DefensiveSaturating, Get},
     transactional,
 };
 use log::debug;
 use sp_runtime::{
-    traits::{CheckedAdd, CheckedSub, SaturatedConversion, Saturating, Zero},
+    traits::{CheckedAdd, Saturating, Zero},
     ArithmeticError,
 };
 use sp_staking::StakingInterface;
@@ -25,6 +25,7 @@ use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
     asset::existential_deposit,
+    commit_observer::CommittedAttestationObserver,
     ledger::{AttestorLedger, UnlockChunk},
 };
 
@@ -226,8 +227,8 @@ impl<T: Config> Pallet<T> {
         // Get some amount to fund the attestor
         let amount: BalanceOf<T> = ONE_TENTH_CTC.into();
 
-        // Fund the attestor key
-        T::Currency::transfer(
+        // Fund the attestor key (native currency for fees / operations).
+        T::NativeCurrency::transfer(
             &stash,
             &attestor_id,
             amount,
@@ -239,19 +240,23 @@ impl<T: Config> Pallet<T> {
         let ledger: AttestorLedger<T> =
             AttestorLedger::new(stash.clone(), Self::min_bond_requirement(chain_key));
 
-        // If bond fails, it means it's already bonded and there is already an attestor(s) registerd by this stash
-        // In this case, we just bond extra to the stash
-        if ledger.bond().is_err() {
-            Self::bond_extra(chain_key, &stash)?;
-        } else {
-            // Would fail if account has no provider.
-            frame_system::Pallet::<T>::inc_consumers(&stash)?;
+        // First successful `bond()` creates the ledger; further attestors on the same stash hit
+        // `AlreadyBonded` and only add stake via `bond_extra`. Any other error (e.g. transfer
+        // failure) must propagate — do not call `bond_extra` without an existing ledger.
+        match ledger.bond() {
+            Ok(()) => {
+                // Would fail if account has no provider.
+                frame_system::Pallet::<T>::inc_consumers(&stash)?;
 
-            // Emit event
-            Self::deposit_event(Event::<T>::Bonded {
-                stash,
-                amount: Self::min_bond_requirement(chain_key),
-            });
+                Self::deposit_event(Event::<T>::Bonded {
+                    stash,
+                    amount: Self::min_bond_requirement(chain_key),
+                });
+            }
+            Err(Error::<T>::AlreadyBonded) => {
+                Self::bond_extra_for_registration(chain_key, &stash)?;
+            }
+            Err(e) => return Err(e.into()),
         }
 
         // Emit event
@@ -288,55 +293,98 @@ impl<T: Config> Pallet<T> {
         // Get the min bond requirement for the attestor
         let bond = Self::min_bond_requirement(chain_key);
 
-        let mut ledger = Self::ledger(&stash).ok_or(Error::<T>::NotStash)?;
-        // Value is the minimum of the bond and the active amount
-        let mut value = bond.min(ledger.active);
-
-        ensure!(
-            ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
-            Error::<T>::NoMoreChunks,
-        );
-
         // Aligns with the unlock chunk era used below (unbond completes at or after this era).
         let purge_at_era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
 
-        if !value.is_zero() {
-            // Decrease the active amount
-            ledger.active -= value;
+        // No ledger means there is no bond to unwind, so deregistration proceeds directly.
+        //
+        // Registration always creates a ledger (`try_insert_attestor_and_emit_event` bonds before
+        // it returns), and the only path that removes one is `kill_stash`, which returns the pooled
+        // funds and is gated on `!stash_backs_any_attestor`. So a registered attestor whose stash
+        // has no ledger is an inconsistent state rather than a reachable one — and the correct
+        // response to it on an *exit* path is to let the exit clean it up, not to block it.
+        // Refusing here with `NotStash` is what made the state permanent: the attestor could
+        // neither leave nor re-register, since `register_attestor` refuses with `AlreadyAttestor`
+        // while the registration survives.
+        //
+        // `MigrateLegacyNativeBonds` produces exactly this state on purpose. It clears the legacy
+        // native-CTC ledgers but deliberately leaves [`Attestors`] intact so attestation does not
+        // stall across the upgrade, leaving those attestors to unregister and re-bond in attest
+        // coin on their own schedule.
+        //
+        // Nothing is given away by skipping the unwind: with no ledger there is no `active` to draw
+        // down, no pooled balance to return, and no aggregate solvency requirement to violate. The
+        // BLS retirement below still runs on both paths, so the key-reuse delay is unaffected.
+        if let Some(mut ledger) = Self::ledger(&stash) {
+            // Value is the minimum of the bond and the active amount
+            let mut value = bond.min(ledger.active);
 
-            // Avoid there being a dust balance left in the staking system.
-            if ledger.active < existential_deposit::<T>() {
-                value += ledger.active;
-                ledger.active = Zero::zero();
-            }
+            ensure!(
+                ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
+                Error::<T>::NoMoreChunks,
+            );
 
-            // Note: in case there is no current era it is fine to bond one era more.
-            if let Some(chunk) = ledger
-                .unlocking
-                .last_mut()
-                .filter(|chunk| chunk.era == purge_at_era)
-            {
-                // To keep the chunk count down, we only keep one chunk per era. Since
-                // `unlocking` is a FiFo queue, if a chunk exists for `era` we know that it will
-                // be the last one.
-                chunk.value = chunk.value.defensive_saturating_add(value)
-            } else {
-                ledger
+            if !value.is_zero() {
+                // Decrease the active amount
+                ledger.active -= value;
+
+                // Aggregate solvency guard. The ledger is per-stash but a stash can back
+                // multiple attestors (across chains), so unlocking `bond.min(active)` for the
+                // attestor being removed here must not leave the *remaining* still-registered
+                // attestors collectively undercollateralized — a situation that arises once an
+                // operator raises a chain's `MinBondRequirement` after registration. The
+                // attestor being removed is still present in [`Attestors`] at this point, so it
+                // is excluded from the requirement. Checked before any storage write so a
+                // failure cleanly aborts the unbond.
+                let required =
+                    Self::required_bond_for_stash(&stash, Some((chain_key, &attestor_id)));
+
+                // Avoid there being a dust balance left in the staking system — but only when no
+                // remaining attestor still needs it as collateral. Sweeping unconditionally would zero
+                // an `active` that satisfied `required`, turning a legitimate exit into a spurious
+                // `InsufficientRemainingBond` (the guard reads the *post*-sweep value, so it cannot
+                // tell dust-sweeping apart from real undercollateralization). Reachable only when
+                // `0 < required < ED`; at the attest-coin asset's `min_balance` of 1 this branch fires
+                // only once `active` is already zero, so the ordering is currently a no-op — but
+                // `min_balance` is mutable via root `force_asset_status`, so don't rely on that.
+                if required.is_zero() && ledger.active < existential_deposit::<T>() {
+                    value += ledger.active;
+                    ledger.active = Zero::zero();
+                }
+
+                ensure!(
+                    ledger.active >= required,
+                    Error::<T>::InsufficientRemainingBond
+                );
+
+                // Note: in case there is no current era it is fine to bond one era more.
+                if let Some(chunk) = ledger
                     .unlocking
-                    .try_push(UnlockChunk {
-                        value,
-                        era: purge_at_era,
-                    })
-                    .map_err(|_| Error::<T>::NoMoreChunks)?;
-            };
+                    .last_mut()
+                    .filter(|chunk| chunk.era == purge_at_era)
+                {
+                    // To keep the chunk count down, we only keep one chunk per era. Since
+                    // `unlocking` is a FiFo queue, if a chunk exists for `era` we know that it will
+                    // be the last one.
+                    chunk.value = chunk.value.defensive_saturating_add(value)
+                } else {
+                    ledger
+                        .unlocking
+                        .try_push(UnlockChunk {
+                            value,
+                            era: purge_at_era,
+                        })
+                        .map_err(|_| Error::<T>::NoMoreChunks)?;
+                };
 
-            // Update the ledger
-            ledger.update()?;
+                // Update the ledger
+                ledger.update()?;
 
-            Self::deposit_event(Event::<T>::Unbonded {
-                stash: stash.clone(),
-                amount: value,
-            });
+                Self::deposit_event(Event::<T>::Unbonded {
+                    stash: stash.clone(),
+                    amount: value,
+                });
+            }
         }
 
         if let Some(bls_public_key) = attestor.bls_public_key {
@@ -378,6 +426,10 @@ impl<T: Config> Pallet<T> {
 
         // Validate the attestation
         Self::validate_attestation(chain_key, &attestation)?;
+        let eligible_vec: Vec<T::AccountId> =
+            Self::eligible_active_signers(chain_key, &attestation)
+                .into_iter()
+                .collect();
 
         // Store the attestation
         let digest = attestation.digest();
@@ -427,12 +479,14 @@ impl<T: Config> Pallet<T> {
             AttestationRemovalQueues::<T>::mutate(chain_key, |queue| {
                 queue.push_back(digest);
             });
+            Self::notify_rewards_for_commit(chain_key, &eligible_vec);
             return Ok(());
         }
 
         // When catching up (large continuity proof spanning 2+ checkpoint boundaries), create
         // checkpoints directly from the proof. Otherwise use the legacy queue-based flow.
         if Self::create_checkpoints_from_continuity_proof(chain_key, &attestation, digest)? {
+            Self::notify_rewards_for_commit(chain_key, &eligible_vec);
             return Ok(());
         }
 
@@ -448,7 +502,31 @@ impl<T: Config> Pallet<T> {
         }
         CheckpointingQueues::<T>::insert(chain_key, queue);
 
+        Self::notify_rewards_for_commit(chain_key, &eligible_vec);
         Ok(())
+    }
+
+    /// Active attestors listed on the attestation (intersection with [`ActiveAttestors`]).
+    pub(crate) fn eligible_active_signers(
+        chain_key: ChainKey,
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+    ) -> BTreeSet<T::AccountId> {
+        let active_attestors = ActiveAttestors::<T>::get(chain_key)
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        attestation
+            .attestors
+            .iter()
+            .filter(|a| active_attestors.contains(a))
+            .cloned()
+            .collect()
+    }
+
+    fn notify_rewards_for_commit(chain_key: ChainKey, eligible_signers: &[T::AccountId]) {
+        <T::CommittedAttestationHook as CommittedAttestationObserver<T::AccountId>>::on_committed_eligible(
+            chain_key,
+            eligible_signers,
+        );
     }
 
     pub fn start_attesting(
@@ -554,7 +632,31 @@ impl<T: Config> Pallet<T> {
     }
 
     pub(super) fn do_withdraw_unbonded(stash: &T::AccountId) -> DispatchResult {
-        let mut ledger = Self::ledger(stash).ok_or(Error::<T>::NotStash)?;
+        let Some(mut ledger) = Self::ledger(stash) else {
+            // A ledger-less stash can still hold live [`RetiredAttestorBlsKeys`] rows:
+            // `remove_attestor_and_emit_event` deregisters such a stash and records the retirement
+            // as usual, and [`Self::purge_retired_bls_keys_for_stash`] is the *only* era-based
+            // release there is. Gating it behind a ledger would reserve those [`BlsKeyOwner`]
+            // claims forever for any attestor that unregisters after
+            // `MigrateLegacyNativeBonds` and does not re-register — the retirement delay would
+            // start but never elapse.
+            //
+            // Releasing early instead is not an option: the claim is held so that attestations
+            // referencing the retired controller stay verifiable for the delay, which is a
+            // property of attestation history rather than of the bond. So the era still has to be
+            // respected — it just has to be *reachable*.
+            //
+            // Nothing else in this function applies: there is no bond to consolidate or return,
+            // and no ledger to reap. Callers with neither a ledger nor a retired row still get
+            // `NotStash`, so an unrelated account sees the same error as before rather than a
+            // silent no-op success.
+            ensure!(
+                !RetiredAttestorKeysByStash::<T>::get(stash).is_empty(),
+                Error::<T>::NotStash
+            );
+            Self::purge_retired_bls_keys_for_stash(stash, Self::current_era());
+            return Ok(());
+        };
 
         let (stash, old_total) = (ledger.stash.clone(), ledger.total_staked);
 
@@ -565,8 +667,23 @@ impl<T: Config> Pallet<T> {
         Self::purge_retired_bls_keys_for_stash(&stash, current_era);
         let new_total = ledger.total_staked;
 
-        let ed = T::Currency::minimum_balance();
-        if ledger.unlocking.is_empty() && (ledger.active < ed || ledger.active.is_zero()) {
+        let ed = T::BondFungibles::minimum_balance(T::BondAssetId::get());
+        // A stash that still backs a registered attestor must never be reaped, however small its
+        // `active` is. `unregister_attestor` reads the ledger, so reaping it while `Attestors` entries
+        // survive strands those attestors on `NotStash`.
+        //
+        // The test is attestor *existence*, not `required_bond_for_stash(..).is_zero()`: with a zero
+        // `MinBondRequirement` — the default this runtime ships — the aggregate requirement is zero
+        // while attestors are still registered, so the requirement cannot stand in for "is the ledger
+        // still needed". Existence also covers the case a requirement test would catch on its own: a
+        // stash that registered while the requirement was zero has `active == 0`, and raising
+        // `MinBondRequirement` afterwards lifts `required` above the ED without touching `active`
+        // (nothing outside the unbond paths writes `active`, and `consolidate_unlocked` carries it
+        // through unchanged).
+        if ledger.unlocking.is_empty()
+            && !Self::stash_backs_any_attestor(&stash)
+            && (ledger.active < ed || ledger.active.is_zero())
+        {
             // This account must have called `unbond()` with some value that caused the active
             // portion to fall below existential deposit + will have no more unlocking chunks
             // left. We can now safely remove all staking-related information.
@@ -593,25 +710,30 @@ impl<T: Config> Pallet<T> {
 
 /// NON-CALL FUNCTIONS ///
 impl<T: Config> Pallet<T> {
-    pub(super) fn bond_extra(chain_key: ChainKey, stash: &T::AccountId) -> DispatchResult {
-        let bond = Self::min_bond_requirement(chain_key);
+    /// Move exactly `amount` attest coin from `stash` into the bond pool and credit it to the
+    /// ledger's `total_staked` / `active`.
+    ///
+    /// An under-funded stash is rejected outright. The previous `bond.min(liquid)` clamp bonded
+    /// whatever was available and reported success, which let a second `register_attestor` on the
+    /// same stash raise the aggregate collateral requirement by a full `MinBondRequirement` while
+    /// crediting less than that — leaving the stash undercollateralized against the solvency guard
+    /// in `remove_attestor_and_emit_event`, which then refused to let it unwind.
+    pub(crate) fn do_bond_extra(stash: &T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
+        ensure!(!amount.is_zero(), Error::<T>::InsufficientBalance);
 
         let mut ledger = Self::ledger(stash.clone()).ok_or(Error::<T>::NotStash)?;
 
-        let extra = bond.min(
-            T::Currency::free_balance(stash)
-                .checked_sub(&ledger.total_staked)
-                .ok_or(ArithmeticError::Overflow)?,
-        );
+        let liquid = T::BondFungibles::balance(T::BondAssetId::get(), stash);
+        ensure!(liquid >= amount, Error::<T>::InsufficientBalance);
 
         // Update total staked and active amount
         ledger.total_staked = ledger
             .total_staked
-            .checked_add(&extra)
+            .checked_add(&amount)
             .ok_or(ArithmeticError::Overflow)?;
         ledger.active = ledger
             .active
-            .checked_add(&extra)
+            .checked_add(&amount)
             .ok_or(ArithmeticError::Overflow)?;
 
         // NOTE: ledger must be updated prior to calling `Self::weight_of`.
@@ -619,10 +741,100 @@ impl<T: Config> Pallet<T> {
 
         Self::deposit_event(Event::<T>::Bonded {
             stash: stash.clone(),
-            amount: extra,
+            amount,
         });
 
         Ok(())
+    }
+
+    /// Move surplus `active` bond into an unlocking chunk so `withdraw_unbonded` can return it.
+    ///
+    /// Inverse of [`Self::do_bond_extra`]. `active` may only be reduced down to the stash's
+    /// aggregate requirement across its still-registered attestors, never below, so this cannot
+    /// undercollateralize. With no attestors left the requirement is zero, so the whole remaining
+    /// bond is releasable and the dust sweep below lets `withdraw_unbonded` reap the stash.
+    ///
+    /// Without this path any `active` above the aggregate requirement was locked permanently:
+    /// `remove_attestor_and_emit_event` releases at most the *current* `MinBondRequirement` per
+    /// attestor, and `kill_stash` only fires once `active` is under the existential deposit. So
+    /// overshooting a `bond_extra` top-up, a later `MinBondRequirement` *decrease*, or topping up
+    /// while no attestor is registered each left an unreachable remainder in the bond pool.
+    pub(crate) fn do_unbond_surplus(stash: &T::AccountId, amount: BalanceOf<T>) -> DispatchResult {
+        ensure!(!amount.is_zero(), Error::<T>::InsufficientBalance);
+
+        let mut ledger = Self::ledger(stash).ok_or(Error::<T>::NotStash)?;
+        ensure!(
+            ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
+            Error::<T>::NoMoreChunks,
+        );
+
+        let mut value = amount.min(ledger.active);
+        ensure!(!value.is_zero(), Error::<T>::InsufficientBalance);
+
+        ledger.active = ledger.active.saturating_sub(value);
+
+        let required = Self::required_bond_for_stash(stash, None);
+
+        // Dust sweep, mirroring the unregister unbond path: only when no remaining attestor needs
+        // the remainder as collateral. Sweeping unconditionally would both zero an `active` that
+        // satisfied `required` (a spurious `InsufficientRemainingBond`) and unbond *more* than the
+        // caller asked for, which is a worse surprise here than on the unregister path because
+        // `amount` is caller-specified.
+        if required.is_zero() && ledger.active < existential_deposit::<T>() {
+            value = value.saturating_add(ledger.active);
+            ledger.active = Zero::zero();
+        }
+
+        ensure!(
+            ledger.active >= required,
+            Error::<T>::InsufficientRemainingBond
+        );
+
+        // `total_staked` is unchanged — the value moves from `active` into `unlocking`, so
+        // `ledger.update()` sees a zero pool delta. The attest coin leaves the pool later, in
+        // `do_withdraw_unbonded`, once the chunk matures.
+        let purge_at_era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
+        if let Some(chunk) = ledger
+            .unlocking
+            .last_mut()
+            .filter(|chunk| chunk.era == purge_at_era)
+        {
+            chunk.value = chunk.value.defensive_saturating_add(value);
+        } else {
+            ledger
+                .unlocking
+                .try_push(UnlockChunk {
+                    value,
+                    era: purge_at_era,
+                })
+                .map_err(|_| Error::<T>::NoMoreChunks)?;
+        }
+
+        ledger.update()?;
+
+        Self::deposit_event(Event::<T>::Unbonded {
+            stash: stash.clone(),
+            amount: value,
+        });
+
+        Ok(())
+    }
+
+    /// Bond the extra collateral that a further `register_attestor` on `chain_key` requires.
+    ///
+    /// Named distinctly from the `bond_extra` **dispatchable** (which takes an explicit amount);
+    /// both funnel into [`Self::do_bond_extra`].
+    pub(super) fn bond_extra_for_registration(
+        chain_key: ChainKey,
+        stash: &T::AccountId,
+    ) -> DispatchResult {
+        let bond = Self::min_bond_requirement(chain_key);
+        if bond.is_zero() {
+            // Nothing to move. `do_bond_extra` rejects a zero amount so it cannot emit an empty
+            // `Bonded` event or take the pool-transfer path for a no-op.
+            return Ok(());
+        }
+        Self::do_bond_extra(stash, bond)
     }
 
     /// Remove all associated data of a stash account from the staking system.
@@ -725,35 +937,16 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Get the locked balance of an account
-    /// This is the total amount of balance that is locked by this module
+    /// Bonded attest coin for this stash (tracked in the ledger; funds sit in the bond pool).
     pub fn get_locked_balance(account_id: &T::AccountId) -> BalanceOf<T> {
-        let balance_locks = pallet_balances::Pallet::<T>::locks(account_id);
-
-        let mut locked_balance = BalanceOf::<T>::zero();
-        // loop over balance accumulate locked balance
-        for lock in balance_locks {
-            if lock.id == crate::ledger::BOND_LOCK_ID {
-                locked_balance +=
-                    BalanceOf::<T>::saturated_from(lock.amount.saturated_into::<u128>());
-            }
-        }
-
-        locked_balance
+        Self::ledger(account_id)
+            .map(|l| l.total_staked)
+            .unwrap_or_else(Zero::zero)
     }
 
-    /// Get the free balance of an account
-    /// This is the total balance minus the locked balance
+    /// Liquid attest coin on the stash account (not yet moved to the bond pool).
     pub fn get_free_balance(account_id: &T::AccountId) -> BalanceOf<T> {
-        // This is the existential deposit
-        let min_b = T::Currency::minimum_balance();
-        // Free balance of the account
-        let free_b = T::Currency::free_balance(account_id);
-        // Locked balance of the account
-        let locked_balance = Self::get_locked_balance(account_id);
-
-        // Free balance is the total balance minus the minimum balance and the locked balance
-        free_b.saturating_sub(min_b).saturating_sub(locked_balance)
+        T::BondFungibles::balance(T::BondAssetId::get(), account_id)
     }
 
     pub fn apply_interval_updates() {
@@ -832,6 +1025,58 @@ impl<T: Config> Pallet<T> {
 
     pub fn attestor_is_registered(chain_key: ChainKey, address: &T::AccountId) -> bool {
         Attestors::<T>::contains_key(chain_key, address)
+    }
+
+    /// Aggregate collateral a stash must keep bonded to back all of its still-registered
+    /// attestors, summed across every supported chain using each chain's *current*
+    /// [`MinBondRequirement`]. A single stash can back multiple attestors (the second and
+    /// later registrations top up the shared ledger via `bond_extra`) and those attestors
+    /// may span different chains with different requirements, so the requirement is a sum
+    /// rather than `count * single_min_bond`.
+    ///
+    /// `exclude` lets a collateral-reducing path discount an attestor that is being removed
+    /// in the same call but whose [`Attestors`] entry has not been deleted yet.
+    ///
+    /// Cost is O(supported chains x attestors-per-chain). Bounded, and deliberately left as a scan
+    /// rather than backed by a per-stash counter: `Attestors` is the single source of truth, so this
+    /// cannot disagree with it, whereas a derived index could drift and silently weaken the bond
+    /// solvency guard. `MaxAttestors` is capped at `Config::MaxAttestationNodes` (100), and the
+    /// runtime meters `proof_size` as `u64::MAX`, so the worst case is a fraction of a percent of one
+    /// block's ref_time — and it is charged to the caller via the dispatch weight. Callers are all
+    /// low-frequency (unregister / bond top-up), never block hooks or `commit_attestation`.
+    /// Whether `stash` still backs at least one registered attestor on any supported chain.
+    ///
+    /// Short-circuits on the first match, but its worst case is the same `Attestors` walk as
+    /// [`Self::required_bond_for_stash`] — see the `n` component on `withdraw_unbonded`'s weight.
+    pub(crate) fn stash_backs_any_attestor(stash: &T::AccountId) -> bool {
+        T::SupportedChains::supported_chains()
+            .into_iter()
+            .any(|chain_key| {
+                Attestors::<T>::iter_prefix_values(chain_key)
+                    .any(|attestor| attestor.stash == *stash)
+            })
+    }
+
+    pub(crate) fn required_bond_for_stash(
+        stash: &T::AccountId,
+        exclude: Option<(ChainKey, &T::AccountId)>,
+    ) -> BalanceOf<T> {
+        let mut required: BalanceOf<T> = Zero::zero();
+        for chain_key in T::SupportedChains::supported_chains() {
+            let min_bond = Self::min_bond_requirement(chain_key);
+            for (attestor_id, attestor) in Attestors::<T>::iter_prefix(chain_key) {
+                if attestor.stash != *stash {
+                    continue;
+                }
+                if let Some((ex_chain, ex_id)) = exclude {
+                    if ex_chain == chain_key && *ex_id == attestor_id {
+                        continue;
+                    }
+                }
+                required = required.saturating_add(min_bond);
+            }
+        }
+        required
     }
 
     pub fn last_digest(chain_key: ChainKey) -> Option<Digest> {
@@ -962,16 +1207,7 @@ impl<T: Config> Pallet<T> {
         }
 
         // Attestor eligibility validation
-        let active_attestors = ActiveAttestors::<T>::get(chain_key)
-            .into_iter()
-            .collect::<BTreeSet<_>>(); // or HashSet if std is available
-
-        let eligible_attestors: BTreeSet<T::AccountId> = attestation
-            .attestors
-            .iter()
-            .filter(|attestor| active_attestors.contains(attestor))
-            .cloned()
-            .collect();
+        let eligible_attestors = Self::eligible_active_signers(chain_key, attestation);
 
         // Threshold validation
         let target_sample_size = Self::target_sample_size(chain_key);

@@ -3,6 +3,7 @@ import { decodeAddress } from '@polkadot/util-crypto';
 import { u8aToHex } from '@polkadot/util';
 import { OptionValues } from 'commander';
 import { evmAddressToSubstrateAddress } from '../evm/address';
+import { isHexSecret } from '../account/keyring';
 import { getEvmUrl } from '../evm/rpc';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -29,15 +30,24 @@ export function substrateAddressToBytes32(ss58: string): string {
 }
 
 /**
- * Derive an EVM private key (hex string) and Ethereum address from a BIP39 mnemonic.
- * Uses the standard Ethereum HD path (m/44'/60'/0'/0/0) via ethers.js.
+ * Derive an EVM private key (hex string) and Ethereum address from a secret.
+ *
+ * Two accepted forms, matching {@link secretValidate}:
+ *   - a BIP39 mnemonic, derived at the standard Ethereum HD path (m/44'/60'/0'/0/0);
+ *   - `0x` + 64 hex, taken as the secp256k1 private key itself.
+ *
+ * Note the second form is read as an *EVM* key, which is not how the attestor
+ * binary reads the same shape (there it is a Substrate seed). The two therefore
+ * name different accounts, so do not expect one 0x value to serve as both an
+ * attestor identity and its stash — they must be distinct accounts anyway, since
+ * `register_attestor` rejects `attestor_id == stash`.
  */
 export function deriveEvmKeyFromSecret(secret: string): {
     privateKey: string;
     evmAddress: string;
     stashAddress: string;
 } {
-    const wallet: HDNodeWallet = HDNodeWallet.fromPhrase(secret);
+    const wallet: ethers.BaseWallet = isHexSecret(secret) ? new ethers.Wallet(secret) : HDNodeWallet.fromPhrase(secret);
     const privateKey = wallet.privateKey;
     const evmAddress = wallet.address;
     const stashAddress = evmAddressToSubstrateAddress(evmAddress);
