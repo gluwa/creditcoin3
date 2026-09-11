@@ -33,8 +33,9 @@ const RECONNECT_MAX_ATTEMPTS: usize = 5;
 /// none, and no deadline at all means a single hung request pins a caller (and its batch)
 /// forever. Generous on purpose: a 1000-block continuity range on a slow RPC is minutes.
 const ETH_RPC_CALL_TIMEOUT: Duration = Duration::from_secs(300);
-/// Upper bound on one repair: re-dialling the primary and every fallback and reading their
-/// chain ids.
+/// Upper bound on re-dialling the *primary* during one repair (chain-id read included).
+/// Fallbacks are re-dialled after it under `eth`'s own per-fallback bound and never decide
+/// the repair's outcome.
 const ETH_RPC_DIAL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// ETH RPC provider that owns one long-lived [`eth::Client`] and reconnects it on transport
@@ -78,7 +79,7 @@ impl ReconnectingEthRpcProvider {
         }
     }
 
-    /// Override the per-attempt call deadline and the per-repair dial deadline.
+    /// Override the per-attempt call deadline and the per-repair primary dial deadline.
     #[must_use]
     pub fn with_timeouts(mut self, call_timeout: Duration, dial_timeout: Duration) -> Self {
         self.call_timeout = call_timeout;
@@ -189,9 +190,9 @@ impl ReconnectingEthRpcProvider {
         tokio_retry::Retry::spawn(strategy, || async {
             warn!(op, "reconnecting ETH RPC client");
             let mut candidate = self.client.read().await.clone();
-            tokio::time::timeout(self.dial_timeout, candidate.reconnect())
+            candidate
+                .reconnect_with_deadline(self.dial_timeout)
                 .await
-                .map_err(|_| anyhow!("dial timed out after {:?}", self.dial_timeout))?
                 .map_err(|e| anyhow!("{e}"))?;
             *self.client.write().await = candidate;
             self.generation

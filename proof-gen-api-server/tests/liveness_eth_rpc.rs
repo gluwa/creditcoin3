@@ -21,7 +21,11 @@ async fn rpc_fixture(server: &MockServer, fail_tip: bool, delay: Duration) {
                 json!({"jsonrpc": "2.0", "id": req["id"],
                        "error": {"code": -32000, "message": "upstream unavailable"}})
             } else {
-                let result = if req["method"] == "eth_chainId" { "0x7a69" } else { "0x3e8" };
+                let result = if req["method"] == "eth_chainId" {
+                    "0x7a69"
+                } else {
+                    "0x3e8"
+                };
                 json!({"jsonrpc": "2.0", "id": req["id"], "result": result})
             };
             ResponseTemplate::new(200)
@@ -111,7 +115,11 @@ async fn concurrent_failures_share_one_repair_dial() {
     rpc_fixture(&server, false, Duration::ZERO).await;
     let client = eth::Client::new(&server.uri(), None).await.unwrap();
     let provider = Arc::new(ReconnectingEthRpcProvider::new(client, ENCODING));
-    assert_eq!(count_method(&server, "eth_chainId").await, 1, "initial connect");
+    assert_eq!(
+        count_method(&server, "eth_chainId").await,
+        1,
+        "initial connect"
+    );
 
     // Tip reads always fail; each repair dial takes 400 ms.
     server.reset().await;

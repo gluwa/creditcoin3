@@ -413,6 +413,11 @@ pub struct Client {
 const HTTP_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 /// TCP/TLS connect deadline on the HTTP transport.
 const HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Default bound on re-dialling the primary in [`Client::reconnect`].
+pub const DEFAULT_PRIMARY_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Bound on re-dialling one fallback during [`Client::reconnect_with_deadline`]. Fallbacks are
+/// best-effort there; a slow one must not hold a repaired primary hostage.
+pub const FALLBACK_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
@@ -525,8 +530,29 @@ impl Client {
         })
     }
 
+    /// Re-dial the primary under [`DEFAULT_PRIMARY_DIAL_TIMEOUT`]; see
+    /// [`Self::reconnect_with_deadline`].
     pub async fn reconnect(&mut self) -> Result<(), Error> {
-        let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
+        self.reconnect_with_deadline(DEFAULT_PRIMARY_DIAL_TIMEOUT)
+            .await
+    }
+
+    /// Re-dial the primary under `primary_deadline`, then each fallback under its own
+    /// [`FALLBACK_DIAL_TIMEOUT`]. The primary's outcome alone decides success: a fallback that
+    /// hangs or fails keeps its previous provider (if any) and is logged, it never discards a
+    /// primary connection that already came up.
+    pub async fn reconnect_with_deadline(
+        &mut self,
+        primary_deadline: std::time::Duration,
+    ) -> Result<(), Error> {
+        let (url, rpc_provider, chain_id) =
+            tokio::time::timeout(primary_deadline, Self::init_rpc(self.url.as_ref()))
+                .await
+                .map_err(|_| {
+                    Error::ClientError(anyhow::anyhow!(
+                        "primary RPC dial timed out after {primary_deadline:?}"
+                    ))
+                })??;
 
         // Reconnect each fallback against its own URL too, otherwise a
         // recovered primary would silently keep using a stale fallback
@@ -547,7 +573,15 @@ impl Client {
                 fp.url.as_str() == raw_url.as_str()
                     || fp.url.as_str().trim_end_matches('/') == raw_url.trim_end_matches('/')
             });
-            match Self::init_rpc(raw_url).await {
+            let dialed = tokio::time::timeout(FALLBACK_DIAL_TIMEOUT, Self::init_rpc(raw_url))
+                .await
+                .map_err(|_| {
+                    Error::ClientError(anyhow::anyhow!(
+                        "fallback dial timed out after {FALLBACK_DIAL_TIMEOUT:?}"
+                    ))
+                })
+                .and_then(|r| r);
+            match dialed {
                 Ok((fp_url, fp_provider, fp_chain_id)) => {
                     if fp_chain_id != chain_id {
                         tracing::error!(
