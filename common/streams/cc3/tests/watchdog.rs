@@ -139,6 +139,11 @@ async fn resume_from_skips_known_blocks_and_yields_the_rest() {
         .with_resume_from(Some(1))
         .build();
     let mut stream = stream_cc3::StreamCC3::new(config).await.unwrap();
+    assert_eq!(
+        progress.height(),
+        Some(1),
+        "the snapshot height itself counts as progress once subscribed"
+    );
     assert_eq!(next_height(&mut stream).await, 2);
     assert_eq!(next_height(&mut stream).await, 3);
     assert_eq!(progress.height(), Some(3));

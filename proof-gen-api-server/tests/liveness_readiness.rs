@@ -197,6 +197,10 @@ async fn startup_reads_are_pinned_to_one_finalized_block_and_readiness_waits_for
     let (status, body) = get(&app, "/api/v1/health").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["ready"], false);
+    assert!(
+        !body["not_ready_reasons"].as_array().unwrap().is_empty(),
+        "ready=false always comes with at least one reason: {body}"
+    );
     assert_eq!(
         body["status"], "healthy",
         "legacy status is unchanged by readiness"
