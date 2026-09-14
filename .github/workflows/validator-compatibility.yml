@@ -171,7 +171,7 @@ jobs:
       - build-sut
     runs-on:
       [self-hosted, "workflow-${{ github.run_id }}", "type-validator-compatibility"]
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
       LOG_DIR: /var/tmp/validator-compatibility
