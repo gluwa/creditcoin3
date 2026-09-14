@@ -27,10 +27,15 @@ const ENV_PATH = path.resolve(__dirname, '../.env');
 require('dotenv').config({ path: ENV_PATH, quiet: true });
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
+// Generated, not hand-maintained: `cli/scripts/sync-vault-artifact.sh` compiles it from the
+// AttestCoinTreasuryVault.sol that ships in the @gluwa/asc-contracts npm package. The contract
+// itself lives in the asc-contracts repo -- edit it there, not here.
 const ARTIFACT_PATH = path.join(
     REPO_ROOT,
     'cli/src/test/blockchain-tests/artifacts/AttestCoinTreasuryVault.json',
 );
+const SYNC_HINT =
+    'Regenerate it with:\n  cd cli && yarn sync:vault-artifact  (needs solc on PATH)';
 
 /** Attest-coin precompile, `PrecompileAt<AddressU64<4053>>` — 4053 == 0xfd5. */
 const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
@@ -101,7 +106,17 @@ async function main() {
         throw new Error('ATTESTCOIN_ERC20 is not set in .env — run step 3 (deploy-erc20.js) first');
     }
 
-    const artifact = JSON.parse(fs.readFileSync(ARTIFACT_PATH, 'utf8'));
+    let artifact;
+    try {
+        artifact = JSON.parse(fs.readFileSync(ARTIFACT_PATH, 'utf8'));
+    } catch (error) {
+        throw new Error(
+            `cannot read the vault artifact at ${ARTIFACT_PATH}\n  ${error.message}\n\n${SYNC_HINT}`,
+        );
+    }
+    if (!artifact.abi || !artifact.bytecode || artifact.bytecode === '0x') {
+        throw new Error(`vault artifact at ${ARTIFACT_PATH} has no abi/bytecode\n\n${SYNC_HINT}`);
+    }
     const provider = new ethers.JsonRpcProvider(RPC_URL);
 
     let network;
