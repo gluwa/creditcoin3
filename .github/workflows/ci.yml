@@ -29,6 +29,8 @@ jobs:
       integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
       integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
       regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
+      attestor_compatibility: ${{ steps.filter.outputs.attestor_compatibility }}
+      validator_compatibility: ${{ steps.filter.outputs.validator_compatibility }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
@@ -101,6 +103,20 @@ jobs:
               - "cli/src/lib/**"
               - "cli/src/test/integration-tests/**"
               - ".github/workflows/ci.yml"
+            # Carried over verbatim from attestor-compatibility.yml's own pull_request
+            # trigger, which it no longer has now that ci.yml calls it.
+            attestor_compatibility:
+              - "attestor/**"
+              - "pallets/attestation/**"
+              - "node/**"
+              - "runtime/**"
+              - ".github/workflows/attestor-compatibility.yml"
+            # Likewise from validator-compatibility.yml.
+            validator_compatibility:
+              - "node/**"
+              - "runtime/**"
+              - "chainspecs/**"
+              - ".github/workflows/validator-compatibility.yml"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
@@ -1842,6 +1858,35 @@ jobs:
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
       checkout_ref: "main"
+
+  # Both compatibility suites used to live in their own pull_request workflows, each
+  # building its own SUT. That was the same `--release --features=fast-runtime` compile
+  # of the same commit, three times over counting this workflow's build. They now run
+  # here so they can download binary-for-testing-ci instead.
+  #
+  # git-lfs-checkout is deliberately not needed: the only LFS-tracked file compiled into
+  # the node is chainspecs/mainnetSpecRaw.json, reached solely via mainnet_config() at
+  # node/src/chain_spec.rs:137, and both suites run --chain dev only. validator's
+  # chainspecs/** filter is a trigger, not a runtime read.
+  attestor-compatibility:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.attestor_compatibility == 'true' }}
+    uses: ./.github/workflows/attestor-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
+
+  validator-compatibility:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.validator_compatibility == 'true' }}
+    uses: ./.github/workflows/validator-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
 
   archiver-testing:
     if: ${{ needs.should-run.outputs.archiver == 'true' }}

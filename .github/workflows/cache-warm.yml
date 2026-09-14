@@ -11,8 +11,8 @@ name: cache-warm
 # everyone else still paid full price.
 #
 # rust.yml carries its own `push` trigger for the rust-check / rust-clippy / rust-test
-# keys. This workflow covers the separate key used by build-native.yml callers, which is
-# the one the two compatibility builds restore.
+# keys. This workflow covers the separate key used by build-native.yml callers, all of
+# which now run on self-hosted Linode VMs.
 #
 # IMPORTANT, on why this calls build-native.yml instead of running cargo directly:
 # Swatinem/rust-cache mixes the Rust environment into the cache key, including env vars
@@ -44,34 +44,17 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # Mirrors the inputs both compatibility workflows pass, because theirs is the build
-  # this is meant to accelerate: they restored
-  # v0-rust-build-creditcoin-node-Linux-x64-<env>-<manifests> with a full match and
-  # still spent ~21 minutes each, and without a default-branch producer a fresh PR gets
-  # no restore at all.
+  # Every remaining build-native.yml caller runs on a Linode VM: ci.yml's
+  # build-creditcoin-node-for-testing-ci and rebuild-new-metadata, proof-gen-api-server,
+  # benchmarks, both chainspec builds, runtime-upgrade and release. build-native.yml keys the
+  # self-hosted family separately from hosted runners because a `target/` built under a
+  # different Cargo home fingerprints as stale, so this is the producer that namespace needs.
+  # Without it every fresh PR builds it cold.
   #
-  # This covers the hosted consumers only: the two compatibility builds. ci.yml builds the
-  # same configuration on a self-hosted Linode runner, which build-native.yml now keys into
-  # its own namespace, so it needs its own producer — see `warm-build-creditcoin-node-linode`
-  # below.
-  warm-build-creditcoin-node:
-    uses: ./.github/workflows/build-native.yml
-    with:
-      build-options: "--release --features=fast-runtime"
-      git-lfs-checkout: false
-      version-string: cache-warm
-      cache-key-name: build-creditcoin-node
-      runs-on: "['ubuntu-26.04']"
-      # Nothing consumes the output; this run exists only for its cache entry.
-      upload-artifacts: false
-    secrets: inherit
-
-  # The self-hosted half of the same configuration. ci.yml's `build-creditcoin-node-for-testing-ci`
-  # and proof-gen-api-server's build both run `--release --features=fast-runtime` on a Linode VM,
-  # and build-native.yml keys them separately from the hosted runners above because a `target/`
-  # built under a different Cargo home fingerprints as stale. Without this job that namespace has
-  # no default-branch producer and every fresh PR builds it cold, which is the largest single
-  # block of PR wall-clock left after the hosted warmer above.
+  # There used to be a second, hosted warmer here for the two compatibility builds. Those now
+  # consume ci.yml's artifact instead of building anything, leaving no hosted caller of
+  # build-native.yml at all, so it was removed rather than left warming a namespace nobody
+  # reads.
   #
   # It costs one VM per manifest change on usc-dev, not per PR.
   deploy-runner:
