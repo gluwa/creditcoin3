@@ -8,9 +8,10 @@ A minimal set of steps to test the functionality of the attestcoin precompile.
     b. set_min_bond_requirement -> 100
 3. Deploy Attestcoin ERC20 contract
 4. Set Attestcoin rewards token in palletAttestcoinRewards
-5. Fund Attestcoin precompile account, attestor stash, and attestor operator account using sudo
-    a. With CTC, 100 each
-    b. With ATC, 10,000 for the precompile and 100 for the attestor stash
+    a. Deploy the treasury vault, then set it in palletAttestcoinRewards
+5. Fund the treasury vault, attestor stash, and attestor operator account
+    a. With CTC, 100 each for the attestor stash and the attestor operator account
+    b. With ATC, 10,000 for the treasury vault (pays reward claims) and 100 for the attestor stash
 6. Call `deposit` in the attestcoin precompile to fund a mapped EVM stash account with pallet assets attestcoin
 7. Call `register_attestor` in the attestor stash precompile
 8. Start your attestor, mostly following steps from https://docs.creditcoin.org/attestcoin-protocol/attestcoin-protocol-operator-guides/attestor-operator-guide
@@ -77,17 +78,33 @@ Go to Developer -> Sudo and select the call AttestCoinRewards -> setAttestCoinTo
 Params:
 token -> <ATTESTCOIN_ERC20 from .env>
 
-### 5. Fund Accounts
+### 4b. Deploy the Treasury Vault and Register It
 
-5.1: Fund precompile account
-
-- ATC funding
-
-The mint is an EVM call signed with the `DEPLOYER_PRIVATE_KEY` from step 3. The `precompile`
-alias resolves to `0x...0fd5` so you don't have to paste it:
+Reward claims are **not** paid from the precompile's own balance. They come from a treasury vault
+contract that grants the precompile an ERC-20 allowance, and `claim` spends it with
+`transferFrom(vault, attestor, amount)`.
 
 ```sh
-node scripts/fund-erc20.js precompile 10000
+node scripts/deploy-vault.js
+```
+
+Then register it with the runtime. In polkadot.js:
+
+Go to Developer -> Sudo and select the call
+AttestCoinRewards -> setRewardVault.
+Params:
+vault -> <ATTESTCOIN_VAULT from .env>
+
+### 5. Fund Accounts
+
+5.1: Fund the treasury vault
+
+The vault is the only address that needs pre-funding with ATC. It pays every reward claim, and
+nothing else fills it. The mint is an EVM call signed with the `DEPLOYER_PRIVATE_KEY` from step 3;
+the `vault` alias resolves the address from `.env` for you:
+
+```sh
+node scripts/fund-erc20.js vault 10000
 ```
 
 5.2: Fund Attestor stash EVM account

@@ -11,6 +11,8 @@ import { fundFromSudo } from '../../integration-tests/helpers';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import tokenArtifact = require('../artifacts/MockAttestToken.json');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+import vaultArtifact = require('../artifacts/AttestCoinTreasuryVault.json');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import feeOnTransferTokenArtifact = require('../artifacts/FeeOnTransferAttestToken.json');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import precompileAbi = require('../artifacts/attest_coin.json');
@@ -129,7 +131,11 @@ function attestationBondPoolAccountId(): Uint8Array {
     return blake2AsU8a(u8aConcat(stringToU8a('modl'), stringToU8a('att/bond')));
 }
 
-/** ERC-20 backing required for non-pool pallet-assets attest-coin (see precompile treasury guard). */
+/**
+ * ERC-20 backing the **bond bridge** requires: withdrawable pallet-assets attest-coin, i.e. total
+ * supply minus the bond pool (bonded coin is not redeemable via `withdraw`). Unrelated to rewards,
+ * which are funded from the vault.
+ */
 async function getWithdrawableBacking(api: ApiPromise): Promise<bigint> {
     const assetOpt = await (api.query as any).assets.asset(ATTEST_COIN_ASSET_ID);
     if (assetOpt.isNone) {
@@ -141,10 +147,33 @@ async function getWithdrawableBacking(api: ApiPromise): Promise<bigint> {
     return supply > poolBal ? supply - poolBal : 0n;
 }
 
-async function ensureTreasuryBalance(token: ethers.Contract, minBalance: bigint): Promise<void> {
-    const bal: bigint = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
+/**
+ * Ensure the reward vault holds at least `minBalance` and has approved the precompile for it.
+ *
+ * Rewards are paid with `transferFrom(vault, recipient, amount)`, so a claim needs *both* a funded
+ * vault and a live allowance — `min(balance, allowance)` is what claims can actually draw.
+ */
+async function ensureVaultFunded(
+    minterToken: ethers.Contract,
+    vault: ethers.Contract,
+    vaultAddress: string,
+    minBalance: bigint,
+): Promise<void> {
+    const bal: bigint = await minterToken.balanceOf(vaultAddress);
     if (bal < minBalance) {
-        await (await token.mint(ATTEST_COIN_PRECOMPILE, minBalance - bal)).wait();
+        await (await minterToken.mint(vaultAddress, minBalance - bal)).wait();
+    }
+    const allowance: bigint = await minterToken.allowance(vaultAddress, ATTEST_COIN_PRECOMPILE);
+    if (allowance < minBalance) {
+        await (await vault.setAllowance(ethers.MaxUint256)).wait();
+    }
+}
+
+/** The bond bridge still draws on the precompile's own balance; only rewards moved to the vault. */
+async function ensureBridgeBacking(minterToken: ethers.Contract, minBalance: bigint): Promise<void> {
+    const bal: bigint = await minterToken.balanceOf(ATTEST_COIN_PRECOMPILE);
+    if (bal < minBalance) {
+        await (await minterToken.mint(ATTEST_COIN_PRECOMPILE, minBalance - bal)).wait();
     }
 }
 
@@ -205,6 +234,15 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
     let alice: KeyringPair;
     /** Mock ERC-20 on **Creditcoin** EVM (same bytecode as on Anvil); used for `setAttestCoinToken`, mint, balances, `claim`. */
     let tokenAddressCc3: string;
+    /**
+     * Token instance connected to the **deploying wallet**. `MockAttestToken.mint` is
+     * `require(msg.sender == minter)`, and the tests' read-only instances are connected to a
+     * provider, which cannot send transactions at all — so every mint must go through this one.
+     */
+    let tokenCc3: ethers.Contract;
+    /** Treasury vault holding reward funds; the precompile spends from it as an approved spender. */
+    let vaultAddressCc3: string;
+    let vaultCc3: ethers.Contract;
 
     beforeAll(async () => {
         await cryptoWaitReady();
@@ -231,11 +269,28 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         await deployedCc3.waitForDeployment();
         tokenAddressCc3 = await deployedCc3.getAddress();
 
-        const tokenCc3 = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
+        tokenCc3 = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, evmWalletCc3);
         const mintTx = await tokenCc3.mint(ATTEST_COIN_PRECOMPILE, ethers.parseEther('1000000'));
         await mintTx.wait();
 
         await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
+        await forElapsedBlocks(api, { minBlocks: 1 });
+
+        dbg('deploy the treasury vault and register it with the rewards pallet');
+        const vaultFactory = new ContractFactory(vaultArtifact.abi, vaultArtifact.bytecode, evmWalletCc3);
+        // constructor(token, owner, spender, guardian) — owner and guardian are the test wallet so
+        // the suite can fund, cap, and pause without a separate key.
+        const deployedVault = await vaultFactory.deploy(
+            tokenAddressCc3,
+            evmWalletCc3.address,
+            ATTEST_COIN_PRECOMPILE,
+            evmWalletCc3.address,
+        );
+        await deployedVault.waitForDeployment();
+        vaultAddressCc3 = await deployedVault.getAddress();
+        vaultCc3 = new ethers.Contract(vaultAddressCc3, vaultArtifact.abi, evmWalletCc3);
+
+        await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setRewardVault(vaultAddressCc3));
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         await expectAttestCoinAssetRoles(api);
@@ -248,21 +303,21 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         // minting into that account reverts with `CannotCreate` / dispatch failure.
         await ensureNativeProvider(api, root, evmAddressToSubstrateAccountId(evmWalletCc3.address));
 
-        // Substrate `Accrued` / `ClaimNonce` persist on a long-lived dev node; this run's ERC-20 is newly deployed with a
-        // fixed mint. Claims share the treasury with deposit-backed withdraws, so fund accrued rewards **and**
-        // withdrawable pallet-assets supply (total supply minus bond-pool balance).
+        // Substrate `Accrued` / `ClaimNonce` persist on a long-lived dev node; this run's ERC-20 is newly
+        // deployed with a fixed mint. Rewards and the bond bridge now draw on **separate** balances, so
+        // fund each for what it owes: the vault covers accrued reward points, and the precompile's own
+        // balance backs withdrawable pallet-assets supply.
         const preRead = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, creditcoinEvm);
         const stashRaw = decodeAddress(alice.address);
         const stashB32 = zeroPadValue(hexlify(stashRaw), 32);
         const accruedPts = await preRead.accrued(stashB32);
-        const withdrawableBacking = await getWithdrawableBacking(api);
-        const treasuryNeeded = accruedPts + withdrawableBacking;
-        await ensureTreasuryBalance(tokenCc3, treasuryNeeded);
-        const treasuryBal = await tokenCc3.balanceOf(ATTEST_COIN_PRECOMPILE);
-        dbg('treasury vs accrued/backing', {
-            treasuryBal: treasuryBal.toString(),
+        await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, accruedPts);
+        await ensureBridgeBacking(tokenCc3, await getWithdrawableBacking(api));
+        dbg('vault vs accrued', {
+            vaultBal: (await tokenCc3.balanceOf(vaultAddressCc3)).toString(),
+            vaultAllowance: (await tokenCc3.allowance(vaultAddressCc3, ATTEST_COIN_PRECOMPILE)).toString(),
             accruedPts: accruedPts.toString(),
-            withdrawableBacking: withdrawableBacking.toString(),
+            bridgeBacking: (await tokenCc3.balanceOf(ATTEST_COIN_PRECOMPILE)).toString(),
         });
     }, 180_000);
 
@@ -279,7 +334,7 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         expect(pts >= 0n).toBe(true);
     });
 
-    test('claim transfers MockAttestToken from precompile treasury with sr25519', async () => {
+    test('claim transfers MockAttestToken from the treasury vault with sr25519', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
         const stashU8 = decodeAddress(alice.address);
         const b32 = zeroPadValue(hexlify(stashU8), 32);
@@ -292,10 +347,11 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
 
         const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
-        const withdrawableBacking = await getWithdrawableBacking(api);
-        await ensureTreasuryBalance(token, claimAmt + withdrawableBacking);
+        await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, claimAmt);
 
         const balBefore = await token.balanceOf(evmWalletCc3.address);
+        const vaultBefore = await token.balanceOf(vaultAddressCc3);
+        const bridgeBefore = await token.balanceOf(ATTEST_COIN_PRECOMPILE);
 
         const claimNonceBn = BigInt(
             (
@@ -335,6 +391,9 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
 
         const balAfter = await token.balanceOf(evmWalletCc3.address);
         expect(balAfter - balBefore).toEqual(claimAmt);
+        // The reward came out of the vault, and the bond bridge's backing was untouched.
+        expect(vaultBefore - (await token.balanceOf(vaultAddressCc3))).toEqual(claimAmt);
+        expect(await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toEqual(bridgeBefore);
     }, 120_000);
 
     test('deposit bridges ERC-20 into pallet-assets (mint to target creditcoin native account)', async () => {
@@ -610,8 +669,13 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         }
     }, 120_000);
 
-    test('claim reverts when treasury would impair deposit backing', async () => {
+    /**
+     * A revoked allowance must halt reward payouts, report itself as a deliberate pause rather than
+     * a funding shortfall, and leave both the vault's funds and the attestor's accrued points intact.
+     */
+    test('claim reverts as paused when the vault revokes the allowance', async () => {
         const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
         const stashU8 = decodeAddress(alice.address);
         const b32 = zeroPadValue(hexlify(stashU8), 32);
 
@@ -619,59 +683,107 @@ describe('Precompile: attest-coin rewards (accrued / claim)', (): void => {
         if (ptsBefore === 0n) {
             return;
         }
-
-        const factory = new ContractFactory(tokenArtifact.abi, tokenArtifact.bytecode, evmWalletCc3);
-        const isolated = await factory.deploy();
-        await isolated.waitForDeployment();
-        const isolatedAddr = await isolated.getAddress();
-        const token = new ethers.Contract(isolatedAddr, tokenArtifact.abi, evmWalletCc3);
-
-        await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(isolatedAddr));
-        await forElapsedBlocks(api, { minBlocks: 1 });
-
-        const depositAmt = parseEther('10');
-        await (await token.mint(evmWalletCc3.address, depositAmt)).wait();
-        await (await token.approve(ATTEST_COIN_PRECOMPILE, depositAmt)).wait();
-        await ensureNativeProvider(api, root, evmAddressToSubstrateAccountId(evmWalletCc3.address));
-        await (
-            await precompile.deposit(depositAmt, await precompileTxOverrides(creditcoinEvm, DEPOSIT_PRECOMPILE_GAS))
-        ).wait();
-
         const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
-        const claimNonceBn = BigInt(
-            (
-                (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as { toString: () => string }
-            ).toString(),
-        );
+        await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, claimAmt);
 
-        const genesisHashHex = await api.rpc.chain.getBlockHash(0);
-        const msg = buildClaimSigningMessage(
-            ethers.getBytes(genesisHashHex),
-            stashU8,
-            claimNonceBn,
-            BigInt(chain_Anvil1_Key),
-            claimAmt,
-            ethers.getBytes(evmWalletCc3.address),
-        );
-        const sig = alice.sign(msg);
-        const sigHi = ethers.hexlify(sig.subarray(0, 32));
-        const sigLo = ethers.hexlify(sig.subarray(32, 64));
+        const vaultBefore = await token.balanceOf(vaultAddressCc3);
+        await (await vaultCc3.pauseRewardRedemptions()).wait();
+        expect(await token.allowance(vaultAddressCc3, ATTEST_COIN_PRECOMPILE)).toEqual(0n);
 
-        await expect(
-            precompile.claim.staticCall(
-                b32,
+        try {
+            const claimNonceBn = BigInt(
+                (
+                    (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as {
+                        toString: () => string;
+                    }
+                ).toString(),
+            );
+            const genesisHashHex = await api.rpc.chain.getBlockHash(0);
+            const msg = buildClaimSigningMessage(
+                ethers.getBytes(genesisHashHex),
+                stashU8,
                 claimNonceBn,
                 BigInt(chain_Anvil1_Key),
                 claimAmt,
-                evmWalletCc3.address,
-                sigHi,
-                sigLo,
-                { gasLimit: CLAIM_PRECOMPILE_GAS },
-            ),
-        ).rejects.toThrow(/636c61696d20776f756c6420696d70616972206465706f736974206261636b696e67/);
+                ethers.getBytes(evmWalletCc3.address),
+            );
+            const sig = alice.sign(msg);
 
-        await dispatchRootCall(api, root, (api.tx as any).attestCoinRewards.setAttestCoinToken(tokenAddressCc3));
-        await forElapsedBlocks(api, { minBlocks: 1 });
+            await expect(
+                precompile.claim.staticCall(
+                    b32,
+                    claimNonceBn,
+                    BigInt(chain_Anvil1_Key),
+                    claimAmt,
+                    evmWalletCc3.address,
+                    ethers.hexlify(sig.subarray(0, 32)),
+                    ethers.hexlify(sig.subarray(32, 64)),
+                    { gasLimit: CLAIM_PRECOMPILE_GAS },
+                ),
+            ).rejects.toThrow(/72657761726420726564656d7074696f6e7320706175736564/);
+
+            // Pausing moves no funds and costs the attestor nothing.
+            expect(await token.balanceOf(vaultAddressCc3)).toEqual(vaultBefore);
+            expect(await precompile.accrued(b32)).toEqual(ptsBefore);
+        } finally {
+            await (await vaultCc3.setAllowance(ethers.MaxUint256)).wait();
+        }
+    }, 180_000);
+
+    /** An approved but empty vault is a different failure from a pause, and must say so. */
+    test('claim reverts as underfunded when the vault is empty', async () => {
+        const precompile = new ethers.Contract(ATTEST_COIN_PRECOMPILE, precompileAbi, evmWalletCc3);
+        const token = new ethers.Contract(tokenAddressCc3, tokenArtifact.abi, creditcoinEvm);
+        const stashU8 = decodeAddress(alice.address);
+        const b32 = zeroPadValue(hexlify(stashU8), 32);
+
+        const ptsBefore = await precompile.accrued(b32);
+        if (ptsBefore === 0n) {
+            return;
+        }
+        const claimAmt = ptsBefore / 2n > 0n ? ptsBefore / 2n : ptsBefore;
+        await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, claimAmt);
+
+        // Drain the vault while leaving the allowance in place, isolating "no funds" from "no permission".
+        const vaultBal: bigint = await token.balanceOf(vaultAddressCc3);
+        await (await vaultCc3.withdraw(evmWalletCc3.address, vaultBal)).wait();
+        expect(await token.balanceOf(vaultAddressCc3)).toEqual(0n);
+
+        try {
+            const claimNonceBn = BigInt(
+                (
+                    (await (api.query as any).attestCoinRewards.claimNonce(alice.address)) as {
+                        toString: () => string;
+                    }
+                ).toString(),
+            );
+            const genesisHashHex = await api.rpc.chain.getBlockHash(0);
+            const msg = buildClaimSigningMessage(
+                ethers.getBytes(genesisHashHex),
+                stashU8,
+                claimNonceBn,
+                BigInt(chain_Anvil1_Key),
+                claimAmt,
+                ethers.getBytes(evmWalletCc3.address),
+            );
+            const sig = alice.sign(msg);
+
+            await expect(
+                precompile.claim.staticCall(
+                    b32,
+                    claimNonceBn,
+                    BigInt(chain_Anvil1_Key),
+                    claimAmt,
+                    evmWalletCc3.address,
+                    ethers.hexlify(sig.subarray(0, 32)),
+                    ethers.hexlify(sig.subarray(32, 64)),
+                    { gasLimit: CLAIM_PRECOMPILE_GAS },
+                ),
+            ).rejects.toThrow(/747265617375727920756e64657266756e646564/);
+            expect(await precompile.accrued(b32)).toEqual(ptsBefore);
+        } finally {
+            await ensureVaultFunded(tokenCc3, vaultCc3, vaultAddressCc3, claimAmt);
+        }
     }, 180_000);
 
     test('withdraw rolls back ERC-20 transfer when burn fails', async () => {

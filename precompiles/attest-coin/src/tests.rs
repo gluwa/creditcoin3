@@ -1,14 +1,15 @@
 use crate::mock::*;
-use crate::{SEL_ACCRUED, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO, SEL_WITHDRAW, SEL_WITHDRAW_FROM};
+use crate::{
+    SEL_ACCRUED, SEL_ALLOWANCE, SEL_BALANCE_OF, SEL_CLAIM, SEL_DEPOSIT, SEL_DEPOSIT_TO,
+    SEL_TRANSFER_FROM, SEL_WITHDRAW, SEL_WITHDRAW_FROM,
+};
 use fp_evm::{Context, ExitReason, ExitRevert, ExitSucceed, PrecompileFailure};
 use frame_support::assert_ok;
-use frame_support::traits::Get;
 use pallet_assets::Pallet as AssetsPallet;
 use pallet_attest_coin_rewards::Accrued;
 use pallet_evm::AddressMapping;
 use precompile_utils::testing::{MockHandle, SubcallOutput};
 use sp_core::{sr25519, Pair, H160, U256};
-use sp_runtime::traits::UniqueSaturatedInto;
 
 fn precompile_addr() -> H160 {
     H160::from_low_u64_be(PRECOMPILE_ADDRESS_U64)
@@ -161,6 +162,39 @@ fn attach_mock_balance_then_transfer(handle: &mut MockHandle, balance: u128, tra
     }));
 }
 
+/// Mock the ERC-20 subcalls a vault-funded `claim` makes.
+///
+/// The happy path is a single `transferFrom` sourced from the vault. On failure `claim` follows up
+/// with `allowance` + `balanceOf` reads to tell a paused vault from an underfunded one, so this
+/// dispatches on the selector rather than on call order — the mock stays honest if that order
+/// changes.
+fn attach_mock_vault(handle: &mut MockHandle, transfer_ok: bool, allowance: u128, balance: u128) {
+    handle.subcall_handle = Some(Box::new(move |subcall| {
+        let ok = |output: Vec<u8>| SubcallOutput {
+            reason: ExitReason::Succeed(ExitSucceed::Returned),
+            output,
+            cost: 0,
+            logs: vec![],
+        };
+        match subcall.input.get(..4) {
+            Some(sel) if sel == SEL_ALLOWANCE.as_slice() => ok(encode_u256(allowance).to_vec()),
+            Some(sel) if sel == SEL_BALANCE_OF.as_slice() => ok(encode_u256(balance).to_vec()),
+            // transferFrom
+            _ if transfer_ok => {
+                let mut out = [0u8; 32];
+                out[31] = 1;
+                ok(out.to_vec())
+            }
+            _ => SubcallOutput {
+                reason: ExitReason::Revert(ExitRevert::Reverted),
+                output: b"transfer failed".to_vec(),
+                cost: 0,
+                logs: vec![],
+            },
+        }
+    }));
+}
+
 /// Mock the deposit ERC-20 subcall sequence: `balanceOf` (before) → `transferFrom` →
 /// `balanceOf` (after). `received` controls the apparent balance delta — set it equal to the
 /// deposit amount for a standard token, lower to simulate fee-on-transfer.
@@ -272,6 +306,7 @@ fn claim_reverts_unsupported_chain_key() {
     ExtBuilder::default().build().execute_with(|| {
         // Set a token so we get past token check
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let caller = H160::repeat_byte(0xAA);
         let unsupported_chain_key = 9999u64;
@@ -293,6 +328,7 @@ fn claim_reverts_unsupported_chain_key() {
 fn claim_succeeds_without_ledger_entry() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let (pair, _) = sr25519::Pair::generate();
         let stash_raw: [u8; 32] = pair.public().0;
@@ -324,136 +360,176 @@ fn claim_succeeds_without_ledger_entry() {
             sig_s,
         );
         let mut handle = make_handle(evm_recipient, input);
-        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        attach_mock_vault(&mut handle, true, u128::MAX, u128::MAX);
         assert!(execute(&mut handle).is_ok());
     });
 }
 
+/// A signed claim fixture for the vault-payout tests: returns the raw input and the stash.
+fn signed_claim(amount: u128, accrued: u128) -> (Vec<u8>, AccountId, H160) {
+    let (pair, _) = sr25519::Pair::generate();
+    let stash_raw: [u8; 32] = pair.public().0;
+    let stash = AccountId::from(stash_raw);
+    Accrued::<Runtime>::insert(&stash, accrued);
+
+    let evm_recipient = H160::zero();
+    let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::claim_signing_message(
+        &stash,
+        0,
+        SUPPORTED_CHAIN_KEY,
+        amount,
+        evm_recipient.0,
+    );
+    let sig = pair.sign(&msg);
+    let mut sig_r = [0u8; 32];
+    let mut sig_s = [0u8; 32];
+    sig_r.copy_from_slice(&sig.0[..32]);
+    sig_s.copy_from_slice(&sig.0[32..]);
+
+    let input = claim_input(
+        stash_raw,
+        0,
+        SUPPORTED_CHAIN_KEY,
+        amount,
+        evm_recipient,
+        sig_r,
+        sig_s,
+    );
+    (input, stash, evm_recipient)
+}
+
+/// Rewards are unpayable until governance names a vault; the token alone is not enough.
 #[test]
-fn claim_reverts_when_would_impair_deposit_backing() {
+fn claim_reverts_vault_not_configured() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        // RewardVault deliberately unset.
 
-        let (pair, _) = sr25519::Pair::generate();
-        let stash_raw: [u8; 32] = pair.public().0;
-        let stash = AccountId::from(stash_raw);
-        Accrued::<Runtime>::insert(&stash, 500u128);
-
-        let evm_recipient = H160::zero();
-        let amount = 200u128;
-        let total: u128 = AssetsPallet::<Runtime>::total_supply(1u32).unique_saturated_into();
-        let pool = AttestationBondPoolAccount::get();
-        let pool_bal: u128 = AssetsPallet::<Runtime>::balance(1u32, pool).unique_saturated_into();
-        let withdrawable = total.saturating_sub(pool_bal);
-        let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::claim_signing_message(
-            &stash,
-            0,
-            SUPPORTED_CHAIN_KEY,
-            amount,
-            evm_recipient.0,
-        );
-        let sig = pair.sign(&msg);
-        let mut sig_r = [0u8; 32];
-        let mut sig_s = [0u8; 32];
-        sig_r.copy_from_slice(&sig.0[..32]);
-        sig_s.copy_from_slice(&sig.0[32..]);
-
-        let input = claim_input(
-            stash_raw,
-            0,
-            SUPPORTED_CHAIN_KEY,
-            amount,
-            evm_recipient,
-            sig_r,
-            sig_s,
-        );
-        let mut handle = make_handle(evm_recipient, input);
-        // Treasury covers claim alone but not claim + withdrawable (non-pool) backing.
-        attach_mock_balance_then_transfer(&mut handle, withdrawable + amount - 1, true);
-        assert_reverts_with(&mut handle, b"claim would impair deposit backing");
+        let (input, stash, recipient) = signed_claim(50, 1_000);
+        let mut handle = make_handle(recipient, input);
+        attach_mock_vault(&mut handle, true, u128::MAX, u128::MAX);
+        assert_reverts_with(&mut handle, b"vault not configured");
+        // The claim never committed, so the points survive.
+        assert_eq!(Accrued::<Runtime>::get(&stash), 1_000u128);
     });
 }
 
+/// The payout pulls from the vault, not from the precompile's own balance.
 #[test]
-fn claim_ignores_bond_pool_balance_in_deposit_backing() {
-    // Bond pool attest coin is not withdrawable via the precompile; claims should only reserve
-    // ERC-20 for (total_supply - pool_balance), not the full supply.
-    let caller = H160::repeat_byte(0xAA);
-    let substrate = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
+fn claim_pulls_from_the_vault_via_transfer_from() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
-    ExtBuilder::default()
-        .with_balances(vec![(substrate.clone(), 10_000_000_000_000_000_000)])
-        .build()
-        .execute_with(|| {
-            pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        let (input, _stash, recipient) = signed_claim(50, 1_000);
+        let mut handle = make_handle(recipient, input);
 
-            let pool = AttestationBondPoolAccount::get();
-            assert_ok!(AssetsPallet::<Runtime>::force_asset_status(
-                frame_system::RawOrigin::Root.into(),
-                1,
-                alice(),
-                alice(),
-                alice(),
-                alice(),
-                1,
-                false,
-                false,
-            ));
-            assert_ok!(AssetsPallet::<Runtime>::transfer(
-                RuntimeOrigin::signed(alice()),
-                1,
-                pool.clone(),
-                800,
-            ));
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let seen: Rc<RefCell<Vec<Vec<u8>>>> = Rc::new(RefCell::new(Vec::new()));
+        let sink = seen.clone();
+        handle.subcall_handle = Some(Box::new(move |subcall| {
+            sink.borrow_mut().push(subcall.input.clone());
+            let mut out = [0u8; 32];
+            out[31] = 1;
+            SubcallOutput {
+                reason: ExitReason::Succeed(ExitSucceed::Returned),
+                output: out.to_vec(),
+                cost: 0,
+                logs: vec![],
+            }
+        }));
+        assert!(execute(&mut handle).is_ok());
 
-            let (pair, _) = sr25519::Pair::generate();
-            let stash_raw: [u8; 32] = pair.public().0;
-            let stash = AccountId::from(stash_raw);
-            Accrued::<Runtime>::insert(&stash, 500u128);
+        let calls = seen.borrow();
+        assert_eq!(calls.len(), 1, "happy path must not make diagnostic reads");
+        let input = &calls[0];
+        assert_eq!(
+            &input[..4],
+            SEL_TRANSFER_FROM.as_slice(),
+            "must use transferFrom"
+        );
+        // `from` is the vault, in the second half of the first 32-byte word after the selector.
+        assert_eq!(
+            &input[4 + 12..4 + 32],
+            VAULT_ADDRESS.as_bytes(),
+            "must pull from the vault"
+        );
+    });
+}
 
-            let amount = 200u128;
-            let total: u128 = AssetsPallet::<Runtime>::total_supply(1u32).unique_saturated_into();
-            let pool_bal: u128 =
-                AssetsPallet::<Runtime>::balance(1u32, pool).unique_saturated_into();
-            let withdrawable = total.saturating_sub(pool_bal);
-            assert!(pool_bal >= 800, "pool should hold bonded attest coin");
+/// A revoked allowance is reported as a deliberate pause, not as a funding shortfall.
+#[test]
+fn claim_reverts_paused_when_allowance_is_zero() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
-            let msg = pallet_attest_coin_rewards::Pallet::<Runtime>::claim_signing_message(
-                &stash,
-                0,
-                SUPPORTED_CHAIN_KEY,
-                amount,
-                caller.0,
-            );
-            let sig = pair.sign(&msg);
-            let mut sig_r = [0u8; 32];
-            let mut sig_s = [0u8; 32];
-            sig_r.copy_from_slice(&sig.0[..32]);
-            sig_s.copy_from_slice(&sig.0[32..]);
+        let (input, stash, recipient) = signed_claim(50, 1_000);
+        let mut handle = make_handle(recipient, input);
+        attach_mock_vault(&mut handle, false, 0, u128::MAX);
+        assert_reverts_with(&mut handle, b"reward redemptions paused");
+        // The commit is rolled back, so a claim during a pause costs the attestor nothing.
+        assert_eq!(Accrued::<Runtime>::get(&stash), 1_000u128);
+    });
+}
 
-            let input = claim_input(
-                stash_raw,
-                0,
-                SUPPORTED_CHAIN_KEY,
-                amount,
-                caller,
-                sig_r,
-                sig_s,
-            );
-            let mut handle = make_handle(caller, input);
-            // Would pass if backing used full supply (withdrawable + amount - 1 < total + amount - 1).
-            attach_mock_balance_then_transfer(&mut handle, withdrawable + amount, true);
-            assert!(
-                execute(&mut handle).is_ok(),
-                "claim should succeed with withdrawable backing"
-            );
-        });
+/// An approved but empty vault is reported as underfunded rather than as a pause.
+#[test]
+fn claim_reverts_underfunded_when_vault_balance_is_short() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
+
+        let (input, stash, recipient) = signed_claim(50, 1_000);
+        let mut handle = make_handle(recipient, input);
+        attach_mock_vault(&mut handle, false, u128::MAX, 49);
+        assert_reverts_with(&mut handle, b"treasury underfunded");
+        assert_eq!(Accrued::<Runtime>::get(&stash), 1_000u128);
+    });
+}
+
+/// A funded vault whose running cap has been spent down is distinct from both of the above.
+#[test]
+fn claim_reverts_allowance_exhausted_when_cap_is_spent() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
+
+        let (input, stash, recipient) = signed_claim(50, 1_000);
+        let mut handle = make_handle(recipient, input);
+        attach_mock_vault(&mut handle, false, 49, u128::MAX);
+        assert_reverts_with(&mut handle, b"reward allowance exhausted");
+        assert_eq!(Accrued::<Runtime>::get(&stash), 1_000u128);
+    });
+}
+
+/// Diagnosis is best-effort: a probe that itself fails must not mask the transfer failure.
+#[test]
+fn claim_falls_back_to_generic_message_when_diagnosis_fails() {
+    ExtBuilder::default().build().execute_with(|| {
+        pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
+
+        let (input, stash, recipient) = signed_claim(50, 1_000);
+        let mut handle = make_handle(recipient, input);
+        // Every subcall reverts, including the allowance/balance probes.
+        handle.subcall_handle = Some(Box::new(move |_subcall| SubcallOutput {
+            reason: ExitReason::Revert(ExitRevert::Reverted),
+            output: b"nope".to_vec(),
+            cost: 0,
+            logs: vec![],
+        }));
+        assert_reverts_with(&mut handle, b"vault transfer failed");
+        assert_eq!(Accrued::<Runtime>::get(&stash), 1_000u128);
+    });
 }
 
 #[test]
 fn claim_reverts_bad_signature() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         // Generate a real keypair so we have a valid stash
         let (pair, _) = sr25519::Pair::generate();
@@ -491,6 +567,7 @@ fn claim_reverts_bad_signature() {
 fn claim_reverts_bad_nonce() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let (pair, _) = sr25519::Pair::generate();
         let stash_raw: [u8; 32] = pair.public().0;
@@ -532,7 +609,7 @@ fn claim_reverts_bad_nonce() {
             sig_s,
         );
         let mut handle = make_handle(evm_recipient, input);
-        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        attach_mock_vault(&mut handle, true, u128::MAX, u128::MAX);
         assert_reverts_with(&mut handle, b"bad nonce");
     });
 }
@@ -541,6 +618,7 @@ fn claim_reverts_bad_nonce() {
 fn claim_reverts_insufficient_accrued() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let (pair, _) = sr25519::Pair::generate();
         let stash_raw: [u8; 32] = pair.public().0;
@@ -582,7 +660,7 @@ fn claim_reverts_insufficient_accrued() {
             sig_s,
         );
         let mut handle = make_handle(evm_recipient, input);
-        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        attach_mock_vault(&mut handle, true, u128::MAX, u128::MAX);
         assert_reverts_with(&mut handle, b"insufficient accrued");
     });
 }
@@ -591,6 +669,7 @@ fn claim_reverts_insufficient_accrued() {
 fn claim_nonce_replay_protection() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let (pair, _) = sr25519::Pair::generate();
         let stash_raw: [u8; 32] = pair.public().0;
@@ -638,7 +717,7 @@ fn claim_nonce_replay_protection() {
         let mut handle = make_handle(evm_recipient, input.clone());
         // Register a subcall handler that simulates ERC-20 transfer failure.
         // This lets commit_claim run (nonce/accrued deducted) then rolls back via undo_claim_commit.
-        attach_mock_balance_then_transfer(&mut handle, u128::MAX, false);
+        attach_mock_vault(&mut handle, false, u128::MAX, u128::MAX);
         let first_result = execute(&mut handle);
         // First call must fail (ERC-20 revert), nonce is restored to 0 by undo_claim_commit
         assert!(
@@ -649,7 +728,7 @@ fn claim_nonce_replay_protection() {
         // After undo, nonce is still 0 and accrued is restored.
         // A second identical attempt with the same nonce=0 must also fail (at the same ERC-20 step).
         let mut handle2 = make_handle(evm_recipient, input);
-        attach_mock_balance_then_transfer(&mut handle2, u128::MAX, false);
+        attach_mock_vault(&mut handle2, false, u128::MAX, u128::MAX);
         let result = execute(&mut handle2);
         // Both attempts must revert — nonce replay is foiled by ERC-20 failure + rollback
         assert!(result.is_err(), "second claim must not succeed");
@@ -666,6 +745,7 @@ fn claim_nonce_replay_protection() {
 fn claim_succeeds_for_mapped_caller_without_signature() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let caller = H160::repeat_byte(0xAA);
         let stash = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
@@ -683,7 +763,7 @@ fn claim_succeeds_for_mapped_caller_without_signature() {
             [0u8; 32],
         );
         let mut handle = make_handle(caller, input);
-        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        attach_mock_vault(&mut handle, true, u128::MAX, u128::MAX);
         assert!(
             execute(&mut handle).is_ok(),
             "mapped caller must be able to claim without an sr25519 signature"
@@ -705,6 +785,7 @@ fn claim_succeeds_for_mapped_caller_without_signature() {
 fn claim_reverts_for_mapped_caller_of_a_different_stash() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let caller = H160::repeat_byte(0xAA);
         let victim_addr = H160::repeat_byte(0xBB);
@@ -722,7 +803,7 @@ fn claim_reverts_for_mapped_caller_of_a_different_stash() {
             [0u8; 32],
         );
         let mut handle = make_handle(caller, input);
-        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        attach_mock_vault(&mut handle, true, u128::MAX, u128::MAX);
         assert_reverts_with(&mut handle, b"bad signature");
 
         assert_eq!(
@@ -739,6 +820,7 @@ fn claim_reverts_for_mapped_caller_of_a_different_stash() {
 fn claim_mapped_caller_cannot_replay_same_nonce() {
     ExtBuilder::default().build().execute_with(|| {
         pallet_attest_coin_rewards::AttestCoinErc20::<Runtime>::put(ERC20_ADDRESS);
+        pallet_attest_coin_rewards::RewardVault::<Runtime>::put(VAULT_ADDRESS);
 
         let caller = H160::repeat_byte(0xAA);
         let stash = <Runtime as pallet_evm::Config>::AddressMapping::into_account_id(caller);
@@ -756,11 +838,11 @@ fn claim_mapped_caller_cannot_replay_same_nonce() {
         );
 
         let mut handle = make_handle(caller, input.clone());
-        attach_mock_balance_then_transfer(&mut handle, u128::MAX, true);
+        attach_mock_vault(&mut handle, true, u128::MAX, u128::MAX);
         assert!(execute(&mut handle).is_ok(), "first claim succeeds");
 
         let mut replay = make_handle(caller, input);
-        attach_mock_balance_then_transfer(&mut replay, u128::MAX, true);
+        attach_mock_vault(&mut replay, true, u128::MAX, u128::MAX);
         assert_reverts_with(&mut replay, b"bad nonce");
 
         assert_eq!(

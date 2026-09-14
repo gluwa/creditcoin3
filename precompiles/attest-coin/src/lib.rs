@@ -9,6 +9,12 @@
 //! `AddressMapping` image of the EVM caller, as it is for every attestor registered through the
 //! attestor-stash precompile — by that EVM call itself. Staking controllers cannot authorize
 //! claims under either path.
+//!
+//! Reward claims and the bond bridge draw on **separate** ERC-20 balances. `claim` pays from the
+//! treasury vault at `pallet_attest_coin_rewards::RewardVault` via `transferFrom`, with this
+//! precompile as the vault's approved spender; `deposit`/`withdraw` continue to use the
+//! precompile's own balance as 1:1 backing for bonded `pallet-assets` attest-coin. See
+//! `precompiles/attest-coin/treasury-design.md`.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -32,7 +38,7 @@ use precompile_utils::prelude::RuntimeHelper;
 use precompile_utils::substrate::TryDispatchError;
 use sp_core::{sr25519, H160, U256};
 use sp_io::crypto::sr25519_verify;
-use sp_runtime::traits::{Dispatchable, Saturating, StaticLookup, UniqueSaturatedInto};
+use sp_runtime::traits::{Dispatchable, StaticLookup};
 use sp_std::vec::Vec;
 
 /// `accrued(bytes32)`
@@ -45,6 +51,9 @@ const SEL_TRANSFER: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 const SEL_TRANSFER_FROM: [u8; 4] = [0x23, 0xb8, 0x72, 0xdd];
 /// ERC-20 `balanceOf(address)`
 const SEL_BALANCE_OF: [u8; 4] = [0x70, 0xa0, 0x82, 0x31];
+/// ERC-20 `allowance(address,address)` — read only on the claim failure path to tell a paused
+/// vault apart from an underfunded one.
+const SEL_ALLOWANCE: [u8; 4] = [0xdd, 0x62, 0xed, 0x3e];
 /// `deposit(uint256)` — bridge ERC-20 into Substrate `pallet-assets` (mint to EVM caller’s mapped account).
 const SEL_DEPOSIT: [u8; 4] = [0xb6, 0xb5, 0x5f, 0x25];
 /// `depositTo(uint256,bytes32)` — same as [`SEL_DEPOSIT`] but mints to an explicit 32-byte `AccountId`.
@@ -155,20 +164,22 @@ where
 
     /// Transfer accrued attest-coin rewards to the EVM caller.
     ///
-    /// The precompile must already hold an ERC-20 balance of the token configured via
-    /// [`pallet_attest_coin_rewards::AttestCoinErc20`] (funded by the protocol treasury).
-    /// The claim executes `ERC-20.transfer(evm_recipient, amount)` with
-    /// `sub_context.caller = code_address` so the transfer is sent from the precompile's own balance.
+    /// Rewards are paid from the **treasury vault** configured via
+    /// [`pallet_attest_coin_rewards::RewardVault`], not from the precompile's own balance. The
+    /// claim executes `ERC-20.transferFrom(vault, evm_recipient, amount)` with
+    /// `sub_context.caller = code_address`, so the precompile acts as the vault's approved
+    /// *spender* rather than as the holder of the funds. The vault grants that allowance; revoking
+    /// it halts reward payouts without touching the bond bridge. See
+    /// `precompiles/attest-coin/treasury-design.md`.
     ///
     /// Authorized one of two ways (see the inline note at the check): an sr25519 signature from
     /// the stash, or — when `AddressMapping::into_account_id(msg.sender) == stash` — the EVM
     /// transaction itself. The latter is required for EVM-mapped stashes, whose `AccountId32` is a
     /// blake2 hash with no corresponding sr25519 key.
     ///
-    /// Claims may only spend ERC-20 **above** the amount needed to back withdrawable
-    /// [`pallet_assets`] attest-coin (total supply minus bond-pool balance). Bonded
-    /// attest coin in [`pallet_attestation::Config::BondPoolAccount`] is not redeemable via
-    /// `withdraw`, so it does not require ERC-20 headroom during reward claims.
+    /// Claims no longer contend with the deposit/withdraw bridge for one ERC-20 balance: the
+    /// precompile's balance backs bonded [`pallet_assets`] attest-coin only, and the vault's
+    /// balance backs rewards only.
     fn claim(handle: &mut impl PrecompileHandle, rest: &[u8]) -> PrecompileResult {
         // claim(bytes32,uint256,uint256,uint256,address,bytes32,bytes32) — 7 × 32 bytes after selector
         handle.record_cost(120_000)?;
@@ -275,8 +286,15 @@ where
             }
         }
 
-        let treasury_balance = erc20_balance_of(handle, token, handle.code_address())?;
-        ensure_treasury_covers_claim_and_deposit_backing::<Runtime>(treasury_balance, amount_u256)?;
+        let vault = match Rewards::<Runtime>::reward_vault() {
+            Some(v) => v,
+            None => {
+                return Err(PrecompileFailure::Revert {
+                    exit_status: ExitRevert::Reverted,
+                    output: b"vault not configured".to_vec(),
+                });
+            }
+        };
 
         Rewards::<Runtime>::commit_claim(&stash, nonce_u64, amount_pts).map_err(|e| {
             use pallet_attest_coin_rewards::Error as RewardErr;
@@ -291,9 +309,9 @@ where
             }
         })?;
 
-        if let Err(failure) = erc20_transfer(handle, token, caller_h160, amount_u256) {
+        if erc20_transfer_from(handle, token, vault, caller_h160, amount_u256).is_err() {
             Rewards::<Runtime>::undo_claim_commit(&stash, nonce_u64, amount_pts);
-            return Err(failure);
+            return Err(vault_transfer_failure(handle, token, vault, amount_u256));
         }
 
         Ok(PrecompileOutput {
@@ -692,52 +710,6 @@ where
     <Runtime as pallet_attest_coin_rewards::Config>::AttestCoinAssetId::get()
 }
 
-/// ERC-20 backing required for all non-pool [`pallet_assets`] attest-coin balances.
-fn attest_coin_withdrawable_backing_u256<Runtime>() -> U256
-where
-    Runtime:
-        pallet_assets::Config + pallet_attest_coin_rewards::Config + pallet_attestation::Config,
-    <Runtime as pallet_assets::Config>::AssetId: From<u32>,
-{
-    let asset_id: <Runtime as pallet_assets::Config>::AssetId =
-        attest_coin_asset_id::<Runtime>().into();
-    let supply = pallet_assets::Pallet::<Runtime>::total_supply(asset_id.clone());
-    let pool = <Runtime as pallet_attestation::Config>::BondPoolAccount::get();
-    let pool_bal = pallet_assets::Pallet::<Runtime>::balance(asset_id, &pool);
-    let withdrawable = supply.saturating_sub(pool_bal);
-    let v: u128 = UniqueSaturatedInto::unique_saturated_into(withdrawable);
-    U256::from(v)
-}
-
-/// Claims and withdraws share one ERC-20 treasury. Withdraw burns matching pallet-assets, so
-/// `treasury >= amount` is enough there. Claims do not burn pallet-assets, so they must leave
-/// at least [`attest_coin_withdrawable_backing_u256`] in the treasury after payout.
-fn ensure_treasury_covers_claim_and_deposit_backing<Runtime>(
-    treasury_balance: U256,
-    claim_amount: U256,
-) -> Result<(), PrecompileFailure>
-where
-    Runtime:
-        pallet_assets::Config + pallet_attest_coin_rewards::Config + pallet_attestation::Config,
-    <Runtime as pallet_assets::Config>::AssetId: From<u32>,
-{
-    let deposit_backing = attest_coin_withdrawable_backing_u256::<Runtime>();
-    let required =
-        claim_amount
-            .checked_add(deposit_backing)
-            .ok_or_else(|| PrecompileFailure::Revert {
-                exit_status: ExitRevert::Reverted,
-                output: b"amount too large".to_vec(),
-            })?;
-    if treasury_balance < required {
-        return Err(PrecompileFailure::Revert {
-            exit_status: ExitRevert::Reverted,
-            output: b"claim would impair deposit backing".to_vec(),
-        });
-    }
-    Ok(())
-}
-
 /// EVM gas charged by [`try_dispatch_attest_coin_no_pov`] for a runtime call (matches its pre-dispatch check).
 fn evm_gas_for_dispatch_call<Runtime>(call: &Runtime::RuntimeCall) -> u64
 where
@@ -881,6 +853,69 @@ fn erc20_balance_of(
         });
     }
     Ok(U256::from_big_endian(&ret[..32]))
+}
+
+fn erc20_allowance(
+    handle: &mut impl PrecompileHandle,
+    token: H160,
+    owner: H160,
+    spender: H160,
+) -> Result<U256, PrecompileFailure> {
+    let mut data = Vec::with_capacity(4 + 32 + 32);
+    data.extend_from_slice(&SEL_ALLOWANCE);
+    data.extend_from_slice(&encode_address(owner.as_fixed_bytes()));
+    data.extend_from_slice(&encode_address(spender.as_fixed_bytes()));
+    let ret = erc20_subcall(handle, token, data)?;
+    // Same single-word return discipline as `erc20_balance_of`: a conforming
+    // `allowance(address,address) returns (uint256)` returns exactly one 32-byte word, and any
+    // other length means the configured address is not the ERC-20 governance vetted.
+    if ret.len() != 32 {
+        return Err(PrecompileFailure::Revert {
+            exit_status: ExitRevert::Reverted,
+            output: b"allowance: bad return".to_vec(),
+        });
+    }
+    Ok(U256::from_big_endian(&ret[..32]))
+}
+
+/// Explain a failed reward `transferFrom` from the treasury vault.
+///
+/// A revoked allowance and an empty vault are indistinguishable at the ERC-20 layer — both surface
+/// as a failed `transferFrom` carrying the token's own revert data — which is unhelpful during an
+/// incident. Rather than pay for preflight reads on every claim, the allowance and balance are read
+/// only here, on the failure path, so the happy path stays free. `erc20_subcall` forwards 9/10 of
+/// remaining gas, leaving headroom for these two reads after a failed transfer.
+///
+/// Diagnosis is best-effort: if either read itself fails, fall back to the generic message rather
+/// than masking the original failure with a probe error.
+fn vault_transfer_failure(
+    handle: &mut impl PrecompileHandle,
+    token: H160,
+    vault: H160,
+    amount: U256,
+) -> PrecompileFailure {
+    let spender = handle.code_address();
+    let reason: &[u8] = match (
+        erc20_allowance(handle, token, vault, spender),
+        erc20_balance_of(handle, token, vault),
+    ) {
+        (Ok(allowance), Ok(balance)) => {
+            if allowance.is_zero() {
+                b"reward redemptions paused"
+            } else if balance < amount {
+                b"treasury underfunded"
+            } else if allowance < amount {
+                b"reward allowance exhausted"
+            } else {
+                b"vault transfer failed"
+            }
+        }
+        _ => b"vault transfer failed",
+    };
+    PrecompileFailure::Revert {
+        exit_status: ExitRevert::Reverted,
+        output: reason.to_vec(),
+    }
 }
 
 fn account_id_to_sr25519_public<AccountId: Encode>(acct: &AccountId) -> Option<sr25519::Public> {

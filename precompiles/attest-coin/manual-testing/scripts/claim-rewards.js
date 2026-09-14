@@ -29,9 +29,8 @@ require('dotenv').config({ path: ENV_PATH, quiet: true });
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const ARTIFACTS = path.join(REPO_ROOT, 'cli/src/test/blockchain-tests/artifacts');
 
-/** Attest-coin precompile, `AddressU64<4053>` — also the ERC-20 treasury. */
+/** Attest-coin precompile, `AddressU64<4053>`. Spends rewards *from the vault*, never from itself. */
 const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
-const ATTEST_COIN_ASSET_ID = 1;
 const SS58_PREFIX = 42;
 /** `claim` does an sr25519 verify plus an ERC-20 transfer. */
 const CLAIM_GAS = 3_000_000;
@@ -50,30 +49,17 @@ function mappedAccountId(evmAddress) {
     return blake2AsU8a(payload, 256);
 }
 
-/** `PalletId(*b"att/bond").into_account_truncating()` — literal bytes, not a hash. */
-function bondPoolAccountId() {
-    const raw = new Uint8Array(32);
-    raw.set(new TextEncoder().encode('modlatt/bond'), 0);
-    return raw;
-}
-
-async function assetBalance(api, account) {
-    const entry = await api.query.assets.account(ATTEST_COIN_ASSET_ID, account);
-    return entry.isSome ? BigInt(entry.unwrap().balance.toString()) : 0n;
-}
-
 /**
- * ERC-20 the treasury must retain: every unit of attest coin outside the bond
- * pool can be `withdraw`n back, so a claim may only spend what sits above that.
+ * What a claim can actually draw: `min(vault balance, allowance granted to the precompile)`.
+ *
+ * Rewards are paid with `transferFrom(vault, attestor, amount)`, so both halves must cover the
+ * claim. A zero allowance is a deliberate pause (`pauseRewardRedemptions`), not a funding problem —
+ * the precompile reports the two cases differently and so does this preflight.
  */
-async function withdrawableBacking(api) {
-    const asset = await api.query.assets.asset(ATTEST_COIN_ASSET_ID);
-    if (asset.isNone) {
-        return 0n;
-    }
-    const supply = BigInt(asset.unwrap().supply.toString());
-    const pool = await assetBalance(api, encodeAddress(bondPoolAccountId(), SS58_PREFIX));
-    return supply > pool ? supply - pool : 0n;
+async function vaultAvailability(token, vault) {
+    const balance = BigInt((await token.balanceOf(vault)).toString());
+    const allowance = BigInt((await token.allowance(vault, ATTEST_COIN_PRECOMPILE)).toString());
+    return { balance, allowance, available: balance < allowance ? balance : allowance };
 }
 
 async function feeOverrides(provider, gasLimit) {
@@ -196,13 +182,29 @@ async function main() {
             return;
         }
 
-        const treasury = BigInt((await token.balanceOf(ATTEST_COIN_PRECOMPILE)).toString());
-        const backing = await withdrawableBacking(api);
-        console.log(`treasury       ${atc(treasury)}  (must keep ${atc(backing)} as deposit backing)`);
-        if (treasury < accrued + backing) {
+        const vaultOpt = await api.query.attestCoinRewards.rewardVault();
+        if (vaultOpt.isNone) {
             throw new Error(
-                `treasury holds ${atc(treasury)} but the claim needs ${atc(accrued + backing)} ` +
-                    '— mint more with scripts/fund-erc20.js precompile <amount>',
+                'no reward vault configured — deploy one with scripts/deploy-vault.js, then set it ' +
+                    'via sudo: AttestCoinRewards -> setRewardVault',
+            );
+        }
+        const vault = vaultOpt.unwrap().toString();
+        const { balance, allowance, available } = await vaultAvailability(token, vault);
+        console.log(`vault          ${vault}`);
+        console.log(`vault balance  ${atc(balance)}`);
+        console.log(`allowance      ${allowance === 0n ? '0  (rewards PAUSED)' : atc(allowance)}`);
+        if (allowance === 0n) {
+            throw new Error(
+                'the vault has revoked the precompile allowance, so reward redemptions are paused — ' +
+                    'restore it with the vault owner key: setAllowance(<amount>)',
+            );
+        }
+        if (available < accrued) {
+            throw new Error(
+                `the vault can pay ${atc(available)} but the claim needs ${atc(accrued)} — ` +
+                    'mint more with scripts/fund-erc20.js vault <amount>, or raise the cap with ' +
+                    'setAllowance(<amount>)',
             );
         }
 
