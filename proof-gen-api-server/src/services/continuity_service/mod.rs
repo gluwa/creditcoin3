@@ -187,6 +187,11 @@ pub type ServiceResult<T> = Result<T, ServiceError>;
 pub struct ContinuityService {
     chains: HashMap<u64, Arc<ChainState>>,
     start_time: Instant,
+    /// Set (with the reason) when the cc3 event task has ended for good. From that moment
+    /// the caches no longer track the chain and this replica must not be considered ready;
+    /// the supervisor exits the process right after setting this, so the flag mostly serves
+    /// the in-flight drain window and diagnostics.
+    event_stream_dead: std::sync::Mutex<Option<String>>,
     /// Prometheus metrics for instrumentation (uses NoopMetrics when disabled).
     metrics: Metrics,
     /// Maximum amount of concurrent futures spawned when generating proofs for batch requests or when extracting transaction indexes from transaction hashes.
@@ -367,6 +372,7 @@ impl ContinuityService {
         Ok(Self {
             chains,
             start_time: Instant::now(),
+            event_stream_dead: std::sync::Mutex::new(None),
             metrics,
             max_batch_size,
             max_batch_span,
@@ -817,6 +823,25 @@ impl ContinuityService {
 
     pub fn uptime_seconds(&self) -> u64 {
         self.start_time.elapsed().as_secs()
+    }
+
+    /// Record that the cc3 event task has ended permanently. Idempotent; the first reason wins.
+    pub fn mark_event_stream_dead(&self, reason: &str) {
+        let mut guard = self
+            .event_stream_dead
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if guard.is_none() {
+            *guard = Some(reason.to_owned());
+        }
+    }
+
+    /// Why the cc3 event task ended, if it has. `None` while it is (believed) running.
+    pub fn event_stream_dead(&self) -> Option<String> {
+        self.event_stream_dead
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Live cc3 RPC probe: a lightweight storage read on **every** configured chain.
