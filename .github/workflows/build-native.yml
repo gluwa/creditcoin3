@@ -81,9 +81,27 @@ jobs:
           targets: wasm32v1-none
           components: rust-src
 
+      # Hosted and self-hosted runners compute the *same* Swatinem key today: same arch, same
+      # rustc, same manifests, and build-native.yml sets no CXXFLAGS on either side, so the
+      # env hash matches too (`...-6cf672bd-...` on both). Their Cargo home and checkout root
+      # differ though, and `target/` fingerprints and `.d` files record absolute paths, so an
+      # archive restored across families fails every fingerprint check and rebuilds anyway
+      # after paying for the download. Give each family its own namespace, otherwise the
+      # hosted warmer below wins the entry the Linode build needs and the Linode warmer can
+      # never save.
+      - name: Identify runner family
+        id: runner-family
+        env:
+          RUNNER_FAMILY: ${{ runner.environment }}
+        run: |
+          ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ inputs.cache-key-name }}
+          # The default keeps callers that omit `cache-key-name` (proof-gen-api-server) in the
+          # same namespace as the warmer, since they build the same configuration.
+          shared-key: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
 
       - name: Download new_metadata.diff
         if: ${{ inputs.use-new-metadata }}
