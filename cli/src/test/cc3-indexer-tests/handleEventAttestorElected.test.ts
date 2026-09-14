@@ -16,14 +16,10 @@ describe('handleEventAttestorElected()', () => {
 
     describe('when there are elected attestors', () => {
         let currentEpoch = 0n;
-        let epochStart = 0n;
 
         beforeAll(async () => {
             currentEpoch = (await api.query.babe.epochIndex()).toBigInt();
             expect(currentEpoch).toBeGreaterThan(0);
-
-            epochStart = (await api.query.babe.epochStart())[1].toBigInt();
-            expect(epochStart).toBeGreaterThan(0);
 
             // initial setup already has at least 3 attestors for Anvil 1
             const entriesForAnvil1 = (await api.query.attestation.activeAttestors(chain_Anvil1_Key)).entries();
@@ -35,33 +31,49 @@ describe('handleEventAttestorElected()', () => {
         }, 30_000);
 
         it('graphQL returns known AttestorElected entity', async () => {
+            // `AttestorsElected` is emitted only when a chain's attestor set changes, so the most
+            // recent election for Anvil 1 may be several epochs old. It must not be in the future
+            // (allowing for an epoch rollover between reading babe and querying the indexer).
             const response0 = await graphQLQuery(
-                `query { attestorsElecteds(orderBy: EPOCH_ASC, last: 1) { nodes { epoch }}}`,
+                `query {
+                    attestorsElecteds(
+                        orderBy: EPOCH_DESC,
+                        first: 1,
+                        filter: { chainKey: { equalTo: "${chain_Anvil1_Key}"} }
+                    ) { nodes { epoch }}
+                }`,
             );
-            // last record is for the current epoch or the next one in case it has changed meanwhile
-            expect(BigInt(response0.data.attestorsElecteds.nodes[0].epoch)).toBeGreaterThanOrEqual(currentEpoch);
-            expect(BigInt(response0.data.attestorsElecteds.nodes[0].epoch)).toBeLessThanOrEqual(currentEpoch + 1n);
+            expect(response0.data.attestorsElecteds.nodes.length).toEqual(1);
+            const latestElectionEpoch = BigInt(response0.data.attestorsElecteds.nodes[0].epoch);
+            expect(latestElectionEpoch).toBeLessThanOrEqual(currentEpoch + 1n);
 
+            // The latest election is what produced today's active set: every active attestor
+            // must appear in it.
             const response = await graphQLQuery(
                 `query {
                     attestorsElecteds(
                         orderBy: EPOCH_ASC,
                         last: 10,
                         filter: {
-                            epoch: { equalTo: "${currentEpoch}"},
+                            epoch: { equalTo: "${latestElectionEpoch}"},
                             chainKey: { equalTo: "${chain_Anvil1_Key}"},
                         }
                     ) { nodes { id, epoch, chainKey, attestorId }}
                 }`,
             );
             expect(response.data.attestorsElecteds.nodes).toBeTruthy();
-            expect(response.data.attestorsElecteds.nodes.length).toBeGreaterThanOrEqual(
-                activeAttestorsForAnvil1.length,
+            const electedIds: string[] = response.data.attestorsElecteds.nodes.map(
+                (node: { attestorId: string }) => node.attestorId,
             );
+            // The latest election IS the current committee: no immediate-removal path (kick or
+            // chill of a Waiting attestor) touches Anvil 1 in this suite, so the two sets must be
+            // identical, one row per member and no duplicates.
+            expect(electedIds.length).toEqual(activeAttestorsForAnvil1.length);
+            expect(new Set(electedIds)).toEqual(new Set(activeAttestorsForAnvil1));
 
             for (const node of response.data.attestorsElecteds.nodes) {
                 expect(node.id).toBeTruthy();
-                expect(BigInt(node.epoch)).toEqual(currentEpoch);
+                expect(BigInt(node.epoch)).toEqual(latestElectionEpoch);
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
 
@@ -91,10 +103,13 @@ describe('handleEventAttestorElected()', () => {
             expect(response.data.attestors.nodes).toBeTruthy();
             expect(response.data.attestors.nodes.length).toBeGreaterThanOrEqual(activeAttestorsForAnvil1.length);
 
+            const bestNumber = (await api.rpc.chain.getHeader()).number.toBigInt();
             for (const node of response.data.attestors.nodes) {
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
-                // attestor was last updated when it was elected
-                expect(BigInt(node.lastUpdateBlockNumber)).toEqual(epochStart);
+                // attestor was last updated when it was elected; elections are no longer repeated
+                // every epoch, so that block can predate the current epoch by any amount
+                expect(BigInt(node.lastUpdateBlockNumber)).toBeGreaterThan(0n);
+                expect(BigInt(node.lastUpdateBlockNumber)).toBeLessThanOrEqual(bestNumber);
                 expect(node.status).toEqual(0); // Active
             }
         });

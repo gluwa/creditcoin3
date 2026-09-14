@@ -291,6 +291,7 @@ impl attestation_poc::Config for Test {
     type CommittmentInterval = CommittmentInterval;
     type BlsSignature = [u8; 42];
     type SupportedChains = SupportedChains;
+    type CurrentEpochIndex = pallet_randomness::EpochIndex<Test>;
     type DefaultMinBondRequirement = DefaultMinBondRequirement;
     type Currency = Balances;
     type CurrencyBalance = Balance;

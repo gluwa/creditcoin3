@@ -58,6 +58,7 @@ describe('BlockAttested events', (): void => {
             '2': 0,
             '4': 0,
         };
+        let epochBoundaries = 0;
         const initialBlock = (await getChainStatus(api)).bestNumber;
 
         return new Promise((resolve, reject): void => {
@@ -91,14 +92,22 @@ describe('BlockAttested events', (): void => {
                         if (`${event.section}.${event.method}` === 'attestation.AttestorsElected') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [epoch, chainKey, _attestors] = event.data;
+                            const [_epoch, chainKey, _attestors] = event.data;
                             const supportedChainKeyStr = (chainKey as U64).toString();
 
                             electionEvents[supportedChainKeyStr]++;
+                        }
 
-                            const chainKeyAsNum = (chainKey as U64).toNumber();
-                            const epochAsNum = (epoch as U64).toNumber();
-                            if (epochAsNum % 2 === 0 && chainKeyAsNum === chain_Anvil2_Key) {
+                        // The epoch boundary itself is signalled by pallet-randomness; `AttestorsElected`
+                        // only fires when an attestor set actually changes, so it is no longer a
+                        // per-epoch heartbeat we can schedule work from.
+                        if (`${event.section}.${event.method}` === 'randomness.StoreRandomnessForEpoch') {
+                            console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
+                            const [epochIndex] = event.data;
+                            const epochAsNum = (epochIndex as U64).toNumber();
+                            epochBoundaries++;
+
+                            if (epochAsNum % 2 === 0) {
                                 const defaultInterval = (
                                     api.consts.attestation.defaultAttestationInterval as U64
                                 ).toNumber();
@@ -135,13 +144,20 @@ describe('BlockAttested events', (): void => {
 
             // note: this test is started *after* we have min 3 attestors already elected on each chain
             const currentEpoch = (await api.query.babe.epochIndex()).toNumber();
-            const expectedElectionEvents = currentEpoch - startingEpoch;
+            const elapsedEpochs = currentEpoch - startingEpoch;
+            // we must have crossed enough epoch boundaries for the assertions below to mean anything
+            expect(elapsedEpochs).toBeGreaterThanOrEqual(5);
 
-            expect(electionEvents[chain_Anvil1_Key]).toBeGreaterThanOrEqual(expectedElectionEvents - 1);
-            expect(electionEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(expectedElectionEvents + 1);
-
-            expect(electionEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(expectedElectionEvents - 1);
-            expect(electionEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(expectedElectionEvents + 1);
+            // `AttestorsElected` fires only when a chain's attestor set changes, never as a per-epoch
+            // heartbeat. The fleet is steady for the whole run, so at most a straggler from a
+            // previous scenario (e.g. a chilled attestor retiring at the boundary) may show up.
+            // The epoch hook itself is observed through pallet-randomness: we must have seen the
+            // boundaries the election count is being compared against.
+            expect(epochBoundaries).toBeGreaterThanOrEqual(5);
+            expect(electionEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(2);
+            expect(electionEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(2);
+            expect(electionEvents[chain_Anvil1_Key]).toBeLessThan(epochBoundaries);
+            expect(electionEvents[chain_Anvil2_Key]).toBeLessThan(epochBoundaries);
 
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);

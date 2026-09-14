@@ -666,11 +666,12 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn force_election() {
-        // Setup
+    fn force_election(a: Linear<1, MAX_ATTESTORS_PARAM>) {
+        // Setup: `a` registered attestors, all `Waiting`, so the election visits every one and
+        // rewrites every one (the per-attestor worst case).
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
 
-        for j in 0..5 {
+        for j in 0..a {
             let stash_id = create_funded_user_with_balance::<T>("stash", j);
             let attestor_id: T::AccountId =
                 create_funded_user_with_balance::<T>("attestor", j + 100);
@@ -690,13 +691,17 @@ mod benchmarks {
             ));
         }
 
-        let epoch: u64 = 1;
-
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
-            epoch,
-        )
+            DEV_CHAIN_KEY,
+        );
+
+        assert_eq!(
+            ActiveAttestors::<T>::get(DEV_CHAIN_KEY).len(),
+            a as usize,
+            "every Waiting attestor must have been elected"
+        );
     }
 
     #[benchmark]
