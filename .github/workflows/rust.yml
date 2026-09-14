@@ -8,6 +8,30 @@ name: rust
       - "**.toml"
       - "**Cargo**"
       - ".github/workflows/rust.yml"
+  # Populates rust-check / rust-clippy / rust-test on the default branch.
+  #
+  # A cache saved by a PR run lives under refs/pull/<n>/merge and cannot be restored
+  # by any other PR, so without a default-branch producer every fresh PR starts from a
+  # cold cache no matter how well the keys are chosen. Re-running the same PR looks
+  # fast while everyone else still pays the full compile.
+  #
+  # This trigger deliberately re-runs the very same jobs rather than reimplementing
+  # them elsewhere: identical steps, env and shared-key are what make the resulting
+  # entries restorable by PR runs. Keep it that way; a separate warming workflow that
+  # drifts in toolchain or env would compute a different key and warm nothing.
+  #
+  # Only manifest changes are listed. Swatinem/rust-cache keys on the Cargo manifests
+  # plus the toolchain, and caches dependencies rather than workspace crates, so a
+  # plain .rs change leaves the existing key valid and the previously warmed entry
+  # keeps serving new PRs. Warming on every source push would re-pay a full build for
+  # a cache that did not need refreshing.
+  push:
+    branches: [usc-dev]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/rust.yml"
   workflow_dispatch:
 
 concurrency:
