@@ -29,6 +29,13 @@ name: Reusable workflow to build a native client
       use-new-metadata:
         required: false
         type: boolean
+      # Lets a caller run this purely to populate the Rust dependency cache, without
+      # leaving ~200 MB of binaries behind that nothing downloads. Defaults to true so
+      # every existing caller is unaffected.
+      upload-artifacts:
+        required: false
+        type: boolean
+        default: true
 
 # Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
 # <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
@@ -98,6 +105,7 @@ jobs:
           args: ${{ inputs.build-options }}
 
       - name: Upload binaries
+        if: ${{ inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: binary-for-${{ inputs.version-string }}
@@ -111,6 +119,7 @@ jobs:
             target/release/query-cli
 
       - name: Upload WASM runtime
+        if: ${{ inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}

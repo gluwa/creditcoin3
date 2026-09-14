@@ -1,0 +1,66 @@
+---
+name: cache-warm
+
+# Populates the `build-creditcoin-node` Rust dependency cache on the default branch.
+#
+# Why this exists: a cache saved during a PR run is stored under refs/pull/<n>/merge,
+# and GitHub will not let another PR restore it. Only caches on the default branch are
+# readable by every PR. Every workflow in this repo that builds Rust was triggered by
+# pull_request alone, so nothing ever wrote a cache a *fresh* PR could use, and each new
+# PR compiled the whole dependency graph from cold. Re-running one PR looked fast while
+# everyone else still paid full price.
+#
+# rust.yml carries its own `push` trigger for the rust-check / rust-clippy / rust-test
+# keys. This workflow covers the separate key used by build-native.yml callers, which is
+# the one the two compatibility builds restore.
+#
+# IMPORTANT, on why this calls build-native.yml instead of running cargo directly:
+# Swatinem/rust-cache mixes the Rust environment into the cache key, including env vars
+# beginning with CXX. build-native.yml sets no CXXFLAGS while rust.yml sets
+# `CXXFLAGS: -include cstdint`, so the two compute *different* keys even when both pass
+# the same `shared-key`. Warming therefore has to reproduce the consumer's environment
+# exactly, and the only reliable way to do that is to invoke the very same reusable
+# workflow. Do not reimplement the build here.
+"on":
+  # Only manifest changes. The cache key is derived from the Cargo manifests and the
+  # toolchain, and the cache holds dependencies rather than workspace crates, so an
+  # ordinary .rs change leaves the existing key valid and the warmed entry still
+  # applies. Warming on every push would re-pay a full build to refresh nothing.
+  push:
+    branches: [usc-dev]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/build-native.yml"
+      - ".github/workflows/cache-warm.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  # Mirrors the inputs both compatibility workflows pass, because theirs is the build
+  # this is meant to accelerate: they restored
+  # v0-rust-build-creditcoin-node-Linux-x64-<env>-<manifests> with a full match and
+  # still spent ~21 minutes each, and without a default-branch producer a fresh PR gets
+  # no restore at all.
+  #
+  # Known gap: ci.yml runs the same build on a self-hosted Linode runner, whose
+  # environment may hash to a different key than this hosted runner. Warming that one
+  # too would mean provisioning a VM here; worth doing only if the ci.yml build is
+  # observed still starting cold once this is in place.
+  warm-build-creditcoin-node:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
+      version-string: cache-warm
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-26.04']"
+      # Nothing consumes the output; this run exists only for its cache entry.
+      upload-artifacts: false
+    secrets: inherit
