@@ -9,10 +9,23 @@ name: rust
       - "**Cargo**"
       - ".github/workflows/rust.yml"
   workflow_dispatch:
+  # PR caches are scoped to refs/pull/*/merge. Populate the base branch too so
+  # a new PR can restore dependencies compiled by an earlier trusted run.
+  push:
+    branches: [usc-dev]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/.cargo/**"
+      - "rust-toolchain*"
+      - ".github/workflows/rust.yml"
+  # Refill evicted caches and account for updates to the hosted runner image.
+  schedule:
+    - cron: "20 1 * * 1-5"
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch' }}
 
 permissions: read-all
 
@@ -21,10 +34,11 @@ permissions: read-all
 # use uint64_t without including it, so force-include cstdint when compiling C/C++.
 env:
   CXXFLAGS: "-include cstdint"
+  CACHE_WARM_ONLY: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
 
 jobs:
   cargo-audit:
-    if: github.base_ref == 'usc-dev'
+    if: github.base_ref == 'usc-dev' || github.ref == 'refs/heads/usc-dev'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -45,14 +59,18 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
         with:
-          shared-key: build-creditcoin-node
+          shared-key: tools-audit
+          cache-targets: false
 
       - name: Install cargo audit
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           cargo install cargo-audit --features=fix --locked
 
       - name: Run cargo audit
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           cargo audit || true
           CC_MATCH=$(cargo audit --color never | grep -E "^.── creditcoin3-node" || true)
@@ -84,16 +102,20 @@ jobs:
           components: rustfmt
 
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
         with:
-          shared-key: build-creditcoin-node
+          shared-key: tools-fmt
+          cache-targets: false
 
       - name: Check formatting
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         uses: gluwa/cargo@dev
         with:
           command: fmt
           args: -- --check
 
       - name: Check TOML formatting
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           cargo install taplo-cli --locked
           taplo format --check
@@ -125,10 +147,12 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
         with:
-          shared-key: build-creditcoin-node
+          shared-key: rust-check
 
       - name: Check featalign
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           set -o pipefail
 
@@ -138,10 +162,12 @@ jobs:
           cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check | jq
 
       - name: Check Build
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           SKIP_WASM_BUILD=1 cargo check --release
 
       - name: Check Build for Benchmarking
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
@@ -171,22 +197,26 @@ jobs:
           components: clippy, rust-src
 
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
         with:
-          shared-key: build-creditcoin-node
+          shared-key: rust-clippy
 
       - name: Print clippy's version
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         uses: gluwa/cargo@dev
         with:
           command: clippy
           args: --version
 
       - name: Run Clippy
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         uses: gluwa/cargo@dev
         with:
           command: clippy
           args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
 
   cargo-machete:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -200,10 +230,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
 
       - name: Install cargo-machete
         uses: taiki-e/install-action@v2.85.4
@@ -244,15 +270,18 @@ jobs:
           components: llvm-tools-preview, rust-src
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
         with:
-          shared-key: build-creditcoin-node
+          shared-key: rust-test-coverage
 
       - name: Install cargo-llvm-cov
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         uses: taiki-e/install-action@v2.85.4
         with:
           tool: cargo-llvm-cov@0.6.24
 
       - name: Run tests
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         run: |
           cargo llvm-cov \
               --release \
@@ -260,6 +289,7 @@ jobs:
               --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
 
       - name: Run simulations
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         id: simulation
         env:
           PROPTEST_CASES: 10000
@@ -272,7 +302,7 @@ jobs:
 
       - name: Commit regression files
         uses: EndBug/add-and-commit@v10
-        if: always()
+        if: always() && env.CACHE_WARM_ONLY != 'true'
         with:
           push: true
           add: common/streams/attestation/proptest-regressions/simulation/mod.txt
@@ -282,6 +312,7 @@ jobs:
           github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
       - name: Upload coverage report as artifact
+        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-report

@@ -14,6 +14,11 @@ name: Reusable workflow to build a native client
       git-lfs-checkout:
         required: true
         type: boolean
+      warm-cache-only:
+        description: Populate dependencies without publishing binaries; skip compilation on an exact cache hit.
+        required: false
+        type: boolean
+        default: false
       cache-key-name:
         required: false
         type: string
@@ -39,6 +44,7 @@ env:
 jobs:
   build-creditcoin-node:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.warm-cache-only && 120 || 360 }}
     steps:
       - name: Checkout code regularly
         if: ${{ ! inputs.use-new-metadata }}
@@ -74,9 +80,23 @@ jobs:
           targets: wasm32v1-none
           components: rust-src
 
+      # Cache only interchangeable configurations together. The action adds the
+      # toolchain, runner environment and dependency hashes. Do not remove those:
+      # hosted and Linode runners have different Cargo paths and installed tools.
+      - name: Identify native build configuration
+        id: cache-config
+        env:
+          BUILD_OPTIONS: ${{ inputs.build-options }}
+          LFS_CHECKOUT: ${{ inputs.git-lfs-checkout }}
+          NEW_METADATA: ${{ inputs.use-new-metadata }}
+        run: |
+          VARIANT=$(printf '%s\n' "$BUILD_OPTIONS" "$LFS_CHECKOUT" "$NEW_METADATA" | sha256sum | cut -c1-16)
+          echo "variant=$VARIANT" >> "$GITHUB_OUTPUT"
+
       - uses: Swatinem/rust-cache@v2
+        id: rust-cache
         with:
-          shared-key: ${{ inputs.cache-key-name }}
+          shared-key: native-${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.cache-config.outputs.variant }}
 
       - name: Download new_metadata.diff
         if: ${{ inputs.use-new-metadata }}
@@ -92,12 +112,14 @@ jobs:
           git diff --binary
 
       - name: Build SUT
+        if: ${{ ! inputs.warm-cache-only || steps.rust-cache.outputs.cache-hit != 'true' }}
         uses: gluwa/cargo@dev
         with:
           command: build
           args: ${{ inputs.build-options }}
 
       - name: Upload binaries
+        if: ${{ ! inputs.warm-cache-only }}
         uses: actions/upload-artifact@v7
         with:
           name: binary-for-${{ inputs.version-string }}
@@ -111,10 +133,25 @@ jobs:
             target/release/query-cli
 
       - name: Upload WASM runtime
+        if: ${{ ! inputs.warm-cache-only }}
         uses: actions/upload-artifact@v7
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
+
+      - name: Summarize native cache reuse
+        env:
+          CACHE_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+          CACHE_VARIANT: ${{ steps.cache-config.outputs.variant }}
+          WARM_ONLY: ${{ inputs.warm-cache-only }}
+        run: |
+          {
+            echo "### Native dependency cache"
+            echo "- Configuration: $CACHE_VARIANT"
+            echo "- Exact cache hit: $CACHE_HIT"
+            echo "- Cache warming only: $WARM_ONLY"
+            echo "Regular builds always compile and validate the current checkout."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install subkey
         if: ${{ inputs.build-subkey }}

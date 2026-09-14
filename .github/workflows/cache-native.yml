@@ -1,0 +1,72 @@
+---
+name: Native dependency caches
+
+# GitHub only shares base/default-branch caches with new PRs. Build the two
+# fast-runtime configurations on usc-dev using the same reusable workflow and
+# runner families as their consumers. PR runs here only validate cache changes.
+"on":
+  push:
+    branches: [usc-dev]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "**/.cargo/**"
+      - "rust-toolchain*"
+      - ".github/workflows/build-native.yml"
+      - ".github/workflows/cache-native.yml"
+      - ".github/workflows/deploy-runner.yml"
+  pull_request:
+    paths:
+      - ".github/workflows/build-native.yml"
+      - ".github/workflows/cache-native.yml"
+  schedule:
+    - cron: "40 1 * * 1-5"
+  workflow_dispatch:
+
+# Let an in-flight warmer finish and save its cache. Newer pending pushes can
+# replace older pending ones without repeatedly cancelling an expensive build.
+concurrency:
+  group: native-dependency-caches-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: read-all
+
+jobs:
+  hosted:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: true
+      version-string: cache-hosted
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-26.04']"
+      warm-cache-only: true
+
+  deploy-runner:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: native-cache
+    secrets: inherit
+
+  linode:
+    needs: deploy-runner
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
+      version-string: cache-linode
+      cache-key-name: build-creditcoin-node
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-native-cache']"
+      warm-cache-only: true
+
+  remove-runner:
+    needs: [deploy-runner, linode]
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: native-cache
+    secrets: inherit
