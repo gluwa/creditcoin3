@@ -39,6 +39,11 @@ pub enum StoreError {
         incoming_root: H256,
         incoming_hash: H256,
     },
+    /// The database was built from a different source chain than the one the RPC endpoints
+    /// now serve. Archiving foreign roots under this archive name would silently corrupt
+    /// every proof later built from it, so this is fatal.
+    #[error("archive was built from chain_id {stored} but the source RPC now serves chain_id {live}; refusing to write foreign roots")]
+    ChainIdMismatch { stored: u64, live: u64 },
 }
 
 /// A stored entry: the merkle root plus the source block hash it was derived from.
@@ -63,6 +68,9 @@ const META_TREE: &[u8] = b"__archiver_meta";
 
 /// Key inside [`META_TREE`] that stores the cached entry counter as a u64-BE.
 const META_KEY_COUNT: &[u8] = b"count";
+/// Key inside [`META_TREE`] that pins the source chain id (u64-BE) this archive was built
+/// from. Set on the first run; every later run and every RPC reconnect must match it.
+const META_KEY_CHAIN_ID: &[u8] = b"chain_id";
 
 /// Thread-safe handle to the root store. Cheap to clone (wraps Arc<sled::Db>).
 #[derive(Clone)]
@@ -132,6 +140,32 @@ impl RootStore {
     /// backfill replays). Legacy entries (32-byte, hash unknown) only conflict on the
     /// root: a matching root with a previously-unknown hash is accepted and upgraded to
     /// the 64-byte layout.
+    /// Pin the source chain id this archive belongs to.
+    ///
+    /// The first call records `live`; every later call must pass the same value or fails
+    /// with [`StoreError::ChainIdMismatch`]. Returns the previously pinned id (`None` when
+    /// this call pinned it). A database written before this column existed is pinned on
+    /// its first start with the new binary.
+    pub fn pin_chain_id(&self, live: u64) -> Result<Option<u64>> {
+        match self.meta.get(META_KEY_CHAIN_ID)? {
+            Some(raw) => {
+                let bytes: [u8; 8] = raw.as_ref().try_into().with_context(|| {
+                    format!("invalid chain_id length: expected 8, got {}", raw.len())
+                })?;
+                let stored = u64::from_be_bytes(bytes);
+                if stored != live {
+                    return Err(StoreError::ChainIdMismatch { stored, live }.into());
+                }
+                Ok(Some(stored))
+            }
+            None => {
+                self.meta.insert(META_KEY_CHAIN_ID, &live.to_be_bytes())?;
+                self.meta.flush()?;
+                Ok(None)
+            }
+        }
+    }
+
     pub fn put_roots(&self, roots: &[(u64, H256, H256)]) -> Result<()> {
         // Reorg / inconsistency guard. Scan first; this is a cheap point-read per entry
         // and means we never run the batch insert with a mixed-conflict payload.
@@ -595,5 +629,38 @@ mod tests {
 
         let gaps = store.find_gaps(Some(5)).unwrap();
         assert_eq!(gaps, vec![(5, 9), (12, 14), (16, 19)]);
+    }
+
+    #[test]
+    fn chain_id_pins_on_first_run_and_matches_afterwards() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        assert_eq!(store.pin_chain_id(56).unwrap(), None);
+        assert_eq!(store.pin_chain_id(56).unwrap(), Some(56));
+        // Persisted in the meta tree (the reopen path is exercised by the sibling reopen
+        // tests; not repeated here to avoid the sled lock-release race they guard against).
+        assert_eq!(
+            store.meta.get(META_KEY_CHAIN_ID).unwrap().unwrap().as_ref(),
+            &56u64.to_be_bytes()
+        );
+    }
+
+    #[test]
+    fn chain_id_mismatch_is_fatal_and_leaves_the_pin_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        store.pin_chain_id(56).unwrap();
+        let err = store.pin_chain_id(1).unwrap_err();
+        assert!(
+            matches!(
+                err.downcast_ref::<StoreError>(),
+                Some(StoreError::ChainIdMismatch {
+                    stored: 56,
+                    live: 1
+                })
+            ),
+            "{err:?}"
+        );
+        assert_eq!(store.pin_chain_id(56).unwrap(), Some(56));
     }
 }

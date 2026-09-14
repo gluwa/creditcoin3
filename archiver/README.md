@@ -39,7 +39,8 @@ All flags can also be set via environment variables (see below).
 | `--stream-timeout-secs` | `STREAM_TIMEOUT_SECS` | `120` | Seconds before treating a stream as stalled |
 | `--sled-db-path` | `SLED_DB_PATH` | `./data/roots.sled` | Path to the sled database directory |
 | `--api-bind` | `API_BIND` | `0.0.0.0:8080` | HTTP API bind address |
-| `--flush-every` | `FLUSH_EVERY` | `10000` | Write and flush roots every N blocks while catching up; within N blocks of the head the archiver writes and flushes every block automatically |
+| `--flush-every` | `FLUSH_EVERY` | `10000` | Catch-up batch size: write roots (and request a flush) every N blocks |
+| `--tip-window` | `TIP_WINDOW` | `256` | Within N blocks of the head, write every root immediately; durability flushes throttled to ~1/s |
 | `--backfill` | — | `false` | Scan for gaps and fill them before resuming |
 | `--finalization_lag_override` | - | *(none)* | Configurable finalization lag override |
 
