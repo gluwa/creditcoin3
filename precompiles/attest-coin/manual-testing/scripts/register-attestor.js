@@ -27,7 +27,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { ethers, HDNodeWallet } = require('ethers');
+const { ethers } = require('ethers');
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 const { blake2AsU8a, decodeAddress, encodeAddress } = require('@polkadot/util-crypto');
 
@@ -75,22 +75,21 @@ async function nativeBalance(api, ss58) {
 }
 
 /**
- * The stash secret for the CLI. It accepts either form, so the raw EVM private
- * key `new-stash.js` writes is enough — the mnemonic is only a fallback.
+ * The stash secret for the CLI. `secretValidate` accepts a BIP39 phrase or a
+ * 32-byte hex secret, so the raw EVM private key `new-stash.js` writes is all
+ * we need; no mnemonic is generated or stored.
  */
 function stashSecret() {
-    const secret = process.env.STASH_PRIVATE_KEY || process.env.STASH_MNEMONIC;
+    const secret = process.env.STASH_PRIVATE_KEY;
     if (!secret) {
-        throw new Error('neither STASH_PRIVATE_KEY nor STASH_MNEMONIC is set — run scripts/new-stash.js (step 5.2)');
+        throw new Error('STASH_PRIVATE_KEY is not set — run scripts/new-stash.js (step 5.2)');
     }
     return secret;
 }
 
 /** EVM address the CLI will act as, derived the same way the CLI derives it. */
 function stashAddressFrom(secret) {
-    return /^0x[0-9a-fA-F]{64}$/.test(secret)
-        ? new ethers.Wallet(secret).address
-        : HDNodeWallet.fromPhrase(secret).address;
+    return new ethers.Wallet(secret).address;
 }
 
 /** Run a creditcoin CLI subcommand with the stash secret in CC_SECRET. */

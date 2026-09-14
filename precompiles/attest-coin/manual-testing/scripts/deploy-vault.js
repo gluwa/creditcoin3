@@ -44,14 +44,35 @@ const USAGE = `usage: node scripts/deploy-vault.js [--cap <whole-ATC>]
   node scripts/deploy-vault.js
   node scripts/deploy-vault.js --cap 5000`;
 
+/**
+ * Set `key=value` in .env.
+ *
+ * Replaces **every** existing line for the key rather than the first, so a file that already
+ * picked up duplicates (e.g. from a `>>` append) heals itself instead of growing a second
+ * stale copy. Only a genuinely absent key is appended.
+ */
+function setEnvKey(contents, key, value) {
+    const line = `${key}=${value}`;
+    const existing = new RegExp(`^${key}=.*$`, 'gm');
+    if (!existing.test(contents)) {
+        return `${contents.replace(/\n*$/, '\n')}${line}\n`;
+    }
+    let first = true;
+    return contents
+        .replace(new RegExp(`^${key}=.*$\n?`, 'gm'), () => {
+            if (first) {
+                first = false;
+                return `${line}\n`;
+            }
+            return '';
+        })
+        .replace(/\n*$/, '\n');
+}
+
 /** Record the deployed address back into .env so later steps can read it. */
 function writeEnvAddress(address) {
-    const line = `ATTESTCOIN_VAULT=${address}`;
     const contents = fs.readFileSync(ENV_PATH, 'utf8');
-    const updated = /^ATTESTCOIN_VAULT=.*$/m.test(contents)
-        ? contents.replace(/^ATTESTCOIN_VAULT=.*$/m, line)
-        : `${contents.replace(/\n*$/, '\n')}${line}\n`;
-    fs.writeFileSync(ENV_PATH, updated);
+    fs.writeFileSync(ENV_PATH, setEnvKey(contents, 'ATTESTCOIN_VAULT', address));
 }
 
 function parseCap(argv) {

@@ -1,7 +1,7 @@
 attestor:
   name: "my-attestor"
   chain_key: <eth-mainnet-chain-key>     # Ethereum Mainnet on CC3 mainnet or CC3 Testnet
-  secret: "<your 12/24-word mnemonic>"   # or a 0x-prefixed 32-byte hex seed
+  secret: "<STASH_PRIVATE_KEY from .env>"   # 0x-prefixed 32-byte hex seed, or a 12/24-word mnemonic
 
 api:
   port: 9100

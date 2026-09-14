@@ -137,8 +137,10 @@ bonds.
 
 - Create Attestor Substrate Account
 ```sh
-OUT=$(subkey generate --output-type json); { printf '\n# Attestor operator account (sr25519), from `subkey generate`.\n'; printf 'ATTESTOR_SS58=%s\n' "$(echo "$OUT" | jq -r .ss58Address)"; printf 'ATTESTOR_SEED=%s\n' "$(echo "$OUT" | jq -r .secretSeed)"; } >> .env; grep ATTESTOR_ .env
+./scripts/new-attestor-account.sh
 ```
+
+Writes `ATTESTOR_SS58` / `ATTESTOR_SEED` **in place** in .env. 
 
 - Fund the account
 In polkadot.js go to Developer -> Sudo and select the call Balances -> forceSetBalance.
@@ -171,8 +173,8 @@ stash is `blake2_256("evm:" || address)` — a hash with no signing key — so i
 can never sign an extrinsic. That is what the attestor-stash precompile is for.
 
 Submits via the CLI's `attestor register` (same precompile); the script adds the
-pre-flight checks the CLI lacks. Needs the built CLI and `STASH_MNEMONIC`, as in
-step 10.
+pre-flight checks the CLI lacks. Needs the built CLI and `STASH_PRIVATE_KEY`, as
+in step 10.
 
 ```sh
 node scripts/register-attestor.js
@@ -236,6 +238,9 @@ node scripts/withdraw.js
 node scripts/show-balances.js
 ```
 
-Read-only. After a full run the stash holds nothing bonded, nothing liquid and
-nothing unclaimed, and its ERC-20 balance is the rewards claimed plus the bond
-that round-tripped back out.
+After a full run we should have:
+
+Stash -> ` ERC-20 (ATC)               101.0 ATC` 
+
+This indicates that we got our bond of 100 ATC back, and that we claimed 1 ATC as a reward for 
+submitting 1 attestation.
