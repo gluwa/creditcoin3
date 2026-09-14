@@ -14,6 +14,16 @@ export DEBIAN_FRONTEND=noninteractive
 # from an updated bootloader, so keep grub out of the upgrade entirely.
 sudo apt-mark hold grub-pc grub-pc-bin grub2-common
 
+# linux-firmware-* and this batch of physical-hardware/console tooling
+# (firmware updates, snap, kernel perf, console keyboard setup, disk/wireless
+# utilities) are irrelevant on a KVM cloud VM but still add up to hundreds of
+# MB from the Linode mirror, which can eat most of the 10-minute provisioning
+# timeout on its own. Hold them out of the upgrade on these throwaway CI VMs.
+sudo apt-mark hold 'linux-firmware*' snapd fwupd libfwupd3 packagekit \
+  gir1.2-packagekitglib-1.0 linux-perf linux-tools-common console-setup-linux \
+  wireless-regdb ubuntu-advantage-tools udisks2 libudisks2-0 dmidecode mdadm \
+  sg3-utils sg3-utils-udev sos
+
 sudo apt-get update
 sudo apt-get upgrade -y
 
