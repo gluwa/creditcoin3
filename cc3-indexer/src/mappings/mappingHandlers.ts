@@ -1375,16 +1375,27 @@ export async function handleForcedElection(event: SubstrateEvent): Promise<void>
     //   * legacy `ForcedElection { epoch }` (all-chains election, runtimes before force_election
     //     became per-chain),
     //   * current `ForcedElection { chain_key, epoch }`.
-    // Field names from the runtime metadata disambiguate.
+    // Field names from the runtime metadata disambiguate when SubQuery exposes them; it does not
+    // always (`GenericEventData.names` can be missing), so fall back to the field count, which
+    // already tells the two shapes apart: one field is the legacy epoch-only event, two fields
+    // are `{chain_key, epoch}` in declaration order.
+    const data = event.event.data;
     const names: string[] = (event.event.data as unknown as { names?: string[] | null }).names ?? [];
     const indexOf = (...candidates: string[]): number =>
         candidates.map((c) => names.indexOf(c)).find((i) => i >= 0) ?? -1;
-    const chainKeyIdx = indexOf('chainKey', 'chain_key');
-    const epochIdx = indexOf('epoch');
+    let chainKeyIdx = indexOf('chainKey', 'chain_key');
+    let epochIdx = indexOf('epoch');
+    if (chainKeyIdx < 0 && epochIdx < 0) {
+        if (data.length >= 2) {
+            chainKeyIdx = 0;
+            epochIdx = 1;
+        } else {
+            epochIdx = 0;
+        }
+    }
 
-    const data = event.event.data;
     const chainKey = chainKeyIdx >= 0 ? BigInt(data[chainKeyIdx].toString()) : undefined;
-    const epoch = epochIdx >= 0 ? BigInt(data[epochIdx].toString()) : BigInt(data[0].toString());
+    const epoch = BigInt(data[epochIdx].toString());
 
     const blockNumber = event.block.block.header.number.toBigInt();
 
