@@ -1,0 +1,107 @@
+---
+name: cache-warm
+
+# Populates the `build-creditcoin-node` Rust dependency cache on the default branch.
+#
+# Why this exists: a cache saved during a PR run is stored under refs/pull/<n>/merge,
+# and GitHub will not let another PR restore it. Only caches on the default branch are
+# readable by every PR. Every workflow in this repo that builds Rust was triggered by
+# pull_request alone, so nothing ever wrote a cache a *fresh* PR could use, and each new
+# PR compiled the whole dependency graph from cold. Re-running one PR looked fast while
+# everyone else still paid full price.
+#
+# rust.yml carries its own `push` trigger for the rust-check / rust-clippy / rust-test
+# keys. This workflow covers the separate key used by build-native.yml callers, which is
+# the one the two compatibility builds restore.
+#
+# IMPORTANT, on why this calls build-native.yml instead of running cargo directly:
+# Swatinem/rust-cache mixes the Rust environment into the cache key, including env vars
+# beginning with CXX. build-native.yml sets no CXXFLAGS while rust.yml sets
+# `CXXFLAGS: -include cstdint`, so the two compute *different* keys even when both pass
+# the same `shared-key`. Warming therefore has to reproduce the consumer's environment
+# exactly, and the only reliable way to do that is to invoke the very same reusable
+# workflow. Do not reimplement the build here.
+"on":
+  # Only manifest changes. The cache key is derived from the Cargo manifests and the
+  # toolchain, and the cache holds dependencies rather than workspace crates, so an
+  # ordinary .rs change leaves the existing key valid and the warmed entry still
+  # applies. Warming on every push would re-pay a full build to refresh nothing.
+  push:
+    branches: [usc-dev]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/build-native.yml"
+      - ".github/workflows/cache-warm.yml"
+      - ".github/workflows/deploy-runner.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  # Mirrors the inputs both compatibility workflows pass, because theirs is the build
+  # this is meant to accelerate: they restored
+  # v0-rust-build-creditcoin-node-Linux-x64-<env>-<manifests> with a full match and
+  # still spent ~21 minutes each, and without a default-branch producer a fresh PR gets
+  # no restore at all.
+  #
+  # This covers the hosted consumers only: the two compatibility builds. ci.yml builds the
+  # same configuration on a self-hosted Linode runner, which build-native.yml now keys into
+  # its own namespace, so it needs its own producer — see `warm-build-creditcoin-node-linode`
+  # below.
+  warm-build-creditcoin-node:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
+      version-string: cache-warm
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-26.04']"
+      # Nothing consumes the output; this run exists only for its cache entry.
+      upload-artifacts: false
+    secrets: inherit
+
+  # The self-hosted half of the same configuration. ci.yml's `build-creditcoin-node-for-testing-ci`
+  # and proof-gen-api-server's build both run `--release --features=fast-runtime` on a Linode VM,
+  # and build-native.yml keys them separately from the hosted runners above because a `target/`
+  # built under a different Cargo home fingerprints as stale. Without this job that namespace has
+  # no default-branch producer and every fresh PR builds it cold, which is the largest single
+  # block of PR wall-clock left after the hosted warmer above.
+  #
+  # It costs one VM per manifest change on usc-dev, not per PR.
+  deploy-runner:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: cache-warm
+    secrets: inherit
+
+  warm-build-creditcoin-node-linode:
+    needs: deploy-runner
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
+      version-string: cache-warm-linode
+      cache-key-name: build-creditcoin-node
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-cache-warm']"
+      # Nothing consumes the output; this run exists only for its cache entry.
+      upload-artifacts: false
+    secrets: inherit
+
+  # always() so a failed or cancelled build still releases the VM.
+  remove-runner:
+    needs: [deploy-runner, warm-build-creditcoin-node-linode]
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: cache-warm
+    secrets: inherit
