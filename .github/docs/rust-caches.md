@@ -22,15 +22,21 @@ runs before it merges.
 | `cache-native.yml` / linode | Native fast-runtime, LFS off | Main CI and proof-generator native builds |
 
 The native namespace includes the caller's cache name (with a consistent default)
-and a hash of build options, LFS mode and metadata-patching mode. Release,
-benchmarking and migration configurations therefore cannot win the same immutable
-entry as a fast-runtime build. Swatinem additionally keys by compiler versions,
-environment and dependencies.
+and a hash of build options, LFS mode, metadata-patching mode, the runner family
+and `$HOME`. Release, benchmarking and migration configurations therefore cannot
+win the same immutable entry as a fast-runtime build, and a hosted archive cannot
+win the entry a self-hosted consumer needs. Swatinem additionally keys by compiler
+versions, environment and dependencies.
 
-Hosted and Linode producers are intentional: their Cargo home and checkout paths
-and installed toolchains differ. Giving them the same textual shared key does not
-make their archives interchangeable. Keep each producer on its consumer's runner
-family, and update both sides when changing build options or checkout settings.
+The runner family and `$HOME` are in the hash on purpose. `target/` fingerprints
+and `.d` files record absolute paths, so an archive restored across runner families
+fails every fingerprint check and rebuilds anyway after paying for the download.
+The other inputs must not be relied on to separate them: today every hosted caller
+passes `git-lfs-checkout: true` and every Linode one `false`, which separates them
+by coincidence rather than by design.
+
+Keep each producer on its consumer's runner family, and update both sides when
+changing build options or checkout settings.
 
 Formatting and auditing have separate tool caches without `target/`. Machete uses
 a prebuilt tool without a Cargo cache. The benchmark workflow retains its cache:
@@ -41,9 +47,26 @@ it also recompiles the generated weights after running the downloaded binary.
 Normal PR and manually dispatched Rust checks always run. Only background Rust
 warmers, and native calls explicitly opting into `warm-cache-only`, skip work on
 an exact cache hit. Cache misses still build the real configuration before saving.
-Background coverage runs do not push simulation regression files to `usc-dev`.
+
+The coverage warmer is the one exception to "build the real thing": it runs
+`cargo llvm-cov --no-report -- --list`, which compiles every target under
+llvm-cov's own instrumentation flags and then exits through libtest's `--list`
+instead of executing the suite and the 10 000-case simulations. Plain `cargo test`
+would not do: it sets different RUSTFLAGS and would populate artifacts the real
+run cannot reuse. (`cargo llvm-cov --no-run` is the opposite of what the name
+suggests — it reports from existing profile data without building.) Warm runs
+therefore publish no coverage report and push no simulation regression files.
+
 Native warmers do not upload binaries, and their Linode runner is cleaned up after
-success, failure or cancellation.
+success, failure or cancellation. The self-hosted leg is skipped on `pull_request`:
+a PR touching these files only needs to prove they still parse and that the hosted
+leg works, and deploying a VM for a full release build per PR is the most expensive
+and least reliable path in CI.
+
+Every cached job writes an "Exact cache hit" line into its job summary. Without it
+the only way to tell whether any of this is working is to open a job log and search
+for the restore line, which is how the previous single-key setup stayed broken
+unnoticed.
 
 After merge:
 

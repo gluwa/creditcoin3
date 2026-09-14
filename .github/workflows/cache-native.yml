@@ -42,7 +42,12 @@ jobs:
       runs-on: "['ubuntu-26.04']"
       warm-cache-only: true
 
+  # A pull_request run exists to prove these workflows still parse and that the hosted leg
+  # works. Deploying a Linode VM for a full release build on every PR that touches these files
+  # is the most expensive and least reliable part of CI, so the self-hosted leg is left to
+  # push, schedule and manual dispatch.
   deploy-runner:
+    if: ${{ github.event_name != 'pull_request' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -53,6 +58,7 @@ jobs:
 
   linode:
     needs: deploy-runner
+    if: ${{ github.event_name != 'pull_request' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -64,7 +70,7 @@ jobs:
 
   remove-runner:
     needs: [deploy-runner, linode]
-    if: ${{ always() }}
+    if: ${{ always() && github.event_name != 'pull_request' }}
     uses: ./.github/workflows/remove-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"

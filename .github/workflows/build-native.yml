@@ -89,8 +89,17 @@ jobs:
           BUILD_OPTIONS: ${{ inputs.build-options }}
           LFS_CHECKOUT: ${{ inputs.git-lfs-checkout }}
           NEW_METADATA: ${{ inputs.use-new-metadata }}
+          RUNNER_FAMILY: ${{ runner.environment }}
         run: |
-          VARIANT=$(printf '%s\n' "$BUILD_OPTIONS" "$LFS_CHECKOUT" "$NEW_METADATA" | sha256sum | cut -c1-16)
+          # The runner family and `$HOME` are part of the key because `target/` fingerprints and
+          # `.d` files record absolute paths: a hosted archive restored on a Linode VM (different
+          # Cargo home and checkout root) fails every fingerprint check and rebuilds anyway,
+          # after paying for the download. Do not rely on the other inputs happening to differ.
+          # Today every hosted caller passes `git-lfs-checkout: true` and every Linode one
+          # `false`, which separates them by coincidence; the first hosted caller that sets it
+          # to false would otherwise collide with the Linode archive.
+          VARIANT=$(printf '%s\n' "$BUILD_OPTIONS" "$LFS_CHECKOUT" "$NEW_METADATA" \
+              "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-16)
           echo "variant=$VARIANT" >> "$GITHUB_OUTPUT"
 
       - uses: Swatinem/rust-cache@v2

@@ -85,6 +85,17 @@ jobs:
               exit 0
           fi
 
+      - name: Summarize cache reuse
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+        run: |
+          {
+            echo "### Rust dependency cache — tools-audit"
+            echo "- Exact cache hit: ${CACHE_HIT:-false}"
+            echo "- Warm-cache-only run: ${CACHE_WARM_ONLY}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   cargo-fmt:
     runs-on: ubuntu-26.04
     steps:
@@ -119,6 +130,17 @@ jobs:
         run: |
           cargo install taplo-cli --locked
           taplo format --check
+
+      - name: Summarize cache reuse
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+        run: |
+          {
+            echo "### Rust dependency cache — tools-fmt"
+            echo "- Exact cache hit: ${CACHE_HIT:-false}"
+            echo "- Warm-cache-only run: ${CACHE_WARM_ONLY}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   cargo-check:
     runs-on: ubuntu-26.04
@@ -171,6 +193,17 @@ jobs:
         run: |
           SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
 
+      - name: Summarize cache reuse
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+        run: |
+          {
+            echo "### Rust dependency cache — rust-check"
+            echo "- Exact cache hit: ${CACHE_HIT:-false}"
+            echo "- Warm-cache-only run: ${CACHE_WARM_ONLY}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   cargo-clippy:
     runs-on: ubuntu-26.04
     steps:
@@ -214,6 +247,17 @@ jobs:
         with:
           command: clippy
           args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
+
+      - name: Summarize cache reuse
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+        run: |
+          {
+            echo "### Rust dependency cache — rust-clippy"
+            echo "- Exact cache hit: ${CACHE_HIT:-false}"
+            echo "- Warm-cache-only run: ${CACHE_WARM_ONLY}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   cargo-machete:
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
@@ -280,8 +324,18 @@ jobs:
         with:
           tool: cargo-llvm-cov@0.6.24
 
+      # A warmer only needs the dependency artifacts in `target/`, not the results. Compile
+      # under llvm-cov's own instrumentation flags — plain `cargo test` sets different
+      # RUSTFLAGS and would populate artifacts the real run cannot reuse — then let libtest
+      # exit immediately via `--list`. Note `cargo llvm-cov --no-run` does the opposite of
+      # what the name suggests: it reports from existing profile data without building.
+      - name: Warm test dependencies
+        if: env.CACHE_WARM_ONLY == 'true' && steps.rust-cache.outputs.cache-hit != 'true'
+        run: |
+          cargo llvm-cov --release --workspace --no-report -- --list
+
       - name: Run tests
-        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
+        if: env.CACHE_WARM_ONLY != 'true'
         run: |
           cargo llvm-cov \
               --release \
@@ -289,7 +343,7 @@ jobs:
               --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
 
       - name: Run simulations
-        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
+        if: env.CACHE_WARM_ONLY != 'true'
         id: simulation
         env:
           PROPTEST_CASES: 10000
@@ -312,8 +366,19 @@ jobs:
           github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
       - name: Upload coverage report as artifact
-        if: env.CACHE_WARM_ONLY != 'true' || steps.rust-cache.outputs.cache-hit != 'true'
+        if: env.CACHE_WARM_ONLY != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: target/llvm-cov/html/
+
+      - name: Summarize cache reuse
+        if: always()
+        env:
+          CACHE_HIT: ${{ steps.rust-cache.outputs.cache-hit }}
+        run: |
+          {
+            echo "### Rust dependency cache — rust-test-coverage"
+            echo "- Exact cache hit: ${CACHE_HIT:-false}"
+            echo "- Warm-cache-only run: ${CACHE_WARM_ONLY}"
+          } >> "$GITHUB_STEP_SUMMARY"
