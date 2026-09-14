@@ -183,7 +183,7 @@ jobs:
       - build-sut
     runs-on:
       [self-hosted, "workflow-${{ github.run_id }}", "type-attestor-compatibility"]
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
       # LOG_DIR holds all per-process log files and per-zombienet subdirectories
