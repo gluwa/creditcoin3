@@ -292,6 +292,15 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u128]
             >;
+            /**
+             * Set the per-chain committee **cap** (see [`TargetSampleSize`]). Applies at the next
+             * epoch via [`PendingTargetSampleSize`].
+             *
+             * This does not by itself set the quorum: the quorum is `2/3+1` of
+             * `min(|ActiveAttestors|, TargetSampleSize)`. Raising this above the active-attestor
+             * count makes the whole active set the committee, which is the posture that preserves
+             * quorum intersection.
+             **/
             setTargetSampleSize: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
