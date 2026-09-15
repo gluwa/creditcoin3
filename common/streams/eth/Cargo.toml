@@ -17,6 +17,7 @@ eth = { workspace = true, default-features = true }
 
 # Creditcoin
 attestor-primitives = { workspace = true, default-features = true }
+supported-chains-primitives = { workspace = true, default-features = true }
 usc-abi-encoding = { workspace = true }
 
 # Async & Parallelism

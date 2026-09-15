@@ -57,7 +57,7 @@ fn main() {
         let config = stream_eth::roots::ConfigBuilder::new()
             .with_client(client_eth.clone())
             .with_start_height(args.start_height)
-            .with_finalization_lag(FINALIZATION_LAG)
+            .with_maturity(eth::Maturity::FixedLag(FINALIZATION_LAG))
             .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
             .with_max_parallelism(parallelism)
             .build();
@@ -65,7 +65,7 @@ fn main() {
 
         let config = stream_eth::tip::ConfigBuilder::new()
             .with_client(client_eth.clone())
-            .with_finalization_lag(FINALIZATION_LAG)
+            .with_maturity(eth::Maturity::FixedLag(FINALIZATION_LAG))
             .with_start_height(args.start_height)
             .build();
         let stream_tip = stream_eth::StreamTip::new(config).await.boxed_data();

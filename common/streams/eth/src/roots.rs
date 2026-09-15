@@ -5,7 +5,8 @@ use user::prelude::*;
 pub struct Config {
     pub client: eth::Client,
     pub start_height: attestor_primitives::Height,
-    pub finalization_lag: attestor_primitives::Height,
+    /// How mature heights are derived from source heads. See [`eth::Maturity`].
+    pub maturity: eth::Maturity,
 
     /// Maximum number of concurrent block fetch tasks (IO-bound).
     pub max_concurrency: std::num::NonZeroUsize,
@@ -324,8 +325,8 @@ async fn stream_rpc(
     let subscribed = stream_headers.map(|header| Some(header.number));
     let poll_client = config.client.clone();
     let poll_timeout = config.rpc_call_timeout;
-    // `Delay` rather than tokio's default `Burst`: this stream is not polled while
-    // `expand_heads` drains the seeded `start..=head` range, and after a long catch-up the
+    // `Delay` rather than tokio's default `Burst`: this stream is not polled while the maturity
+    // pipeline below drains a newly-matured range, and after a long catch-up the
     // missed ticks would otherwise fire back-to-back as a flood of `eth_blockNumber` calls on
     // the same socket that carries block fetches and `newHeads`.
     let mut ticker = tokio::time::interval(config.head_poll_interval);
@@ -354,11 +355,49 @@ async fn stream_rpc(
     .filter_map(futures::future::ready);
     let heads = merge_heads(subscribed, polled.map(Some));
 
-    // Boxed: the poll side holds `!Unpin` futures and `select!` needs `Unpin` to call `next()`.
-    let mut stream_n = expand_heads(config.start_height, head, heads)
-        .skip_while(move |number| {
-            futures::future::ready(*number < config.start_height + config.finalization_lag)
+    // Mature-height pipeline. Every source head — the one seeded above and each one the merged
+    // subscription/poll stream delivers — is resolved to a mature height through
+    // `config.maturity`, and the block numbers between the last fetched height and that mature
+    // height are what this stream fetches next. With a fixed lag that is the classic `head - lag`
+    // walk (one block per head, gaps backfilled); with a block tag the mature height moves in
+    // jumps whenever the node's `safe` / `finalized` advances. A failed tag lookup is logged and
+    // skipped: the next head retries, and `next_unfetched` guarantees no block is skipped or
+    // fetched twice.
+    //
+    // This supersedes the earlier `expand_heads` + `skip_while(start + finalization_lag)` pair:
+    // `newly_mature` fills the same gaps, and the lag is now one case of `Maturity` rather than a
+    // separate subtraction.
+    let maturity = config.maturity;
+    let client_for_maturity = config.client.clone();
+    let mut stream_n = futures::stream::once(futures::future::ready(head))
+        .chain(heads)
+        .then(move |head| {
+            let client = client_for_maturity.clone();
+            async move { (head, maturity.mature_height(&client, head).await) }
         })
+        .filter_map(move |(head, mature)| {
+            futures::future::ready(match mature {
+                Ok(Some(mature)) => Some(mature),
+                Ok(None) => None,
+                Err(err) => {
+                    tracing::warn!(
+                        head,
+                        %maturity,
+                        %err,
+                        "could not resolve mature height for this head; retrying on the next one"
+                    );
+                    None
+                }
+            })
+        })
+        .scan(config.start_height, |next_unfetched, mature| {
+            let range = eth::Maturity::newly_mature(*next_unfetched, mature);
+            if !range.is_empty() {
+                *next_unfetched = mature + 1;
+            }
+            futures::future::ready(Some(futures::stream::iter(range)))
+        })
+        .flatten()
         .boxed();
 
     let mut blocks = tokio::task::JoinSet::new();
@@ -397,14 +436,13 @@ async fn stream_rpc(
                     }
 
                     let eth = config.client.clone();
-                    let lag = config.finalization_lag;
                     let encoding = config.encoding;
 
                     // Actual block fetching. No more than `max_concurrency` blocks may be
-                    // fetched at once.
+                    // fetched at once. `n` is already a mature height.
                     blocks.spawn(async move {
                         eth.get_block(
-                            n - lag,
+                            n,
                             encoding
                         )
                         .await
@@ -459,55 +497,10 @@ where
         .filter_map(futures::future::ready)
 }
 
-/// The height sequence to fetch: `start..=head` up front, then every height newly revealed by
-/// a head observation. Observations that do not advance the frontier (repeats, lower heads
-/// from a lagging peer) contribute nothing, so subscription and poll can freely overlap.
-fn expand_heads<H>(
-    start: attestor_primitives::Height,
-    head: attestor_primitives::Height,
-    heads: H,
-) -> impl futures::Stream<Item = attestor_primitives::Height>
-where
-    H: futures::Stream<Item = attestor_primitives::Height>,
-{
-    use futures::StreamExt as _;
-    futures::stream::iter(start..=head).chain(
-        heads
-            .scan(head + 1, |next, observed| {
-                if observed >= *next {
-                    let missing = *next..=observed;
-                    *next = observed + 1;
-                    futures::future::ready(Some(futures::stream::iter(missing)))
-                } else {
-                    #[allow(clippy::reversed_empty_ranges)]
-                    futures::future::ready(Some(futures::stream::iter(1..=0)))
-                }
-            })
-            .flatten(),
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use futures::StreamExt as _;
-
-    #[tokio::test]
-    async fn expand_heads_fills_gaps_and_ignores_non_advancing_observations() {
-        let heads = futures::stream::iter(vec![5u64, 5, 7, 6, 10]);
-        let got: Vec<u64> = expand_heads(3, 5, heads).collect().await;
-        assert_eq!(got, vec![3, 4, 5, 6, 7, 8, 9, 10]);
-    }
-
-    #[tokio::test]
-    async fn expand_heads_starts_immediately_from_the_seeded_head() {
-        // No subsequent observation at all: catch-up to the seeded head still happens.
-        let got: Vec<u64> = expand_heads(10, 12, futures::stream::pending::<u64>())
-            .take(3)
-            .collect()
-            .await;
-        assert_eq!(got, vec![10, 11, 12]);
-    }
 
     #[tokio::test]
     async fn merged_heads_keep_flowing_from_polls_while_the_subscription_is_silent() {

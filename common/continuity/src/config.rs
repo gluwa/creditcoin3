@@ -73,7 +73,14 @@ pub struct ContinuityConfig {
     ///
     /// Set to `0` for chains with instant / irreversible finality.
     /// A typical safe value for Ethereum mainnet is `12` (~2 min at 12 s/block).
+    ///
+    /// Ignored when [`confirmation_tag`](Self::confirmation_tag) is set.
     pub block_confirmation_depth: u64,
+
+    /// Confirm blocks by the source node's `safe` / `finalized` block tag instead of a fixed
+    /// depth. This is what the `RpcSafe` / `RpcFinalized` on-chain maturity strategies resolve
+    /// to, so the prover confirms on exactly the schedule the attestors attest on.
+    pub confirmation_tag: Option<eth::BlockTag>,
 }
 
 impl ContinuityConfig {
@@ -193,6 +200,7 @@ pub struct ConfigBuilder {
     checkpoint_interval: Option<u64>,
     last_checkpoint_block: Option<u64>,
     block_confirmation_depth: u64,
+    confirmation_tag: Option<eth::BlockTag>,
 }
 
 impl ConfigBuilder {
@@ -289,6 +297,13 @@ impl ConfigBuilder {
         self
     }
 
+    /// Confirm blocks by a source-node block tag (`safe` / `finalized`) instead of a fixed
+    /// depth. See [`ContinuityConfig::confirmation_tag`].
+    pub fn confirmation_tag(mut self, tag: Option<eth::BlockTag>) -> Self {
+        self.confirmation_tag = tag;
+        self
+    }
+
     /// Build the configuration.
     ///
     /// # Panics
@@ -321,6 +336,7 @@ impl ConfigBuilder {
                 .expect("checkpoint_interval is required"),
             last_checkpoint_block: self.last_checkpoint_block,
             block_confirmation_depth: self.block_confirmation_depth,
+            confirmation_tag: self.confirmation_tag,
         }
     }
 
