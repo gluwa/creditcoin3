@@ -988,7 +988,9 @@ dependencies = [
  "dotenvy",
  "eth",
  "futures 0.3.32",
+ "reqwest",
  "serde",
+ "serde_json",
  "sled",
  "sp-core",
  "stream_eth",
@@ -1000,6 +1002,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "usc-abi-encoding",
 ]
 
 [[package]]
