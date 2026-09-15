@@ -13,14 +13,23 @@ use url::Url;
     about = "Source chain archiver — fetches blocks, computes merkle roots, serves data over HTTP"
 )]
 pub struct Config {
-    /// HTTP RPC endpoint for block fetching.
+    /// HTTP RPC endpoint, used for chain-head tracking and the canonical-anchor check (blocks
+    /// themselves are fetched over the WebSocket client that also carries the subscription).
     #[arg(long, env = "RPC_HTTP", alias = "rpc-url", required = true)]
     pub rpc_http: Url,
 
-    /// WebSocket RPC endpoint for new-head subscriptions.
+    /// WebSocket RPC endpoint for the new-head subscription and block fetching.
     /// Required for the root stream to follow the chain tip.
     #[arg(long, env = "RPC_WS", required = true)]
     pub rpc_ws: Url,
+
+    /// Additional RPC endpoints (comma-separated) tried in order when the primary returns
+    /// "not found" or a transport error for a block fetch. Every fallback must serve the same
+    /// chain id as the primary. If any fallback is unreachable (or on another chain) at dial
+    /// time, the archiver logs a warning and continues with the primary alone rather than
+    /// letting a backup endpoint block startup or reconnection.
+    #[arg(long, env = "RPC_FALLBACK_URLS", value_delimiter = ',', num_args = 0..)]
+    pub rpc_fallback_urls: Vec<String>,
 
     /// Creditcoin3 RPC (WebSocket). `CC3_RPC_URL` or `--cc3-rpc-url` (CLI overrides env; not in YAML).
     #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
@@ -50,9 +59,14 @@ pub struct Config {
     #[arg(long, env = "MAX_API_RANGE", default_value = "1000")]
     pub max_api_range: u64,
 
-    /// Timeout in seconds for the stream before treating it as stalled.
-    #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "120")]
-    pub stream_timeout_secs: u64,
+    /// Seconds without a new root before the stream is declared stalled and rebuilt
+    /// (reconnect + anchor check). This is the outer watchdog; it must be longer than the
+    /// block-fetch retry budget inside the eth client (5 sweeps over `[primary, fallbacks]`
+    /// with 10/20/40/60 s back-off, i.e. 130 s of waiting) or the watchdog tears the stream
+    /// down while the client is still walking its fallbacks, and a block that only a fallback
+    /// can serve never gets served.
+    #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "180")]
+    pub stream_timeout_secs: NonZeroU64,
 
     /// Path to the sled database directory for root storage.
     #[arg(long, env = "SLED_DB_PATH", default_value = "./data/roots.sled")]
@@ -62,11 +76,18 @@ pub struct Config {
     #[arg(long, env = "API_BIND", default_value = "0.0.0.0:8080")]
     pub api_bind: SocketAddr,
 
-    /// How often to write and flush roots while catching up (every N blocks). Once the archiver
-    /// is within N blocks of the chain head it writes and flushes every block automatically, so
-    /// this only needs tuning for backfill throughput; tip-following never needs `1`.
+    /// Batch size while catching up: roots are written (and a durability flush requested)
+    /// every N blocks. Only affects backfill throughput; tip-following is governed by
+    /// `--tip-window` and never needs `1`.
     #[arg(long, env = "FLUSH_EVERY", default_value = "10000")]
     pub flush_every: NonZeroU64,
+
+    /// Blocks from the target (chain head or `--end-height`) within which every root is
+    /// written as soon as it is computed, so the API can serve mature roots immediately.
+    /// Must comfortably exceed the finalization lag plus head-poll latency (12 s). Durability
+    /// flushes at the tip are throttled to about one per second regardless.
+    #[arg(long, env = "TIP_WINDOW", default_value = "256")]
+    pub tip_window: NonZeroU64,
 
     /// Finalization lag: number of blocks behind the chain tip to consider finalized.
     /// By default the archiver will use the on-chain finalization lag for this source
@@ -80,4 +101,35 @@ pub struct Config {
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]
     pub backfill: bool,
+
+    /// Seconds between `eth_blockNumber` polls that run alongside the `newHeads` subscription.
+    /// The poll is the liveness floor: a subscription that acknowledges but stops delivering
+    /// headers cannot stall archiving for longer than this.
+    #[arg(long, env = "HEAD_POLL_INTERVAL_SECS", default_value = "12")]
+    pub head_poll_interval_secs: NonZeroU64,
+
+    /// Deadline in seconds for each RPC call made while (re)establishing the block stream
+    /// (subscribe, initial head read, head polls). alloy transports have no default timeout.
+    #[arg(long, env = "RPC_TIMEOUT_SECS", default_value = "30")]
+    pub rpc_timeout_secs: NonZeroU64,
+
+    /// `/ready` reports 503 when the archive is more than this many blocks behind the mature
+    /// target (`source head - finalization lag`). Size it to the chain's block rate: it is the
+    /// catch-up debt you are willing to serve proofs from.
+    #[arg(long, env = "READY_LAG_BLOCKS", default_value = "1000")]
+    pub ready_lag_blocks: u64,
+
+    /// `/ready` reports 503 when the source head has not been sampled successfully for this
+    /// many seconds. Distinguishes "the chain is idle" (fresh sample, no new blocks: ready)
+    /// from "we lost sight of the chain" (not ready).
+    #[arg(long, env = "STALE_AFTER_SECS", default_value = "60")]
+    pub stale_after_secs: NonZeroU64,
+
+    /// On start and on every reconnect the stored tip is re-fetched from the source and its
+    /// hash compared with the stored one. A mismatch means the archive tail sits on an
+    /// abandoned fork. `0` (default) fails closed. `N > 0` lets the archiver walk back at most
+    /// `N` stored blocks to the last canonical one, drop everything above it and recompute;
+    /// the bound keeps a misbehaving RPC from wiping the archive.
+    #[arg(long, env = "REANCHOR_MAX_DEPTH", default_value = "0")]
+    pub reanchor_max_depth: u64,
 }
