@@ -1,7 +1,7 @@
 //! `Client::get_block_number_by_tag` and `Maturity::mature_height` against a tiny in-process
 //! JSON-RPC server: tags resolve to header numbers, a `null` tag is "not found", and a primary that
 //! errors falls through to the fallback provider.
-use eth::{BlockTag, Client, Error, Maturity};
+use eth::{BlockTag, Client, Error, Maturity, TaggedBlock};
 use serde_json::{json, Value};
 use std::{
     io::{BufRead, Read, Write},
@@ -16,10 +16,12 @@ use std::{
 
 const ZERO32: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
 
-/// Header-only block JSON for `number`, enough for alloy's `Block` to deserialize.
-fn header(number: u64) -> Value {
+/// Header-only block JSON for `number`, enough for alloy's `Block` to deserialize. The hash
+/// encodes `salt` and `number`, so two mocks with the same salt agree on every block (one canonical
+/// chain) and mocks with different salts are on different forks.
+fn header(number: u64, salt: u8) -> Value {
     json!({
-        "hash": ZERO32, "parentHash": ZERO32, "sha3Uncles": ZERO32,
+        "hash": block_hash(number, salt), "parentHash": ZERO32, "sha3Uncles": ZERO32,
         "miner": "0x0000000000000000000000000000000000000000",
         "stateRoot": ZERO32, "transactionsRoot": ZERO32, "receiptsRoot": ZERO32,
         "logsBloom": format!("0x{}", "00".repeat(256)),
@@ -28,6 +30,10 @@ fn header(number: u64) -> Value {
         "nonce": "0x0000000000000000", "baseFeePerGas": "0x1",
         "transactions": [], "uncles": []
     })
+}
+
+fn block_hash(number: u64, salt: u8) -> String {
+    format!("0x{salt:02x}{number:062x}")
 }
 
 struct Mock {
@@ -41,6 +47,12 @@ impl Mock {
     /// `safe` / `finalized` answer with the given numbers (`None` = JSON `null`); `latest` is 100.
     /// `fail_tags` makes tag lookups return a JSON-RPC error instead.
     fn start(safe: Option<u64>, finalized: Option<u64>, fail_tags: bool) -> Self {
+        Self::start_on_fork(safe, finalized, fail_tags, 0)
+    }
+
+    /// Like [`Mock::start`], with every block hash salted by `fork` so mocks with different salts
+    /// disagree on block identity.
+    fn start_on_fork(safe: Option<u64>, finalized: Option<u64>, fail_tags: bool, fork: u8) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
@@ -88,7 +100,8 @@ impl Mock {
                     }
                     "eth_getBlockByNumber" => {
                         let tag = request["params"][0].as_str().unwrap();
-                        let numbered = |n: Option<u64>| n.map(header).unwrap_or(Value::Null);
+                        let numbered =
+                            |n: Option<u64>| n.map(|n| header(n, fork)).unwrap_or(Value::Null);
                         let result = match tag {
                             "safe" | "finalized" => {
                                 reads.fetch_add(1, Ordering::SeqCst);
@@ -104,10 +117,11 @@ impl Mock {
                                     numbered(finalized)
                                 }
                             }
-                            "latest" => header(100),
-                            n => {
-                                header(u64::from_str_radix(n.trim_start_matches("0x"), 16).unwrap())
-                            }
+                            "latest" => header(100, fork),
+                            n => header(
+                                u64::from_str_radix(n.trim_start_matches("0x"), 16).unwrap(),
+                                fork,
+                            ),
                         };
                         json!({"jsonrpc":"2.0","id":request["id"],"result":result})
                     }
@@ -242,4 +256,92 @@ async fn erroring_primary_falls_through_to_the_fallback_provider() {
         66
     );
     assert!(backup.tag_reads.load(Ordering::SeqCst) >= 2);
+}
+
+/// Two providers on the same chain at different points: the lower height wins, since the further
+/// one has already passed it, and its identity is confirmed against that further provider.
+#[tokio::test]
+async fn agreement_takes_the_lowest_reported_height() {
+    let ahead = Mock::start(Some(90), Some(70), false);
+    let behind = Mock::start(Some(88), Some(66), false);
+    let client = Client::new_with_fallbacks(&ahead.url, std::slice::from_ref(&behind.url), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        client.get_block_by_tag(BlockTag::Safe).await.unwrap(),
+        TaggedBlock {
+            number: 88,
+            hash: block_hash(88, 0).parse().unwrap(),
+        }
+    );
+    assert_eq!(
+        client
+            .get_block_number_by_tag(BlockTag::Finalized)
+            .await
+            .unwrap(),
+        66
+    );
+    // Both providers are asked the tag each time; neither is skipped because the other answered.
+    assert_eq!(ahead.tag_reads.load(Ordering::SeqCst), 2);
+    assert_eq!(behind.tag_reads.load(Ordering::SeqCst), 2);
+}
+
+/// A provider on another fork does not get a vote and does not lose one either: the lookup
+/// refuses to pick a side. The caller retries on the next head.
+#[tokio::test]
+async fn a_forked_provider_is_a_disagreement_not_a_fallback() {
+    // Different heights: the further provider is asked for the candidate height and has a
+    // different block there.
+    let canonical = Mock::start_on_fork(Some(88), Some(66), false, 0);
+    let forked = Mock::start_on_fork(Some(90), Some(70), false, 7);
+    let client =
+        Client::new_with_fallbacks(&canonical.url, std::slice::from_ref(&forked.url), None)
+            .await
+            .unwrap();
+    match client.get_block_by_tag(BlockTag::Safe).await {
+        Err(Error::BlockTagDisagreement {
+            tag,
+            number,
+            expected,
+            actual,
+            ..
+        }) => {
+            assert_eq!((tag, number), (BlockTag::Safe, 88));
+            assert_eq!(format!("{expected:?}"), block_hash(88, 0));
+            assert_eq!(format!("{actual:?}"), block_hash(88, 7));
+        }
+        other => panic!("expected a disagreement, got {other:?}"),
+    }
+
+    // Same height, different hash: no extra read needed, still a disagreement.
+    let forked_same_height = Mock::start_on_fork(Some(88), Some(66), false, 7);
+    let client = Client::new_with_fallbacks(
+        &canonical.url,
+        std::slice::from_ref(&forked_same_height.url),
+        None,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(
+        client.get_block_by_tag(BlockTag::Finalized).await,
+        Err(Error::BlockTagDisagreement { number: 66, .. })
+    ));
+}
+
+/// The disagreement surfaces through `Maturity` unchanged, so the streams log and retry on the
+/// next head rather than treating it as a dead connection.
+#[tokio::test]
+async fn maturity_surfaces_a_disagreement_as_an_error_for_this_head() {
+    let canonical = Mock::start_on_fork(Some(88), Some(66), false, 0);
+    let forked = Mock::start_on_fork(Some(88), Some(66), false, 3);
+    let client =
+        Client::new_with_fallbacks(&canonical.url, std::slice::from_ref(&forked.url), None)
+            .await
+            .unwrap();
+    assert!(matches!(
+        Maturity::Tag(BlockTag::Safe)
+            .mature_height(&client, 100)
+            .await,
+        Err(Error::BlockTagDisagreement { .. })
+    ));
 }
