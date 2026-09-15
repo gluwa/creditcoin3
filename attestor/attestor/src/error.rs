@@ -52,7 +52,7 @@ pub enum Error {
         attestor_primitives::ChainKey,
         supported_chains_primitives::Error,
     ),
-    NoMaturityDelayForStrategy(supported_chains_primitives::MaturityStrategy),
+    UnsupportedMaturityStrategy(supported_chains_primitives::MaturityStrategy),
 
     /// Attestation interval / sample size / max-catchup fetch failed at startup.
     MissingAttestationInterval(attestor_primitives::ChainKey),
@@ -86,8 +86,11 @@ impl std::fmt::Display for Error {
             Self::InvalidMaturityStrategy(k, e) => {
                 write!(f, "invalid maturity strategy for {k}: {e:?}")
             }
-            Self::NoMaturityDelayForStrategy(s) => {
-                write!(f, "strategy {s:?} has no maturity delay")
+            Self::UnsupportedMaturityStrategy(s) => {
+                write!(
+                    f,
+                    "maturity strategy {s:?} has neither a fixed delay nor an RPC block tag"
+                )
             }
             Self::MissingAttestationInterval(k) => {
                 write!(f, "missing attestation interval for chain {k}")

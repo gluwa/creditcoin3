@@ -97,7 +97,9 @@ pub struct ChainConfig {
     /// `None` (the default when the field is omitted) means: derive it at startup from the
     /// chain's on-chain `MaturityStrategy` in the supported-chains pallet -- the same value the
     /// attestors use, so this process cannot disagree with them. `Some(n)` pins an explicit
-    /// value; startup logs a WARN if it differs from the on-chain one.
+    /// value; startup logs a WARN if it differs from the on-chain depth, and refuses to start if
+    /// the chain follows a block tag (`RpcSafe` / `RpcFinalized`), which no fixed depth can
+    /// reproduce.
     ///
     /// This used to be a plain `u64` defaulting to `0`, so *omitting* it silently disabled reorg
     /// protection. That is the failure mode this change removes.
@@ -194,7 +196,8 @@ pub struct ChainConfigFile {
     pub archiver_url: Option<String>,
     /// Reorg-protection depth override. **Omit it** to derive the depth from the chain's on-chain
     /// `MaturityStrategy` (recommended -- matches the attestors by construction). Set it only to
-    /// deliberately pin a value; startup warns if it disagrees with the chain.
+    /// deliberately pin a value; startup warns if it disagrees with the chain and fails if the
+    /// chain follows a block tag (`RpcSafe` / `RpcFinalized`).
     #[serde(default)]
     pub block_confirmation_depth: Option<u64>,
     /// Optional per-chain cache sizing. Omit the whole block to keep the defaults.
