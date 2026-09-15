@@ -105,8 +105,9 @@ async fn main() -> Result<()> {
     // ── Registered chain (Creditcoin) ───────────────────────────────────
     // Previously this lookup only ran when FINALIZATION_LAG was unset, so every
     // deployment that pinned the lag skipped the chain_id verification along with it.
-    // The verification now runs whenever CHAIN_KEY is available.
-    let on_chain_maturity = match cfg.chain_key {
+    // The verification now runs whenever CHAIN_KEY is available. The client is kept: in
+    // tip-following mode it is what the archiver follows.
+    let registered = match cfg.chain_key {
         Some(chain_key) => {
             let cc3_client = CcClient::new_read_only(&cfg.cc3_rpc_url)
                 .await
@@ -145,7 +146,11 @@ async fn main() -> Result<()> {
                 "source chain verified against Creditcoin registration"
             );
 
-            Some(on_chain_maturity(chain.maturity_strategy.as_str())?)
+            Some((
+                cc3_client,
+                chain_key,
+                chain.maturity_strategy.as_str().to_owned(),
+            ))
         }
         None => {
             tracing::warn!(
@@ -157,8 +162,22 @@ async fn main() -> Result<()> {
         }
     };
 
-    // ── Determine maturity (fixed lag or RPC block tag) ─────────────────
-    let maturity = resolve_maturity(cfg.finalization_lag_override, on_chain_maturity)?;
+    // ── Boundary ────────────────────────────────────────────────────────
+    // Following the tip with CHAIN_KEY set, the archiver follows the latest attested height:
+    // the attestors have already decided what is mature, and a cache that decides again can
+    // only disagree with them. Explicit ranges and gap backfill still resolve maturity against
+    // the source node, because they walk history that may have no attestations at all (the BSC
+    // sweep computes roots for blocks the attestors will only reach later) and must not become
+    // attestation-gated. That resolution is done lazily so a tip follower never needs to parse
+    // the on-chain strategy.
+    let mode = tip_mode(cfg.chain_key, cfg.end_height, cfg.finalization_lag_override);
+    let source_maturity = || -> Result<eth::Maturity> {
+        let on_chain = registered
+            .as_ref()
+            .map(|(_, _, strategy)| on_chain_maturity(strategy))
+            .transpose()?;
+        resolve_maturity(cfg.finalization_lag_override, on_chain)
+    };
 
     // ── Backfill gaps ────────────────────────────────────────────────────
     if cfg.backfill {
@@ -176,6 +195,7 @@ async fn main() -> Result<()> {
                 total_missing,
                 "backfill: found gaps, filling..."
             );
+            let maturity = source_maturity()?;
 
             for (gap_start, gap_end) in &gaps {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
@@ -184,7 +204,7 @@ async fn main() -> Result<()> {
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
-                    .with_maturity(maturity)
+                    .with_bound(stream_eth::roots::Boundary::Source(maturity))
                     .with_max_concurrency(cfg.max_fetch_tasks)
                     .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                     .build();
@@ -240,10 +260,27 @@ async fn main() -> Result<()> {
     tracing::info!(chain_id = source_chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
 
     // ── Root stream (with automatic reconnection) ───────────────────────
+    let (boundary, attested) = match mode {
+        TipMode::Attested { chain_key } => {
+            let (cc3_client, _, _) = registered
+                .as_ref()
+                .expect("tip_mode only picks Attested when CHAIN_KEY is set");
+            let rx = follow_attested_height(
+                cc3_client.clone(),
+                chain_key,
+                Duration::from_secs(cfg.attested_poll_secs),
+            );
+            (stream_eth::roots::Boundary::Attested(rx.clone()), Some(rx))
+        }
+        TipMode::Source => (
+            stream_eth::roots::Boundary::Source(source_maturity()?),
+            None,
+        ),
+    };
     let stream_config = stream_eth::roots::ConfigBuilder::new()
         .with_client(ws_client)
         .with_start_height(start_height)
-        .with_maturity(maturity)
+        .with_bound(boundary.clone())
         .with_max_concurrency(cfg.max_fetch_tasks)
         .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
         .build();
@@ -270,6 +307,7 @@ async fn main() -> Result<()> {
         start = start_height,
         end_height = ?cfg.end_height,
         head = current_head,
+        boundary = %boundary,
         fetch_tasks = ?cfg.max_fetch_tasks,
         api = %cfg.api_bind,
         "starting archiver"
@@ -332,6 +370,22 @@ async fn main() -> Result<()> {
         let info = match next_item {
             Ok(Some(info)) => info,
             reason => {
+                // Under an attested boundary a quiet stream is the normal state between
+                // attestations, not a stall: there is simply nothing released to fetch. Only
+                // treat the timeout as a dead stream when the boundary has moved past what we
+                // hold and the blocks still did not arrive.
+                if let (Err(_), Some(rx)) = (&reason, &attested) {
+                    let next_wanted = last_height.map(|h| h + 1).unwrap_or(start_height);
+                    let published = *rx.borrow();
+                    if published.is_none_or(|bound| bound < next_wanted) {
+                        tracing::info!(
+                            ?published,
+                            next_wanted,
+                            "no new attestation yet; nothing to fetch"
+                        );
+                        continue;
+                    }
+                }
                 let msg = match &reason {
                     Err(_) => "stalled (timeout)",
                     _ => "ended unexpectedly",
@@ -356,7 +410,7 @@ async fn main() -> Result<()> {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
-                                .with_maturity(maturity)
+                                .with_bound(boundary.clone())
                                 .with_max_concurrency(cfg.max_fetch_tasks)
                                 .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
                                 .build();
@@ -412,8 +466,11 @@ async fn main() -> Result<()> {
             } else {
                 0.0
             };
+            // Distance to whatever bounds this run: the explicit end, the attested height,
+            // or, resolving maturity locally, the source head.
             let target = cfg
                 .end_height
+                .or_else(|| attested.as_ref().and_then(|rx| *rx.borrow()))
                 .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
             let remaining = target.saturating_sub(height);
             let label = if is_flush { "flushed" } else { "✓" };
@@ -474,11 +531,79 @@ fn on_chain_maturity(maturity_strategy: &str) -> Result<eth::Maturity> {
     })
 }
 
-/// Pick the maturity. An explicit `FINALIZATION_LAG` always wins so operators keep an
-/// escape hatch, but a value that disagrees with the on-chain registration is logged
-/// loudly: the attestors follow the on-chain strategy, and a lag below theirs (or a fixed
-/// lag where they follow a block tag) means the archiver flushes roots for blocks they do
-/// not yet consider mature.
+/// How the tip-following stream bounds what it fetches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TipMode {
+    /// Follow the latest attested height for `chain_key` on Creditcoin.
+    Attested { chain_key: u64 },
+    /// Resolve maturity against the source node: explicit ranges, or no `CHAIN_KEY` to follow.
+    Source,
+}
+
+/// Following the tip with a chain key follows the attestations; everything else resolves
+/// maturity locally. A `FINALIZATION_LAG` in attested mode has nothing to apply to and is
+/// reported rather than silently dropped.
+fn tip_mode(chain_key: Option<u64>, end_height: Option<u64>, override_lag: Option<u64>) -> TipMode {
+    match (chain_key, end_height) {
+        (Some(chain_key), None) => {
+            if let Some(lag) = override_lag {
+                tracing::warn!(
+                    lag,
+                    chain_key,
+                    "FINALIZATION_LAG is ignored while following the tip: the archiver follows \
+                     the latest attested height for this chain key. It still applies to explicit \
+                     ranges (END_HEIGHT) and gap backfill."
+                );
+            }
+            TipMode::Attested { chain_key }
+        }
+        _ => TipMode::Source,
+    }
+}
+
+/// Publish the latest attested height for `chain_key` as a high-water mark, re-read every
+/// `poll`. A read failure keeps the last value: the bound can only stall, never go backwards or
+/// invent progress.
+fn follow_attested_height(
+    cc3_client: CcClient,
+    chain_key: u64,
+    poll: Duration,
+) -> tokio::sync::watch::Receiver<Option<u64>> {
+    let (tx, rx) = tokio::sync::watch::channel(None);
+    tokio::spawn(async move {
+        loop {
+            match cc3_client.fetch_last_finalized(chain_key).await {
+                Ok(Some((height, _digest))) => {
+                    tx.send_if_modified(|current| {
+                        if *current == Some(height) {
+                            return false;
+                        }
+                        tracing::debug!(chain_key, height, "latest attested height");
+                        *current = Some(height);
+                        true
+                    });
+                }
+                Ok(None) => tracing::debug!(chain_key, "no attestation published yet"),
+                Err(err) => tracing::warn!(
+                    chain_key,
+                    %err,
+                    "could not read the latest attested height; keeping the last one"
+                ),
+            }
+            if tx.is_closed() {
+                break;
+            }
+            tokio::time::sleep(poll).await;
+        }
+    });
+    rx
+}
+
+/// Pick a source-resolved maturity for the paths that still walk against the source node
+/// (explicit ranges, gap backfill, tip-following without `CHAIN_KEY`). An explicit
+/// `FINALIZATION_LAG` wins so operators keep an escape hatch there, but a value that disagrees
+/// with the on-chain registration is logged loudly: a lag below the attestors' (or a fixed lag
+/// where they follow a block tag) means roots for blocks they do not yet consider mature.
 fn resolve_maturity(
     override_lag: Option<u64>,
     on_chain: Option<eth::Maturity>,
@@ -501,7 +626,8 @@ fn resolve_maturity(
             Ok(maturity)
         }
         (None, None) => Err(anyhow!(
-            "Either FINALIZATION_LAG or CHAIN_KEY (with CC3_RPC_URL) must be set"
+            "Either FINALIZATION_LAG or CHAIN_KEY (with CC3_RPC_URL) must be set to resolve \
+             maturity for an explicit range, a gap backfill, or tip-following without a chain key"
         )),
     }
 }
@@ -510,6 +636,26 @@ fn resolve_maturity(
 mod tests {
     use super::*;
     use eth::{BlockTag, Maturity};
+
+    #[test]
+    fn following_the_tip_with_a_chain_key_follows_attestations() {
+        assert_eq!(
+            tip_mode(Some(8), None, None),
+            TipMode::Attested { chain_key: 8 }
+        );
+        // A lag override has nothing to apply to here; it is warned about, not obeyed.
+        assert_eq!(
+            tip_mode(Some(8), None, Some(12)),
+            TipMode::Attested { chain_key: 8 }
+        );
+    }
+
+    #[test]
+    fn explicit_ranges_and_keyless_runs_resolve_maturity_locally() {
+        assert_eq!(tip_mode(Some(8), Some(1_000_000), None), TipMode::Source);
+        assert_eq!(tip_mode(None, None, Some(12)), TipMode::Source);
+        assert_eq!(tip_mode(None, Some(5), None), TipMode::Source);
+    }
 
     #[test]
     fn on_chain_maturity_follows_maturity_strategy() {
