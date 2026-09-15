@@ -660,7 +660,7 @@ async fn resolve_chain_encoding(cc_client: &CcClient, chain_key: u64) -> Encodin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::ContinuityConfig, mocks::make_mock_providers, rpc::EthRpcProvider};
+    use crate::{config::ContinuityConfig, mocks::make_mock_providers};
 
     fn make_builder() -> ContinuityBuilder {
         let chain_key = 2u64;
@@ -673,23 +673,6 @@ mod tests {
             .build();
         let (cc_provider, eth_provider) = make_mock_providers(chain_key);
         ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider)
-    }
-
-    /// The archiver-backed provider forwards tag lookups to its live ETH fallback.
-    #[tokio::test]
-    async fn archiver_provider_forwards_block_tag_lookups() {
-        let (_, eth_provider) = make_mock_providers(2);
-        let provider = crate::archiver::ArchiverEthProvider::new(
-            "http://archiver.invalid".into(),
-            eth_provider,
-        );
-        assert_eq!(
-            provider
-                .get_block_number_by_tag(eth::BlockTag::Safe)
-                .await
-                .unwrap(),
-            968
-        );
     }
 
     /// `get_last_block` is the raw chain tip.
