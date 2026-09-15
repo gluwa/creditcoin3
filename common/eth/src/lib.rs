@@ -61,6 +61,15 @@ pub enum Error {
     TransactionsReceiptsMismatch(u64),
     #[error("Not full transactions fetched for block {0}")]
     NotFullTransactionsFetched(u64),
+    #[error(
+        "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
+         (the two RPC calls were answered from different sides of a reorg)"
+    )]
+    ReceiptsBlockMismatch {
+        number: u64,
+        block: BlockHash,
+        receipts: BlockHash,
+    },
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
     #[error("Ethereum RPC error {0}")]
@@ -104,6 +113,7 @@ impl Error {
             Error::BlockHeaderRootsMismatch(_)
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
+                | Error::ReceiptsBlockMismatch { .. }
         )
     }
 
@@ -112,7 +122,8 @@ impl Error {
         match self {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
-            | Error::NotFullTransactionsFetched(n) => Some(*n),
+            | Error::NotFullTransactionsFetched(n)
+            | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
             _ => None,
         }
     }
@@ -240,6 +251,31 @@ impl OrderedBlock {
         }
 
         let hash = block.header.hash;
+
+        // The receipts must belong to the block we actually fetched.
+        //
+        // `get_block` and `get_block_receipts` are two separate calls keyed by height, and a
+        // provider URL is commonly a load balancer over many nodes, so the pair can be answered
+        // by peers on opposite sides of a reorg. The header-root comparison further down catches
+        // most of that, but only for blocks that have transactions, and only indirectly: it
+        // infers a mismatch from roots that fail to reproduce. Comparing the block hash the
+        // receipts already carry is exact, costs no extra round trip, and names the real fault
+        // in the error instead of reporting a root that did not reproduce.
+        //
+        // Receipts whose `block_hash` is `None` are skipped rather than rejected: the field is
+        // optional in the RPC schema and some providers omit it, and those payloads still face
+        // the root check below exactly as before.
+        if let Some(receipts_hash) = receipts
+            .iter()
+            .filter_map(|receipt| receipt.block_hash)
+            .find(|receipt_hash| *receipt_hash != hash)
+        {
+            return Err(Error::ReceiptsBlockMismatch {
+                number: expected_number,
+                block: hash,
+                receipts: receipts_hash,
+            });
+        }
 
         // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
         // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
