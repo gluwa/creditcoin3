@@ -40,7 +40,10 @@ pub use alloy::core::primitives::Address;
 
 pub mod continuity;
 pub mod evm;
+pub mod maturity;
 pub mod mem_block_cache;
+
+pub use maturity::{BlockTag, Maturity};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -58,6 +61,15 @@ pub enum Error {
     TransactionsReceiptsMismatch(u64),
     #[error("Not full transactions fetched for block {0}")]
     NotFullTransactionsFetched(u64),
+    #[error(
+        "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
+         (the two RPC calls were answered from different sides of a reorg)"
+    )]
+    ReceiptsBlockMismatch {
+        number: u64,
+        block: BlockHash,
+        receipts: BlockHash,
+    },
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
     #[error("Ethereum RPC error {0}")]
@@ -76,6 +88,8 @@ pub enum Error {
     HexDecodingError(#[from] FromHexError),
     #[error("Failed to get block by hash {0}")]
     FailedToGetBlockByHash(String),
+    #[error("Failed to get the `{0}` block: no provider returned it (does the node serve this block tag?)")]
+    FailedToGetBlockByTag(BlockTag),
     #[error("Failed to path rpc url {0}")]
     UrlParseError(#[from] url::ParseError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
@@ -99,6 +113,7 @@ impl Error {
             Error::BlockHeaderRootsMismatch(_)
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
+                | Error::ReceiptsBlockMismatch { .. }
         )
     }
 
@@ -107,7 +122,8 @@ impl Error {
         match self {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
-            | Error::NotFullTransactionsFetched(n) => Some(*n),
+            | Error::NotFullTransactionsFetched(n)
+            | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
             _ => None,
         }
     }
@@ -127,6 +143,19 @@ pub fn anyhow_chain_is_inconsistent_block_payload(err: &anyhow::Error) -> bool {
         cause
             .downcast_ref::<Error>()
             .is_some_and(Error::inconsistent_block_payload_for_fallback)
+    })
+}
+
+/// True when any cause in the [`anyhow::Error`] chain is [`Error::FailedToGetBlockByTag`]: every
+/// provider answered `null` for the requested tag. That is a property of the node (it does not
+/// serve `safe` / `finalized`), not of the connection, so callers must not reconnect-and-retry
+/// on it; the answer will not change.
+pub fn anyhow_chain_is_unsupported_block_tag(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<Error>(),
+            Some(Error::FailedToGetBlockByTag(_))
+        )
     })
 }
 
@@ -222,6 +251,31 @@ impl OrderedBlock {
         }
 
         let hash = block.header.hash;
+
+        // The receipts must belong to the block we actually fetched.
+        //
+        // `get_block` and `get_block_receipts` are two separate calls keyed by height, and a
+        // provider URL is commonly a load balancer over many nodes, so the pair can be answered
+        // by peers on opposite sides of a reorg. The header-root comparison further down catches
+        // most of that, but only for blocks that have transactions, and only indirectly: it
+        // infers a mismatch from roots that fail to reproduce. Comparing the block hash the
+        // receipts already carry is exact, costs no extra round trip, and names the real fault
+        // in the error instead of reporting a root that did not reproduce.
+        //
+        // Receipts whose `block_hash` is `None` are skipped rather than rejected: the field is
+        // optional in the RPC schema and some providers omit it, and those payloads still face
+        // the root check below exactly as before.
+        if let Some(receipts_hash) = receipts
+            .iter()
+            .filter_map(|receipt| receipt.block_hash)
+            .find(|receipt_hash| *receipt_hash != hash)
+        {
+            return Err(Error::ReceiptsBlockMismatch {
+                number: expected_number,
+                block: hash,
+                receipts: receipts_hash,
+            });
+        }
 
         // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
         // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
@@ -914,6 +968,62 @@ impl Client {
         Ok(self.rpc_provider.get_block_number().await?)
     }
 
+    /// Number of the block the node currently reports for a settlement `tag` (`safe` or
+    /// `finalized`), walking the fallback providers on transport errors like the block fetches
+    /// do. A node that answers `null` for the tag counts as "not found".
+    pub async fn get_block_number_by_tag(&self, tag: BlockTag) -> Result<u64, Error> {
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            match provider
+                .get_block(BlockId::Number(tag.into()), false.into())
+                .await
+            {
+                Ok(Some(block)) => {
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            %tag,
+                            error = %err,
+                            "block tag lookup: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(block.header.number);
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, Error::from(e))),
+            }
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        %tag,
+                        error = %err,
+                        "block tag lookup: provider errored but another said `not found`"
+                    );
+                }
+                Err(Error::FailedToGetBlockByTag(tag))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(provider = %label, %tag, error = %err, "block tag lookup: additional provider error");
+                }
+                let (first_label, first_err) = first;
+                tracing::warn!(provider = %first_label, %tag, error = %first_err, "block tag lookup: all providers errored");
+                Err(first_err)
+            }
+        }
+    }
+
     pub async fn get_chain_id(&self) -> Result<u64, Error> {
         self.rpc_provider.get_chain_id().await.map_err(|e| {
             error!("Failed to get chain id: {:?}", e);
@@ -1457,5 +1567,29 @@ mod error_classifier_tests {
             super::anyhow_chain_inconsistent_block_number_hint(&transport),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod error_classification_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_block_tag_is_recognised_through_anyhow_context() {
+        let err = anyhow::Error::from(Error::FailedToGetBlockByTag(BlockTag::Safe))
+            .context("Failed to get the `safe` block")
+            .context("get_block_number_by_tag failed");
+        assert!(anyhow_chain_is_unsupported_block_tag(&err));
+        // Not an inconsistent-payload case: those are a different retry class.
+        assert!(!anyhow_chain_is_inconsistent_block_payload(&err));
+    }
+
+    #[test]
+    fn other_errors_are_not_unsupported_block_tag() {
+        let transport = anyhow::Error::from(Error::FailedToGetBlock(7)).context("x");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&transport));
+        // A stringified error loses the type and must not be classified as permanent.
+        let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
     }
 }

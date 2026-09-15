@@ -124,9 +124,11 @@ pub enum ServiceError {
         genesis_block: u64,
     },
     /// Returned when a requested block cannot be served because it is either
-    /// past the source chain tip *or* within the per-chain `block_confirmation_depth`
-    /// reorg-protection window. `confirmation_depth = 0` means there is no reorg
-    /// window, so this strictly indicates the block is past the tip.
+    /// past the source chain tip *or* within the chain's reorg-protection window.
+    /// `confirmation_depth` is the *effective* window at the time of the request: the
+    /// configured `block_confirmation_depth`, or `tip - safe/finalized` for chains confirmed by
+    /// a block tag. `0` means there is no window, so this strictly indicates the block is past
+    /// the tip.
     #[error("{}", format_block_not_on_source_chain(*requested_block, *current_block, *confirmation_depth))]
     BlockNotOnSourceChain {
         requested_block: u64,
