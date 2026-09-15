@@ -26,3 +26,7 @@ tracing = { workspace = true }
 
 # Errors
 anyhow = { workspace = true }
+
+[dev-dependencies]
+cc-client = { workspace = true, features = ["ws-fixture"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }

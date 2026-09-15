@@ -28,6 +28,16 @@ const RECONNECT_BACKOFF_MAX_MS: u64 = 5_000;
 /// as the number of *retries*, so we pass `RECONNECT_MAX_ATTEMPTS - 1` to `.take(..)`.
 const RECONNECT_MAX_ATTEMPTS: usize = 5;
 
+/// Upper bound on one attempt of one RPC operation, wrapping every retry `eth::Client` does
+/// internally. Transports carry their own per-request deadlines, but a WebSocket request has
+/// none, and no deadline at all means a single hung request pins a caller (and its batch)
+/// forever. Generous on purpose: a 1000-block continuity range on a slow RPC is minutes.
+const ETH_RPC_CALL_TIMEOUT: Duration = Duration::from_secs(300);
+/// Upper bound on re-dialling the *primary* during one repair (chain-id read included).
+/// Fallbacks are re-dialled after it under `eth`'s own per-fallback bound and never decide
+/// the repair's outcome.
+const ETH_RPC_DIAL_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// ETH RPC provider that owns one long-lived [`eth::Client`] and reconnects it on transport
 /// failures.
 ///
@@ -35,10 +45,22 @@ const RECONNECT_MAX_ATTEMPTS: usize = 5;
 /// retry the call after reconnecting with exponential backoff + jitter, and surface a clean
 /// error if reconnection itself can't recover.
 ///
+/// Repairs never hold the client lock across network I/O. A replacement connection is dialled
+/// on a clone, under a deadline, and swapped in atomically once it is up; callers keep reading
+/// the current client meanwhile and are never queued behind someone else's slow dial.
+/// Concurrent failures share one repair: each caller remembers the connection generation it
+/// failed against and only dials if nobody has published a newer one since.
+///
 /// [`ReconnectingRuntimeApi`]: cc_client::api::ReconnectingRuntimeApi
 #[derive(Debug)]
 pub struct ReconnectingEthRpcProvider {
     client: RwLock<eth::Client>,
+    /// Bumped every time a repaired client is published.
+    generation: std::sync::atomic::AtomicU64,
+    /// Serialises repairs so N simultaneous failures cost one dial, not N.
+    repair: tokio::sync::Mutex<()>,
+    call_timeout: Duration,
+    dial_timeout: Duration,
     /// Source-chain block encoding, derived from CC3 supported-chain metadata at
     /// startup. Used for all block fetching / continuity building so that a
     /// per-chain or future encoding change is honoured instead of assuming V1.
@@ -49,8 +71,32 @@ impl ReconnectingEthRpcProvider {
     pub fn new(client: eth::Client, encoding: EncodingVersion) -> Self {
         Self {
             client: RwLock::new(client),
+            generation: std::sync::atomic::AtomicU64::new(0),
+            repair: tokio::sync::Mutex::new(()),
+            call_timeout: ETH_RPC_CALL_TIMEOUT,
+            dial_timeout: ETH_RPC_DIAL_TIMEOUT,
             encoding,
         }
+    }
+
+    /// Override the per-attempt call deadline and the per-repair primary dial deadline.
+    #[must_use]
+    pub fn with_timeouts(mut self, call_timeout: Duration, dial_timeout: Duration) -> Self {
+        self.call_timeout = call_timeout;
+        self.dial_timeout = dial_timeout;
+        self
+    }
+
+    /// Connection generation currently published. Changes only when a repair succeeds.
+    pub fn generation(&self) -> u64 {
+        self.generation.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Cheap snapshot of the live client plus the generation it belongs to.
+    async fn snapshot(&self) -> (eth::Client, u64) {
+        let guard = self.client.read().await;
+        let generation = self.generation();
+        (guard.clone(), generation)
     }
 
     /// Run an RPC call, reconnecting and retrying on failure.
@@ -64,10 +110,10 @@ impl ReconnectingEthRpcProvider {
         let mut last_err: Option<anyhow::Error> = None;
 
         for attempt in 1..=ETH_RPC_MAX_ATTEMPTS {
-            let client = self.client.read().await.clone();
-            match call(client).await {
-                Ok(value) => return Ok(value),
-                Err(err) => {
+            let (client, generation) = self.snapshot().await;
+            let err = match tokio::time::timeout(self.call_timeout, call(client)).await {
+                Ok(Ok(value)) => return Ok(value),
+                Ok(Err(err)) => {
                     // A user-initiated shutdown (Ctrl+C / service stop) surfaces here as an
                     // `anyhow::Error` carrying `user::Shutdown` (via `propagate_shutdown` in the
                     // block-fetch closures). It is not a transport failure, so do not reconnect
@@ -90,19 +136,24 @@ impl ReconnectingEthRpcProvider {
                         );
                         return Err(err);
                     }
-                    warn!(
-                        op,
-                        attempt,
-                        max = ETH_RPC_MAX_ATTEMPTS,
-                        error = %err,
-                        "ETH RPC call failed",
-                    );
-                    last_err = Some(err);
+                    err
                 }
-            }
+                Err(_elapsed) => anyhow!(
+                    "{op} timed out after {:?} (attempt {attempt})",
+                    self.call_timeout
+                ),
+            };
+            warn!(
+                op,
+                attempt,
+                max = ETH_RPC_MAX_ATTEMPTS,
+                error = %err,
+                "ETH RPC call failed",
+            );
+            last_err = Some(err);
 
             if attempt < ETH_RPC_MAX_ATTEMPTS {
-                self.reconnect(op).await?;
+                self.reconnect(op, generation).await?;
             }
         }
 
@@ -111,8 +162,23 @@ impl ReconnectingEthRpcProvider {
             .context(format!("{op} failed after {ETH_RPC_MAX_ATTEMPTS} attempts")))
     }
 
-    /// Reconnect the shared client with exponential backoff + jitter.
-    async fn reconnect(&self, op: &'static str) -> Result<()> {
+    /// Repair the shared client unless someone already did since `observed_generation`.
+    ///
+    /// Dials happen on a clone, outside the client lock and under `dial_timeout`; the lock is
+    /// taken only for the instantaneous swap, so callers running other operations are never
+    /// blocked behind a slow or black-holed endpoint.
+    async fn reconnect(&self, op: &'static str, observed_generation: u64) -> Result<()> {
+        let _serialised = self.repair.lock().await;
+        if self.generation() != observed_generation {
+            tracing::debug!(
+                op,
+                observed_generation,
+                current = self.generation(),
+                "ETH RPC client already repaired by another caller; retrying on it"
+            );
+            return Ok(());
+        }
+
         // `tokio_retry` runs the action once, then drains the strategy iterator on each retry.
         // Subtract one so `RECONNECT_MAX_ATTEMPTS` reflects total attempts (matches
         // `ETH_RPC_MAX_ATTEMPTS`).
@@ -123,12 +189,15 @@ impl ReconnectingEthRpcProvider {
 
         tokio_retry::Retry::spawn(strategy, || async {
             warn!(op, "reconnecting ETH RPC client");
-            self.client
-                .write()
+            let mut candidate = self.client.read().await.clone();
+            candidate
+                .reconnect_with_deadline(self.dial_timeout)
                 .await
-                .reconnect()
-                .await
-                .map_err(|e| anyhow!("{e}"))
+                .map_err(|e| anyhow!("{e}"))?;
+            *self.client.write().await = candidate;
+            self.generation
+                .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+            Ok::<(), anyhow::Error>(())
         })
         .await
         .with_context(|| format!("failed to reconnect ETH RPC client for {op}"))?;
@@ -207,6 +276,42 @@ pub trait CcRpcProvider: Send + Sync {
     /// Returns the number of attestations between checkpoints.
     /// For example, if checkpoints occur every 10 attestations, this returns `10`.
     async fn get_checkpoint_interval(&self, chain_key: u64) -> Result<Option<u64>>;
+
+    /// Hash and height of the Creditcoin node's current finalized head, so a caller can take
+    /// every startup read at one block and replay events from there. `None` when the provider
+    /// cannot pin reads to a block (mocks); callers then read latest state.
+    async fn finalized_head(&self) -> Result<Option<(H256, u64)>> {
+        Ok(None)
+    }
+
+    /// [`Self::get_attestations_for_chain`] as of block `at`. Defaults to the latest read for
+    /// providers that cannot pin.
+    async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        self.get_attestations_for_chain(chain_key).await
+    }
+
+    /// [`Self::get_checkpoints_for_chain`] as of block `at`.
+    async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        self.get_checkpoints_for_chain(chain_key).await
+    }
+
+    /// [`Self::get_attestation_chain_genesis_block_number`] as of block `at`.
+    async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: u64,
+        _at: H256,
+    ) -> Result<u64> {
+        self.get_attestation_chain_genesis_block_number(chain_key)
+            .await
+    }
 }
 
 /// Abstraction over source chain (Ethereum/EVM) RPC operations.
@@ -375,6 +480,48 @@ impl CcRpcProvider for CcClient {
             .await
             .map_err(|e| anyhow!("Failed to fetch checkpoint interval: {e}"))
     }
+
+    async fn finalized_head(&self) -> Result<Option<(H256, u64)>> {
+        let (hash, number) = CcClient::finalized_head(self)
+            .await
+            .map_err(|e| anyhow!("Failed to fetch finalized head: {e}"))?;
+        Ok(Some((H256::from_slice(hash.as_bytes()), number)))
+    }
+
+    async fn get_attestations_for_chain_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<Vec<SignedAttestation<H256, AccountId32>>> {
+        CcClient::get_attestations_for_chain_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .context("Failed to fetch attestations at snapshot")
+    }
+
+    async fn get_checkpoints_for_chain_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<Vec<AttestationCheckpoint>> {
+        CcClient::get_checkpoints_for_chain_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .context("Failed to fetch checkpoints at snapshot")
+    }
+
+    async fn get_attestation_chain_genesis_block_number_at(
+        &self,
+        chain_key: u64,
+        at: H256,
+    ) -> Result<u64> {
+        CcClient::get_attestation_chain_genesis_block_number_at(self, chain_key, Some(cc_hash(at)))
+            .await
+            .map_err(|e| anyhow!("Failed to fetch genesis block number at snapshot: {e}"))
+    }
+}
+
+/// `sp_core::H256` → the cc-client's (subxt) `H256`; same 32 bytes, different crates.
+fn cc_hash(hash: H256) -> cc_client::H256 {
+    cc_client::H256::from_slice(hash.as_bytes())
 }
 
 #[async_trait]

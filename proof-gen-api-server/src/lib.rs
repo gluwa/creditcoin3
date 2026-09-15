@@ -32,7 +32,11 @@ use eth::redact_url_query;
 
 pub struct Server {
     config: Config,
-    cc3_client: CcClient,
+    /// The one Creditcoin client every consumer shares. `CcClient::clone` produces an
+    /// independent connection slot (a fresh `ArcSwap`), so value-cloning here would leave the
+    /// builders on a dead socket after the event task reconnects its own copy. Everything
+    /// holds this `Arc` instead, so one `reconnect()` repairs all of them.
+    cc3_client: Arc<CcClient>,
     /// One continuity builder per configured source chain.
     builders: Vec<Arc<ContinuityBuilder>>,
     /// Per-chain handle to the raw block cache, so its occupancy can be reported. Each entry
@@ -56,7 +60,7 @@ impl Server {
             chain_count = config.chains.len(),
             "🚀 [startup] connecting Creditcoin3 read-only client (cc3_rpc_url)"
         );
-        let cc3_client =
+        let cc3_client = Arc::new(
             CcClient::new_read_only(&config.cc3_rpc_url)
                 .await
                 .with_context(|| {
@@ -65,8 +69,8 @@ impl Server {
                          Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
                         config.cc3_rpc_url
                     )
-                })?
-        ;
+                })?,
+        );
         debug!("🚀 ✅ [startup] Creditcoin3 client connected");
 
         let mut builders: Vec<Arc<ContinuityBuilder>> = Vec::with_capacity(config.chains.len());
@@ -95,7 +99,7 @@ impl Server {
             }
             let (builder, block_cache) = Self::build_continuity_for_chain(
                 &config,
-                cc3_client.clone(),
+                &cc3_client,
                 chain,
                 &checkpoint_intervals,
                 &last_checkpoint_blocks,
@@ -120,7 +124,7 @@ impl Server {
 
     async fn build_continuity_for_chain(
         global: &Config,
-        cc3_client: CcClient,
+        cc3_client: &Arc<CcClient>,
         chain: &ChainConfig,
         checkpoint_intervals: &Arc<RwLock<HashMap<u64, u64>>>,
         last_checkpoint_blocks: &Arc<RwLock<HashMap<u64, u64>>>,
@@ -327,7 +331,7 @@ impl Server {
         );
         let builder = Arc::new(ContinuityBuilder::new_with_providers(
             continuity_config,
-            Arc::new(cc3_client.clone()),
+            cc3_client.clone(),
             eth_provider,
         ));
 
@@ -365,7 +369,12 @@ impl Server {
         ContinuityService::spawn_merkle_backfill(service.clone());
 
         let allowed: std::collections::HashSet<u64> = self.config.chain_keys();
-        let app = build_app(service.clone(), allowed, self.prom_metrics.clone());
+        let app = networking::build_app_with_admission(
+            service.clone(),
+            allowed,
+            self.prom_metrics.clone(),
+            self.config.admission.clone(),
+        );
         let (http_shutdown_tx, http_shutdown_rx) = channel::<()>();
 
         let bind_host = &self.config.bind_host;
@@ -383,32 +392,29 @@ impl Server {
         let last_checkpoint_blocks_clone = self.last_checkpoint_blocks.clone();
         let cc3_client_clone = self.cc3_client.clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = events::start_cc3_event_subscription(
-                cc3_client_clone,
-                checkpoint_intervals_clone,
-                last_checkpoint_blocks_clone,
-                service,
-            )
-            .await
-            {
-                error!("❌ 🔗 CC3 event subscription failed: {e}");
-            }
-        });
+        // The event task is supervised, not fire-and-forget. `StreamCC3` ends itself only
+        // when history is gone for good (state pruned, or a reconnect gap past its replay
+        // cap); its contract is that the consumer restarts. A prover that keeps serving after
+        // that answers from caches that no longer track the chain — newer proofs fail with
+        // `BlockNotReady`, and missed checkpoint/reversion events are never repaired.
+        let events = tokio::spawn(events::start_cc3_event_subscription(
+            cc3_client_clone,
+            checkpoint_intervals_clone,
+            last_checkpoint_blocks_clone,
+            service.clone(),
+            service.cc3_snapshot_height(),
+        ));
 
-        select! {
-            res = &mut server => {
-                if let Err(err) = res {
-                    error!("❌ HTTP server exited with error: {err}");
-                }
-                bail!("API HTTP server exited!");
-            }
-            _ = shutdown_signal() => {
-                let _ = http_shutdown_tx.send(());
-                tracing::info!("🛑 Global shutdown requested, exiting");
-                Ok(())
-            }
-        }
+        supervise(
+            server,
+            events,
+            shutdown_signal(),
+            http_shutdown_tx,
+            |reason| {
+                service.mark_event_stream_dead(reason);
+            },
+        )
+        .await
     }
 
     pub async fn get_checkpoint_interval(&self, chain_key: u64) -> Option<u64> {
@@ -427,6 +433,63 @@ impl Server {
             .copied()
     }
 }
+
+/// Run the HTTP server, the cc3 event task and the shutdown signal to the first exit.
+///
+/// - shutdown signal: ask HTTP to drain and return `Ok`.
+/// - HTTP server exit: fatal.
+/// - event task exit (error, end of stream or panic): mark the replica unready via
+///   `mark_dead`, ask HTTP to drain, give in-flight requests a moment, then return `Err` so
+///   the process exits nonzero and the orchestrator replaces it with a fresh boot that
+///   re-seeds from the current finalized head.
+async fn supervise<S, D, M>(
+    mut server: S,
+    events: tokio::task::JoinHandle<Result<()>>,
+    shutdown: D,
+    http_shutdown_tx: tokio::sync::oneshot::Sender<()>,
+    mark_dead: M,
+) -> Result<()>
+where
+    S: std::future::Future<Output = Result<()>> + Unpin,
+    D: std::future::Future<Output = ()>,
+    M: FnOnce(&str),
+{
+    tokio::pin!(shutdown);
+    select! {
+        res = &mut server => {
+            if let Err(err) = res {
+                error!("❌ HTTP server exited with error: {err}");
+            }
+            bail!("API HTTP server exited!");
+        }
+        joined = events => {
+            let reason = match joined {
+                Ok(Ok(())) => "cc3 event task returned without error".to_string(),
+                Ok(Err(err)) => format!("{err:#}"),
+                Err(join) if join.is_panic() => format!("cc3 event task panicked: {join}"),
+                Err(join) => format!("cc3 event task cancelled: {join}"),
+            };
+            error!(
+                %reason,
+                "❌ 🔗 CC3 event subscription ended; this replica can no longer track the chain — \
+                 shutting down so the orchestrator restarts it from a fresh finalized head"
+            );
+            mark_dead(&reason);
+            let _ = http_shutdown_tx.send(());
+            let _ = tokio::time::timeout(EVENT_EXIT_DRAIN, &mut server).await;
+            bail!("cc3 event subscription ended: {reason}");
+        }
+        _ = &mut shutdown => {
+            let _ = http_shutdown_tx.send(());
+            tracing::info!("🛑 Global shutdown requested, exiting");
+            Ok(())
+        }
+    }
+}
+
+/// How long `supervise` lets the HTTP server drain after the event task dies before the
+/// process exits regardless.
+const EVENT_EXIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub async fn shutdown_signal() {
     let ctrl_c = async {
@@ -452,4 +515,80 @@ pub async fn shutdown_signal() {
     }
 
     info!("🛑 Shutdown signal received");
+}
+
+#[cfg(test)]
+mod supervise_tests {
+    use super::*;
+
+    fn never_shutdown() -> std::future::Pending<()> {
+        std::future::pending()
+    }
+
+    #[tokio::test]
+    async fn event_task_error_is_fatal_and_marks_the_replica_dead() {
+        let (tx, rx) = channel::<()>();
+        let server = Box::pin(async move {
+            let _ = rx.await;
+            Ok(())
+        });
+        let events = tokio::spawn(async { anyhow::bail!("End of unbounded event stream") });
+        let marked = std::sync::Mutex::new(None);
+        let res = supervise(server, events, never_shutdown(), tx, |r| {
+            *marked.lock().unwrap() = Some(r.to_string());
+        })
+        .await;
+        let err = res.expect_err("event task death must exit the process");
+        assert!(
+            err.to_string().contains("End of unbounded event stream"),
+            "{err}"
+        );
+        assert!(marked
+            .lock()
+            .unwrap()
+            .as_deref()
+            .unwrap()
+            .contains("End of unbounded"));
+    }
+
+    #[tokio::test]
+    async fn event_task_panic_is_fatal() {
+        let (tx, rx) = channel::<()>();
+        let server = Box::pin(async move {
+            let _ = rx.await;
+            Ok(())
+        });
+        let events = tokio::spawn(async { panic!("boom") });
+        let res = supervise(server, events, never_shutdown(), tx, |_| {}).await;
+        assert!(res.unwrap_err().to_string().contains("panicked"));
+    }
+
+    #[tokio::test]
+    async fn shutdown_signal_drains_http_and_returns_ok() {
+        let (tx, rx) = channel::<()>();
+        let drained = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let d = drained.clone();
+        let server = Box::pin(async move {
+            let _ = rx.await;
+            d.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        });
+        let events = tokio::spawn(async { std::future::pending::<Result<()>>().await });
+        let res = supervise(server, events, std::future::ready(()), tx, |_| {
+            panic!("shutdown must not mark the replica dead")
+        })
+        .await;
+        assert!(res.is_ok());
+        // The drain request was sent; the server future observes it once polled.
+        tokio::task::yield_now().await;
+    }
+
+    #[tokio::test]
+    async fn http_server_exit_is_fatal() {
+        let (tx, _rx) = channel::<()>();
+        let server = Box::pin(async { anyhow::bail!("bind failed") });
+        let events = tokio::spawn(async { std::future::pending::<Result<()>>().await });
+        let res = supervise(server, events, never_shutdown(), tx, |_| {}).await;
+        assert!(res.unwrap_err().to_string().contains("HTTP server exited"));
+    }
 }

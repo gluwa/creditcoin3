@@ -157,8 +157,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }],
             max_batch_size: args.max_batch_size,
             max_batch_span: args.max_batch_span,
+            admission: proof_gen_api_server::config::AdmissionConfig::default(),
         }
     };
+    // MAX_IN_FLIGHT_REQUESTS / MAX_IN_FLIGHT_PER_CHAIN / REQUEST_TIMEOUT_SECS override YAML.
+    let mut config = config;
+    config.admission.apply_env_overrides();
 
     let server = Server::new(config).await?;
     server.run().await?;
