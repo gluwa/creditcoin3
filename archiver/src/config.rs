@@ -26,8 +26,8 @@ pub struct Config {
     #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
     pub cc3_rpc_url: String,
 
-    /// The chain key corresponding to the source chain supported by this archiver. Used for fetching
-    /// on-chain maturity strategy
+    /// The chain key of this source chain on Creditcoin. Used to verify that the RPC endpoints serve
+    /// the registered chain and, when following the tip, to follow the latest attested height.
     #[arg(long, env = "CHAIN_KEY")]
     pub chain_key: Option<u64>,
 
@@ -66,14 +66,18 @@ pub struct Config {
     #[arg(long, env = "FLUSH_EVERY", default_value = "10000")]
     pub flush_every: NonZeroU64,
 
-    /// Finalization lag: number of blocks behind the chain tip to consider finalized.
-    /// By default the archiver will use the on-chain finalization lag for this source
-    /// chain as registered on Creditcoin. The default will be correct in most cases.
-    ///
-    /// Set to 0 for chains with instant finality. For chains with probabilistic
-    /// finality, set this to the expected number of confirmation blocks.
+    /// Fixed number of blocks behind the source tip to treat as mature, overriding the on-chain
+    /// maturity strategy. Only consulted where the archiver resolves maturity itself: explicit
+    /// ranges (END_HEIGHT), gap backfill, and tip-following without CHAIN_KEY. With CHAIN_KEY and
+    /// no END_HEIGHT the archiver follows the latest attested height instead, and this is ignored
+    /// with a warning.
     #[arg(long, env = "FINALIZATION_LAG")]
     pub finalization_lag_override: Option<u64>,
+
+    /// How often, in seconds, to read the latest attested height from Creditcoin while following
+    /// the tip. It is a high-water mark for a cache, so a few seconds of staleness cost nothing.
+    #[arg(long, env = "ATTESTED_POLL_SECS", default_value = "6")]
+    pub attested_poll_secs: u64,
 
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]
