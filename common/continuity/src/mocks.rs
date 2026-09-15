@@ -291,6 +291,14 @@ impl EthRpcProvider for MockEthRpcProvider {
         Ok(1000)
     }
 
+    async fn get_block_number_by_tag(&self, tag: eth::BlockTag) -> Result<u64> {
+        // Fixed distances behind the mock tip so tag-based confirmation is testable.
+        Ok(match tag {
+            eth::BlockTag::Safe => 968,
+            eth::BlockTag::Finalized => 936,
+        })
+    }
+
     async fn get_chain_id(&self) -> Result<u64> {
         // Mock returns test chain ID
         Ok(31337)
