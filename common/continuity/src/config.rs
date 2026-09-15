@@ -63,24 +63,6 @@ pub struct ContinuityConfig {
     ///
     /// When `None`, checkpoint checks are always performed (slower but always correct).
     pub last_checkpoint_block: Option<u64>,
-
-    /// Number of blocks to lag behind the EVM chain tip when validating block existence.
-    ///
-    /// EVM chains (Ethereum, etc.) use probabilistic finality: blocks near the tip can be
-    /// reorganised away. By requiring that requested blocks are at least
-    /// `block_confirmation_depth` behind the current head we reduce the chance of serving a
-    /// proof for a block that later disappears.
-    ///
-    /// Set to `0` for chains with instant / irreversible finality.
-    /// A typical safe value for Ethereum mainnet is `12` (~2 min at 12 s/block).
-    ///
-    /// Ignored when [`confirmation_tag`](Self::confirmation_tag) is set.
-    pub block_confirmation_depth: u64,
-
-    /// Confirm blocks by the source node's `safe` / `finalized` block tag instead of a fixed
-    /// depth. This is what the `RpcSafe` / `RpcFinalized` on-chain maturity strategies resolve
-    /// to, so the prover confirms on exactly the schedule the attestors attest on.
-    pub confirmation_tag: Option<eth::BlockTag>,
 }
 
 impl ContinuityConfig {
@@ -199,8 +181,6 @@ pub struct ConfigBuilder {
     attestation_interval: Option<u64>,
     checkpoint_interval: Option<u64>,
     last_checkpoint_block: Option<u64>,
-    block_confirmation_depth: u64,
-    confirmation_tag: Option<eth::BlockTag>,
 }
 
 impl ConfigBuilder {
@@ -284,26 +264,6 @@ impl ConfigBuilder {
         self
     }
 
-    /// Set the number of blocks to lag behind the EVM chain tip for reorg protection.
-    ///
-    /// # Arguments
-    ///
-    /// * `depth` - Number of confirmation blocks (0 = no lag, use chain tip directly)
-    ///
-    /// A typical safe value for Ethereum mainnet is `12` (~2 min at 12 s/block).
-    /// Set to `0` for chains with instant / irreversible finality.
-    pub fn block_confirmation_depth(mut self, depth: u64) -> Self {
-        self.block_confirmation_depth = depth;
-        self
-    }
-
-    /// Confirm blocks by a source-node block tag (`safe` / `finalized`) instead of a fixed
-    /// depth. See [`ContinuityConfig::confirmation_tag`].
-    pub fn confirmation_tag(mut self, tag: Option<eth::BlockTag>) -> Self {
-        self.confirmation_tag = tag;
-        self
-    }
-
     /// Build the configuration.
     ///
     /// # Panics
@@ -335,8 +295,6 @@ impl ConfigBuilder {
                 .checkpoint_interval
                 .expect("checkpoint_interval is required"),
             last_checkpoint_block: self.last_checkpoint_block,
-            block_confirmation_depth: self.block_confirmation_depth,
-            confirmation_tag: self.confirmation_tag,
         }
     }
 

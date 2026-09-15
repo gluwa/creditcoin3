@@ -85,9 +85,9 @@ pub struct ProofGenApiServer {
     #[arg(
         long,
         env = "BLOCK_CONFIRMATION_DEPTH",
-        help = "Reorg-protection depth override, in blocks. Omit to derive it from the chain's \
-                on-chain MaturityStrategy (recommended; matches the attestors). If set and it \
-                differs from the on-chain value, startup logs a warning."
+        hide = true,
+        help = "Deprecated and ignored. Heights are confirmed against the attested set on \
+                Creditcoin, not against this process's own view of the source tip."
     )]
     block_confirmation_depth: Option<u64>,
 }
@@ -111,6 +111,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_target(args.verbose)
         .with_env_filter(env_filter)
         .try_init();
+
+    if let Some(depth) = args.block_confirmation_depth {
+        tracing::warn!(
+            block_confirmation_depth = depth,
+            "--block-confirmation-depth / BLOCK_CONFIRMATION_DEPTH is deprecated and ignored: \
+             heights are confirmed against the attested set, not against this process's view of \
+             the source tip. Remove it."
+        );
+    }
 
     let resolved_cc3_key = args.cc3_key.or_else(|| env::var("CC3_KEY").ok());
 
@@ -150,7 +159,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // YAML; the legacy single-chain CLI path stays single-URL.
                 eth_rpc_fallback_urls: Vec::new(),
                 archiver_url: args.archiver_url,
-                block_confirmation_depth: args.block_confirmation_depth,
                 // Per-chain cache sizing is expressed in the YAML config only, like
                 // `eth_rpc_fallback_urls`. Legacy single-chain mode takes the defaults.
                 cache: proof_gen_api_server::config::ChainCacheConfig::default(),
