@@ -90,6 +90,18 @@ pub enum Error {
     FailedToGetBlockByHash(String),
     #[error("Failed to get the `{0}` block: no provider returned it (does the node serve this block tag?)")]
     FailedToGetBlockByTag(BlockTag),
+    #[error(
+        "Providers disagree on the `{tag}` block at height {number}: {reported_by} has {expected:?}, \
+         {disagreeing} has {actual:?}"
+    )]
+    BlockTagDisagreement {
+        tag: BlockTag,
+        number: u64,
+        reported_by: String,
+        expected: BlockHash,
+        disagreeing: String,
+        actual: BlockHash,
+    },
     #[error("Failed to path rpc url {0}")]
     UrlParseError(#[from] url::ParseError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
@@ -400,6 +412,14 @@ impl OrderedRawBlock {
 
 type AlloyProvider = FillProvider<ExeFiller, RootProvider<Ethereum>, Ethereum>;
 pub type AlloyB256 = BlockHash;
+
+/// The block a source node reports for a settlement tag, identified by hash as well as height.
+/// See [`Client::get_block_by_tag`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaggedBlock {
+    pub number: u64,
+    pub hash: BlockHash,
+}
 
 pub(crate) type ExeFiller = JoinFill<
     Identity,
@@ -968,34 +988,145 @@ impl Client {
         Ok(self.rpc_provider.get_block_number().await?)
     }
 
-    /// Number of the block the node currently reports for a settlement `tag` (`safe` or
-    /// `finalized`), walking the fallback providers on transport errors like the block fetches
-    /// do. A node that answers `null` for the tag counts as "not found".
+    /// Number of the block the providers agree on for a settlement `tag`. See
+    /// [`get_block_by_tag`](Self::get_block_by_tag).
     pub async fn get_block_number_by_tag(&self, tag: BlockTag) -> Result<u64, Error> {
+        self.get_block_by_tag(tag).await.map(|block| block.number)
+    }
+
+    /// The block the configured providers agree on for a settlement `tag` (`safe` or
+    /// `finalized`), identified by hash as well as height.
+    ///
+    /// This is the maturity decision, so it is not answered by whichever provider replies first.
+    /// Every provider is asked at once; the lowest height any of them reports is the candidate,
+    /// because a provider further along has by definition already passed it; and every provider
+    /// that reported a different height is then asked for the block at the candidate's height
+    /// and must return the same hash. A provider that has a different block there is on another
+    /// fork, or is serving a different chain, and the lookup fails with
+    /// [`Error::BlockTagDisagreement`] rather than picking a side. Callers retry on the next head.
+    ///
+    /// Providers that error or answer `null` do not take part: they are warned about, as in the
+    /// block fetches, and the agreement is among those that answered. With a single provider that
+    /// degenerates to that provider's answer, which is why per-replica provider diversity is the
+    /// deployment change that gives this check its teeth. A node that answers `null` for the tag
+    /// on every provider counts as "not found", as before.
+    pub async fn get_block_by_tag(&self, tag: BlockTag) -> Result<TaggedBlock, Error> {
+        use futures::future::join_all;
+
         let providers = self.providers_with_labels();
+        let answers = join_all(providers.iter().map(|(label, provider)| async move {
+            let answer = provider
+                .get_block(BlockId::Number(tag.into()), false.into())
+                .await;
+            (label.clone(), answer)
+        }))
+        .await;
+
+        let mut reported: Vec<(String, TaggedBlock)> = Vec::new();
         let mut got_definitive_none = false;
         let mut errors: Vec<(String, Error)> = Vec::new();
-
-        for (label, provider) in providers {
-            match provider
-                .get_block(BlockId::Number(tag.into()), false.into())
-                .await
-            {
-                Ok(Some(block)) => {
-                    for (err_label, err) in errors.drain(..) {
-                        tracing::warn!(
-                            provider = %err_label,
-                            served_by = %label,
-                            %tag,
-                            error = %err,
-                            "block tag lookup: provider errored but another succeeded"
-                        );
-                    }
-                    return Ok(block.header.number);
-                }
+        for (label, answer) in answers {
+            match answer {
+                Ok(Some(block)) => reported.push((
+                    label,
+                    TaggedBlock {
+                        number: block.header.number,
+                        hash: block.header.hash,
+                    },
+                )),
                 Ok(None) => got_definitive_none = true,
                 Err(e) => errors.push((label, Error::from(e))),
             }
+        }
+
+        if let Some((candidate_label, candidate)) = reported
+            .iter()
+            .min_by_key(|(_, block)| block.number)
+            .cloned()
+        {
+            for (err_label, err) in errors {
+                tracing::warn!(
+                    provider = %err_label,
+                    served_by = %candidate_label,
+                    %tag,
+                    error = %err,
+                    "block tag lookup: provider errored but another succeeded"
+                );
+            }
+
+            // Every other responder must have the candidate block under the same hash. Those
+            // that reported the same height already told us; those further along are asked.
+            let checks = reported
+                .iter()
+                .filter(|(label, _)| *label != candidate_label)
+                .map(|(label, block)| {
+                    let provider = providers
+                        .iter()
+                        .find(|(l, _)| l == label)
+                        .map(|(_, p)| *p)
+                        .expect("label came from this provider list");
+                    async move {
+                        if block.number == candidate.number {
+                            return (label.clone(), Ok(Some(block.hash)));
+                        }
+                        let read = provider
+                            .get_block(
+                                BlockId::Number(BlockNumberOrTag::Number(candidate.number)),
+                                false.into(),
+                            )
+                            .await
+                            .map(|b| b.map(|b| b.header.hash));
+                        (label.clone(), read)
+                    }
+                });
+            for (label, read) in join_all(checks).await {
+                match read {
+                    Ok(Some(hash)) if hash == candidate.hash => {}
+                    Ok(Some(actual)) => {
+                        return Err(Error::BlockTagDisagreement {
+                            tag,
+                            number: candidate.number,
+                            reported_by: candidate_label,
+                            expected: candidate.hash,
+                            disagreeing: label,
+                            actual,
+                        });
+                    }
+                    Ok(None) => {
+                        // Reported a `tag` block above this height yet has no block at it: not a
+                        // fork, a broken provider. Refuse rather than proceed on its word.
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            number = candidate.number,
+                            "block tag lookup: provider reports the tag past a height it cannot serve"
+                        );
+                        return Err(Error::FailedToGetBlock(candidate.number));
+                    }
+                    Err(e) => {
+                        // It answered the tag above the candidate, so it already considers the
+                        // candidate mature; it just could not confirm the identity this round.
+                        // Treated like a provider that errored on the tag itself.
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            number = candidate.number,
+                            error = %Error::from(e),
+                            "block tag lookup: could not confirm the candidate with this provider"
+                        );
+                    }
+                }
+            }
+
+            tracing::debug!(
+                %tag,
+                number = candidate.number,
+                hash = ?candidate.hash,
+                agreed = reported.len(),
+                configured = providers.len(),
+                "block tag resolved"
+            );
+            return Ok(candidate);
         }
 
         match merge_provider_lookup(got_definitive_none, errors) {
