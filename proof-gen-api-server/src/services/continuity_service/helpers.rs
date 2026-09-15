@@ -1615,9 +1615,6 @@ mod attested_boundary_tests {
         async fn get_last_block(&self) -> Result<u64> {
             panic!("validate_blocks must not read the source-chain tip")
         }
-        async fn get_block_number_by_tag(&self, _tag: eth::BlockTag) -> Result<u64> {
-            panic!("validate_blocks must not resolve a source-chain block tag")
-        }
         async fn get_chain_id(&self) -> Result<u64> {
             Ok(31337)
         }
