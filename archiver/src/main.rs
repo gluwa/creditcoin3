@@ -577,8 +577,10 @@ fn tip_mode(chain_key: Option<u64>, end_height: Option<u64>, override_lag: Optio
 }
 
 /// Publish the latest attested height for `chain_key` as a high-water mark, re-read every
-/// `poll`. A read failure keeps the last value: the bound can only stall, never go backwards or
-/// invent progress.
+/// `poll`. A read failure keeps the last value and repairs the Creditcoin connection before the
+/// next read: the client is a value clone whose dead socket never heals on its own, so retrying
+/// the same connection would freeze the bound until the process restarted. The bound can only
+/// stall, never go backwards or invent progress.
 fn follow_attested_height(
     cc3_client: CcClient,
     chain_key: u64,
@@ -599,11 +601,19 @@ fn follow_attested_height(
                     });
                 }
                 Ok(None) => tracing::debug!(chain_key, "no attestation published yet"),
-                Err(err) => tracing::warn!(
-                    chain_key,
-                    %err,
-                    "could not read the latest attested height; keeping the last one"
-                ),
+                Err(err) => {
+                    tracing::warn!(
+                        chain_key,
+                        %err,
+                        "could not read the latest attested height; keeping the last one and \
+                         repairing the Creditcoin connection"
+                    );
+                    // `reconnect` swaps the shared connection atomically and carries its own
+                    // backoff, so a Creditcoin outage costs one dial per poll, not a hot loop.
+                    if let Err(err) = cc3_client.reconnect().await {
+                        tracing::warn!(chain_key, %err, "Creditcoin reconnect failed");
+                    }
+                }
             }
             if tx.is_closed() {
                 break;
