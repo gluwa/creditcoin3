@@ -376,12 +376,20 @@ async fn main() -> Result<()> {
                 // hold and the blocks still did not arrive.
                 if let (Err(_), Some(rx)) = (&reason, &attested) {
                     let next_wanted = last_height.map(|h| h + 1).unwrap_or(start_height);
+                    // The stream fetches up to the published bound clamped to the source head
+                    // it has observed; judge the silence against the same number, or a node
+                    // lagging the attestors would look like a stall and be torn down every
+                    // timeout while it is healthy and simply behind.
                     let published = *rx.borrow();
-                    if published.is_none_or(|bound| bound < next_wanted) {
+                    let source_head = chain_head.load(Ordering::Acquire);
+                    let fetchable = published.map(|bound| bound.min(source_head));
+                    if fetchable.is_none_or(|bound| bound < next_wanted) {
                         tracing::info!(
                             ?published,
+                            source_head,
                             next_wanted,
-                            "no new attestation yet; nothing to fetch"
+                            "nothing new to fetch (no new attestation, or the source node has \
+                             not reached it yet)"
                         );
                         continue;
                     }
@@ -442,10 +450,13 @@ async fn main() -> Result<()> {
         // resolving maturity locally, the source head. Under an attested bound the last block
         // of every released range *is* the bound, and it is exactly the block the prover needs
         // next, so "at the tip" must be measured against that bound rather than the head.
-        let target = cfg
-            .end_height
-            .or_else(|| attested.as_ref().and_then(|rx| *rx.borrow()))
-            .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
+        let source_head = chain_head.load(Ordering::Acquire);
+        let target = cfg.end_height.unwrap_or_else(|| {
+            attested
+                .as_ref()
+                .and_then(|rx| *rx.borrow())
+                .map_or(source_head, |bound| bound.min(source_head))
+        });
         let remaining = target.saturating_sub(height);
         let at_tip = at_tip(remaining, cfg.flush_every);
 

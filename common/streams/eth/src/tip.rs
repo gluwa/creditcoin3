@@ -46,6 +46,7 @@ impl StreamTip {
                             .boxed(),
                         config.client.clone(),
                         silence,
+                        None,
                     )
                     .boxed()
                 }
@@ -120,6 +121,7 @@ impl StreamTip {
                                         .boxed(),
                                     client.clone(),
                                     silence,
+                                    None,
                                 )
                                 .boxed();
 
