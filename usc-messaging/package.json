@@ -8,10 +8,12 @@
     "deploy": "tsx scripts/deploy.ts",
     "quoter": "tsx src/quoter/index.ts",
     "quoter:selftest": "tsx src/quoter/selftest.ts",
+    "bridge-claimer-bot": "tsx src/bridge-claimer-bot/index.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
   "dependencies": {
+    "@gluwa/usc-sdk": "0.18.0",
     "@polkadot/api": "16.5.2",
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",

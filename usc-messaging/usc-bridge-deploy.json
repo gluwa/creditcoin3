@@ -1,0 +1,51 @@
+{
+  "hub": {
+    "chainId": 42,
+    "rpc": "https://rpc.usc-devnet.creditcoin.network",
+    "owner": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+    "proofVerifier": "0x7acc1aC65892CF3547b1b0590066FB93199b430D",
+    "attestToken": "0xb5F73112516ebeB89c7EF67a507513b441Ac28fA",
+    "outboxFactory": "0xb91C2eeaA0c475115069a6ED4bc601337a22788E",
+    "feeRegistry": "0xcCEd4FA7c35209De0a52476A8e63ba7115971876",
+    "attestorVault": "0xD45E290062Bd0D1C640D59C350cA03CC291b37FA",
+    "bridgeHub": "0x4c8C605bF0A7B52D6c4FebCA44D6835a027d76a7"
+  },
+  "spokes": {
+    "8": {
+      "chainId": 11155111,
+      "rpc": "https://ethereum-sepolia.core.chainstack.com/efdb96b1ade73fac0eb3f90559b9acee",
+      "chainKey": 8,
+      "admin": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+      "bridgeVault": "0x2EF3c4D5a26229441Cc1578c812a377CA93c9203",
+      "sharedRouter": "0x5dF0F2D8fdb0b5Ca0815c8959154862F84ff80AB",
+      "sharedOutbox": "0x95FE74eF5644d500379b4300344DD80d9e377B40"
+    },
+    "9": {
+      "chainId": 84532,
+      "rpc": "https://base-sepolia.core.chainstack.com/ff008ec713de9ea04e0cec5b3ba4969c",
+      "chainKey": 9,
+      "admin": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+      "bridgeVault": "0x032c2C6878846Bb06fb3F6Cb75C8B00643BEE547",
+      "sharedRouter": "0xF592eaA1040aaCF336B5B24b5eEafafCD9304A4e",
+      "sharedOutbox": "0xf3223D5DB16e45b97cC9e1526ae5b816ea7f506b"
+    }
+  },
+  "validators": {
+    "84532": {
+      "chainId": 84532,
+      "rpc": "https://base-sepolia.core.chainstack.com/ff008ec713de9ea04e0cec5b3ba4969c",
+      "owner": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+      "attestorRegistry": "0x19041a20B540B4A1aD34211286f86520964dbfBf",
+      "eoaValidator": "0x18481718995371FaE84B2A4796D0487aCf6dd253",
+      "attestors": [
+        "0x08052B7c3FCcfe04f4579FC0209f59cd434D4A52",
+        "0x53E50cA242610B55d88c2D8Ab0FA56c9E86452Ef",
+        "0xe8D78dc5216f69c3f33C20f6773C5740d7200624",
+        "0x1D06e15fD2fF8DBc38B1749772f4D4C0fb90b795"
+      ],
+      "minAttestorCount": 3,
+      "thresholdNumerator": 20,
+      "thresholdAddition": 1
+    }
+  }
+}
