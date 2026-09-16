@@ -7,7 +7,7 @@ use attestor_primitives::{
     block::Block, block::ContinuityProof, AttestationCheckpoint,
     AttestationData as AttestationPrimitive, AttestorStatus, ChainKey, SignedAttestation,
 };
-use attestor_primitives::{BlsPublicKey, BlsSignature, Digest};
+use attestor_primitives::{BlsPublicKey, BlsSignature, ChainEncodingVersion, Digest};
 use bls_signatures::{aggregate, key::Serialize, PrivateKey, PublicKey};
 use continuity_dev::construct_fragment;
 use frame_support::{
@@ -20,6 +20,33 @@ use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
 use sp_std::ops::RangeInclusive;
+use supported_chains_primitives::provider::SupportedChainsProvider;
+
+/// First filler account id used by [`pad_active_attestors`]. Far above the `STASH_*` /
+/// `ATTESTOR_*` range in `mock.rs` so padding can never collide with a real test account.
+const ACTIVE_ATTESTOR_FILLER_BASE: AccountId = 1_000;
+
+/// Pad `ActiveAttestors` for `chain_key` up to `size` with accounts that never sign.
+///
+/// The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so a test that needs an
+/// *unmet* threshold must have more active attestors than signers — raising `TargetSampleSize`
+/// alone no longer does it, because the target is only a cap. Padding is enough for that: the
+/// filler ids are never listed in an attestation, so they move the denominator only and need no
+/// BLS key, `Attestors` row, stash, or balance.
+///
+/// Call this *after* any `force_election` / `progress_to_block` that rebuilds `ActiveAttestors`,
+/// since the election overwrites the map wholesale.
+fn pad_active_attestors(chain_key: ChainKey, size: usize) {
+    ActiveAttestors::<Test>::mutate(chain_key, |active| {
+        let mut next = ACTIVE_ATTESTOR_FILLER_BASE;
+        while active.len() < size {
+            if !active.contains(&next) {
+                active.push(next);
+            }
+            next += 1;
+        }
+    });
+}
 
 #[derive(Debug, Clone)]
 pub struct Attestor {
@@ -408,7 +435,10 @@ fn voluntary_chill_from_active_sets_leaving_then_idle_and_emits_chilled_on_epoch
             att.signature
         ));
 
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 1));
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
 
         let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
         assert_eq!(attestor.status, AttestorStatus::Active);
@@ -424,7 +454,10 @@ fn voluntary_chill_from_active_sets_leaving_then_idle_and_emits_chilled_on_epoch
         assert_eq!(attestor.status, AttestorStatus::Leaving);
         assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
 
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
 
         let attestor = Attestation::attestors(SUPPORTED_CHAIN_KEY, ATTESTOR_1).unwrap();
         assert_eq!(attestor.status, AttestorStatus::Idle);
@@ -3233,6 +3266,12 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
 
         progress_to_block(5);
 
+        // The active set must be larger than the signer set for the threshold to be unmet: the
+        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so with a lone active
+        // attestor it would be 1 and the duplicate listing would never be tested. Two active
+        // attestors put the quorum at 2, which the deduplicated single signer cannot reach.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 2);
+
         // 1 registered & active, 2 signed
         let attestation =
             create_signed_attestation(vec![attestor.clone(), attestor], 1, 0, None, None);
@@ -3245,7 +3284,8 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
 #[test]
 fn validate_attestation_should_error_when_majority_not_reached() {
     ExtBuilder.build_and_execute(|| {
-        // default is 1, set target > 1 to trigger failure
+        // Raise the cap clear of the active set so it never binds; the quorum is then a straight
+        // `2/3+1` of the active-attestor count.
         assert_ok!(Attestation::set_target_sample_size(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
@@ -3268,10 +3308,69 @@ fn validate_attestation_should_error_when_majority_not_reached() {
 
         progress_to_block(5);
 
+        // Three active attestors put the quorum at 3; only one of them signs below.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 3);
+
         let attestation = create_signed_attestation(vec![attestor], 1, 1, None, None);
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
         assert_err!(result, Error::<Test>::MajorityNotReached);
+    })
+}
+
+/// A `TargetSampleSize` above the active-attestor count must not block attestation.
+///
+/// This is the liveness bug the `min(|ActiveAttestors|, TargetSampleSize)` quorum fixes. When the
+/// threshold was derived from the target alone, any chain whose target exceeded its active count
+/// had an unreachable quorum: every `commit_attestation` failed `MajorityNotReached` and
+/// attestation for that chain stopped permanently, with no way back short of governance lowering
+/// the target. The local testnet spec ships `target_sample_size: 9`, which needed 7 active
+/// attestors, so this was reachable in a shipped configuration.
+///
+/// Same setup as [`validate_attestation_should_error_when_majority_not_reached`] above, minus the
+/// padding: one active attestor, a target of 44, and the lone attestor's own attestation is now
+/// a valid quorum.
+#[test]
+fn target_sample_size_above_active_set_does_not_block_attestation() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            44
+        ));
+
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+
+        progress_to_block(5);
+
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).len(),
+            1,
+            "precondition: the target (44) must exceed the active set"
+        );
+        assert_eq!(Attestation::quorum_threshold(SUPPORTED_CHAIN_KEY), 1);
+
+        // Genesis height (0) so the continuity check accepts an empty proof — this test isolates
+        // the threshold path.
+        let attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+
+        assert_ok!(Attestation::validate_attestation(
+            attestation.chain_key(),
+            &attestation
+        ));
     })
 }
 
@@ -3370,7 +3469,13 @@ fn test_attestation_submission_fails_if_threshold_not_met() {
 
         progress_to_block(5);
 
-        // Should fail because we have only one attestors and the target sample size is 3 (Default value)
+        // Three active attestors against a target of 3: the cap does not bind, so the quorum is
+        // 3. Only `attestor_1` signs, so the threshold is genuinely unmet. (Raising the target
+        // alone would not do it — the target is a cap, and a lone active attestor is its own
+        // quorum.)
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 3);
+
+        // Should fail: one signer against a quorum of 3.
         let attestation =
             create_signed_attestation(vec![attestor_1.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
         let result = Attestation::validate_attestation(SUPPORTED_CHAIN_KEY, &attestation);
@@ -4573,7 +4678,10 @@ fn validate_attestation_rejects_when_co_signer_is_retired() {
             SUPPORTED_CHAIN_KEY,
             attestor_a.attestor_id
         ));
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
         assert_ok!(Attestation::unregister_attestor(
             attestor_a.stash.clone(),
             SUPPORTED_CHAIN_KEY,
@@ -4589,6 +4697,13 @@ fn validate_attestation_rejects_when_co_signer_is_retired() {
             ATTESTOR_1
         ));
         assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
+
+        // `attestor_a`'s retirement leaves `attestor_b` as the only active attestor, and the
+        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)` — a one-member set
+        // would put it at 1 and `attestor_b` would satisfy it alone, masking the regression this
+        // test guards. Pad the active set back to 2 (post-election, so the election cannot
+        // overwrite it) to keep the quorum at 2.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 2);
 
         // With `attestor_a` retired, only `attestor_b` remains in the active eligible set,
         // which is below the threshold of 2.
@@ -4647,7 +4762,10 @@ fn commit_attestation_rejects_when_co_signer_is_retired() {
             SUPPORTED_CHAIN_KEY,
             attestor_a.attestor_id
         ));
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
         assert_ok!(Attestation::unregister_attestor(
             attestor_a.stash.clone(),
             SUPPORTED_CHAIN_KEY,
@@ -4658,6 +4776,13 @@ fn commit_attestation_rejects_when_co_signer_is_retired() {
             SUPPORTED_CHAIN_KEY,
             ATTESTOR_1
         ));
+
+        // `attestor_a`'s retirement leaves `attestor_b` as the only active attestor, and the
+        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)` — a one-member set
+        // would put it at 1 and `attestor_b` would satisfy it alone, masking the regression this
+        // test guards. Pad the active set back to 2 (post-election, so the election cannot
+        // overwrite it) to keep the quorum at 2.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 2);
 
         assert_err!(
             Attestation::commit_attestation(
@@ -4701,7 +4826,10 @@ fn voluntary_chill_keeps_attestor_in_active_set_until_next_election() {
 
         assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
 
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 2));
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
 
         assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
     });
@@ -7915,7 +8043,7 @@ fn import_checkpoints_emits_events_for_imported_checkpoints() {
 fn force_election_should_error_when_not_signed() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::force_election(RuntimeOrigin::none(), 1),
+            Attestation::force_election(RuntimeOrigin::none(), SUPPORTED_CHAIN_KEY),
             BadOrigin
         );
     })
@@ -7925,7 +8053,7 @@ fn force_election_should_error_when_not_signed() {
 fn force_election_should_error_when_not_signed_by_operator_or_root() {
     ExtBuilder.build_and_execute(|| {
         assert_noop!(
-            Attestation::force_election(RuntimeOrigin::signed(ATTESTOR_1), 1),
+            Attestation::force_election(RuntimeOrigin::signed(ATTESTOR_1), SUPPORTED_CHAIN_KEY),
             BadOrigin
         );
     })
@@ -7934,23 +8062,72 @@ fn force_election_should_error_when_not_signed_by_operator_or_root() {
 #[test]
 fn force_election_should_emit_forced_election_event() {
     ExtBuilder.build_and_execute(|| {
-        let epoch = 42u64;
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
 
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
-
-        System::assert_last_event(Event::ForcedElection { epoch }.into());
+        System::assert_last_event(
+            Event::ForcedElection {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                epoch: RandomnessPallet::epoch_index(),
+            }
+            .into(),
+        );
     })
+}
+
+#[test]
+fn force_election_labels_events_with_the_current_epoch_index() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // Mock epochs are 3 slots; block 8 lands in epoch 2.
+        progress_to_block(8);
+        let epoch = RandomnessPallet::epoch_index();
+        assert!(epoch >= 2, "test premise: at least two epochs passed");
+
+        register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+        System::reset_events();
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+
+        System::assert_has_event(
+            Event::AttestorsElected {
+                epoch,
+                chain_key: SUPPORTED_CHAIN_KEY,
+                attestors: vec![ATTESTOR_1],
+            }
+            .into(),
+        );
+        System::assert_last_event(
+            Event::ForcedElection {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                epoch,
+            }
+            .into(),
+        );
+    });
 }
 
 #[test]
 fn force_election_should_succeed_when_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
-        let epoch = 42u64;
-
         assert_ok!(Attestation::force_election(
             RuntimeOrigin::signed(ALICE),
-            epoch
+            SUPPORTED_CHAIN_KEY
         ));
+    });
+}
+
+#[test]
+fn force_election_should_error_for_unsupported_chain() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::force_election(RuntimeOrigin::root(), 999),
+            Error::<Test>::ChainNotSupported
+        );
     });
 }
 
@@ -7979,7 +8156,10 @@ fn force_election_should_elect_waiting_attestors() {
         assert_eq!(attestor_info.status, AttestorStatus::Waiting);
 
         // Force election
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), 1));
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
 
         // Verify attestor is now Active
         let attestor_info = Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, attestor.attestor_id)
@@ -7996,7 +8176,8 @@ fn force_election_should_elect_waiting_attestors() {
 fn force_election_should_emit_attestors_elected_event() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let epoch = 99u64;
+        // Forced elections are labelled with the current epoch index.
+        let epoch = RandomnessPallet::epoch_index();
 
         // Register and activate attestor
         assert_ok!(Attestation::register_attestor(
@@ -8013,7 +8194,7 @@ fn force_election_should_emit_attestors_elected_event() {
         ));
 
         // Force election
-        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+        assert_ok!(Attestation::force_election(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY));
 
         // Check that AttestorsElected event was emitted
         let events = System::events();
@@ -8029,6 +8210,216 @@ fn force_election_should_emit_attestors_elected_event() {
         });
         assert!(elected_event.is_some(), "AttestorsElected event should be emitted");
     })
+}
+
+/// Count the `AttestorsElected` events currently in the system event buffer.
+fn attestors_elected_events() -> usize {
+    System::events()
+        .iter()
+        .filter(|e| {
+            matches!(
+                e.event,
+                RuntimeEvent::Attestation(crate::Event::AttestorsElected { .. })
+            )
+        })
+        .count()
+}
+
+fn register_and_attest(chain_key: ChainKey, attestor: &Attestor) {
+    assert_ok!(Attestation::register_attestor(
+        attestor.stash.clone(),
+        chain_key,
+        attestor.attestor_id,
+    ));
+    assert_ok!(Attestation::attest(
+        RuntimeOrigin::signed(attestor.attestor_id),
+        chain_key,
+        attestor.public_key,
+        attestor.signature,
+    ));
+}
+
+#[test]
+fn force_election_does_not_emit_attestors_elected_when_set_is_unchanged() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+
+        // First election admits the Waiting attestor: the set changed, so the event fires.
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_eq!(attestors_elected_events(), 1);
+        let active = ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert_eq!(active, vec![ATTESTOR_1]);
+
+        // A second election with nothing to admit or retire is a no-op for the set: the
+        // operator still gets `ForcedElection`, but no `AttestorsElected` heartbeat.
+        System::reset_events();
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_eq!(attestors_elected_events(), 0);
+        System::assert_last_event(
+            Event::ForcedElection {
+                chain_key: SUPPORTED_CHAIN_KEY,
+                epoch: RandomnessPallet::epoch_index(),
+            }
+            .into(),
+        );
+        assert_eq!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY), active);
+    });
+}
+
+#[test]
+fn epoch_election_does_not_emit_attestors_elected_when_set_is_unchanged() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        register_and_attest(SUPPORTED_CHAIN_KEY, &attestor);
+
+        // Mock epochs are `EpochDuration = 3` slots; block 5 lands in epoch 1.
+        progress_to_block(5);
+        assert_eq!(RandomnessPallet::epoch_index(), 1);
+        System::assert_has_event(
+            Event::AttestorsElected {
+                epoch: 1,
+                chain_key: SUPPORTED_CHAIN_KEY,
+                attestors: vec![ATTESTOR_1],
+            }
+            .into(),
+        );
+
+        // Cross two more epoch boundaries with a steady fleet: no further election events.
+        System::reset_events();
+        progress_to_block(11);
+        assert!(RandomnessPallet::epoch_index() >= 3);
+        assert_eq!(attestors_elected_events(), 0);
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY),
+            vec![ATTESTOR_1]
+        );
+
+        // A change (voluntary chill retiring at the boundary) brings the event back.
+        assert_ok!(Attestation::chill(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        System::reset_events();
+        progress_to_block(14);
+        assert_eq!(attestors_elected_events(), 1);
+        assert!(ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
+    });
+}
+
+#[test]
+fn election_ignores_active_set_ordering_after_kick() {
+    ExtBuilder.build_and_execute(|| {
+        // Three attestors so a `swap_remove` of the first one visibly reorders the stored set.
+        let attestors = [
+            Attestor::new(STASH_1, ATTESTOR_1),
+            Attestor::new(STASH_2, ATTESTOR_2),
+            Attestor::new(STASH_3, ATTESTOR_3),
+        ];
+        for attestor in &attestors {
+            register_and_attest(SUPPORTED_CHAIN_KEY, attestor);
+        }
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+        let elected = ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert_eq!(elected.len(), 3);
+
+        // Kick the attestor at the front: `remove_active_attestor_from_set` swap_removes it,
+        // moving the last entry into its slot.
+        let kicked = elected[0];
+        assert_ok!(Attestation::kick_active_attestor(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            kicked,
+            false,
+        ));
+        let after_kick = ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY);
+        assert_eq!(after_kick.len(), 2);
+        assert!(!after_kick.contains(&kicked));
+
+        // The next election yields the same two members in `iter_prefix` order. Membership is
+        // unchanged, so it must be recognised as such even if the order differs.
+        System::reset_events();
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+        assert_eq!(attestors_elected_events(), 0);
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY),
+            after_kick
+        );
+    });
+}
+
+#[test]
+fn force_election_only_elects_for_the_given_chain() {
+    ExtBuilder.build_and_execute(|| {
+        // Register a second supported chain alongside the genesis one.
+        assert_ok!(SupportedChains::register_chain(
+            RuntimeOrigin::root(),
+            SOURCE_CHAIN_ID + 1,
+            "Other".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        ));
+        let other_chain_key =
+            <<Test as Config>::SupportedChains as SupportedChainsProvider>::supported_chains()
+                .into_iter()
+                .find(|k| *k != SUPPORTED_CHAIN_KEY)
+                .expect("second chain registered");
+
+        let attestor_1 = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor_2 = Attestor::new(STASH_2, ATTESTOR_2);
+        register_and_attest(SUPPORTED_CHAIN_KEY, &attestor_1);
+        register_and_attest(other_chain_key, &attestor_2);
+
+        assert_ok!(Attestation::force_election(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY
+        ));
+
+        // Chain 1 elected its Waiting attestor...
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY),
+            vec![ATTESTOR_1]
+        );
+        assert_eq!(
+            Attestors::<Test>::get(SUPPORTED_CHAIN_KEY, ATTESTOR_1)
+                .unwrap()
+                .status,
+            AttestorStatus::Active
+        );
+        // ...while the other chain's attestor is still waiting for its own election.
+        assert!(ActiveAttestors::<Test>::get(other_chain_key).is_empty());
+        assert_eq!(
+            Attestors::<Test>::get(other_chain_key, ATTESTOR_2)
+                .unwrap()
+                .status,
+            AttestorStatus::Waiting
+        );
+        assert_eq!(attestors_elected_events(), 1);
+        assert!(!System::events().iter().any(|e| matches!(
+            &e.event,
+            RuntimeEvent::Attestation(crate::Event::AttestorsElected { chain_key, .. })
+                if *chain_key == other_chain_key
+        )));
+    });
 }
 
 #[cfg(test)]
@@ -8560,7 +8951,6 @@ mod prevalidate_attestation_commit_extension {
     fn prevalidate_attestation_passes_for_unique() {
         ExtBuilder.build_and_execute(|| {
             let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-            let epoch = 99u64;
 
             // Register and activate attestors
             assert_ok!(Attestation::register_attestor(
@@ -8576,7 +8966,10 @@ mod prevalidate_attestation_commit_extension {
                 attestor.signature,
             ));
 
-            assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
 
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
@@ -8628,7 +9021,6 @@ mod prevalidate_attestation_commit_extension {
     fn prevalidate_tags_only_active_attestor_submissions() {
         ExtBuilder.build_and_execute(|| {
             let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-            let epoch = 99u64;
 
             assert_ok!(Attestation::register_attestor(
                 attestor.stash.clone(),
@@ -8641,7 +9033,10 @@ mod prevalidate_attestation_commit_extension {
                 attestor.public_key,
                 attestor.signature,
             ));
-            assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
 
             let attestation = create_signed_attestation(
                 vec![attestor.clone()],
@@ -8718,7 +9113,6 @@ mod prevalidate_attestation_commit_extension {
         ExtBuilder.build_and_execute(|| {
             let attestor_1 = Attestor::new(STASH_1, ATTESTOR_1);
             let attestor_2 = Attestor::new(STASH_2, ATTESTOR_2);
-            let epoch = 99u64;
 
             // Register and activate attestors
             assert_ok!(Attestation::register_attestor(
@@ -8745,7 +9139,10 @@ mod prevalidate_attestation_commit_extension {
                 attestor_2.signature,
             ));
 
-            assert_ok!(Attestation::force_election(RuntimeOrigin::root(), epoch));
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
 
             let attestation = create_signed_attestation(
                 vec![attestor_1.clone()],
@@ -9176,6 +9573,11 @@ mod bls_key_uniqueness {
                     stash: STASH_3,
                 },
             );
+
+            // A third active member (never a signer) keeps the quorum at 3 while only two of
+            // the listed attestors are eligible. Without it the two real actives would be their
+            // own quorum and the threshold check could not fire.
+            pad_active_attestors(SUPPORTED_CHAIN_KEY, 3);
 
             // Build an attestation listing all three (active + active + ghost) and a real
             // 3-signer aggregate. Pre-fix: gather pulled `ghost`'s key, threshold of 3

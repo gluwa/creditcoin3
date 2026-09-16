@@ -7,25 +7,65 @@ use tokio::sync::RwLock;
 
 use super::MerkleProofItem;
 
+/// Per-transaction cost of the cache-level tx-hash index, charged to the block that owns the
+/// transaction so a block's measured size covers everything caching it allocates.
+///
+/// Each transaction adds one `by_tx_hash` entry: a 32-byte `H256` key plus a `(u64, usize)`
+/// value, in a hashbrown table that holds spare capacity and a control byte per slot. Rounded up
+/// rather than derived exactly -- the true figure moves with the table's load factor, and a
+/// budget that understates its own cost is worse than one that is slightly conservative.
+const PER_TX_INDEX_OVERHEAD_BYTES: usize = 64;
+
 #[derive(Debug)]
 struct CachedMerkleBlock {
     header_number: u64,
     tx_hashes: Vec<H256>,
     tx_bytes: Vec<Vec<u8>>,
     tree: KeccakMerkleTree,
+    /// Approximate heap footprint, measured once at construction.
+    ///
+    /// Precomputed rather than derived on demand so that the running total in
+    /// [`ChainMerkleCache::cached_bytes`] adds and subtracts the exact same number for a given
+    /// block. Recomputing it at removal time would let the total drift.
+    heap_bytes: u64,
 }
 
 impl CachedMerkleBlock {
     fn new(header_number: u64, txs: Vec<(H256, Vec<u8>)>) -> Self {
         let (tx_hashes, tx_bytes): (Vec<_>, Vec<_>) = txs.into_iter().unzip();
         let tree = KeccakMerkleTree::new(&tx_bytes);
+        let heap_bytes = Self::measure_heap_bytes(&tx_hashes, &tx_bytes, &tree);
 
         Self {
             header_number,
             tx_hashes,
             tx_bytes,
             tree,
+            heap_bytes,
         }
+    }
+
+    /// Approximate heap bytes held by one cached block.
+    ///
+    /// The dominant term is the raw transaction payloads; the hash vector and the merkle tree
+    /// are both `O(tx_count)` in 32-byte words. Exact allocator overhead is not modelled -- this
+    /// feeds a budget, so a consistent underestimate is fine as long as it tracks tx density.
+    fn measure_heap_bytes(
+        tx_hashes: &[H256],
+        tx_bytes: &[Vec<u8>],
+        tree: &KeccakMerkleTree,
+    ) -> u64 {
+        let hashes = std::mem::size_of::<H256>().saturating_mul(tx_hashes.len());
+        let payloads = tx_bytes.iter().fold(0usize, |acc, tx| {
+            acc.saturating_add(tx.len())
+                .saturating_add(std::mem::size_of::<Vec<u8>>())
+        });
+        let index = PER_TX_INDEX_OVERHEAD_BYTES.saturating_mul(tx_hashes.len());
+
+        hashes
+            .saturating_add(payloads)
+            .saturating_add(index)
+            .saturating_add(tree.heap_bytes()) as u64
     }
 
     async fn build(header_number: u64, txs: Vec<(H256, Vec<u8>)>) -> Result<Self, String> {
@@ -56,6 +96,53 @@ struct ChainMerkleCache {
     by_block: BTreeMap<u64, Arc<CachedMerkleBlock>>,
     by_tx_hash: HashMap<H256, (u64, usize)>,
     processed_blocks: BTreeSet<u64>,
+    /// Running sum of [`CachedMerkleBlock::heap_bytes`] over `by_block`.
+    ///
+    /// Maintained incrementally because the whole point is to read it cheaply on every backfill
+    /// tick; summing the map each time would be `O(blocks)` on the hot path.
+    cached_bytes: u64,
+}
+
+impl ChainMerkleCache {
+    /// Drop a cached block and everything indexing it, keeping `cached_bytes` in step.
+    ///
+    /// Note this deliberately leaves `processed_blocks` alone: a height can be "processed" with
+    /// no cached block (an empty source block), and the backfill worker uses that set to decide
+    /// what still needs fetching.
+    fn drop_block(&mut self, header_number: u64) -> bool {
+        let Some(old) = self.by_block.remove(&header_number) else {
+            return false;
+        };
+
+        self.cached_bytes = self.cached_bytes.saturating_sub(old.heap_bytes);
+        for tx_hash in &old.tx_hashes {
+            self.by_tx_hash.remove(tx_hash);
+        }
+
+        true
+    }
+}
+
+/// Snapshot of a chain's merkle cache occupancy.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MerkleCacheStats {
+    pub blocks: u64,
+    pub txs: u64,
+    pub bytes: u64,
+}
+
+impl MerkleCacheStats {
+    /// Mean heap bytes per cached block, or `None` while the cache is still cold.
+    ///
+    /// This is the measured density that lets a byte budget be translated into a block count
+    /// without assuming anything about the chain.
+    pub fn mean_bytes_per_block(&self) -> Option<u64> {
+        if self.blocks == 0 || self.bytes == 0 {
+            return None;
+        }
+
+        Some((self.bytes / self.blocks).max(1))
+    }
 }
 
 /// In-memory cache of finalized source-chain merkle data.
@@ -118,27 +205,33 @@ impl MerkleProofCache {
 
     async fn insert_cached_block(&self, header_number: u64, block: Arc<CachedMerkleBlock>) {
         let mut cache = self.inner.write().await;
-        if let Some(old) = cache.by_block.remove(&header_number) {
-            for tx_hash in &old.tx_hashes {
-                cache.by_tx_hash.remove(tx_hash);
-            }
-        }
+        // Re-inserting a height already cached is normal (an on-demand fill can race a
+        // backfill), so the old block's bytes must come off before the new block's go on.
+        cache.drop_block(header_number);
 
         for (tx_index, tx_hash) in block.tx_hashes.iter().copied().enumerate() {
             cache.by_tx_hash.insert(tx_hash, (header_number, tx_index));
         }
         cache.processed_blocks.insert(header_number);
+        cache.cached_bytes = cache.cached_bytes.saturating_add(block.heap_bytes);
         cache.by_block.insert(header_number, block);
     }
 
     pub async fn mark_processed_empty(&self, header_number: u64) {
         let mut cache = self.inner.write().await;
-        if let Some(old) = cache.by_block.remove(&header_number) {
-            for tx_hash in &old.tx_hashes {
-                cache.by_tx_hash.remove(tx_hash);
-            }
-        }
+        cache.drop_block(header_number);
         cache.processed_blocks.insert(header_number);
+    }
+
+    /// Current occupancy of this chain's cache.
+    pub async fn size_stats(&self) -> MerkleCacheStats {
+        let cache = self.inner.read().await;
+
+        MerkleCacheStats {
+            blocks: cache.by_block.len() as u64,
+            txs: cache.by_tx_hash.len() as u64,
+            bytes: cache.cached_bytes,
+        }
     }
 
     pub async fn is_processed(&self, header_number: u64) -> bool {
@@ -180,6 +273,7 @@ impl MerkleProofCache {
 
         let removed = removed_blocks.len();
         for block in removed_blocks.into_values() {
+            cache.cached_bytes = cache.cached_bytes.saturating_sub(block.heap_bytes);
             for tx_hash in &block.tx_hashes {
                 cache.by_tx_hash.remove(tx_hash);
             }
@@ -195,11 +289,8 @@ impl MerkleProofCache {
         cache.processed_blocks.split_off(&split_key);
 
         let removed = removed_blocks.len();
-        if removed == 0 {
-            return 0;
-        }
-
         for block in removed_blocks.into_values() {
+            cache.cached_bytes = cache.cached_bytes.saturating_sub(block.heap_bytes);
             for tx_hash in &block.tx_hashes {
                 cache.by_tx_hash.remove(tx_hash);
             }
@@ -337,5 +428,144 @@ mod tests {
             cache.unprocessed_heights_desc(10, 14, 3).await,
             vec![13, 12, 10]
         );
+    }
+
+    /// Variable-size payload: the default `tx` helper makes 1-byte payloads, which are too
+    /// small to tell a real byte total from a per-entry constant.
+    fn sized_tx(n: u64, len: usize) -> (H256, Vec<u8>) {
+        (H256::from_low_u64_be(n), vec![n as u8; len])
+    }
+
+    #[tokio::test]
+    async fn byte_accounting_returns_to_zero_after_pruning_everything() {
+        let cache = MerkleProofCache::default();
+        cache
+            .insert_block(10, vec![sized_tx(1, 512), sized_tx(2, 512)])
+            .await
+            .expect("insert should succeed");
+        cache
+            .insert_block(11, vec![sized_tx(3, 512)])
+            .await
+            .expect("insert should succeed");
+
+        let filled = cache.size_stats().await;
+        assert_eq!(filled.blocks, 2);
+        assert_eq!(filled.txs, 3);
+        assert!(
+            filled.bytes >= 3 * 512,
+            "payloads should dominate: {filled:?}"
+        );
+
+        cache.prune_below(100).await;
+
+        assert_eq!(cache.size_stats().await, MerkleCacheStats::default());
+    }
+
+    #[tokio::test]
+    async fn reinserting_same_height_does_not_drift_byte_total() {
+        // An on-demand fill can re-cache a height a backfill already cached. If the old block's
+        // bytes were not subtracted first, the total would grow on every re-insert.
+        let cache = MerkleProofCache::default();
+        cache
+            .insert_block(10, vec![sized_tx(1, 1024)])
+            .await
+            .expect("insert should succeed");
+        let first = cache.size_stats().await;
+
+        for _ in 0..5 {
+            cache
+                .insert_block(10, vec![sized_tx(1, 1024)])
+                .await
+                .expect("insert should succeed");
+        }
+
+        assert_eq!(cache.size_stats().await, first);
+    }
+
+    #[tokio::test]
+    async fn marking_a_cached_height_empty_releases_its_bytes() {
+        let cache = MerkleProofCache::default();
+        cache
+            .insert_block(10, vec![sized_tx(1, 1024)])
+            .await
+            .expect("insert should succeed");
+        assert!(cache.size_stats().await.bytes > 0);
+
+        cache.mark_processed_empty(10).await;
+
+        let stats = cache.size_stats().await;
+        assert_eq!(stats.bytes, 0);
+        assert_eq!(stats.blocks, 0);
+        assert_eq!(stats.txs, 0);
+        // Still processed: an empty block needs no refetch.
+        assert!(cache.is_processed(10).await);
+    }
+
+    #[tokio::test]
+    async fn prune_above_releases_bytes_for_reverted_blocks() {
+        let cache = MerkleProofCache::default();
+        for height in 10..=12 {
+            cache
+                .insert_block(height, vec![sized_tx(height, 1024)])
+                .await
+                .expect("insert should succeed");
+        }
+        let all_three = cache.size_stats().await.bytes;
+
+        cache.prune_above(10).await;
+
+        let stats = cache.size_stats().await;
+        assert_eq!(stats.blocks, 1);
+        assert!(
+            stats.bytes > 0 && stats.bytes < all_three,
+            "one of three blocks should remain: {stats:?} vs {all_three}"
+        );
+
+        cache.prune_above(9).await;
+        assert_eq!(cache.size_stats().await, MerkleCacheStats::default());
+    }
+
+    #[tokio::test]
+    async fn byte_total_tracks_transaction_density() {
+        // The whole point of the budget: two chains with the same block count but different tx
+        // density must report very different totals.
+        let sparse = MerkleProofCache::default();
+        sparse
+            .insert_block(1, vec![sized_tx(1, 256)])
+            .await
+            .expect("insert should succeed");
+
+        let dense = MerkleProofCache::default();
+        dense
+            .insert_block(1, (0..100).map(|n| sized_tx(n, 256)).collect())
+            .await
+            .expect("insert should succeed");
+
+        let sparse_stats = sparse.size_stats().await;
+        let dense_stats = dense.size_stats().await;
+
+        assert_eq!(sparse_stats.blocks, dense_stats.blocks);
+        assert!(
+            dense_stats.bytes > sparse_stats.bytes * 50,
+            "dense={dense_stats:?} sparse={sparse_stats:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn mean_bytes_per_block_is_none_while_cold() {
+        let cache = MerkleProofCache::default();
+        assert_eq!(cache.size_stats().await.mean_bytes_per_block(), None);
+
+        cache
+            .insert_block(1, vec![sized_tx(1, 1024)])
+            .await
+            .expect("insert should succeed");
+
+        let mean = cache
+            .size_stats()
+            .await
+            .mean_bytes_per_block()
+            .expect("warm cache should report a mean");
+        assert!(mean >= 1024, "mean should cover the payload: {mean}");
     }
 }

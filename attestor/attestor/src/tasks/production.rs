@@ -327,6 +327,39 @@ fn eligibility_action(prev_target: bool, new_eligible: bool) -> EligibilityActio
     }
 }
 
+/// Re-read `ActiveAttestors` from the chain and refresh the local committee view (BLS store,
+/// pool allow-set, `can_attest`) from it.
+///
+/// Used for chill/kick and for the once-per-epoch reconcile. `with_retries`, matching the
+/// election path: a transient RPC blip must ride out with backoff, not bubble up and terminate
+/// the whole production task (the unscoped `staking::Kicked` event makes the chill/kick handler
+/// fire more often than actual committee changes). Eligibility is derived from the refreshed
+/// on-chain membership rather than from any event: `staking::Kicked` carries no chain scope, so
+/// trusting the event could wrongly chill us on an unrelated kick — the authoritative active set
+/// can't. The BLS/pool refresh runs before `apply_eligibility` for the reason given at the
+/// `AttestorsElected` handler.
+async fn reconcile_committee_from_chain(shared: &Arc<Shared>) -> Result<(), Error> {
+    let chain_key = shared.chain_key;
+    let attestors = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc3.get_attestor_active_set(chain_key).await
+    })
+    .await
+    .map_err(Error::Rpc)?;
+    let eligible = attestors.contains(&shared.account_id);
+    shared
+        .bls_store
+        .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
+        .await
+        .map_err(Error::Rpc)?;
+    shared.pool_send.note_attestors_elected(attestors);
+    // Membership is half of the quorum denominator: an election, chill or kick moves the
+    // threshold even with the target unchanged. Refresh before arming eligibility so a node
+    // never attests against a stale quorum.
+    refresh_quorum(shared).await?;
+    apply_eligibility(shared, eligible);
+    Ok(())
+}
+
 fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
     use std::sync::atomic::Ordering;
     let prev_target = shared.attest_target.swap(eligible, Ordering::SeqCst);
@@ -363,6 +396,40 @@ fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
             });
         }
     }
+}
+
+/// Recompute the quorum from live chain state and push it to the pool and the health gauge.
+///
+/// The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so it now moves with
+/// *membership* as well as with the target. Every seam that changes either input has to call
+/// this: election, chill, kick, and an operator retuning the target. Missing one leaves the node
+/// enforcing a stale threshold — too high and it stops submitting entirely, too low and it burns
+/// fees on `MajorityNotReached`.
+///
+/// `Client::quorum` reads both inputs from a single storage snapshot, so this cannot mix an
+/// active-set size from one block with a target from another. It reads at `latest` rather than
+/// trusting the event payload, matching the chill/kick path's existing reasoning: the
+/// authoritative set is what the chain holds now, not what an event carried.
+/// Production is the sole writer of the pool's quorum after startup, keeping RPC reads and
+/// updates ordered. Validation must not write back thresholds from its concurrent RPC checks.
+async fn refresh_quorum(shared: &Arc<Shared>) -> Result<(), Error> {
+    let chain_key = shared.chain_key;
+    let threshold = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
+        cc3.quorum(chain_key).await
+    })
+    .await
+    .map_err(Error::Rpc)?;
+
+    tracing::info!(threshold, "🧮 quorum refreshed");
+    shared.pool_send.note_quorum_change(threshold);
+    // Keep the health p2p-isolation axis in step with the live quorum — it was armed once at
+    // startup. Without this, a quorum dropping to 1 leaves a correctly-peerless sole attestor
+    // flagged `Isolated` (restart loop: a fresh pod won't conjure peers), and a quorum growing
+    // past 1 after a single-attestor start leaves isolation detection permanently disarmed.
+    // `set_p2p_expected` is idempotent and re-stamps the peerless clock on the disarm→arm
+    // transition, so re-arming gets a fresh grace window.
+    shared.health.set_p2p_expected(threshold > 1);
+    Ok(())
 }
 
 async fn handle_one(
@@ -415,19 +482,12 @@ async fn handle_one(
             shared.pool_send.note_attestation_interval_change(interval);
         }
 
-        // 3] new sample size
+        // 3] new target sample size (a *cap* on the committee, not the committee itself — the
+        // quorum is `2/3+1` of `min(|ActiveAttestors|, target)`, so the new threshold depends on
+        // the live active set too and cannot be derived from `target` alone).
         CcEvent::TargetSampleSizeChanged(_, target) => {
             tracing::info!(target, "📏 new target sample size");
-            shared.pool_send.note_target_sample_size_change(target);
-            // Keep the health p2p-isolation axis in step with the live quorum — it was armed
-            // once at startup from the then-current target. Without this, a target dropping to
-            // a quorum of 1 leaves a correctly-peerless sole attestor flagged `Isolated`
-            // (restart loop: a fresh pod won't conjure peers), and a target growing past 1
-            // after a single-attestor start leaves isolation detection permanently disarmed.
-            // `set_p2p_expected` is idempotent and re-stamps the peerless clock on the
-            // disarm→arm transition, so re-arming gets a fresh grace window.
-            let quorum = attestor_primitives::calculate_threshold(target) as usize;
-            shared.health.set_p2p_expected(quorum > 1);
+            refresh_quorum(shared).await?;
         }
 
         // 3b] new max catchup (block-count bound per continuity proof). Keep the off-chain view
@@ -461,6 +521,9 @@ async fn handle_one(
                 .await
                 .map_err(Error::Rpc)?;
             shared.pool_send.note_attestors_elected(attestors);
+            // Membership is half of the quorum denominator — an election that grows or shrinks
+            // the active set moves the threshold even though the target is unchanged.
+            refresh_quorum(shared).await?;
             apply_eligibility(shared, eligible);
         }
 
@@ -473,7 +536,9 @@ async fn handle_one(
         // Chill / kick removes the attestor from `ActiveAttestors` on-chain immediately. Refresh
         // BlsStore and the pool's allow-set on every chill/kick — not just for the local node —
         // so peers stop accepting gossip signed by the removed attestor's still-cached BLS key.
-        // Without this, pool pollution persists until the next `AttestorsElected` epoch.
+        // `AttestorsElected` is only emitted when the committee changes, so there is no
+        // per-epoch event to fall back on; the `RandomnessChanged` reconcile below is the
+        // periodic safety net if this refresh ever reads a lagging node.
         CcEvent::AttestorChilled(_, who) | CcEvent::AttestorKicked(who) => {
             let is_local = who == shared.account_id;
             if is_local {
@@ -481,30 +546,11 @@ async fn handle_one(
             } else {
                 tracing::info!(attestor = %who, "🪫 peer deactivated/kicked");
             }
-            // `with_retries`, matching the election path: a transient RPC blip here must ride
-            // out with backoff, not bubble up and terminate the whole production task (the
-            // unscoped `staking::Kicked` event makes this handler fire more often than actual
-            // committee changes).
-            let chain_key = shared.chain_key;
-            let attestors =
-                crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
-                    cc3.get_attestor_active_set(chain_key).await
-                })
-                .await
-                .map_err(Error::Rpc)?;
-            // Derive `can_attest` from the refreshed on-chain membership rather than from the
-            // event itself: `staking::Kicked` carries no chain scope, so trusting the event
-            // could wrongly chill us on an unrelated kick — the authoritative active set can't.
-            let eligible = attestors.contains(&shared.account_id);
-            // Refresh the committee view before arming the warm-up — see the AttestorsElected
-            // handler above for why `apply_eligibility` must run after the BLS/pool refresh.
-            shared
-                .bls_store
-                .note_attestors_elected(&shared.cc3, &shared.token, &attestors)
-                .await
-                .map_err(Error::Rpc)?;
-            shared.pool_send.note_attestors_elected(attestors);
-            apply_eligibility(shared, eligible);
+            // Same path as the per-epoch reconcile below: refresh BLS store, pool allow-set and
+            // the quorum (membership is half the denominator) from the authoritative on-chain set,
+            // then arm eligibility. `staking::Kicked` carries no chain scope, so the event itself
+            // is never trusted for `can_attest`.
+            reconcile_committee_from_chain(shared).await?;
 
             // Nudge the p2p task to evict this attestor's peer from the routing table / drop the
             // connection. Sent *after* the `bls_store` refresh above so the p2p task's active-set
@@ -530,8 +576,13 @@ async fn handle_one(
             tracing::info!(interval = i, "🔢 new checkpoint interval");
         }
 
+        // Every epoch boundary, re-derive the committee view from storage. `AttestorsElected`
+        // fires only on membership changes, so this once-per-epoch reconcile is what corrects a
+        // view that went stale through a missed event or a chill/kick refresh that read a lagging
+        // node. Cheap: one storage read plus the BLS key fetches for the set.
         CcEvent::RandomnessChanged((epoch, _)) => {
             tracing::info!(epoch, "🎲 new epoch");
+            reconcile_committee_from_chain(shared).await?;
         }
 
         CcEvent::RevertedAttestationChainTo(_, height, digest) => {

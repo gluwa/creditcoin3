@@ -119,6 +119,12 @@ pub mod pallet {
         type DefaultAttestationsPerCheckpoint: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
+        /// Default committee **cap** for chains registered without an explicit one.
+        ///
+        /// This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
+        /// active-attestor count means the cap binds on every newly registered chain, which is
+        /// the regime where quorum intersection is lost, so it should sit comfortably above the
+        /// largest fleet a chain is expected to run.
         #[pallet::constant]
         type DefaultTargetSampleSize: Get<u32>;
         /// The default maximum catchup bound, expressed in **blocks**.
@@ -167,6 +173,12 @@ pub mod pallet {
 
         type SupportedChains: SupportedChainsProvider;
 
+        /// The current epoch index. Elections run from the epoch hook are labelled with the
+        /// epoch that hook was called for; elections forced via [`Pallet::force_election`]
+        /// happen mid-epoch and read the current index from here so `AttestorsElected`
+        /// carries the same epoch either way.
+        type CurrentEpochIndex: Get<u64>;
+
         #[pallet::constant]
         type MaxAttestationsPerBlock: Get<u32>;
         #[pallet::constant]
@@ -199,7 +211,9 @@ pub mod pallet {
         fn authorize_attestor() -> Weight;
         fn remove_authorized_attestor() -> Weight;
         fn kick_active_attestor() -> Weight;
-        fn force_election() -> Weight;
+        /// `a` = attestors registered on the chain (every one is visited; `Waiting`/`Leaving`
+        /// ones are rewritten).
+        fn force_election(a: u32) -> Weight;
         fn set_max_catchup() -> Weight;
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
@@ -397,6 +411,22 @@ pub mod pallet {
     pub type PendingTargetSampleSize<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
 
+    /// Per-chain **cap** on the voting committee, not the committee itself.
+    ///
+    /// The quorum `validate_attestation` enforces is `2/3+1` of
+    /// `min(|ActiveAttestors|, TargetSampleSize)` (see
+    /// [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). While fewer
+    /// attestors are active than this value, the whole active set is the committee and the cap is
+    /// inert; it only binds once the active set grows past it.
+    ///
+    /// Two consequences operators need to know:
+    ///
+    /// - Setting this **above** the active-attestor count is safe and is the recommended posture.
+    ///   Quorum intersection — the property that two conflicting quorums cannot both exist at one
+    ///   height — holds only while the cap does not bind, because nothing selects which attestors
+    ///   vote (sortition is unbuilt: see `do_start_election`'s unused `_randomness`, RFC-0174).
+    /// - While the cap **does** bind, any self-selected `2/3+1` of the cap is a valid quorum, and
+    ///   two disjoint such groups can exist within a larger active set (USCP2-004).
     #[pallet::storage]
     #[pallet::getter(fn target_sample_size)]
     pub type TargetSampleSize<T: Config> =
@@ -721,8 +751,11 @@ pub mod pallet {
         AuthorizedAttestorAdded(ChainKey, T::AccountId),
         /// An attestor was unauthorized for a specific chain.
         AuthorizedAttestorRemoved(ChainKey, T::AccountId),
-        /// A force election was triggered via sudo.
+        /// An operator forced an election for a single chain's attestor set. `epoch` is the
+        /// epoch index the election was labelled with (the same value a scheduled election at
+        /// that time would carry).
         ForcedElection {
+            chain_key: ChainKey,
             epoch: u64,
         },
         /// Pending updates were force-applied via operator call.
@@ -922,6 +955,12 @@ pub mod pallet {
 
     /// Deprecation notice: The extrinsics with indexes 8, 12, 15 and 17 have been removed.
     /// The functionality of these extrinsics has been eliminated.
+    ///
+    /// Index 25 (`force_election(epoch: u64)`, an all-chains election) is retired and must not
+    /// be reused: its replacement `force_election(chain_key)` takes a single `u64` too, so a
+    /// call encoded against the old metadata would otherwise decode as a per-chain election of
+    /// whatever chain key the epoch number happens to name. Under a fresh index such a stale
+    /// submission fails to decode instead.
     #[pallet::call]
     impl<T: Config> Pallet<T> {
         #[pallet::call_index(0)]
@@ -953,6 +992,13 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Set the per-chain committee **cap** (see [`TargetSampleSize`]). Applies at the next
+        /// epoch via [`PendingTargetSampleSize`].
+        ///
+        /// This does not by itself set the quorum: the quorum is `2/3+1` of
+        /// `min(|ActiveAttestors|, TargetSampleSize)`. Raising this above the active-attestor
+        /// count makes the whole active set the committee, which is the posture that preserves
+        /// quorum intersection.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::set_target_sample_size())]
         pub fn set_target_sample_size(
@@ -1368,18 +1414,28 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Force trigger an attestor election.
+        /// Force an attestor election for a single chain, without waiting for the epoch
+        /// boundary.
         ///
-        /// A randomness of [0; 32] is used since randomness is not currently
-        /// used in the election logic.
-        #[pallet::call_index(25)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_election())]
-        pub fn force_election(origin: OriginFor<T>, epoch: u64) -> DispatchResult {
+        /// Runs the same selection the epoch hook runs for `chain_key` only: `Waiting`
+        /// attestors are admitted per the chain's election policy, `Leaving` attestors are
+        /// retired, and `AttestorsElected` is emitted if the resulting set differs from the
+        /// current one. Other chains are untouched. The election is labelled with the current
+        /// epoch index.
+        #[pallet::call_index(31)]
+        #[pallet::weight(<T as Config>::WeightInfo::force_election(AttestorsCount::<T>::get(chain_key)))]
+        pub fn force_election(origin: OriginFor<T>, chain_key: ChainKey) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
-            Self::do_start_election(epoch, [0; 32])?;
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
 
-            Self::deposit_event(Event::<T>::ForcedElection { epoch });
+            let epoch = T::CurrentEpochIndex::get();
+            Self::elect_attestors_for_chain(chain_key, epoch);
+
+            Self::deposit_event(Event::<T>::ForcedElection { chain_key, epoch });
 
             Ok(())
         }
