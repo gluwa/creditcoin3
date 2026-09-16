@@ -1,0 +1,80 @@
+---
+# BridgeVault/BridgeHub unit tests (usc-messaging/contracts) — mock-only, no live chain/attestor/
+# relayer dependency, unlike write-ability-e2e.yml. Deliberately its own lightweight workflow: the
+# bridge POC's Foundry suite had no CI coverage at all before this (forge build/test were only ever
+# run locally), and a full e2e round trip needs the same self-hosted node+attestor+relayer stack
+# write-ability-e2e.yml already provisions — see the bridge POC plan §6/§7 for that follow-up.
+name: bridge-contracts
+
+"on":
+  pull_request:
+    paths:
+      - "usc-messaging/contracts/**"
+      - "usc-bridge-dapp/scripts/gen-abi.mjs"
+      - "usc-bridge-dapp/src/lib/contracts/generated/**"
+      - ".github/workflows/bridge-contracts.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  forge-test:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # Deliberately its OWN pin, independent of write-ability-e2e.yml's — that workflow checks out
+      # asc-contracts separately for an unrelated build and doesn't need to move in lockstep with
+      # this one. Bumped to pick up DispatcherRouter/DefaultDispatcher (#36): BridgeVault's release
+      # entrypoint is delivered through each spoke's existing, shared DispatcherRouter rather than
+      # a dedicated Inbox of our own — see BridgeVault.sol's NatSpec.
+      - name: Check out asc-contracts
+        uses: actions/checkout@v7
+        with:
+          repository: gluwa/asc-contracts
+          ref: a9791c371205571c921c03f6ed9db41910fe1b94 # main @ 2026-09-09 (#36 Add DispatcherRouter for default and rate-limit delivery) — bump deliberately
+          path: asc-contracts
+          # asc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
+          # gets "Repository not found". Use the org bot PAT (same one write-ability-e2e uses).
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Build asc-contracts artifacts
+        working-directory: ./asc-contracts
+        # `npm install` (not `npm ci`): asc-contracts' committed lockfile can lag its package.json
+        # at the pinned SHA, which `npm ci` rejects. We only need the compiled artifacts.
+        run: |
+          npm install
+          npx hardhat compile
+          echo "ASC_CONTRACTS_DIR=$GITHUB_WORKSPACE/asc-contracts" >> "$GITHUB_ENV"
+
+      - name: Set up Foundry deps (forge-std + remappings)
+        working-directory: ./usc-messaging/contracts
+        run: ./scripts/setup-foundry-deps.sh
+
+      - name: forge fmt --check
+        working-directory: ./usc-messaging/contracts
+        run: forge fmt --check
+
+      - name: forge build
+        working-directory: ./usc-messaging/contracts
+        run: forge build
+
+      - name: forge test
+        working-directory: ./usc-messaging/contracts
+        run: forge test -vv
+
+      - name: Check generated ABI is up to date (usc-bridge-dapp)
+        working-directory: ./usc-bridge-dapp
+        run: node scripts/gen-abi.mjs --check
