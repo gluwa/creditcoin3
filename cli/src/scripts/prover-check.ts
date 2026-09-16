@@ -181,9 +181,19 @@ async function main(
     if (latestBlock === null || latestBlock.gasLimit <= 0n) {
         throw new Error('could not read EVM block gas limit from chain');
     }
+    // Three tiers, all derived from the on-chain limit so they track the runtime:
+    //   blockGasLimit      hard ceiling; pallet-ethereum rejects a tx above it. estimateGas can
+    //                      still report higher, since eth_call is served up to
+    //                      `block.gas_limit * --execute-gas-limit-multiplier`.
+    //   70%                block budget — see commit log + linked Slack thread.
+    //   blockGasLimit / 3  per-transaction tripwire, ahead of per-transaction gas limits landing
+    //                      on chain. Equals the 25M it replaces; derived so it cannot go stale.
     const blockGasLimit = latestBlock.gasLimit;
     const totalGasThreshold = (blockGasLimit * 7n) / 10n;
-    console.log(`**** INFO: on-chain EVM block gas limit = ${blockGasLimit}, 70% threshold = ${totalGasThreshold}`);
+    const singleTxnGasLimit = blockGasLimit / 3n;
+    console.log(
+        `**** INFO: on-chain EVM block gas limit = ${blockGasLimit} (hard ceiling), 70% threshold = ${totalGasThreshold}, per-txn tripwire = ${singleTxnGasLimit}`,
+    );
 
     const sleepTime = parseInt(process.env.SLEEP_TIME || '500', 10);
     for (const blockNumber of blocksToInspect) {
@@ -233,14 +243,11 @@ async function main(
         const gasForVerification = BigInt(estimate);
         console.log(`    ... gasForVerification=${gasForVerification}`);
 
-        // Reject any single transaction whose individual gas cost crosses the
-        // per-transaction cap. A single tx must fit comfortably within a block
-        // on its own, so each estimate is checked against singleTxnGasLimit as
-        // soon as it becomes available.
-        const singleTxnGasLimit = 25_000_000n;
-        if (gasForVerification >= singleTxnGasLimit) {
+        // Check each component against the ceiling as it lands, so an unsubmittable estimate is
+        // attributed to verification or decoding rather than only to the combined total.
+        if (gasForVerification > blockGasLimit) {
             throw new Error(
-                `gasForVerification ${gasForVerification} reaches or exceeds the single transaction gas limit (${singleTxnGasLimit}); failing run`,
+                `gasForVerification ${gasForVerification} exceeds the ${blockGasLimit} block gas limit; unsubmittable, failing run`,
             );
         }
 
@@ -253,26 +260,29 @@ async function main(
             gasForDecoding = decoded.gasUsed ?? 0n;
             console.log(`    ... decoded as type ${decoded.type}, gasForDecoding=${gasForDecoding}`);
         }
-        if (gasForDecoding >= singleTxnGasLimit) {
+        if (gasForDecoding > blockGasLimit) {
             throw new Error(
-                `gasForDecoding ${gasForDecoding} reaches or exceeds the single transaction gas limit (${singleTxnGasLimit}); failing run`,
+                `gasForDecoding ${gasForDecoding} exceeds the ${blockGasLimit} block gas limit; unsubmittable, failing run`,
             );
         }
 
-        // Add a 10% safety margin to the raw estimates and reject if the combined cost crosses 70%
-        // of the on-chain block gas limit (read above). Using bigint math (11/10 and 7/10) keeps
-        // the value precise and consistent with the rest of the script. The 70% threshold is an
-        // explicit decision; see commit log + linked Slack thread for context.
+        // 10% safety margin on the raw estimates. Most severe tier first, so an unsubmittable
+        // proof does not report as merely over budget.
         const totalGas = ((gasForVerification + gasForDecoding) * 11n) / 10n;
         console.log(`    ... totalGas (with 10% margin)=${totalGas} (threshold=${totalGasThreshold})`);
-        if (totalGas >= singleTxnGasLimit) {
+        if (totalGas > blockGasLimit) {
             throw new Error(
-                `totalGas ${totalGas} reaches or exceeds the single transaction gas limit (${singleTxnGasLimit}); failing run`,
+                `totalGas ${totalGas} exceeds the ${blockGasLimit} block gas limit; unsubmittable, failing run`,
             );
         }
         if (totalGas >= totalGasThreshold) {
             throw new Error(
                 `totalGas ${totalGas} reaches or exceeds 70% of the ${blockGasLimit} block gas limit (${totalGasThreshold}); failing run`,
+            );
+        }
+        if (totalGas >= singleTxnGasLimit) {
+            throw new Error(
+                `totalGas ${totalGas} reaches or exceeds the per-transaction tripwire (${singleTxnGasLimit}, a third of the ${blockGasLimit} block gas limit); failing run`,
             );
         }
     }
