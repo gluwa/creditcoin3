@@ -1435,6 +1435,7 @@ declare module '@polkadot/types/lookup' {
         readonly asAuthorizedAttestorRemoved: ITuple<[u64, AccountId32]>;
         readonly isForcedElection: boolean;
         readonly asForcedElection: {
+            readonly chainKey: u64;
             readonly epoch: u64;
         } & Struct;
         readonly isForcedUpdatesApplied: boolean;
@@ -3484,10 +3485,6 @@ declare module '@polkadot/types/lookup' {
             readonly attestorId: AccountId32;
             readonly unregister: bool;
         } & Struct;
-        readonly isForceElection: boolean;
-        readonly asForceElection: {
-            readonly epoch: u64;
-        } & Struct;
         readonly isSetMaxCatchup: boolean;
         readonly asSetMaxCatchup: {
             readonly chainKey: u64;
@@ -3511,6 +3508,10 @@ declare module '@polkadot/types/lookup' {
             readonly evmAddress: H160;
             readonly proof: U8aFixed;
         } & Struct;
+        readonly isForceElection: boolean;
+        readonly asForceElection: {
+            readonly chainKey: u64;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3532,12 +3533,12 @@ declare module '@polkadot/types/lookup' {
             | 'AuthorizeAttestor'
             | 'RemoveAuthorizedAttestor'
             | 'KickActiveAttestor'
-            | 'ForceElection'
             | 'SetMaxCatchup'
             | 'ForceApplyUpdates'
             | 'RevertTo'
             | 'ForwardPatchCheckpoints'
-            | 'SetAttestorEvmAddress';
+            | 'SetAttestorEvmAddress'
+            | 'ForceElection';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (343) */

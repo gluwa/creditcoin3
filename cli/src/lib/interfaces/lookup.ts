@@ -1123,6 +1123,7 @@ export default {
             AuthorizedAttestorAdded: '(u64,AccountId32)',
             AuthorizedAttestorRemoved: '(u64,AccountId32)',
             ForcedElection: {
+                chainKey: 'u64',
                 epoch: 'u64',
             },
             ForcedUpdatesApplied: 'Null',
@@ -2944,9 +2945,7 @@ export default {
                 attestorId: 'AccountId32',
                 unregister: 'bool',
             },
-            force_election: {
-                epoch: 'u64',
-            },
+            __Unused25: 'Null',
             set_max_catchup: {
                 chainKey: 'u64',
                 maxCatchup: 'u32',
@@ -2965,6 +2964,9 @@ export default {
                 chainKey: 'u64',
                 evmAddress: 'H160',
                 proof: '[u8;65]',
+            },
+            force_election: {
+                chainKey: 'u64',
             },
         },
     },
