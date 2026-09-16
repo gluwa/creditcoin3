@@ -39,18 +39,26 @@ name: Attestor Compatibility
 #     check; attestors that only observed a quorum might show up here even if
 #     they did not submit the final tx themselves.)
 
+# Called by ci.yml so this runs inside the same workflow run as the node build and can
+# consume its artifact. Building the SUT here instead meant a second full
+# `--release --features=fast-runtime` compile of the same commit: both compat builds
+# restored an identical rust-cache key with a full match and still spent ~21 minutes
+# each, because Swatinem/rust-cache stores dependencies and not workspace crates.
+#
+# The path filters that used to gate this workflow now live in ci.yml's should-run job,
+# under the `attestor_compatibility` filter. Keep the two in sync.
+#
+# No `concurrency` here on purpose: it is inherited from the calling run, and declaring
+# a group keyed on github.workflow would collide with ci.yml's own group.
 "on":
-  pull_request:
-    paths:
-      - "attestor/**"
-      - "pallets/attestation/**"
-      - "node/**"
-      - "runtime/**"
-      - ".github/workflows/attestor-compatibility.yml"
-
-concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      sut-artifact:
+        description: >-
+          Name of the artifact holding the binaries built from this commit, as uploaded
+          by build-native.yml. Must be a `--release --features=fast-runtime` build.
+        required: true
+        type: string
 
 permissions: read-all
 
@@ -138,32 +146,11 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Build the SUT binaries (creditcoin3-node + attestor + attestor_zombienet)
-  # from the current PR / usc-dev branch. (build-native also produces archiver,
-  # but this workflow does not use it -- see the note in the run job.)
-  # ---------------------------------------------------------------------------
-  # No `needs:` on purpose. The build does not consume the discovered version list,
-  # so gating it on that job only pushed the API-paging time onto the critical path
-  # ahead of a ~46-minute build.
-  build-sut:
-    uses: ./.github/workflows/build-native.yml
-    with:
-      # fast-runtime shortens BABE epoch + block time so the chain progresses
-      # quickly and attestors complete registration / attestation rounds faster.
-      build-options: "--release --features=fast-runtime"
-      git-lfs-checkout: true
-      version-string: PR
-      cache-key-name: build-creditcoin-node
-      runs-on: "['ubuntu-26.04']"
-    secrets: inherit
-
-  # ---------------------------------------------------------------------------
   # Provision a large self-hosted Linode runner for the compatibility job.
   # ---------------------------------------------------------------------------
   deploy-runner:
     needs:
       - discover-versions
-      - build-sut
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -180,7 +167,6 @@ jobs:
     needs:
       - discover-versions
       - deploy-runner
-      - build-sut
     runs-on:
       [self-hosted, "workflow-${{ github.run_id }}", "type-attestor-compatibility"]
     timeout-minutes: 120
@@ -209,7 +195,7 @@ jobs:
       - name: Download SUT binaries from current PR
         uses: actions/download-artifact@v8
         with:
-          name: binary-for-PR
+          name: ${{ inputs.sut-artifact }}
           path: sut
 
       - name: Make SUT binaries executable
