@@ -288,16 +288,26 @@ async fn main() -> Result<()> {
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await;
 
     // ── Chain head tracker (for ETA) ───────────────────────────────────
+    // `chain_head` is 0 until the first successful read, and `head_seen_at` is the wall-clock
+    // second of the last one, so consumers can tell a real head from "never read" or "stale
+    // because HTTP has been failing"; see `known_head`.
     let current_head = http_client.get_last_block().await.unwrap_or(0);
     let chain_head = Arc::new(AtomicU64::new(current_head));
+    let head_seen_at = Arc::new(AtomicU64::new(if current_head > 0 {
+        now_secs()
+    } else {
+        0
+    }));
     {
         let head = chain_head.clone();
+        let seen_at = head_seen_at.clone();
         let client = http_client.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(12)).await;
+                tokio::time::sleep(Duration::from_secs(HEAD_POLL_SECS)).await;
                 if let Ok(h) = client.get_last_block().await {
                     head.store(h, Ordering::Release);
+                    seen_at.store(now_secs(), Ordering::Release);
                 }
             }
         });
@@ -380,13 +390,16 @@ async fn main() -> Result<()> {
                     // it has observed; judge the silence against the same number, or a node
                     // lagging the attestors would look like a stall and be torn down every
                     // timeout while it is healthy and simply behind.
+                    // A head that was never read or has gone stale does not clamp: the stream
+                    // is then judged against the raw bound, which errs towards a reconnect,
+                    // never towards hiding a hung fetch behind "nothing to fetch".
                     let published = *rx.borrow();
-                    let source_head = chain_head.load(Ordering::Acquire);
-                    let fetchable = published.map(|bound| bound.min(source_head));
+                    let source_head = known_head(&chain_head, &head_seen_at);
+                    let fetchable = fetchable_bound(published, source_head);
                     if fetchable.is_none_or(|bound| bound < next_wanted) {
                         tracing::info!(
                             ?published,
-                            source_head,
+                            ?source_head,
                             next_wanted,
                             "nothing new to fetch (no new attestation, or the source node has \
                              not reached it yet)"
@@ -450,12 +463,10 @@ async fn main() -> Result<()> {
         // resolving maturity locally, the source head. Under an attested bound the last block
         // of every released range *is* the bound, and it is exactly the block the prover needs
         // next, so "at the tip" must be measured against that bound rather than the head.
-        let source_head = chain_head.load(Ordering::Acquire);
         let target = cfg.end_height.unwrap_or_else(|| {
-            attested
-                .as_ref()
-                .and_then(|rx| *rx.borrow())
-                .map_or(source_head, |bound| bound.min(source_head))
+            let published = attested.as_ref().and_then(|rx| *rx.borrow());
+            fetchable_bound(published, known_head(&chain_head, &head_seen_at))
+                .unwrap_or_else(|| chain_head.load(Ordering::Acquire))
         });
         let remaining = target.saturating_sub(height);
         let at_tip = at_tip(remaining, cfg.flush_every);
@@ -648,6 +659,40 @@ fn follow_attested_height(
     rx
 }
 
+/// Seconds between reads of the source head over HTTP (ETA and stall judgement only).
+const HEAD_POLL_SECS: u64 = 12;
+/// A head older than this many polls is treated as unknown rather than trusted.
+const HEAD_STALE_AFTER: Duration = Duration::from_secs(HEAD_POLL_SECS * 3);
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// The HTTP head tracker's value, if it can be trusted: read at least once and refreshed within
+/// [`HEAD_STALE_AFTER`]. `None` otherwise, so callers fall back to not clamping.
+fn known_head(head: &AtomicU64, seen_at: &AtomicU64) -> Option<u64> {
+    head_if_fresh(
+        head.load(Ordering::Acquire),
+        seen_at.load(Ordering::Acquire),
+        now_secs(),
+        HEAD_STALE_AFTER,
+    )
+}
+
+fn head_if_fresh(head: u64, seen_at: u64, now: u64, max_age: Duration) -> Option<u64> {
+    (head > 0 && now.saturating_sub(seen_at) <= max_age.as_secs()).then_some(head)
+}
+
+/// What the stream can fetch up to: the published bound, clamped to the source head when one is
+/// known. An unknown head does not clamp, so the judgement errs towards "the stream should have
+/// progressed" (a reconnect) rather than towards hiding a stall.
+fn fetchable_bound(published: Option<u64>, head: Option<u64>) -> Option<u64> {
+    published.map(|bound| head.map_or(bound, |h| bound.min(h)))
+}
+
 /// Raise the published bound to `height` if that is an advance. Returns whether it moved. A
 /// high-water mark by construction: equal and lower readings leave it untouched.
 fn advance_bound(current: &mut Option<u64>, height: u64) -> bool {
@@ -725,6 +770,32 @@ mod tests {
 
     use super::*;
     use eth::{BlockTag, Maturity};
+
+    #[test]
+    fn an_unread_or_stale_head_is_unknown_and_does_not_clamp() {
+        let max = Duration::from_secs(36);
+        assert_eq!(head_if_fresh(0, 0, 1_000, max), None, "never read");
+        assert_eq!(head_if_fresh(500, 1_000, 1_000, max), Some(500));
+        assert_eq!(
+            head_if_fresh(500, 964, 1_000, max),
+            Some(500),
+            "at the edge"
+        );
+        assert_eq!(head_if_fresh(500, 963, 1_000, max), None, "stale");
+
+        assert_eq!(fetchable_bound(None, Some(500)), None);
+        assert_eq!(
+            fetchable_bound(Some(600), Some(500)),
+            Some(500),
+            "lagging node clamps"
+        );
+        assert_eq!(fetchable_bound(Some(400), Some(500)), Some(400));
+        assert_eq!(
+            fetchable_bound(Some(600), None),
+            Some(600),
+            "unknown head must not hide a stall"
+        );
+    }
 
     #[test]
     fn the_attested_bound_only_ever_advances() {
