@@ -185,8 +185,8 @@ async fn main() -> Result<()> {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
                 let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
-        .await?
-        .with_chain_family_override(cfg.eth_chain_family);
+                    .await?
+                    .with_chain_family_override(cfg.eth_chain_family);
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
