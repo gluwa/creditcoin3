@@ -2,8 +2,8 @@
 // no indexer, since this is a handful of rows for one connected wallet, not org-wide analytics.
 // Deposited is matched by depositor==address OR recipient==address (two separate indexed topics,
 // so two getLogs calls per chain); status is "released" once a matching Released log is found on
-// the deposit's destination vault (recipient+token+amount — see use-transfer-status.ts for why this
-// heuristic, rather than an exact messageId join, is the deliberate choice here).
+// the deposit's destination vault — see lib/release-scan.ts (shared with use-transfer-status.ts)
+// for the recipient+token+amount matching heuristic and the genesis-anchored scan it does.
 //
 // Scan cursors (last block fully scanned per chain+address) are cached in localStorage purely to
 // avoid re-scanning from genesis on every visit; chain state is still the source of truth; a wiped
@@ -19,11 +19,10 @@ import { getPublicClient } from "wagmi/actions";
 import { useQuery } from "@tanstack/react-query";
 import type { PublicClient } from "viem";
 
-import { BridgeVaultAbi } from "@/lib/contracts/generated/bridge-vault.abi";
 import { SPOKE_CHAINS, spokeByChainKey, type SpokeChain } from "@/lib/chains";
+import { findRelease } from "@/lib/release-scan";
 
 const CHUNK_BLOCKS = 2_000n;
-const RELEASE_LOOKBACK_BLOCKS = 5_000n;
 
 export interface TransferRow {
   id: string; // depositTxHash-logIndex, stable row key
@@ -51,10 +50,6 @@ const DEPOSITED_EVENT = {
     { name: "amount", type: "uint256", indexed: false },
   ],
 } as const;
-
-const RELEASED_EVENT = BridgeVaultAbi.find(
-  (item) => item.type === "event" && item.name === "Released",
-) as Extract<(typeof BridgeVaultAbi)[number], { type: "event" }>;
 
 function cursorKey(chainKey: number, address: string): string {
   // v2: versioned so a cursor written by the pre-known-rows-cache code (which could advance past a
@@ -204,34 +199,6 @@ async function scanChunked(
   return merged;
 }
 
-async function findRelease(
-  client: PublicClient,
-  destSpoke: SpokeChain,
-  recipient: `0x${string}`,
-  token: `0x${string}`,
-  amount: bigint,
-): Promise<`0x${string}` | undefined> {
-  const tip = await client.getBlockNumber();
-  const fromBlock =
-    tip > RELEASE_LOOKBACK_BLOCKS ? tip - RELEASE_LOOKBACK_BLOCKS : 0n;
-  const logs = await client.getLogs({
-    address: destSpoke.bridgeVaultAddress,
-    event: RELEASED_EVENT,
-    args: { recipient },
-    fromBlock,
-    toBlock: "latest",
-  });
-  const match = logs.find(
-    (log) =>
-      (
-        log.args as { token?: `0x${string}`; amount?: bigint }
-      ).token?.toLowerCase() === token.toLowerCase() &&
-      (log.args as { token?: `0x${string}`; amount?: bigint }).amount ===
-        amount,
-  );
-  return match?.transactionHash;
-}
-
 export function useBridgeHistory(address: `0x${string}` | undefined) {
   const config = useConfig();
 
@@ -261,6 +228,7 @@ export function useBridgeHistory(address: `0x${string}` | undefined) {
           const releasedTxHash = await findRelease(
             destClient,
             destSpoke,
+            row.depositTxHash,
             row.recipient,
             row.token,
             row.amount,

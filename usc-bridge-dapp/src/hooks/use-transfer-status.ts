@@ -30,6 +30,7 @@ import {
   BRIDGE_HUB_ADDRESS,
   creditcoinPublicClient,
 } from "@/lib/contracts/hub";
+import { findRelease } from "@/lib/release-scan";
 import { useAttestedHeight } from "./use-attested-height";
 
 // Selectors for BridgeVault's own custom errors — computed the same way Solidity does (first 4
@@ -126,16 +127,11 @@ function useLocateSourceChainKey(depositTxHash: `0x${string}` | undefined) {
   });
 }
 
-// Bounds the destination-side Released scan to a recent, real-time window — most public RPCs
-// reject an unbounded fromBlock=earliest getLogs on a chain with millions of blocks. Good enough
-// for "watch this happen live"; a stale reload well outside this window should use the History
-// screen's durable chunked scan instead.
-const RELEASE_SCAN_LOOKBACK_BLOCKS = 5_000n;
-
 // Bounds the Claimed-event lookup (Creditcoin) and the DestinationDeliveryFailed lookup (dest
-// spoke) to a recent window, same rationale as RELEASE_SCAN_LOOKBACK_BLOCKS below — a claim that's
-// older than this just won't show enriched "claimed"/"failed" detail, it doesn't affect
-// correctness of the authoritative deposited/released steps.
+// spoke) to a recent window — a claim that's older than this just won't show enriched
+// "claimed"/"failed" detail, it doesn't affect correctness of the authoritative deposited/released
+// steps. Unlike the Released scan (see lib/release-scan.ts), these are enrichment-only, so a
+// fixed recent window (not a durable genesis-anchored scan) is an acceptable tradeoff here.
 const CLAIM_EVENT_LOOKBACK_BLOCKS = 50_000n;
 
 export type TransferStep =
@@ -306,6 +302,7 @@ export function useTransferStatus(
   const releasedQuery = useQuery({
     queryKey: [
       "released",
+      depositTxHash,
       deposit?.destChainKey,
       destSpoke?.bridgeVaultAddress,
       deposit?.recipient,
@@ -313,36 +310,20 @@ export function useTransferStatus(
       deposit?.amount?.toString(),
     ],
     queryFn: async (): Promise<`0x${string}` | null> => {
-      if (!destClient || !destSpoke || !deposit) return null;
-      const tip = await destClient.getBlockNumber();
-      const fromBlock =
-        tip > RELEASE_SCAN_LOOKBACK_BLOCKS
-          ? tip - RELEASE_SCAN_LOOKBACK_BLOCKS
-          : 0n;
-      const releasedAbiItem = BridgeVaultAbi.find(
-        (item) => item.type === "event" && item.name === "Released",
+      if (!destClient || !destSpoke || !deposit || !depositTxHash) return null;
+      const releasedTxHash = await findRelease(
+        destClient,
+        destSpoke,
+        depositTxHash,
+        deposit.recipient,
+        deposit.token,
+        deposit.amount,
       );
-      const logs = await destClient.getLogs({
-        address: destSpoke.bridgeVaultAddress,
-        event: releasedAbiItem as Extract<
-          (typeof BridgeVaultAbi)[number],
-          { type: "event" }
-        >,
-        args: { recipient: deposit.recipient },
-        fromBlock,
-        toBlock: "latest",
-      });
-      const match = logs.find(
-        (log) =>
-          (
-            log.args as { token?: `0x${string}`; amount?: bigint }
-          ).token?.toLowerCase() === deposit.token.toLowerCase() &&
-          (log.args as { token?: `0x${string}`; amount?: bigint }).amount ===
-            deposit.amount,
-      );
-      return match?.transactionHash ?? null;
+      return releasedTxHash ?? null;
     },
-    enabled: Boolean(destClient && destSpoke && deposit && isAttested),
+    enabled: Boolean(
+      destClient && destSpoke && deposit && depositTxHash && isAttested,
+    ),
     refetchInterval: (q) => (q.state.data ? false : 10_000),
   });
 
