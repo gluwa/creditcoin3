@@ -842,10 +842,13 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 150
     steps:
+      # Plain checkout, i.e. the PR merge ref, like every other job here. This one
+      # used to pin the branch head, inherited from the commit that introduced the
+      # typedef auto-update; only `rebuild-new-metadata` needs that, because only it
+      # commits back. The pin meant this job ran CLI sources from the un-merged branch
+      # against a node binary that build-creditcoin-node-for-testing-ci compiled from
+      # the merge ref.
       - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install Node.js
         uses: actions/setup-node@v7
@@ -876,16 +879,14 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Download new_metadata.diff
+      - name: Download regenerated metadata
         uses: actions/download-artifact@v8
         with:
-          name: new-metadata.diff
-          path: /var/tmp
+          name: new-metadata
+          path: .
 
-      - name: Apply new metadata patch
+      - name: Show what the regenerated metadata changed
         run: |
-          git apply --allow-empty /var/tmp/new-metadata.diff
-
           echo "========== DEBUG METADATA DIFF =========="
           git status --short --untracked-files=no
           git diff --binary
@@ -1608,16 +1609,14 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Download new_metadata.diff
+      - name: Download regenerated metadata
         uses: actions/download-artifact@v8
         with:
-          name: new-metadata.diff
-          path: /var/tmp
+          name: new-metadata
+          path: .
 
-      - name: Apply new metadata patch
+      - name: Show what the regenerated metadata changed
         run: |
-          git apply --allow-empty /var/tmp/new-metadata.diff
-
           echo "========== DEBUG METADATA DIFF =========="
           git status --short --untracked-files=no
           git diff --binary
@@ -1752,9 +1751,6 @@ jobs:
           git diff --binary
           echo "======================================="
 
-          # save this for later
-          git diff --binary > /var/tmp/new-metadata.diff
-
           # do not update if only creditcoin.json has changed,
           # usually happens on version bump without any real metadata change
           # shellcheck disable=SC2143
@@ -1765,13 +1761,26 @@ jobs:
               echo "git_diff=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload diff
+      # Ship the regenerated files themselves rather than a `git diff` of them.
+      # A diff records the blob it was computed against, so `git apply` in the
+      # consumers below failed outright whenever their checkout differed from this
+      # job's -- which it does on any PR whose branch is behind a base that moved
+      # `metadata.scale`, and would again if the refs ever drift apart. Copying the
+      # files in has no pre-image to match, so it cannot fail that way.
+      #
+      # These are exactly the three paths `rebuild-new-metadata` commits back
+      # (build-native.yml). Incidental `cli/yarn.lock` churn is deliberately not
+      # carried over: every consumer runs its own `yarn install` afterwards.
+      - name: Upload regenerated metadata
         uses: actions/upload-artifact@v7
         if: always()
         with:
-          if-no-files-found: warn
-          name: new-metadata.diff
-          path: /var/tmp/new-metadata.diff
+          if-no-files-found: error
+          name: new-metadata
+          path: |
+            cli/creditcoin.json
+            cli/src/lib/interfaces/
+            common/cc-client/artifacts/metadata.scale
 
   deploy-runner-rebuild-new-metadata:
     needs:

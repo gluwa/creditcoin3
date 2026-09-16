@@ -103,18 +103,20 @@ jobs:
           # same namespace as the warmer, since they build the same configuration.
           shared-key: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
 
-      - name: Download new_metadata.diff
+      # Copied in rather than `git apply`-ed, see the producer in ci.yml's
+      # regenerate-metadata. This job is the one that *must* sit on the PR branch
+      # head, because it commits the result back below, so it was the consumer most
+      # exposed to the checkout mismatch a diff is sensitive to.
+      - name: Download regenerated metadata
         if: ${{ inputs.use-new-metadata }}
         uses: actions/download-artifact@v8
         with:
-          name: new-metadata.diff
-          path: /var/tmp
+          name: new-metadata
+          path: .
 
-      - name: Apply new metadata patch
+      - name: Show what the regenerated metadata changed
         if: ${{ inputs.use-new-metadata }}
-        run: |
-          git apply /var/tmp/new-metadata.diff
-          git diff --binary
+        run: git diff --binary
 
       - name: Build SUT
         uses: gluwa/cargo@dev
