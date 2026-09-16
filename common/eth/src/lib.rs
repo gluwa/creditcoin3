@@ -413,6 +413,35 @@ impl OrderedRawBlock {
 type AlloyProvider = FillProvider<ExeFiller, RootProvider<Ethereum>, Ethereum>;
 pub type AlloyB256 = BlockHash;
 
+/// What one provider said about the candidate block in [`Client::get_block_by_tag`].
+enum Confirmation {
+    /// It has the candidate height; this is the hash it has there.
+    Hash(BlockHash),
+    /// Its own tag answer is below the candidate; it cannot judge the candidate.
+    Behind(u64),
+    /// It reports the tag above the candidate yet has no block at the candidate height.
+    Missing,
+    /// The confirmation read failed or timed out.
+    Failed(Error),
+}
+
+/// Bound a provider call by `timeout`, turning a hang into an [`Error`] like any other transport
+/// failure so the caller's error handling covers it.
+async fn timed<T>(
+    timeout: std::time::Duration,
+    call: impl std::future::Future<
+        Output = std::result::Result<T, alloy::transports::RpcError<TransportErrorKind>>,
+    >,
+) -> Result<T, Error> {
+    match tokio::time::timeout(timeout, call).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(Error::from(e)),
+        Err(_) => Err(Error::ClientError(anyhow::anyhow!(
+            "provider call timed out after {timeout:?}"
+        ))),
+    }
+}
+
 /// The block a source node reports for a settlement tag, identified by hash as well as height.
 /// See [`Client::get_block_by_tag`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -472,7 +501,17 @@ pub struct Client {
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
     mem_cache: Option<std::sync::Arc<mem_block_cache::MemBlockCache>>,
+    /// Upper bound on any single provider call made by the tag lookup. The transports have no
+    /// timeout of their own, so without this one black-holed provider (accepts TCP, never
+    /// answers) would hang the lookup, and with it the tip stream that awaits it inline, forever.
+    /// Generous: it only has to beat a hang, not a slow answer.
+    call_timeout: std::time::Duration,
 }
+
+/// Default for the tag lookup's per-call timeout: a healthy provider answers a header read in
+/// well under a second; fifteen seconds is one Ethereum slot of grace before a provider is
+/// treated as absent for this round.
+pub const DEFAULT_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
@@ -520,6 +559,7 @@ impl Client {
             fallback_providers: Vec::new(),
             chain_id,
             mem_cache: None,
+            call_timeout: DEFAULT_CALL_TIMEOUT,
         })
     }
 
@@ -569,6 +609,7 @@ impl Client {
             fallback_providers,
             chain_id,
             mem_cache: None,
+            call_timeout: DEFAULT_CALL_TIMEOUT,
         })
     }
 
@@ -658,6 +699,12 @@ impl Client {
     /// Build the ordered `[(label, provider)]` list used by the sequential
     /// fallback walk. The primary is first; each fallback gets a label like
     /// `fallback[0]@<redacted-url>` for log output.
+    /// Override the per-call timeout used by the tag lookup. See [`DEFAULT_CALL_TIMEOUT`].
+    pub fn with_call_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.call_timeout = timeout;
+        self
+    }
+
     fn providers_with_labels(&self) -> Vec<(String, &AlloyProvider)> {
         let mut out: Vec<(String, &AlloyProvider)> =
             Vec::with_capacity(1 + self.fallback_providers.len());
@@ -997,27 +1044,35 @@ impl Client {
     /// The block the configured providers agree on for a settlement `tag` (`safe` or
     /// `finalized`), identified by hash as well as height.
     ///
-    /// This is the maturity decision, so it is not answered by whichever provider replies first.
-    /// Every provider is asked at once; the lowest height any of them reports is the candidate,
-    /// because a provider further along has by definition already passed it; and every provider
-    /// that reported a different height is then asked for the block at the candidate's height
-    /// and must return the same hash. A provider that has a different block there is on another
-    /// fork, or is serving a different chain, and the lookup fails with
-    /// [`Error::BlockTagDisagreement`] rather than picking a side. Callers retry on the next head.
+    /// This is the maturity decision, so it is not answered by whichever provider replies first,
+    /// but it is also not a vote where any provider can hold the others back. The **primary**
+    /// provider's answer is the candidate; when the primary has no answer, the highest answer
+    /// among the fallbacks is. Every other provider that has *reached* the candidate height must
+    /// then agree on the candidate block's hash: same-height responders already told us, further-
+    /// along responders are asked for the block at that height. A different hash is a fork or a
+    /// different chain and fails the lookup with [`Error::BlockTagDisagreement`] rather than
+    /// picking a side; callers retry on the next head.
     ///
-    /// Providers that error or answer `null` do not take part: they are warned about, as in the
-    /// block fetches, and the agreement is among those that answered. With a single provider that
+    /// A provider that has not reached the candidate height cannot confirm it and cannot veto it
+    /// either. It is logged at warn and skipped. This is what keeps a stale or lagging fallback
+    /// harmless: taking the lowest height instead would let one backup that stopped syncing pin
+    /// maturity for the whole pipeline at the height it froze on, since its block there hashes
+    /// identically to the canonical one. Providers that error, time out (see
+    /// [`Client::with_call_timeout`]) or answer `null` do not take part either; every provider
+    /// answering `null` counts as "not found", as before. With a single provider the whole thing
     /// degenerates to that provider's answer, which is why per-replica provider diversity is the
-    /// deployment change that gives this check its teeth. A node that answers `null` for the tag
-    /// on every provider counts as "not found", as before.
+    /// deployment change that gives this check its teeth.
     pub async fn get_block_by_tag(&self, tag: BlockTag) -> Result<TaggedBlock, Error> {
         use futures::future::join_all;
 
         let providers = self.providers_with_labels();
+        let timeout = self.call_timeout;
         let answers = join_all(providers.iter().map(|(label, provider)| async move {
-            let answer = provider
-                .get_block(BlockId::Number(tag.into()), false.into())
-                .await;
+            let answer = timed(
+                timeout,
+                provider.get_block(BlockId::Number(tag.into()), false.into()),
+            )
+            .await;
             (label.clone(), answer)
         }))
         .await;
@@ -1035,15 +1090,19 @@ impl Client {
                     },
                 )),
                 Ok(None) => got_definitive_none = true,
-                Err(e) => errors.push((label, Error::from(e))),
+                Err(e) => errors.push((label, e)),
             }
         }
 
-        if let Some((candidate_label, candidate)) = reported
+        // The primary's answer leads; without one, the freshest fallback does. Never the lowest:
+        // a provider that stopped syncing would otherwise set the boundary forever.
+        let candidate = reported
             .iter()
-            .min_by_key(|(_, block)| block.number)
-            .cloned()
-        {
+            .find(|(label, _)| label == "primary")
+            .or_else(|| reported.iter().max_by_key(|(_, block)| block.number))
+            .cloned();
+
+        if let Some((candidate_label, candidate)) = candidate {
             for (err_label, err) in errors {
                 tracing::warn!(
                     provider = %err_label,
@@ -1054,8 +1113,7 @@ impl Client {
                 );
             }
 
-            // Every other responder must have the candidate block under the same hash. Those
-            // that reported the same height already told us; those further along are asked.
+            let mut agreed = 1usize;
             let checks = reported
                 .iter()
                 .filter(|(label, _)| *label != candidate_label)
@@ -1066,23 +1124,32 @@ impl Client {
                         .map(|(_, p)| *p)
                         .expect("label came from this provider list");
                     async move {
-                        if block.number == candidate.number {
-                            return (label.clone(), Ok(Some(block.hash)));
+                        if block.number < candidate.number {
+                            return (label.clone(), Confirmation::Behind(block.number));
                         }
-                        let read = provider
-                            .get_block(
+                        if block.number == candidate.number {
+                            return (label.clone(), Confirmation::Hash(block.hash));
+                        }
+                        let read = timed(
+                            timeout,
+                            provider.get_block(
                                 BlockId::Number(BlockNumberOrTag::Number(candidate.number)),
                                 false.into(),
-                            )
-                            .await
-                            .map(|b| b.map(|b| b.header.hash));
-                        (label.clone(), read)
+                            ),
+                        )
+                        .await;
+                        let confirmation = match read {
+                            Ok(Some(b)) => Confirmation::Hash(b.header.hash),
+                            Ok(None) => Confirmation::Missing,
+                            Err(e) => Confirmation::Failed(e),
+                        };
+                        (label.clone(), confirmation)
                     }
                 });
-            for (label, read) in join_all(checks).await {
-                match read {
-                    Ok(Some(hash)) if hash == candidate.hash => {}
-                    Ok(Some(actual)) => {
+            for (label, confirmation) in join_all(checks).await {
+                match confirmation {
+                    Confirmation::Hash(hash) if hash == candidate.hash => agreed += 1,
+                    Confirmation::Hash(actual) => {
                         return Err(Error::BlockTagDisagreement {
                             tag,
                             number: candidate.number,
@@ -1092,40 +1159,59 @@ impl Client {
                             actual,
                         });
                     }
-                    Ok(None) => {
-                        // Reported a `tag` block above this height yet has no block at it: not a
-                        // fork, a broken provider. Refuse rather than proceed on its word.
+                    Confirmation::Behind(at) => {
+                        // Has not reached the candidate: cannot confirm, must not veto. Loud,
+                        // because a fallback that is persistently behind is a stale fallback.
                         tracing::warn!(
                             provider = %label,
                             %tag,
-                            number = candidate.number,
-                            "block tag lookup: provider reports the tag past a height it cannot serve"
+                            reports = at,
+                            candidate = candidate.number,
+                            behind_by = candidate.number - at,
+                            "block tag lookup: provider is behind the candidate and cannot confirm it"
                         );
-                        return Err(Error::FailedToGetBlock(candidate.number));
                     }
-                    Err(e) => {
-                        // It answered the tag above the candidate, so it already considers the
-                        // candidate mature; it just could not confirm the identity this round.
-                        // Treated like a provider that errored on the tag itself.
+                    Confirmation::Missing => {
+                        // Reports the tag past a height it cannot serve: a broken provider, not a
+                        // fork. It does not get to hold the lookup up either.
                         tracing::warn!(
                             provider = %label,
                             %tag,
                             number = candidate.number,
-                            error = %Error::from(e),
+                            "block tag lookup: provider reports the tag past a height it cannot serve; ignored"
+                        );
+                    }
+                    Confirmation::Failed(err) => {
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            number = candidate.number,
+                            error = %err,
                             "block tag lookup: could not confirm the candidate with this provider"
                         );
                     }
                 }
             }
 
-            tracing::debug!(
-                %tag,
-                number = candidate.number,
-                hash = ?candidate.hash,
-                agreed = reported.len(),
-                configured = providers.len(),
-                "block tag resolved"
-            );
+            if agreed < reported.len() {
+                tracing::warn!(
+                    %tag,
+                    number = candidate.number,
+                    agreed,
+                    answered = reported.len(),
+                    configured = providers.len(),
+                    "block tag resolved without full agreement"
+                );
+            } else {
+                tracing::debug!(
+                    %tag,
+                    number = candidate.number,
+                    hash = ?candidate.hash,
+                    agreed,
+                    configured = providers.len(),
+                    "block tag resolved"
+                );
+            }
             return Ok(candidate);
         }
 

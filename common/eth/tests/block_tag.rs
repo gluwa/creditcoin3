@@ -50,6 +50,70 @@ impl Mock {
         Self::start_on_fork(safe, finalized, fail_tags, 0)
     }
 
+    /// Answers `eth_chainId` (so the client can be constructed) and then black-holes every other
+    /// request: accepts it, reads it, never replies.
+    fn start_black_hole() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let done = stop.clone();
+        let thread = thread::spawn(move || {
+            let mut held = Vec::new();
+            while !done.load(Ordering::SeqCst) {
+                let (mut stream, _) = match listener.accept() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        thread::sleep(Duration::from_millis(2));
+                        continue;
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                if reader.read_line(&mut line).is_err() {
+                    continue;
+                }
+                let mut length = 0;
+                loop {
+                    line.clear();
+                    if reader.read_line(&mut line).is_err() || line == "\r\n" {
+                        break;
+                    }
+                    if let Some((k, v)) = line.split_once(':') {
+                        if k.eq_ignore_ascii_case("content-length") {
+                            length = v.trim().parse::<usize>().unwrap_or(0);
+                        }
+                    }
+                }
+                let mut body = vec![0; length];
+                if reader.read_exact(&mut body).is_err() {
+                    continue;
+                }
+                let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
+                if request["method"].as_str() == Some("eth_chainId") {
+                    let out = serde_json::to_vec(
+                        &json!({"jsonrpc":"2.0","id":request["id"],"result":"0x539"}),
+                    )
+                    .unwrap();
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", out.len()).unwrap();
+                    stream.write_all(&out).unwrap();
+                } else {
+                    held.push(stream); // never answered
+                }
+            }
+        });
+        Self {
+            url,
+            tag_reads: Arc::new(AtomicUsize::new(0)),
+            stop,
+            thread: Some(thread),
+        }
+    }
+
     /// Like [`Mock::start`], with every block hash salted by `fork` so mocks with different salts
     /// disagree on block identity.
     fn start_on_fork(safe: Option<u64>, finalized: Option<u64>, fail_tags: bool, fork: u8) -> Self {
@@ -258,13 +322,15 @@ async fn erroring_primary_falls_through_to_the_fallback_provider() {
     assert!(backup.tag_reads.load(Ordering::SeqCst) >= 2);
 }
 
-/// Two providers on the same chain at different points: the lower height wins, since the further
-/// one has already passed it, and its identity is confirmed against that further provider.
+/// The primary's answer leads. A fallback that is further along confirms the candidate's identity
+/// at that height; a fallback that is behind is logged and skipped, and cannot drag the boundary
+/// down. Both providers are asked the tag each time.
 #[tokio::test]
-async fn agreement_takes_the_lowest_reported_height() {
+async fn the_primary_leads_and_fallbacks_confirm_or_step_aside() {
+    // Fallback ahead of the primary: it confirms the primary's block by hash.
+    let primary = Mock::start(Some(88), Some(66), false);
     let ahead = Mock::start(Some(90), Some(70), false);
-    let behind = Mock::start(Some(88), Some(66), false);
-    let client = Client::new_with_fallbacks(&ahead.url, std::slice::from_ref(&behind.url), None)
+    let client = Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&ahead.url), None)
         .await
         .unwrap();
     assert_eq!(
@@ -274,16 +340,84 @@ async fn agreement_takes_the_lowest_reported_height() {
             hash: block_hash(88, 0).parse().unwrap(),
         }
     );
+    assert_eq!(primary.tag_reads.load(Ordering::SeqCst), 1);
+    assert_eq!(ahead.tag_reads.load(Ordering::SeqCst), 1);
+
+    // Fallback behind the primary: it cannot confirm, and it does not hold the primary back.
+    let primary = Mock::start(Some(90), Some(70), false);
+    let behind = Mock::start(Some(88), Some(66), false);
+    let client = Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&behind.url), None)
+        .await
+        .unwrap();
     assert_eq!(
         client
             .get_block_number_by_tag(BlockTag::Finalized)
             .await
             .unwrap(),
-        66
+        70
     );
-    // Both providers are asked the tag each time; neither is skipped because the other answered.
-    assert_eq!(ahead.tag_reads.load(Ordering::SeqCst), 2);
-    assert_eq!(behind.tag_reads.load(Ordering::SeqCst), 2);
+}
+
+/// A fallback that stopped syncing keeps answering the same tag height forever, and its block at
+/// that height hashes identically to the canonical chain. It must not pin the boundary.
+#[tokio::test]
+async fn a_stale_fallback_cannot_pin_maturity() {
+    let primary = Mock::start(Some(90), Some(70), false);
+    let stale = Mock::start(Some(40), Some(20), false);
+    let client = Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&stale.url), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        client
+            .get_block_number_by_tag(BlockTag::Safe)
+            .await
+            .unwrap(),
+        90,
+        "the stale fallback must be skipped, not followed"
+    );
+    // Without a primary answer the freshest fallback leads, for the same reason.
+    let dead_primary = Mock::start(None, None, false);
+    let fresh = Mock::start(Some(95), Some(75), false);
+    let client = Client::new_with_fallbacks(
+        &dead_primary.url,
+        &[stale.url.clone(), fresh.url.clone()],
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        client
+            .get_block_number_by_tag(BlockTag::Safe)
+            .await
+            .unwrap(),
+        95
+    );
+}
+
+/// A provider that accepts the connection and never answers must not hang the lookup, and with it
+/// the tip stream that awaits the lookup inline.
+#[tokio::test]
+async fn a_black_holed_provider_times_out_instead_of_hanging_the_lookup() {
+    let primary = Mock::start(Some(90), Some(70), false);
+    let black_hole = Mock::start_black_hole();
+    let client =
+        Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&black_hole.url), None)
+            .await
+            .unwrap()
+            .with_call_timeout(Duration::from_millis(500));
+    let started = std::time::Instant::now();
+    assert_eq!(
+        client
+            .get_block_number_by_tag(BlockTag::Safe)
+            .await
+            .unwrap(),
+        90
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(5),
+        "lookup took {:?}; the black hole was awaited past its timeout",
+        started.elapsed()
+    );
 }
 
 /// A provider on another fork does not get a vote and does not lose one either: the lookup
