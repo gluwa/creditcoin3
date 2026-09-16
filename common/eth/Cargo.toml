@@ -17,7 +17,7 @@ futures-util = { workspace = true }
 hex = { workspace = true }
 sp-core = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true }
+tokio = { workspace = true, features = ["time"] }
 tracing = { workspace = true }
 url = { workspace = true }
 usc-abi-encoding = { workspace = true }
