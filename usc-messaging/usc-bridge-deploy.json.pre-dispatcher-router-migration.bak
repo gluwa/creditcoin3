@@ -1,0 +1,56 @@
+{
+  "hub": {
+    "chainId": 42,
+    "rpc": "https://rpc.usc-devnet.creditcoin.network",
+    "owner": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+    "proofVerifier": "0x7acc1aC65892CF3547b1b0590066FB93199b430D",
+    "attestToken": "0xb5F73112516ebeB89c7EF67a507513b441Ac28fA",
+    "outboxFactory": "0xb91C2eeaA0c475115069a6ED4bc601337a22788E",
+    "feeRegistry": "0xcCEd4FA7c35209De0a52476A8e63ba7115971876",
+    "attestorVault": "0xD45E290062Bd0D1C640D59C350cA03CC291b37FA",
+    "bridgeHub": "0x73684e10cE6d6E344BfdD4F92a79e0D6Cd931b52",
+    "zeroFeeRegistry": "0x8Cb432741E0f38FCBeCE3271C14e8A511aC9485F"
+  },
+  "spokes": {
+    "8": {
+      "chainId": 11155111,
+      "rpc": "https://ethereum-sepolia.core.chainstack.com/efdb96b1ade73fac0eb3f90559b9acee",
+      "chainKey": 8,
+      "localChainKey": "0x0000000000000000000000000000000000000000000000000000000000000008",
+      "voteValidator": "0xE4767195c2Ae3503D7DD3869A55E627588A89A9F",
+      "admin": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+      "bridgeVault": "0xeFc3D14411aA15E41355455A7a416f96C6f27C33",
+      "inbox": "0x6E8508Ba520830c236B66293A6AcaA5F9d5895B5",
+      "outbox": "0xEB2Ac169878Db662cBa8b9123af8399f5dEdEC7C"
+    },
+    "9": {
+      "chainId": 84532,
+      "rpc": "https://base-sepolia.core.chainstack.com/ff008ec713de9ea04e0cec5b3ba4969c",
+      "chainKey": 9,
+      "localChainKey": "0x0000000000000000000000000000000000000000000000000000000000000009",
+      "voteValidator": "0x18481718995371FaE84B2A4796D0487aCf6dd253",
+      "admin": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+      "bridgeVault": "0x8c47828F4e99805A31523214c734B32D5D557b49",
+      "inbox": "0xAbBA9315C950Dfa7751Af40365a15b9Ce62864E4",
+      "outbox": "0x6f33B7c5d730Ed718D85555E6399504933FbC8f7"
+    }
+  },
+  "validators": {
+    "84532": {
+      "chainId": 84532,
+      "rpc": "https://base-sepolia.core.chainstack.com/ff008ec713de9ea04e0cec5b3ba4969c",
+      "owner": "0xC76Db5E275e075985368556a5d47418eCBE6dcBf",
+      "attestorRegistry": "0x19041a20B540B4A1aD34211286f86520964dbfBf",
+      "eoaValidator": "0x18481718995371FaE84B2A4796D0487aCf6dd253",
+      "attestors": [
+        "0x08052B7c3FCcfe04f4579FC0209f59cd434D4A52",
+        "0x53E50cA242610B55d88c2D8Ab0FA56c9E86452Ef",
+        "0xe8D78dc5216f69c3f33C20f6773C5740d7200624",
+        "0x1D06e15fD2fF8DBc38B1749772f4D4C0fb90b795"
+      ],
+      "minAttestorCount": 3,
+      "thresholdNumerator": 20,
+      "thresholdAddition": 1
+    }
+  }
+}

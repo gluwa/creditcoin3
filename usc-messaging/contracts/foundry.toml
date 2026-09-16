@@ -8,7 +8,7 @@ out = "out"
 remappings = [
     "@gluwa/usc-contracts/=node_modules/@gluwa/usc-contracts/contracts/",
 ]
-solc = "0.8.24"
+solc = "0.8.28"
 src = "src"
 
 [profile.default.fmt]
