@@ -6,8 +6,10 @@ name: typescript-checks
   pull_request:
     paths:
       - '**.ts'
+      - '**.tsx'
       - '**.js'
       - '**.json'
+      - '**.css'
       - '**package.json'
       - '**package-lock.json'
       - '**yarn.lock'
@@ -33,8 +35,14 @@ jobs:
       matrix:
         directory:
           # note: add also in .github/hooks/pre-commit
-          [cc3-indexer, cli, docs/smart-contract-development/with-hardhat, scripts, scripts/changelog-warnings, checkpoint-verifier]
+          [cc3-indexer, cli, docs/smart-contract-development/with-hardhat, scripts, scripts/changelog-warnings, checkpoint-verifier, usc-bridge-dapp]
         command: [lint, typecheck, check-format]
+        include:
+          # `yarn build` is the cheapest real correctness check for a Next.js app pre-merge — not
+          # added to the shared `command` list above since not every directory in this matrix has
+          # a build script.
+          - directory: usc-bridge-dapp
+            command: build
 
     steps:
       - uses: actions/checkout@v7
