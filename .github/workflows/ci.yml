@@ -18,6 +18,7 @@ permissions: read-all
 jobs:
   should-run:
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     outputs:
       changes: ${{ steps.filter.outputs.changes }}
       archiver: ${{ steps.filter.outputs.archiver }}
@@ -28,6 +29,8 @@ jobs:
       integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
       integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
       regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
+      attestor_compatibility: ${{ steps.filter.outputs.attestor_compatibility }}
+      validator_compatibility: ${{ steps.filter.outputs.validator_compatibility }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
@@ -100,6 +103,20 @@ jobs:
               - "cli/src/lib/**"
               - "cli/src/test/integration-tests/**"
               - ".github/workflows/ci.yml"
+            # Carried over verbatim from attestor-compatibility.yml's own pull_request
+            # trigger, which it no longer has now that ci.yml calls it.
+            attestor_compatibility:
+              - "attestor/**"
+              - "pallets/attestation/**"
+              - "node/**"
+              - "runtime/**"
+              - ".github/workflows/attestor-compatibility.yml"
+            # Likewise from validator-compatibility.yml.
+            validator_compatibility:
+              - "node/**"
+              - "runtime/**"
+              - "chainspecs/**"
+              - ".github/workflows/validator-compatibility.yml"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
@@ -152,6 +169,7 @@ jobs:
     needs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - name: Install Node Dependencies
@@ -210,6 +228,7 @@ jobs:
       - should-run
     if: ${{ needs.should-run.outputs.attestor_network_testing == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
 
@@ -786,15 +805,6 @@ jobs:
             ./logs
           include-hidden-files: true
 
-  trigger-integration-test-cli:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-      - should-run
-    if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
-    runs-on: ubuntu-26.04
-    steps:
-      - uses: actions/checkout@v7
-
   integration-test-cli:
     strategy:
       fail-fast: false
@@ -821,16 +831,24 @@ jobs:
             proxy_type: All
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    # Gated directly rather than through a separate no-op `trigger-` job, which burned a
+    # runner on a bare checkout and, because it also waited on the node build, could only
+    # report its skip decision after that build had finished.
+    if: ${{ needs.should-run.outputs.integration_test_cli == 'true' }}
     needs:
       - build-creditcoin-node-for-testing-ci
-      - trigger-integration-test-cli
+      - should-run
       - regenerate-metadata
     runs-on: ubuntu-26.04
+    timeout-minutes: 150
     steps:
+      # Plain checkout, i.e. the PR merge ref, like every other job here. This one
+      # used to pin the branch head, inherited from the commit that introduced the
+      # typedef auto-update; only `rebuild-new-metadata` needs that, because only it
+      # commits back. The pin meant this job ran CLI sources from the un-merged branch
+      # against a node binary that build-creditcoin-node-for-testing-ci compiled from
+      # the merge ref.
       - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Install Node.js
         uses: actions/setup-node@v7
@@ -861,16 +879,14 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Download new_metadata.diff
+      - name: Download regenerated metadata
         uses: actions/download-artifact@v8
         with:
-          name: new-metadata.diff
-          path: /var/tmp
+          name: new-metadata
+          path: .
 
-      - name: Apply new metadata patch
+      - name: Show what the regenerated metadata changed
         run: |
-          git apply --allow-empty /var/tmp/new-metadata.diff
-
           echo "========== DEBUG METADATA DIFF =========="
           git status --short --untracked-files=no
           git diff --binary
@@ -937,6 +953,7 @@ jobs:
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -1112,6 +1129,7 @@ jobs:
       - should-run
     if: ${{ needs.should-run.outputs.docs_smart_contract == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -1304,6 +1322,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -1520,6 +1539,7 @@ jobs:
       - regenerate-metadata
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -1589,16 +1609,14 @@ jobs:
           solc --version
           ./abi-creator.sh
 
-      - name: Download new_metadata.diff
+      - name: Download regenerated metadata
         uses: actions/download-artifact@v8
         with:
-          name: new-metadata.diff
-          path: /var/tmp
+          name: new-metadata
+          path: .
 
-      - name: Apply new metadata patch
+      - name: Show what the regenerated metadata changed
         run: |
-          git apply --allow-empty /var/tmp/new-metadata.diff
-
           echo "========== DEBUG METADATA DIFF =========="
           git status --short --untracked-files=no
           git diff --binary
@@ -1650,6 +1668,7 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.regenerate_metadata == 'true' || needs.should-run.outputs.integration_test_cli == 'true' || needs.should-run.outputs.attestor_cli_testing == 'true' }}
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -1732,9 +1751,6 @@ jobs:
           git diff --binary
           echo "======================================="
 
-          # save this for later
-          git diff --binary > /var/tmp/new-metadata.diff
-
           # do not update if only creditcoin.json has changed,
           # usually happens on version bump without any real metadata change
           # shellcheck disable=SC2143
@@ -1745,13 +1761,26 @@ jobs:
               echo "git_diff=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload diff
+      # Ship the regenerated files themselves rather than a `git diff` of them.
+      # A diff records the blob it was computed against, so `git apply` in the
+      # consumers below failed outright whenever their checkout differed from this
+      # job's -- which it does on any PR whose branch is behind a base that moved
+      # `metadata.scale`, and would again if the refs ever drift apart. Copying the
+      # files in has no pre-image to match, so it cannot fail that way.
+      #
+      # These are exactly the three paths `rebuild-new-metadata` commits back
+      # (build-native.yml). Incidental `cli/yarn.lock` churn is deliberately not
+      # carried over: every consumer runs its own `yarn install` afterwards.
+      - name: Upload regenerated metadata
         uses: actions/upload-artifact@v7
         if: always()
         with:
-          if-no-files-found: warn
-          name: new-metadata.diff
-          path: /var/tmp/new-metadata.diff
+          if-no-files-found: error
+          name: new-metadata
+          path: |
+            cli/creditcoin.json
+            cli/src/lib/interfaces/
+            common/cc-client/artifacts/metadata.scale
 
   deploy-runner-rebuild-new-metadata:
     needs:
@@ -1839,12 +1868,42 @@ jobs:
       checkout_repo: "gluwa/attestcoin-protocol-examples"
       checkout_ref: "main"
 
+  # Both compatibility suites used to live in their own pull_request workflows, each
+  # building its own SUT. That was the same `--release --features=fast-runtime` compile
+  # of the same commit, three times over counting this workflow's build. They now run
+  # here so they can download binary-for-testing-ci instead.
+  #
+  # git-lfs-checkout is deliberately not needed: the only LFS-tracked file compiled into
+  # the node is chainspecs/mainnetSpecRaw.json, reached solely via mainnet_config() at
+  # node/src/chain_spec.rs:137, and both suites run --chain dev only. validator's
+  # chainspecs/** filter is a trigger, not a runtime read.
+  attestor-compatibility:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.attestor_compatibility == 'true' }}
+    uses: ./.github/workflows/attestor-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
+
+  validator-compatibility:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.validator_compatibility == 'true' }}
+    uses: ./.github/workflows/validator-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
+
   archiver-testing:
     if: ${{ needs.should-run.outputs.archiver == 'true' }}
     needs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-26.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
