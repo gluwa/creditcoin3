@@ -112,15 +112,16 @@ jobs:
           name: proofs-for-${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
           path: /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
 
+      # Failures only. On always() this job alone posted 4 messages per run, twice a day.
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           inputs: ${{ toJson(matrix) }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
+          message: "[${{ github.workflow }}] Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} FAILED! cc <!subteam^S028FDV6CCV>"
 
   submit-verify-and-emit:
     needs:
@@ -282,13 +283,13 @@ jobs:
           git diff --quiet --diff-filter=M
 
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Sepolia complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
+          message: "[${{ github.workflow }}] Proofs diff for Sepolia FAILED! cc <!subteam^S028FDV6CCV>"
 
   compare-proofs-ethereum:
     needs:
@@ -340,10 +341,10 @@ jobs:
           git diff --quiet --diff-filter=M
 
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Ethereum complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
+          message: "[${{ github.workflow }}] Proofs diff for Ethereum FAILED! cc <!subteam^S028FDV6CCV>"
