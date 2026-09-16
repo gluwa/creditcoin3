@@ -921,18 +921,16 @@ impl ContinuityService {
         cache.keys().next_back().copied()
     }
 
+    /// The highest height the attested set covers: the greater of the newest attestation and
+    /// the newest checkpoint. Both caches are attested state (a checkpoint is a finalised
+    /// attestation digest), and `build_continuity` brackets against either, so the serving
+    /// boundary must consider both rather than fall back to checkpoints only when no
+    /// attestation is cached. Otherwise a pruned attestation cache that trails a newer
+    /// checkpoint would refuse heights the proof builder can still serve.
     async fn cached_attested_height(chain: &ChainState) -> Option<u64> {
-        let mut last_height = {
-            let cache = chain.attestation_cache.read().await;
-            cache.keys().next_back().copied()
-        };
-
-        if last_height.is_none() {
-            let checkpoint_cache = chain.checkpoint_cache.read().await;
-            last_height = checkpoint_cache.keys().next_back().copied();
-        }
-
-        last_height
+        let attestation = Self::cached_attestation_height(chain).await;
+        let checkpoint = Self::cached_checkpoint_height(chain).await;
+        attestation.max(checkpoint)
     }
 
     async fn cached_checkpoint_height(chain: &ChainState) -> Option<u64> {
