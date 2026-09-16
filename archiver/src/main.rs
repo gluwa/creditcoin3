@@ -592,12 +592,23 @@ fn follow_attested_height(
             match cc3_client.fetch_last_finalized(chain_key).await {
                 Ok(Some((height, _digest))) => {
                     tx.send_if_modified(|current| {
-                        if *current == Some(height) {
-                            return false;
+                        let advanced = advance_bound(current, height);
+                        if advanced {
+                            tracing::debug!(chain_key, height, "latest attested height");
+                        } else if current.is_some_and(|c| height < c) {
+                            // A lower reading is a revert or a lagging Creditcoin node. Neither
+                            // may shrink the bound: roots for the higher range are already
+                            // released, and stall detection and flush-at-tip both read this
+                            // value. Reverted roots are reconciled by the canonical-anchor
+                            // check on the next start, not by moving the bound.
+                            tracing::warn!(
+                                chain_key,
+                                height,
+                                bound = ?current,
+                                "attested height read below the published bound; keeping the bound"
+                            );
                         }
-                        tracing::debug!(chain_key, height, "latest attested height");
-                        *current = Some(height);
-                        true
+                        advanced
                     });
                 }
                 Ok(None) => tracing::debug!(chain_key, "no attestation published yet"),
@@ -622,6 +633,17 @@ fn follow_attested_height(
         }
     });
     rx
+}
+
+/// Raise the published bound to `height` if that is an advance. Returns whether it moved. A
+/// high-water mark by construction: equal and lower readings leave it untouched.
+fn advance_bound(current: &mut Option<u64>, height: u64) -> bool {
+    if current.is_none_or(|c| height > c) {
+        *current = Some(height);
+        true
+    } else {
+        false
+    }
 }
 
 /// Pick a source-resolved maturity for the paths that still walk against the source node
@@ -690,6 +712,24 @@ mod tests {
 
     use super::*;
     use eth::{BlockTag, Maturity};
+
+    #[test]
+    fn the_attested_bound_only_ever_advances() {
+        let mut bound = None;
+        assert!(advance_bound(&mut bound, 100));
+        assert_eq!(bound, Some(100));
+        assert!(
+            !advance_bound(&mut bound, 100),
+            "equal reading is not a change"
+        );
+        assert!(
+            !advance_bound(&mut bound, 90),
+            "a lower reading must not shrink the bound"
+        );
+        assert_eq!(bound, Some(100));
+        assert!(advance_bound(&mut bound, 130));
+        assert_eq!(bound, Some(130));
+    }
 
     #[test]
     fn following_the_tip_with_a_chain_key_follows_attestations() {
