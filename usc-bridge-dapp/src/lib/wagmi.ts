@@ -5,8 +5,19 @@ import {
   rainbowWallet,
   walletConnectWallet,
 } from "@rainbow-me/rainbowkit/wallets";
+import { http, type Transport } from "viem";
 
-import { WAGMI_CHAINS } from "./chains";
+import { SPOKE_CHAINS, WAGMI_CHAINS } from "./chains";
+
+// Without this, wagmi falls back to each chain's default public RPC from viem/chains — which
+// turned out to have much stricter (and inconsistent) eth_getLogs block-range caps than this app's
+// chunked scans assumed: Sepolia's default (thirdweb) caps at 1000 blocks per call and outright
+// 403s requests without browser-like headers, silently breaking History/progress-page log scans
+// that need to look back further than that. Spokes without an explicit rpcUrl configured keep
+// falling back to the chain's default.
+const transports: Record<number, Transport> = Object.fromEntries(
+  SPOKE_CHAINS.filter((s) => s.rpcUrl).map((s) => [s.chain.id, http(s.rpcUrl)]),
+);
 
 // getDefaultConfig throws at module-eval time (i.e. build time, not just runtime) on an empty
 // projectId — fine for a real deployment that sets the secret, but it means a bare `yarn build`
@@ -30,6 +41,7 @@ export const wagmiConfig = getDefaultConfig({
   appName: "Creditcoin Bridge (POC)",
   projectId: projectId || "00000000000000000000000000000000",
   chains: WAGMI_CHAINS,
+  transports,
   wallets: [
     {
       groupName: "Recommended",

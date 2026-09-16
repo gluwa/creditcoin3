@@ -18,6 +18,12 @@ export interface SpokeChain {
    *  Inbox) — optional, only used to detect a terminal `DestinationDeliveryFailed` delivery on the
    *  progress screen (see use-transfer-status.ts). Without it, a failed delivery just looks stuck. */
   dispatcherRouterAddress?: `0x${string}`;
+  /** Overrides the chain's default public RPC (wired into wagmi's transports in wagmi.ts) — the
+   *  default public RPCs from viem/chains turned out to have much stricter eth_getLogs block-range
+   *  caps than assumed (Sepolia's default, thirdweb, caps at 1000 blocks and 403s non-browser
+   *  requests entirely), which silently broke every chunked log scan in this app once a scan
+   *  needed to look back further than that. Without this set, falls back to viem/chains' default. */
+  rpcUrl?: string;
 }
 
 function optionalChainKey(raw: string | undefined): number | undefined {
@@ -61,6 +67,7 @@ function buildSpokes(): SpokeChain[] {
       dispatcherRouterAddress: optionalAddress(
         process.env.NEXT_PUBLIC_ETH_SEPOLIA_ROUTER_ADDRESS,
       ),
+      rpcUrl: process.env.NEXT_PUBLIC_ETH_SEPOLIA_RPC_URL || undefined,
     });
   }
 
@@ -81,6 +88,7 @@ function buildSpokes(): SpokeChain[] {
       dispatcherRouterAddress: optionalAddress(
         process.env.NEXT_PUBLIC_BASE_SEPOLIA_ROUTER_ADDRESS,
       ),
+      rpcUrl: process.env.NEXT_PUBLIC_BASE_SEPOLIA_RPC_URL || undefined,
     });
   }
 
