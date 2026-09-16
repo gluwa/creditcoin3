@@ -4,6 +4,9 @@ pub struct Config {
     /// How the mature tip is derived from each new source head. See [`eth::Maturity`].
     pub maturity: eth::Maturity,
     pub start_height: attestor_primitives::Height,
+    /// See [`crate::roots::Config::head_silence_timeout`]; same watchdog, same default.
+    #[default(std::time::Duration::from_secs(120))]
+    pub head_silence_timeout: std::time::Duration,
 }
 
 /// Follows the latest Eth chain tip, backed by [`eth::Client`] under the hood.
@@ -30,14 +33,21 @@ impl StreamTip {
             .max_delay(std::time::Duration::from_millis(5_000))
             .map(tokio_retry::strategy::jitter);
         let start_height = config.start_height;
+        let silence = config.head_silence_timeout;
         let mut stream_headers = loop {
             match config.client.subscribe().await {
                 Ok(stream) => {
-                    break stream
-                        .skip_while(move |header| {
-                            futures::future::ready(header.number < start_height)
-                        })
-                        .boxed()
+                    break crate::roots::end_on_silence(
+                        stream
+                            .skip_while(move |header| {
+                                futures::future::ready(header.number < start_height)
+                            })
+                            .map(|header| header.number)
+                            .boxed(),
+                        config.client.clone(),
+                        silence,
+                    )
+                    .boxed()
                 }
                 Err(err) => {
                     tracing::warn!(?err, "Eth subscribe failed — repairing client and retrying");
@@ -61,17 +71,17 @@ impl StreamTip {
 
             loop {
                 match stream_headers.next().await {
-                    Some(header) => {
+                    Some(head) => {
                         // Resolve the mature height for this head. A fixed lag is arithmetic; a
                         // block tag is one RPC round-trip on the same client. A failed lookup is
                         // logged and skipped — the next head retries, and the tip only ever moves
                         // forward, so a transient RPC error can never rewind it.
-                        let tip_new = match config.maturity.mature_height(&config.client, header.number).await {
+                        let tip_new = match config.maturity.mature_height(&config.client, head).await {
                             Ok(Some(tip_new)) => tip_new,
                             Ok(None) => continue,
                             Err(err) => {
                                 tracing::warn!(
-                                    head = header.number,
+                                    head,
                                     maturity = %config.maturity,
                                     %err,
                                     "could not resolve mature tip for this head; retrying on the next one"
@@ -99,13 +109,19 @@ impl StreamTip {
                             async move {
                                 client.reconnect().await?;
 
-                                let stream = client
-                                    .subscribe()
-                                    .await?
-                                    .skip_while(move |header| {
-                                        futures::future::ready(header.number < start_height)
-                                    })
-                                    .boxed();
+                                let stream = crate::roots::end_on_silence(
+                                    client
+                                        .subscribe()
+                                        .await?
+                                        .skip_while(move |header| {
+                                            futures::future::ready(header.number < start_height)
+                                        })
+                                        .map(|header| header.number)
+                                        .boxed(),
+                                    client.clone(),
+                                    silence,
+                                )
+                                .boxed();
 
                                 Ok::<_, eth::Error>((client, stream))
                             }

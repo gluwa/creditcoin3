@@ -599,8 +599,10 @@ fn follow_attested_height(
                             // A lower reading is a revert or a lagging Creditcoin node. Neither
                             // may shrink the bound: roots for the higher range are already
                             // released, and stall detection and flush-at-tip both read this
-                            // value. Reverted roots are reconciled by the canonical-anchor
-                            // check on the next start, not by moving the bound.
+                            // value. Reconciling roots that a revert orphaned is deliberately
+                            // not this poller's job; it is surfaced here, and the archiver
+                            // liveness stack's canonical-anchor check (#1347) drops an
+                            // abandoned tail on the next start.
                             tracing::warn!(
                                 chain_key,
                                 height,
