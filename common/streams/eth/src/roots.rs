@@ -335,10 +335,13 @@ async fn stream_rpc(
     // head, gaps backfilled; with a block tag or an attested bound the bound moves in jumps and
     // a whole range is released at once. A bound that cannot be resolved for a head is skipped:
     // the next head retries, and the walk guarantees no block is skipped or fetched twice.
+    // The first head was consumed above to seed the pipeline, so it is handed to the watchdog
+    // as its baseline: a subscription that dies right after it must still be caught.
     let heads = futures::stream::once(futures::future::ready(next)).chain(end_on_silence(
         stream_headers.map(|header| header.number).boxed(),
         config.client.clone(),
         config.head_silence_timeout,
+        Some(next),
     ));
     let bounds: stream_util::BoxedStream<Option<u64>> = match config.bound.clone() {
         Boundary::Source(maturity) => {
@@ -513,10 +516,16 @@ enum Silence {
     DeadSubscription,
 }
 
-fn judge_silence(last_seen: Option<u64>, probe: Result<u64, String>) -> Silence {
-    match probe {
-        Ok(head) if last_seen.is_none_or(|seen| head <= seen) => Silence::QuietChain,
-        Ok(_) | Err(_) => Silence::DeadSubscription,
+/// `baseline` is the newest head this stream knows about: the last one the subscription
+/// delivered, or, when it has delivered nothing yet, the last probe. Returns the verdict and the
+/// baseline to carry forward, so a subscription that is silent from the start is judged against
+/// its own first probe on the next round rather than never.
+fn judge_silence(baseline: Option<u64>, probe: Result<u64, String>) -> (Silence, Option<u64>) {
+    match (baseline, probe) {
+        (None, Ok(head)) => (Silence::QuietChain, Some(head)),
+        (Some(seen), Ok(head)) if head <= seen => (Silence::QuietChain, Some(seen)),
+        (_, Ok(head)) => (Silence::DeadSubscription, Some(head)),
+        (seen, Err(_)) => (Silence::DeadSubscription, seen),
     }
 }
 
@@ -529,11 +538,12 @@ pub(crate) fn end_on_silence(
     heads: stream_util::BoxedStream<u64>,
     client: eth::Client,
     timeout: std::time::Duration,
+    baseline: Option<u64>,
 ) -> impl futures::Stream<Item = u64> {
     use futures::StreamExt as _;
     futures::stream::unfold(
-        (heads, client, None::<u64>),
-        move |(mut heads, client, last_seen)| async move {
+        (heads, client, baseline),
+        move |(mut heads, client, mut baseline)| async move {
             loop {
                 match tokio::time::timeout(timeout, heads.next()).await {
                     Ok(Some(head)) => return Some((head, (heads, client, Some(head)))),
@@ -545,17 +555,20 @@ pub(crate) fn end_on_silence(
                                 Ok(Err(err)) => Err(err.to_string()),
                                 Err(_) => Err("head probe timed out".to_owned()),
                             };
-                        match judge_silence(last_seen, probe.clone()) {
+                        let (verdict, next_baseline) = judge_silence(baseline, probe.clone());
+                        match verdict {
                             Silence::QuietChain => {
                                 tracing::debug!(
-                                    ?last_seen,
+                                    ?baseline,
+                                    ?probe,
                                     silent_for = ?timeout,
                                     "no new heads, and the node agrees the chain is quiet"
                                 );
+                                baseline = next_baseline;
                             }
                             Silence::DeadSubscription => {
                                 tracing::warn!(
-                                    ?last_seen,
+                                    ?baseline,
                                     ?probe,
                                     silent_for = ?timeout,
                                     "newHeads subscription went silent while the chain moved on; \
@@ -615,13 +628,39 @@ mod tests {
 
     #[test]
     fn silence_is_only_fatal_when_the_chain_moved_or_the_node_is_gone() {
-        assert_eq!(judge_silence(Some(100), Ok(100)), Silence::QuietChain);
-        assert_eq!(judge_silence(Some(100), Ok(99)), Silence::QuietChain);
-        assert_eq!(judge_silence(None, Ok(5)), Silence::QuietChain);
-        assert_eq!(judge_silence(Some(100), Ok(101)), Silence::DeadSubscription);
+        assert_eq!(
+            judge_silence(Some(100), Ok(100)),
+            (Silence::QuietChain, Some(100))
+        );
+        assert_eq!(
+            judge_silence(Some(100), Ok(99)),
+            (Silence::QuietChain, Some(100))
+        );
+        assert_eq!(
+            judge_silence(Some(100), Ok(101)),
+            (Silence::DeadSubscription, Some(101))
+        );
         assert_eq!(
             judge_silence(Some(100), Err("connection refused".into())),
-            Silence::DeadSubscription
+            (Silence::DeadSubscription, Some(100))
+        );
+    }
+
+    /// A subscription silent from the very start has no head to compare against. The first
+    /// probe becomes the baseline, so the *second* silent round catches a chain that moved.
+    #[test]
+    fn a_subscription_silent_from_the_start_is_judged_against_its_first_probe() {
+        let (verdict, baseline) = judge_silence(None, Ok(5));
+        assert_eq!((verdict, baseline), (Silence::QuietChain, Some(5)));
+        assert_eq!(
+            judge_silence(baseline, Ok(5)),
+            (Silence::QuietChain, Some(5)),
+            "still nothing happened"
+        );
+        assert_eq!(
+            judge_silence(baseline, Ok(6)),
+            (Silence::DeadSubscription, Some(6)),
+            "the chain moved and the subscription said nothing"
         );
     }
 
