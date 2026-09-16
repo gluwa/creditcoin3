@@ -1683,6 +1683,25 @@ mod attested_boundary_tests {
         assert!(err.retriable(), "the client should try again later");
     }
 
+    /// A checkpoint is attested state too. When the checkpoint cache is ahead of the attestation
+    /// cache (after a prune, or when checkpoints arrive first on a fresh start) the boundary is the
+    /// checkpoint, because `build_continuity` can bracket against it.
+    #[tokio::test]
+    async fn a_newer_checkpoint_raises_the_boundary_above_the_attestation_cache() {
+        let svc = service().await;
+        let chain = svc.chain_state(CHAIN_KEY).unwrap();
+        chain
+            .checkpoint_cache
+            .write()
+            .await
+            .insert(LATEST_ATTESTED + 100, H256::from_low_u64_be(7));
+        let latest = svc
+            .validate_blocks(chain, &[LATEST_ATTESTED + 50])
+            .await
+            .expect("a height below the newest checkpoint is servable");
+        assert_eq!(latest, LATEST_ATTESTED + 100);
+    }
+
     #[tokio::test]
     async fn an_empty_cache_reports_attestations_missing() {
         let svc = service().await;
