@@ -422,6 +422,7 @@ function getChainName(chainId: number): string {
   const names: Record<number, string> = {
     11155111: "Sepolia",
     97: "BSC Testnet",
+    56: "BSC Mainnet",
     1: "Ethereum Mainnet",
   };
   return names[chainId] ?? `Chain ${chainId}`;

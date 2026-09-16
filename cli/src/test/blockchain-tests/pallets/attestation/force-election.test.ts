@@ -1,5 +1,6 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../../lib';
 import { extractFee } from '../../../utils';
+import { chain_Anvil1_Key } from '../supported-chains/consts';
 
 describe('forceElection', (): void => {
     let api: ApiPromise;
@@ -18,7 +19,7 @@ describe('forceElection', (): void => {
         const nonce = await api.rpc.system.accountNextIndex(root.address);
         return new Promise((resolve, reject): void => {
             const unsubscribe = api.tx.sudo
-                .sudo(api.tx.attestation.forceElection(1))
+                .sudo(api.tx.attestation.forceElection(chain_Anvil1_Key))
                 .signAndSend(root, { nonce }, async ({ dispatchError, events, status }) => {
                     await extractFee(resolve, reject, unsubscribe, api, dispatchError, events, status);
                 })

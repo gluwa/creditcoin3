@@ -38,7 +38,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Chill', (): void => {
         await forElapsedBlocks(api, { minBlocks: 1 });
 
         nonce = await api.rpc.system.accountNextIndex(sudo.address);
-        await api.tx.sudo.sudo(api.tx.attestation.forceElection(1)).signAndSend(sudo, { nonce });
+        await api.tx.sudo.sudo(api.tx.attestation.forceElection(chain_Anvil2_Key)).signAndSend(sudo, { nonce });
         await forElapsedBlocks(api, { minBlocks: 1 });
     }, 120_000);
 

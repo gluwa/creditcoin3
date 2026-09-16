@@ -86,37 +86,83 @@ async fn main() -> Result<()> {
         }
     }
 
-    // ── Determine finalization lag ────────────────────────────────────────────────────
-    // If a finalization lag parameter is passed, we use that. Otherwise fall back to
-    // the lag from our on chain MaturityStrategy.
-    let finaliztion_lag = if let Some(lag) = cfg.finalization_lag_override {
-        tracing::info!(lag = lag, "Using cfg.finalization_lag_override");
-        lag
-    } else {
-        // Fetch maturity strategy
-        let lag = get_on_chain_finalization_lag(&cfg).await?;
-        tracing::info!(lag = lag, "Using on chain lag from MaturityStrategy");
-        lag
+    // ── Source chain identity ───────────────────────────────────────────
+    // Connect both RPC endpoints up front. They must agree on `chain_id`, and when
+    // `CHAIN_KEY` is set that `chain_id` must be the one registered on Creditcoin for
+    // this archiver's chain key. Both are fatal: archiving the wrong chain under a
+    // given archive name silently corrupts every proof later built from it.
+    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
+    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None)
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
+    if ws_client.chain_id() != http_client.chain_id() {
+        return Err(anyhow!(
+            "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
+            ws_client.chain_id(),
+            http_client.chain_id(),
+        ));
+    }
+    let source_chain_id = ws_client.chain_id();
+
+    // ── Registered chain (Creditcoin) ───────────────────────────────────
+    // Previously this lookup only ran when FINALIZATION_LAG was unset, so every
+    // deployment that pinned the lag skipped the chain_id verification along with it.
+    // The verification now runs whenever CHAIN_KEY is available.
+    let on_chain_lag = match cfg.chain_key {
+        Some(chain_key) => {
+            let cc3_client = CcClient::new_read_only(&cfg.cc3_rpc_url)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Creditcoin3 RPC failed at cc3_rpc_url={}. \
+                         Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
+                        cfg.cc3_rpc_url
+                    )
+                })?;
+            let chain = cc3_client
+                .get_supported_chain(chain_key)
+                .await
+                .context("Failed to retrieve supported chain")?
+                .ok_or_else(|| {
+                    anyhow!(
+                        "No such supported chain. Check that provided chain_key is valid. chain_key: {chain_key}"
+                    )
+                })?;
+            let chain_name = String::from_utf8_lossy(&chain.chain_name).into_owned();
+
+            if chain.chain_id != source_chain_id {
+                return Err(anyhow!(
+                    "source chain_id {} does not match the chain registered on Creditcoin under \
+                     chain_key {} (chain_id {}, name {:?}); check RPC_HTTP/RPC_WS",
+                    source_chain_id,
+                    chain_key,
+                    chain.chain_id,
+                    chain_name,
+                ));
+            }
+            tracing::info!(
+                chain_key,
+                chain_id = source_chain_id,
+                name = %chain_name,
+                "source chain verified against Creditcoin registration"
+            );
+
+            Some(on_chain_finalization_lag(chain.maturity_strategy.as_str())?)
+        }
+        None => {
+            tracing::warn!(
+                chain_id = source_chain_id,
+                "CHAIN_KEY not set: cannot verify that RPC_HTTP/RPC_WS serve the chain registered \
+                 on Creditcoin; a misconfigured endpoint would be archived silently"
+            );
+            None
+        }
     };
 
-    // ── Url Consistency Checks ────────────────────────────────────────────────────
-    // If http and ws urls point to chains with different `chain_id`s, we treat that
-    // as a fatal error.
-    {
-        let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
-            .await?
-            .with_chain_family_override(cfg.eth_chain_family);
-        let http_client = eth::Client::new(cfg.rpc_http.as_str(), None)
-            .await?
-            .with_chain_family_override(cfg.eth_chain_family);
-        if ws_client.chain_id() != http_client.chain_id() {
-            return Err(anyhow!(
-                "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
-                ws_client.chain_id(),
-                http_client.chain_id(),
-            ));
-        }
-    }
+    // ── Determine finalization lag ──────────────────────────────────────
+    let finaliztion_lag = resolve_finalization_lag(cfg.finalization_lag_override, on_chain_lag)?;
 
     // ── Backfill gaps ────────────────────────────────────────────────────
     if cfg.backfill {
@@ -139,8 +185,8 @@ async fn main() -> Result<()> {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
                 let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
-                    .await?
-                    .with_chain_family_override(cfg.eth_chain_family);
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
@@ -195,17 +241,9 @@ async fn main() -> Result<()> {
     }
 
     // ── Connect to chain ────────────────────────────────────────────────
-    // WS client for StreamRoots (subscriptions + block fetching).
-    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
-        .await?
-        .with_chain_family_override(cfg.eth_chain_family);
-    let chain_id = ws_client.chain_id();
-    tracing::info!(chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
-
-    // HTTP client for chain head tracking.
-    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None)
-        .await?
-        .with_chain_family_override(cfg.eth_chain_family);
+    // Reuse the verified clients: WS for StreamRoots (subscriptions + block fetching),
+    // HTTP for chain head tracking.
+    tracing::info!(chain_id = source_chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
 
     // ── Root stream (with automatic reconnection) ───────────────────────
     let stream_config = stream_eth::roots::ConfigBuilder::new()
@@ -353,9 +391,16 @@ async fn main() -> Result<()> {
         count += 1;
 
         let end_reached = cfg.end_height.is_some_and(|end| height >= end);
+        let target = cfg
+            .end_height
+            .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
+        let remaining = target.saturating_sub(height);
+        let at_tip = at_tip(remaining, cfg.flush_every);
 
-        // Flush batch when full or at end.
-        if batch_buf.len() >= flush_size || end_reached {
+        // Write the batch when full, at the end, or whenever we are at the tip: batching there
+        // only delays when the API can serve a root that is already mature, which is what
+        // proof-gen and the attestors are waiting on. Deep catch-up keeps the batched writes.
+        if batch_buf.len() >= flush_size || end_reached || at_tip {
             store.put_roots(&batch_buf)?;
             batch_buf.clear();
         }
@@ -366,8 +411,8 @@ async fn main() -> Result<()> {
             break;
         }
 
-        // Periodic flush + logging
-        let is_flush = height % cfg.flush_every.get() == 0;
+        // Durability flush + logging: every block at the tip, every `flush_every` otherwise.
+        let is_flush = at_tip || height % cfg.flush_every.get() == 0;
         let is_log = is_flush || count % cfg.flush_every.get() == 0;
 
         if is_flush {
@@ -381,10 +426,6 @@ async fn main() -> Result<()> {
             } else {
                 0.0
             };
-            let target = cfg
-                .end_height
-                .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
-            let remaining = target.saturating_sub(height);
             let label = if is_flush { "flushed" } else { "✓" };
             tracing::info!(
                 height,
@@ -416,6 +457,16 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
+/// True when the archiver is close enough to the chain head that batching would delay the
+/// visibility of mature roots: within one `flush_every` window of the target. At the tip
+/// `remaining` settles at the finalization lag (plus a little head-tracker latency), which is
+/// far below any sane `flush_every`, so tip-following writes and flushes every block without
+/// operators having to set `FLUSH_EVERY=1`. If the head tracker has no value yet (`0`),
+/// `remaining` is `0` and we err on the side of flushing.
+fn at_tip(remaining: u64, flush_every: std::num::NonZeroU64) -> bool {
+    remaining < flush_every.get()
+}
+
 fn format_eta(remaining: u64, rate: f64) -> String {
     if rate <= 0.0 || remaining == 0 {
         return "synced".to_string();
@@ -430,58 +481,105 @@ fn format_eta(remaining: u64, rate: f64) -> String {
     }
 }
 
-async fn get_on_chain_finalization_lag(cfg: &Config) -> Result<u64> {
-    // Check that chain_key is present in config
-    let chain_key = if let Some(ck) = cfg.chain_key {
-        ck
-    } else {
-        return Err(anyhow!(
-            "Either cfg.finalization_lag_override or cfg.chain_key must be set!"
-        ));
-    };
-
-    // Temp eth client for checking that chain_id matches expected.
-    let eth_client = eth::Client::new(cfg.rpc_http.as_str(), None)
-        .await?
-        .with_chain_family_override(cfg.eth_chain_family);
-
-    // Temp cc3 client for getting finalization lag
-    let cc3_client =
-        CcClient::new_read_only(&cfg.cc3_rpc_url)
-            .await
-            .with_context(|| {
-                format!(
-                    "Creditcoin3 RPC failed at cc3_rpc_url={}. \
-                        Ensure the node is up, the URL scheme (ws/wss) matches, and network/firewall allows the connection.",
-                    cfg.cc3_rpc_url
-                )
-            })?;
-
-    let supported_chain = cc3_client
-        .get_supported_chain(chain_key)
-        .await
-        .context("Failed to retrieve supported chain")?
-        .ok_or(anyhow!(
-            "No such supported chain. Check that provided chain_key is valid. chain_key: {chain_key}"
-        ))?;
-
-    if supported_chain.chain_id != eth_client.chain_id() {
-        return Err(anyhow!(
-            "Source chain id doesn't match registered id on Creditcoin under chain_key. chain_key: {}, creditcoin_source_id: {}, eth_rpc_source_id: {}",
-            chain_key,
-            supported_chain.chain_id,
-            eth_client.chain_id()
-        ));
-    }
-
-    let strategy_enum: supported_chains_primitives::MaturityStrategy = supported_chain
-        .maturity_strategy
-        .as_str()
+/// Maturity delay implied by an on-chain `MaturityStrategy` string
+/// (e.g. `"EvmFinalized"` → 64, `"FixedDelay: 5"` → 5).
+fn on_chain_finalization_lag(maturity_strategy: &str) -> Result<u64> {
+    let strategy: supported_chains_primitives::MaturityStrategy = maturity_strategy
         .try_into()
         .map_err(|e| anyhow!("Invalid maturity strategy: {e:?}"))?;
 
-    // Return final maturity delay
-    strategy_enum.maturity_delay().ok_or(anyhow!(
-        "No maturity delay for strategy: strategy_enum: {strategy_enum:?}"
-    ))
+    strategy
+        .maturity_delay()
+        .ok_or_else(|| anyhow!("No maturity delay for strategy: {strategy:?}"))
+}
+
+/// Pick the finalization lag. An explicit `FINALIZATION_LAG` always wins so operators
+/// keep an escape hatch, but a value that disagrees with the on-chain registration is
+/// logged loudly: the attestors follow the on-chain strategy, and a lag below theirs
+/// means the archiver flushes roots for blocks they do not yet consider mature.
+fn resolve_finalization_lag(override_lag: Option<u64>, on_chain_lag: Option<u64>) -> Result<u64> {
+    match (override_lag, on_chain_lag) {
+        (Some(lag), Some(on_chain)) if lag != on_chain => {
+            tracing::warn!(
+                lag,
+                on_chain,
+                "FINALIZATION_LAG differs from the on-chain MaturityStrategy the attestors use"
+            );
+            Ok(lag)
+        }
+        (Some(lag), _) => {
+            tracing::info!(lag, "Using cfg.finalization_lag_override");
+            Ok(lag)
+        }
+        (None, Some(lag)) => {
+            tracing::info!(lag, "Using on chain lag from MaturityStrategy");
+            Ok(lag)
+        }
+        (None, None) => Err(anyhow!(
+            "Either FINALIZATION_LAG or CHAIN_KEY (with CC3_RPC_URL) must be set"
+        )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn at_tip_within_one_flush_window_of_the_head() {
+        let every = std::num::NonZeroU64::new(10_000).unwrap();
+        // Deep catch-up keeps batching.
+        assert!(!at_tip(45_000_000, every));
+        assert!(!at_tip(10_000, every));
+        // Inside the last window, and at the head itself (remaining == finalization lag).
+        assert!(at_tip(9_999, every));
+        assert!(at_tip(10, every));
+        assert!(at_tip(0, every));
+    }
+
+    #[test]
+    fn at_tip_with_flush_every_one_keeps_the_old_meaning() {
+        let one = std::num::NonZeroU64::new(1).unwrap();
+        assert!(at_tip(0, one));
+        assert!(!at_tip(1, one));
+    }
+
+    #[test]
+    fn missing_head_tracker_value_flushes_conservatively() {
+        // chain_head defaults to 0 when the HTTP head fetch fails; remaining saturates to 0.
+        let remaining = 0u64.saturating_sub(123_456);
+        assert!(at_tip(
+            remaining,
+            std::num::NonZeroU64::new(10_000).unwrap()
+        ));
+    }
+
+    use super::*;
+
+    #[test]
+    fn on_chain_lag_follows_maturity_strategy() {
+        assert_eq!(on_chain_finalization_lag("EvmFinalized").unwrap(), 64);
+        assert_eq!(on_chain_finalization_lag("EvmSafe").unwrap(), 32);
+        assert_eq!(on_chain_finalization_lag("FixedDelay: 5").unwrap(), 5);
+    }
+
+    #[test]
+    fn on_chain_lag_rejects_unknown_strategy() {
+        assert!(on_chain_finalization_lag("Bogus").is_err());
+    }
+
+    #[test]
+    fn override_wins_even_when_it_disagrees_with_chain() {
+        assert_eq!(resolve_finalization_lag(Some(64), Some(64)).unwrap(), 64);
+        assert_eq!(resolve_finalization_lag(Some(10), Some(64)).unwrap(), 10);
+        assert_eq!(resolve_finalization_lag(Some(0), None).unwrap(), 0);
+    }
+
+    #[test]
+    fn on_chain_lag_used_without_override() {
+        assert_eq!(resolve_finalization_lag(None, Some(5)).unwrap(), 5);
+    }
+
+    #[test]
+    fn neither_source_is_an_error() {
+        assert!(resolve_finalization_lag(None, None).is_err());
+    }
 }
