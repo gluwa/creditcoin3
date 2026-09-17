@@ -88,6 +88,8 @@ jobs:
         env:
           GO_BACK_BLOCKS: '360'
           SLEEP_TIME: '500'
+          # CK1 is Sepolia, CK3/CK4 are Ethereum Mainnet. Same mapping audit-automation.yml uses.
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -100,6 +102,7 @@ jobs:
           GO_BACK_BLOCKS: '400'
           STEP_THROUGH_BLOCKS: '7'
           SLEEP_TIME: '500'
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -120,7 +123,7 @@ jobs:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           inputs: ${{ toJson(matrix) }}
-          channel: "#noti-creditcoin-snapshots"
+          channel: "#protocol-internal"
           message: "[${{ github.workflow }}] Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} FAILED! cc <!subteam^S028FDV6CCV>"
 
   submit-verify-and-emit:
@@ -288,7 +291,7 @@ jobs:
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
+          channel: "#protocol-internal"
           message: "[${{ github.workflow }}] Proofs diff for Sepolia FAILED! cc <!subteam^S028FDV6CCV>"
 
   compare-proofs-ethereum:
@@ -346,5 +349,5 @@ jobs:
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
+          channel: "#protocol-internal"
           message: "[${{ github.workflow }}] Proofs diff for Ethereum FAILED! cc <!subteam^S028FDV6CCV>"
