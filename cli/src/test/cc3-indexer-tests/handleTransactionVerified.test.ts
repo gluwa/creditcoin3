@@ -1,6 +1,6 @@
-import * as proof from '@gluwa/usc-sdk/dist/proof-provider';
-import { chainInfo } from '@gluwa/usc-sdk/dist/';
-import { EncodingVersion } from '@gluwa/usc-sdk/dist/encoding';
+import * as proof from '@gluwa/asc-sdk/dist/proof-provider';
+import { chainInfo } from '@gluwa/asc-sdk/dist/';
+import { EncodingVersion } from '@gluwa/asc-sdk/dist/encoding';
 import { WebSocketProvider, ethers } from 'ethers';
 import { newApi, ApiPromise } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
