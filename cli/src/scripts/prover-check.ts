@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { blockProver, chainInfo, proofProvider, utils } from '@gluwa/usc-sdk';
 import EvmV1DecoderABI from '@gluwa/usc-sdk/dist/utils/evmV1DecoderAbi.json';
 import ChainInfoABI from '@gluwa/usc-sdk/dist/chain-info/chain_info.json';
-import { Contract, Wallet, WebSocketProvider } from 'ethers';
+import { Contract, JsonRpcProvider, Wallet, WebSocketProvider } from 'ethers';
 import { createClient } from 'graphqurl';
 import axios from 'axios';
 
@@ -37,8 +37,97 @@ function writeToDisk(dirPath: string, proofData: any) {
     );
 }
 
-async function getProofForBlock(apiUrl: string, chainKey: number, blockNumber: bigint) {
-    const url = `${apiUrl}/api/v1/proof/${chainKey}/${blockNumber}/0`;
+function toRpcBlockNumber(value: any) {
+    if (!value || value === 'latest') return 'latest';
+    return `0x${BigInt(value).toString(16)}`;
+}
+
+async function sampleNormalTransaction(provider: JsonRpcProvider, blockNumber: any = 'latest') {
+    // `true` requests full transaction objects instead of only hashes.
+    const block = await provider.send('eth_getBlockByNumber', [toRpcBlockNumber(blockNumber), true]);
+
+    if (!block) {
+        throw new Error(`Block ${blockNumber} was not found`);
+    }
+
+    const transactions = block.transactions.filter((tx: any) => typeof tx === 'object' && tx.gas != null);
+
+    if (transactions.length === 0) {
+        throw new Error('Block contains no transactions');
+    }
+
+    const sortedGasLimits = transactions
+        .map((tx: any) => BigInt(tx.gas))
+        .sort((a: bigint, b: bigint) => (a < b ? -1 : a > b ? 1 : 0));
+
+    // Remove the lowest and highest 10% so large deployments and unusual
+    // transactions do not distort the definition of a "normal" transaction.
+    const trim = Math.floor(sortedGasLimits.length * 0.1);
+    const normalRange =
+        sortedGasLimits.length >= 10 ? sortedGasLimits.slice(trim, sortedGasLimits.length - trim) : sortedGasLimits;
+
+    const averageGasLimit =
+        normalRange.reduce((sum: bigint, gas: bigint) => sum + gas, 0n) / BigInt(normalRange.length);
+
+    const sampledTransaction = transactions.reduce((closest: any, tx: any) => {
+        const gas = BigInt(tx.gas);
+        const closestGas = BigInt(closest.gas);
+
+        const distance = gas >= averageGasLimit ? gas - averageGasLimit : averageGasLimit - gas;
+
+        const closestDistance =
+            closestGas >= averageGasLimit ? closestGas - averageGasLimit : averageGasLimit - closestGas;
+
+        return distance < closestDistance ? tx : closest;
+    });
+
+    return {
+        blockNumber: Number(BigInt(block.number)),
+        transactionCount: transactions.length,
+        normalAverageGasLimit: averageGasLimit.toString(),
+        transaction: {
+            hash: sampledTransaction.hash,
+            from: sampledTransaction.from,
+            to: sampledTransaction.to,
+            gasLimit: BigInt(sampledTransaction.gas).toString(),
+            type: Number(BigInt(sampledTransaction.type ?? '0x0')),
+            inputBytes: Math.max(0, (sampledTransaction.input.length - 2) / 2),
+            // added: the prover API addresses transactions by index, not hash
+            index: block.transactions.findIndex((tx: any) => tx.hash === sampledTransaction.hash),
+        },
+    };
+}
+
+/**
+ * Index of the transaction to request a proof for.
+ *
+ * Index 0 is the worst possible choice: first-in-block skews large (highest gas price), so it
+ * lands around the 99th percentile by payload size and routinely blows the gas budget on proofs
+ * that are fine for any other transaction in the same block.
+ *
+ * Falls back to index 0 — the previous behaviour — when no RPC is configured, when the block has
+ * no transactions so the prover's existing `EmptyBlockTxProof` skip still handles it, and if the
+ * sampled transaction cannot be located in the block. Every other error propagates, including a
+ * missing block or an unreachable RPC, since those mean we are not sampling what we think we are.
+ */
+async function pickTransactionIndex(sourceRpc: JsonRpcProvider | undefined, blockNumber: bigint): Promise<number> {
+    if (sourceRpc === undefined) {
+        return 0;
+    }
+
+    try {
+        const sample = await sampleNormalTransaction(sourceRpc, blockNumber);
+        return sample.transaction.index < 0 ? 0 : sample.transaction.index;
+    } catch (error) {
+        if (error instanceof Error && error.message === 'Block contains no transactions') {
+            return 0;
+        }
+        throw error;
+    }
+}
+
+async function getProofForBlock(apiUrl: string, chainKey: number, blockNumber: bigint, txIndex: number) {
+    const url = `${apiUrl}/api/v1/proof/${chainKey}/${blockNumber}/${txIndex}`;
     try {
         // NOTE: throws an exception in case of errors
         return await axios.get(url);
@@ -163,6 +252,16 @@ async function main(
         contract = new Contract(decoderAddress, EvmV1DecoderABI, creditcoinWs);
     }
 
+    // Read from the environment rather than argv: the URL usually embeds an API key, and argv is
+    // echoed by the CI runner. Optional — without it every block falls back to index 0.
+    const sourceRpcUrl = process.env.SOURCE_CHAIN_RPC_URL;
+    const sourceRpc = sourceRpcUrl ? new JsonRpcProvider(sourceRpcUrl) : undefined;
+    console.log(
+        sourceRpc === undefined
+            ? '**** INFO: no SOURCE_CHAIN_RPC_URL, sampling transaction index 0'
+            : '**** INFO: selecting a representative transaction per block via the source chain RPC',
+    );
+
     // NOTE: an ephemeral wallet is used purely as a `from` address for
     // `estimateGas`. No transaction is submitted, so this account never
     // needs to be funded and there is no on-chain side effect.
@@ -197,9 +296,10 @@ async function main(
 
     const sleepTime = parseInt(process.env.SLEEP_TIME || '500', 10);
     for (const blockNumber of blocksToInspect) {
-        console.log(`... get proof for source chain block ${blockNumber}`);
         await sleep(sleepTime); // rate-limit
-        const response = await getProofForBlock(proverBaseUrl, chainKey, blockNumber);
+        const txIndex = await pickTransactionIndex(sourceRpc, blockNumber);
+        console.log(`... get proof for source chain block ${blockNumber}, txIndex ${txIndex}`);
+        const response = await getProofForBlock(proverBaseUrl, chainKey, blockNumber, txIndex);
         if (response === null) {
             console.log('    ... skipping verification. Empty block, no tx proof available');
             continue;
