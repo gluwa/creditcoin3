@@ -144,6 +144,43 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// Open a `SledSource` at `path`, tolerating a lock the previous handle has not
+    /// released yet.
+    ///
+    /// Every test below writes with a plain `sled::Db`, drops it, then reopens the same
+    /// path through `SledSource`. Dropping a `sled::Db` does not synchronously release
+    /// its file lock: the context is shared with a background flusher thread, so the
+    /// `flock` can outlive the `Drop` that closed our handle. When that thread is starved
+    /// of CPU the gap is wide enough that an immediate reopen fails, which reads as a
+    /// logic failure rather than the scheduling artefact it is.
+    ///
+    /// `archiver::store` carries the same helper for the same reason; see
+    /// `open_after_close` there.
+    ///
+    /// Bounded deliberately tight, so a genuine open failure (a corrupt database, a bad
+    /// path) still surfaces in about a second instead of being buried under a long backoff.
+    fn open_after_close(path: &std::path::Path) -> SledSource {
+        const ATTEMPTS: usize = 20;
+        const WAIT: std::time::Duration = std::time::Duration::from_millis(50);
+
+        let mut last = None;
+        for _ in 0..ATTEMPTS {
+            match SledSource::open(path) {
+                Ok(source) => return source,
+                Err(e) => {
+                    last = Some(e);
+                    std::thread::sleep(WAIT);
+                }
+            }
+        }
+        panic!(
+            "could not reopen {} after {ATTEMPTS} attempts over {:?}: {:?}",
+            path.display(),
+            WAIT * ATTEMPTS as u32,
+            last.expect("at least one attempt failed"),
+        )
+    }
+
     #[test]
     fn test_sled_source_read_write() {
         let dir = tempdir().unwrap();
@@ -164,7 +201,7 @@ mod tests {
         }
 
         // Open with SledSource and verify
-        let source = SledSource::open(&db_path).unwrap();
+        let source = open_after_close(&db_path);
 
         // Test get
         let root = source.get(5).unwrap().unwrap();
@@ -201,7 +238,7 @@ mod tests {
             db.flush().unwrap();
         }
 
-        let source = SledSource::open(&db_path).unwrap();
+        let source = open_after_close(&db_path);
         assert!(
             source.get_range(0, 5).is_err(),
             "expected error for range with gap"
@@ -224,7 +261,7 @@ mod tests {
             db.flush().unwrap();
         }
 
-        let source = SledSource::open(&db_path).unwrap();
+        let source = open_after_close(&db_path);
         // Request [0, 9] but only [0, 4] exist
         assert!(
             source.get_range(0, 9).is_err(),
