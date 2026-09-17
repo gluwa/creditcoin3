@@ -1974,6 +1974,22 @@ jobs:
           # note: chain_key is hard-coded in this script so waiting only on Anvil_1
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
+      - name: Wait for the archiver to store its first attested block
+        run: |
+          # The archiver follows the latest attested height rather than the source head, so it
+          # stores nothing until the attestors have produced their first attestation. The tests
+          # below assert on stored blocks; give the pipeline a bounded window to produce one.
+          for _ in $(seq 1 90); do
+            LATEST=$(curl -sf http://127.0.0.1:8080/status | python3 -c 'import sys,json;print(json.load(sys.stdin).get("latest_archived_block") or 0)' 2>/dev/null || echo 0)
+            if [ "$LATEST" -gt 0 ]; then
+              echo "archiver stored up to block $LATEST"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "archiver stored nothing after 15 minutes: no attestation landed on chain key 2" >&2
+          exit 1
+
       - name: Run integration tests for archiver
         working-directory: ./cli
         run: |
