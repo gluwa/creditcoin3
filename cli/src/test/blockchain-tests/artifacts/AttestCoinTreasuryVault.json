@@ -1,7 +1,7 @@
 {
-  "_comment": "GENERATED FILE -- do not edit by hand. Compiled from contracts/atc-treasury/AttestCoinTreasuryVault.sol (solc 0.8.29+commit.ab55807c.Darwin.appleclang, --optimize --optimize-runs 200 --via-ir --evm-version paris --metadata-hash none). Regenerate with cli/scripts/sync-vault-artifact.sh; edit the contract in the asc-contracts repo.",
+  "_comment": "GENERATED FILE -- do not edit by hand. Compiled from contracts/treasury/AttestCoinTreasuryVault.sol (solc 0.8.29+commit.ab55807c.Darwin.appleclang, --optimize --optimize-runs 200 --via-ir --evm-version paris --metadata-hash none). Regenerate with cli/scripts/sync-vault-artifact.sh; edit the contract in the atc-treasury-and-gov repo.",
   "contractName": "AttestCoinTreasuryVault",
-  "sourcePackage": "@gluwa/asc-contracts@0.2.1",
+  "sourcePackage": "@gluwa/atc-treasury-and-gov@0.1.0",
   "abi": [
     {
       "inputs": [

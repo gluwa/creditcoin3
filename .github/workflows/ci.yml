@@ -1043,12 +1043,12 @@ jobs:
         run: |
           yarn install
 
-      # The vault contract lives in the asc-contracts repo and reaches us through the
-      # @gluwa/asc-contracts npm package, which ships Solidity source only. This recompiles it and
-      # fails if the committed test artifact is no longer what that source produces. The test run
-      # below regenerates the artifact anyway, so this exists to name the drift rather than
-      # silently paper over it.
-      - name: Check the vault artifact matches @gluwa/asc-contracts
+      # The vault contract lives in the atc-treasury-and-gov repo and reaches us through the
+      # @gluwa/atc-treasury-and-gov npm package, which ships Solidity source only. This recompiles
+      # it and fails if the committed test artifact is no longer what that source produces. The
+      # test run below regenerates the artifact anyway, so this exists to name the drift rather
+      # than silently paper over it.
+      - name: Check the vault artifact matches @gluwa/atc-treasury-and-gov
         working-directory: ./cli
         run: |
           yarn check:vault-artifact

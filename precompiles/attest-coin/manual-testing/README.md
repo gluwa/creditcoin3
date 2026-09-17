@@ -84,7 +84,7 @@ Reward claims are **not** paid from the precompile's own balance. They come from
 contract that grants the precompile an ERC-20 allowance, and `claim` spends it with
 `transferFrom(vault, attestor, amount)`.
 
-The vault contract is not in this repository. It lives in [asc-contracts](https://github.com/gluwa/asc-contracts) and arrives through the `@gluwa/asc-contracts` npm package. To ensure our treasury contract definition is current, we re-build its artifact from solidity using:
+The vault contract is not in this repository. It lives in [atc-treasury-and-gov](https://github.com/gluwa/atc-treasury-and-gov) and arrives through the `@gluwa/atc-treasury-and-gov` npm package. To ensure our treasury contract definition is current, we re-build its artifact from solidity using:
 
 ```sh
 cd ../../../cli && yarn install && yarn sync:vault-artifact

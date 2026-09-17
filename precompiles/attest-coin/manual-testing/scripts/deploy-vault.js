@@ -28,8 +28,8 @@ require('dotenv').config({ path: ENV_PATH, quiet: true });
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 // Generated, not hand-maintained: `cli/scripts/sync-vault-artifact.sh` compiles it from the
-// AttestCoinTreasuryVault.sol that ships in the @gluwa/asc-contracts npm package. The contract
-// itself lives in the asc-contracts repo -- edit it there, not here.
+// AttestCoinTreasuryVault.sol that ships in the @gluwa/atc-treasury-and-gov npm package. The
+// contract itself lives in the atc-treasury-and-gov repo -- edit it there, not here.
 const ARTIFACT_PATH = path.join(
     REPO_ROOT,
     'cli/src/test/blockchain-tests/artifacts/AttestCoinTreasuryVault.json',
