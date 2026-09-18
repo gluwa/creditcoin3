@@ -203,6 +203,13 @@ where
     R: Fn() -> Fut,
     Fut: Future<Output = Result<P>>,
 {
+    tracing::warn!(
+        chain_key = resolved.chain_key,
+        "Outbox authorization requires archive state and historical eth_call for the entire \
+         scan and recovery range, including the chain-info precompile and Discovery registry; \
+         unavailable history pauses the affected range. Before migrating a legacy cursor, \
+         configure start_block or expect a replay from genesis"
+    );
     // Local handle for the hot path; the channel is only touched on a rebuild. Cloning an alloy
     // provider is an `Arc` bump. Start from whatever is current, which after a rotation re-spawn
     // may already be a rebuilt connection rather than the boot-time one.

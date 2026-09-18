@@ -34,3 +34,29 @@ emitters must be checked, including unauthorized deployments.
 This lifecycle policy does not change finality policy or destination-key governance. The route's
 destination key is captured in each indexed message so governance can reject a buffer created
 under an obsolete signing domain.
+
+## Operator rollout requirements
+
+1. Use a Creditcoin archive endpoint for **every block in the scan and recovery range**, including
+   historical chain-info and Discovery `eth_call` reads. This applies to external operators as
+   well as the managed fleet. Verify representative old blocks through the actual configured
+   endpoint; a current-head health check does not establish archive support. The listener logs
+   this requirement at startup, and reports unavailable history while retrying the affected range.
+2. Before rolling the image, set the operator-approved `writeAbility.startBlock` in each
+   AttestorSet CR (`start_block` in the generated attestor configuration). Include all deployed
+   routes, including Base Sepolia. Keep existing cursor files. Legacy single-Outbox cursors cannot
+   prove all-Outbox coverage, so migration intentionally replays from this floor or genesis.
+   Choose a floor no later than any message that needs automatic recovery. A recent devnet floor
+   limits replay and repeat gossip, but explicitly excludes older automatic recovery; an old
+   scanned cursor is not proof of downstream delivery. Arrange explicit reobservation for older
+   pending messages, with archive access at those blocks.
+3. Coordinate relayer support before enabling publications on non-default registered Outboxes.
+   The current default-only relayer does not discover those publications even when attestors
+   produce a quorum. Relayer multi-Outbox discovery, durable scanning, and drain/recovery are the
+   remaining deployment gate tracked in
+   [creditcoin3 #1373](https://github.com/gluwa/creditcoin3/issues/1373). Merging the attestor change
+   does not satisfy this gate.
+4. Verify end-to-end delivery from both the default and another registered Outbox, then change
+   the default and verify backlog delivery. Verify pre-removal messages remain recoverable after
+   removal takes effect, while publications at/after effective removal are rejected. Observe scan
+   progress and historical-RPC errors throughout the rollout.
