@@ -134,6 +134,11 @@ pub async fn build_state(
     if !cfg.enabled {
         return None;
     }
+    tracing::warn!(
+        block_confirmation_depth = cfg.block_confirmation_depth,
+        "block_confirmation_depth is deprecated and ignored for message attestation; \
+         source blocks must be finalized"
+    );
     // Fail-closed runtime-compatibility gate (audit P2-9). The write-ability chain state
     // (`WriteAbilityConfigs`, the `SupportedChainsApi` v2 methods) only exists on a
     // write-ability-capable runtime. Against a pre-write-ability (v1) runtime the on-chain reads
