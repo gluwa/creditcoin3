@@ -476,7 +476,7 @@ pub async fn poll_once<P: Provider>(
                 // Process and persist each smaller prefix before fetching the next. Collecting
                 // every split result into a single original-range Vec would let spam bypass the
                 // provider's cap into unbounded memory growth across thousands of source blocks.
-                span = (chunk_to - from_block + 1) / 2;
+                span = (chunk_to - from_block).div_ceil(2);
             }
             Err(err) => return Err(err),
         }
