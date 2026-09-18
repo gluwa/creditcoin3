@@ -100,7 +100,8 @@ pub struct Shared {
     /// On-chain `MaxCatchup` (block-count bound per continuity proof). Fetched at startup and
     /// kept in sync by the production task via `MaxCatchupChanged` events.
     pub max_catchup: parking_lot::RwLock<NonZero<Height>>,
-    pub maturity_delay: u64,
+    /// How mature heights are derived from source heads (fixed lag or RPC block tag).
+    pub maturity: eth::Maturity,
     pub start_height: Height,
     pub genesis: Height,
 
