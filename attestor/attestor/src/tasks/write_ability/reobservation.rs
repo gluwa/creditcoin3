@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::rpc::types::{BlockTransactionsKind, Filter};
+use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
@@ -184,7 +184,7 @@ pub async fn reobserve<P: Provider>(
     // when there is no finalized head at all — see [`reobs_final_enough`] for why this is
     // deliberately stricter than the listener's stall-aware envelope.
     let finalized = match provider
-        .get_block_by_number(BlockNumberOrTag::Finalized, BlockTransactionsKind::Hashes)
+        .get_block_by_number(BlockNumberOrTag::Finalized)
         .await
     {
         Ok(Some(b)) => Some(b.header.number),
@@ -239,7 +239,7 @@ pub async fn reobserve<P: Provider>(
         if log.transaction_hash != Some(requested_tx) {
             continue;
         }
-        let Ok(decoded) = IOutbox::MessagePublished::decode_log(&log.inner, true) else {
+        let Ok(decoded) = IOutbox::MessagePublished::decode_log_validate(&log.inner) else {
             continue;
         };
         if decoded.data.messageId != requested_id {

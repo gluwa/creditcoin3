@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::rpc::types::{BlockTransactionsKind, Filter};
+use alloy::rpc::types::Filter;
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 use tokio::sync::{mpsc, watch};
@@ -437,10 +437,7 @@ pub async fn poll_once<P: Provider>(
         FinalityPolicy::Finalized { .. } => {
             match tokio::time::timeout(
                 RPC_TIMEOUT,
-                provider.get_block_by_number(
-                    BlockNumberOrTag::Finalized,
-                    BlockTransactionsKind::Hashes,
-                ),
+                provider.get_block_by_number(BlockNumberOrTag::Finalized),
             )
             .await
             {
@@ -510,7 +507,7 @@ async fn scan_range<P: Provider>(
         .with_context(|| format!("eth_getLogs from {from_block} to {to_block} failed"))?;
 
     for log in logs {
-        match IOutbox::MessagePublished::decode_log(&log.inner, true) {
+        match IOutbox::MessagePublished::decode_log_validate(&log.inner) {
             Ok(decoded) => {
                 let payload = decoded.data.payload.to_vec();
                 // `emitterAddress` is emitted as `bytes32` (cross-chain consistency); the 20-byte

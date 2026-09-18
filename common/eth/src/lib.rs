@@ -1,5 +1,7 @@
 use alloy::{
-    consensus::{proofs::ordered_trie_root_with_encoder, ReceiptEnvelope, TxEnvelope},
+    consensus::{
+        proofs::ordered_trie_root_with_encoder, transaction::Recovered, ReceiptEnvelope, TxEnvelope,
+    },
     eips::eip2718::Encodable2718 as _,
     hex::ToHexExt,
     network::{
@@ -299,7 +301,7 @@ impl BlockItem for TxRx {
 
     fn tx_type(&self) -> Option<u8> {
         match self {
-            Self::Ethereum { tx, .. } => match tx.inner {
+            Self::Ethereum { tx, .. } => match tx.inner.clone_inner() {
                 TxEnvelope::Legacy(_) => None,
                 TxEnvelope::Eip2930(_) => Some(1),
                 TxEnvelope::Eip1559(_) => Some(2),
@@ -373,8 +375,7 @@ impl OrderedBlock {
         }
 
         let header = block.header.clone();
-        let mut txs: Vec<AnyRpcTransaction> =
-            block.inner.transactions.into_transactions().collect();
+        let mut txs: Vec<AnyRpcTransaction> = block.into_transactions_iter().collect();
 
         if txs.iter().any(|t| t.transaction_index.is_none()) {
             return Err(Error::NotFullTransactionsFetched(expected_number));
@@ -451,7 +452,9 @@ impl OrderedBlock {
         encoding: EncodingVersion,
     ) -> Result<TxRx, Error> {
         let receipt_ty = rx.inner.inner.r#type;
-        match tx.inner.inner {
+        let tx = tx.into_inner();
+        let (envelope, from) = tx.inner.into_parts();
+        match envelope {
             AnyTxEnvelope::Ethereum(envelope) => {
                 let tx_ty = envelope.tx_type() as u8;
                 if receipt_ty != tx_ty {
@@ -463,12 +466,11 @@ impl OrderedBlock {
                     });
                 }
                 let tx = Transaction {
-                    inner: envelope,
-                    block_hash: tx.inner.block_hash,
-                    block_number: tx.inner.block_number,
-                    transaction_index: tx.inner.transaction_index,
-                    effective_gas_price: tx.inner.effective_gas_price,
-                    from: tx.inner.from,
+                    inner: Recovered::new_unchecked(envelope, from),
+                    block_hash: tx.block_hash,
+                    block_number: tx.block_number,
+                    transaction_index: tx.transaction_index,
+                    effective_gas_price: tx.effective_gas_price,
                 };
                 let rx = rx.inner.map_inner(|any| {
                     let inner = any.inner;
@@ -487,7 +489,7 @@ impl OrderedBlock {
                     encoding,
                 })
             }
-            AnyTxEnvelope::Unknown(ref unknown) => {
+            AnyTxEnvelope::Unknown(unknown) => {
                 let ty = unknown.inner.ty.0;
                 if !family.supports_tx_type(ty) {
                     return Err(Error::UnsupportedTransactionType { block, ty, family });
@@ -505,12 +507,9 @@ impl OrderedBlock {
                 let deposit_fields =
                     op_stack::DepositReceiptFields::from_other_fields(&rx.other, unknown.hash)
                         .map_err(|source| Error::Deposit { block, source })?;
-                let deposit = op_stack::DepositTransaction::try_from_unknown(
-                    unknown,
-                    tx.inner.from,
-                    deposit_fields,
-                )
-                .map_err(|source| Error::Deposit { block, source })?;
+                let deposit =
+                    op_stack::DepositTransaction::try_from_unknown(&unknown, from, deposit_fields)
+                        .map_err(|source| Error::Deposit { block, source })?;
                 Ok(TxRx::OpDeposit {
                     tx: Box::new(deposit),
                     rx: Box::new(rx.inner),
@@ -634,13 +633,13 @@ impl Client {
         let rpc_provider = match url_scheme {
             "http" | "https" => ProviderBuilder::new()
                 .network::<AnyNetwork>()
-                .on_http(url.clone()),
+                .connect_http(url.clone()),
 
             "ws" | "wss" => {
                 let ws = WsConnect::new(url.clone());
                 ProviderBuilder::new()
                     .network::<AnyNetwork>()
-                    .on_ws(ws)
+                    .connect_ws(ws)
                     .await?
             }
 
@@ -895,8 +894,8 @@ impl Client {
         let builder = ProviderBuilder::new().wallet(EthereumWallet::from(self.get_signer()?));
 
         let provider = match self.get_url()? {
-            ConnectionTransport::Http(url) => builder.on_http(url),
-            ConnectionTransport::Ws(ws_client) => builder.on_ws(ws_client).await?,
+            ConnectionTransport::Http(url) => builder.connect_http(url),
+            ConnectionTransport::Ws(ws_client) => builder.connect_ws(ws_client).await?,
         };
 
         Ok(provider)
@@ -1068,7 +1067,8 @@ impl Client {
         let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
         let block_fut = async {
             provider
-                .get_block(block_id, true.into())
+                .get_block(block_id)
+                .full()
                 .await?
                 .ok_or(Error::FailedToGetBlock(number))
         };
@@ -1118,10 +1118,8 @@ impl Client {
 
         for (label, provider) in providers {
             match provider
-                .get_block(
-                    BlockId::Number(BlockNumberOrTag::Number(number)),
-                    true.into(),
-                )
+                .get_block(BlockId::Number(BlockNumberOrTag::Number(number)))
+                .full()
                 .await
             {
                 Ok(Some(block)) => {
@@ -1202,7 +1200,8 @@ impl Client {
     pub async fn get_block_number_by_hash(&self, hash: BlockHash) -> Result<u64, Error> {
         let block_opt = self
             .rpc_provider
-            .get_block_by_hash(hash, true.into())
+            .get_block_by_hash(hash)
+            .full()
             .await
             .map_err(|e| {
                 error!("Failed to get block by hash: {:?}", e);
