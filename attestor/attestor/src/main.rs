@@ -96,8 +96,8 @@ struct ConfigAttestation {
 struct ConfigFileWriteAbility {
     #[serde(default)]
     enabled: bool,
-    /// Confirmation depth below the EVM tip before signing a `MessagePublished` log. Defaults to
-    /// 3 blocks (the usual time-to-finality on Creditcoin) when unset.
+    /// Legacy setting retained for configuration compatibility. Signing always requires the
+    /// source finalized head, regardless of this value.
     block_confirmation_depth: Option<u64>,
     /// First Creditcoin L1 EVM block to scan on startup. When unset, starts at current head. Only
     /// used on a fresh start with no persisted cursor; once `state_dir` holds a cursor, it wins.

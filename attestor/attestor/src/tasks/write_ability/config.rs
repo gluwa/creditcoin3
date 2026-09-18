@@ -54,8 +54,8 @@ pub struct Config {
     /// `bytes32` key passed to `getOutbox` and bound into each `messageHash`.
     pub write_ability_chain_key: ChainKey,
 
-    /// Confirmation depth below the EVM tip before a `MessagePublished` log is considered final
-    /// enough to sign (the probabilistic-finality fallback bound — confluence §6.8).
+    /// Legacy confirmation-depth setting, retained for configuration compatibility. Production
+    /// message signing always requires the finalized head; this setting cannot enable a fallback.
     pub block_confirmation_depth: u64,
 
     /// First Creditcoin L1 EVM block to scan on startup. When `None`, the listener starts at the
@@ -109,11 +109,9 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Reject a startup configuration that would silently weaken safety or prevent quorum (audit
-    /// P2-7): a zero confirmation depth (signing at the chain tip), zero vote TTL / tracked-message
-    /// cap, or a zero / empty / duplicated attestor set. Only enforced when `enabled` — a disabled
-    /// config is always valid. Returns a human-readable reason so the boot fails loudly rather than
-    /// coming up subtly mis-secured.
+    /// Reject an invalid startup configuration: out-of-range legacy confirmation depth, zero vote
+    /// TTL / tracked-message cap, or a zero / empty / duplicated attestor set. Only enforced when
+    /// `enabled` — a disabled config is always valid.
     pub fn validate(&self) -> Result<(), String> {
         if !self.enabled {
             return Ok(());
@@ -122,19 +120,13 @@ impl Config {
             return Err("message attestation enabled but no Creditcoin EVM RPC URL".to_string());
         }
         if self.block_confirmation_depth == 0 {
-            return Err(
-                "block_confirmation_depth must be > 0 — signing at the chain tip is unsafe"
-                    .to_string(),
-            );
+            return Err("legacy block_confirmation_depth must be > 0".to_string());
         }
-        // Guard against a fat-fingered depth (e.g. an extra few zeros). It is only the fallback
-        // bound now that we sign the finalized head (P1-2), but an absurd value would make the
-        // fallback path saturate to block 0 and silently never sign — a liveness footgun validate()
-        // should catch loudly at boot rather than let the attestor come up mute.
+        // Preserve validation of the legacy field for configuration compatibility, even though
+        // it no longer authorizes signing beyond the finalized head.
         if self.block_confirmation_depth > MAX_BLOCK_CONFIRMATION_DEPTH {
             return Err(format!(
-                "block_confirmation_depth {} is implausibly large (> {}) — likely a typo; the \
-                 attestor would silently never sign",
+                "legacy block_confirmation_depth {} exceeds the supported maximum {}",
                 self.block_confirmation_depth, MAX_BLOCK_CONFIRMATION_DEPTH
             ));
         }
@@ -188,13 +180,10 @@ impl Config {
 /// `state_dir`; local/dev runs override it in config.
 pub const DEFAULT_STATE_DIR: &str = "/data";
 
-/// Default confirmation depth below the EVM tip before a `MessagePublished` log is signed.
-/// Three blocks matches the usual time-to-finality on Creditcoin.
+/// Default for the legacy confirmation-depth field; no longer used as a signing boundary.
 pub const DEFAULT_BLOCK_CONFIRMATION_DEPTH: u64 = 3;
 
-/// Sanity ceiling for `block_confirmation_depth` (audit P2-7). Far above any plausible finality
-/// depth, so a value beyond it is almost certainly a typo that would make the fallback path saturate
-/// to block 0 and silently never sign.
+/// Historical validation ceiling for the legacy `block_confirmation_depth` setting.
 pub const MAX_BLOCK_CONFIRMATION_DEPTH: u64 = 100_000;
 
 /// Reject an RPC URL whose scheme the EVM/substrate clients can't dial (audit P2-7). Accepts only
