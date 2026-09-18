@@ -12,6 +12,10 @@ removal cancellations, and later re-registrations are resolved from historical s
 inferred from today's active list. Authority uses end-of-block state: a scheduled removal at block
 N excludes messages at N; messages through N−1 remain eligible for recovery.
 
+Result-count limits trigger smaller queries. If a single block exceeds the RPC log limit,
+including because of unauthorized emitters, the listener retrieves that block's transaction
+receipts and filters their logs locally. RPC outages still fail the current chunk immediately.
+
 One durable cursor represents the fully scanned range across **all** Outboxes. It advances only
 once the entire range has been authenticated and handed to the signing pipeline. Each chunk caches
 Discovery/membership reads by block and emitting address. Failed or unavailable historical reads
@@ -21,8 +25,9 @@ single-block, message-ID-filtered query, so removal cannot strand messages await
 The Creditcoin EVM RPC must retain historical state for the configured scan/recovery range and
 support historical `eth_call`, including the chain-info precompile. Pruned state causes signing to
 pause on the affected range; it never authorizes a message. On upgrade from the old single-Outbox
-cursor, the scanner replays from genesis once, since the old cursor did not cover non-default
-instances. Already published votes may repeat and are deduplicated downstream. New deployments
+cursor, the scanner replays from genesis once (or the explicit `start_block` floor), since the old
+cursor did not cover non-default instances. Set a known activation floor when older runtime states
+do not expose the Discovery precompile; choosing a floor excludes earlier messages by operator policy. Already published votes may repeat and are deduplicated downstream. New deployments
 retain the configured `start_block` behavior. Backfill can be costly because all matching event
 emitters must be checked, including unauthorized deployments.
 
