@@ -3,9 +3,9 @@ import {
     initAliceKeyring,
     ALICE_NODE_URL,
     BOB_NODE_URL,
-    randomFundedAccount,
     randomTestAccount,
     CLIBuilder,
+    fundedAccountPool,
 } from '../helpers';
 import { describeIf, try_catch_else_finally } from '../../utils';
 import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
@@ -15,6 +15,7 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
     let caller: any;
     let proxy: any;
     let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
     let CLI: any;
 
     beforeAll(async () => {
@@ -22,12 +23,13 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
     });
 
     beforeEach(async () => {
         // Create and fund the test and proxy account
-        caller = await randomFundedAccount(api, sudoSigner);
-        proxy = await randomFundedAccount(api, sudoSigner);
+        caller = await accounts.next();
+        proxy = await accounts.next();
 
         // Create a CLICmd instance with a properly configured environment
         // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -118,7 +120,7 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
 
         it('should error when trying to configure a proxy used by another delegate', async () => {
             // setup
-            const caller2 = await randomFundedAccount(api, sudoSigner);
+            const caller2 = await accounts.next();
             const cli = CLIBuilder({ CC_SECRET: caller2.secret });
             const result = cli(`proxy add --proxy ${proxy.address} --type All`);
             expect(result.exitCode).toEqual(0);

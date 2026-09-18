@@ -1,12 +1,12 @@
 import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import {
     initAliceKeyring,
-    randomFundedAccount,
     setUpProxy,
     tearDownProxy,
     waitEras,
     ALICE_NODE_URL,
     CLIBuilder,
+    fundedAccountPool,
 } from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 import { getBalance } from '../../../lib/balance';
@@ -17,6 +17,7 @@ describe('distribute-rewards', () => {
     let caller: any;
     let proxy: any;
     let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
     let CLI: any;
     let nonProxiedCli: any;
 
@@ -25,6 +26,7 @@ describe('distribute-rewards', () => {
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
 
         startingEra = (await api.derive.session.info()).activeEra.toNumber();
         // make sure there is at least one era for which to distribute rewards
@@ -33,11 +35,11 @@ describe('distribute-rewards', () => {
 
     beforeEach(async () => {
         // Create and fund the test and proxy account
-        caller = await randomFundedAccount(api, sudoSigner);
+        caller = await accounts.next();
         nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
 
-        proxy = await randomFundedAccount(api, sudoSigner);
-        const wrongProxy = await randomFundedAccount(api, sudoSigner);
+        proxy = await accounts.next();
+        const wrongProxy = await accounts.next();
         CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
