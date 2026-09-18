@@ -135,33 +135,10 @@ impl ReobsRateLimiter {
     }
 }
 
-/// Whether `block_height` is final enough to re-sign (audit P1-2).
-///
-/// Safety-first, and deliberately STRICTER than the listener's time-varying envelope. When the chain
-/// exposes a GRANDPA-finalized head we accept **only** `block_height <= finalized` — we do NOT fall
-/// back to the probabilistic `tip - confirmation_depth` bound while a finalized head exists, even a
-/// stale one. Reobservation is stateless: unlike the listener (which tracks a 600s stall via
-/// [`super::listener::FinalityTracker`] before it signs the depth bound), a single reobservation call
-/// cannot distinguish a genuine finality *stall* from routine finality *lag*. Since reobservation
-/// requests are unauthenticated, accepting the depth bound during ordinary lag would let an attacker
-/// extract a vote over a still-reorg-able block whenever finality lag transiently exceeds
-/// `confirmation_depth` (default 3) — re-opening P1-2 via the pull path. The cost of strictness is
-/// that a >600s finality stall makes reobservation temporarily unavailable (a liveness gap the
-/// relayer tolerates by re-requesting), which is the right trade for a signing path.
-///
-/// The depth bound is used only when there is **no** finalized head at all (`None` — the tag is
-/// unsupported or errored), mirroring the listener's own no-finality fallback. Pure so the gate is
-/// unit-testable without an RPC.
-fn reobs_final_enough(
-    finalized: Option<u64>,
-    tip: u64,
-    block_height: u64,
-    confirmation_depth: u64,
-) -> bool {
-    match finalized {
-        Some(f) => block_height <= f,
-        None => block_height.saturating_add(confirmation_depth) <= tip,
-    }
+/// Whether the requested block has deterministic source-chain finality. Missing finality never
+/// authorizes a vote, regardless of the block's distance from the tip.
+fn reobs_final_enough(finalized: Option<u64>, block_height: u64) -> bool {
+    finalized.is_some_and(|height| block_height <= height)
 }
 
 /// Re-fetch and re-verify the message named by `request` against the resolved Outbox, returning the
@@ -171,42 +148,26 @@ fn reobs_final_enough(
 pub async fn reobserve<P: Provider>(
     provider: &P,
     resolved: &ResolvedOutbox,
-    confirmation_depth: u64,
+    _confirmation_depth: u64,
     request: &ReobservationRequest,
 ) -> Result<Option<IndexedMessage>> {
     let requested_id = B256::from(request.message_id);
 
-    // Finality gate (audit P1-2) — a reobservation re-signs the exact vote the listener would have
-    // produced, so it must never re-sign a message that isn't final: an unauthenticated request could
-    // otherwise get us to sign a still-reorg-able publish, and quorum signatures over a
-    // never-finalized message would satisfy the destination Inbox. We gate STRICTLY on the
-    // GRANDPA-finalized head when it is available and only fall back to the probabilistic depth bound
-    // when there is no finalized head at all — see [`reobs_final_enough`] for why this is
-    // deliberately stricter than the listener's stall-aware envelope.
-    let finalized = match provider
+    // An unauthenticated pull request must meet the same finality requirement as the listener.
+    // Missing/failed reads stop before eth_getLogs; the relayer can retry after RPC recovery.
+    // The legacy confirmation-depth argument is retained for caller compatibility only.
+    let finalized = provider
         .get_block_by_number(BlockNumberOrTag::Finalized, BlockTransactionsKind::Hashes)
         .await
-    {
-        Ok(Some(b)) => Some(b.header.number),
-        _ => None,
-    };
-    let final_enough = match finalized {
-        // Deterministic finality available: accept only at/below the finalized head, no tip fetch.
-        Some(f) => request.block_height <= f,
-        // No finalized head at all: mirror the listener's no-finality fallback (probabilistic depth).
-        None => {
-            let tip = provider
-                .get_block_number()
-                .await
-                .context("reobservation tip fetch failed")?;
-            reobs_final_enough(finalized, tip, request.block_height, confirmation_depth)
-        }
-    };
+        .context("reobservation finalized-head read failed")?
+        .context("reobservation finalized head unavailable")?
+        .header
+        .number;
+    let final_enough = reobs_final_enough(Some(finalized), request.block_height);
     if !final_enough {
         tracing::warn!(
             block = request.block_height,
             ?finalized,
-            confirmation_depth,
             "🔎 reobservation request targets a not-yet-finalized block — ignoring"
         );
         return Ok(None);
@@ -232,8 +193,7 @@ pub async fn reobserve<P: Provider>(
         // Verify the log came from the transaction the request named (audit P3-1). The `tx_hash`
         // field previously rode along unchecked; enforce it so the re-signed vote is bound to the
         // exact emission the requester referenced. Well-defined because the finality gate above only
-        // let us past for a block that is either GRANDPA-finalized or (absent a finalized head)
-        // depth-buried, so the transaction hash at this block is stable. (`message_id` + Outbox +
+        // let us past only for a GRANDPA-finalized block, so the transaction hash is stable. (`message_id` + Outbox +
         // block already pin the message; this closes the "field implies a correlation the code
         // doesn't perform" gap.)
         if log.transaction_hash != Some(requested_tx) {
@@ -279,29 +239,66 @@ mod tests {
 
     #[test]
     fn final_enough_accepts_at_or_below_finalized_head() {
-        // Deterministic-finality path: tip is irrelevant when block <= finalized.
-        assert!(reobs_final_enough(Some(100), 100, 100, 5));
-        assert!(reobs_final_enough(Some(100), 100, 99, 5));
+        assert!(reobs_final_enough(Some(100), 100));
+        assert!(reobs_final_enough(Some(100), 99));
     }
 
     #[test]
-    fn final_enough_rejects_above_finalized_even_when_depth_buried() {
-        // P1-2 (safety): with a finalized head available we NEVER accept a block above it, even one
-        // buried under `confirmation_depth`. Reobservation is stateless and cannot tell a genuine
-        // stall from routine finality lag, so accepting the depth bound here would let an
-        // unauthenticated request extract a vote over a still-reorg-able block during ordinary lag.
-        // block 105, tip 120, depth 5 → 105+5 <= 120 would pass a probabilistic gate, but finalized
-        // is 100, so we reject.
-        assert!(!reobs_final_enough(Some(100), 120, 105, 5));
-        // Just one block above the finalized head is already rejected.
-        assert!(!reobs_final_enough(Some(100), 1_000, 101, 5));
+    fn final_enough_rejects_above_finalized() {
+        assert!(!reobs_final_enough(Some(100), 105));
+        assert!(!reobs_final_enough(Some(100), 101));
     }
 
     #[test]
-    fn final_enough_uses_depth_only_when_no_finalized_tag() {
-        // No finalized head at all → mirror the listener's no-finality fallback (probabilistic depth).
-        assert!(reobs_final_enough(None, 120, 115, 5));
-        assert!(!reobs_final_enough(None, 120, 116, 5));
+    fn final_enough_rejects_when_no_finalized_tag() {
+        assert!(!reobs_final_enough(None, 115));
+        assert!(!reobs_final_enough(None, 0));
+    }
+
+    #[tokio::test]
+    async fn failed_finality_reads_and_unfinalized_requests_never_fetch_logs() {
+        use super::super::listener::test_rpc::RpcMock;
+        use alloy::providers::ProviderBuilder;
+        use serde_json::json;
+
+        let rpc = RpcMock::start().await;
+        let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+        let resolved = RpcMock::resolved();
+        let request = ReobservationRequest {
+            chain_key: 1,
+            message_id: [1; 32],
+            tx_hash: [2; 32],
+            block_height: 105,
+        };
+        for failure in [
+            json!({"result": null}),
+            json!({"error": {"code": -32000, "message": "finality unavailable"}}),
+        ] {
+            rpc.state.lock().finalized_response = failure;
+            assert!(reobserve(&provider, &resolved, 3, &request).await.is_err());
+        }
+        rpc.set_finalized(100);
+        assert!(reobserve(&provider, &resolved, 3, &request)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(rpc
+            .state
+            .lock()
+            .requests
+            .iter()
+            .all(|r| r["method"] == "eth_getBlockByNumber"));
+
+        // Only a recovered finalized head covering the requested block permits a log fetch.
+        rpc.set_finalized(105);
+        assert!(reobserve(&provider, &resolved, 3, &request)
+            .await
+            .unwrap()
+            .is_none());
+        let scan = rpc.state.lock().requests.last().unwrap().clone();
+        assert_eq!(scan["method"], "eth_getLogs");
+        assert_eq!(scan["params"][0]["fromBlock"], "0x69");
+        assert_eq!(scan["params"][0]["toBlock"], "0x69");
     }
 
     #[test]
