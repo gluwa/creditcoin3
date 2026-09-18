@@ -429,7 +429,7 @@ async fn resolve_active_set(cfg: &Config) -> Option<HashSet<Address>> {
 /// path logs and carries on; only the initial call in `run` treats a failure as fatal, and there a
 /// provider we could never build at all genuinely is.
 async fn connect_l1_provider(rpc: &str) -> anyhow::Result<impl Provider + Clone + 'static> {
-    tokio::time::timeout(RPC_ATTEMPT_TIMEOUT, ProviderBuilder::new().on_builtin(rpc))
+    tokio::time::timeout(RPC_ATTEMPT_TIMEOUT, ProviderBuilder::new().connect(rpc))
         .await
         .map_err(|_| {
             anyhow!("connect Creditcoin L1 EVM RPC timed out after {RPC_ATTEMPT_TIMEOUT:?}")

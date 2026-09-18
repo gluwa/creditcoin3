@@ -85,6 +85,5 @@ pub async fn authorized_at<P: Provider>(
         .block(BlockNumberOrTag::Number(block).into())
         .call()
         .await
-        .context("historical Discovery membership lookup failed")?
-        ._0)
+        .context("historical Discovery membership lookup failed")?)
 }

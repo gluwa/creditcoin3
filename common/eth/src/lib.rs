@@ -1,5 +1,7 @@
 use alloy::{
-    consensus::{proofs::ordered_trie_root_with_encoder, ReceiptEnvelope, TxEnvelope},
+    consensus::{
+        proofs::ordered_trie_root_with_encoder, transaction::Recovered, ReceiptEnvelope, TxEnvelope,
+    },
     eips::eip2718::Encodable2718 as _,
     hex::ToHexExt,
     network::{
@@ -441,8 +443,7 @@ impl OrderedBlock {
         }
 
         let header = block.header.clone();
-        let mut txs: Vec<AnyRpcTransaction> =
-            block.inner.transactions.into_transactions().collect();
+        let mut txs: Vec<AnyRpcTransaction> = block.into_transactions_iter().collect();
 
         if txs.iter().any(|t| t.transaction_index.is_none()) {
             return Err(Error::NotFullTransactionsFetched(expected_number));
@@ -546,7 +547,9 @@ impl OrderedBlock {
         encoding: EncodingVersion,
     ) -> Result<TxRx, Error> {
         let receipt_ty = rx.inner.inner.r#type;
-        match tx.inner.inner {
+        let tx = tx.into_inner();
+        let (envelope, from) = tx.inner.into_parts();
+        match envelope {
             AnyTxEnvelope::Ethereum(envelope) => {
                 let tx_ty = envelope.tx_type() as u8;
                 if receipt_ty != tx_ty {
@@ -558,12 +561,11 @@ impl OrderedBlock {
                     });
                 }
                 let tx = Transaction {
-                    inner: envelope,
-                    block_hash: tx.inner.block_hash,
-                    block_number: tx.inner.block_number,
-                    transaction_index: tx.inner.transaction_index,
-                    effective_gas_price: tx.inner.effective_gas_price,
-                    from: tx.inner.from,
+                    inner: Recovered::new_unchecked(envelope, from),
+                    block_hash: tx.block_hash,
+                    block_number: tx.block_number,
+                    transaction_index: tx.transaction_index,
+                    effective_gas_price: tx.effective_gas_price,
                 };
                 let rx = rx.inner.map_inner(|any| {
                     let inner = any.inner;
@@ -582,7 +584,7 @@ impl OrderedBlock {
                     encoding,
                 })
             }
-            AnyTxEnvelope::Unknown(ref unknown) => {
+            AnyTxEnvelope::Unknown(unknown) => {
                 let ty = unknown.inner.ty.0;
                 if !family.supports_tx_type(ty) {
                     return Err(Error::UnsupportedTransactionType { block, ty, family });
@@ -600,12 +602,9 @@ impl OrderedBlock {
                 let deposit_fields =
                     op_stack::DepositReceiptFields::from_other_fields(&rx.other, unknown.hash)
                         .map_err(|source| Error::Deposit { block, source })?;
-                let deposit = op_stack::DepositTransaction::try_from_unknown(
-                    unknown,
-                    tx.inner.from,
-                    deposit_fields,
-                )
-                .map_err(|source| Error::Deposit { block, source })?;
+                let deposit =
+                    op_stack::DepositTransaction::try_from_unknown(&unknown, from, deposit_fields)
+                        .map_err(|source| Error::Deposit { block, source })?;
                 Ok(TxRx::OpDeposit {
                     tx: Box::new(deposit),
                     rx: Box::new(rx.inner),

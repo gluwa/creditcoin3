@@ -197,7 +197,7 @@ async fn read_attestors<P: Provider>(
         .attestors()
         .call()
         .await?;
-    Ok(ret._0.into_iter().collect())
+    Ok(ret.into_iter().collect())
 }
 
 async fn read_threshold<P: Provider>(provider: &P, validator: Address) -> anyhow::Result<U256> {
@@ -205,7 +205,7 @@ async fn read_threshold<P: Provider>(provider: &P, validator: Address) -> anyhow
         .threshold()
         .call()
         .await?;
-    Ok(ret._0)
+    Ok(ret)
 }
 
 /// Connect to the destination chain and read the validator's attestor set **and** quorum threshold
@@ -216,7 +216,7 @@ pub(super) async fn fetch_attestor_set_and_threshold(
     validator: Address,
 ) -> anyhow::Result<(HashSet<Address>, u64)> {
     let provider = ProviderBuilder::new()
-        .on_builtin(dest_rpc_url)
+        .connect(dest_rpc_url)
         .await
         .map_err(|err| anyhow::anyhow!("connect destination chain RPC: {err}"))?;
     let set = read_attestors(&provider, validator).await?;

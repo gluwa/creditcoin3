@@ -86,6 +86,6 @@ zeroize = { workspace = true }
 [dev-dependencies]
 # Anvil bindings for the write-ability end-to-end test (`tests/e2e_anvil.rs`, #[ignore]d; needs
 # the `anvil` binary from foundry installed).
-alloy-node-bindings = "0.11"
+alloy-node-bindings = "~1.6"
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
