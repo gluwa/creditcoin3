@@ -117,6 +117,18 @@ impl Mock {
     /// Like [`Mock::start`], with every block hash salted by `fork` so mocks with different salts
     /// disagree on block identity.
     fn start_on_fork(safe: Option<u64>, finalized: Option<u64>, fail_tags: bool, fork: u8) -> Self {
+        Self::start_with(safe, finalized, fail_tags, fork, 100)
+    }
+
+    /// Like [`Mock::start_on_fork`], serving no block above `head`: a node that stopped syncing
+    /// there.
+    fn start_with(
+        safe: Option<u64>,
+        finalized: Option<u64>,
+        fail_tags: bool,
+        fork: u8,
+        head: u64,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         listener.set_nonblocking(true).unwrap();
@@ -160,7 +172,7 @@ impl Mock {
                 let response = match request["method"].as_str().unwrap() {
                     "eth_chainId" => json!({"jsonrpc":"2.0","id":request["id"],"result":"0x539"}),
                     "eth_blockNumber" => {
-                        json!({"jsonrpc":"2.0","id":request["id"],"result":"0x64"})
+                        json!({"jsonrpc":"2.0","id":request["id"],"result":format!("{head:#x}")})
                     }
                     "eth_getBlockByNumber" => {
                         let tag = request["params"][0].as_str().unwrap();
@@ -181,11 +193,16 @@ impl Mock {
                                     numbered(finalized)
                                 }
                             }
-                            "latest" => header(100, fork),
-                            n => header(
-                                u64::from_str_radix(n.trim_start_matches("0x"), 16).unwrap(),
-                                fork,
-                            ),
+                            "latest" => header(head, fork),
+                            n => {
+                                let n =
+                                    u64::from_str_radix(n.trim_start_matches("0x"), 16).unwrap();
+                                if n > head {
+                                    Value::Null
+                                } else {
+                                    header(n, fork)
+                                }
+                            }
                         };
                         json!({"jsonrpc":"2.0","id":request["id"],"result":result})
                     }
@@ -322,9 +339,9 @@ async fn erroring_primary_falls_through_to_the_fallback_provider() {
     assert!(backup.tag_reads.load(Ordering::SeqCst) >= 2);
 }
 
-/// The primary's answer leads. A fallback that is further along confirms the candidate's identity
-/// at that height; a fallback that is behind is logged and skipped, and cannot drag the boundary
-/// down. Both providers are asked the tag each time.
+/// The primary's answer leads. A fallback whose tag is elsewhere, ahead or behind, is asked for the
+/// block at the candidate height and confirms the candidate's identity by hash; a fallback that is
+/// behind never drags the boundary down. Both providers are asked the tag each time.
 #[tokio::test]
 async fn the_primary_leads_and_fallbacks_confirm_or_step_aside() {
     // Fallback ahead of the primary: it confirms the primary's block by hash.
@@ -343,7 +360,8 @@ async fn the_primary_leads_and_fallbacks_confirm_or_step_aside() {
     assert_eq!(primary.tag_reads.load(Ordering::SeqCst), 1);
     assert_eq!(ahead.tag_reads.load(Ordering::SeqCst), 1);
 
-    // Fallback behind the primary: it cannot confirm, and it does not hold the primary back.
+    // Fallback whose tag is behind the primary: its tag cannot confirm, so it is asked for the
+    // block at the primary's height and confirms that by hash. It does not hold the primary back.
     let primary = Mock::start(Some(90), Some(70), false);
     let behind = Mock::start(Some(88), Some(66), false);
     let client = Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&behind.url), None)
@@ -358,12 +376,13 @@ async fn the_primary_leads_and_fallbacks_confirm_or_step_aside() {
     );
 }
 
-/// A fallback that stopped syncing keeps answering the same tag height forever, and its block at
-/// that height hashes identically to the canonical chain. It must not pin the boundary.
+/// A fallback that stopped syncing keeps answering the same tag height forever, its block at that
+/// height hashes identically to the canonical chain, and it has nothing at the candidate height.
+/// It must neither pin the boundary nor veto it.
 #[tokio::test]
 async fn a_stale_fallback_cannot_pin_maturity() {
     let primary = Mock::start(Some(90), Some(70), false);
-    let stale = Mock::start(Some(40), Some(20), false);
+    let stale = Mock::start_with(Some(40), Some(20), false, 0, 45);
     let client = Client::new_with_fallbacks(&primary.url, std::slice::from_ref(&stale.url), None)
         .await
         .unwrap();
@@ -392,6 +411,33 @@ async fn a_stale_fallback_cannot_pin_maturity() {
             .unwrap(),
         95
     );
+}
+
+/// A forked primary that sits a step ahead of honest fallbacks: their tags are lower, but they hold
+/// the canonical block at the primary's height, and that hash must still be compared. Otherwise a
+/// forked primary could set the boundary unchallenged just by being slightly ahead.
+#[tokio::test]
+async fn a_forked_primary_ahead_of_honest_fallbacks_is_still_challenged() {
+    let forked_primary = Mock::start_on_fork(Some(90), Some(70), false, 7);
+    let honest = Mock::start_on_fork(Some(88), Some(66), false, 0);
+    let client =
+        Client::new_with_fallbacks(&forked_primary.url, std::slice::from_ref(&honest.url), None)
+            .await
+            .unwrap();
+    match client.get_block_by_tag(BlockTag::Safe).await {
+        Err(Error::BlockTagDisagreement {
+            tag,
+            number,
+            expected,
+            actual,
+            ..
+        }) => {
+            assert_eq!((tag, number), (BlockTag::Safe, 90));
+            assert_eq!(format!("{expected:?}"), block_hash(90, 7));
+            assert_eq!(format!("{actual:?}"), block_hash(90, 0));
+        }
+        other => panic!("expected the lagging fallback to challenge the primary, got {other:?}"),
+    }
 }
 
 /// A provider that accepts the connection and never answers must not hang the lookup, and with it
