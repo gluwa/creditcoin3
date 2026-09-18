@@ -10,11 +10,11 @@ import {
     waitEras,
     initAliceKeyring,
     increaseValidatorCount,
-    randomFundedAccount,
     randomTestAccount,
     setUpProxy,
     tearDownProxy,
     CLIBuilder,
+    fundedAccountPool,
 } from '../helpers';
 import { describeIf, sleep } from '../../utils';
 import { parseAmount } from '../../../commands/options';
@@ -30,6 +30,7 @@ describeIf(
         let proxy: any;
         let caller: any;
         let sudoSigner: KeyringPair;
+        let accounts: ReturnType<typeof fundedAccountPool>;
         let CLI: any;
         let nonProxiedCli: any;
 
@@ -38,6 +39,7 @@ describeIf(
 
             // Create a reference to sudo for funding accounts
             sudoSigner = initAliceKeyring();
+            accounts = fundedAccountPool(api, sudoSigner);
             await increaseValidatorCount(api, sudoSigner);
         }, 20_000);
 
@@ -56,8 +58,8 @@ describeIf(
             expect(stashBalance.toString()).toBe(fundAmount.toString());
 
             // configure proxy
-            proxy = await randomFundedAccount(api, sudoSigner);
-            const wrongProxy = await randomFundedAccount(api, sudoSigner);
+            proxy = await accounts.next();
+            const wrongProxy = await accounts.next();
             CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
         }, 120_000);
 

@@ -2,12 +2,12 @@ import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import {
     initAliceKeyring,
     increaseValidatorCount,
-    randomFundedAccount,
     setUpProxy,
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
     setMinBondConfig,
+    fundedAccountPool,
 } from '../helpers';
 import { newApi, ApiPromise, KeyringPair, BN, MICROUNITS_PER_CTC } from '../../../lib';
 import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
@@ -17,6 +17,7 @@ describe('validate', () => {
     let caller: any;
     let proxy: any;
     let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
     let CLI: any;
     let nonProxiedCli: any;
 
@@ -25,15 +26,16 @@ describe('validate', () => {
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
     });
 
     beforeEach(async () => {
         // Create and fund the test and proxy account
-        caller = await randomFundedAccount(api, sudoSigner);
+        caller = await accounts.next();
         nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
 
-        proxy = await randomFundedAccount(api, sudoSigner);
-        const wrongProxy = await randomFundedAccount(api, sudoSigner);
+        proxy = await accounts.next();
+        const wrongProxy = await accounts.next();
         CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 

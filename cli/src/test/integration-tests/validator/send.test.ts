@@ -1,12 +1,5 @@
 import { testIf, try_catch_else_finally } from '../../utils';
-import {
-    initAliceKeyring,
-    randomFundedAccount,
-    setUpProxy,
-    tearDownProxy,
-    ALICE_NODE_URL,
-    CLIBuilder,
-} from '../helpers';
+import { initAliceKeyring, setUpProxy, tearDownProxy, ALICE_NODE_URL, CLIBuilder, fundedAccountPool } from '../helpers';
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
 
 describe('Send command', () => {
@@ -15,6 +8,7 @@ describe('Send command', () => {
     let proxy: any;
     let wrongProxy: any;
     let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
     let CLI: any;
     let nonProxiedCli: any;
 
@@ -23,15 +17,16 @@ describe('Send command', () => {
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
     });
 
     beforeEach(async () => {
         // Create and fund the test and proxy account
-        caller = await randomFundedAccount(api, sudoSigner);
+        caller = await accounts.next();
         nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
 
-        proxy = await randomFundedAccount(api, sudoSigner);
-        wrongProxy = await randomFundedAccount(api, sudoSigner);
+        proxy = await accounts.next();
+        wrongProxy = await accounts.next();
         CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 
