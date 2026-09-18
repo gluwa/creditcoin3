@@ -471,6 +471,11 @@ pub async fn poll_once<P: Provider>(
             Ok(()) => {
                 *last_seen = chunk_to;
                 from_block = chunk_to + 1;
+                // Grow back after a successful chunk so one dense prefix does not turn the rest
+                // of a wide backfill into a crawl of tiny queries (bugbot). Doubling rather than
+                // snapping to the maximum keeps a still-dense region from paying a failed
+                // oversized query on every step.
+                span = span.saturating_mul(2).min(MAX_LOG_BLOCK_RANGE);
             }
             Err(err) if err.is::<LogRangeTooLarge>() => {
                 // Process and persist each smaller prefix before fetching the next. Collecting
