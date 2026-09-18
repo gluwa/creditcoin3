@@ -7,6 +7,14 @@ Ordering is load-bearing: contracts before pallet wiring (the extrinsics take ad
 wiring before attestors (they idle until `WriteAbilityConfigs` is set — by design), attestors
 before the relayer (it aggregates their votes).
 
+For the all-Outbox upgrade in #1382, complete the
+[operator rollout requirements](docs/outbox-lifecycle.md#operator-rollout-requirements) before
+rolling the image: archive state across the full scan/recovery range, an explicit approved
+`writeAbility.startBlock` in every affected AttestorSet CR, and relayer multi-Outbox support
+before allowing non-default publications. The relayer work remains the rollout gate in
+[issue #1373](https://github.com/gluwa/creditcoin3/issues/1373); the default-only relayer described
+below cannot deliver every publication authorized by the upgraded attestors.
+
 ## 0. Version matrix (pin these, no mutable tags)
 
 | Component | Source | Version to deploy |
@@ -48,9 +56,10 @@ deploy JSON; keep it, everything downstream consumes it.
 
 1. **FeeRegistry** — point its core-fee provider at the **chain-info precompile**
    (`ICoreFeeProvider` = `0x…0FD3`); register the quoter EOA address.
-2. **OutboxFactory** (CREATE2) → create the chain-8 **Outbox** through it (the 5-arg
-   `OutboxCreated` event is what the attestor resolver and the indexer both scan for — do NOT
-   deploy an Outbox directly).
+2. **OutboxFactory** (CREATE2) → create the chain-8 **Outbox** through it. Register it in the
+   governance-selected OutboxDiscovery before publishing. Factory creation alone does not
+   authorize an Outbox; the upgraded attestor and indexer check Discovery membership at each
+   publication's finalized source block.
 3. **RelayerContract** (fee ledger: `publishAndCollectRelayerFee`, `claimDelivery`,
    `withdrawNative`).
 4. **AcknowledgmentValidator** — wired as the Outbox's ack validator; verifies native USC proofs
@@ -77,7 +86,11 @@ first smoke test, set a real value before opening to users.
 
 ## 4. Attestor rollout
 
-1. Roll the devnet attestor StatefulSet to the post-#1215 image (same tag as the node). IaC:
+1. For the #1382 upgrade, verify archive support and set the approved `writeAbility.startBlock`
+   in **all affected AttestorSet CRs before rolling the image**, including Base Sepolia. Keep
+   existing cursors; a legacy cursor otherwise triggers a genesis replay. The cutoff excludes
+   older automatic recovery, so inventory pending deliveries and arrange reobservation as needed.
+   Then roll the devnet attestor StatefulSet to the post-#1215 image (same tag as the node). IaC:
    `cc-networks-iac/k8s`, branch `usc/messaging`.
 2. Per-attestor write-ability env/flags: destination RPC (Sepolia — give each a **different
    provider** where possible; single-LB skew is the known `BlockHeaderRootsMismatch` cause),
@@ -87,8 +100,9 @@ first smoke test, set a real value before opening to users.
    set-update votes and the relayer submits `submitAttestorSetUpdate` — this replaces any
    bootstrap set from §2a.1. Watch for `proposing attestor-set update` then
    `EOAValidator attestor set updated`.
-4. Verify: logs show Outbox resolved via chain-info → factory scan, and `MessagePublished`
-   subscription active.
+4. Verify: logs show the route resolved through chain-info and Discovery, the archive requirement
+   at listener startup, and the all-Outbox scan advancing through finalized blocks without
+   historical-state failures.
 
 ## 5. Relayer deploy
 
@@ -115,9 +129,12 @@ Fund both signers before start; the relayer pays destination gas out of pocket a
 
 ## 6. Indexer
 
-Deploy the post-#1215 cc3-indexer (new handlers + `canAck` schema change ⇒ schema migration /
-reindex of the Outbox entities). It discovers Outboxes chain-wide by `OutboxCreated` topic — no
-per-deployment config needed.
+The #1383 upgrade requires a fresh reindex with historical archive access. Admission uses the
+governance-selected Discovery registry at the publication block; factory events are discovery
+hints only. On usc-devnet, all publications before the **10 September 2026 Discovery upgrade**
+are excluded and disappear from the rebuilt dashboard. This is accepted devnet history loss;
+there is no quarantine/backfill promotion under the new policy. Other environments require an
+explicit history-migration decision before reindexing. See the indexer README on #1383.
 
 ## 7. Quoter — the one blocked component
 
@@ -158,7 +175,9 @@ Mirror the e2e assertions, on devnet:
 
 1. Merge #1215 (CI + review gate).
 2. Relayer v0.1.1 image published (release in flight).
-3. Quoter v3 preimage fix (§7) — the only code change left.
+3. Quoter v3 preimage fix (§7).
 4. IaC: relayer chart pin/probes/Secret, quoter chart (0% today), attestor env additions.
 5. Kevin: post-#23 npm publish (unblocks clean deploy scripts; manual `USC_CONTRACTS_DIR` path
    works meanwhile).
+6. Relayer multi-Outbox coverage (#1373), archive access and explicit scan floors before the
+   #1382 rollout; acknowledge the devnet history loss before the #1383 reindex.
