@@ -49,6 +49,7 @@ fn message(outbox: Address, block: u64, id: u8) -> Log {
 struct Scenario {
     logs: Vec<Log>,
     fail_history: bool,
+    fail_history_at: Option<u64>,
     log_cap: Option<usize>,
     ignore_log_filter: bool,
     calls: Vec<Value>,
@@ -68,6 +69,7 @@ impl Rpc {
         let state = Arc::new(Mutex::new(Scenario {
             logs,
             fail_history: false,
+            fail_history_at: None,
             log_cap: None,
             ignore_log_filter: false,
             calls: vec![],
@@ -161,7 +163,7 @@ async fn handle(
             json!(logs)
         }
         "eth_call" => {
-            if state.fail_history {
+            if state.fail_history || state.fail_history_at == Some(height(&p[1])) {
                 return Json(
                     json!({"jsonrpc":"2.0", "id":request["id"], "error":{"code":-32000,"message":"historical state unavailable"}}),
                 );
@@ -330,4 +332,27 @@ async fn capped_ranges_split_and_single_block_spam_falls_back_to_receipts() {
         .calls
         .iter()
         .any(|c| c["method"] == "eth_getTransactionReceipt"));
+}
+
+#[tokio::test]
+async fn split_scan_commits_drained_prefix_before_a_later_history_failure() {
+    let rpc = Rpc::new(vec![message(A, 119, 1), message(B, 135, 2)]).await;
+    {
+        let mut state = rpc.state.lock().unwrap();
+        state.log_cap = Some(1);
+        state.fail_history_at = Some(135);
+    }
+    let mut cursor = 100;
+    assert!(poll(&rpc, &mut cursor).await.is_err());
+    assert_eq!(
+        cursor, 120,
+        "successfully drained first split must be committed independently"
+    );
+    rpc.state.lock().unwrap().fail_history_at = None;
+    let messages = poll(&rpc, &mut cursor).await.unwrap();
+    assert_eq!(
+        messages.iter().map(|m| m.message_id[0]).collect::<Vec<_>>(),
+        [2]
+    );
+    assert_eq!(cursor, 140);
 }
