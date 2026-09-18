@@ -149,7 +149,7 @@ bonds.
 ./scripts/new-attestor-account.sh
 ```
 
-Writes `ATTESTOR_SS58` / `ATTESTOR_SEED` **in place** in .env. 
+Writes `ATTESTOR_SS58` / `ATTESTOR_SEED` **in place** in .env.
 
 - Fund the account
 In polkadot.js go to Developer -> Sudo and select the call Balances -> forceSetBalance.
@@ -249,7 +249,7 @@ node scripts/show-balances.js
 
 After a full run we should have:
 
-Stash -> ` ERC-20 (ATC)               101.0 ATC` 
+Stash -> ` ERC-20 (ATC)               101.0 ATC`
 
-This indicates that we got our bond of 100 ATC back, and that we claimed 1 ATC as a reward for 
+This indicates that we got our bond of 100 ATC back, and that we claimed 1 ATC as a reward for
 submitting 1 attestation.
