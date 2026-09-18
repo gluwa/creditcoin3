@@ -1785,12 +1785,16 @@ declare module '@polkadot/types/lookup' {
         readonly asAttestCoinTokenSet: {
             readonly token: H160;
         } & Struct;
+        readonly isRewardVaultSet: boolean;
+        readonly asRewardVaultSet: {
+            readonly vault: H160;
+        } & Struct;
         readonly isRewardSkippedNoStash: boolean;
         readonly asRewardSkippedNoStash: {
             readonly chainKey: u64;
             readonly skipped: u32;
         } & Struct;
-        readonly type: 'CommitSignersRewarded' | 'AttestCoinTokenSet' | 'RewardSkippedNoStash';
+        readonly type: 'CommitSignersRewarded' | 'AttestCoinTokenSet' | 'RewardVaultSet' | 'RewardSkippedNoStash';
     }
 
     /** @name FrameSystemPhase (117) */
@@ -4081,7 +4085,11 @@ declare module '@polkadot/types/lookup' {
         readonly asSetAttestCoinToken: {
             readonly token: H160;
         } & Struct;
-        readonly type: 'SetAttestCoinToken';
+        readonly isSetRewardVault: boolean;
+        readonly asSetRewardVault: {
+            readonly vault: H160;
+        } & Struct;
+        readonly type: 'SetAttestCoinToken' | 'SetRewardVault';
     }
 
     /** @name PalletSudoError (369) */
@@ -4865,11 +4873,18 @@ declare module '@polkadot/types/lookup' {
     /** @name PalletAttestCoinRewardsError (476) */
     interface PalletAttestCoinRewardsError extends Enum {
         readonly isTokenNotConfigured: boolean;
+        readonly isVaultNotConfigured: boolean;
         readonly isNotStash: boolean;
         readonly isInsufficientAccrued: boolean;
         readonly isBadClaimNonce: boolean;
         readonly isBadWithdrawNonce: boolean;
-        readonly type: 'TokenNotConfigured' | 'NotStash' | 'InsufficientAccrued' | 'BadClaimNonce' | 'BadWithdrawNonce';
+        readonly type:
+            | 'TokenNotConfigured'
+            | 'VaultNotConfigured'
+            | 'NotStash'
+            | 'InsufficientAccrued'
+            | 'BadClaimNonce'
+            | 'BadWithdrawNonce';
     }
 
     /** @name FrameSystemExtensionsCheckNonZeroSender (479) */

@@ -38,15 +38,35 @@ function mappedAccountId(evmAddress) {
     return blake2AsU8a(payload, 256);
 }
 
-/** Set `key=value` in .env, replacing an existing line or appending a new one. */
+/**
+ * Set `key=value` in .env.
+ *
+ * Replaces **every** existing line for the key rather than the first, so a file that already
+ * picked up duplicates (e.g. from a `>>` append) heals itself instead of growing a second
+ * stale copy. Only a genuinely absent key is appended.
+ */
+function setEnvKey(contents, key, value) {
+    const line = `${key}=${value}`;
+    const existing = new RegExp(`^${key}=.*$`, 'gm');
+    if (!existing.test(contents)) {
+        return `${contents.replace(/\n*$/, '\n')}${line}\n`;
+    }
+    let first = true;
+    return contents
+        .replace(new RegExp(`^${key}=.*$\n?`, 'gm'), () => {
+            if (first) {
+                first = false;
+                return `${line}\n`;
+            }
+            return '';
+        })
+        .replace(/\n*$/, '\n');
+}
+
 function writeEnv(entries) {
     let contents = fs.readFileSync(ENV_PATH, 'utf8');
     for (const [key, value] of Object.entries(entries)) {
-        const line = `${key}=${value}`;
-        const existing = new RegExp(`^${key}=.*$`, 'm');
-        contents = existing.test(contents)
-            ? contents.replace(existing, line)
-            : `${contents.replace(/\n*$/, '\n')}${line}\n`;
+        contents = setEnvKey(contents, key, value);
     }
     fs.writeFileSync(ENV_PATH, contents);
 }
@@ -66,23 +86,18 @@ function main() {
     const wallet = ethers.Wallet.createRandom();
     const accountId = mappedAccountId(wallet.address);
 
-    // The mnemonic is saved too, not just for recovery: the creditcoin CLI's
-    // `attestor` commands take the stash as a BIP39 phrase in CC_SECRET and
-    // reject a raw hex key, so steps 10 and 11 need this form.
     writeEnv({
         STASH_ADDRESS: wallet.address,
         STASH_PRIVATE_KEY: wallet.privateKey,
-        STASH_MNEMONIC: wallet.mnemonic.phrase,
     });
 
     console.log(`EVM address    ${wallet.address}`);
     console.log(`private key    ${wallet.privateKey}`);
-    console.log(`mnemonic       ${wallet.mnemonic.phrase}`);
     console.log();
     console.log(`mapped SS58    ${encodeAddress(accountId, SS58_PREFIX)}`);
     console.log(`mapped hex     ${ethers.hexlify(accountId)}`);
     console.log();
-    console.log(`Saved STASH_ADDRESS, STASH_PRIVATE_KEY and STASH_MNEMONIC to ${ENV_PATH}`);
+    console.log(`Saved STASH_ADDRESS and STASH_PRIVATE_KEY to ${ENV_PATH}`);
     console.log(`
 To fund it with CTC (step 5.2) you do not need the SS58 form — the runtime's
 lookup accepts raw EVM addresses, so in Polkadot.js pick the Address20 variant
