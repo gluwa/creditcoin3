@@ -17,11 +17,14 @@ STATE_DIR="${RESOURCE_MONITOR_DIR:-/var/tmp/resource-monitor}"
 SAMPLES="${STATE_DIR}/${LABEL}.tsv"
 PIDFILE="${STATE_DIR}/${LABEL}.pid"
 BASEFILE="${STATE_DIR}/${LABEL}.baseline"
+PATHFILE="${STATE_DIR}/${LABEL}.diskpath"
 INTERVAL="${RESOURCE_MONITOR_INTERVAL:-10}"
 # Defaults to the workspace, which is right for build jobs (cargo target dir).
 # Jobs that write their bulk data elsewhere MUST set RESOURCE_MONITOR_DISK_PATH
 # -- runtime-upgrade uses /mnt, the compatibility workflows /var/tmp. Watching
 # the wrong path silently reports ~0% once that data lands on its own volume.
+# Only the `start` step needs to set it: the path is recorded there and read
+# back by `report`, so the two cannot disagree.
 DISK_PATH="${RESOURCE_MONITOR_DISK_PATH:-${GITHUB_WORKSPACE:-$PWD}}"
 
 # One awk pass over /proc/meminfo -> "used_mb total_mb swap_used_mb".
@@ -76,6 +79,7 @@ start)
     # occupy space that is not this job's doing. Peak stays absolute (the plan
     # has to hold it) but the delta says what the job itself needed.
     disk_used_mb > "$BASEFILE"
+    printf '%s\n' "$DISK_PATH" > "$PATHFILE"
     (
         # stdio must be detached. Inheriting the step's pipe makes
         # actions/runner wait out its full 5s "STDIO streams did not close"
@@ -108,6 +112,13 @@ report)
     if [ ! -f "$SAMPLES" ]; then
         echo "WARNING: no sample file for '${LABEL}' - did the start step run with the same label?"
         exit 0
+    fi
+
+    # Measure the same filesystem the sampler did. Without this, report falls
+    # back to the workspace and mislabels the disk row (plus its total) for any
+    # job whose data lives elsewhere.
+    if [ -s "$PATHFILE" ]; then
+        DISK_PATH=$(cat "$PATHFILE")
     fi
 
     # One final sample over a 1s window so a job shorter than the interval
