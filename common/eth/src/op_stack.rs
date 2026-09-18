@@ -46,6 +46,13 @@
 //! RPC metadata reports a nonzero execution nonce. Do not use that historical zero to derive
 //! a contract-creation address. There are no signature fields: deposits are unsigned.
 //!
+//! `gasUsed` is the difference between this receipt's authenticated `cumulativeGasUsed` and
+//! the preceding receipt's value (zero before the first transaction). The block pipeline
+//! canonicalizes it before leaf encoding; the RPC `gasUsed` field is unauthenticated metadata.
+//! Before Regolith this difference is zero for system deposits and the gas limit for user
+//! deposits; from Regolith onward it records actual gas usage, independently of Canyon's
+//! change to nonce commitments.
+//!
 //! This layout is the source of truth until it is upstreamed into `usc-abi-encoding`; keep the
 //! two in sync when that happens.
 
@@ -87,6 +94,12 @@ pub enum DepositError {
         hash: B256,
         transaction_nonce: u64,
         receipt_nonce: u64,
+    },
+    #[error("deposit receipt for {hash}: cumulative gas {cumulative} is less than the previous receipt's {previous}")]
+    DecreasingCumulativeGas {
+        hash: B256,
+        previous: u64,
+        cumulative: u64,
     },
 }
 
@@ -410,6 +423,9 @@ pub const DEPOSIT_LEAF_TX_TYPE: u8 = DEPOSIT_TX_TYPE;
 /// ABI-encode the Merkle leaf for a (deposit tx, receipt) pair. See the [module docs](self) for
 /// the layout. Returns `None` only if `alloy`'s dynamic ABI encoder refuses a value, which cannot
 /// happen for the fixed shapes built here; the `Option` keeps parity with `usc-abi-encoding`.
+/// `rx.gas_used` must first be derived from the ordered, root-verified cumulative receipts,
+/// as done by [`crate::OrderedBlock::try_from_fetched_block`]. A standalone RPC receipt does
+/// not authenticate this field.
 pub fn abi_encode_deposit_leaf(
     tx: &DepositTransaction,
     rx: &TransactionReceipt<AnyReceiptEnvelope<RpcLog>>,

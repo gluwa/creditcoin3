@@ -9,3 +9,8 @@ The deposit common nonce is the receipt-root-authenticated `depositNonce` from C
 Before Canyon the leaf stores zero (unavailable): RPC nonce metadata is not committed by either
 header root and must not affect the attestation root. This is a leaf-format convention, not a
 claim that the historical execution nonce was zero. See the [OP deposit specification](https://specs.optimism.io/protocol/deposits.html).
+
+The deposit receipt gas in the leaf is derived from the difference between consecutive
+`cumulativeGasUsed` values committed by `receiptsRoot`, never RPC `gasUsed` metadata.
+This preserves pre-Regolith system-deposit zero gas and user-deposit gas-limit accounting,
+as well as actual gas usage from Regolith onward. Canyon does not change this gas rule.
