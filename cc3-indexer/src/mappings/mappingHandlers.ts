@@ -41,7 +41,7 @@ import {
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, fetchAttestationParams, chainDataId } from './initStore';
 import { flushStore } from './storeUtils';
-import { promotePendingOutboxes, purgePendingOutboxes } from './evmHandlers';
+import { admitDiscoverySnapshot, promotePendingOutboxes, purgePendingOutboxes } from './evmHandlers';
 
 const RuntimeAttestorStatus = {
     active: 0,
@@ -178,9 +178,8 @@ export async function handleSupportedChainRegistered(event: SubstrateEvent): Pro
 
 // USC write-ability: an operator registered an OutboxFactory for a chain key
 // (supportedChains.OutboxFactoryRegistered { chain_key, outbox_factory_addr }). Recorded for
-// display / to resolve OutboxContract.factory. The registration is also the authorization gate for
-// chain-wide OutboxCreated discovery: deployment must register the factory before creating an
-// Outbox, otherwise the event is intentionally rejected as unauthenticated.
+// display / to resolve OutboxContract.factory. Factory deployment is permissionless, so this
+// registration never authorizes an Outbox without canonical Discovery membership.
 export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Promise<void> {
     const {
         event: {
@@ -212,9 +211,20 @@ export async function handleOutboxFactoryRegistered(event: SubstrateEvent): Prom
     });
     await Promise.all([factory.save(), registration.save()]);
 
-    // Backfill: this registration may retroactively authorize an Outbox whose OutboxCreated (and
-    // messages) arrived first and sit in quarantine — promote them now instead of losing them.
-    await promotePendingOutboxes(BigInt(chainKey.toString()), address);
+    await promotePendingOutboxes(BigInt(chainKey.toString()), address, Number(blockNumber));
+}
+
+// Read the registry at this indexed height so a deployment made before governance registration
+// is still discovered. New publications are authorized individually, never retroactively.
+export async function handleOutboxDiscoveryRegistered(event: SubstrateEvent): Promise<void> {
+    const [chainKey, address] = event.event.data;
+    await admitDiscoverySnapshot(
+        BigInt(chainKey.toString()),
+        address.toString().toLowerCase(),
+        event.block.block.header.number.toNumber(),
+        event.block.timestamp ? BigInt(event.block.timestamp.getTime()) : BigInt(0),
+        event.extrinsic?.extrinsic.hash.toHex() ?? '0x',
+    );
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {

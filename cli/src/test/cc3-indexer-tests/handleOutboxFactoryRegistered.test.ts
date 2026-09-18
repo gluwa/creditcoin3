@@ -6,7 +6,7 @@ import { graphQLQuery } from './common';
 
 // USC write-ability: `supportedChains.set_outbox_factory_addr` emits OutboxFactoryRegistered, which
 // the indexer records both as a display-oriented OutboxFactory and as the authoritative per-chain
-// OutboxFactoryRegistration used to authenticate chain-wide OutboxCreated discovery.
+// OutboxFactoryRegistration used for provenance; Discovery membership separately authorizes Outboxes.
 describe('handleOutboxFactoryRegistered()', () => {
     let api: ApiPromise;
     let root: KeyringPair;
