@@ -105,7 +105,7 @@ pub struct MessageVoteState {
     /// shedding a request under a full buffer just means that stall recovers on the next request).
     pub reobs_tx: mpsc::Sender<ReobservationRequest>,
     /// The `bytes32` write-ability chain key bound into every `messageHash` and used to resolve the
-    /// Outbox via `OutboxDiscovery.defaultOutbox`. Sourced from the on-chain `WriteAbilityConfigs`
+    /// Outbox via `historical OutboxDiscovery membership`. Sourced from the on-chain `WriteAbilityConfigs`
     /// entry when one is registered for this `chain_key`; derived locally (right-padded `u64`)
     /// otherwise.
     pub destination_chain_key: B256,
@@ -628,7 +628,10 @@ pub async fn run(
             () = tokio::time::sleep(std::time::Duration::from_secs(OUTBOX_RESOLVE_RETRY_SECS)) => {}
         }
     };
-    tracing::info!(outbox = %resolved.address, "✅ write-ability activated — Outbox resolved");
+    tracing::info!(
+        chain_key = resolved.chain_key,
+        "✅ write-ability route activated"
+    );
 
     let signer = signing::MessageSigner::from_seed(&seed).map_err(Error::WriteAbility)?;
     let our_address = signer.address();
@@ -643,14 +646,10 @@ pub async fn run(
     let confirmation_depth = cfg.block_confirmation_depth;
     // Fall back to the pre-resolution head (not "now") so the resolve-wait window is covered.
     let scan_from = cfg.start_block.or(Some(head_before_resolve));
-    // Durable scan cursor: persist `last_seen` so a restart resumes exactly where it
-    // left off instead of skipping down-time messages / replaying history. Scoped to the resolved
-    // Outbox address so a re-registration doesn't resume against a stale one.
-    let cursor_store = cursor::CursorStore::new(
-        &cfg.state_dir,
-        cfg.write_ability_chain_key,
-        resolved.address,
-    );
+    // One durable cursor covers all Outboxes for this chain: a chunk advances only after every
+    // candidate message has been authenticated at its historical source block and drained.
+    let cursor_store =
+        cursor::CursorStore::for_all_outboxes(&cfg.state_dir, cfg.write_ability_chain_key);
     tracing::info!(
         path = %cursor_store.path().display(),
         "🗂️ persisting Outbox scan cursor across restarts"
@@ -685,10 +684,8 @@ pub async fn run(
         .await
     });
 
-    // One live resolved-Outbox view feeds both the supervision loop below and the reobservation
-    // worker. The monitor re-polls the registry on the same cadence, so a rotation (governance
-    // called `setDefaultOutbox`/`removeOutbox` on `OutboxDiscovery`, or the chain key's registered
-    // discovery address itself changed) is picked up without a restart.
+    // One live routing view feeds both signing paths. Default-Outbox and Discovery-address
+    // changes do not replace listeners: source-block authorization is resolved for each message.
     let (resolved_tx, mut resolved_rx) = watch::channel(Some(resolved));
     let mut outbox_monitor = {
         let provider = l1_provider_rx.clone();
@@ -704,8 +701,7 @@ pub async fn run(
             token,
         ))
     };
-    // `listener` becomes `None` during a rotation gap (registry changed, replacement Outbox not yet
-    // resolved); `active_outbox` mirrors the last value taken from the watch for log context.
+    // `listener` becomes `None` while routing is paused; `active_outbox` retains log context.
     let mut listener = Some(listener);
     let mut active_outbox = Some(resolved);
 
@@ -851,30 +847,23 @@ pub async fn run(
                     old_listener.abort();
                     let _ = old_listener.await;
                 }
-                let old_outbox = active_outbox.map(|outbox| outbox.address);
+                let old_outbox = active_outbox;
                 active_outbox = next;
 
                 if let Some(resolved) = next {
                     tracing::warn!(
                         ?old_outbox,
-                        new_outbox = %resolved.address,
+                        new_route = ?resolved,
                         "🔄 registry rotation detected — switching Outbox listener"
                     );
                     // Hand the replacement listener the shared handle, not a boot-time clone: if
                     // the previous listener rebuilt the connection, this one starts on the live one.
                     let listener_provider = l1_provider_tx.clone();
                     let listener_token = shared.token.clone();
-                    let cursor_store = cursor::CursorStore::new(
-                        &cfg.state_dir,
-                        cfg.write_ability_chain_key,
-                        resolved.address,
-                    );
+                    let cursor_store = cursor::CursorStore::for_all_outboxes(&cfg.state_dir, cfg.write_ability_chain_key);
                     let listener_tx = tx.clone();
-                    // The registry doesn't report the Outbox's creation block, so the replacement
-                    // listener starts at the same boot-time floor as initial activation. Its cursor
-                    // file is keyed by address, so there is nothing persisted to resume from; a
-                    // rotation onto an Outbox that predates `scan_from` would miss its earlier
-                    // `MessagePublished` events, same as the initial-activation case.
+                    // Resume the same all-Outbox cursor after a signing-domain change. Any
+                    // newly registered Outbox is discovered by the historical block scan itself.
                     let swap_start = scan_from;
                     let listener_rpc = rpc.clone();
                     let listener_reconnect = move || {
@@ -897,7 +886,7 @@ pub async fn run(
                 } else {
                     tracing::warn!(
                         ?old_outbox,
-                        "⏸️ Outbox factory changed or was removed without a finalized replacement Outbox — signing paused"
+                        "⏸️ write-ability route disabled — signing paused"
                     );
                 }
             }
@@ -931,26 +920,19 @@ pub async fn run(
                     }
                     return Err(Error::WriteAbility(err));
                 };
-                // Aborting the old listener does not drain what it already queued, so after a
-                // rotation the channel can still hold messages observed on the superseded Outbox.
-                // Signing those would contradict the pause above (and the reobservation worker,
-                // which already refuses to serve requests while no Outbox is active), so gate on
-                // provenance rather than on the fact that a message arrived.
-                //
-                // Compare against the *live* watch value, not the `active_outbox` cache: this arm
-                // and the rotation arm are both ready when a rotation lands, so if this one wins
-                // the cache is still one rotation behind and would wave the stale message through.
+                // Default changes and scheduled removals do not invalidate historical messages.
+                // Only a changed signing domain may make an already-authenticated buffer stale.
                 let current = *resolved_rx.borrow();
                 match current {
-                    Some(active) if active.address == indexed.outbox => {
+                    Some(active) if active.destination_chain_key == indexed.destination_chain_key => {
                         produce_vote(&state, &shared.metrics, &signer, our_address, chain_key, indexed);
                     }
                     Some(active) => {
                         tracing::warn!(
                             message_id = %indexed.message_id,
                             observed_on = %indexed.outbox,
-                            active_outbox = %active.address,
-                            "dropping a message buffered from a superseded Outbox"
+                            active_route = ?active,
+                            "dropping a message buffered under a superseded signing domain"
                         );
                     }
                     None => {
@@ -999,16 +981,15 @@ fn child_exit_error(
     }
 }
 
-/// Continue resolving after activation and publish a new value whenever the discovery registry's
-/// `defaultOutbox` answer for this chain key changes. A read that comes back with nothing
-/// registered publishes `None` immediately so consumers stop signing the now-unlisted Outbox.
+/// Continue resolving after activation, replacing the routing snapshot only when its signing
+/// domain changes. Source-block Discovery authorization is performed by the scanners.
 #[allow(clippy::too_many_arguments)]
 async fn run_outbox_monitor<P: Provider + Clone>(
     provider_rx: watch::Receiver<P>,
     cfg: Config,
     destination_chain_key: B256,
-    current: resolver::ResolvedOutbox,
-    resolved_tx: watch::Sender<Option<resolver::ResolvedOutbox>>,
+    current: resolver::ResolvedRoute,
+    resolved_tx: watch::Sender<Option<resolver::ResolvedRoute>>,
     token: tokio_util::sync::CancellationToken,
 ) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(OUTBOX_RESOLVE_RETRY_SECS));
@@ -1037,11 +1018,11 @@ async fn run_outbox_monitor<P: Provider + Clone>(
                         "Outbox rotation check RPC attempt timed out after {RPC_ATTEMPT_TIMEOUT:?}"
                     ))
                 });
-                match rotation_action(&attempt, active.map(|o| o.address)) {
+                match rotation_action(&attempt, active) {
                     RotationAction::Swap(next) => {
                         tracing::info!(
-                            old = ?active.map(|outbox| outbox.address),
-                            new = %next.address,
+                            old = ?active,
+                            new = ?next,
                             "🧭 replacement Outbox resolved"
                         );
                         active = Some(next);
@@ -1051,9 +1032,8 @@ async fn run_outbox_monitor<P: Provider + Clone>(
                     }
                     RotationAction::Pause => {
                         tracing::warn!(
-                            old = ?active.map(|outbox| outbox.address),
-                            "Outbox registry no longer reports a default Outbox for this chain \
-                             key — pausing signing"
+                            old = ?active,
+                            "write-ability route is no longer enabled — pausing signing"
                         );
                         active = None;
                         if resolved_tx.send(None).is_err() {
@@ -1073,25 +1053,21 @@ async fn run_outbox_monitor<P: Provider + Clone>(
 /// What one rotation-monitor tick should do. Pure so it is testable without a live provider.
 #[derive(Debug, PartialEq)]
 enum RotationAction {
-    /// A different Outbox resolved — hot-swap the listener to it.
-    Swap(resolver::ResolvedOutbox),
-    /// The registry no longer reports a default Outbox for this chain key — publish `None` so
-    /// signing stops on the now-unlisted Outbox.
+    /// The signing domain changed — replace the listener's routing snapshot.
+    Swap(resolver::ResolvedRoute),
+    /// Routing is disabled — publish `None` so signing stops.
     Pause,
     Nothing,
 }
 
-/// A registry read is atomic and stateless, so a failed attempt carries no partial information
-/// about whether the registration actually changed — unlike the old log-scan cursor, there is
-/// nothing to consult but this attempt's own result. An `Err` therefore never pauses: a transient
-/// RPC failure must not drop an already-active listener, only the activation/quorum-outage failure
-/// budgets (elsewhere) escalate a truly dead provider.
+/// A transient RPC failure does not establish a different route. Historical membership checks
+/// still fail closed in the listener and reobservation paths while the provider is unavailable.
 fn rotation_action(
-    attempt: &anyhow::Result<Option<resolver::ResolvedOutbox>>,
-    active: Option<Address>,
+    attempt: &anyhow::Result<Option<resolver::ResolvedRoute>>,
+    active: Option<resolver::ResolvedRoute>,
 ) -> RotationAction {
     match attempt {
-        Ok(Some(next)) if active != Some(next.address) => RotationAction::Swap(*next),
+        Ok(Some(next)) if active != Some(*next) => RotationAction::Swap(*next),
         Ok(Some(_)) => RotationAction::Nothing,
         Ok(None) if active.is_some() => RotationAction::Pause,
         Ok(None) | Err(_) => RotationAction::Nothing,
@@ -1106,7 +1082,7 @@ fn rotation_action(
 #[allow(clippy::too_many_arguments)]
 async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
     provider_rx: watch::Receiver<P>,
-    mut resolved_rx: watch::Receiver<Option<resolver::ResolvedOutbox>>,
+    mut resolved_rx: watch::Receiver<Option<resolver::ResolvedRoute>>,
     state: Arc<MessageVoteState>,
     shared: Arc<Shared>,
     signer: signing::MessageSigner,
@@ -1141,11 +1117,8 @@ async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
                     &provider, &resolved, &state, &shared.metrics, &signer, our_address, chain_key,
                     confirmation_depth, &mut limiter, request,
                 );
-                // The Outbox is snapshotted above, so a rotation part-way through would have us
-                // re-fetch and re-sign against the superseded address. Abandon the in-flight
-                // response instead of finishing it: reobservation is a pull-based recovery path, so
-                // the requester just asks again once the new listener is up, and the per-message
-                // rate limiter keeps that bounded.
+                // Routing is snapshotted above. Abandon in-flight work if its signing domain
+                // changes; default changes and removals do not change this route or cancel recovery.
                 tokio::select! {
                     () = shared.token.cancelled() => return,
                     changed = resolved_rx.changed() => {
@@ -1154,7 +1127,7 @@ async fn run_reobservation_worker<P: alloy::providers::Provider + Clone>(
                             return;
                         }
                         tracing::warn!(
-                            observed_on = %resolved.address,
+                            route = ?resolved,
                             "abandoning an in-flight reobservation — the Outbox rotated mid-request"
                         );
                     }
@@ -1258,7 +1231,7 @@ fn produce_vote(
 #[allow(clippy::too_many_arguments)]
 async fn handle_reobservation<P: alloy::providers::Provider>(
     provider: &P,
-    resolved: &resolver::ResolvedOutbox,
+    resolved: &resolver::ResolvedRoute,
     state: &MessageVoteState,
     metrics: &metrics::Metrics,
     signer: &signing::MessageSigner,
@@ -1321,10 +1294,10 @@ mod tests {
     use super::*;
     use alloy::primitives::address;
 
-    fn outbox(addr: Address) -> resolver::ResolvedOutbox {
-        resolver::ResolvedOutbox {
-            address: addr,
-            destination_chain_key: B256::ZERO,
+    fn route(addr: Address) -> resolver::ResolvedRoute {
+        resolver::ResolvedRoute {
+            chain_key: 7,
+            destination_chain_key: addr.into_word(),
             creditcoin_chain_id: 42,
         }
     }
@@ -1360,14 +1333,14 @@ mod tests {
         );
     }
 
-    const OUTBOX_A: Address = address!("00000000000000000000000000000000000000aa");
-    const OUTBOX_B: Address = address!("00000000000000000000000000000000000000bb");
+    const KEY_A: Address = address!("00000000000000000000000000000000000000aa");
+    const KEY_B: Address = address!("00000000000000000000000000000000000000bb");
 
     #[test]
-    fn empty_registry_pauses_only_when_something_was_active() {
-        let none: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(None);
+    fn disabled_route_pauses_only_when_something_was_active() {
+        let none: anyhow::Result<Option<resolver::ResolvedRoute>> = Ok(None);
         assert_eq!(
-            rotation_action(&none, Some(OUTBOX_A)),
+            rotation_action(&none, Some(route(KEY_A))),
             RotationAction::Pause
         );
         // Nothing active (already paused, or never resolved) — nothing to pause.
@@ -1379,28 +1352,28 @@ mod tests {
     // clean `Ok(None)` does. Retried on the next tick, same as any other transient RPC failure.
     #[test]
     fn a_failed_attempt_never_pauses() {
-        let err: anyhow::Result<Option<resolver::ResolvedOutbox>> = Err(anyhow!("rpc blip"));
+        let err: anyhow::Result<Option<resolver::ResolvedRoute>> = Err(anyhow!("rpc blip"));
         assert_eq!(
-            rotation_action(&err, Some(OUTBOX_A)),
+            rotation_action(&err, Some(route(KEY_A))),
             RotationAction::Nothing
         );
         assert_eq!(rotation_action(&err, None), RotationAction::Nothing);
     }
 
     #[test]
-    fn replacement_swaps_and_same_outbox_does_nothing() {
-        let next = outbox(OUTBOX_B);
-        let attempt: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(next));
+    fn changed_domain_swaps_and_same_route_does_nothing() {
+        let next = route(KEY_B);
+        let attempt: anyhow::Result<Option<resolver::ResolvedRoute>> = Ok(Some(next));
         assert_eq!(
-            rotation_action(&attempt, Some(OUTBOX_A)),
+            rotation_action(&attempt, Some(route(KEY_A))),
             RotationAction::Swap(next),
         );
         // Resuming from a pause is a swap too (nothing was active).
         assert_eq!(rotation_action(&attempt, None), RotationAction::Swap(next));
         // Same address re-resolved: nothing to do.
-        let same: anyhow::Result<Option<resolver::ResolvedOutbox>> = Ok(Some(outbox(OUTBOX_A)));
+        let same: anyhow::Result<Option<resolver::ResolvedRoute>> = Ok(Some(route(KEY_A)));
         assert_eq!(
-            rotation_action(&same, Some(OUTBOX_A)),
+            rotation_action(&same, Some(route(KEY_A))),
             RotationAction::Nothing,
         );
     }

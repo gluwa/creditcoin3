@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use alloy::network::EthereumWallet;
 use alloy::primitives::{Bytes, B256};
-use alloy::providers::{Provider, ProviderBuilder};
+use alloy::providers::{ext::AnvilApi, Provider, ProviderBuilder};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::sol;
 use alloy_node_bindings::Anvil;
@@ -33,7 +33,7 @@ use parking_lot::Mutex;
 
 use attestor::tasks::write_ability::aggregator::VoteAggregator;
 use attestor::tasks::write_ability::MessageVoteState;
-use attestor::tasks::write_ability::{ingest, listener, resolver, signing};
+use attestor::tasks::write_ability::{ingest, listener, reobservation, resolver, signing};
 use write_ability::envelope::MessageVote;
 use write_ability::hash::message_hash;
 use write_ability::protocol::chain_key_to_bytes32;
@@ -51,6 +51,12 @@ sol! {
             bytes payload
         );
     }
+    // Generated from fixtures/test-discovery.sol with solc --bin --optimize.
+    #[sol(rpc, bytecode = "0x6080604052348015600e575f5ffd5b5061022d8061001c5f395ff3fe608060405234801561000f575f5ffd5b506004361061004a575f3560e01c80632ce962cf1461004e5780634ea7132714610088578063749d25ec146100bf578063d5b4c052146100f4575b5f5ffd5b61008661005c36600461013c565b6001600160a01b03919091165f908152602081905260409020805460ff1916911515919091179055565b005b6100aa610096366004610175565b5f6020819052908152604090205460ff1681565b60405190151581526020015b60405180910390f35b6100d56100cd366004610195565b503090600190565b604080516001600160a01b0390931683529015156020830152016100b6565b6100aa6101023660046101bc565b6001600160a01b03165f9081526020819052604090205460ff16919050565b80356001600160a01b0381168114610137575f5ffd5b919050565b5f5f6040838503121561014d575f5ffd5b61015683610121565b91506020830135801515811461016a575f5ffd5b809150509250929050565b5f60208284031215610185575f5ffd5b61018e82610121565b9392505050565b5f602082840312156101a5575f5ffd5b813567ffffffffffffffff8116811461018e575f5ffd5b5f5f604083850312156101cd575f5ffd5b823563ffffffff811681146101e0575f5ffd5b91506101ee60208401610121565b9050925092905056fea264697066735822122015f40316f95575ec81a9ebdf287bef6fa9cc8aa204afbc945c16e4843166b0aa64736f6c63430008250033")]
+    contract TestDiscovery {
+        function setActive(address outbox, bool yes) external;
+    }
+
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -74,17 +80,27 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         .await
         .expect("deploy TestOutbox");
 
-    // 3. Build the resolved Outbox directly, pointing the listener at the fixture we just deployed.
-    //    `resolver::resolve` now resolves on-chain via the chain-info precompile + Outbox discovery
-    //    registry, which this bare anvil node does not provide. TODO(write-ability): exercise
-    //    `resolve` once the fixture deploys a discovery registry and registers it with the precompile.
-    let creditcoin_chain_id = provider.get_chain_id().await.unwrap();
-    let resolved = resolver::ResolvedOutbox {
-        address: *outbox.address(),
-        destination_chain_key: ck_b32,
-        creditcoin_chain_id,
-    };
-    assert_eq!(resolved.address, *outbox.address());
+    // 3. Install a test Discovery/chain-info fixture at the precompile address. The fixture
+    // returns itself as Discovery and authenticates the deployed Outbox using historical storage.
+    let discovery = TestDiscovery::deploy(&provider).await.unwrap();
+    let code = provider.get_code_at(*discovery.address()).await.unwrap();
+    provider
+        .anvil_set_code(resolver::CHAIN_INFO_PRECOMPILE, code)
+        .await
+        .unwrap();
+    let registry = TestDiscovery::new(resolver::CHAIN_INFO_PRECOMPILE, &provider);
+    registry
+        .setActive(*outbox.address(), true)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+    let resolved = resolver::resolve(&provider, chain_key, ck_b32)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(resolved.destination_chain_key, ck_b32);
 
     let before = provider.get_block_number().await.unwrap();
@@ -92,7 +108,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     // 4. Emit a MessagePublished.
     let message_id = B256::from([0x11u8; 32]);
     let payload = Bytes::from_static(b"hello cross-chain");
-    outbox
+    let published = outbox
         .publish(message_id, payload.clone())
         .send()
         .await
@@ -101,7 +117,18 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         .await
         .expect("publish receipt");
 
-    // 5. Index it via the real listener poll (real eth_getLogs + decode + hash).
+    // Remove the Outbox before the listener catches up. Historical membership must still admit
+    // its final valid message, even though today's Discovery state no longer authorizes it.
+    registry
+        .setActive(*outbox.address(), false)
+        .send()
+        .await
+        .unwrap()
+        .get_receipt()
+        .await
+        .unwrap();
+
+    // 5. Index it via the real listener poll (real eth_getLogs + historical eth_call + hash).
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);
     let mut last_seen = before;
     // Anvil has no GRANDPA finality, so drive the listener with the deterministic depth policy
@@ -127,12 +154,30 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     let expected = message_hash(
         message_id,
         emitter,
-        resolved.address,
+        *outbox.address(),
         ck_b32,
         resolved.creditcoin_chain_id,
         &payload,
     );
     assert_eq!(indexed.message_hash, expected, "messageHash must match");
+    // Anvil models its finalized tag with a block lag. Advance it past the publication so the
+    // reobservation path exercises lifecycle authorization after its independent finality gate.
+    provider.anvil_mine(Some(64), None).await.unwrap();
+    let recovered = reobservation::reobserve(
+        &provider,
+        &resolved,
+        3,
+        &write_ability::envelope::ReobservationRequest {
+            chain_key,
+            message_id: message_id.0,
+            tx_hash: published.transaction_hash.0,
+            block_height: published.block_number.unwrap(),
+        },
+    )
+    .await
+    .unwrap()
+    .expect("removed Outbox's historical message must remain recoverable");
+    assert_eq!(recovered.message_hash, expected);
 
     // 6. Sign and run the full validate+count path; a single-attestor set (threshold 1) reaches quorum.
     let msigner = signing::MessageSigner::from_seed(&[9u8; 32]).unwrap();

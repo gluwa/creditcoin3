@@ -9,7 +9,9 @@
 //! the [`p2p`](crate::tasks::p2p) task forwards it here. We do **not** trust the request: it is
 //! unauthenticated, so before re-signing we independently re-fetch the named transaction from our
 //! own Creditcoin RPC, confirm the `MessagePublished` for that `message_id` was emitted by the
-//! resolved Outbox, and recompute the canonical `messageHash`. Only then do we re-sign and re-gossip
+//! Discovery-authorized Outbox at that source block, and recompute the canonical `messageHash`.
+//! Later default changes, removal, and replacement of Discovery do not invalidate this history.
+//! Only then do we re-sign and re-gossip
 //! the same [`MessageVote`] we would have produced originally.
 //!
 //! The worst a forged or spammed request can do is make us perform a bounded `eth_getLogs` — bounded
@@ -34,7 +36,7 @@ use write_ability::envelope::ReobservationRequest;
 use write_ability::hash::message_hash;
 
 use super::listener::IndexedMessage;
-use super::resolver::ResolvedOutbox;
+use super::resolver::{self, ResolvedRoute};
 
 /// Cooldown after a *successfully* honored request for the same `message_id`. A genuine stall lasts
 /// far longer than this, so legitimate relayer retries are unaffected while we avoid re-signing the
@@ -141,13 +143,13 @@ fn reobs_final_enough(finalized: Option<u64>, block_height: u64) -> bool {
     finalized.is_some_and(|height| block_height <= height)
 }
 
-/// Re-fetch and re-verify the message named by `request` against the resolved Outbox, returning the
+/// Re-fetch and re-verify the message against its historical Discovery authorization, returning the
 /// [`IndexedMessage`] to re-sign — or `Ok(None)` when the request does not correspond to a genuine
 /// `MessagePublished` we can confirm (forged / wrong block / wrong Outbox / `message_id` mismatch).
 /// `Ok(None)` is deliberately not an error: an unverifiable request is simply ignored.
 pub async fn reobserve<P: Provider>(
     provider: &P,
-    resolved: &ResolvedOutbox,
+    resolved: &ResolvedRoute,
     _confirmation_depth: u64,
     request: &ReobservationRequest,
 ) -> Result<Option<IndexedMessage>> {
@@ -173,10 +175,10 @@ pub async fn reobserve<P: Provider>(
         return Ok(None);
     }
 
-    // Tightly-scoped scan at the named block for our Outbox's MessagePublished — independent of the
-    // request's claims beyond which block to look at.
+    // Bound the candidate scan by block and message ID, then authenticate the actual emitting
+    // Outbox against the Discovery registry selected at that historical block.
     let filter = Filter::new()
-        .address(resolved.address)
+        .topic1(requested_id)
         .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
         .from_block(request.block_height)
         .to_block(request.block_height);
@@ -188,6 +190,13 @@ pub async fn reobserve<P: Provider>(
         )
     })?;
 
+    if logs.is_empty() {
+        return Ok(None);
+    }
+    let Some(discovery) = resolver::discovery_at(provider, resolved, request.block_height).await?
+    else {
+        return Ok(None);
+    };
     let requested_tx = B256::from(request.tx_hash);
     for log in logs {
         // Verify the log came from the transaction the request named (audit P3-1). The `tx_hash`
@@ -196,13 +205,22 @@ pub async fn reobserve<P: Provider>(
         // let us past only for a GRANDPA-finalized block, so the transaction hash is stable. (`message_id` + Outbox +
         // block already pin the message; this closes the "field implies a correlation the code
         // doesn't perform" gap.)
-        if log.transaction_hash != Some(requested_tx) {
+        if log.removed
+            || log.block_number != Some(request.block_height)
+            || log.transaction_hash != Some(requested_tx)
+        {
             continue;
         }
         let Ok(decoded) = IOutbox::MessagePublished::decode_log(&log.inner, true) else {
             continue;
         };
         if decoded.data.messageId != requested_id {
+            continue;
+        }
+        let outbox = log.address();
+        if !resolver::authorized_at(provider, resolved, discovery, outbox, request.block_height)
+            .await?
+        {
             continue;
         }
         let payload = decoded.data.payload.to_vec();
@@ -212,7 +230,7 @@ pub async fn reobserve<P: Provider>(
         let hash = message_hash(
             decoded.data.messageId,
             emitter,
-            resolved.address,
+            outbox,
             resolved.destination_chain_key,
             resolved.creditcoin_chain_id,
             &payload,
@@ -220,7 +238,8 @@ pub async fn reobserve<P: Provider>(
         return Ok(Some(IndexedMessage {
             message_id: decoded.data.messageId,
             emitter,
-            outbox: resolved.address,
+            outbox,
+            destination_chain_key: resolved.destination_chain_key,
             payload,
             message_hash: hash,
         }));

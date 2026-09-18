@@ -1,7 +1,11 @@
 //! Creditcoin L1 Outbox event listener (confluence §7.3 A3 / §6.8).
 //!
-//! Polls `eth_getLogs` for `MessagePublished` on the resolved Outbox and emits an
-//! [`IndexedMessage`] (with the canonical `messageHash` already computed) for each finalized event.
+//! Polls `eth_getLogs` for candidate `MessagePublished` events, authenticates each emitter against
+//! Discovery at its finalized source block, and emits an [`IndexedMessage`] with its canonical hash.
+//! Every registered Outbox is covered by the same durable block cursor, independent of defaults.
+//! Historical `eth_call` support is required; unavailable history stops progress rather than
+//! dropping messages or trusting the permissionless factory. Authority is evaluated at block end,
+//! matching Discovery's source-block removal boundaries (the effective block is excluded).
 //!
 //! Finality: the Outbox lives on Creditcoin L1, which has deterministic GRANDPA finality, so events
 //! are surfaced up to the **finalized head** ([`FinalityPolicy::Finalized`]) — a finalized block
@@ -10,6 +14,7 @@
 //! Polling (rather than `eth_subscribe`) avoids the silent-stream-stall failure mode, matching the
 //! relayer.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::time::{Duration, Instant};
 
@@ -26,7 +31,7 @@ use write_ability::abi::IOutbox;
 use write_ability::hash::message_hash;
 
 use super::cursor::CursorStore;
-use super::resolver::ResolvedOutbox;
+use super::resolver::{self, ResolvedRoute};
 
 /// Poll cadence for `eth_getLogs`.
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
@@ -142,12 +147,11 @@ pub struct IndexedMessage {
     pub message_id: B256,
     /// The dApp that published the message (`MessagePublished.emitterAddress`) — **not** the Outbox.
     pub emitter: Address,
-    /// Outbox this was observed on. Carried so a consumer can tell whether the message still belongs
-    /// to the active Outbox: on a governance/factory rotation the old listener is aborted, but
-    /// messages it already queued stay buffered in the channel and would otherwise be signed against
-    /// a superseded Outbox. `message_hash` is Outbox-independent, so provenance cannot be recovered
-    /// from it downstream.
+    /// Actual Outbox that emitted the message, authenticated at its finalized source block.
     pub outbox: Address,
+    /// Signing domain captured when this message was indexed. A governance key change must not
+    /// permit a buffered message from the previous route to be signed under the new configuration.
+    pub destination_chain_key: B256,
     pub payload: Vec<u8>,
     /// `keccak256(abi.encode(...))` — the digest the attestor signs (PoC §5.2).
     pub message_hash: B256,
@@ -168,7 +172,7 @@ fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
     }
 }
 
-/// Watch the resolved Outbox until `token` fires. Sends each finalized message on `tx`.
+/// Watch every historically authorized Outbox for the route until `token` fires. Sends each finalized message on `tx`.
 ///
 /// `cursor` persists the scan position (`last_seen`) across restarts: on boot the persisted value
 /// is preferred over `start_block`/head so a restart resumes exactly where it left off, and after
@@ -187,7 +191,7 @@ fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
 pub async fn watch<P, R, Fut>(
     shared_provider: watch::Sender<P>,
     reconnect: R,
-    resolved: ResolvedOutbox,
+    resolved: ResolvedRoute,
     _block_confirmation_depth: u64,
     start_block: Option<u64>,
     cursor: CursorStore,
@@ -262,7 +266,7 @@ where
     let mut finality = FinalityTracker::new(Instant::now());
 
     tracing::info!(
-        outbox = %resolved.address,
+        chain_key = resolved.chain_key,
         ?resolved.destination_chain_key,
         creditcoin_chain_id = resolved.creditcoin_chain_id,
         "📡 message-attestation Outbox listener online (signing finalized head only)"
@@ -393,7 +397,7 @@ where
 /// [`watch`] loop) so the anvil e2e test can drive polling deterministically.
 pub async fn poll_once<P: Provider>(
     provider: &P,
-    resolved: &ResolvedOutbox,
+    resolved: &ResolvedRoute,
     policy: &FinalityPolicy,
     finality: &mut FinalityTracker,
     last_seen: &mut u64,
@@ -465,13 +469,12 @@ pub async fn poll_once<P: Provider>(
 /// decode error, so the exact range is retried rather than stepped over.
 async fn scan_range<P: Provider>(
     provider: &P,
-    resolved: &ResolvedOutbox,
+    resolved: &ResolvedRoute,
     from_block: u64,
     to_block: u64,
     tx: &mpsc::Sender<IndexedMessage>,
 ) -> Result<()> {
     let filter = Filter::new()
-        .address(resolved.address)
         .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
         .from_block(from_block)
         .to_block(to_block);
@@ -481,7 +484,50 @@ async fn scan_range<P: Provider>(
         .with_context(|| format!("eth_getLogs from {from_block} to {to_block} timed out"))?
         .with_context(|| format!("eth_getLogs from {from_block} to {to_block} failed"))?;
 
+    // Cache only within this bounded chunk, and key every decision by its historical block.
+    // Querying all candidate emitters avoids missing an Outbox's complete registration/removal
+    // lifecycle between polls, or an old Discovery registry replaced during downtime.
+    let mut discoveries = HashMap::new();
+    let mut memberships = HashMap::new();
     for log in logs {
+        let block = log
+            .block_number
+            .context("MessagePublished has no block number")?;
+        anyhow::ensure!(
+            !log.removed && (from_block..=to_block).contains(&block),
+            "MessagePublished is removed or outside the requested finalized range"
+        );
+        let discovery = match discoveries.get(&block) {
+            Some(discovery) => *discovery,
+            None => {
+                let discovery = tokio::time::timeout(
+                    RPC_TIMEOUT,
+                    resolver::discovery_at(provider, resolved, block),
+                )
+                .await
+                .context("historical Discovery lookup timed out")??;
+                discoveries.insert(block, discovery);
+                discovery
+            }
+        };
+        let Some(discovery) = discovery else { continue };
+        let outbox = log.address();
+        let authorized = match memberships.get(&(block, outbox)) {
+            Some(authorized) => *authorized,
+            None => {
+                let authorized = tokio::time::timeout(
+                    RPC_TIMEOUT,
+                    resolver::authorized_at(provider, resolved, discovery, outbox, block),
+                )
+                .await
+                .context("historical Outbox membership lookup timed out")??;
+                memberships.insert((block, outbox), authorized);
+                authorized
+            }
+        };
+        if !authorized {
+            continue;
+        }
         match IOutbox::MessagePublished::decode_log(&log.inner, true) {
             Ok(decoded) => {
                 let payload = decoded.data.payload.to_vec();
@@ -493,7 +539,7 @@ async fn scan_range<P: Provider>(
                 let hash = message_hash(
                     decoded.data.messageId,
                     emitter,
-                    resolved.address,
+                    outbox,
                     resolved.destination_chain_key,
                     resolved.creditcoin_chain_id,
                     &payload,
@@ -501,7 +547,8 @@ async fn scan_range<P: Provider>(
                 let indexed = IndexedMessage {
                     message_id: decoded.data.messageId,
                     emitter,
-                    outbox: resolved.address,
+                    outbox,
+                    destination_chain_key: resolved.destination_chain_key,
                     payload,
                     message_hash: hash,
                 };
@@ -601,9 +648,9 @@ pub(super) mod test_rpc {
             self.state.lock().finalized_response = json!({"result": block});
         }
 
-        pub fn resolved() -> ResolvedOutbox {
-            ResolvedOutbox {
-                address: Address::repeat_byte(1),
+        pub fn resolved() -> ResolvedRoute {
+            ResolvedRoute {
+                chain_key: 1,
                 destination_chain_key: B256::repeat_byte(2),
                 creditcoin_chain_id: 102030,
             }
