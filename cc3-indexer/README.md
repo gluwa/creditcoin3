@@ -102,6 +102,25 @@ When upgrading from factory-only admission, **reindex from before the first writ
 deployment** to remove previously admitted unauthorized Outboxes/messages. The new per-message
 check prevents further unauthorized publications but does not rewrite existing history.
 
+#### Rollout and historical data loss
+
+On **usc-devnet**, the required reindex excludes every write-ability publication from before
+the **10 September 2026 Discovery upgrade**: those Outboxes were not authorized in Discovery
+at the publication height. Those messages disappear from the rebuilt dashboard. This loss of
+indexed history is an accepted devnet tradeoff; their on-chain events remain, but neither a
+later Discovery registration nor factory/quarantine backfill can restore them under this
+admission policy. There is no quarantine or later admission of pre-authorization messages.
+
+Before deploying this policy to another network, make an explicit migration or historical
+cutoff decision and assess the affected dashboard history. Do not assume the devnet acceptance
+of that loss applies to other deployments.
+
+Every endpoint used for indexing and recovery must provide archive state for the entire scan
+range, including historical `eth_call` and the governance storage reads at each indexed
+height. Verify that history is available before starting the mandatory reindex. An endpoint
+that retains recent state only will repeatedly fail on older blocks and prevent indexing
+from advancing; changing providers or retrying cannot restore state that they have pruned.
+
 ## Testing
 
 Run `yarn test:outbox-authorization` for the focused admission, historical authorization and
