@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::rpc::types::{BlockTransactionsKind, Filter};
+use alloy::rpc::types::BlockTransactionsKind;
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
@@ -177,18 +177,13 @@ pub async fn reobserve<P: Provider>(
 
     // Bound the candidate scan by block and message ID, then authenticate the actual emitting
     // Outbox against the Discovery registry selected at that historical block.
-    let filter = Filter::new()
-        .topic1(requested_id)
-        .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
-        .from_block(request.block_height)
-        .to_block(request.block_height);
-
-    let logs = provider.get_logs(&filter).await.with_context(|| {
-        format!(
-            "reobservation eth_getLogs at block {} failed",
-            request.block_height
-        )
-    })?;
+    let logs = super::listener::fetch_message_logs(
+        provider,
+        request.block_height,
+        request.block_height,
+        Some(requested_id),
+    )
+    .await?;
 
     if logs.is_empty() {
         return Ok(None);

@@ -49,6 +49,7 @@ fn message(outbox: Address, block: u64, id: u8) -> Log {
 struct Scenario {
     logs: Vec<Log>,
     fail_history: bool,
+    log_cap: Option<usize>,
     ignore_log_filter: bool,
     calls: Vec<Value>,
 }
@@ -67,6 +68,7 @@ impl Rpc {
         let state = Arc::new(Mutex::new(Scenario {
             logs,
             fail_history: false,
+            log_cap: None,
             ignore_log_filter: false,
             calls: vec![],
         }));
@@ -103,9 +105,37 @@ async fn handle(
         "eth_chainId" => json!("0x2a"),
         "eth_blockNumber" => json!("0x8c"),
         "eth_getBlockByNumber" => {
+            let number = if p[0] == "finalized" {
+                140
+            } else {
+                height(&p[0])
+            };
             let mut block = alloy::rpc::types::Block::<B256>::default();
-            block.header.inner.number = 140;
+            block.header.inner.number = number;
+            block.header.hash = B256::repeat_byte(number as u8);
+            block.transactions = alloy::network::primitives::BlockTransactions::Hashes(
+                state
+                    .logs
+                    .iter()
+                    .filter(|l| l.block_number == Some(number))
+                    .map(|l| l.transaction_hash.unwrap())
+                    .collect(),
+            );
             json!(block)
+        }
+        "eth_getTransactionReceipt" => {
+            let hash: B256 = serde_json::from_value(p[0].clone()).unwrap();
+            let logs: Vec<_> = state
+                .logs
+                .iter()
+                .filter(|l| l.transaction_hash == Some(hash))
+                .collect();
+            assert!(!logs.is_empty());
+            json!({"transactionHash":hash,"transactionIndex":"0x0", "blockHash":logs[0].block_hash,
+                "blockNumber":format!("0x{:x}",logs[0].block_number.unwrap()),
+                "from":A,"to":B,"contractAddress":null,"cumulativeGasUsed":"0x1","gasUsed":"0x1",
+                "effectiveGasPrice":"0x1","logs":logs,"status":"0x1","type":"0x0",
+                "logsBloom": format!("0x{}", "00".repeat(256))})
         }
         "eth_getLogs" => {
             assert!(
@@ -115,13 +145,20 @@ async fn handle(
             let from = height(&p[0]["fromBlock"]);
             let to = height(&p[0]["toBlock"]);
             let topic = p[0]["topics"].get(1).filter(|t| !t.is_null());
-            json!(state
+            let logs = state
                 .logs
                 .iter()
-                .filter(|l| state.ignore_log_filter
-                    || ((from..=to).contains(&l.block_number.unwrap())
-                        && topic.is_none_or(|t| *t == json!(l.topics()[1]))))
-                .collect::<Vec<_>>())
+                .filter(|l| {
+                    state.ignore_log_filter
+                        || ((from..=to).contains(&l.block_number.unwrap())
+                            && topic.is_none_or(|t| *t == json!(l.topics()[1])))
+                })
+                .collect::<Vec<_>>();
+            if state.log_cap.is_some_and(|cap| logs.len() > cap) {
+                return Json(json!({"jsonrpc":"2.0","id":request["id"],
+                    "error":{"code":-32603,"message":"query returned more than 10000 results"}}));
+            }
+            json!(logs)
         }
         "eth_call" => {
             if state.fail_history {
@@ -268,4 +305,29 @@ async fn out_of_range_or_removed_logs_do_not_advance_cursor() {
         assert!(poll(&rpc, &mut cursor).await.is_err());
         assert_eq!(cursor, 100);
     }
+}
+
+#[tokio::test]
+async fn capped_ranges_split_and_single_block_spam_falls_back_to_receipts() {
+    let rpc = Rpc::new(vec![
+        message(A, 119, 1),
+        message(ROGUE, 119, 2),
+        message(B, 135, 3),
+    ])
+    .await;
+    rpc.state.lock().unwrap().log_cap = Some(1);
+    let mut cursor = 100;
+    let found = poll(&rpc, &mut cursor).await.unwrap();
+    assert_eq!(
+        found.iter().map(|m| m.message_id[0]).collect::<Vec<_>>(),
+        [1, 3]
+    );
+    assert_eq!(cursor, 140);
+    assert!(rpc
+        .state
+        .lock()
+        .unwrap()
+        .calls
+        .iter()
+        .any(|c| c["method"] == "eth_getTransactionReceipt"));
 }

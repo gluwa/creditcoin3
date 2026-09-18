@@ -652,8 +652,11 @@ pub async fn run(
     let scan_from = cfg.start_block.or(Some(head_before_resolve));
     // One durable cursor covers all Outboxes for this chain: a chunk advances only after every
     // candidate message has been authenticated at its historical source block and drained.
-    let cursor_store =
-        cursor::CursorStore::for_all_outboxes(&cfg.state_dir, cfg.write_ability_chain_key);
+    let cursor_store = cursor::CursorStore::for_all_outboxes(
+        &cfg.state_dir,
+        cfg.write_ability_chain_key,
+        cfg.start_block,
+    );
     tracing::info!(
         path = %cursor_store.path().display(),
         "🗂️ persisting Outbox scan cursor across restarts"
@@ -864,7 +867,7 @@ pub async fn run(
                     // the previous listener rebuilt the connection, this one starts on the live one.
                     let listener_provider = l1_provider_tx.clone();
                     let listener_token = shared.token.clone();
-                    let cursor_store = cursor::CursorStore::for_all_outboxes(&cfg.state_dir, cfg.write_ability_chain_key);
+                    let cursor_store = cursor::CursorStore::for_all_outboxes(&cfg.state_dir, cfg.write_ability_chain_key, cfg.start_block);
                     let listener_tx = tx.clone();
                     // Resume the same all-Outbox cursor after a signing-domain change. Any
                     // newly registered Outbox is discovered by the historical block scan itself.

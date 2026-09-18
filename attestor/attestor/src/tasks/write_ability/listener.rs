@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::rpc::types::{BlockTransactionsKind, Filter};
+use alloy::rpc::types::{BlockTransactionsKind, Filter, Log};
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 use tokio::sync::{mpsc, watch};
@@ -230,7 +230,9 @@ where
         let clamped = persisted.min(head);
         // Rewind by a bounded lookback so a crash between enqueuing a range's votes and gossiping them
         // re-scans that window (at-least-once; downstream dedups). See CURSOR_RESUME_LOOKBACK_BLOCKS.
-        let resume = clamped.saturating_sub(CURSOR_RESUME_LOOKBACK_BLOCKS);
+        let resume = clamped
+            .saturating_sub(CURSOR_RESUME_LOOKBACK_BLOCKS)
+            .max(cursor.scan_floor());
         tracing::info!(
             persisted,
             head,
@@ -464,6 +466,103 @@ pub async fn poll_once<P: Provider>(
     Ok(())
 }
 
+/// Fetch candidate logs despite a provider's result-count cap. Split capped ranges, and use
+/// per-transaction receipts when even one block exceeds the cap (including unauthorized spam).
+/// Transport/archive failures remain errors; they must not trigger an expensive subdivision tree.
+pub(super) async fn fetch_message_logs<P: Provider>(
+    provider: &P,
+    from_block: u64,
+    to_block: u64,
+    message_id: Option<B256>,
+) -> Result<Vec<Log>> {
+    let mut ranges = vec![(from_block, to_block)];
+    let mut logs = Vec::new();
+    while let Some((from, to)) = ranges.pop() {
+        let mut filter = Filter::new()
+            .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
+            .from_block(from)
+            .to_block(to);
+        if let Some(id) = message_id {
+            filter = filter.topic1(id);
+        }
+        match tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
+            .await
+            .context("eth_getLogs timed out")?
+        {
+            Ok(found) => logs.extend(found),
+            Err(err) if log_limit_error(&err.to_string()) => {
+                if from < to {
+                    let mid = from + (to - from) / 2;
+                    ranges.push((mid + 1, to));
+                    ranges.push((from, mid));
+                } else {
+                    logs.extend(message_logs_from_receipts(provider, from, message_id).await?);
+                }
+            }
+            Err(err) => return Err(err).context("eth_getLogs failed"),
+        }
+    }
+    Ok(logs)
+}
+
+fn log_limit_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    // Frontier's max_past_logs error, plus common hosted-provider equivalents.
+    message.contains("query returned more than")
+        || message.contains("too many results")
+        || message.contains("too many logs")
+        || message.contains("log response size exceeded")
+}
+
+async fn message_logs_from_receipts<P: Provider>(
+    provider: &P,
+    number: u64,
+    message_id: Option<B256>,
+) -> Result<Vec<Log>> {
+    let block = tokio::time::timeout(
+        RPC_TIMEOUT,
+        provider.get_block_by_number(
+            BlockNumberOrTag::Number(number),
+            BlockTransactionsKind::Hashes,
+        ),
+    )
+    .await
+    .context("receipt fallback block lookup timed out")??
+    .context("receipt fallback block missing")?;
+    anyhow::ensure!(
+        block.header.number == number,
+        "receipt fallback returned the wrong block"
+    );
+    let mut logs = Vec::new();
+    for hash in block.transactions.hashes() {
+        let receipt = tokio::time::timeout(RPC_TIMEOUT, provider.get_transaction_receipt(hash))
+            .await
+            .context("receipt fallback lookup timed out")??
+            .context("receipt fallback transaction receipt missing")?;
+        anyhow::ensure!(
+            receipt.transaction_hash == hash
+                && receipt.block_number == Some(number)
+                && receipt.block_hash == Some(block.header.hash),
+            "receipt fallback returned inconsistent provenance"
+        );
+        for log in receipt.inner.logs() {
+            anyhow::ensure!(
+                log.block_number == Some(number)
+                    && log.block_hash == receipt.block_hash
+                    && log.transaction_hash == Some(hash)
+                    && !log.removed,
+                "receipt fallback log has inconsistent provenance"
+            );
+            if log.topic0() == Some(&IOutbox::MessagePublished::SIGNATURE_HASH)
+                && message_id.is_none_or(|id| log.topics().get(1) == Some(&id))
+            {
+                logs.push(log.clone());
+            }
+        }
+    }
+    Ok(logs)
+}
+
 /// Fetch + index `MessagePublished` logs in the inclusive block range `[from_block, to_block]`.
 /// Returns `Err` (without the caller advancing `last_seen`) on an RPC failure or an ABI-mismatch
 /// decode error, so the exact range is retried rather than stepped over.
@@ -474,15 +573,7 @@ async fn scan_range<P: Provider>(
     to_block: u64,
     tx: &mpsc::Sender<IndexedMessage>,
 ) -> Result<()> {
-    let filter = Filter::new()
-        .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
-        .from_block(from_block)
-        .to_block(to_block);
-
-    let logs = tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
-        .await
-        .with_context(|| format!("eth_getLogs from {from_block} to {to_block} timed out"))?
-        .with_context(|| format!("eth_getLogs from {from_block} to {to_block} failed"))?;
+    let logs = fetch_message_logs(provider, from_block, to_block, None).await?;
 
     // Cache only within this bounded chunk, and key every decision by its historical block.
     // Querying all candidate emitters avoids missing an Outbox's complete registration/removal
