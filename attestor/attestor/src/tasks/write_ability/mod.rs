@@ -107,8 +107,9 @@ pub struct MessageVoteState {
     /// The `bytes32` write-ability chain key bound into every `messageHash` and used to resolve the
     /// Outbox via `historical OutboxDiscovery membership`. Sourced from the on-chain `WriteAbilityConfigs`
     /// entry when one is registered for this `chain_key`; derived locally (right-padded `u64`)
-    /// otherwise.
-    pub destination_chain_key: B256,
+    /// otherwise. `None` pauses signing until a successful finalized governance read enables it.
+    /// Held through signing so a concurrent disable/key change cannot authorize a stale message.
+    pub destination_chain_key: RwLock<Option<B256>>,
 }
 
 /// Build the shared message-vote state and the matching publish channel receiver from config, or
@@ -118,9 +119,10 @@ pub struct MessageVoteState {
 /// Enablement is gated twice: the local `enabled` flag is the *operator's* opt-in (and implies the
 /// RPC endpoints are configured), while the on-chain `WriteAbilityConfigs` entry for `chain_key` is
 /// *governance's* switch — when an entry exists with `message_attestation_enabled == false` the
-/// task stays off regardless of local config. A missing entry (or a failed read) falls back to
-/// local config so dev setups and chain outages don't disable a configured attestor. On-chain
-/// changes are picked up on restart.
+/// task stays off regardless of local config. A successfully read missing entry falls back to
+/// local config for dev setups. Signing starts paused; after a successful read, failed refreshes
+/// retain the last known authorization. The task remains alive while disabled
+/// so finalized governance changes can enable it or change its destination key without a restart.
 #[must_use]
 pub async fn build_state(
     cfg: &Config,
@@ -154,7 +156,6 @@ pub async fn build_state(
         );
         return None;
     }
-    let destination_chain_key = resolve_destination_chain_key(cfg, cc3).await?;
     let active_set = resolve_active_set(cfg).await?;
     let threshold = attestor_primitives::calculate_threshold(active_set.len() as u32) as usize;
     let aggregator =
@@ -169,7 +170,7 @@ pub async fn build_state(
         publish_tx,
         set_update_publish_tx,
         reobs_tx,
-        destination_chain_key,
+        destination_chain_key: RwLock::new(None),
     });
     tracing::info!(
         attestors = state.active_set.read().len(),
@@ -256,13 +257,30 @@ pub async fn register_evm_address(
 }
 
 /// Read the on-chain `WriteAbilityConfigs` entry for this `chain_key` and derive the effective
-/// `bytes32` write-ability chain key. Returns `None` when governance has explicitly disabled
-/// message attestation for the chain (an entry exists with `message_attestation_enabled == false`).
-async fn resolve_destination_chain_key(cfg: &Config, cc3: &cc_client::Client) -> Option<B256> {
-    let chain_key = cfg.write_ability_chain_key;
+/// `bytes32` write-ability chain key. `Ok(None)` means governance disabled attestation; an error
+/// does not change the last known authorization. Only a successful missing-entry response uses
+/// local configuration.
+async fn resolve_destination_chain_key(
+    cfg: &Config,
+    cc3: &cc_client::Client,
+) -> anyhow::Result<Option<B256>> {
+    read_governance(
+        cfg.write_ability_chain_key,
+        cc3.get_write_ability_config(cfg.write_ability_chain_key),
+        RPC_ATTEMPT_TIMEOUT,
+    )
+    .await
+}
+
+async fn read_governance<E: std::fmt::Display>(
+    chain_key: u64,
+    read: impl std::future::Future<
+        Output = Result<Option<supported_chains_primitives::WriteAbilityConfig>, E>,
+    >,
+    timeout: Duration,
+) -> anyhow::Result<Option<B256>> {
     let local = chain_key_to_bytes32(chain_key);
-    let config =
-        tokio::time::timeout(RPC_ATTEMPT_TIMEOUT, cc3.get_write_ability_config(chain_key)).await;
+    let config = tokio::time::timeout(timeout, read).await;
     match config {
         Ok(Ok(Some(on_chain))) => {
             if !on_chain.message_attestation_enabled {
@@ -270,7 +288,7 @@ async fn resolve_destination_chain_key(cfg: &Config, cc3: &cc_client::Client) ->
                     chain_key,
                     "📴 on-chain WriteAbilityConfig disables message attestation for this chain — disabling"
                 );
-                return None;
+                return Ok(None);
             }
             let key = B256::from(on_chain.write_ability_chain_key);
             if key != local {
@@ -281,34 +299,82 @@ async fn resolve_destination_chain_key(cfg: &Config, cc3: &cc_client::Client) ->
                     "on-chain write-ability chain key differs from the locally derived one — using the on-chain value"
                 );
             }
-            Some(key)
+            Ok(Some(key))
         }
         Ok(Ok(None)) => {
             tracing::warn!(
                 chain_key,
                 "no on-chain WriteAbilityConfig registered for this chain — using the locally derived chain key"
             );
-            Some(local)
+            Ok(Some(local))
         }
-        Ok(Err(err)) => {
-            // Availability over strictness: a transient read failure must not disable a locally
-            // configured attestor. Explicit governance "off" is only honored via Ok(Some(..)).
-            tracing::warn!(
-                chain_key,
-                %err,
-                "failed to read on-chain WriteAbilityConfig — falling back to local config"
-            );
-            Some(local)
+        Ok(Err(err)) => Err(anyhow!("read finalized WriteAbilityConfig: {err}")),
+        Err(_) => Err(anyhow!(
+            "read finalized WriteAbilityConfig timed out after {timeout:?}"
+        )),
+    }
+}
+
+/// Only authoritative responses change authorization. On an RPC failure the initial `None`
+/// stays paused, while a previously enabled or disabled configuration remains in force. Keeping
+/// the error distinct from `Ok(None)` also prevents the monitor from aborting the listener and
+/// discarding its in-flight work. Degradation is observable but never a liveness restart signal.
+fn apply_governance_read(
+    state: &MessageVoteState,
+    metrics: &metrics::Metrics,
+    result: anyhow::Result<Option<B256>>,
+) -> anyhow::Result<Option<B256>> {
+    match result {
+        Ok(key) => {
+            apply_governance(state, key);
+            if metrics.set_write_ability_governance_degraded(false) {
+                tracing::info!("finalized governance reads recovered");
+            }
+            Ok(key)
         }
-        Err(_) => {
+        Err(err) => {
+            metrics.set_write_ability_governance_degraded(true);
             tracing::warn!(
-                chain_key,
-                timeout_secs = RPC_ATTEMPT_TIMEOUT.as_secs(),
-                "timed out reading on-chain WriteAbilityConfig — falling back to local config"
+                error = %format!("{err:#}"),
+                destination_chain_key = ?*state.destination_chain_key.read(),
+                "governance refresh degraded — retaining current signing authorization; startup stays paused until the first successful read"
             );
-            Some(local)
+            Err(err)
         }
     }
+}
+
+/// Publish governance before updating routing. Clearing the chain-seen vote cache prevents a
+/// previous destination's votes being accepted after a disable or key change. Lock order matches
+/// `produce_vote`: governance first, then aggregator.
+fn apply_governance(state: &MessageVoteState, next: Option<B256>) {
+    let mut current = state.destination_chain_key.write();
+    if *current != next {
+        state.aggregator.lock().clear_messages();
+        *current = next;
+        tracing::info!(destination_chain_key = ?next, "message-attestation governance updated");
+    }
+}
+
+/// Both activation and the live monitor use the same finalized governance read. Subxt's
+/// `storage().at_latest()` in `get_write_ability_config` selects the finalized head. Each read has
+/// its own deadline. A failed refresh preserves authorization and routing until a successful read.
+async fn resolve_authorized_outbox<P: Provider>(
+    provider: &P,
+    cfg: &Config,
+    cc3: &cc_client::Client,
+    state: &MessageVoteState,
+    metrics: &metrics::Metrics,
+) -> anyhow::Result<Option<resolver::ResolvedRoute>> {
+    let result = resolve_destination_chain_key(cfg, cc3).await;
+    let key = apply_governance_read(state, metrics, result)?;
+    let Some(key) = key else { return Ok(None) };
+    tokio::time::timeout(
+        RPC_ATTEMPT_TIMEOUT,
+        resolver::resolve(provider, cfg.write_ability_chain_key, key),
+    )
+    .await
+    .map_err(|_| anyhow!("Outbox resolution timed out after {RPC_ATTEMPT_TIMEOUT:?}"))?
 }
 
 /// Resolve the authorized signer set. Returns `None` (with a logged reason) when the set can't be
@@ -474,18 +540,7 @@ pub async fn run(
     let mut consecutive_resolve_failures: u64 = 0;
     let resolved = loop {
         let attempt = tokio::select! {
-            attempt = tokio::time::timeout(
-                RPC_ATTEMPT_TIMEOUT,
-                resolver::resolve(
-                    &provider,
-                    cfg.write_ability_chain_key,
-                    state.destination_chain_key,
-                ),
-            ) => attempt.unwrap_or_else(|_| {
-                Err(anyhow!(
-                    "Outbox resolution RPC attempt timed out after {RPC_ATTEMPT_TIMEOUT:?}"
-                ))
-            }),
+            attempt = resolve_authorized_outbox(&provider, &cfg, &cc3, &state, &shared.metrics) => attempt,
             joined = wait_for_optional_child(&mut set_watcher) => {
                 if let Some(proposer) = &set_update_proposer {
                     proposer.abort();
@@ -658,11 +713,11 @@ pub async fn run(
         "🗂️ persisting Outbox scan cursor across restarts"
     );
     let listener_tx = tx.clone();
-    // One shared Creditcoin L1 handle for the listener, the rotation monitor and the reobservation
-    // worker. alloy clones share a pubsub backend, so a dead connection is dead for all three; the
-    // listener is the loop that detects the stall (see `listener::MAX_CONSECUTIVE_POLL_FAILURES`),
-    // rebuilds through the hook below and publishes the fresh provider here, and the two siblings
-    // clone the latest value before each use. Sibling of the resolver's in-place rebuild above;
+    // One shared Creditcoin L1 handle for the listener and the reobservation worker. Alloy clones
+    // share a pubsub backend, so a dead connection affects both. The listener detects a stall
+    // (see `listener::MAX_CONSECUTIVE_POLL_FAILURES`),
+    // rebuilds through the hook below and publishes the fresh provider here, and reobservation
+    // clones the latest value before each use. Sibling of the resolver's in-place rebuild above;
     // nobody exits the task any more. The hook is an inline closure on purpose: its future yields
     // the very same opaque provider type the channel carries, where a named helper would mint a
     // second `impl Provider` that the listener's `P` could not unify with.
@@ -690,20 +745,15 @@ pub async fn run(
     // One live routing view feeds both signing paths. Default-Outbox and Discovery-address
     // changes do not replace listeners: source-block authorization is resolved for each message.
     let (resolved_tx, mut resolved_rx) = watch::channel(Some(resolved));
-    let mut outbox_monitor = {
-        let provider = l1_provider_rx.clone();
-        let cfg = cfg.clone();
-        let token = shared.token.clone();
-        let destination_chain_key = state.destination_chain_key;
-        tokio::spawn(run_outbox_monitor(
-            provider,
-            cfg,
-            destination_chain_key,
-            resolved,
-            resolved_tx,
-            token,
-        ))
-    };
+    let mut outbox_monitor = tokio::spawn(run_outbox_monitor(
+        cfg.clone(),
+        cc3.clone(),
+        state.clone(),
+        shared.metrics.clone(),
+        resolved,
+        resolved_tx,
+        shared.token.clone(),
+    ));
     // `listener` becomes `None` while routing is paused; `active_outbox` retains log context.
     let mut listener = Some(listener);
     let mut active_outbox = Some(resolved);
@@ -984,13 +1034,30 @@ fn child_exit_error(
     }
 }
 
-/// Continue resolving after activation, replacing the routing snapshot only when its signing
-/// domain changes. Source-block Discovery authorization is performed by the scanners.
-#[allow(clippy::too_many_arguments)]
-async fn run_outbox_monitor<P: Provider + Clone>(
-    provider_rx: watch::Receiver<P>,
+/// Build a new route from the immutable source identity established during activation. A rekey
+/// must not wait for another EVM RPC after publishing the authorization: otherwise a failed chain
+/// ID read leaves the old listener advancing its cursor while all its messages are rejected.
+fn refresh_governance_route(
+    state: &MessageVoteState,
+    metrics: &metrics::Metrics,
+    established: resolver::ResolvedRoute,
+    result: anyhow::Result<Option<B256>>,
+) -> anyhow::Result<Option<resolver::ResolvedRoute>> {
+    let key = apply_governance_read(state, metrics, result)?;
+    Ok(key.map(|destination_chain_key| resolver::ResolvedRoute {
+        destination_chain_key,
+        ..established
+    }))
+}
+
+/// Refresh finalized governance and routing after activation. An explicitly disabled governance
+/// entry pauses both signing paths; a changed destination key replaces the routing snapshot.
+/// Failed refreshes preserve the last successful configuration and report degraded governance.
+async fn run_outbox_monitor(
     cfg: Config,
-    destination_chain_key: B256,
+    cc3: Arc<cc_client::Client>,
+    state: Arc<MessageVoteState>,
+    metrics: metrics::Metrics,
     current: resolver::ResolvedRoute,
     resolved_tx: watch::Sender<Option<resolver::ResolvedRoute>>,
     token: tokio_util::sync::CancellationToken,
@@ -1003,24 +1070,10 @@ async fn run_outbox_monitor<P: Provider + Clone>(
         tokio::select! {
             () = token.cancelled() => return,
             _ = tick.tick() => {
-                // Take the latest shared connection as a separate statement: a `borrow()` inside
-                // the `timeout(...)` expression would hold the watch read guard across the await
-                // and block the listener's `send_replace` for the length of an RPC attempt.
-                let provider = provider_rx.borrow().clone();
-                let attempt = tokio::time::timeout(
-                    RPC_ATTEMPT_TIMEOUT,
-                    resolver::resolve(
-                        &provider,
-                        cfg.write_ability_chain_key,
-                        destination_chain_key,
-                    ),
-                )
-                .await
-                .unwrap_or_else(|_| {
-                    Err(anyhow!(
-                        "Outbox rotation check RPC attempt timed out after {RPC_ATTEMPT_TIMEOUT:?}"
-                    ))
-                });
+                let governance = resolve_destination_chain_key(&cfg, &cc3).await;
+                // No await or fallible EVM lookup may separate the authorization update from
+                // publishing its matching route. Source identity was validated at activation.
+                let attempt = refresh_governance_route(&state, &metrics, current, governance);
                 match rotation_action(&attempt, active) {
                     RotationAction::Swap(next) => {
                         tracing::info!(
@@ -1044,9 +1097,6 @@ async fn run_outbox_monitor<P: Provider + Clone>(
                         }
                     }
                     RotationAction::Nothing => {}
-                }
-                if let Err(err) = attempt {
-                    tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
                 }
             }
         }
@@ -1158,6 +1208,13 @@ fn produce_vote(
     chain_key: u64,
     indexed: listener::IndexedMessage,
 ) {
+    // Keep this guard until the signature is queued. Both normal indexing and reobservation pass
+    // through here; a governance refresh cannot race the final authorization check.
+    let governance = state.destination_chain_key.read();
+    if *governance != Some(indexed.destination_chain_key) {
+        tracing::debug!(message_id = %indexed.message_id, "message signing paused or destination key changed");
+        return;
+    }
     let signature = match signer.sign(&indexed.message_hash) {
         Ok(sig) => sig,
         Err(err) => {
@@ -1379,5 +1436,356 @@ mod tests {
             rotation_action(&same, Some(route(KEY_A))),
             RotationAction::Nothing,
         );
+    }
+
+    fn test_metrics() -> metrics::Metrics {
+        metrics::Metrics::new(
+            metrics::ConfigBuilder::new()
+                .with_name("governance-test")
+                .with_address(cc_client::AccountId32::from([0; 32]))
+                .with_peer_id(libp2p::PeerId::random())
+                .with_chain_key(7u64)
+                .with_start_height(0u64)
+                .with_start_attestation(None)
+                .with_genesis(0u64)
+                .with_attestation_latest_eth(0u64)
+                .with_attestation_interval(std::num::NonZeroU64::new(1).unwrap())
+                .build(),
+        )
+    }
+
+    fn test_state(
+        signer: &signing::MessageSigner,
+    ) -> (MessageVoteState, mpsc::Receiver<MessageVote>) {
+        let (publish_tx, rx) = mpsc::channel(8);
+        (
+            MessageVoteState {
+                aggregator: Mutex::new(aggregator::VoteAggregator::new(
+                    1,
+                    100,
+                    Duration::from_secs(60),
+                )),
+                active_set: RwLock::new(HashSet::from([signer.address()])),
+                publish_tx,
+                set_update_publish_tx: mpsc::channel(8).0,
+                reobs_tx: mpsc::channel(8).0,
+                destination_chain_key: RwLock::new(None),
+            },
+            rx,
+        )
+    }
+
+    fn message(key: B256) -> listener::IndexedMessage {
+        let message_id = B256::repeat_byte(1);
+        let emitter = KEY_B;
+        let payload = vec![42];
+        listener::IndexedMessage {
+            message_id,
+            emitter,
+            outbox: KEY_A,
+            destination_chain_key: key,
+            message_hash: write_ability::hash::message_hash(
+                message_id, emitter, KEY_A, key, 42, &payload,
+            ),
+            payload,
+        }
+    }
+
+    #[test]
+    fn governance_disables_and_reenables_the_actual_signing_path() {
+        let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+        let (state, mut votes) = test_state(&signer);
+        let metrics = test_metrics();
+        let key = chain_key_to_bytes32(7);
+        let sign = || produce_vote(&state, &metrics, &signer, signer.address(), 7, message(key));
+        // Starts paused (including boot while disabled or while governance RPC is unavailable).
+        sign();
+        assert!(votes.try_recv().is_err());
+        apply_governance(&state, Some(key));
+        sign();
+        assert!(votes.try_recv().is_ok());
+        assert_eq!(state.aggregator.lock().tracked(), 1);
+        apply_governance(&state, None);
+        assert_eq!(state.aggregator.lock().tracked(), 0);
+        sign();
+        assert!(votes.try_recv().is_err());
+        apply_governance(&state, Some(key));
+        sign();
+        assert!(
+            votes.try_recv().is_ok(),
+            "reenablement must not require a process restart"
+        );
+    }
+
+    #[test]
+    fn destination_change_rejects_buffered_and_inflight_old_key_messages() {
+        let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+        let (state, mut votes) = test_state(&signer);
+        let metrics = test_metrics();
+        let old_key = chain_key_to_bytes32(7);
+        let new_key = chain_key_to_bytes32(8);
+        apply_governance(&state, Some(old_key));
+        let in_flight = message(old_key);
+        apply_governance(&state, Some(new_key));
+        produce_vote(&state, &metrics, &signer, signer.address(), 7, in_flight);
+        assert!(votes.try_recv().is_err());
+        produce_vote(
+            &state,
+            &metrics,
+            &signer,
+            signer.address(),
+            7,
+            message(new_key),
+        );
+        assert!(votes.try_recv().is_ok());
+        let mut old = route(KEY_A);
+        old.destination_chain_key = old_key;
+        let mut next = old;
+        next.destination_chain_key = new_key;
+        assert_eq!(
+            rotation_action(&Ok(Some(next)), Some(old)),
+            RotationAction::Swap(next)
+        );
+    }
+
+    #[test]
+    fn governance_clear_preserves_the_validator_threshold() {
+        let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+        let (state, _) = test_state(&signer);
+        state.aggregator.lock().set_threshold(2, Instant::now());
+        apply_governance(&state, Some(chain_key_to_bytes32(7)));
+        let mut aggregator = state.aggregator.lock();
+        let hash = [1; 32];
+        aggregator.note_indexed(hash, Instant::now());
+        assert_eq!(
+            aggregator.add_vote(hash, signer.address(), Instant::now()),
+            aggregator::VoteOutcome::Accepted {
+                reached_threshold: false
+            }
+        );
+    }
+
+    async fn failed_governance_read(timeout: bool) -> anyhow::Result<Option<B256>> {
+        use supported_chains_primitives::WriteAbilityConfig;
+        if timeout {
+            let stalled = std::future::pending::<Result<Option<WriteAbilityConfig>, &str>>();
+            read_governance(7, stalled, Duration::from_millis(1)).await
+        } else {
+            let failure =
+                std::future::ready(Err::<Option<WriteAbilityConfig>, _>("RPC unavailable"));
+            read_governance(7, failure, Duration::from_secs(1)).await
+        }
+    }
+
+    fn assert_governance_degraded(metrics: &metrics::Metrics, expected: bool) {
+        assert!(metrics.encode().lines().any(|line| {
+            line == format!("write_ability_governance_degraded {}", u64::from(expected))
+        }));
+    }
+
+    #[tokio::test]
+    async fn governance_startup_failure_keeps_signing_paused_and_reports_degraded() {
+        for timeout in [false, true] {
+            let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+            let (state, mut votes) = test_state(&signer);
+            let metrics = test_metrics();
+            let result =
+                apply_governance_read(&state, &metrics, failed_governance_read(timeout).await);
+            assert!(result.is_err());
+            assert_eq!(*state.destination_chain_key.read(), None);
+            assert_governance_degraded(&metrics, true);
+            produce_vote(
+                &state,
+                &metrics,
+                &signer,
+                signer.address(),
+                7,
+                message(chain_key_to_bytes32(7)),
+            );
+            assert!(votes.try_recv().is_err());
+            assert_eq!(state.aggregator.lock().tracked(), 0);
+        }
+    }
+
+    #[tokio::test]
+    async fn governance_failures_preserve_signing_routing_and_inflight_quorum_until_disable() {
+        for timeout in [false, true] {
+            let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+            let (state, mut votes) = test_state(&signer);
+            let metrics = test_metrics();
+            let key = chain_key_to_bytes32(7);
+            apply_governance_read(&state, &metrics, Ok(Some(key))).unwrap();
+            state.aggregator.lock().set_threshold(2, Instant::now());
+            let sign = || {
+                produce_vote(&state, &metrics, &signer, signer.address(), 7, message(key));
+            };
+            sign();
+            let first_vote = votes.try_recv().unwrap();
+            assert_eq!(
+                state
+                    .aggregator
+                    .lock()
+                    .signer_count(&first_vote.message_hash),
+                1
+            );
+
+            let result =
+                apply_governance_read(&state, &metrics, failed_governance_read(timeout).await);
+            assert!(result.is_err());
+            assert_eq!(*state.destination_chain_key.read(), Some(key));
+            // The same failed refresh reaches the monitor; it cannot publish a route pause and
+            // abort the running listener or reobservation worker.
+            let route_result = result.map(|_| None);
+            assert_eq!(
+                rotation_action(&route_result, Some(route(KEY_A))),
+                RotationAction::Nothing
+            );
+            assert_governance_degraded(&metrics, true);
+            sign();
+            assert!(votes.try_recv().is_ok(), "signing continues while degraded");
+            assert_eq!(state.aggregator.lock().tracked(), 1);
+            assert_eq!(
+                state
+                    .aggregator
+                    .lock()
+                    .add_vote(first_vote.message_hash, KEY_B, Instant::now(),),
+                aggregator::VoteOutcome::Accepted {
+                    reached_threshold: true
+                },
+                "the pre-outage vote must still count toward quorum"
+            );
+
+            let disabled = apply_governance_read(&state, &metrics, Ok(None)).unwrap();
+            assert_eq!(disabled, None);
+            assert_eq!(
+                rotation_action(&Ok(None), Some(route(KEY_A))),
+                RotationAction::Pause
+            );
+            assert_governance_degraded(&metrics, false);
+            assert_eq!(state.aggregator.lock().tracked(), 0);
+            sign();
+            assert!(votes.try_recv().is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn governance_recovery_rekeys_without_another_chain_id_rpc_and_clears_stale_votes() {
+        let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+        let (state, mut votes) = test_state(&signer);
+        let metrics = test_metrics();
+        let old_key = chain_key_to_bytes32(7);
+        let new_key = chain_key_to_bytes32(8);
+        apply_governance_read(&state, &metrics, Ok(Some(old_key))).unwrap();
+        produce_vote(
+            &state,
+            &metrics,
+            &signer,
+            signer.address(),
+            7,
+            message(old_key),
+        );
+        votes.try_recv().unwrap();
+        assert!(
+            apply_governance_read(&state, &metrics, failed_governance_read(false).await).is_err()
+        );
+        assert_governance_degraded(&metrics, true);
+        assert_eq!(state.aggregator.lock().tracked(), 1);
+
+        // The EVM provider is deliberately not involved: even if eth_chainId is now failing,
+        // a successful governance read must immediately produce a matching replacement route.
+        let mut established = route(KEY_A);
+        established.destination_chain_key = old_key;
+        let next = refresh_governance_route(&state, &metrics, established, Ok(Some(new_key)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.creditcoin_chain_id, established.creditcoin_chain_id);
+        assert_eq!(next.chain_key, established.chain_key);
+        assert_eq!(next.destination_chain_key, new_key);
+        assert_eq!(
+            rotation_action(&Ok(Some(next)), Some(established)),
+            RotationAction::Swap(next),
+            "a successful rekey cannot retain the old scanner's signing domain"
+        );
+        assert_governance_degraded(&metrics, false);
+        assert_eq!(state.aggregator.lock().tracked(), 0);
+        produce_vote(
+            &state,
+            &metrics,
+            &signer,
+            signer.address(),
+            7,
+            message(old_key),
+        );
+        assert!(
+            votes.try_recv().is_err(),
+            "stale buffered work must be rejected"
+        );
+        produce_vote(
+            &state,
+            &metrics,
+            &signer,
+            signer.address(),
+            7,
+            message(new_key),
+        );
+        assert!(votes.try_recv().is_ok());
+    }
+
+    #[tokio::test]
+    async fn governance_failure_after_successful_disable_never_reenables() {
+        for timeout in [false, true] {
+            let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
+            let (state, mut votes) = test_state(&signer);
+            let metrics = test_metrics();
+            let key = chain_key_to_bytes32(7);
+            apply_governance_read(&state, &metrics, Ok(None)).unwrap();
+            assert_governance_degraded(&metrics, false);
+            assert!(
+                apply_governance_read(&state, &metrics, failed_governance_read(timeout).await)
+                    .is_err()
+            );
+            assert_governance_degraded(&metrics, true);
+            assert_eq!(*state.destination_chain_key.read(), None);
+            produce_vote(&state, &metrics, &signer, signer.address(), 7, message(key));
+            assert!(votes.try_recv().is_err());
+
+            apply_governance_read(&state, &metrics, Ok(Some(key))).unwrap();
+            assert_governance_degraded(&metrics, false);
+            produce_vote(&state, &metrics, &signer, signer.address(), 7, message(key));
+            assert!(votes.try_recv().is_ok());
+        }
+    }
+
+    #[tokio::test]
+    async fn governance_read_errors_and_timeouts_never_enable_local_fallback() {
+        use supported_chains_primitives::WriteAbilityConfig;
+        let failure = std::future::ready(Err::<Option<WriteAbilityConfig>, _>("RPC unavailable"));
+        assert!(read_governance(7, failure, Duration::from_secs(1))
+            .await
+            .is_err());
+        let stalled = std::future::pending::<Result<Option<WriteAbilityConfig>, &str>>();
+        assert!(read_governance(7, stalled, Duration::from_millis(1))
+            .await
+            .is_err());
+        let missing = std::future::ready(Ok::<Option<WriteAbilityConfig>, &str>(None));
+        assert_eq!(
+            read_governance(7, missing, Duration::from_secs(1))
+                .await
+                .unwrap(),
+            Some(chain_key_to_bytes32(7))
+        );
+        for enabled in [false, true] {
+            let onchain = WriteAbilityConfig {
+                write_ability_chain_key: [9; 32],
+                message_attestation_enabled: enabled,
+            };
+            let read = std::future::ready(Ok::<_, &str>(Some(onchain)));
+            assert_eq!(
+                read_governance(7, read, Duration::from_secs(1))
+                    .await
+                    .unwrap(),
+                enabled.then_some(B256::repeat_byte(9))
+            );
+        }
     }
 }
