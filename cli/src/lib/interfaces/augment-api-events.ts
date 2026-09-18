@@ -369,6 +369,10 @@ declare module '@polkadot/api-base/types/events' {
                 { chainKey: u64; skipped: u32 }
             >;
             /**
+             * Reward treasury vault configured (governance).
+             **/
+            RewardVaultSet: AugmentedEvent<ApiType, [vault: H160], { vault: H160 }>;
+            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;

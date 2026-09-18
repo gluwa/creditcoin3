@@ -456,6 +456,18 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             /**
+             * EVM address of the treasury vault holding attestation-reward funds. The precompile spends
+             * from this address via `transferFrom`, under an allowance the vault grants it.
+             *
+             * `OptionQuery` so "not yet configured" is representable and distinct from the zero address,
+             * matching [`AttestCoinErc20`]. Deliberately a runtime storage value rather than a config
+             * constant: the vault must be replaceable without a runtime upgrade, since rotating to a
+             * redeployed vault after an incident is exactly what the split treasury design exists to
+             * serve.
+             **/
+            rewardVault: AugmentedQuery<ApiType, () => Observable<Option<H160>>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
              * Monotonic withdraw nonce per stash (for sr25519-signed EVM `withdrawFrom`).
              *
              * Deliberately *separate* from [`ClaimNonce`] rather than shared. A shared counter would make

@@ -298,6 +298,11 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TokenNotConfigured: AugmentedError<ApiType>;
             /**
+             * No reward treasury vault configured yet. Raised by the precompile's claim path rather
+             * than by any dispatchable here, in the same way as [`Error::TokenNotConfigured`].
+             **/
+            VaultNotConfigured: AugmentedError<ApiType>;
+            /**
              * Generic error
              **/
             [key: string]: AugmentedError<ApiType>;
