@@ -40,6 +40,26 @@ jobs:
         id: filter
         with:
           filters: |
+            # Several suites share test infrastructure that lives *above* the per-suite
+            # directories these filters name, so it matches none of them on its own:
+            #
+            #   cli/src/test/utils.ts                        testIf / describeIf, and
+            #                                                startAliceAndBob, which starts the
+            #                                                two-node chain every suite runs on
+            #   cli/src/test/integration-tests/helpers.ts    funding, proxy setup, waitEras
+            #   cli/src/test/integrationTestSetupAfterEnv.ts the global beforeAll that launches
+            #                                                and tears down that chain
+            #
+            # Until this was added a change to any of them ran no integration suite at all:
+            # the filters were narrowed from "cli/**" to a list of subdirectories in
+            # e5cf8ec4d, which dropped everything sitting above those subdirectories.
+            # typescript-checks still compiles and lints the package on any .ts change, so
+            # the hole was specifically a behavioural change that compiles cleanly -- a
+            # changed port, sleep, funding amount or skip predicate.
+            #
+            # Each filter below lists only the shared files the suites it gates actually
+            # import. Over the six months before this was written those files changed in 2
+            # of 143 commits, so this costs close to nothing in extra runs.
             archiver:
               - "archiver/**"
               - "common/**"
@@ -54,6 +74,9 @@ jobs:
               - "runtime/**"
               - "cli/yarn.lock"
               - "cli/src/test/integration-tests/attestor/**"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integration-tests/helpers.ts"
+              - "cli/src/test/integrationTestSetupAfterEnv.ts"
               - ".github/workflows/ci.yml"
             attestor_network_testing:
               - "checkpoint-builder/**"
@@ -67,6 +90,7 @@ jobs:
               - "runtime/**"
               - "cli/yarn.lock"
               - "cli/src/test/attestation-tests/**"
+              - "cli/src/test/utils.ts"
               - ".github/workflows/ci.yml"
             cc3_indexer:
               - "attestor/**"
@@ -79,6 +103,8 @@ jobs:
               - "query-cli/**"
               - "cli/yarn.lock"
               - "cli/src/test/cc3-indexer-tests/**"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integration-tests/helpers.ts"
               - ".github/workflows/ci.yml"
             docs_smart_contract:
               - "docs/smart-contract-development/**"
@@ -91,6 +117,8 @@ jobs:
               - "runtime/**"
               - "cli/yarn.lock"
               - "cli/src/test/blockchain-tests/**"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integration-tests/helpers.ts"
               - ".github/workflows/ci.yml"
             integration_test_cli:
               - "common/**"
@@ -102,6 +130,8 @@ jobs:
               - "cli/src/commands/**"
               - "cli/src/lib/**"
               - "cli/src/test/integration-tests/**"
+              - "cli/src/test/utils.ts"
+              - "cli/src/test/integrationTestSetupAfterEnv.ts"
               - ".github/workflows/ci.yml"
             # Carried over verbatim from attestor-compatibility.yml's own pull_request
             # trigger, which it no longer has now that ci.yml calls it.
