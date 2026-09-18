@@ -457,52 +457,64 @@ pub async fn poll_once<P: Provider>(
     // wide gap keeps everything already scanned, and a retry/restart resumes from there rather than
     // re-attempting (or skipping) the whole span.
     let mut from_block = *last_seen + 1;
+    let mut span = MAX_LOG_BLOCK_RANGE;
     while from_block <= to_block {
-        let chunk_to = to_block.min(from_block + MAX_LOG_BLOCK_RANGE - 1);
-        scan_range(provider, resolved, from_block, chunk_to, tx).await?;
-        *last_seen = chunk_to;
-        from_block = chunk_to + 1;
+        let chunk_to = to_block.min(from_block.saturating_add(span - 1));
+        match scan_range(provider, resolved, from_block, chunk_to, tx).await {
+            Ok(()) => {
+                *last_seen = chunk_to;
+                from_block = chunk_to + 1;
+            }
+            Err(err) if err.is::<LogRangeTooLarge>() => {
+                // Process and persist each smaller prefix before fetching the next. Collecting
+                // every split result into a single original-range Vec would let spam bypass the
+                // provider's cap into unbounded memory growth across thousands of source blocks.
+                span = (chunk_to - from_block + 1) / 2;
+            }
+            Err(err) => return Err(err),
+        }
     }
     Ok(())
 }
 
-/// Fetch candidate logs despite a provider's result-count cap. Split capped ranges, and use
-/// per-transaction receipts when even one block exceeds the cap (including unauthorized spam).
-/// Transport/archive failures remain errors; they must not trigger an expensive subdivision tree.
+#[derive(Debug)]
+struct LogRangeTooLarge;
+impl std::fmt::Display for LogRangeTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("source log range exceeds the provider result limit")
+    }
+}
+impl std::error::Error for LogRangeTooLarge {}
+
+/// Fetch one bounded candidate range. The caller shrinks a capped multi-block range and drains
+/// each successful prefix before continuing. A single block uses receipts, avoiding a permanent
+/// stall on unauthorized spam while keeping the fallback bounded to one source block.
 pub(super) async fn fetch_message_logs<P: Provider>(
     provider: &P,
     from_block: u64,
     to_block: u64,
     message_id: Option<B256>,
 ) -> Result<Vec<Log>> {
-    let mut ranges = vec![(from_block, to_block)];
-    let mut logs = Vec::new();
-    while let Some((from, to)) = ranges.pop() {
-        let mut filter = Filter::new()
-            .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
-            .from_block(from)
-            .to_block(to);
-        if let Some(id) = message_id {
-            filter = filter.topic1(id);
-        }
-        match tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
-            .await
-            .context("eth_getLogs timed out")?
-        {
-            Ok(found) => logs.extend(found),
-            Err(err) if log_limit_error(&err.to_string()) => {
-                if from < to {
-                    let mid = from + (to - from) / 2;
-                    ranges.push((mid + 1, to));
-                    ranges.push((from, mid));
-                } else {
-                    logs.extend(message_logs_from_receipts(provider, from, message_id).await?);
-                }
-            }
-            Err(err) => return Err(err).context("eth_getLogs failed"),
-        }
+    let mut filter = Filter::new()
+        .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
+        .from_block(from_block)
+        .to_block(to_block);
+    if let Some(id) = message_id {
+        filter = filter.topic1(id);
     }
-    Ok(logs)
+    match tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
+        .await
+        .context("eth_getLogs timed out")?
+    {
+        Ok(found) => Ok(found),
+        Err(err) if log_limit_error(&err.to_string()) && from_block < to_block => {
+            Err(LogRangeTooLarge.into())
+        }
+        Err(err) if log_limit_error(&err.to_string()) => {
+            message_logs_from_receipts(provider, from_block, message_id).await
+        }
+        Err(err) => Err(err).context("eth_getLogs failed"),
+    }
 }
 
 fn log_limit_error(message: &str) -> bool {
