@@ -29,6 +29,19 @@ export async function isAuthorizedOutbox(chainKey: bigint, outbox: string, block
     return isActiveInRegistry(address, chainKey, outbox, blockNumber);
 }
 
+/**
+ * A registry answered, but not with an ABI-encoded bool: a governance entry pointing at an address
+ * with no code (`0x`), a contract with a different getter, or a corrupted response. Distinct from
+ * an RPC failure so callers can tell "this registry cannot authorize anything" (fail closed for
+ * that registry) from "the node did not answer" (retry the block).
+ */
+export class MalformedRegistryResponse extends Error {
+    constructor(address: string, blockNumber: number) {
+        super(`Invalid isActiveOutbox response from Discovery ${address} at ${blockNumber}`);
+        this.name = 'MalformedRegistryResponse';
+    }
+}
+
 async function isActiveInRegistry(
     address: string,
     chainKey: bigint,
@@ -42,7 +55,7 @@ async function isActiveInRegistry(
     );
     // Reject malformed/non-canonical booleans instead of treating any nonzero response as true.
     if (result !== '0x' + '0'.repeat(64) && result !== '0x' + '0'.repeat(63) + '1') {
-        throw new Error(`Invalid isActiveOutbox response from Discovery ${address} at ${blockNumber}`);
+        throw new MalformedRegistryResponse(address, blockNumber);
     }
     return result.endsWith('1');
 }
@@ -57,7 +70,19 @@ export async function authorizedOutboxChainKey(outbox: string, blockNumber: numb
         if (!value.isSome) continue;
         const chainKey = BigInt(key.args[0].toString());
         const address = value.unwrap().toHex().toLowerCase();
-        if (await isActiveInRegistry(address, chainKey, outbox, blockNumber)) return chainKey;
+        try {
+            if (await isActiveInRegistry(address, chainKey, outbox, blockNumber)) return chainKey;
+        } catch (error) {
+            // One chain key's registry being broken (misconfigured address, no code, wrong ABI)
+            // must not stall first publications on every other chain forever: that registry
+            // cannot authorize anything, so treat it as "not a member" and keep looking (bugbot).
+            // A genuine RPC error still propagates so the block is retried, never skipped.
+            if (error instanceof MalformedRegistryResponse) {
+                logger.warn(`${error.message} — skipping this registry for ${outbox}`);
+                continue;
+            }
+            throw error;
+        }
     }
     return undefined;
 }

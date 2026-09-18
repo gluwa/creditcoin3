@@ -58,13 +58,23 @@ async function fixture() {
         calls: [],
         error: undefined,
         rawResult: undefined,
+        // Optional second governance entry (chain key 9) whose registry answers with garbage —
+        // e.g. a misconfigured address with no code. Only consulted by the unknown-emitter scan.
+        brokenRegistry: undefined,
     };
     const registryOption = () => ({ isSome: Boolean(state.registry), unwrap: () => ({ toHex: () => state.registry }) });
     const registryQuery = async (key) => {
         assert.equal(key, '8');
         return registryOption();
     };
-    registryQuery.entries = async () => (state.registry ? [[{ args: [8n] }, registryOption()]] : []);
+    registryQuery.entries = async () => {
+        const entries = [];
+        if (state.brokenRegistry) {
+            entries.push([{ args: [9n] }, { isSome: true, unwrap: () => ({ toHex: () => state.brokenRegistry }) }]);
+        }
+        if (state.registry) entries.push([{ args: [8n] }, registryOption()]);
+        return entries;
+    };
     const api = {
         query: { supportedChains: { outboxDiscoveries: registryQuery } },
         rpc: {
@@ -72,6 +82,10 @@ async function fixture() {
                 call: async ({ to, data }, height) => {
                     // Exercise the real ABI encoding and require explicit historical height, never latest.
                     assert.equal(height, state.height);
+                    if (state.brokenRegistry && to === state.brokenRegistry) {
+                        state.calls.push({ to, height, method: 'broken' });
+                        return { toHex: () => '0x' };
+                    }
                     assert.equal(to, state.registry);
                     const call = abi.parseTransaction({ data });
                     assert.equal(call.args.chainKey, 8);
@@ -264,6 +278,27 @@ test('RPC errors and malformed authorization responses fail the indexed block fo
     assert.equal(f.types.OutboxMessage.rows.size, 0);
     f.state.rawResult = undefined;
     await f.publish();
+    assert.equal(f.types.OutboxMessage.rows.size, 1);
+});
+
+test('a broken registry on another chain key cannot stall first publications elsewhere', async () => {
+    const f = await fixture();
+    f.state.active = (_height, address) => address === outbox;
+    // Chain key 9's governance entry points at an address that returns no ABI bool. The
+    // unknown-emitter scan must skip it and still find the emitter in chain key 8's registry.
+    f.state.brokenRegistry = replacement;
+    await f.publish();
+    assert.equal(f.types.OutboxMessage.rows.size, 1, 'healthy registry still authorizes the publication');
+    assert.equal(BigInt((await f.types.OutboxContract.get(outbox)).chainKey), 8n);
+    assert(
+        f.state.calls.some((call) => call.method === 'broken'),
+        'the broken registry was consulted first',
+    );
+    // The known-Outbox path stays strict: a malformed answer from the Outbox's OWN registry is
+    // still a failed block, never a silent skip.
+    f.state.height++;
+    f.state.rawResult = '0x' + '0'.repeat(63) + '2';
+    await assert.rejects(() => f.publish(2), /Invalid isActiveOutbox response/);
     assert.equal(f.types.OutboxMessage.rows.size, 1);
 });
 
