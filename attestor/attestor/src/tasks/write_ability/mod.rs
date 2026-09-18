@@ -717,11 +717,11 @@ pub async fn run(
         "🗂️ persisting Outbox scan cursor across restarts"
     );
     let listener_tx = tx.clone();
-    // One shared Creditcoin L1 handle for the listener, the rotation monitor and the reobservation
-    // worker. alloy clones share a pubsub backend, so a dead connection is dead for all three; the
-    // listener is the loop that detects the stall (see `listener::MAX_CONSECUTIVE_POLL_FAILURES`),
-    // rebuilds through the hook below and publishes the fresh provider here, and the two siblings
-    // clone the latest value before each use. Sibling of the resolver's in-place rebuild above;
+    // One shared Creditcoin L1 handle for the listener and the reobservation worker. Alloy clones
+    // share a pubsub backend, so a dead connection affects both. The listener detects a stall
+    // (see `listener::MAX_CONSECUTIVE_POLL_FAILURES`),
+    // rebuilds through the hook below and publishes the fresh provider here, and reobservation
+    // clones the latest value before each use. Sibling of the resolver's in-place rebuild above;
     // nobody exits the task any more. The hook is an inline closure on purpose: its future yields
     // the very same opaque provider type the channel carries, where a named helper would mint a
     // second `impl Provider` that the listener's `P` could not unify with.
@@ -749,27 +749,15 @@ pub async fn run(
     // One live routing view feeds both signing paths. Default-Outbox and Discovery-address
     // changes do not replace listeners: source-block authorization is resolved for each message.
     let (resolved_tx, mut resolved_rx) = watch::channel(Some(resolved));
-    let mut outbox_monitor = {
-        let provider = l1_provider_tx.clone();
-        let monitor_rpc = rpc.clone();
-        let reconnect = move || {
-            let rpc = monitor_rpc.clone();
-            async move { connect_l1_provider(rpc.as_str()).await }
-        };
-        let cfg = cfg.clone();
-        let token = shared.token.clone();
-        tokio::spawn(run_outbox_monitor(
-            provider,
-            reconnect,
-            cfg,
-            cc3.clone(),
-            state.clone(),
-            shared.metrics.clone(),
-            resolved,
-            resolved_tx,
-            token,
-        ))
-    };
+    let mut outbox_monitor = tokio::spawn(run_outbox_monitor(
+        cfg.clone(),
+        cc3.clone(),
+        state.clone(),
+        shared.metrics.clone(),
+        resolved,
+        resolved_tx,
+        shared.token.clone(),
+    ));
     // `listener` becomes `None` while routing is paused; `active_outbox` retains log context.
     let mut listener = Some(listener);
     let mut active_outbox = Some(resolved);
@@ -1050,14 +1038,26 @@ fn child_exit_error(
     }
 }
 
+/// Build a new route from the immutable source identity established during activation. A rekey
+/// must not wait for another EVM RPC after publishing the authorization: otherwise a failed chain
+/// ID read leaves the old listener advancing its cursor while all its messages are rejected.
+fn refresh_governance_route(
+    state: &MessageVoteState,
+    metrics: &metrics::Metrics,
+    established: resolver::ResolvedRoute,
+    result: anyhow::Result<Option<B256>>,
+) -> anyhow::Result<Option<resolver::ResolvedRoute>> {
+    let key = apply_governance_read(state, metrics, result)?;
+    Ok(key.map(|destination_chain_key| resolver::ResolvedRoute {
+        destination_chain_key,
+        ..established
+    }))
+}
+
 /// Refresh finalized governance and routing after activation. An explicitly disabled governance
 /// entry pauses both signing paths; a changed destination key replaces the routing snapshot.
 /// Failed refreshes preserve the last successful configuration and report degraded governance.
-/// This monitor also heals its provider while the listener is paused.
-#[allow(clippy::too_many_arguments)]
-async fn run_outbox_monitor<P, R, Fut>(
-    shared_provider: watch::Sender<P>,
-    reconnect: R,
+async fn run_outbox_monitor(
     cfg: Config,
     cc3: Arc<cc_client::Client>,
     state: Arc<MessageVoteState>,
@@ -1065,12 +1065,7 @@ async fn run_outbox_monitor<P, R, Fut>(
     current: resolver::ResolvedRoute,
     resolved_tx: watch::Sender<Option<resolver::ResolvedRoute>>,
     token: tokio_util::sync::CancellationToken,
-) where
-    P: Provider + Clone,
-    R: Fn() -> Fut,
-    Fut: std::future::Future<Output = anyhow::Result<P>>,
-{
-    let mut consecutive_failures = 0;
+) {
     let mut tick = tokio::time::interval(std::time::Duration::from_secs(OUTBOX_RESOLVE_RETRY_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -1079,11 +1074,10 @@ async fn run_outbox_monitor<P, R, Fut>(
         tokio::select! {
             () = token.cancelled() => return,
             _ = tick.tick() => {
-                // Take the latest shared connection as a separate statement: a `borrow()` inside
-                // the `timeout(...)` expression would hold the watch read guard across the await
-                // and block the listener's `send_replace` for the length of an RPC attempt.
-                let provider = shared_provider.borrow().clone();
-                let attempt = resolve_authorized_outbox(&provider, &cfg, &cc3, &state, &metrics).await;
+                let governance = resolve_destination_chain_key(&cfg, &cc3).await;
+                // No await or fallible EVM lookup may separate the authorization update from
+                // publishing its matching route. Source identity was validated at activation.
+                let attempt = refresh_governance_route(&state, &metrics, current, governance);
                 match rotation_action(&attempt, active) {
                     RotationAction::Swap(next) => {
                         tracing::info!(
@@ -1107,21 +1101,6 @@ async fn run_outbox_monitor<P, R, Fut>(
                         }
                     }
                     RotationAction::Nothing => {}
-                }
-                if let Err(err) = attempt {
-                    tracing::warn!(error = %format!("{err:#}"), "Outbox rotation check failed; will retry");
-                    consecutive_failures += 1;
-                    if consecutive_failures >= MAX_CONSECUTIVE_RESOLVE_FAILURES {
-                        consecutive_failures = 0;
-                        // Governance can pause the listener, which normally heals this connection.
-                        // The monitor must therefore be able to recover it without a live scanner.
-                        match reconnect().await {
-                            Ok(fresh) => { shared_provider.send_replace(fresh); }
-                            Err(err) => tracing::warn!(%err, "Outbox monitor provider rebuild failed; will retry"),
-                        }
-                    }
-                } else {
-                    consecutive_failures = 0;
                 }
             }
         }
@@ -1694,7 +1673,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn governance_recovery_applies_rekey_and_clears_stale_votes() {
+    async fn governance_recovery_rekeys_without_another_chain_id_rpc_and_clears_stale_votes() {
         let signer = signing::MessageSigner::from_seed(&[7; 32]).unwrap();
         let (state, mut votes) = test_state(&signer);
         let metrics = test_metrics();
@@ -1716,7 +1695,21 @@ mod tests {
         assert_governance_degraded(&metrics, true);
         assert_eq!(state.aggregator.lock().tracked(), 1);
 
-        apply_governance_read(&state, &metrics, Ok(Some(new_key))).unwrap();
+        // The EVM provider is deliberately not involved: even if eth_chainId is now failing,
+        // a successful governance read must immediately produce a matching replacement route.
+        let mut established = route(KEY_A);
+        established.destination_chain_key = old_key;
+        let next = refresh_governance_route(&state, &metrics, established, Ok(Some(new_key)))
+            .unwrap()
+            .unwrap();
+        assert_eq!(next.creditcoin_chain_id, established.creditcoin_chain_id);
+        assert_eq!(next.chain_key, established.chain_key);
+        assert_eq!(next.destination_chain_key, new_key);
+        assert_eq!(
+            rotation_action(&Ok(Some(next)), Some(established)),
+            RotationAction::Swap(next),
+            "a successful rekey cannot retain the old scanner's signing domain"
+        );
         assert_governance_degraded(&metrics, false);
         assert_eq!(state.aggregator.lock().tracked(), 0);
         produce_vote(
