@@ -42,6 +42,11 @@ pub fn validate_and_count(
     our_chain_key: u64,
     bytes: &[u8],
 ) -> Acceptance {
+    // Governance may pause message attestation while the p2p task remains alive for block votes.
+    let governance = state.destination_chain_key.read();
+    if governance.is_none() {
+        return Acceptance::Ignore;
+    }
     let Ok(vote) = MessageVote::decode_bytes(bytes) else {
         tracing::warn!("⛔ undecodable message vote — rejecting");
         return Acceptance::Reject;
@@ -137,7 +142,9 @@ mod tests {
             publish_tx: tx,
             set_update_publish_tx: tokio::sync::mpsc::channel(8).0,
             reobs_tx: tokio::sync::mpsc::channel(8).0,
-            destination_chain_key: write_ability::protocol::chain_key_to_bytes32(CHAIN_KEY),
+            destination_chain_key: RwLock::new(Some(
+                write_ability::protocol::chain_key_to_bytes32(CHAIN_KEY),
+            )),
         }
     }
 
