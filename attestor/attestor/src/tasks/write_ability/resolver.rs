@@ -125,9 +125,9 @@ async fn resolve_outbox_from_registry<P: Provider>(
         .await
         .with_context(|| format!("defaultOutbox reverted on registry {discovery}"))?;
 
-    if outbox._0.is_zero() {
+    if outbox.is_zero() {
         return Ok(None);
     }
 
-    Ok(Some(outbox._0))
+    Ok(Some(outbox))
 }

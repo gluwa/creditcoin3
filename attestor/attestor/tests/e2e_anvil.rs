@@ -65,7 +65,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     let emitter = signer.address();
     let provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(signer))
-        .on_http(anvil.endpoint_url());
+        .connect_http(anvil.endpoint_url());
 
     // 2. Deploy the fixture Outbox on the Creditcoin L1 EVM, bound to our chain key.
     let chain_key: u64 = 7;

@@ -10,7 +10,7 @@
 //! validator's attestor set (§6.3 option B). The signed bytes and recovery here are byte-identical
 //! to what `message-relayer` recovers (`recover_address_from_prehash` over the same 65 bytes).
 
-use alloy::primitives::{keccak256, Address, PrimitiveSignature, B256};
+use alloy::primitives::{keccak256, Address, Signature, B256};
 use alloy::signers::local::PrivateKeySigner;
 use alloy::signers::SignerSync;
 use anyhow::{Context, Result};
@@ -58,7 +58,7 @@ impl MessageSigner {
 /// Recover the EVM signer address from a 65-byte signature over `message_hash`. Mirrors the
 /// relayer's `recover_signer` so both sides agree on who signed.
 pub fn recover_signer(message_hash: &B256, raw: &[u8; 65]) -> Result<Address> {
-    let sig: PrimitiveSignature = raw[..]
+    let sig: Signature = raw[..]
         .try_into()
         .map_err(|e| anyhow::anyhow!("malformed signature bytes: {e}"))?;
     sig.recover_address_from_prehash(message_hash)
