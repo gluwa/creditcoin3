@@ -12,7 +12,7 @@
         "typecheck": "echo"
     },
     "dependencies": {
-        "@gluwa/usc-sdk": "0.18.0",
+        "@gluwa/asc-sdk": "0.19.0",
         "@polkadot/api": "16.5.2",
         "ethers": "^6.17.0"
     },
