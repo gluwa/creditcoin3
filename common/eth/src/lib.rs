@@ -417,7 +417,8 @@ pub type AlloyB256 = BlockHash;
 enum Confirmation {
     /// It has the candidate height; this is the hash it has there.
     Hash(BlockHash),
-    /// Its own tag answer is below the candidate; it cannot judge the candidate.
+    /// Its own tag answer is below the candidate and it has no block at the candidate height
+    /// yet; it cannot judge the candidate.
     Behind(u64),
     /// It reports the tag above the candidate yet has no block at the candidate height.
     Missing,
@@ -1124,12 +1125,16 @@ impl Client {
                         .map(|(_, p)| *p)
                         .expect("label came from this provider list");
                     async move {
-                        if block.number < candidate.number {
-                            return (label.clone(), Confirmation::Behind(block.number));
-                        }
                         if block.number == candidate.number {
                             return (label.clone(), Confirmation::Hash(block.hash));
                         }
+                        // A different tag height says nothing about whether this provider holds
+                        // the candidate block: `safe` and `finalized` trail the head by dozens of
+                        // blocks, so a peer whose tag is a step behind almost always has the
+                        // candidate height already, and a forked primary that sits slightly ahead
+                        // of honest fallbacks must not escape the hash check on that account.
+                        // Ask for the block and let the hash decide; only a provider with no block
+                        // at that height gets to abstain.
                         let read = timed(
                             timeout,
                             provider.get_block(
@@ -1140,6 +1145,9 @@ impl Client {
                         .await;
                         let confirmation = match read {
                             Ok(Some(b)) => Confirmation::Hash(b.header.hash),
+                            Ok(None) if block.number < candidate.number => {
+                                Confirmation::Behind(block.number)
+                            }
                             Ok(None) => Confirmation::Missing,
                             Err(e) => Confirmation::Failed(e),
                         };
@@ -1160,15 +1168,16 @@ impl Client {
                         });
                     }
                     Confirmation::Behind(at) => {
-                        // Has not reached the candidate: cannot confirm, must not veto. Loud,
-                        // because a fallback that is persistently behind is a stale fallback.
+                        // Has not reached the candidate height at all: cannot confirm, must not
+                        // veto. Loud, because a fallback that is persistently behind is a stale
+                        // fallback.
                         tracing::warn!(
                             provider = %label,
                             %tag,
                             reports = at,
                             candidate = candidate.number,
                             behind_by = candidate.number - at,
-                            "block tag lookup: provider is behind the candidate and cannot confirm it"
+                            "block tag lookup: provider has no block at the candidate height yet and cannot confirm it"
                         );
                     }
                     Confirmation::Missing => {
