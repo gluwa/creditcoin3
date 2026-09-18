@@ -38,6 +38,7 @@
         "test:randomness": "jest --config src/test/blockchain-tests.config.ts --verbose --runInBand --forceExit src/test/blockchain-tests/pallets/randomness"
     },
     "devDependencies": {
+        "@gluwa/atc-treasury-and-gov": "0.1.0",
         "@gluwa/usc-sdk": "0.18.0",
         "@polkadot/typegen": "16.5.2",
         "@types/graphqurl": "^1.0.3",

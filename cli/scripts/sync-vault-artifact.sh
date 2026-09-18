@@ -13,13 +13,9 @@
 #   bash scripts/sync-vault-artifact.sh           # regenerate in place
 #   bash scripts/sync-vault-artifact.sh --check   # report drift, touch nothing, exit non-zero
 #
-# NOT YET ACTIVE. atc-treasury-and-gov has no published release yet, so the package is not
-# installed and this script exits 0 without doing anything. To switch it on once one exists, add
-# it to cli/package.json:
-#
-#     "devDependencies": { "@gluwa/atc-treasury-and-gov": "<version>" }
-#
-# and the next run compiles from it. No other change is needed.
+# The package is a devDependency of cli/package.json, so a normal `yarn install` puts the contract
+# source in place and this script compiles from it. To move to a new vault release, bump that
+# version and re-run without --check to rewrite the artifact.
 
 set -euo pipefail
 

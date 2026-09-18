@@ -579,6 +579,13 @@
   resolved "https://registry.npmjs.org/@eslint/js/-/js-8.57.0.tgz"
   integrity sha512-Ys+3g2TaW7gADOJzPt83SJtCDhMjndcDMFVQ/Tj9iA1BfJzFKD9mAUXT3OenpuPHbI6P/myECxRJrofUsDx/5g==
 
+"@gluwa/atc-treasury-and-gov@0.1.0":
+  version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@gluwa/atc-treasury-and-gov/-/atc-treasury-and-gov-0.1.0.tgz#c87c86948719e8544e6c2843c6bad289ad27102a"
+  integrity sha512-iHhtPYgd5GBf3cK/W+eckgPgxIAv+hyoEokrR74myO3ZBqf4F7G81nH8l1mn48uS0xV/KAqQyHqbYRC1g21LpA==
+  dependencies:
+    "@openzeppelin/contracts" "5.1.0"
+
 "@gluwa/usc-sdk@0.18.0":
   version "0.18.0"
   resolved "https://registry.yarnpkg.com/@gluwa/usc-sdk/-/usc-sdk-0.18.0.tgz#03d0bbcd00a9a9a6b91eb4e9565fc861ee8978da"
@@ -1091,6 +1098,11 @@
   version "1.0.4"
   resolved "https://registry.yarnpkg.com/@oclif/screen/-/screen-1.0.4.tgz#b740f68609dfae8aa71c3a6cab15d816407ba493"
   integrity sha512-60CHpq+eqnTxLZQ4PGHYNwUX572hgpMHGPtTWMjdTMsAvlm69lZV/4ly6O3sAYkomo4NggGcomrDpBe34rxUqw==
+
+"@openzeppelin/contracts@5.1.0":
+  version "5.1.0"
+  resolved "https://registry.yarnpkg.com/@openzeppelin/contracts/-/contracts-5.1.0.tgz#4e61162f2a2bf414c4e10c45eca98ce5f1aadbd4"
+  integrity sha512-p1ULhl7BXzjjbha5aqst+QMLY+4/LCWADXOCsmLHRM77AqiPjnd9vvUN9sosUfhL9JGKpZ0TjEGxgvnizmWGSA==
 
 "@polkadot-api/json-rpc-provider-proxy@^0.1.0":
   version "0.1.0"
