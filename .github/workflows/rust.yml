@@ -325,3 +325,49 @@ jobs:
             --features simulation \
             -p stream_attestation \
             simulate
+
+  # ---------------------------------------------------------------------------
+  # Alert when the cache producer breaks.
+  #
+  # The push / workflow_dispatch legs of this workflow are the only producer of the
+  # rust-check, rust-clippy and rust-test cache entries. A cache saved by a PR run is
+  # scoped to refs/pull/<n>/merge and no other PR can restore it, so when the producer
+  # fails nothing is written to the default branch and every PR afterwards silently
+  # pays a from-cold compile: roughly 55 minutes for this workflow instead of 7.
+  # Nothing else surfaces that, because the PRs themselves still go green.
+  #
+  # Not hypothetical: #1338 merged with this leg red -- cargo-test hit the flaky sled
+  # reopen later fixed by #1372 -- and it went unnoticed until the workflow was
+  # re-dispatched by hand 14 hours later, during which PRs compiled cold.
+  #
+  # Restricted to non-pull_request events on purpose. A PR run cannot save a cache
+  # anyway, and its failures are already reported on the PR itself, so alerting on
+  # them would be pure noise.
+  #
+  # cargo-audit, cargo-fmt and cargo-machete are deliberately not in `needs`: they all
+  # pass `save-if: false` and so produce no cache entry.
+  # ---------------------------------------------------------------------------
+  report-cache-producer-failure:
+    needs:
+      - cargo-check
+      - cargo-clippy
+      - cargo-test
+    if: ${{ failure() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Rust cache producer failed on `${{ github.ref_name }}`. PRs will compile from
+            cold (~55m for the `rust` workflow instead of ~7m) until this is green again.
+            rust-check: ${{ needs.cargo-check.result }} |
+            rust-clippy: ${{ needs.cargo-clippy.result }} |
+            rust-test: ${{ needs.cargo-test.result }}
+            Once the cause is fixed, re-run to repopulate the caches:
+            `gh workflow run rust.yml --ref ${{ github.ref_name }}`
+            cc <!subteam^S028FDV6CCV>
