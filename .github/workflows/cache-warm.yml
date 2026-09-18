@@ -88,3 +88,43 @@ jobs:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: cache-warm
     secrets: inherit
+
+  # ---------------------------------------------------------------------------
+  # Alert when the warmer breaks.
+  #
+  # This workflow is the only producer of the `build-creditcoin-node-<family>` cache
+  # entry that ci.yml, proof-gen-api-server, benchmarks, both chainspec builds,
+  # runtime-upgrade and release all restore from. A cache saved by a PR run is scoped
+  # to refs/pull/<n>/merge and no other PR can restore it, so when this fails nothing
+  # is written to the default branch and every PR afterwards builds the dependency
+  # graph from cold. Nothing else surfaces that: the PRs still go green, just slowly.
+  #
+  # `remove-runner` is not in `needs` on purpose. It runs under always() and a leaked
+  # VM is already the Linode Cleaner's job, so folding it in here would alert on a
+  # different problem than the one this watches.
+  #
+  # Runs on a hosted runner: by this point the Linode VM may already be gone.
+  # ---------------------------------------------------------------------------
+  report-cache-producer-failure:
+    needs:
+      - deploy-runner
+      - warm-build-creditcoin-node-linode
+    if: ${{ failure() }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Native build cache warmer failed on `${{ github.ref_name }}`. PRs that build
+            the node (ci.yml, proof-gen-api-server, chainspec, benchmarks) will compile
+            from cold until this is green again.
+            deploy-runner: ${{ needs.deploy-runner.result }} |
+            warm-build: ${{ needs.warm-build-creditcoin-node-linode.result }}
+            Once the cause is fixed, re-run to repopulate the cache:
+            `gh workflow run cache-warm.yml --ref ${{ github.ref_name }}`
+            cc <!subteam^S028FDV6CCV>
