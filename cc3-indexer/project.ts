@@ -6,6 +6,7 @@ import {
     attestationDatasources,
     genesisDatasource,
     outboxDiscoveryDatasource,
+    outboxRegistryDatasource,
     outboxMessagesDatasource,
 } from './datasources';
 
@@ -27,6 +28,7 @@ dataSources.push(genesisDatasource);
 // USC write-ability: chain-wide topic watches; every event is authorized per-event in its handler
 // (no dynamic datasources — see datasources.ts).
 dataSources.push(outboxDiscoveryDatasource);
+dataSources.push(outboxRegistryDatasource);
 dataSources.push(outboxMessagesDatasource);
 
 // Can expand the Datasource processor types via the genreic param

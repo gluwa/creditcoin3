@@ -6,22 +6,8 @@ import { deployContract } from '../blockchain-tests/helpers';
 import { forElapsedBlocks } from '../utils';
 import { graphQLQuery } from './common';
 
-// USC write-ability EVM handlers, exercised end to end in publish order:
-//   handleOutboxCreated  -> OutboxContract (the admission the message handlers key on)
-//   handleMessagePublished -> OutboxMessage
-//   handleMessageAcknowledged -> flips the same OutboxMessage to acknowledged
-//
-// The events come from MockWriteAbilityEmitter, which announces itself as the Outbox; all three
-// handlers are chain-wide topic watches that authorize each event against store state (no dynamic
-// datasources).
-//
-// Discovery is fail-closed: `handleOutboxCreated` only *admits* an `OutboxCreated` whose emitter is
-// the factory governance registered for that raw chain key. This suite covers the ordered path
-// (register the factory first, as the deploy tooling does); the reverse order — announce first,
-// register later — is the backfill path covered by handleOutboxBackfill.test.ts.
-//
-// The three steps must land in this order and be indexed between each: admission only exists once
-// OutboxCreated has been processed, and the ack only updates an already-indexed message.
+// Canonical Discovery membership admits the mock; each publication queries that registry at
+// its own historical block. Factory events alone cannot certify a permissionless deployment.
 describe('Outbox lifecycle handlers', () => {
     let api: ApiPromise;
     let provider: WebSocketProvider;
@@ -93,7 +79,7 @@ describe('Outbox lifecycle handlers', () => {
         chainKeyNumber = Number(chainKey.toBigInt());
         chainKeyBytes32 = `0x${chainKey.toBigInt().toString(16).padStart(64, '0')}`;
 
-        // Register the mock as this chain key's Outbox factory, so its OutboxCreated is accepted.
+        // Register factory provenance separately from the Discovery admission authority.
         await api.tx.sudo
             .sudo(api.tx.supportedChains.setOutboxFactoryAddr(chainKey, outboxAddress))
             .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
@@ -103,8 +89,15 @@ describe('Outbox lifecycle handlers', () => {
         expect(stored.isSome).toEqual(true);
         expect(stored.unwrap().toString().toLowerCase()).toEqual(outboxAddress);
 
-        // The registration must be *indexed* before OutboxCreated is emitted — the handler reads
-        // OutboxFactoryRegistration, so emitting first would be rejected as unauthenticated.
+        const discovery = await deployContract('MockOutboxDiscovery', [], alith);
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setOutboxDiscoveryAddr(chainKey, await discovery.getAddress()))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+        await forElapsedBlocks(api, { minBlocks: 1 });
+        const register = await discovery.getFunction('registerOutbox')(chainKeyNumber, outboxAddress, {
+            gasLimit: 1_000_000,
+        });
+        await register.wait();
         await forElapsedBlocks(api, { minBlocks: 3 });
     }, 180_000);
 
@@ -144,10 +137,9 @@ describe('Outbox lifecycle handlers', () => {
                 expect(BigInt(node.createdAt)).toBeGreaterThanOrEqual(startingBlock);
                 expect(BigInt(node.createdTimestamp)).toBeGreaterThan(0n);
                 expect(node.createdTxHash.startsWith('0x')).toEqual(true);
-                // `factoryId` records the contract that emitted OutboxCreated, which discovery now
-                // requires to be the registered factory. The mock announces itself as the Outbox, so
-                // it is its own emitter and factoryId equals the id here.
-                expect(node.factoryId).toEqual(outboxAddress);
+                // Discovery admitted it before its creation announcement; unknown provenance is
+                // left nullable rather than fabricating a factory relationship from registration.
+                expect(node.factoryId).toBeNull();
             }
         });
     });
@@ -283,7 +275,7 @@ describe('Outbox lifecycle handlers', () => {
                     ) { nodes { id, factoryId }}}`,
             );
             expect(response.data.outboxContracts.nodes.length).toEqual(1);
-            expect(response.data.outboxContracts.nodes[0].factoryId).toEqual(outboxAddress);
+            expect(response.data.outboxContracts.nodes[0].factoryId).toBeNull();
         });
     });
 });

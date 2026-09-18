@@ -80,7 +80,32 @@ The indexer tracks query verification events from the Native Query Verifier prec
 
 These events are handled in `src/mappings/evmHandlers.ts` and stored in the `TransactionVerified` entity.
 
+### Write-ability Outbox authorization
+
+OutboxFactory deployment is permissionless. Factory events identify candidates; only the
+Discovery registry configured in `supportedChains.OutboxDiscoveries` authorizes an Outbox.
+The indexer reads that governance entry and calls `isActiveOutbox` at each publication's
+historical block using SubQuery's height-scoped API. An archive endpoint must support historical
+`eth_call`; errors stop the block for retry instead of admitting or silently losing messages.
+Scheduled removal, cancellation and registry rotation follow the contract's getter semantics.
+Authorization uses the state at the end of the publication's block, matching the attestor.
+An unknown emitter is checked against configured registries directly, so same-block handler
+ordering and counterfeit candidate announcements cannot hide an authorized publication.
+
+Authenticated `OutboxRegistered` events admit members directly, and governance registry
+registration (plus genesis initialization) snapshots existing members. Neither path depends
+on permissionless factory candidates fitting in the bounded pending list. Publications made
+before authorization are not backfilled later. Historical Outbox rows and their legitimate
+messages remain available after removal; acknowledgements still require the original emitter.
+
+When upgrading from factory-only admission, **reindex from before the first write-ability
+deployment** to remove previously admitted unauthorized Outboxes/messages. The new per-message
+check prevents further unauthorized publications but does not rewrite existing history.
+
 ## Testing
+
+Run `yarn test:outbox-authorization` for the focused admission, historical authorization and
+RPC-failure regression tests, using the actual handlers with an isolated store and RPC fixture.
 
 The primary CI job for cc3-indexer is `cc3-indexer-testing:` inside `.github/workflows/ci.yml`.
 It simulates ingestion of source chain(s) and performs various on-chain actions then

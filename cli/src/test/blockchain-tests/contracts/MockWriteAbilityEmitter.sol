@@ -7,11 +7,9 @@ pragma solidity ^0.8.24;
 ///         `handleMessageAcknowledged`) without standing up the whole fee stack (AttestorVault,
 ///         ATTEST token, validator, quoter, CREATE2 OutboxFactory).
 ///
-///         This is sound because the indexer discovers Outboxes by *topic*, chain-wide, rather than
-///         from a known factory address — see `outboxDiscoveryDatasource` in
-///         `cc3-indexer/datasources.ts` and the "P2-10 factory correspondence" note in
-///         `src/mappings/evmHandlers.ts`. A contract that is not a registered `OutboxFactory` is
-///         exactly the *unauthenticated* discovery path, so these tests cover it as written.
+///         Factory emission alone does not authorize this mock: tests must configure a governance
+///         Discovery and register it there. MockOutboxDiscovery supplies the canonical admission
+///         event/getters. Unregistered mocks exercise the rejected, permissionless factory path.
 ///
 /// @dev The three event signatures below MUST stay byte-identical to the canonical definitions in
 ///      the `usc-contracts` repo (`contracts/write-ability/Outbox.sol` and
@@ -38,9 +36,7 @@ contract MockWriteAbilityEmitter {
     event MessageAcknowledged(bytes32 indexed messageId);
 
     /// @notice Announce this contract as an Outbox for `chainKey`.
-    /// @dev `outbox` is deliberately `address(this)`: the indexer registers a dynamic datasource for
-    ///      the announced address, so pointing it back here lets this same contract then emit the
-    ///      `MessagePublished` / `MessageAcknowledged` events that datasource listens for.
+    /// @dev `outbox` is deliberately `address(this)` so this contract emits subsequent messages.
     function emitOutboxCreated(uint32 chainKey, address validator, string calldata version) external {
         emit OutboxCreated(address(this), chainKey, msg.sender, validator, version);
     }

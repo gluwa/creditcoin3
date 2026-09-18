@@ -521,8 +521,8 @@ type TransactionVerified @entity {
 type OutboxFactory @entity {
     """
     A USC write-ability OutboxFactory discovered on-chain via the substrate
-    `supportedChains.OutboxFactoryRegistered` event. The registration authenticates subsequent
-    chain-wide OutboxCreated events; no factory address is configured in the project manifest.
+    `supportedChains.OutboxFactoryRegistered` event. Factory provenance is informational:
+    deployment is permissionless and only canonical Discovery membership authorizes an Outbox.
     """
     # Factory contract address (hex, lowercase)
     id: ID!
@@ -550,10 +550,10 @@ type OutboxFactoryRegistration @entity {
 
 type OutboxContract @entity {
     """
-    An Outbox instance discovered on-chain via its factory's OutboxCreated event and authorized
-    against the governance registration for its chain key — no addresses are hard-coded. The row's
-    existence IS the authorization: the chain-wide message handlers only index MessagePublished /
-    MessageAcknowledged whose emitting contract has an OutboxContract row.
+    An Outbox admitted by governance's canonical Discovery at an indexed historical height.
+    This row retains history after removal; it is not ongoing authorization. Every publication
+    checks Discovery membership at its own block. Existing messages can still be acknowledged
+    by their original emitting Outbox after removal.
     """
     # Outbox contract address (hex, lowercase)
     id: ID!
@@ -561,11 +561,11 @@ type OutboxContract @entity {
     chainKey: String! @index
     # The factory that created it
     factory: OutboxFactory
-    # Creditcoin L1 block the Outbox was created at
+    # First authenticated observation: factory creation, Discovery registration, or registry snapshot
     createdAt: BigInt! @index
-    # Creation block timestamp (ms since epoch)
+    # Observation block timestamp (ms since epoch)
     createdTimestamp: BigInt!
-    # Creation transaction hash
+    # Observation transaction hash (0x when unavailable)
     createdTxHash: String! @index
     # Messages published on this Outbox
     messages: [OutboxMessage!] @derivedFrom(field: "outbox")
@@ -614,13 +614,9 @@ type OutboxMessage @entity {
 
 type PendingOutbox @entity {
     """
-    An OutboxCreated whose emitting factory is not (yet) the governance-registered factory for its
-    chain key. Discovery is fail-closed, but rejection must not be permanent: registration can
-    legitimately be indexed AFTER the factory deployed its Outbox (observed live on usc-dev), so the
-    event is quarantined here and promoted to an OutboxContract by handleOutboxFactoryRegistered the
-    moment governance authorizes the emitter. Rows are bounded per chain key (and gated on the chain
-    key actually existing as a SupportedChain), so counterfeit announcements cannot grow state
-    without bound.
+    A bounded candidate from OutboxCreated, which is permissionless even for registered factories.
+    The row never authorizes publications: admission requires canonical Discovery membership.
+    Authentic registry events and governance registry snapshots bypass the candidate cap.
     """
     # Announced Outbox contract address (hex, lowercase)
     id: ID!
@@ -638,10 +634,9 @@ type PendingOutbox @entity {
 
 type QuarantinedMessage @entity {
     """
-    A MessagePublished observed on a PendingOutbox — kept so that when the pending Outbox is later
-    authorized, its pre-authorization history is promoted into OutboxMessage rows instead of being
-    lost (the backfill half of fail-closed discovery). Acks that arrive while quarantined are
-    recorded here too and survive promotion. Bounded per pending Outbox.
+    Legacy quarantine rows retained for schema compatibility and removal during promotion/purge.
+    New unauthorized publications are dropped. Historical messages are never retroactively
+    authorized merely because an Outbox becomes a member of Discovery later.
     """
     # messageId (bytes32, hex)
     id: ID!

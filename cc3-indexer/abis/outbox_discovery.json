@@ -1,0 +1,12 @@
+[
+  {
+    "type": "event",
+    "name": "OutboxRegistered",
+    "inputs": [
+      { "name": "chainKey", "type": "uint32", "indexed": true, "internalType": "uint32" },
+      { "name": "outbox", "type": "address", "indexed": true, "internalType": "address" },
+      { "name": "registrar", "type": "address", "indexed": true, "internalType": "address" }
+    ],
+    "anonymous": false
+  }
+]
