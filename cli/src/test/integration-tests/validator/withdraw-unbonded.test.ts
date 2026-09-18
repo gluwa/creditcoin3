@@ -128,8 +128,19 @@ describe('withdraw-unbonded', () => {
                 const blockTime = api.consts.babe.expectedBlockTime.toNumber();
                 let oldUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
 
-                // note: 15 blocks * 2 epochs * 7 eras is 210 blocks !
-                const maxIterations = 200;
+                // This loop must finish *before* the unbonding period expires, because once
+                // the funds unlock there is no countdown left to watch decrease. It used to
+                // hardcode 200 against a hand-computed 210 ("15 blocks * 2 epochs * 7 eras"),
+                // which silently assumed a 7-era bonding duration. Derive it instead, so the
+                // loop tracks whatever the runtime is built with: the fast-runtime build now
+                // uses 2 eras, where a fixed 200 would run four times longer than the wait it
+                // is supposed to fit inside and become the thing the suite waits on.
+                const epochBlocks = api.consts.babe.epochDuration.toNumber();
+                const sessionsPerEra = api.consts.staking.sessionsPerEra.toNumber();
+                const blocksInUnbondingPeriod = epochBlocks * sessionsPerEra * unbondingPeriod;
+
+                // Same 10-block margin the old constant left (200 against 210).
+                const maxIterations = Math.max(1, blocksInUnbondingPeriod - 10);
                 for (let i = 0; i < maxIterations; i++) {
                     const errMsg = `Failed on iteration #${i}/${maxIterations}`;
 
