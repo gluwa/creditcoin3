@@ -252,6 +252,27 @@ async fn process_cc_event(
 
             Ok(())
         }
+        CcEvent::MaturityStrategySet(event_chain_key, strategy) => {
+            if !service.serves_chain(*event_chain_key) {
+                return Ok(());
+            }
+
+            // Nothing to rebuild. This process does not resolve maturity: `validate_blocks`
+            // bounds every request by the latest attested height, and roots are fetched on
+            // demand for heights that already cleared that bound. The attestors decide what is
+            // mature under the new strategy and the attested boundary follows them on its own.
+            //
+            // Logged rather than swallowed because the *visible* effect here is the attested
+            // boundary stalling (a strategy that tightened) or jumping (one that loosened), and
+            // an operator reading "BlockNotReady" spikes needs this line to explain them.
+            info!(
+                "🔗 ⚙️  Maturity strategy changed for chain {event_chain_key}: {strategy}. \
+                 Serving is bounded by the attested set, so no caches are invalidated; expect \
+                 the attested height to pause while the attestors rebuild under the new strategy."
+            );
+
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
