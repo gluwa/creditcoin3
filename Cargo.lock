@@ -991,6 +991,7 @@ dependencies = [
  "serde",
  "sled",
  "sp-core",
+ "stream_cc3",
  "stream_eth",
  "supported-chains-primitives",
  "tempfile",

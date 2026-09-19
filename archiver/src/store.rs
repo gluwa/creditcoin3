@@ -218,6 +218,59 @@ impl RootStore {
         }
     }
 
+    /// Delete every stored root above `height`, returning how many entries were removed.
+    ///
+    /// Used when the chain's maturity strategy tightens under a source-resolved boundary: roots
+    /// the archiver had already computed can then sit above the new mature height, where the
+    /// source block is still re-organisable. Leaving them would be worse than not having them —
+    /// `put_roots` treats a later canonical replacement at an occupied height as a hard
+    /// [`StoreError::ReorgDetected`], and until that fires the API would serve a root for a block
+    /// that no longer exists. Deleting them lets the stream re-derive the range once the new
+    /// strategy considers it mature.
+    ///
+    /// Heights at or below `height` are untouched: attestations already committed on Creditcoin
+    /// stay valid under the new strategy, so the roots backing them must survive.
+    pub fn remove_above(&self, height: u64) -> Result<usize> {
+        let mut batch = sled::Batch::default();
+        let mut removed = 0_usize;
+
+        // Exclusive lower bound: `height` itself is kept. Collect first, then apply as one
+        // batch — sled's `range` iterator borrows the tree, and mutating underneath it is not
+        // worth the subtlety here (the range is bounded by how far past maturity we ran, not by
+        // the size of the database).
+        for item in self.db.range(height.saturating_add(1).to_be_bytes()..) {
+            let (key, _) = item.context("failed to read from sled")?;
+            batch.remove(key);
+            removed += 1;
+        }
+
+        if removed == 0 {
+            return Ok(0);
+        }
+
+        self.db
+            .apply_batch(batch)
+            .context("failed to apply batch removal")?;
+
+        // Saturating: the counter is a best-effort cache (see `put_roots`), so a drift that
+        // left it below what we removed must not underflow into a huge count.
+        let new_total = self
+            .entry_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |count| {
+                Some(count.saturating_sub(removed))
+            })
+            .unwrap_or(removed)
+            .saturating_sub(removed);
+        if let Err(e) = self
+            .meta
+            .insert(META_KEY_COUNT, &(new_total as u64).to_be_bytes())
+        {
+            tracing::warn!(error = %e, "failed to persist entry count to meta tree");
+        }
+
+        Ok(removed)
+    }
+
     /// Find gaps in the stored block range.
     /// Returns a list of `(start, end)` inclusive ranges that are missing.
     ///
@@ -653,5 +706,81 @@ mod tests {
 
         let gaps = store.find_gaps(Some(5)).unwrap();
         assert_eq!(gaps, vec![(5, 9), (12, 14), (16, 19)]);
+    }
+
+    #[test]
+    fn remove_above_drops_only_the_tail() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        store
+            .put_roots(&[
+                entry(10, H256::random()),
+                entry(11, H256::random()),
+                entry(12, H256::random()),
+                entry(13, H256::random()),
+            ])
+            .unwrap();
+        assert_eq!(store.count(), 4);
+
+        assert_eq!(store.remove_above(11).unwrap(), 2);
+
+        // The boundary height itself survives — it backs an attestation that stays valid.
+        assert_eq!(store.latest_height().unwrap(), Some(11));
+        assert_eq!(store.get_range(10, 20).unwrap().len(), 2);
+        assert_eq!(store.count(), 2);
+    }
+
+    #[test]
+    fn remove_above_the_tip_is_a_no_op() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        store
+            .put_roots(&[entry(10, H256::random()), entry(11, H256::random())])
+            .unwrap();
+
+        assert_eq!(store.remove_above(11).unwrap(), 0);
+        assert_eq!(store.remove_above(9_999).unwrap(), 0);
+        assert_eq!(store.count(), 2);
+        assert_eq!(store.latest_height().unwrap(), Some(11));
+    }
+
+    /// The deleted range must be re-insertable: `put_roots` hard-fails on an occupied height
+    /// whose hash differs, which is exactly the state `remove_above` exists to clear. A stale
+    /// tail left behind would wedge the stream the moment it re-derived the range after a reorg.
+    #[test]
+    fn remove_above_clears_the_way_for_a_different_canonical_block() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        store.put_roots(&[entry(10, H256::random())]).unwrap();
+        let replacement = entry(10, H256::random());
+        assert!(store.put_roots(&[replacement]).is_err());
+
+        assert_eq!(store.remove_above(9).unwrap(), 1);
+        assert!(store.put_roots(&[replacement]).is_ok());
+        assert_eq!(store.count(), 1);
+    }
+
+    /// The persisted counter has to come back down too, or every restart after a truncation
+    /// reports a store larger than it is.
+    #[test]
+    fn remove_above_persists_the_lowered_count() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.sled");
+        let store = RootStore::open(&path).unwrap();
+
+        store
+            .put_roots(&[
+                entry(1, H256::random()),
+                entry(2, H256::random()),
+                entry(3, H256::random()),
+            ])
+            .unwrap();
+        store.remove_above(1).unwrap();
+        drop(store);
+
+        assert_eq!(open_after_close(&path).count(), 1);
     }
 }

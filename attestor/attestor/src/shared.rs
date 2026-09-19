@@ -100,8 +100,12 @@ pub struct Shared {
     /// On-chain `MaxCatchup` (block-count bound per continuity proof). Fetched at startup and
     /// kept in sync by the production task via `MaxCatchupChanged` events.
     pub max_catchup: parking_lot::RwLock<NonZero<Height>>,
-    /// How mature heights are derived from source heads (fixed lag or RPC block tag).
-    pub maturity: eth::Maturity,
+    /// How mature heights are derived from source heads (fixed lag or RPC block tag). Resolved
+    /// from the chain's on-chain `MaturityStrategy` at startup and replaced by the production
+    /// task when a `MaturityStrategySet` event lands for our chain key. Only the production task
+    /// writes it; it rebuilds its eth streams from the new value in the same handler, so a reader
+    /// can never see a maturity that no stream is acting on.
+    pub maturity: parking_lot::RwLock<eth::Maturity>,
     pub start_height: Height,
     pub genesis: Height,
 
@@ -124,5 +128,11 @@ impl Shared {
     /// Cheap typed accessor.
     pub fn max_catchup(&self) -> NonZero<Height> {
         *self.max_catchup.read()
+    }
+
+    /// Cheap typed accessor. `eth::Maturity` is `Copy`, so this never holds the lock past the
+    /// read.
+    pub fn maturity(&self) -> eth::Maturity {
+        *self.maturity.read()
     }
 }
