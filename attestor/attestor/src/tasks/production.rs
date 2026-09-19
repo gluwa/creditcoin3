@@ -27,62 +27,25 @@ pub async fn run(
     shared: Arc<Shared>,
     start_attestation: Option<AttestationInfo>,
 ) -> Result<(), Error> {
-    let interval = shared.attestation_interval();
     let start_height = shared.start_height;
     let genesis = shared.genesis;
 
     // ----------------------------------* eth streams *--------------------------------------- //
 
-    // CPU-bound merkleization parallelism (see `roots::Config::max_parallelism`). Reserve a
-    // single core for the rest of the shared tokio runtime — the other tasks are I/O-bound and
-    // mostly idle, so one core of headroom is plenty. The old `WORKER_COUNT + 1` reservation
-    // was a v1 artifact (v2 spawns no OS worker threads); it saturated to 1 on every ≤4-CPU pod,
-    // needlessly single-threading deep root rebuilds after an outage or revert.
-    let max_parallelism = std::thread::available_parallelism()
-        .ok()
-        .and_then(|n| n.get().checked_sub(1))
-        .and_then(NonZero::new)
-        .unwrap_or(NonZero::<usize>::MIN);
-
-    let roots_cfg = stream::eth::roots::ConfigBuilder::new()
-        .with_client(shared.eth.clone())
-        .with_start_height(start_height)
-        .with_bound(stream::eth::roots::Boundary::Source(shared.maturity))
-        .with_max_concurrency(common::constants::MAX_CONCURRENT_RPC_CALLS)
-        .with_max_parallelism(max_parallelism)
-        .with_encoding(shared.encoding)
-        .build();
-    let stream_roots = stream::eth::StreamRoots::new(roots_cfg).await;
-
-    let tip_cfg = stream::eth::tip::ConfigBuilder::new()
-        .with_client(shared.eth.clone())
-        .with_maturity(shared.maturity)
-        .with_start_height(start_height)
-        .build();
-    let stream_tip = stream::eth::StreamTip::new(tip_cfg).await;
-
-    use stream::util::ChainExt as _;
-    let attestation_cfg = stream::attestation::ConfigBuilder::new()
-        .with_signer(shared.signer.clone())
-        .with_chain_key(shared.chain_key)
-        .with_bls_key(shared.bls_key)
-        .with_stream_roots(stream_roots.boxed_data())
-        .with_stream_tip(stream_tip.boxed_data())
-        .with_attestation_interval(interval)
-        .with_attestation_prev(
-            start_attestation
-                .map(|i| stream::util::AttestationInfo {
-                    height: i.height,
-                    digest: i.digest,
-                })
-                .unwrap_or(stream::util::AttestationInfo {
-                    height: genesis,
-                    ..Default::default()
-                }),
-        )
-        .with_max_catchup(shared.max_catchup())
-        .build();
-    let mut stream_attestation = stream::attestation::StreamAttestation::new(attestation_cfg);
+    let mut stream_attestation = build_stream_attestation(
+        &shared,
+        start_height,
+        start_attestation
+            .map(|i| stream::util::AttestationInfo {
+                height: i.height,
+                digest: i.digest,
+            })
+            .unwrap_or(stream::util::AttestationInfo {
+                height: genesis,
+                ..Default::default()
+            }),
+    )
+    .await;
 
     // ----------------------------------* cc3 stream *---------------------------------------- //
     // Opened before the (optional) genesis step so we can wait for the genesis BlockAttested
@@ -209,6 +172,67 @@ pub async fn run(
             }
         }
     }
+}
+
+// ---------------------------------- [ Build the eth pipeline ] -------------------------------- //
+
+/// Construct the source-chain attestation pipeline (roots + tip + attestation) against the
+/// maturity currently in [`Shared`].
+///
+/// Called once at task start and again on every `MaturityStrategySet` for our chain key: a
+/// maturity change moves which heights are attestable, so the streams have to be rebuilt rather
+/// than nudged. `start_height` seeds the eth streams; `prev` is the attestation the first
+/// produced attestation chains onto (the latest on-chain one, or `{genesis, ZERO}` when we are
+/// bootstrapping the chain).
+async fn build_stream_attestation(
+    shared: &Arc<Shared>,
+    start_height: attestor_primitives::Height,
+    prev: stream::util::AttestationInfo,
+) -> stream::attestation::StreamAttestation {
+    use stream::util::ChainExt as _;
+
+    // CPU-bound merkleization parallelism (see `roots::Config::max_parallelism`). Reserve a
+    // single core for the rest of the shared tokio runtime — the other tasks are I/O-bound and
+    // mostly idle, so one core of headroom is plenty. The old `WORKER_COUNT + 1` reservation
+    // was a v1 artifact (v2 spawns no OS worker threads); it saturated to 1 on every ≤4-CPU pod,
+    // needlessly single-threading deep root rebuilds after an outage or revert.
+    let max_parallelism = std::thread::available_parallelism()
+        .ok()
+        .and_then(|n| n.get().checked_sub(1))
+        .and_then(NonZero::new)
+        .unwrap_or(NonZero::<usize>::MIN);
+
+    let maturity = shared.maturity();
+
+    let roots_cfg = stream::eth::roots::ConfigBuilder::new()
+        .with_client(shared.eth.clone())
+        .with_start_height(start_height)
+        .with_bound(stream::eth::roots::Boundary::Source(maturity))
+        .with_max_concurrency(common::constants::MAX_CONCURRENT_RPC_CALLS)
+        .with_max_parallelism(max_parallelism)
+        .with_encoding(shared.encoding)
+        .build();
+    let stream_roots = stream::eth::StreamRoots::new(roots_cfg).await;
+
+    let tip_cfg = stream::eth::tip::ConfigBuilder::new()
+        .with_client(shared.eth.clone())
+        .with_maturity(maturity)
+        .with_start_height(start_height)
+        .build();
+    let stream_tip = stream::eth::StreamTip::new(tip_cfg).await;
+
+    let attestation_cfg = stream::attestation::ConfigBuilder::new()
+        .with_signer(shared.signer.clone())
+        .with_chain_key(shared.chain_key)
+        .with_bls_key(shared.bls_key)
+        .with_stream_roots(stream_roots.boxed_data())
+        .with_stream_tip(stream_tip.boxed_data())
+        .with_attestation_interval(shared.attestation_interval())
+        .with_attestation_prev(prev)
+        .with_max_catchup(shared.max_catchup())
+        .build();
+
+    stream::attestation::StreamAttestation::new(attestation_cfg)
 }
 
 // ------------------------------------ [ Emit local vote ] ------------------------------------- //
@@ -505,6 +529,79 @@ async fn handle_one(
             shared.pool_send.note_max_catchup_change(max_catchup);
         }
 
+        // 3c] new maturity strategy. Maturity decides which source heights are attestable, so
+        // everything we derived from the old one is void: the roots/tip streams are bounded by
+        // it, every attestation still in production was built against it, and every vote we hold
+        // (ours and our peers') is for a height the network may no longer agree is mature.
+        // Rebuild the eth pipeline from the latest on-chain attestation and drop the rest. What
+        // is already committed on chain is untouched — `latest_cc3` is exactly that boundary, so
+        // no attested height is ever revisited.
+        CcEvent::MaturityStrategySet(_, strategy_string) => {
+            let strategy: supported_chains_primitives::MaturityStrategy = strategy_string
+                .as_str()
+                .try_into()
+                .map_err(|e| Error::InvalidMaturityStrategy(shared.chain_key, e))?;
+            let maturity = stream::eth::maturity_from_strategy(&strategy)
+                .ok_or(Error::UnsupportedMaturityStrategy(strategy))?;
+
+            let previous = shared.maturity();
+            if previous == maturity {
+                // The pallet rejects a no-op write, so the *strings* differed (e.g.
+                // `FixedDelay:10` respelled as `FixedDelay: 10`). Nothing the streams act on
+                // changed, so tearing the pipeline down would be pure churn.
+                tracing::info!(
+                    strategy = %strategy_string,
+                    %maturity,
+                    "🧭 maturity strategy restated — resolves to the maturity already in use, nothing to rebuild"
+                );
+                return Ok(());
+            }
+
+            tracing::warn!(
+                strategy = %strategy_string,
+                from = %previous,
+                to = %maturity,
+                resume_from = latest_cc3.height,
+                "🧭 maturity strategy changed — dropping in-flight production and votes, rebuilding from the latest attestation"
+            );
+
+            // Publish before rebuilding: `build_stream_attestation` reads it.
+            *shared.maturity.write() = maturity;
+
+            // Drop everything derived from the old maturity. This mirrors the reversion handler
+            // below — same invalidation shape, different trigger — except that the attestation
+            // chain itself has not moved, so `latest_cc3` stays as it is.
+            shared.proof_cache.clear();
+            shared
+                .pool_send
+                .note_attestation_chain_reversion(latest_cc3.height, latest_cc3.digest);
+            // Roll p2p's local-production cursor back to the attested boundary so it prunes the
+            // pending votes it buffered for heights we are about to re-produce.
+            let _ = shared.local_produced_tx.send(Some(latest_cc3.height));
+
+            *stream_attestation = build_stream_attestation(
+                shared,
+                latest_cc3.height,
+                stream::util::AttestationInfo {
+                    height: latest_cc3.height,
+                    digest: latest_cc3.digest,
+                },
+            )
+            .await;
+
+            // A strategy that tightened (say `FixedDelay: 10` → `RpcFinalized`) can leave the new
+            // mature height far below what we had already produced, so the gap to the next local
+            // attestation is bounded by the source chain, not by us. Re-arm the stall axis for
+            // the same reason the revert path does.
+            shared.health.note_revert_recovery();
+            shared.metrics.set_attestation_local(latest_cc3.height);
+            shared.metrics.update_attestation_lag_eth(
+                latest_cc3.height,
+                latest_cc3.height,
+                shared.attestation_interval(),
+            );
+        }
+
         // 4] attestor election
         CcEvent::AttestorsElected(_, attestors) => {
             tracing::info!("⏰ new attestor set");
@@ -646,11 +743,17 @@ async fn wait_for_block_attested(
     use cc_client::attestation::CcEvent;
     use futures::{StreamExt as _, TryStreamExt as _};
 
-    // Scratch finalized cursor for `handle_one`. Only its `BlockAttested` / reversion arms
-    // read or write `latest_cc3`, and we never route those through it here — every event we do
-    // route (elections, chill/kick, config changes) leaves it untouched. The caller keeps the
-    // authoritative `latest_cc3` from this function's return value.
-    let mut scratch = AttestationInfo::default();
+    // Scratch finalized cursor for `handle_one`. We never route `BlockAttested` through it, and
+    // the caller keeps the authoritative `latest_cc3` from this function's return value. It is
+    // seeded at the genesis height rather than zero because two arms *read* it: the reversion
+    // arm (which also writes it) and the maturity-strategy arm, which rebuilds the eth pipeline
+    // anchored on it. `{genesis, ZERO}` is the same anchor `run` builds the pipeline from before
+    // the first attestation finalizes, so a strategy change during the bootstrap wait rebuilds
+    // to exactly where we already were instead of rewinding the streams to block 0.
+    let mut scratch = AttestationInfo {
+        height: shared.genesis,
+        ..Default::default()
+    };
 
     const TICK_SECS: u64 = 5;
     // With the p2p outbox re-gossiping unfinalized votes every 30s, a healthy quorum recovers

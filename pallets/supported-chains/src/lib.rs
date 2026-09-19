@@ -73,6 +73,7 @@ pub mod pallet {
     pub trait WeightInfo {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
+        fn set_maturity_strategy() -> Weight;
     }
 
     #[pallet::storage]
@@ -149,6 +150,16 @@ pub mod pallet {
             maturity_strategy: String,
         },
 
+        /// The maturity strategy of a registered chain has been changed. Off-chain consumers
+        /// (attestors, archivers) treat this as an instruction to drop whatever they derived
+        /// from the previous strategy and resume from the latest on-chain attestation under the
+        /// new one, so it is only emitted when the stored value actually changes.
+        MaturityStrategySet {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            maturity_strategy: String,
+        },
+
         /// A chain has been removed with a given ID
         ChainRemoved {
             chain_key: ChainKey,
@@ -172,6 +183,12 @@ pub mod pallet {
 
         /// Maturity strategy doesn't match one in the expected set
         InvalidMaturityStrategy,
+
+        /// The chain already uses the requested maturity strategy. Rejected rather than applied
+        /// as a no-op: every attestor for the chain drops its in-flight production and votes on
+        /// `MaturityStrategySet`, so a resubmission that changes nothing must not cost the
+        /// network a round of churn.
+        MaturityStrategyUnchanged,
     }
 
     #[pallet::call]
@@ -285,6 +302,51 @@ pub mod pallet {
                 chain_name: item.chain_name.clone(),
                 chain_encoding: item.chain_encoding,
                 maturity_strategy: item.maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        /// Replaces the maturity strategy of an already-registered chain.
+        ///
+        /// Maturity decides how far behind the source tip a block has to be before an attestor
+        /// will attest to it, so changing it invalidates every attestation an attestor is
+        /// currently building and every vote it is holding — but *not* anything already
+        /// committed on chain. Attestations already in storage stay valid and are never
+        /// revisited; off-chain consumers resume from the latest attested height under the new
+        /// strategy (see `MaturityStrategySet`).
+        ///
+        /// Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::WeightInfo::set_maturity_strategy())]
+        pub fn set_maturity_strategy(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            maturity_strategy: String,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                is_valid_maturity_strategy(&maturity_strategy),
+                Error::<T>::InvalidMaturityStrategy
+            );
+
+            let mut chain =
+                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+
+            ensure!(
+                chain.maturity_strategy != maturity_strategy,
+                Error::<T>::MaturityStrategyUnchanged
+            );
+
+            let chain_id = chain.chain_id;
+            chain.maturity_strategy = maturity_strategy.clone();
+            SupportedChains::<T>::insert(chain_key, chain);
+
+            Self::deposit_event(Event::MaturityStrategySet {
+                chain_key,
+                chain_id,
+                maturity_strategy,
             });
 
             Ok(())
