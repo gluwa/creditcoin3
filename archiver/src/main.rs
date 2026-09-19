@@ -91,8 +91,12 @@ async fn main() -> Result<()> {
     // `CHAIN_KEY` is set that `chain_id` must be the one registered on Creditcoin for
     // this archiver's chain key. Both are fatal: archiving the wrong chain under a
     // given archive name silently corrupts every proof later built from it.
-    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
-    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None).await?;
+    let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
+    let http_client = eth::Client::new(cfg.rpc_http.as_str(), None)
+        .await?
+        .with_chain_family_override(cfg.eth_chain_family);
     if ws_client.chain_id() != http_client.chain_id() {
         return Err(anyhow!(
             "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -180,7 +184,9 @@ async fn main() -> Result<()> {
             for (gap_start, gap_end) in &gaps {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
-                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None)
+                    .await?
+                    .with_chain_family_override(cfg.eth_chain_family);
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
@@ -353,6 +359,7 @@ async fn main() -> Result<()> {
 
                     match eth::Client::new(cfg.rpc_ws.as_str(), None).await {
                         Ok(new_ws) => {
+                            let new_ws = new_ws.with_chain_family_override(cfg.eth_chain_family);
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)

@@ -82,6 +82,7 @@ impl Server {
                 chain_key = chain.chain_key,
                 eth_rpc_url = %redact_url_query(&chain.eth_rpc_url),
                 eth_rpc_fallback_count = chain.eth_rpc_fallback_urls.len(),
+                eth_chain_family = ?chain.eth_chain_family,
                 archiver_url = ?chain.archiver_url.as_ref().map(|u| redact_url_query(u)),
                 "🚀 [startup] configuring source chain"
             );
@@ -226,6 +227,7 @@ impl Server {
                 // is the largest single per-chain allocation - and it overlaps the merkle cache,
                 // which holds the same recent blocks in encoded form. Hence the per-chain knob.
                 .with_block_cache(chain.cache.block_cache_capacity)
+                .with_chain_family_override(chain.eth_chain_family)
         };
 
         // Grab the cache handle before the client is moved into the RPC providers; going back
@@ -286,6 +288,7 @@ impl Server {
         let continuity_config = continuity::ContinuityConfig::builder()
             .cc3_rpc_url(global.cc3_rpc_url.clone())
             .eth_rpc_url(chain.eth_rpc_url.clone())
+            .eth_chain_family(chain.eth_chain_family)
             .chain_key(chain_key)
             .attestation_interval(attestation_interval)
             .checkpoint_interval(checkpoint_interval)

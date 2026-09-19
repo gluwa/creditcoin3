@@ -6,7 +6,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::Dispatchable,
 };
-use sp_core::{Encode, H256};
+use sp_core::{Encode, H160, H256, U256};
 use sp_std::vec::Vec;
 
 use attestor_primitives::{ChainId, ChainKey};
@@ -15,7 +15,7 @@ use pallet_attestation::{
     LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
-use pallet_supported_chains::SupportedChains;
+use pallet_supported_chains::{CoreFees, OutboxDiscoveries, OutboxFactories, SupportedChains};
 use precompile_utils::{prelude::*, solidity::Codec};
 
 // Gas cost constants
@@ -55,6 +55,18 @@ impl ChainInfoResult {
             exists: true,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
+pub struct OutboxFactoryResult {
+    pub factory_addr: Address,
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
+pub struct OutboxDiscoveryResult {
+    pub discovery_addr: Address,
+    pub exists: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
@@ -157,6 +169,104 @@ where
             // We want an empty return rather than a revert here
             Ok(ChainInfoResult::default())
         }
+    }
+
+    #[precompile::public("get_outbox_factory_address(uint64)")]
+    #[precompile::view]
+    fn get_outbox_factory_address(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+    ) -> EvmResult<OutboxFactoryResult> {
+        let maybe_address = OutboxFactories::<Runtime>::get(chain_key);
+
+        handle.record_db_read::<Runtime>(
+            maybe_address
+                .as_ref()
+                .map(|address| address.encoded_size())
+                .unwrap_or_default(),
+        )?;
+
+        match maybe_address {
+            Some(address) => Ok(OutboxFactoryResult {
+                factory_addr: Address(address),
+                exists: true,
+            }),
+            None => Ok(OutboxFactoryResult {
+                factory_addr: Address(H160::zero()),
+                exists: false,
+            }),
+        }
+    }
+
+    /// Outbox discovery-registry address for `chain_key` — the `OutboxDeployer`/`OutboxDiscovery`
+    /// in asc-contracts, whose `outboxOf`/`defaultOutbox` getter is the authoritative source for
+    /// the current Outbox. Unlike [`get_outbox_factory_address`](Self::get_outbox_factory_address),
+    /// which only identifies the permissionless factory contract, this address is safe for a
+    /// resolver to trust: registry entries are only written through an access-controlled deploy
+    /// path, so a caller can bind the Outbox from this registry instead of scanning the factory's
+    /// `OutboxCreated` logs, which an attacker can spoof for any chain key.
+    #[precompile::public("get_outbox_discovery_address(uint64)")]
+    #[precompile::view]
+    fn get_outbox_discovery_address(
+        handle: &mut impl PrecompileHandle,
+        chain_key: ChainKey,
+    ) -> EvmResult<OutboxDiscoveryResult> {
+        let maybe_address = OutboxDiscoveries::<Runtime>::get(chain_key);
+
+        handle.record_db_read::<Runtime>(
+            maybe_address
+                .as_ref()
+                .map(|address| address.encoded_size())
+                .unwrap_or_default(),
+        )?;
+
+        match maybe_address {
+            Some(address) => Ok(OutboxDiscoveryResult {
+                discovery_addr: Address(address),
+                exists: true,
+            }),
+            None => Ok(OutboxDiscoveryResult {
+                discovery_addr: Address(H160::zero()),
+                exists: false,
+            }),
+        }
+    }
+
+    /// USC write-ability core (protocol) fee for `chain_key`, in **attestcoin wei**, read live from
+    /// pallet storage so the Outbox charges the current governance-set value on every
+    /// `publishMessage` without a redeploy. An unconfigured chain returns `0`, which the consumer
+    /// treats as "no fee" — the same outcome as an explicit zero amount, so no separate `exists`
+    /// flag is needed.
+    ///
+    /// # ABI contract
+    ///
+    /// This is consumed by `ICoreFeeProvider` in `usc-contracts` (behind `IFeeRegistry`, which the
+    /// Outbox depends on), which declares exactly:
+    ///
+    /// ```solidity
+    /// function get_core_fee(uint32 chainKey) external view returns (uint256);
+    /// ```
+    ///
+    /// so the signature — including the `uint32` argument width, which is narrower than the runtime's
+    /// [`ChainKey`] and is what the contracts use for chain keys — and the bare `uint256` return must
+    /// not drift: selector `0x5b023376`. There is deliberately no token field; see
+    /// [`CoreFeeConfig`](supported_chains_primitives::CoreFeeConfig) for why the denomination is
+    /// fixed to attestcoin.
+    #[precompile::public("get_core_fee(uint32)")]
+    #[precompile::view]
+    fn get_core_fee(handle: &mut impl PrecompileHandle, chain_key: u32) -> EvmResult<U256> {
+        // Widening u32 -> ChainKey (u64) is lossless; the narrower argument exists only to match the
+        // Solidity consumer's chainKey type.
+        let maybe_fee = CoreFees::<Runtime>::get(ChainKey::from(chain_key));
+
+        handle.record_db_read::<Runtime>(
+            maybe_fee
+                .as_ref()
+                .map(|fee| fee.encoded_size())
+                .unwrap_or_default(),
+        )?;
+
+        Ok(maybe_fee.map(|fee| fee.amount).unwrap_or_else(U256::zero))
     }
 
     #[precompile::public("get_attestation_genesis_height(uint64)")]

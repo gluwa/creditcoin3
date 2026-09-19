@@ -2,6 +2,7 @@ use anyhow::Result;
 use cc_client::{attestation::CcEvent, Client as CcClient};
 use futures::{StreamExt, TryStreamExt};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
@@ -32,6 +33,65 @@ pub fn get_last_attestation(chain_key: u64) -> Option<LastAttestation> {
         .and_then(|cache| cache.iter().find(|a| a.chain_key == chain_key).cloned())
 }
 
+/// Follow runtime upgrades so `block.events()` keeps decoding after a `setCode`.
+///
+/// subxt decodes events with the metadata its `OnlineClient` fetched at connect time. proof-gen is
+/// long-lived, so after the usc-devnet upgrade 131 -> 136 (10 Sep 2026) every block carrying an
+/// event from a changed pallet failed with "Metadata error: Variant with index N not found" and
+/// the checkpoint / last-attestation caches stopped updating until the pods were restarted.
+///
+/// Same shape as the attestor's `runtime_updater` task: bind `updater()` to the live client,
+/// apply every update, and rebind when the stream ends or when another task's `reconnect()`
+/// swapped the connection under us (a cloned `OnlineClient` keeps the old backend alive, so the
+/// stale subscription would never end on its own).
+async fn run_runtime_updater(cc3: Arc<CcClient>) {
+    const REBIND_CHECK: Duration = Duration::from_secs(5);
+    const RETRY_DELAY: Duration = Duration::from_secs(5);
+    loop {
+        let api = cc3.api();
+        let updater = api.updater();
+        let bound_conn = cc3.connection_id();
+        let mut stream = match updater.runtime_updates().await {
+            Ok(stream) => stream,
+            Err(err) => {
+                warn!("🔗 runtime updates subscription failed — retrying: {err}");
+                tokio::time::sleep(RETRY_DELAY).await;
+                continue;
+            }
+        };
+        loop {
+            tokio::select! {
+                () = tokio::time::sleep(REBIND_CHECK) => {
+                    if cc3.connection_id() != bound_conn {
+                        info!("🔗 runtime updates: live connection swapped — rebinding");
+                        break;
+                    }
+                }
+                next = stream.next() => match next {
+                    None => {
+                        info!("🔗 runtime updates stream ended — rebinding");
+                        break;
+                    }
+                    Some(Err(err)) => {
+                        warn!("🔗 runtime updates stream error — rebinding: {err}");
+                        break;
+                    }
+                    Some(Ok(update)) => {
+                        let spec_version = update.runtime_version().spec_version;
+                        match updater.apply_update(update) {
+                            Ok(()) => info!("🔗 🔄 runtime metadata updated to spec_version={spec_version}"),
+                            // The subscription replays the current runtime first; not an error.
+                            Err(subxt::client::UpgradeError::SameVersion) => {}
+                            Err(err) => warn!("🔗 runtime metadata update to spec_version={spec_version} rejected: {err:?}"),
+                        }
+                    }
+                }
+            }
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
 /// Start a single CC3 event subscription for all configured chain keys (one finalized-block stream).
 /// Will automatically reconnect to the CC3 node if the connection is lost.
 pub async fn start_cc3_event_subscription(
@@ -47,8 +107,19 @@ pub async fn start_cc3_event_subscription(
         "no chains configured for event subscription"
     );
 
+    // One shared handle for the stream AND the updater. `Client::clone()` gives each value clone
+    // its own `ArcSwap`, so a `reconnect()` performed by the stream would be invisible to an
+    // updater holding a different clone; through the same `Arc` the updater sees the swapped
+    // connection via `connection_id()` and rebinds to the client the decoder actually uses.
+    let cc3 = Arc::new(cc3_client);
+
+    // Keep the client's metadata in step with the chain across runtime upgrades (see
+    // `run_runtime_updater`). Without it every event from a pallet whose layout changed in a
+    // `setCode` fails to decode and the caches below silently stop updating.
+    tokio::spawn(run_runtime_updater(cc3.clone()));
+
     let config = stream::cc3::ConfigBuilder::new()
-        .with_cc3(cc3_client.clone())
+        .with_cc3(cc3)
         .with_chain_keys(chain_keys.iter().copied().collect::<Vec<_>>())
         .build();
     let mut events = stream::cc3::StreamCC3::new(config).await?.flatten();
