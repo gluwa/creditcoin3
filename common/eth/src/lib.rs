@@ -25,6 +25,9 @@ use alloy::{
     transports::{http::reqwest::Url, TransportErrorKind},
 };
 
+use alloy::rpc::client::RpcClient as AlloyRpcClient;
+use alloy::transports::http::{reqwest, Http};
+use alloy::transports::utils::guess_local_url;
 use anyhow::{Context, Result};
 use hex::FromHexError;
 use sp_core::H256;
@@ -40,7 +43,10 @@ pub use alloy::core::primitives::Address;
 
 pub mod continuity;
 pub mod evm;
+pub mod maturity;
 pub mod mem_block_cache;
+
+pub use maturity::{BlockTag, Maturity};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -58,6 +64,15 @@ pub enum Error {
     TransactionsReceiptsMismatch(u64),
     #[error("Not full transactions fetched for block {0}")]
     NotFullTransactionsFetched(u64),
+    #[error(
+        "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
+         (the two RPC calls were answered from different sides of a reorg)"
+    )]
+    ReceiptsBlockMismatch {
+        number: u64,
+        block: BlockHash,
+        receipts: BlockHash,
+    },
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
     #[error("Ethereum RPC error {0}")]
@@ -76,10 +91,14 @@ pub enum Error {
     HexDecodingError(#[from] FromHexError),
     #[error("Failed to get block by hash {0}")]
     FailedToGetBlockByHash(String),
+    #[error("Failed to get the `{0}` block: no provider returned it (does the node serve this block tag?)")]
+    FailedToGetBlockByTag(BlockTag),
     #[error("Failed to path rpc url {0}")]
     UrlParseError(#[from] url::ParseError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
     UnsupportedUrl(String),
+    #[error("RPC endpoint changed chain on reconnect: expected chain_id {expected}, node now reports {got}; keeping the previous connection")]
+    ChainIdChanged { expected: u64, got: u64 },
 }
 
 impl Error {
@@ -99,6 +118,7 @@ impl Error {
             Error::BlockHeaderRootsMismatch(_)
                 | Error::TransactionsReceiptsMismatch(_)
                 | Error::NotFullTransactionsFetched(_)
+                | Error::ReceiptsBlockMismatch { .. }
         )
     }
 
@@ -107,7 +127,8 @@ impl Error {
         match self {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
-            | Error::NotFullTransactionsFetched(n) => Some(*n),
+            | Error::NotFullTransactionsFetched(n)
+            | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
             _ => None,
         }
     }
@@ -127,6 +148,19 @@ pub fn anyhow_chain_is_inconsistent_block_payload(err: &anyhow::Error) -> bool {
         cause
             .downcast_ref::<Error>()
             .is_some_and(Error::inconsistent_block_payload_for_fallback)
+    })
+}
+
+/// True when any cause in the [`anyhow::Error`] chain is [`Error::FailedToGetBlockByTag`]: every
+/// provider answered `null` for the requested tag. That is a property of the node (it does not
+/// serve `safe` / `finalized`), not of the connection, so callers must not reconnect-and-retry
+/// on it; the answer will not change.
+pub fn anyhow_chain_is_unsupported_block_tag(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<Error>(),
+            Some(Error::FailedToGetBlockByTag(_))
+        )
     })
 }
 
@@ -222,6 +256,31 @@ impl OrderedBlock {
         }
 
         let hash = block.header.hash;
+
+        // The receipts must belong to the block we actually fetched.
+        //
+        // `get_block` and `get_block_receipts` are two separate calls keyed by height, and a
+        // provider URL is commonly a load balancer over many nodes, so the pair can be answered
+        // by peers on opposite sides of a reorg. The header-root comparison further down catches
+        // most of that, but only for blocks that have transactions, and only indirectly: it
+        // infers a mismatch from roots that fail to reproduce. Comparing the block hash the
+        // receipts already carry is exact, costs no extra round trip, and names the real fault
+        // in the error instead of reporting a root that did not reproduce.
+        //
+        // Receipts whose `block_hash` is `None` are skipped rather than rejected: the field is
+        // optional in the RPC schema and some providers omit it, and those payloads still face
+        // the root check below exactly as before.
+        if let Some(receipts_hash) = receipts
+            .iter()
+            .filter_map(|receipt| receipt.block_hash)
+            .find(|receipt_hash| *receipt_hash != hash)
+        {
+            return Err(Error::ReceiptsBlockMismatch {
+                number: expected_number,
+                block: hash,
+                receipts: receipts_hash,
+            });
+        }
 
         // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
         // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
@@ -398,7 +457,23 @@ pub struct Client {
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
     mem_cache: Option<std::sync::Arc<mem_block_cache::MemBlockCache>>,
+    /// Every fallback URL as configured, including ones that were unreachable when dialled.
+    /// [`Client::reconnect`] re-dials from this list, so a backup that was down at startup is
+    /// picked up on the next repair instead of being forgotten for the life of the process.
+    fallback_urls: Vec<String>,
 }
+
+/// Per-request deadline on the HTTP transport. alloy's default reqwest client has no timeout
+/// at all, so a server that accepts the connection and never answers keeps the request (and
+/// every caller waiting on it) pending forever.
+const HTTP_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// TCP/TLS connect deadline on the HTTP transport.
+const HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Default bound on re-dialling the primary in [`Client::reconnect`].
+pub const DEFAULT_PRIMARY_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Bound on re-dialling one fallback during [`Client::reconnect_with_deadline`]. Fallbacks are
+/// best-effort there; a slow one must not hold a repaired primary hostage.
+pub const FALLBACK_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
@@ -406,9 +481,20 @@ impl Client {
         let url_scheme = url.scheme();
 
         let rpc_provider = match url_scheme {
-            "http" | "https" => ProviderBuilder::new()
-                .network::<Ethereum>()
-                .on_http(url.clone()),
+            "http" | "https" => {
+                let http_client = reqwest::Client::builder()
+                    .connect_timeout(HTTP_CONNECT_TIMEOUT)
+                    .timeout(HTTP_REQUEST_TIMEOUT)
+                    .build()
+                    .map_err(|e| {
+                        Error::ClientError(anyhow::anyhow!("building HTTP client: {e}"))
+                    })?;
+                let transport = Http::with_client(http_client, url.clone());
+                let is_local = guess_local_url(url.as_str());
+                ProviderBuilder::new()
+                    .network::<Ethereum>()
+                    .on_client(AlloyRpcClient::new(transport, is_local))
+            }
 
             "ws" | "wss" => {
                 let ws = WsConnect::new(url.clone());
@@ -446,6 +532,7 @@ impl Client {
             fallback_providers: Vec::new(),
             chain_id,
             mem_cache: None,
+            fallback_urls: Vec::new(),
         })
     }
 
@@ -495,11 +582,50 @@ impl Client {
             fallback_providers,
             chain_id,
             mem_cache: None,
+            fallback_urls: fallback_urls.to_vec(),
         })
     }
 
+    /// Re-dial the primary under [`DEFAULT_PRIMARY_DIAL_TIMEOUT`]; see
+    /// [`Self::reconnect_with_deadline`].
     pub async fn reconnect(&mut self) -> Result<(), Error> {
-        let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
+        self.reconnect_with_deadline(DEFAULT_PRIMARY_DIAL_TIMEOUT)
+            .await
+    }
+
+    /// Re-dial the primary under `primary_deadline`, then each fallback under its own
+    /// [`FALLBACK_DIAL_TIMEOUT`]. The primary's outcome alone decides success: a fallback that
+    /// hangs or fails keeps its previous provider (if any) and is logged, it never discards a
+    /// primary connection that already came up.
+    pub async fn reconnect_with_deadline(
+        &mut self,
+        primary_deadline: std::time::Duration,
+    ) -> Result<(), Error> {
+        let (url, rpc_provider, chain_id) =
+            tokio::time::timeout(primary_deadline, Self::init_rpc(self.url.as_ref()))
+                .await
+                .map_err(|_| {
+                    Error::ClientError(anyhow::anyhow!(
+                        "primary RPC dial timed out after {primary_deadline:?}"
+                    ))
+                })??;
+
+        // Fail closed if the endpoint now serves a different chain (DNS / load-balancer /
+        // provider flip). Every caller treats a reconnect error as "retry later", which is
+        // exactly right: keep the old (dead) connection rather than silently continuing
+        // against foreign data.
+        if chain_id != self.chain_id {
+            tracing::error!(
+                url = %redact_url_query(url.as_str()),
+                expected = self.chain_id,
+                got = chain_id,
+                "⛔ RPC endpoint changed chain_id on reconnect; refusing to switch"
+            );
+            return Err(Error::ChainIdChanged {
+                expected: self.chain_id,
+                got: chain_id,
+            });
+        }
 
         // Reconnect each fallback against its own URL too, otherwise a
         // recovered primary would silently keep using a stale fallback
@@ -510,19 +636,37 @@ impl Client {
         // fails to reconnect (transport error or chain_id mismatch), keep the
         // existing provider in place, log a loud error, and let the next
         // primary-failure path retry it on its own.
-        let mut new_fallbacks = Vec::with_capacity(self.fallback_providers.len());
-        for (idx, fp) in self.fallback_providers.iter().enumerate() {
-            match Self::init_rpc(fp.url.as_ref()).await {
+        //
+        // Re-dial from the *configured* list, not from the providers currently held: a
+        // fallback that was unreachable at startup (and therefore never became a provider) is
+        // retried here instead of being lost for the life of the process.
+        let mut new_fallbacks = Vec::with_capacity(self.fallback_urls.len());
+        for (idx, raw_url) in self.fallback_urls.iter().enumerate() {
+            let previous = self.fallback_providers.iter().find(|fp| {
+                fp.url.as_str() == raw_url.as_str()
+                    || fp.url.as_str().trim_end_matches('/') == raw_url.trim_end_matches('/')
+            });
+            let dialed = tokio::time::timeout(FALLBACK_DIAL_TIMEOUT, Self::init_rpc(raw_url))
+                .await
+                .map_err(|_| {
+                    Error::ClientError(anyhow::anyhow!(
+                        "fallback dial timed out after {FALLBACK_DIAL_TIMEOUT:?}"
+                    ))
+                })
+                .and_then(|r| r);
+            match dialed {
                 Ok((fp_url, fp_provider, fp_chain_id)) => {
                     if fp_chain_id != chain_id {
                         tracing::error!(
                             fallback_index = idx,
-                            fallback_url = %redact_url_query(fp.url.as_str()),
+                            fallback_url = %redact_url_query(raw_url),
                             fallback_chain_id = fp_chain_id,
                             primary_chain_id = chain_id,
-                            "⛔ Fallback RPC chain_id mismatch on reconnect; keeping previous fallback provider"
+                            "⛔ Fallback RPC chain_id mismatch on reconnect; keeping previous fallback provider if any"
                         );
-                        new_fallbacks.push(fp.clone());
+                        if let Some(fp) = previous {
+                            new_fallbacks.push(fp.clone());
+                        }
                     } else {
                         new_fallbacks.push(FallbackProvider {
                             url: fp_url,
@@ -533,11 +677,13 @@ impl Client {
                 Err(err) => {
                     tracing::error!(
                         fallback_index = idx,
-                        fallback_url = %redact_url_query(fp.url.as_str()),
+                        fallback_url = %redact_url_query(raw_url),
                         error = %err,
-                        "⛔ Failed to reconnect fallback RPC; keeping previous fallback provider"
+                        "⛔ Failed to reconnect fallback RPC; keeping previous fallback provider if any"
                     );
-                    new_fallbacks.push(fp.clone());
+                    if let Some(fp) = previous {
+                        new_fallbacks.push(fp.clone());
+                    }
                 }
             }
         }
@@ -558,13 +704,22 @@ impl Client {
     ) -> anyhow::Result<Vec<FallbackProvider>> {
         let mut providers: Vec<FallbackProvider> = Vec::with_capacity(fallback_urls.len());
         for (idx, raw_url) in fallback_urls.iter().enumerate() {
-            let (url, provider, chain_id) =
-                Self::init_rpc(raw_url.as_ref()).await.with_context(|| {
-                    format!(
-                        "Failed to connect to fallback RPC URL #{idx} ({})",
-                        redact_url_query(raw_url),
-                    )
-                })?;
+            // An unreachable backup must not stop a healthy primary from serving: log it and
+            // carry on without it; `reconnect` re-dials every configured URL and picks it up
+            // once it is back. A backup on the *wrong chain* is a misconfiguration and stays
+            // fatal — silently serving from it would corrupt proofs.
+            let (url, provider, chain_id) = match Self::init_rpc(raw_url.as_ref()).await {
+                Ok(connected) => connected,
+                Err(err) => {
+                    tracing::error!(
+                        fallback_index = idx,
+                        fallback_url = %redact_url_query(raw_url),
+                        error = %err,
+                        "⛔ Fallback RPC unreachable at startup; continuing without it until the next reconnect"
+                    );
+                    continue;
+                }
+            };
 
             if chain_id != primary_chain_id {
                 anyhow::bail!(
@@ -910,8 +1065,93 @@ impl Client {
         }
     }
 
+    /// Current chain head, tried on the primary first and then on each fallback in order.
+    ///
+    /// Every proof request validates its heights against the confirmed tip, so a tip read
+    /// that only ever asked the primary made a healthy backup useless for serving proofs the
+    /// moment the primary failed. A fallback that lags reports a lower tip, which can only
+    /// make the confirmation check *stricter*, never accept an unconfirmed block.
     pub async fn get_last_block(&self) -> Result<u64, Error> {
-        Ok(self.rpc_provider.get_block_number().await?)
+        let mut failures: Vec<(
+            String,
+            alloy::transports::RpcError<alloy::transports::TransportErrorKind>,
+        )> = Vec::new();
+        for (label, provider) in self.providers_with_labels() {
+            match provider.get_block_number().await {
+                Ok(number) => {
+                    for (failed, err) in &failures {
+                        tracing::warn!(
+                            provider = %failed,
+                            served_by = %label,
+                            error = %err,
+                            "eth_blockNumber: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(number);
+                }
+                Err(err) => failures.push((label, err)),
+            }
+        }
+        // Surface the primary's error so callers' transient/permanent classifiers see the
+        // same shape they always did.
+        let (_, primary_err) = failures.remove(0);
+        Err(primary_err.into())
+    }
+
+    /// Number of the block the node currently reports for a settlement `tag` (`safe` or
+    /// `finalized`), walking the fallback providers on transport errors like the block fetches
+    /// do. A node that answers `null` for the tag counts as "not found".
+    pub async fn get_block_number_by_tag(&self, tag: BlockTag) -> Result<u64, Error> {
+        let providers = self.providers_with_labels();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+
+        for (label, provider) in providers {
+            match provider
+                .get_block(BlockId::Number(tag.into()), false.into())
+                .await
+            {
+                Ok(Some(block)) => {
+                    for (err_label, err) in errors.drain(..) {
+                        tracing::warn!(
+                            provider = %err_label,
+                            served_by = %label,
+                            %tag,
+                            error = %err,
+                            "block tag lookup: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(block.header.number);
+                }
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, Error::from(e))),
+            }
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        %tag,
+                        error = %err,
+                        "block tag lookup: provider errored but another said `not found`"
+                    );
+                }
+                Err(Error::FailedToGetBlockByTag(tag))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(provider = %label, %tag, error = %err, "block tag lookup: additional provider error");
+                }
+                let (first_label, first_err) = first;
+                tracing::warn!(provider = %first_label, %tag, error = %first_err, "block tag lookup: all providers errored");
+                Err(first_err)
+            }
+        }
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, Error> {
@@ -1457,5 +1697,29 @@ mod error_classifier_tests {
             super::anyhow_chain_inconsistent_block_number_hint(&transport),
             None
         );
+    }
+}
+
+#[cfg(test)]
+mod error_classification_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_block_tag_is_recognised_through_anyhow_context() {
+        let err = anyhow::Error::from(Error::FailedToGetBlockByTag(BlockTag::Safe))
+            .context("Failed to get the `safe` block")
+            .context("get_block_number_by_tag failed");
+        assert!(anyhow_chain_is_unsupported_block_tag(&err));
+        // Not an inconsistent-payload case: those are a different retry class.
+        assert!(!anyhow_chain_is_inconsistent_block_payload(&err));
+    }
+
+    #[test]
+    fn other_errors_are_not_unsupported_block_tag() {
+        let transport = anyhow::Error::from(Error::FailedToGetBlock(7)).context("x");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&transport));
+        // A stringified error loses the type and must not be classified as permanent.
+        let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
     }
 }

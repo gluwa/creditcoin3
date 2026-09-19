@@ -153,6 +153,11 @@ pub struct ProofGenMetrics {
     #[allow(dead_code)]
     start_time_seconds: Gauge<f64, AtomicU64>,
 
+    // Admission metrics. In-flight is a gauge so a stall is visible before any request
+    // completes; rejections are counted by reason.
+    requests_in_flight: Gauge<i64, AtomicI64>,
+    requests_rejected: Family<labels::LabelRejection, Counter<u64, AtomicU64>>,
+
     // Hardware metrics
     cpu_usage_percent: Gauge<f64, AtomicU64>,
     memory_usage_bytes: Gauge<f64, AtomicU64>,
@@ -320,6 +325,19 @@ impl ProofGenMetrics {
             memory_usage_bytes.clone(),
         );
 
+        let requests_in_flight = Gauge::default();
+        registry.register(
+            "proof_gen_requests_in_flight",
+            "Proof requests currently admitted and running",
+            requests_in_flight.clone(),
+        );
+        let requests_rejected = Family::default();
+        registry.register(
+            "proof_gen_requests_rejected",
+            "Proof requests refused or cut off by admission control, by reason",
+            requests_rejected.clone(),
+        );
+
         let thread_count = Gauge::default();
         registry.register(
             "proof_gen_thread_count",
@@ -363,11 +381,30 @@ impl ProofGenMetrics {
             start_time_seconds,
             cpu_usage_percent,
             memory_usage_bytes,
+            requests_in_flight,
+            requests_rejected,
             thread_count,
         }
     }
 
     /// Encode all metrics to OpenMetrics text format.
+    /// A proof request passed admission and started running.
+    pub fn request_admitted(&self) {
+        self.requests_in_flight.inc();
+    }
+
+    /// An admitted proof request finished (any outcome).
+    pub fn request_finished(&self) {
+        self.requests_in_flight.dec();
+    }
+
+    /// A proof request was refused or cut off by admission control.
+    pub fn request_rejected(&self, reason: labels::Rejection) {
+        self.requests_rejected
+            .get_or_create(&labels::LabelRejection { reason })
+            .inc();
+    }
+
     pub fn encode(&self) -> String {
         let mut buffer = String::new();
         prometheus_client::encoding::text::encode(&mut buffer, &self.registry).unwrap();
@@ -568,7 +605,7 @@ mod items {
 }
 
 /// Label definitions following the attestor pattern.
-mod labels {
+pub mod labels {
     use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
 
     // Endpoint labels
@@ -650,5 +687,21 @@ mod labels {
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
     pub struct LabelError {
         pub error_type: ErrorType,
+    }
+
+    /// Why admission control refused or cut off a request.
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+    pub enum Rejection {
+        /// Process-wide in-flight limit reached.
+        Overloaded,
+        /// Per-chain in-flight limit reached.
+        ChainOverloaded,
+        /// Request exceeded its end-to-end deadline.
+        Timeout,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+    pub struct LabelRejection {
+        pub reason: Rejection,
     }
 }

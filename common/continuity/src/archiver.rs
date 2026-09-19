@@ -33,6 +33,18 @@ struct LatestResponse {
     latest_block: Option<u64>,
 }
 
+/// The subset of `GET /status` this crate acts on. Every field is optional so an archiver
+/// that predates the freshness fields still parses: `ready: None` means "unknown".
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ArchiverStatus {
+    pub latest_archived_block: Option<u64>,
+    pub ready: Option<bool>,
+    pub lag_blocks: Option<u64>,
+    pub source_head_age_ms: Option<u64>,
+    #[serde(default)]
+    pub not_ready_reasons: Vec<String>,
+}
+
 /// A non-2xx response from the archiver's HTTP API.
 ///
 /// Kept as a typed error rather than collapsing straight into `anyhow!` so callers can tell three
@@ -173,6 +185,25 @@ impl ArchiverClient {
     }
 
     /// Get the latest archived block number.
+    /// `GET /status`: liveness plus freshness. Unlike `/roots/latest`, this tells us whether
+    /// the archive is *current*, not merely whether the process answers.
+    pub async fn status(&self) -> Result<ArchiverStatus> {
+        let url = format!("{}/status", self.base_url);
+        debug!(archiver_url = %self.base_url, "📡 ➡️  archiver GET /status");
+        let response = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .context("archiver request failed")?
+            .error_for_status()
+            .context("archiver returned error status")?;
+        response
+            .json::<ArchiverStatus>()
+            .await
+            .context("failed to parse archiver status")
+    }
+
     pub async fn get_latest_block(&self) -> Result<Option<u64>> {
         let url = format!("{}/roots/latest", self.base_url);
         debug!(
@@ -304,6 +335,11 @@ impl EthRpcProvider for ArchiverEthProvider {
         self.eth_fallback.get_block_tx_data(block_number).await
     }
 
+    async fn get_block_number_by_tag(&self, tag: eth::BlockTag) -> Result<u64> {
+        // Block tags are a live property of the source node; the archiver only stores roots.
+        self.eth_fallback.get_block_number_by_tag(tag).await
+    }
+
     async fn get_tx_position_by_hash(&self, tx_hash: H256) -> Result<Option<(u64, u64)>> {
         self.eth_fallback.get_tx_position_by_hash(tx_hash).await
     }
@@ -319,13 +355,28 @@ impl EthRpcProvider for ArchiverEthProvider {
     }
 
     async fn is_healthy(&self) -> Result<bool> {
-        // Check both the archiver and the fallback RPC for health.
-        let archiver_healthy = self
-            .archiver
-            .get_latest_block()
-            .await
-            .map(|_| true)
-            .unwrap_or(false);
+        // The archiver must be reachable *and* current. `/status` carries a `ready` verdict
+        // (recent source-head sample, within the allowed lag, last flush succeeded); an
+        // archiver too old to report it counts as healthy when reachable, as before, so a
+        // rollout of proof-gen ahead of the archiver does not flip health.
+        let archiver_healthy = match self.archiver.status().await {
+            Ok(status) => {
+                if status.ready == Some(false) {
+                    warn!(
+                        archiver_url = %self.archiver.base_url,
+                        lag_blocks = ?status.lag_blocks,
+                        source_head_age_ms = ?status.source_head_age_ms,
+                        reasons = ?status.not_ready_reasons,
+                        "archiver reachable but not ready"
+                    );
+                }
+                status.ready.unwrap_or(true)
+            }
+            Err(err) => {
+                warn!(archiver_url = %self.archiver.base_url, %err, "archiver status unavailable");
+                false
+            }
+        };
 
         let eth_healthy = self.eth_fallback.is_healthy().await.unwrap_or(false);
 
