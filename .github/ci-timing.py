@@ -107,7 +107,10 @@ def parse_jest_log(text):
             name = match.group(2).rsplit("/", 1)[-1].replace(".test.ts", "")
             current = suites.setdefault(
                 name,
-                {"total_s": float(match.group(3)) if match.group(3) else 0.0,
+                # None, not 0.0: jest omits the duration for a suite that finishes under
+                # slowTestThreshold, and treating "not reported" as "took no time" makes
+                # hooks_s negative and gives compare-suites a fake 0s baseline.
+                {"total_s": float(match.group(3)) if match.group(3) else None,
                  "tests_s": 0.0, "passed": 0, "failed": 0, "skipped": 0,
                  "path": match.group(2), "result": match.group(1)},
             )
@@ -136,7 +139,9 @@ def parse_jest_log(text):
     if not suites:
         return None
     for suite in suites.values():
-        suite["hooks_s"] = round(suite["total_s"] - suite["tests_s"], 3)
+        suite["hooks_s"] = (
+            None if suite["total_s"] is None else round(suite["total_s"] - suite["tests_s"], 3)
+        )
     return {"suites": suites, "jest_total_s": total}
 
 
@@ -186,11 +191,16 @@ def print_suites(snap, title="jest suite timings"):
         print(f"\n  {job_name}")
         print(f"    job {job['minutes']:.1f}m, jest {total:.0f}s over {len(job['suites'])} suites")
         print(f"    {'suite':<24}{'total':>9}{'tests':>9}{'hooks':>9}{'hooks%':>8}{'ok':>4}{'skip':>5}")
-        for name, suite in sorted(job["suites"].items(), key=lambda kv: -kv[1]["total_s"]):
-            share = (100 * suite["hooks_s"] / suite["total_s"]) if suite["total_s"] else 0.0
+        for name, suite in sorted(job["suites"].items(), key=lambda kv: -(kv[1]["total_s"] or 0.0)):
+            total = f"{suite['total_s']:8.1f}s" if suite["total_s"] is not None else "       -"
+            hooks = f"{suite['hooks_s']:8.1f}s" if suite["hooks_s"] is not None else "       -"
+            if suite["total_s"]:
+                share = f"{100 * suite['hooks_s'] / suite['total_s']:6.0f}%"
+            else:
+                share = "      -"
             print(
-                f"    {name[:23]:<24}{suite['total_s']:8.1f}s{suite['tests_s']:8.1f}s"
-                f"{suite['hooks_s']:8.1f}s{share:7.0f}%{suite['passed']:4d}{suite['skipped']:5d}"
+                f"    {name[:23]:<24}{total}{suite['tests_s']:8.1f}s"
+                f"{hooks}{share}{suite['passed']:4d}{suite['skipped']:5d}"
             )
 
 
@@ -214,18 +224,26 @@ def print_suite_compare(before, after):
             bt = bs["total_s"] if bs else None
             at = as_["total_s"] if as_ else None
             rows.append((((at or 0) - (bt or 0)), name, bs, as_))
+        def secs(suite, key, width=8):
+            # "-" distinguishes a duration jest never reported from a real zero.
+            value = suite[key] if suite else None
+            return f"{value:{width}.1f}s" if value is not None else "-".rjust(width + 1)
+
         for _, name, bs, as_ in sorted(rows):
-            bt = f"{bs['total_s']:8.1f}s" if bs else "     gone"
-            at = f"{as_['total_s']:8.1f}s" if as_ else "     gone"
+            bt = secs(bs, "total_s") if bs else "     gone"
+            at = secs(as_, "total_s") if as_ else "     gone"
             if bs and as_:
-                delta = f"{as_['total_s'] - bs['total_s']:+8.1f}s"
-                hooks = f"{bs['hooks_s']:.0f}s -> {as_['hooks_s']:.0f}s"
+                if bs["total_s"] is not None and as_["total_s"] is not None:
+                    delta = f"{as_['total_s'] - bs['total_s']:+8.1f}s"
+                else:
+                    delta = "        ?"
+                hooks = f"{secs(bs, 'hooks_s', 0).strip()} -> {secs(as_, 'hooks_s', 0).strip()}"
             else:
                 # A suite that disappears has had every one of its tests skipped on this
                 # leg, so jest never ran its hooks either. That is a real saving, not a
                 # gap in the data.
                 delta = "  SKIPPED" if as_ is None else "      NEW"
-                hooks = f"{bs['hooks_s']:.0f}s -> 0s" if bs else "-"
+                hooks = f"{secs(bs, 'hooks_s', 0).strip()} -> 0s" if bs else "-"
             print(f"    {name[:23]:<24}{bt}{at}{delta}   {hooks:<22}")
 
 
