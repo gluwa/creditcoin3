@@ -5,7 +5,8 @@ use user::prelude::*;
 pub struct Config {
     pub client: eth::Client,
     pub start_height: attestor_primitives::Height,
-    pub finalization_lag: attestor_primitives::Height,
+    /// How mature heights are derived from source heads. See [`eth::Maturity`].
+    pub maturity: eth::Maturity,
 
     /// Maximum number of concurrent block fetch tasks (IO-bound).
     pub max_concurrency: std::num::NonZeroUsize,
@@ -283,25 +284,45 @@ async fn stream_rpc(
         tokio::time::sleep(delay).await;
     };
 
-    let mut stream_n = futures::stream::iter(config.start_height..=next)
-        .chain(
-            stream_headers
-                .scan(next + 1, |next, header| {
-                    // Backfill missing blocks
-                    if header.number >= *next {
-                        let missing = *next..=header.number;
-                        *next = header.number + 1;
-                        futures::future::ready(Some(futures::stream::iter(missing)))
-                    } else {
-                        #[allow(clippy::reversed_empty_ranges)]
-                        futures::future::ready(Some(futures::stream::iter(1..=0)))
-                    }
-                })
-                .flatten(),
-        )
-        .skip_while(move |number| {
-            futures::future::ready(*number < config.start_height + config.finalization_lag)
-        });
+    // Mature-height pipeline. Every source head — the first one above and each one the
+    // subscription delivers — is resolved to a mature height through `config.maturity`, and the
+    // block numbers between the last fetched height and that mature height are what this stream
+    // fetches next. With a fixed lag that is the classic `head - lag` walk (one block per head,
+    // gaps backfilled); with a block tag the mature height moves in jumps whenever the node's
+    // `safe` / `finalized` advances. A failed tag lookup is logged and skipped: the next head
+    // retries, and `next_unfetched` guarantees no block is skipped or fetched twice.
+    let maturity = config.maturity;
+    let client_for_maturity = config.client.clone();
+    let mut stream_n = futures::stream::once(futures::future::ready(next))
+        .chain(stream_headers.map(|header| header.number))
+        .then(move |head| {
+            let client = client_for_maturity.clone();
+            async move { (head, maturity.mature_height(&client, head).await) }
+        })
+        .filter_map(move |(head, mature)| {
+            futures::future::ready(match mature {
+                Ok(Some(mature)) => Some(mature),
+                Ok(None) => None,
+                Err(err) => {
+                    tracing::warn!(
+                        head,
+                        %maturity,
+                        %err,
+                        "could not resolve mature height for this head; retrying on the next one"
+                    );
+                    None
+                }
+            })
+        })
+        .scan(config.start_height, |next_unfetched, mature| {
+            let range = eth::Maturity::newly_mature(*next_unfetched, mature);
+            if !range.is_empty() {
+                *next_unfetched = mature + 1;
+            }
+            futures::future::ready(Some(futures::stream::iter(range)))
+        })
+        .flatten()
+        .boxed();
 
     let mut blocks = tokio::task::JoinSet::new();
 
@@ -339,14 +360,13 @@ async fn stream_rpc(
                     }
 
                     let eth = config.client.clone();
-                    let lag = config.finalization_lag;
                     let encoding = config.encoding;
 
                     // Actual block fetching. No more than `max_concurrency` blocks may be
-                    // fetched at once.
+                    // fetched at once. `n` is already a mature height.
                     blocks.spawn(async move {
                         eth.get_block(
-                            n - lag,
+                            n,
                             encoding
                         )
                         .await

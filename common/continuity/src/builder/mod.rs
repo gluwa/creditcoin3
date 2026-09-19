@@ -559,12 +559,21 @@ impl ContinuityBuilder {
 
     /// Get both the raw chain tip and the confirmed block height for reorg protection.
     ///
-    /// Returns `(tip, tip - block_confirmation_depth)` (confirmed saturates at 0).
+    /// With a [`confirmation_tag`](ContinuityConfig::confirmation_tag) the confirmed height is
+    /// the node's tagged block (clamped to the tip); otherwise it is
+    /// `tip - block_confirmation_depth` (saturating at 0).
     /// Use the confirmed value to decide whether to accept a requested block;
     /// use the tip value in user-facing error messages so clients see the real chain height.
     pub async fn get_confirmed_last_block(&self) -> Result<(u64, u64)> {
         let tip = self.eth_provider.get_last_block().await?;
-        let confirmed = tip.saturating_sub(self.config.block_confirmation_depth);
+        let confirmed = match self.config.confirmation_tag {
+            Some(tag) => self
+                .eth_provider
+                .get_block_number_by_tag(tag)
+                .await?
+                .min(tip),
+            None => tip.saturating_sub(self.config.block_confirmation_depth),
+        };
         Ok((tip, confirmed))
     }
 
@@ -672,7 +681,7 @@ async fn resolve_chain_encoding(cc_client: &CcClient, chain_key: u64) -> Encodin
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::ContinuityConfig, mocks::make_mock_providers};
+    use crate::{config::ContinuityConfig, mocks::make_mock_providers, rpc::EthRpcProvider};
 
     fn make_builder(block_confirmation_depth: u64) -> ContinuityBuilder {
         let chain_key = 2u64;
@@ -686,6 +695,53 @@ mod tests {
             .build();
         let (cc_provider, eth_provider) = make_mock_providers(chain_key);
         ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider)
+    }
+
+    fn make_tag_builder(tag: eth::BlockTag) -> ContinuityBuilder {
+        let chain_key = 2u64;
+        let config = ContinuityConfig::builder()
+            .cc3_rpc_url("http://mock")
+            .eth_rpc_url("http://mock")
+            .chain_key(chain_key)
+            .attestation_interval(10)
+            .checkpoint_interval(10)
+            .block_confirmation_depth(0)
+            .confirmation_tag(Some(tag))
+            .build();
+        let (cc_provider, eth_provider) = make_mock_providers(chain_key);
+        ContinuityBuilder::new_with_providers(config, cc_provider, eth_provider)
+    }
+
+    /// With a confirmation tag the confirmed height is the node's tagged block, not `tip - depth`.
+    #[tokio::test]
+    async fn confirmed_last_block_follows_the_block_tag() {
+        let (tip, confirmed) = make_tag_builder(eth::BlockTag::Safe)
+            .get_confirmed_last_block()
+            .await
+            .unwrap();
+        assert_eq!((tip, confirmed), (1000, 968));
+        let (tip, confirmed) = make_tag_builder(eth::BlockTag::Finalized)
+            .get_confirmed_last_block()
+            .await
+            .unwrap();
+        assert_eq!((tip, confirmed), (1000, 936));
+    }
+
+    /// The archiver-backed provider forwards tag lookups to its live ETH fallback.
+    #[tokio::test]
+    async fn archiver_provider_forwards_block_tag_lookups() {
+        let (_, eth_provider) = make_mock_providers(2);
+        let provider = crate::archiver::ArchiverEthProvider::new(
+            "http://archiver.invalid".into(),
+            eth_provider,
+        );
+        assert_eq!(
+            provider
+                .get_block_number_by_tag(eth::BlockTag::Safe)
+                .await
+                .unwrap(),
+            968
+        );
     }
 
     /// `get_confirmed_last_block` with depth 0 returns (tip, tip).
