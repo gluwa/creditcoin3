@@ -18,16 +18,25 @@ const RECONNECT_BASE_DELAY: Duration = Duration::from_secs(2);
 /// Maximum delay between reconnection attempts.
 const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
 
-/// Compute parallelism for merkle root computation based on available CPUs
-/// and how many threads are reserved for block fetching.
-fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::NonZeroUsize {
+/// Threads for merkle root computation: the explicit `--max-compute-threads` when given,
+/// otherwise available CPUs minus the threads reserved for block fetching (+1 for the main
+/// loop), floored at 1.
+fn compute_parallelism(cfg: &Config) -> std::num::NonZeroUsize {
+    if let Some(explicit) = cfg.max_compute_threads {
+        return explicit;
+    }
     let available = std::thread::available_parallelism()
         .unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
         .get();
-    // Reserve threads for fetch tasks + 1 for the main loop, use the rest for computation.
-    let parallelism = available.saturating_sub(max_fetch_tasks.get() + 1);
-    // Defaults to at least 1 thread for computation.
+    let parallelism = available.saturating_sub(cfg.max_fetch_tasks.get() + 1);
     std::num::NonZeroUsize::new(parallelism).unwrap_or(std::num::NonZeroUsize::MIN)
+}
+
+/// WS client used for block fetching, carrying the configured fetch mode.
+async fn new_fetch_client(cfg: &Config) -> anyhow::Result<eth::Client> {
+    Ok(eth::Client::new(cfg.rpc_ws.as_str(), None)
+        .await?
+        .with_fetch_mode(cfg.fetch_mode))
 }
 
 mod api;
@@ -180,13 +189,13 @@ async fn main() -> Result<()> {
             for (gap_start, gap_end) in &gaps {
                 tracing::info!(from = gap_start, to = gap_end, "backfill: filling gap");
 
-                let ws_client = eth::Client::new(cfg.rpc_ws.as_str(), None).await?;
+                let ws_client = new_fetch_client(&cfg).await?;
                 let gap_config = stream_eth::roots::ConfigBuilder::new()
                     .with_client(ws_client)
                     .with_start_height(*gap_start)
                     .with_finalization_lag(finaliztion_lag)
                     .with_max_concurrency(cfg.max_fetch_tasks)
-                    .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                    .with_max_parallelism(compute_parallelism(&cfg))
                     .build();
 
                 let mut gap_stream = stream_eth::StreamRoots::new(gap_config).await;
@@ -236,8 +245,16 @@ async fn main() -> Result<()> {
 
     // ── Connect to chain ────────────────────────────────────────────────
     // Reuse the verified clients: WS for StreamRoots (subscriptions + block fetching),
-    // HTTP for chain head tracking.
-    tracing::info!(chain_id = source_chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
+    // HTTP for chain head tracking. Apply fetch_mode to the WS client so historical
+    // sweeps can use raw-RLP without opening a second pair of connections.
+    let ws_client = ws_client.with_fetch_mode(cfg.fetch_mode);
+    tracing::info!(
+        chain_id = source_chain_id,
+        ws = %cfg.rpc_ws,
+        http = %cfg.rpc_http,
+        fetch_mode = %cfg.fetch_mode,
+        "connected to chain"
+    );
 
     // ── Root stream (with automatic reconnection) ───────────────────────
     let stream_config = stream_eth::roots::ConfigBuilder::new()
@@ -245,7 +262,7 @@ async fn main() -> Result<()> {
         .with_start_height(start_height)
         .with_finalization_lag(finaliztion_lag)
         .with_max_concurrency(cfg.max_fetch_tasks)
-        .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+        .with_max_parallelism(compute_parallelism(&cfg))
         .build();
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await;
@@ -351,14 +368,14 @@ async fn main() -> Result<()> {
                     tokio::time::sleep(delay).await;
                     tracing::info!(resume_from, "attempting stream reconnection...");
 
-                    match eth::Client::new(cfg.rpc_ws.as_str(), None).await {
+                    match new_fetch_client(&cfg).await {
                         Ok(new_ws) => {
                             let new_config = stream_eth::roots::ConfigBuilder::new()
                                 .with_client(new_ws)
                                 .with_start_height(resume_from)
                                 .with_finalization_lag(finaliztion_lag)
                                 .with_max_concurrency(cfg.max_fetch_tasks)
-                                .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                                .with_max_parallelism(compute_parallelism(&cfg))
                                 .build();
                             root_stream = stream_eth::StreamRoots::new(new_config).await;
                             break;
