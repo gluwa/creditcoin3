@@ -114,9 +114,9 @@ impl ContinuityService {
     ///
     /// <div class="warning">
     ///
-    /// Note: Callers should validate the block via `validate_block_not_before_genesis`
-    /// before calling this method. If the block is not yet attested, the builder
-    /// will use "eager" proof generation with a predicted upper bound.
+    /// Note: Callers should run `validate_blocks` first. A block above the latest attestation
+    /// cannot be bracketed by the caches and surfaces as `BlockNotReady` either way; validating
+    /// first just makes that the cheap path.
     ///
     /// </div>
     /// Build a continuity proof.
@@ -1570,5 +1570,168 @@ mod tests {
     fn non_archiver_errors_are_not_classified() {
         let err = AnyhowError::msg("something else entirely");
         assert!(classify_archiver_client_rejection(&err).is_none());
+    }
+}
+
+/// `validate_blocks` decides against the attested set, never against the source tip.
+#[cfg(test)]
+mod attested_boundary_tests {
+    use super::*;
+    use crate::prom::NoopMetrics;
+    use anyhow::Result;
+    use async_trait::async_trait;
+    use attestor_primitives::block::Block;
+    use continuity::rpc::EthRpcProvider;
+    use continuity::{mocks::make_mock_providers, ContinuityBuilder, ContinuityConfig};
+    use std::sync::Arc;
+
+    /// An ETH provider whose tip read is a test failure. If validation ever consults the source
+    /// chain again, every test in this module fails at the read rather than at an assertion.
+    struct TipMustNotBeRead;
+
+    #[async_trait]
+    impl EthRpcProvider for TipMustNotBeRead {
+        async fn build_continuity_blocks(
+            &self,
+            _lower_digest: H256,
+            _start: u64,
+            _end: u64,
+        ) -> Result<Vec<Block>> {
+            Ok(vec![])
+        }
+        async fn get_block_tx_bytes(&self, _block_number: u64) -> Result<Vec<Vec<u8>>> {
+            Ok(vec![])
+        }
+        async fn get_tx_hash_by_index(
+            &self,
+            _block_number: u64,
+            _tx_index: u64,
+        ) -> Result<Option<H256>> {
+            Ok(None)
+        }
+        async fn get_tx_position_by_hash(&self, _tx_hash: H256) -> Result<Option<(u64, u64)>> {
+            Ok(None)
+        }
+        async fn get_last_block(&self) -> Result<u64> {
+            panic!("validate_blocks must not read the source-chain tip")
+        }
+        async fn get_block_number_by_tag(&self, _tag: eth::BlockTag) -> Result<u64> {
+            panic!("validate_blocks must not resolve a source-chain block tag")
+        }
+        async fn get_chain_id(&self) -> Result<u64> {
+            Ok(31337)
+        }
+        async fn is_healthy(&self) -> Result<bool> {
+            Ok(true)
+        }
+    }
+
+    const CHAIN_KEY: u64 = 2;
+    /// The mock cc3 provider attests every 10 blocks from 10 to 1000.
+    const LATEST_ATTESTED: u64 = 1000;
+
+    async fn service() -> ContinuityService {
+        let (cc_provider, _) = make_mock_providers(CHAIN_KEY);
+        let config = ContinuityConfig::builder()
+            .cc3_rpc_url("ws://mock")
+            .eth_rpc_url("http://mock")
+            .chain_key(CHAIN_KEY)
+            .attestation_interval(10)
+            .checkpoint_interval(10)
+            .build();
+        let builder = Arc::new(ContinuityBuilder::new_with_providers(
+            config,
+            cc_provider,
+            Arc::new(TipMustNotBeRead),
+        ));
+        ContinuityService::new(vec![builder], NoopMetrics::new(), 10, 1_000)
+            .await
+            .expect("service init should succeed with mocks")
+    }
+
+    #[tokio::test]
+    async fn heights_at_or_below_the_latest_attestation_pass_without_touching_the_source() {
+        let svc = service().await;
+        let chain = svc.chain_state(CHAIN_KEY).unwrap();
+        let latest = svc
+            .validate_blocks(chain, &[LATEST_ATTESTED - 3, LATEST_ATTESTED])
+            .await
+            .expect("attested heights are servable");
+        assert_eq!(latest, LATEST_ATTESTED);
+    }
+
+    #[tokio::test]
+    async fn a_height_above_the_latest_attestation_is_not_ready() {
+        let svc = service().await;
+        let chain = svc.chain_state(CHAIN_KEY).unwrap();
+        // The source tip is irrelevant: whether this block exists on the source chain or not,
+        // no attestation brackets it, so no proof can be built for it yet.
+        let err = svc
+            .validate_blocks(chain, &[500, LATEST_ATTESTED + 1])
+            .await
+            .expect_err("nothing above the latest attestation is servable");
+        match err {
+            ServiceError::BlockNotReady {
+                block_number,
+                last_attested_block,
+            } => {
+                assert_eq!(block_number, LATEST_ATTESTED + 1);
+                assert_eq!(last_attested_block, LATEST_ATTESTED);
+            }
+            other => panic!("expected BlockNotReady, got {other:?}"),
+        }
+        assert!(err.retriable(), "the client should try again later");
+    }
+
+    /// A checkpoint is attested state too. When the checkpoint cache is ahead of the attestation
+    /// cache (after a prune, or when checkpoints arrive first on a fresh start) the boundary is the
+    /// checkpoint, because `build_continuity` can bracket against it.
+    #[tokio::test]
+    async fn a_newer_checkpoint_raises_the_boundary_above_the_attestation_cache() {
+        let svc = service().await;
+        let chain = svc.chain_state(CHAIN_KEY).unwrap();
+        chain
+            .checkpoint_cache
+            .write()
+            .await
+            .insert(LATEST_ATTESTED + 100, H256::from_low_u64_be(7));
+        let latest = svc
+            .validate_blocks(chain, &[LATEST_ATTESTED + 50])
+            .await
+            .expect("a height below the newest checkpoint is servable");
+        assert_eq!(latest, LATEST_ATTESTED + 100);
+    }
+
+    #[tokio::test]
+    async fn an_empty_cache_reports_attestations_missing() {
+        let svc = service().await;
+        let chain = svc.chain_state(CHAIN_KEY).unwrap();
+        chain.attestation_cache.write().await.clear();
+        chain.checkpoint_cache.write().await.clear();
+        let err = svc
+            .validate_blocks(chain, &[500])
+            .await
+            .expect_err("with nothing attested there is no boundary to serve against");
+        assert!(
+            matches!(err, ServiceError::AttestationsMissing { chain_key } if chain_key == CHAIN_KEY),
+            "got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn genesis_is_still_checked_first() {
+        let svc = service().await;
+        let chain = svc.chain_state(CHAIN_KEY).unwrap();
+        chain
+            .attestation_genesis_block
+            .store(100, Ordering::Release);
+        let err = svc
+            .validate_blocks(chain, &[100])
+            .await
+            .expect_err("at-or-before genesis is rejected before the boundary check");
+        assert!(
+            matches!(err, ServiceError::BlockBeforeOrAtGenesis { .. }),
+            "got {err:?}"
+        );
     }
 }

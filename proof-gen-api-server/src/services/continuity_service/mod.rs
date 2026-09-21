@@ -466,17 +466,15 @@ impl ContinuityService {
 
     async fn backfill_merkle_cache_for_chain(&self, chain: Arc<ChainState>) -> anyhow::Result<()> {
         let chain_key = chain.builder.config.chain_key;
-        let (_, confirmed_tip) = chain.builder.get_confirmed_last_block().await?;
-        let Some(latest_attested_height) = Self::cached_attested_height(chain.as_ref()).await
-        else {
+        // The attested set is the boundary: everything at or below the latest attestation is
+        // servable, so that is the cache's tip. No source-chain read is involved in deciding it.
+        let Some(cache_tip) = Self::cached_attested_height(chain.as_ref()).await else {
             tracing::info!(
                 chain_key,
-                confirmed_tip,
                 "merkle proof cache backfill waiting for attested height"
             );
             return Ok(());
         };
-        let cache_tip = latest_attested_height.min(confirmed_tip);
         let retention_blocks = self.merkle_cache_retention_blocks(chain.as_ref()).await;
         let genesis = chain.attestation_genesis_block.load(Ordering::Relaxed);
         let start = cache_tip.saturating_sub(retention_blocks).max(genesis);
@@ -509,8 +507,6 @@ impl ContinuityService {
             let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
             tracing::info!(
                 chain_key,
-                confirmed_tip,
-                latest_attested_height,
                 cache_tip,
                 retained_from = start,
                 retention_blocks,
@@ -574,8 +570,6 @@ impl ContinuityService {
         let (merkle_stats, checkpoint_entries) = Self::cache_occupancy(chain.as_ref()).await;
         tracing::info!(
             chain_key,
-            confirmed_tip,
-            latest_attested_height,
             cache_tip,
             retained_from = start,
             retention_blocks,
@@ -756,10 +750,20 @@ impl ContinuityService {
     }
 
     /// Validate that the requested blocks can be processed:
-    /// 1. Not before attestation genesis
-    /// 2. Exists on source chain (ETH)
+    /// 1. After attestation genesis
+    /// 2. At or below the latest attested height for the chain
     ///
-    /// Returns the current block height for reuse in validating predicted attestation bounds.
+    /// The attested set is the serving boundary. Attestors decide what is mature against their
+    /// own maturity policy and publish the result on Creditcoin; this process reads that result
+    /// from the caches the cc3 event subscription keeps warm. It does not consult the source
+    /// chain here at all: a proof needs an attestation at or above the requested height to
+    /// exist, so a height above the latest attestation cannot be served no matter what the
+    /// source tip says, and a height at or below it is guaranteed an upper bound. The old
+    /// `tip - depth` and block-tag checks against this process's own RPC were a second,
+    /// independent opinion on maturity that could only disagree with the attestors, in either
+    /// direction.
+    ///
+    /// Returns the latest attested height.
     async fn validate_blocks(
         &self,
         chain: &Arc<ChainState>,
@@ -782,41 +786,31 @@ impl ContinuityService {
             });
         }
 
-        // Check source chain existence, applying block_confirmation_depth for reorg protection.
-        // Blocks within `block_confirmation_depth` of the tip are considered unconfirmed and
-        // are rejected the same way as blocks that don't exist yet.
-        // get_confirmed_last_block() returns (tip, confirmed) in a single RPC call.
-        let (tip_block, confirmed_block) =
-            chain
-                .builder
-                .get_confirmed_last_block()
-                .await
-                .map_err(|e| ServiceError::RpcUnavailable {
-                    message: format!("Failed to get current block height from source chain: {e}"),
-                })?;
+        // Check against the attested boundary. Same error the proof builder raises when the
+        // caches cannot bracket a request, so a client sees one code for "not yet attested"
+        // whichever check catches it first; this one is just cheaper and earlier.
+        let Some(latest_attested) = Self::cached_attested_height(chain).await else {
+            tracing::warn!(
+                chain_key,
+                "⚠️  no attestation or checkpoint cached yet; nothing can be served"
+            );
+            return Err(ServiceError::AttestationsMissing { chain_key });
+        };
 
-        if let Some(&header_number) = header_numbers.iter().find(|h| **h > confirmed_block) {
+        if let Some(&header_number) = header_numbers.iter().find(|h| **h > latest_attested) {
             tracing::warn!(
                 requested_block = header_number,
-                tip_block,
-                confirmed_block,
+                latest_attested,
                 chain_key,
-                block_confirmation_depth = chain.builder.config.block_confirmation_depth,
-                confirmation_tag = ?chain.builder.config.confirmation_tag,
-                "⚠️  ⛓️ Requested block is not yet confirmed on source chain (within reorg window)"
+                "⚠️  ⛓️ Requested block is above the latest attestation; not servable yet"
             );
-            // Report the *effective* window (`tip - confirmed`): with a block-tag policy the
-            // configured depth is 0 and the real window is however far `safe` / `finalized`
-            // currently trails the tip.
-            return Err(ServiceError::BlockNotOnSourceChain {
-                requested_block: header_number,
-                current_block: tip_block,
-                confirmation_depth: tip_block.saturating_sub(confirmed_block),
+            return Err(ServiceError::BlockNotReady {
+                block_number: header_number,
+                last_attested_block: latest_attested,
             });
         }
-        let current_block = confirmed_block;
 
-        Ok(current_block)
+        Ok(latest_attested)
     }
 
     pub fn uptime_seconds(&self) -> u64 {
@@ -927,18 +921,16 @@ impl ContinuityService {
         cache.keys().next_back().copied()
     }
 
+    /// The highest height the attested set covers: the greater of the newest attestation and
+    /// the newest checkpoint. Both caches are attested state (a checkpoint is a finalised
+    /// attestation digest), and `build_continuity` brackets against either, so the serving
+    /// boundary must consider both rather than fall back to checkpoints only when no
+    /// attestation is cached. Otherwise a pruned attestation cache that trails a newer
+    /// checkpoint would refuse heights the proof builder can still serve.
     async fn cached_attested_height(chain: &ChainState) -> Option<u64> {
-        let mut last_height = {
-            let cache = chain.attestation_cache.read().await;
-            cache.keys().next_back().copied()
-        };
-
-        if last_height.is_none() {
-            let checkpoint_cache = chain.checkpoint_cache.read().await;
-            last_height = checkpoint_cache.keys().next_back().copied();
-        }
-
-        last_height
+        let attestation = Self::cached_attestation_height(chain).await;
+        let checkpoint = Self::cached_checkpoint_height(chain).await;
+        attestation.max(checkpoint)
     }
 
     async fn cached_checkpoint_height(chain: &ChainState) -> Option<u64> {

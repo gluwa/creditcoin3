@@ -92,19 +92,6 @@ pub struct ChainConfig {
     /// and you keep a more expensive "archive" endpoint for old data.
     pub eth_rpc_fallback_urls: Vec<String>,
     pub archiver_url: Option<String>,
-    /// Reorg-protection depth override, in blocks.
-    ///
-    /// `None` (the default when the field is omitted) means: derive it at startup from the
-    /// chain's on-chain `MaturityStrategy` in the supported-chains pallet -- the same value the
-    /// attestors use, so this process cannot disagree with them. `Some(n)` pins an explicit
-    /// value; startup logs a WARN if it differs from the on-chain depth, and refuses to start if
-    /// the chain follows a block tag (`RpcSafe` / `RpcFinalized`), which no fixed depth can
-    /// reproduce.
-    ///
-    /// This used to be a plain `u64` defaulting to `0`, so *omitting* it silently disabled reorg
-    /// protection. That is the failure mode this change removes.
-    /// See [`continuity::ContinuityConfig::block_confirmation_depth`].
-    pub block_confirmation_depth: Option<u64>,
     /// Per-chain cache sizing. Defaults reproduce the historical behavior.
     pub cache: ChainCacheConfig,
 }
@@ -134,8 +121,6 @@ impl Config {
                 eth_rpc_url: "http://mock".to_string(),
                 eth_rpc_fallback_urls: Vec::new(),
                 archiver_url: None,
-                // Mock config has no chain to resolve against; pin explicitly.
-                block_confirmation_depth: Some(0),
                 cache: ChainCacheConfig::default(),
             }],
             max_batch_size: DEFAULT_MAX_BATCH_SIZE,
@@ -194,10 +179,10 @@ pub struct ChainConfigFile {
     pub eth_rpc_fallback_urls: Vec<String>,
     #[serde(default)]
     pub archiver_url: Option<String>,
-    /// Reorg-protection depth override. **Omit it** to derive the depth from the chain's on-chain
-    /// `MaturityStrategy` (recommended -- matches the attestors by construction). Set it only to
-    /// deliberately pin a value; startup warns if it disagrees with the chain and fails if the
-    /// chain follows a block tag (`RpcSafe` / `RpcFinalized`).
+    /// Deprecated and ignored. Whether a height may be served is decided against the attested set
+    /// on Creditcoin, not against this process's own reading of the source chain, so there is no
+    /// reorg window to configure. Still accepted so existing YAML keeps parsing; a set value is
+    /// logged at startup and otherwise does nothing.
     #[serde(default)]
     pub block_confirmation_depth: Option<u64>,
     /// Optional per-chain cache sizing. Omit the whole block to keep the defaults.
@@ -317,12 +302,20 @@ impl ConfigFile {
             let eth_rpc_fallback_urls =
                 validate_fallback_urls(c.chain_key, c.eth_rpc_fallback_urls)?;
             let cache = resolve_cache_config(c.chain_key, c.cache)?;
+            if let Some(depth) = c.block_confirmation_depth {
+                tracing::warn!(
+                    chain_key = c.chain_key,
+                    block_confirmation_depth = depth,
+                    "block_confirmation_depth is deprecated and ignored: heights are confirmed \
+                     against the attested set, not against this process's view of the source tip. \
+                     Remove it from the config."
+                );
+            }
             chains.push(ChainConfig {
                 chain_key: c.chain_key,
                 eth_rpc_url: c.eth_rpc_url,
                 eth_rpc_fallback_urls,
                 archiver_url: c.archiver_url,
-                block_confirmation_depth: c.block_confirmation_depth,
                 cache,
             });
         }
@@ -514,22 +507,10 @@ chains:
         assert!(cfg.chains[0].eth_rpc_fallback_urls.is_empty());
     }
 
+    /// The key is deprecated but must keep parsing: a chart that still renders it cannot take a
+    /// whole fleet down on the image bump that removed the behaviour.
     #[test]
-    fn yaml_without_depth_is_none_not_zero() {
-        // Regression guard: omitting the field must mean "derive from chain", never "0".
-        let yaml = r#"
-bind_host: "0.0.0.0"
-bind_port: 3100
-chains:
-  - chain_key: 8
-    eth_rpc_url: "http://localhost:8545"
-"#;
-        let cfg = parse(yaml).expect("yaml should parse");
-        assert_eq!(cfg.chains[0].block_confirmation_depth, None);
-    }
-
-    #[test]
-    fn yaml_with_explicit_depth_is_some() {
+    fn yaml_with_deprecated_depth_still_parses() {
         let yaml = r#"
 bind_host: "0.0.0.0"
 bind_port: 3100
@@ -538,8 +519,8 @@ chains:
     eth_rpc_url: "http://localhost:8545"
     block_confirmation_depth: 64
 "#;
-        let cfg = parse(yaml).expect("yaml should parse");
-        assert_eq!(cfg.chains[0].block_confirmation_depth, Some(64));
+        let cfg = parse(yaml).expect("deprecated key must still parse");
+        assert_eq!(cfg.chains.len(), 1);
     }
 
     #[test]
