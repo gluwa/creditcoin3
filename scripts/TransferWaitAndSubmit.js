@@ -18,7 +18,7 @@
  *   --devnet               Use devnet provider URL for source chain
  */
 
-const { proofProvider } = require('@gluwa/usc-sdk');
+const { proofProvider } = require('@gluwa/asc-sdk');
 const { ethers } = require('ethers');
 const {
     DEFAULT_SOURCE_RPC_URL,

@@ -46,10 +46,10 @@
   resolved "https://registry.yarnpkg.com/@eslint/js/-/js-8.57.1.tgz#de633db3ec2ef6a3c89e2f19038063e8a122e2c2"
   integrity sha512-d9zaMRSTIKDLhctzH12MtXvJKSSUhaHcjV+2Z+GK+EEY7XKpP5yR4x+N3TAcHTcu963nIr+TMcCb4DBCYX1z6Q==
 
-"@gluwa/usc-sdk@0.18.0":
-  version "0.18.0"
-  resolved "https://registry.yarnpkg.com/@gluwa/usc-sdk/-/usc-sdk-0.18.0.tgz#03d0bbcd00a9a9a6b91eb4e9565fc861ee8978da"
-  integrity sha512-iUEXPAp1gB/HDYkXad+StVJvs0Yz2ZIbzijc8SaBflGJ95hPnVahyY+tsP2PApswSQaX2uIBM7Cb0jpZ+KBzTQ==
+"@gluwa/asc-sdk@0.19.0":
+  version "0.19.0"
+  resolved "https://registry.yarnpkg.com/@gluwa/asc-sdk/-/asc-sdk-0.19.0.tgz#6a7ec963037bcbf5a3609e1c440f58383206e62a"
+  integrity sha512-rOhHpy8L+O7/p1Un8niyZ9NUjOkyF5qyhkQmO19b1dxI6Nk1qwS0R8+bjPWdn7nuen/uyB+v674M4k9X5AXQoA==
   dependencies:
     axios "^1.13.2"
     dotenv "^17.2.3"

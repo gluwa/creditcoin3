@@ -29,6 +29,13 @@ name: Reusable workflow to build a native client
       use-new-metadata:
         required: false
         type: boolean
+      # Lets a caller run this purely to populate the Rust dependency cache, without
+      # leaving ~200 MB of binaries behind that nothing downloads. Defaults to true so
+      # every existing caller is unaffected.
+      upload-artifacts:
+        required: false
+        type: boolean
+        default: true
 
 # Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
 # <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
@@ -74,22 +81,42 @@ jobs:
           targets: wasm32v1-none
           components: rust-src
 
+      # Hosted and self-hosted runners compute the *same* Swatinem key today: same arch, same
+      # rustc, same manifests, and build-native.yml sets no CXXFLAGS on either side, so the
+      # env hash matches too (`...-6cf672bd-...` on both). Their Cargo home and checkout root
+      # differ though, and `target/` fingerprints and `.d` files record absolute paths, so an
+      # archive restored across families fails every fingerprint check and rebuilds anyway
+      # after paying for the download. Give each family its own namespace, otherwise the
+      # hosted warmer below wins the entry the Linode build needs and the Linode warmer can
+      # never save.
+      - name: Identify runner family
+        id: runner-family
+        env:
+          RUNNER_FAMILY: ${{ runner.environment }}
+        run: |
+          ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: ${{ inputs.cache-key-name }}
+          # The default keeps callers that omit `cache-key-name` (proof-gen-api-server) in the
+          # same namespace as the warmer, since they build the same configuration.
+          shared-key: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
 
-      - name: Download new_metadata.diff
+      # Copied in rather than `git apply`-ed, see the producer in ci.yml's
+      # regenerate-metadata. This job is the one that *must* sit on the PR branch
+      # head, because it commits the result back below, so it was the consumer most
+      # exposed to the checkout mismatch a diff is sensitive to.
+      - name: Download regenerated metadata
         if: ${{ inputs.use-new-metadata }}
         uses: actions/download-artifact@v8
         with:
-          name: new-metadata.diff
-          path: /var/tmp
+          name: new-metadata
+          path: .
 
-      - name: Apply new metadata patch
+      - name: Show what the regenerated metadata changed
         if: ${{ inputs.use-new-metadata }}
-        run: |
-          git apply /var/tmp/new-metadata.diff
-          git diff --binary
+        run: git diff --binary
 
       - name: Build SUT
         uses: gluwa/cargo@dev
@@ -98,6 +125,7 @@ jobs:
           args: ${{ inputs.build-options }}
 
       - name: Upload binaries
+        if: ${{ inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: binary-for-${{ inputs.version-string }}
@@ -111,6 +139,7 @@ jobs:
             target/release/query-cli
 
       - name: Upload WASM runtime
+        if: ${{ inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}

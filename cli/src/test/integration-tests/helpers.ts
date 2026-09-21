@@ -78,6 +78,76 @@ export async function randomFundedAccount(api: ApiPromise, sudoSigner: KeyringPa
     return account;
 }
 
+/** A throwaway keypair set produced by randomTestAccount(). */
+export type TestAccount = ReturnType<typeof randomTestAccount>;
+
+/**
+ * Fund `count` fresh random accounts in a single `utility.batchAll`.
+ *
+ * Every CLI transaction in these tests waits for GRANDPA finality (the
+ * `status.isFinalized` branch in lib/tx.ts), which measures ~14.5s against 5s blocks.
+ * Funding N accounts one at a time therefore costs ~14.5*N seconds. `fundAddressesFromSudo`
+ * already builds a batch, so the whole set costs a single wait instead.
+ *
+ * `batchAll` is all-or-nothing, and unlike `randomFundedAccount` this checks the result,
+ * so a partially funded pool cannot hand out broke accounts and fail some later assertion
+ * for an unrelated-looking reason.
+ */
+export async function randomFundedAccounts(
+    api: ApiPromise,
+    sudoSigner: KeyringPair,
+    count: number,
+    amount: BN = parseAmount('1000'),
+): Promise<TestAccount[]> {
+    const accounts = Array.from({ length: count }, () => randomTestAccount());
+    const fundTx = fundAddressesFromSudo(
+        api,
+        accounts.map((account) => account.address),
+        amount,
+    );
+    const sudoKeyring: CallerKeyring = { type: 'caller', pair: sudoSigner };
+    const result = await signSendAndWatchCcKeyring(fundTx, api, sudoKeyring);
+    expect(result.status, `funding ${count} accounts failed: ${result.info}`).toEqual(TxStatus.ok);
+    return accounts;
+}
+
+/**
+ * A lazily-refilled supply of funded throwaway accounts, for suites that used to call
+ * `randomFundedAccount` from `beforeEach` and so paid a finality wait on every test.
+ *
+ * `next()` hands out an account nothing else has touched, holding exactly `amount` with no
+ * proxies configured -- the same guarantees `randomFundedAccount` gave, since each account
+ * is handed out once and `forceSetBalance` sets an absolute balance. Only the funding
+ * *moment* changes: an account may have been funded a few tests earlier, which nothing can
+ * observe because no one else holds its secret.
+ *
+ * Accounts are funded `chunkSize` at a time rather than all upfront, so the pool needs no
+ * advance count of the tests in the suite and adding one cannot silently exhaust it.
+ *
+ * Build it in `beforeAll`: construction sends nothing, so it costs no chain time and does
+ * not care whether the suite's tests are skipped on this leg.
+ */
+export function fundedAccountPool(
+    api: ApiPromise,
+    sudoSigner: KeyringPair,
+    { chunkSize = 8, amount = parseAmount('1000') }: { chunkSize?: number; amount?: BN } = {},
+) {
+    let available: TestAccount[] = [];
+
+    return {
+        async next(): Promise<TestAccount> {
+            if (available.length === 0) {
+                available = await randomFundedAccounts(api, sudoSigner, chunkSize, amount);
+            }
+            const account = available.shift();
+            if (account === undefined) {
+                throw new Error('funded account pool refilled but is still empty');
+            }
+            return account;
+        },
+    };
+}
+
 export async function increaseValidatorCount(api: ApiPromise, sudoSigner: KeyringPair, additional = 3) {
     const oldCount = (await api.query.staking.validatorCount()).toNumber();
 

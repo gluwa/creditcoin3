@@ -1,5 +1,5 @@
 import { signSendAndWatchCcKeyring } from '../../../lib/tx';
-import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, randomFundedAccount, CLIBuilder } from '../helpers';
+import { initAliceKeyring, ALICE_NODE_URL, BOB_NODE_URL, CLIBuilder, fundedAccountPool } from '../helpers';
 import { ApiPromise, KeyringPair, newApi } from '../../../lib';
 import { CallerKeyring } from '../../../lib/account/keyring';
 import { randomEvmAccount } from '../evmHelpers';
@@ -14,14 +14,19 @@ describeIf(process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED 
     let api: ApiPromise;
     let caller: { secret: any; keyring: KeyringPair; address: string };
     let CLI: (arg0: string) => any;
+    let accounts: ReturnType<typeof fundedAccountPool>;
 
     beforeEach(async () => {
-        caller = await randomFundedAccount(api, initAliceKeyring(), parseAmount('1000000'));
+        caller = await accounts.next();
         CLI = CLIBuilder({ CC_SECRET: caller.secret });
     }, 100_000);
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
+
+        // These tests fund an EVM account and then move most of the balance around, so
+        // keep the original 1,000,000 CTC per account rather than the pool default.
+        accounts = fundedAccountPool(api, initAliceKeyring(), { amount: parseAmount('1000000') });
     }, 100_000);
 
     afterAll(async () => {

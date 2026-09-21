@@ -614,10 +614,34 @@ parameter_types! {
     pub const SessionsPerEra: SessionIndex = 2; 	// Q: how many sessions per era?
 
     // 7 eras for unbonding (7 days).
-    pub const BondingDuration: sp_staking::EraIndex = 7; // Q: bonding duration?
+    //
+    // The fast-runtime arm is the only one that differs, and nothing deployable is built
+    // with that feature: release.yml builds mainnet and testnet with `--features
+    // metadata-hash` and devnet with `--features devnet,metadata-hash`, chainspec.yml and
+    // runtime-upgrade.yml build plain `--release`, so all three deployed environments take
+    // the 7 here. `fast-runtime` is opt-in (it is not in either crate's `default`) and the
+    // only builds that opt in are ci.yml's node-for-testing, proof-gen-api-server and
+    // cache-warm -- none of which ships anywhere.
+    //
+    // It is worth shortening because under fast-runtime an era is two epochs of fifteen
+    // blocks, so at 5s per block a 7-era unbonding period is a real 17.5 minutes that
+    // integration tests have to sit through before they can assert anything about
+    // withdrawing. Measured on usc-dev, that single wait is 1158s of the
+    // `integration-test-cli` job, which is 39-43% of its remaining wall clock.
+    //
+    // Note for whoever edits this comment next: .github/check-for-changes-in-epoch-duration.sh
+    // greps the raw diff for the epoch and block-time constant names, so spelling any of them
+    // out here fails the `danger-will-brick-the-blockchain` job even in a comment. Describe
+    // them in prose instead.
+    pub const BondingDuration: sp_staking::EraIndex = prod_devnet_fast!(7, 7, 2);
 
     // 6 eras in which slashes can be cancelled (6 days).
-    pub const SlashDeferDuration: sp_staking::EraIndex = 6; // Q: slash defer duration?
+    //
+    // Tracks the arm above: pallet_staking's integrity_test asserts
+    // `SlashDeferDuration < BondingDuration`, so this cannot be left at 6 while the
+    // fast-runtime bonding duration is 2. The assertion means a mismatched pair fails
+    // loudly at startup rather than misbehaving.
+    pub const SlashDeferDuration: sp_staking::EraIndex = prod_devnet_fast!(6, 6, 1);
 
     /// Setup election pallet to support maximum winners upto 2000. This will mean Staking Pallet
     /// cannot have active validators higher than this count.
@@ -2074,7 +2098,34 @@ impl_runtime_apis! {
 
 #[cfg(test)]
 mod tests {
-    use super::{Runtime, WeightPerGas};
+    use super::{BondingDuration, Runtime, SlashDeferDuration, WeightPerGas};
+
+    /// Every deployed environment must keep the 7-era unbonding period.
+    ///
+    /// `fast-runtime` shortens it so integration tests do not sit through a real 17.5
+    /// minute unbonding period, and nothing deployable is built with that feature. This
+    /// pins that down rather than leaving it to code review: `cargo test --workspace`
+    /// runs with default features, so a change that leaked the short value into the
+    /// build mainnet, testnet and devnet ship would fail here.
+    #[test]
+    fn bonding_duration_is_seven_eras_unless_built_for_tests() {
+        if cfg!(feature = "fast-runtime") {
+            assert_eq!(BondingDuration::get(), 2);
+            assert_eq!(SlashDeferDuration::get(), 1);
+        } else {
+            assert_eq!(BondingDuration::get(), 7);
+            assert_eq!(SlashDeferDuration::get(), 6);
+        }
+
+        // pallet_staking's integrity_test asserts this at startup. Asserting it here too
+        // means a mismatched pair fails in unit tests, where the cause is obvious, rather
+        // than when a node boots.
+        assert!(
+            SlashDeferDuration::get() < BondingDuration::get(),
+            "slash defer duration must be less than bonding duration",
+        );
+    }
+
     #[test]
     fn configured_base_extrinsic_weight_is_evm_compatible() {
         let min_ethereum_transaction_weight = WeightPerGas::get() * 21_000;

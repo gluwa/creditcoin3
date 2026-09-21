@@ -8,6 +8,30 @@ name: rust
       - "**.toml"
       - "**Cargo**"
       - ".github/workflows/rust.yml"
+  # Populates rust-check / rust-clippy / rust-test on the default branch.
+  #
+  # A cache saved by a PR run lives under refs/pull/<n>/merge and cannot be restored
+  # by any other PR, so without a default-branch producer every fresh PR starts from a
+  # cold cache no matter how well the keys are chosen. Re-running the same PR looks
+  # fast while everyone else still pays the full compile.
+  #
+  # This trigger deliberately re-runs the very same jobs rather than reimplementing
+  # them elsewhere: identical steps, env and shared-key are what make the resulting
+  # entries restorable by PR runs. Keep it that way; a separate warming workflow that
+  # drifts in toolchain or env would compute a different key and warm nothing.
+  #
+  # Only manifest changes are listed. Swatinem/rust-cache keys on the Cargo manifests
+  # plus the toolchain, and caches dependencies rather than workspace crates, so a
+  # plain .rs change leaves the existing key valid and the previously warmed entry
+  # keeps serving new PRs. Warming on every source push would re-pay a full build for
+  # a cache that did not need refreshing.
+  push:
+    branches: [usc-dev]
+    paths:
+      - "**/Cargo.toml"
+      - "**/Cargo.lock"
+      - "rust-toolchain.toml"
+      - ".github/workflows/rust.yml"
   workflow_dispatch:
 
 concurrency:
@@ -26,6 +50,7 @@ jobs:
   cargo-audit:
     if: github.base_ref == 'usc-dev'
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -47,6 +72,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node
+          save-if: false
 
       - name: Install cargo audit
         run: |
@@ -69,6 +95,7 @@ jobs:
 
   cargo-fmt:
     runs-on: ubuntu-26.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -86,6 +113,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node
+          save-if: false
 
       - name: Check formatting
         uses: gluwa/cargo@dev
@@ -100,6 +128,7 @@ jobs:
 
   cargo-check:
     runs-on: ubuntu-26.04
+    timeout-minutes: 60
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -126,7 +155,7 @@ jobs:
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build-creditcoin-node
+          shared-key: rust-check
 
       - name: Check featalign
         run: |
@@ -137,16 +166,23 @@ jobs:
           # produces a human readable output
           cargo featalign runtime --features std,runtime-benchmarks,fast-runtime,devnet --workspace-only --default-std --depth -1 --mode check | jq
 
+      # This is the only job that type-checks the crate graph with default features,
+      # i.e. with runtime-benchmarks OFF. cargo-clippy runs --all-features, which turns
+      # runtime-benchmarks ON and therefore never compiles the
+      # #[cfg(not(feature = "runtime-benchmarks"))] blocks in runtime/src/lib.rs,
+      # node/src/client.rs and node/src/command.rs. Do not fold this into clippy.
       - name: Check Build
         run: |
           SKIP_WASM_BUILD=1 cargo check --release
 
-      - name: Check Build for Benchmarking
-        run: |
-          SKIP_WASM_BUILD=1 cargo check --features=runtime-benchmarks --release
+      # The former "Check Build for Benchmarking" step (cargo check
+      # --features=runtime-benchmarks) was removed: cargo-clippy's
+      # --all-targets --all-features is a strict superset of it, so it only re-paid for
+      # a full compile of the same configuration.
 
   cargo-clippy:
     runs-on: ubuntu-26.04
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
 
@@ -172,7 +208,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build-creditcoin-node
+          shared-key: rust-clippy
 
       - name: Print clippy's version
         uses: gluwa/cargo@dev
@@ -180,14 +216,19 @@ jobs:
           command: clippy
           args: --version
 
+      # Nothing consumes the runtime wasm blob that substrate-wasm-builder would produce
+      # here, and building it means a nested wasm32 compile of the whole runtime.
       - name: Run Clippy
         uses: gluwa/cargo@dev
+        env:
+          SKIP_WASM_BUILD: 1
         with:
           command: clippy
           args: --all-targets --all-features -- -D warnings -A clippy::manual_inspect
 
   cargo-machete:
     runs-on: ubuntu-26.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -204,6 +245,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node
+          save-if: false
 
       - name: Install cargo-machete
         uses: taiki-e/install-action@v2.85.4
@@ -213,16 +255,16 @@ jobs:
       - name: Execute cargo machete
         run: cargo machete
 
+  # Runs the test suite only. Coverage instrumentation and the long proptest soak moved
+  # to rust-coverage.yml (nightly + workflow_dispatch): cargo llvm-cov injects
+  # -C instrument-coverage into RUSTFLAGS, which changes every dependency's fingerprint
+  # and meant a fourth from-cold compile of the whole graph on every PR. Nothing gated on
+  # the coverage output; it was only uploaded as an HTML artifact for manual inspection.
   cargo-test:
     runs-on: ubuntu-26.04
-    permissions:
-      contents: write
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          token: ${{ secrets.GLUWA_BOT_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Install protobuf
         uses: arduino/setup-protoc@v3
@@ -241,28 +283,42 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-          components: llvm-tools-preview, rust-src
+          components: rust-src
           targets: wasm32v1-none
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build-creditcoin-node
+          shared-key: rust-test
 
-      - name: Install cargo-llvm-cov
+      - name: Install cargo-nextest
         uses: taiki-e/install-action@v2.85.4
         with:
-          tool: cargo-llvm-cov@0.6.24
+          tool: cargo-nextest@0.9.78
 
+      # nextest runs each test binary as its own process and parallelises across them.
+      # SKIP_WASM_BUILD is safe here: WASM_BINARY is referenced only by the chainspec
+      # builders in node/src/chain_spec.rs, which no test in the workspace calls.
       - name: Run tests
+        env:
+          SKIP_WASM_BUILD: 1
         run: |
-          cargo llvm-cov \
-              --release \
-              --workspace --html --show-missing-lines --hide-instantiations \
-              --ignore-filename-regex "(benchmarking.rs|mock.rs|tests(.*).rs|weights.rs)"
+          cargo nextest run --release --workspace
 
+      # NOTE: doctests are deliberately not run here, which matches the behaviour this
+      # job had before. cargo-llvm-cov only runs doctests when passed --doctests, which
+      # needs nightly, and rust-toolchain.toml pins stable 1.88.0 -- so the ~50 doctest
+      # blocks in common/utils, common/continuity and proof-gen-api-server were never
+      # executed in CI. Adding `cargo test --doc` is worth doing, but it is a new gate
+      # that may surface pre-existing failures, so it belongs in its own change rather
+      # than hiding inside a CI speed-up.
+
+      # A short proptest run keeps the attestation-stream invariants exercised per PR.
+      # The 10000-case soak, and the auto-commit of any regression it finds, run in
+      # rust-coverage.yml instead.
       - name: Run simulations
         id: simulation
         env:
-          PROPTEST_CASES: 10000
+          PROPTEST_CASES: 256
+          SKIP_WASM_BUILD: 1
         run: |
           cargo test \
             --release \
@@ -270,19 +326,48 @@ jobs:
             -p stream_attestation \
             simulate
 
-      - name: Commit regression files
-        uses: EndBug/add-and-commit@v10
-        if: always()
+  # ---------------------------------------------------------------------------
+  # Alert when the cache producer breaks.
+  #
+  # The push / workflow_dispatch legs of this workflow are the only producer of the
+  # rust-check, rust-clippy and rust-test cache entries. A cache saved by a PR run is
+  # scoped to refs/pull/<n>/merge and no other PR can restore it, so when the producer
+  # fails nothing is written to the default branch and every PR afterwards silently
+  # pays a from-cold compile: roughly 55 minutes for this workflow instead of 7.
+  # Nothing else surfaces that, because the PRs themselves still go green.
+  #
+  # Not hypothetical: #1338 merged with this leg red -- cargo-test hit the flaky sled
+  # reopen later fixed by #1372 -- and it went unnoticed until the workflow was
+  # re-dispatched by hand 14 hours later, during which PRs compiled cold.
+  #
+  # Restricted to non-pull_request events on purpose. A PR run cannot save a cache
+  # anyway, and its failures are already reported on the PR itself, so alerting on
+  # them would be pure noise.
+  #
+  # cargo-audit, cargo-fmt and cargo-machete are deliberately not in `needs`: they all
+  # pass `save-if: false` and so produce no cache entry.
+  # ---------------------------------------------------------------------------
+  report-cache-producer-failure:
+    needs:
+      - cargo-check
+      - cargo-clippy
+      - cargo-test
+    if: ${{ failure() && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
         with:
-          push: true
-          add: common/streams/attestation/proptest-regressions/simulation/mod.txt
-          author_name: gluwa-bot
-          author_email: creditcoin@gluwa.com
-          message: "test(simulation): found new bug"
-          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
-
-      - name: Upload coverage report as artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: coverage-report
-          path: target/llvm-cov/html/
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Rust cache producer failed on `${{ github.ref_name }}`. PRs will compile from
+            cold (~55m for the `rust` workflow instead of ~7m) until this is green again.
+            rust-check: ${{ needs.cargo-check.result }} |
+            rust-clippy: ${{ needs.cargo-clippy.result }} |
+            rust-test: ${{ needs.cargo-test.result }}
+            Once the cause is fixed, re-run to repopulate the caches:
+            `gh workflow run rust.yml --ref ${{ github.ref_name }}`
+            cc <!subteam^S028FDV6CCV>

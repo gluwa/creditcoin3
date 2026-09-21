@@ -92,6 +92,36 @@ jobs:
           creditcoin wizard --help
           creditcoin attestor --help
 
+      # The step above installs from the working directory on a fully provisioned
+      # runner. The Dockerfile does something different: it runs `yarn pack` and
+      # installs the resulting tarball into a clean runtime stage built FROM
+      # runtime-base, which has node + yarn + node-gyp but no compiler toolchain and
+      # none of the repo's node_modules (Dockerfile:70-71, 80, 91). A CLI change can
+      # therefore pass the check above and still break the packaged install, for
+      # example by adding a dependency that needs to build from source.
+      #
+      # This is the coverage that docker.yml used to provide via cli/src/** before that
+      # trigger was dropped, so reproduce it here for about a minute instead of paying
+      # a 27-minute Rust rebuild for it.
+      - name: Install the packed CLI tarball in a clean container
+        working-directory: ./cli
+        run: |
+          set -euo pipefail
+          yarn pack
+          ls -l creditcoin-v*.tgz
+
+          # node:24-slim matches the image's NODE_VERSION major and, like the final
+          # Docker stage, ships no build toolchain. node-gyp is installed first so the
+          # environment mirrors runtime-base rather than being stricter than it.
+          docker run --rm -v "$PWD:/pkg:ro" node:24-slim bash -euo pipefail -c '
+            npm install -g node-gyp
+            npm install -g /pkg/creditcoin-v*.tgz
+            which creditcoin
+            creditcoin help
+            creditcoin wizard --help
+            creditcoin attestor --help
+          '
+
   solidity:
     runs-on: ubuntu-26.04
     steps:

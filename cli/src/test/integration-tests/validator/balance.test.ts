@@ -1,5 +1,5 @@
 import { try_catch_else_finally } from '../../utils';
-import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, randomFundedAccount, CLIBuilder } from '../helpers';
+import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, CLIBuilder, fundedAccountPool } from '../helpers';
 import { newApi, ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '../../../lib';
 
 describe('balance', () => {
@@ -7,15 +7,17 @@ describe('balance', () => {
     let randomAccount: any;
     let CLI: any;
     let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
 
     beforeAll(async () => {
         ({ api } = await newApi(ALICE_NODE_URL));
 
         sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
     });
 
     beforeEach(async () => {
-        randomAccount = await randomFundedAccount(api, sudoSigner);
+        randomAccount = await accounts.next();
 
         // eslint-disable-next-line @typescript-eslint/naming-convention
         CLI = CLIBuilder({});
