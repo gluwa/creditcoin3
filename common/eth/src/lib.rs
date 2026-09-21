@@ -1376,7 +1376,9 @@ impl Client {
         let answers = join_all(providers.iter().map(|(label, provider)| async move {
             let answer = timed(
                 timeout,
-                provider.get_block(BlockId::Number(tag.into()), false.into()),
+                std::future::IntoFuture::into_future(
+                    provider.get_block(BlockId::Number(tag.into())),
+                ),
             )
             .await;
             (label.clone(), answer)
@@ -1442,10 +1444,9 @@ impl Client {
                         // at that height gets to abstain.
                         let read = timed(
                             timeout,
-                            provider.get_block(
+                            std::future::IntoFuture::into_future(provider.get_block(
                                 BlockId::Number(BlockNumberOrTag::Number(candidate.number)),
-                                false.into(),
-                            ),
+                            )),
                         )
                         .await;
                         let confirmation = match read {
