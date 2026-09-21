@@ -1,12 +1,12 @@
 import {
     initAliceKeyring,
     increaseValidatorCount,
-    randomFundedAccount,
     setUpProxy,
     tearDownProxy,
     ALICE_NODE_URL,
     CLIBuilder,
     setMinBondConfig,
+    fundedAccountPool,
 } from '../helpers';
 import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import { getValidatorStatus } from '../../../lib/staking/validatorStatus';
@@ -18,6 +18,7 @@ describe('wizard', () => {
     let proxy: any;
     let wrongProxy: any;
     let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
     let CLI: any;
     let nonProxiedCli: any;
 
@@ -25,6 +26,7 @@ describe('wizard', () => {
         ({ api } = await newApi(ALICE_NODE_URL));
 
         sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
         await increaseValidatorCount(api, sudoSigner);
     }, 60_000);
 
@@ -34,11 +36,11 @@ describe('wizard', () => {
 
     beforeEach(async () => {
         // Create and fund the test and proxy account
-        caller = await randomFundedAccount(api, sudoSigner);
+        caller = await accounts.next();
         nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
 
-        proxy = await randomFundedAccount(api, sudoSigner);
-        wrongProxy = await randomFundedAccount(api, sudoSigner);
+        proxy = await accounts.next();
+        wrongProxy = await accounts.next();
         CLI = await setUpProxy(api, nonProxiedCli, caller, proxy, wrongProxy);
     }, 90_000);
 

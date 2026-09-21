@@ -1,12 +1,12 @@
 import { testIf, try_catch_else_finally, sleep } from '../../utils';
 import {
     initAliceKeyring,
-    randomFundedAccount,
     setUpProxy,
     tearDownProxy,
     waitEras,
     ALICE_NODE_URL,
     CLIBuilder,
+    fundedAccountPool,
 } from '../helpers';
 import { newApi, ApiPromise, BN, KeyringPair } from '../../../lib';
 import { getBalance } from '../../../lib/balance';
@@ -29,6 +29,7 @@ describe('withdraw-unbonded', () => {
     let api: ApiPromise;
     let proxy: any;
     let sudoSigner: KeyringPair;
+    let accounts: ReturnType<typeof fundedAccountPool>;
     let CLI: any;
     let nonProxiedCli: any;
 
@@ -37,6 +38,7 @@ describe('withdraw-unbonded', () => {
 
         // Create a reference to sudo for funding accounts
         sudoSigner = initAliceKeyring();
+        accounts = fundedAccountPool(api, sudoSigner);
     });
 
     afterAll(async () => {
@@ -48,7 +50,7 @@ describe('withdraw-unbonded', () => {
 
         beforeEach(async () => {
             // Create and fund the test and proxy account
-            caller = await randomFundedAccount(api, sudoSigner);
+            caller = await accounts.next();
             nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
         }, 90_000);
 
@@ -86,7 +88,7 @@ describe('withdraw-unbonded', () => {
         // while here the entire setup is inside beforeAll() (b/c it takes a long time)
         beforeAll(async () => {
             // Create and fund the test and proxy account
-            callerFullUnbond = await randomFundedAccount(api, sudoSigner);
+            callerFullUnbond = await accounts.next();
             nonProxiedCliFullUnbond = CLIBuilder({ CC_SECRET: callerFullUnbond.secret });
 
             // bond before calling unbond
@@ -94,7 +96,7 @@ describe('withdraw-unbonded', () => {
             expect(result.exitCode).toEqual(0);
             expect(result.stdout).toContain('Transaction included at block');
 
-            callerPartialUnbond = await randomFundedAccount(api, sudoSigner);
+            callerPartialUnbond = await accounts.next();
             nonProxiedCliPartialUnbond = CLIBuilder({ CC_SECRET: callerPartialUnbond.secret });
 
             // bond before calling unbond
@@ -152,8 +154,8 @@ describe('withdraw-unbonded', () => {
             }
 
             // configure proxy - used only for Full Unbond scenarios
-            proxy = await randomFundedAccount(api, sudoSigner);
-            const wrongProxy = await randomFundedAccount(api, sudoSigner);
+            proxy = await accounts.next();
+            const wrongProxy = await accounts.next();
             CLI = await setUpProxy(api, nonProxiedCliFullUnbond, callerFullUnbond, proxy, wrongProxy);
 
             // wait for funds to become unlocked
@@ -164,49 +166,28 @@ describe('withdraw-unbonded', () => {
             tearDownProxy(nonProxiedCliFullUnbond, proxy);
         });
 
-        testIf(
-            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'no-funds',
-            'should error with "Caller has insufficient funds" message',
-            () => {
-                try_catch_else_finally(
-                    () => {
-                        CLI('withdraw-unbonded');
-                    },
-                    (error: any) => {
-                        expect(error.exitCode).toEqual(1);
-                        expect(error.stderr).toContain(
-                            `Caller ${proxy.address} has insufficient funds to send the transaction`,
-                        );
-                    },
-                    () => {
-                        throw new Error('cli was expected to fail but it did not');
-                    },
-                );
-            },
-            60_000,
-        );
-
-        testIf(
-            process.env.PROXY_ENABLED === 'yes' && process.env.PROXY_SECRET_VARIANT === 'not-a-proxy',
-            'should error with proxy.NotProxy message',
-            () => {
-                try_catch_else_finally(
-                    () => {
-                        CLI('withdraw-unbonded');
-                    },
-                    (error: any) => {
-                        expect(error.exitCode).toEqual(1);
-                        expect(error.stdout).toContain(
-                            'Transaction failed with error: "proxy.NotProxy: Sender is not a proxy of the account to be proxied."',
-                        );
-                    },
-                    () => {
-                        throw new Error('cli was expected to fail but it did not');
-                    },
-                );
-            },
-        );
-
+        // NOTE: the `no-funds` and `not-a-proxy` proxy error paths are deliberately NOT
+        // asserted here, although every other proxy-aware command asserts them.
+        //
+        // They cannot be cheap in this suite. `withdrawUnbondedAction` checks
+        // `requireStatus(status, 'canWithdraw', ...)` (commands/staking/withdraw.ts:22)
+        // *before* the fee check on :29 and before it submits anything, so reaching
+        // either error at all requires a matured unlocking chunk -- which means bonding,
+        // unbonding and then waiting `bondingDuration` eras. That beforeAll measured
+        // 1161.9s and 1163.7s on the two legs that ran only these tests, to assert 1.4s
+        // and 4.2s worth of behaviour.
+        //
+        // What they assert is not specific to withdraw-unbonded either: the messages come
+        // from the shared `requireKeyringHasSufficientFunds` and `api.tx.proxy.proxy`
+        // paths, and bond, chill, distribute-rewards, send, set-keys, unbond, validate and
+        // wizard each assert the identical pair on the identical legs, for a couple of
+        // minutes rather than twenty.
+        //
+        // Removing them leaves this describe() with no test that runs on the `no-funds` or
+        // `not-a-proxy` legs. Jest does not execute beforeAll/beforeEach/afterAll for a
+        // block whose every test is skipped (verified against the pinned jest 29.7.0), so
+        // those legs now skip the era wait entirely instead of paying it for one assertion.
+        // Keep that in mind before adding a test here that runs on every leg.
         testIf(
             process.env.PROXY_ENABLED === undefined ||
                 process.env.PROXY_ENABLED === 'no' ||
