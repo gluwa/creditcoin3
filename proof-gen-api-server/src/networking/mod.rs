@@ -105,6 +105,11 @@ pub fn build_app(
             TraceLayer::new_for_http()
                 .make_span_with(|request: &axum::http::Request<_>| {
                     let request_id = uuid::Uuid::new_v4();
+                    let user_agent = request
+                        .headers()
+                        .get(axum::http::header::USER_AGENT)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("unknown");
 
                     tracing::span!(
                         Level::INFO,
@@ -112,6 +117,7 @@ pub fn build_app(
                         method = %request.method(),
                         uri = %request.uri(),
                         request_id = %request_id,
+                        user_agent = %user_agent,
                     )
                 })
                 .on_request(|_request: &axum::http::Request<_>, _span: &tracing::Span| {
