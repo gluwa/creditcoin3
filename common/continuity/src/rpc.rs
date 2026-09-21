@@ -173,6 +173,18 @@ impl ReconnectingEthRpcProvider {
                         );
                         return Err(err);
                     }
+                    // Every provider answered `null` for a block tag: the node does not serve
+                    // that tag. Deterministic and permanent, so reconnecting only churns the
+                    // shared client for every other in-flight request.
+                    if eth::anyhow_chain_is_unsupported_block_tag(&err) {
+                        warn!(
+                            op,
+                            attempt,
+                            error = %err,
+                            "ETH RPC node does not serve the requested block tag; not retrying with reconnect",
+                        );
+                        return Err(err);
+                    }
                     warn!(
                         op,
                         attempt,

@@ -66,17 +66,6 @@ pub struct ContinuityConfig {
     ///
     /// When `None`, checkpoint checks are always performed (slower but always correct).
     pub last_checkpoint_block: Option<u64>,
-
-    /// Number of blocks to lag behind the EVM chain tip when validating block existence.
-    ///
-    /// EVM chains (Ethereum, etc.) use probabilistic finality: blocks near the tip can be
-    /// reorganised away. By requiring that requested blocks are at least
-    /// `block_confirmation_depth` behind the current head we reduce the chance of serving a
-    /// proof for a block that later disappears.
-    ///
-    /// Set to `0` for chains with instant / irreversible finality.
-    /// A typical safe value for Ethereum mainnet is `12` (~2 min at 12 s/block).
-    pub block_confirmation_depth: u64,
 }
 
 impl ContinuityConfig {
@@ -196,7 +185,6 @@ pub struct ConfigBuilder {
     attestation_interval: Option<u64>,
     checkpoint_interval: Option<u64>,
     last_checkpoint_block: Option<u64>,
-    block_confirmation_depth: u64,
 }
 
 impl ConfigBuilder {
@@ -286,19 +274,6 @@ impl ConfigBuilder {
         self
     }
 
-    /// Set the number of blocks to lag behind the EVM chain tip for reorg protection.
-    ///
-    /// # Arguments
-    ///
-    /// * `depth` - Number of confirmation blocks (0 = no lag, use chain tip directly)
-    ///
-    /// A typical safe value for Ethereum mainnet is `12` (~2 min at 12 s/block).
-    /// Set to `0` for chains with instant / irreversible finality.
-    pub fn block_confirmation_depth(mut self, depth: u64) -> Self {
-        self.block_confirmation_depth = depth;
-        self
-    }
-
     /// Build the configuration.
     ///
     /// # Panics
@@ -331,7 +306,6 @@ impl ConfigBuilder {
                 .checkpoint_interval
                 .expect("checkpoint_interval is required"),
             last_checkpoint_block: self.last_checkpoint_block,
-            block_confirmation_depth: self.block_confirmation_depth,
         }
     }
 

@@ -42,11 +42,14 @@ pub use alloy::core::primitives::Address;
 pub mod chain_family;
 pub mod continuity;
 pub mod evm;
+pub mod maturity;
 pub mod mem_block_cache;
 pub mod op_stack;
 
 pub use chain_family::ChainFamily;
 pub use op_stack::DepositTransaction;
+
+pub use maturity::{BlockTag, Maturity};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -86,6 +89,15 @@ pub enum Error {
         #[source]
         source: op_stack::DepositError,
     },
+    #[error(
+        "Receipts for block {number} carry block hash {receipts:?} but the fetched block is {block:?} \
+         (the two RPC calls were answered from different sides of a reorg)"
+    )]
+    ReceiptsBlockMismatch {
+        number: u64,
+        block: BlockHash,
+        receipts: BlockHash,
+    },
     #[error("Failed to get chain id, Error: {0}")]
     FailedToGetChainId(String),
     #[error("Ethereum RPC error {0}")]
@@ -104,6 +116,20 @@ pub enum Error {
     HexDecodingError(#[from] FromHexError),
     #[error("Failed to get block by hash {0}")]
     FailedToGetBlockByHash(String),
+    #[error("Failed to get the `{0}` block: no provider returned it (does the node serve this block tag?)")]
+    FailedToGetBlockByTag(BlockTag),
+    #[error(
+        "Providers disagree on the `{tag}` block at height {number}: {reported_by} has {expected:?}, \
+         {disagreeing} has {actual:?}"
+    )]
+    BlockTagDisagreement {
+        tag: BlockTag,
+        number: u64,
+        reported_by: String,
+        expected: BlockHash,
+        disagreeing: String,
+        actual: BlockHash,
+    },
     #[error("Failed to path rpc url {0}")]
     UrlParseError(#[from] url::ParseError),
     #[error("Unsupported URL scheme. Please use http(s):// or ws(s)://. Found: {0}")]
@@ -129,6 +155,7 @@ impl Error {
                 | Error::NotFullTransactionsFetched(_)
                 | Error::ReceiptTypeMismatch { .. }
                 | Error::Deposit { .. }
+                | Error::ReceiptsBlockMismatch { .. }
         )
     }
 
@@ -137,7 +164,8 @@ impl Error {
         match self {
             Error::BlockHeaderRootsMismatch(n)
             | Error::TransactionsReceiptsMismatch(n)
-            | Error::NotFullTransactionsFetched(n) => Some(*n),
+            | Error::NotFullTransactionsFetched(n)
+            | Error::ReceiptsBlockMismatch { number: n, .. } => Some(*n),
             Error::ReceiptTypeMismatch { block, .. } | Error::Deposit { block, .. } => Some(*block),
             _ => None,
         }
@@ -158,6 +186,19 @@ pub fn anyhow_chain_is_inconsistent_block_payload(err: &anyhow::Error) -> bool {
         cause
             .downcast_ref::<Error>()
             .is_some_and(Error::inconsistent_block_payload_for_fallback)
+    })
+}
+
+/// True when any cause in the [`anyhow::Error`] chain is [`Error::FailedToGetBlockByTag`]: every
+/// provider answered `null` for the requested tag. That is a property of the node (it does not
+/// serve `safe` / `finalized`), not of the connection, so callers must not reconnect-and-retry
+/// on it; the answer will not change.
+pub fn anyhow_chain_is_unsupported_block_tag(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<Error>(),
+            Some(Error::FailedToGetBlockByTag(_))
+        )
     })
 }
 
@@ -352,6 +393,31 @@ impl OrderedBlock {
         }
 
         let hash = block.header.hash;
+
+        // The receipts must belong to the block we actually fetched.
+        //
+        // `get_block` and `get_block_receipts` are two separate calls keyed by height, and a
+        // provider URL is commonly a load balancer over many nodes, so the pair can be answered
+        // by peers on opposite sides of a reorg. The header-root comparison further down catches
+        // most of that, but only for blocks that have transactions, and only indirectly: it
+        // infers a mismatch from roots that fail to reproduce. Comparing the block hash the
+        // receipts already carry is exact, costs no extra round trip, and names the real fault
+        // in the error instead of reporting a root that did not reproduce.
+        //
+        // Receipts whose `block_hash` is `None` are skipped rather than rejected: the field is
+        // optional in the RPC schema and some providers omit it, and those payloads still face
+        // the root check below exactly as before.
+        if let Some(receipts_hash) = receipts
+            .iter()
+            .filter_map(|receipt| receipt.block_hash)
+            .find(|receipt_hash| *receipt_hash != hash)
+        {
+            return Err(Error::ReceiptsBlockMismatch {
+                number: expected_number,
+                block: hash,
+                receipts: receipts_hash,
+            });
+        }
 
         // Empty blocks: many execution clients (incl. Substrate/Frontier dev chains) expose header
         // tx/receipt roots that do not match standard trie recomputation for an empty body, while the
@@ -599,6 +665,44 @@ impl OrderedRawBlock {
 type AlloyProvider = FillProvider<ExeFiller, RootProvider<AnyNetwork>, AnyNetwork>;
 pub type AlloyB256 = BlockHash;
 
+/// What one provider said about the candidate block in [`Client::get_block_by_tag`].
+enum Confirmation {
+    /// It has the candidate height; this is the hash it has there.
+    Hash(BlockHash),
+    /// Its own tag answer is below the candidate and it has no block at the candidate height
+    /// yet; it cannot judge the candidate.
+    Behind(u64),
+    /// It reports the tag above the candidate yet has no block at the candidate height.
+    Missing,
+    /// The confirmation read failed or timed out.
+    Failed(Error),
+}
+
+/// Bound a provider call by `timeout`, turning a hang into an [`Error`] like any other transport
+/// failure so the caller's error handling covers it.
+async fn timed<T>(
+    timeout: std::time::Duration,
+    call: impl std::future::Future<
+        Output = std::result::Result<T, alloy::transports::RpcError<TransportErrorKind>>,
+    >,
+) -> Result<T, Error> {
+    match tokio::time::timeout(timeout, call).await {
+        Ok(Ok(v)) => Ok(v),
+        Ok(Err(e)) => Err(Error::from(e)),
+        Err(_) => Err(Error::ClientError(anyhow::anyhow!(
+            "provider call timed out after {timeout:?}"
+        ))),
+    }
+}
+
+/// The block a source node reports for a settlement tag, identified by hash as well as height.
+/// See [`Client::get_block_by_tag`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaggedBlock {
+    pub number: u64,
+    pub hash: BlockHash,
+}
+
 pub(crate) type ExeFiller = JoinFill<
     Identity,
     JoinFill<GasFiller, JoinFill<BlobGasFiller, JoinFill<NonceFiller, ChainIdFiller>>>,
@@ -653,7 +757,17 @@ pub struct Client {
     /// `None` = no caching (default). Survives [`Client::reconnect`] since cached finalized
     /// blocks are immutable.
     mem_cache: Option<std::sync::Arc<mem_block_cache::MemBlockCache>>,
+    /// Upper bound on any single provider call made by the tag lookup. The transports have no
+    /// timeout of their own, so without this one black-holed provider (accepts TCP, never
+    /// answers) would hang the lookup, and with it the tip stream that awaits it inline, forever.
+    /// Generous: it only has to beat a hang, not a slow answer.
+    call_timeout: std::time::Duration,
 }
+
+/// Default for the tag lookup's per-call timeout: a healthy provider answers a header read in
+/// well under a second; fifteen seconds is one Ethereum slot of grace before a provider is
+/// treated as absent for this round.
+pub const DEFAULT_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
@@ -702,6 +816,7 @@ impl Client {
             chain_id,
             family: ChainFamily::default(),
             mem_cache: None,
+            call_timeout: DEFAULT_CALL_TIMEOUT,
         })
     }
 
@@ -787,6 +902,7 @@ impl Client {
             chain_id,
             family: ChainFamily::default(),
             mem_cache: None,
+            call_timeout: DEFAULT_CALL_TIMEOUT,
         })
     }
 
@@ -888,6 +1004,12 @@ impl Client {
     /// Build the ordered `[(label, provider)]` list used by the sequential
     /// fallback walk. The primary is first; each fallback gets a label like
     /// `fallback[0]@<redacted-url>` for log output.
+    /// Override the per-call timeout used by the tag lookup. See [`DEFAULT_CALL_TIMEOUT`].
+    pub fn with_call_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.call_timeout = timeout;
+        self
+    }
+
     fn providers_with_labels(&self) -> Vec<(String, &AlloyProvider)> {
         let mut out: Vec<(String, &AlloyProvider)> =
             Vec::with_capacity(1 + self.fallback_providers.len());
@@ -1219,6 +1341,220 @@ impl Client {
 
     pub async fn get_last_block(&self) -> Result<u64, Error> {
         Ok(self.rpc_provider.get_block_number().await?)
+    }
+
+    /// Number of the block the providers agree on for a settlement `tag`. See
+    /// [`get_block_by_tag`](Self::get_block_by_tag).
+    pub async fn get_block_number_by_tag(&self, tag: BlockTag) -> Result<u64, Error> {
+        self.get_block_by_tag(tag).await.map(|block| block.number)
+    }
+
+    /// The block the configured providers agree on for a settlement `tag` (`safe` or
+    /// `finalized`), identified by hash as well as height.
+    ///
+    /// This is the maturity decision, so it is not answered by whichever provider replies first,
+    /// but it is also not a vote where any provider can hold the others back. The **primary**
+    /// provider's answer is the candidate; when the primary has no answer, the highest answer
+    /// among the fallbacks is. Every other provider that has *reached* the candidate height must
+    /// then agree on the candidate block's hash: same-height responders already told us, further-
+    /// along responders are asked for the block at that height. A different hash is a fork or a
+    /// different chain and fails the lookup with [`Error::BlockTagDisagreement`] rather than
+    /// picking a side; callers retry on the next head.
+    ///
+    /// A provider that has not reached the candidate height cannot confirm it and cannot veto it
+    /// either. It is logged at warn and skipped. This is what keeps a stale or lagging fallback
+    /// harmless: taking the lowest height instead would let one backup that stopped syncing pin
+    /// maturity for the whole pipeline at the height it froze on, since its block there hashes
+    /// identically to the canonical one. Providers that error, time out (see
+    /// [`Client::with_call_timeout`]) or answer `null` do not take part either; every provider
+    /// answering `null` counts as "not found", as before. With a single provider the whole thing
+    /// degenerates to that provider's answer, which is why per-replica provider diversity is the
+    /// deployment change that gives this check its teeth.
+    pub async fn get_block_by_tag(&self, tag: BlockTag) -> Result<TaggedBlock, Error> {
+        use futures::future::join_all;
+
+        let providers = self.providers_with_labels();
+        let timeout = self.call_timeout;
+        let answers = join_all(providers.iter().map(|(label, provider)| async move {
+            let answer = timed(
+                timeout,
+                provider.get_block(BlockId::Number(tag.into()), false.into()),
+            )
+            .await;
+            (label.clone(), answer)
+        }))
+        .await;
+
+        let mut reported: Vec<(String, TaggedBlock)> = Vec::new();
+        let mut got_definitive_none = false;
+        let mut errors: Vec<(String, Error)> = Vec::new();
+        for (label, answer) in answers {
+            match answer {
+                Ok(Some(block)) => reported.push((
+                    label,
+                    TaggedBlock {
+                        number: block.header.number,
+                        hash: block.header.hash,
+                    },
+                )),
+                Ok(None) => got_definitive_none = true,
+                Err(e) => errors.push((label, e)),
+            }
+        }
+
+        // The primary's answer leads; without one, the freshest fallback does. Never the lowest:
+        // a provider that stopped syncing would otherwise set the boundary forever.
+        let candidate = reported
+            .iter()
+            .find(|(label, _)| label == "primary")
+            .or_else(|| reported.iter().max_by_key(|(_, block)| block.number))
+            .cloned();
+
+        if let Some((candidate_label, candidate)) = candidate {
+            for (err_label, err) in errors {
+                tracing::warn!(
+                    provider = %err_label,
+                    served_by = %candidate_label,
+                    %tag,
+                    error = %err,
+                    "block tag lookup: provider errored but another succeeded"
+                );
+            }
+
+            let mut agreed = 1usize;
+            let checks = reported
+                .iter()
+                .filter(|(label, _)| *label != candidate_label)
+                .map(|(label, block)| {
+                    let provider = providers
+                        .iter()
+                        .find(|(l, _)| l == label)
+                        .map(|(_, p)| *p)
+                        .expect("label came from this provider list");
+                    async move {
+                        if block.number == candidate.number {
+                            return (label.clone(), Confirmation::Hash(block.hash));
+                        }
+                        // A different tag height says nothing about whether this provider holds
+                        // the candidate block: `safe` and `finalized` trail the head by dozens of
+                        // blocks, so a peer whose tag is a step behind almost always has the
+                        // candidate height already, and a forked primary that sits slightly ahead
+                        // of honest fallbacks must not escape the hash check on that account.
+                        // Ask for the block and let the hash decide; only a provider with no block
+                        // at that height gets to abstain.
+                        let read = timed(
+                            timeout,
+                            provider.get_block(
+                                BlockId::Number(BlockNumberOrTag::Number(candidate.number)),
+                                false.into(),
+                            ),
+                        )
+                        .await;
+                        let confirmation = match read {
+                            Ok(Some(b)) => Confirmation::Hash(b.header.hash),
+                            Ok(None) if block.number < candidate.number => {
+                                Confirmation::Behind(block.number)
+                            }
+                            Ok(None) => Confirmation::Missing,
+                            Err(e) => Confirmation::Failed(e),
+                        };
+                        (label.clone(), confirmation)
+                    }
+                });
+            for (label, confirmation) in join_all(checks).await {
+                match confirmation {
+                    Confirmation::Hash(hash) if hash == candidate.hash => agreed += 1,
+                    Confirmation::Hash(actual) => {
+                        return Err(Error::BlockTagDisagreement {
+                            tag,
+                            number: candidate.number,
+                            reported_by: candidate_label,
+                            expected: candidate.hash,
+                            disagreeing: label,
+                            actual,
+                        });
+                    }
+                    Confirmation::Behind(at) => {
+                        // Has not reached the candidate height at all: cannot confirm, must not
+                        // veto. Loud, because a fallback that is persistently behind is a stale
+                        // fallback.
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            reports = at,
+                            candidate = candidate.number,
+                            behind_by = candidate.number - at,
+                            "block tag lookup: provider has no block at the candidate height yet and cannot confirm it"
+                        );
+                    }
+                    Confirmation::Missing => {
+                        // Reports the tag past a height it cannot serve: a broken provider, not a
+                        // fork. It does not get to hold the lookup up either.
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            number = candidate.number,
+                            "block tag lookup: provider reports the tag past a height it cannot serve; ignored"
+                        );
+                    }
+                    Confirmation::Failed(err) => {
+                        tracing::warn!(
+                            provider = %label,
+                            %tag,
+                            number = candidate.number,
+                            error = %err,
+                            "block tag lookup: could not confirm the candidate with this provider"
+                        );
+                    }
+                }
+            }
+
+            if agreed < reported.len() {
+                tracing::warn!(
+                    %tag,
+                    number = candidate.number,
+                    agreed,
+                    answered = reported.len(),
+                    configured = providers.len(),
+                    "block tag resolved without full agreement"
+                );
+            } else {
+                tracing::debug!(
+                    %tag,
+                    number = candidate.number,
+                    hash = ?candidate.hash,
+                    agreed,
+                    configured = providers.len(),
+                    "block tag resolved"
+                );
+            }
+            return Ok(candidate);
+        }
+
+        match merge_provider_lookup(got_definitive_none, errors) {
+            LookupOutcome::NotFound { errors_to_warn } => {
+                for (label, err) in errors_to_warn {
+                    tracing::warn!(
+                        provider = %label,
+                        %tag,
+                        error = %err,
+                        "block tag lookup: provider errored but another said `not found`"
+                    );
+                }
+                Err(Error::FailedToGetBlockByTag(tag))
+            }
+            LookupOutcome::AllErrored {
+                first,
+                additional_to_warn,
+            } => {
+                for (label, err) in additional_to_warn {
+                    tracing::warn!(provider = %label, %tag, error = %err, "block tag lookup: additional provider error");
+                }
+                let (first_label, first_err) = first;
+                tracing::warn!(provider = %first_label, %tag, error = %first_err, "block tag lookup: all providers errored");
+                Err(first_err)
+            }
+        }
     }
 
     pub async fn get_chain_id(&self) -> Result<u64, Error> {
@@ -2041,5 +2377,29 @@ mod chain_family_block_tests {
             matches!(err, Error::BlockHeaderRootsMismatch(BLOCK_NUMBER)),
             "{err}"
         );
+    }
+}
+
+#[cfg(test)]
+mod error_classification_tests {
+    use super::*;
+
+    #[test]
+    fn unsupported_block_tag_is_recognised_through_anyhow_context() {
+        let err = anyhow::Error::from(Error::FailedToGetBlockByTag(BlockTag::Safe))
+            .context("Failed to get the `safe` block")
+            .context("get_block_number_by_tag failed");
+        assert!(anyhow_chain_is_unsupported_block_tag(&err));
+        // Not an inconsistent-payload case: those are a different retry class.
+        assert!(!anyhow_chain_is_inconsistent_block_payload(&err));
+    }
+
+    #[test]
+    fn other_errors_are_not_unsupported_block_tag() {
+        let transport = anyhow::Error::from(Error::FailedToGetBlock(7)).context("x");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&transport));
+        // A stringified error loses the type and must not be classified as permanent.
+        let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
+        assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
     }
 }

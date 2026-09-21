@@ -15,12 +15,9 @@ chains:
   - chain_key: 2
     eth_rpc_url: "http://localhost:8545"
     # archiver_url: "http://localhost:8080"  # optional per chain
-    block_confirmation_depth: 32  # Blocks to lag behind chain tip for reorg protection.
-    #                              # OMIT THIS to derive it from the chain's on-chain
-    #                              # MaturityStrategy -- the same value the attestors act on, so
-    #                              # this process cannot disagree with them. That is the
-    #                              # recommended setting. Set it only to deliberately pin a
-    #                              # value; startup warns if it disagrees with the chain.
+    # block_confirmation_depth is deprecated and ignored. Whether a height can be served is
+    # decided against the attested set on Creditcoin (the attestors' maturity decision), never
+    # against this process's own view of the source tip. Remove it if present.
     #
     # Ordered fallback RPC URLs (optional).
     # The eth client always tries `eth_rpc_url` (primary) first for every

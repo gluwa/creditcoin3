@@ -29,6 +29,9 @@ fn fixture(historical: bool) -> (Value, Value) {
     )
 }
 
+// `Error` grew past clippy's 128-byte threshold once both sides of the trunk/usc-dev merge had
+// added hash-carrying variants; a test helper returning it by value is fine.
+#[allow(clippy::result_large_err)]
 fn ordered(block: Value, receipts: Value, chain_id: u64) -> Result<OrderedBlock, Error> {
     let block: AnyRpcBlock = serde_json::from_value(block).unwrap();
     let height = block.header.number;
