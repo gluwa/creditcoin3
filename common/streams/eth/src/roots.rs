@@ -5,8 +5,20 @@ use user::prelude::*;
 pub struct Config {
     pub client: eth::Client,
     pub start_height: attestor_primitives::Height,
-    /// How mature heights are derived from source heads. See [`eth::Maturity`].
-    pub maturity: eth::Maturity,
+    /// How long the `newHeads` subscription may stay silent before the node is probed for its
+    /// head. A quiet chain (probe agrees nothing new happened) is left alone; a chain that moved
+    /// while the subscription said nothing, or a node that cannot be reached, ends the stream so
+    /// the outer layer reconnects. Under an attested bound a silent stream is otherwise
+    /// indistinguishable from "nothing new to fetch", which is how a dead socket hid for
+    /// 13 minutes in the Sepolia run. 120 s is ten Ethereum slots and forty BSC blocks.
+    #[default(std::time::Duration::from_secs(120))]
+    pub head_silence_timeout: std::time::Duration,
+
+    /// Where the upper bound of fetchable heights comes from. See [`Boundary`].
+    ///
+    /// Named `bound`, not `boundary`: the builder derive names each typestate parameter after
+    /// its field, and a `Boundary` parameter would shadow the enum inside the generated setter.
+    pub bound: Boundary,
 
     /// Maximum number of concurrent block fetch tasks (IO-bound).
     pub max_concurrency: std::num::NonZeroUsize,
@@ -19,6 +31,38 @@ pub struct Config {
     /// existing builders keep working.
     #[default(usc_abi_encoding::common::EncodingVersion::V1)]
     pub encoding: usc_abi_encoding::common::EncodingVersion,
+}
+
+/// The upper bound of the heights this stream fetches, and where it comes from.
+///
+/// Every source head the subscription delivers is turned into a candidate upper bound; the
+/// heights between the last one fetched and that bound are what the stream fetches next. Only
+/// how the bound is derived differs.
+#[derive(Clone, Debug)]
+pub enum Boundary {
+    /// Resolve maturity against the source node itself, per head: a fixed lag behind it or the
+    /// node's `safe` / `finalized` tag. This is what an attestor runs, because attestors *are*
+    /// the maturity decision.
+    Source(eth::Maturity),
+    /// Follow a bound published by something else, as a high-water mark that only ever grows.
+    /// The archiver runs this with the latest attested height for its chain key, so it can
+    /// never hold a root the attestors have not agreed on and never needs a maturity policy of
+    /// its own. `None` means no bound has been published yet; nothing is fetched until one is.
+    /// Besides each source head, every change of the value is a candidate bound in its own
+    /// right, so a bound advancing between heads is acted on immediately.
+    Attested(tokio::sync::watch::Receiver<Option<u64>>),
+}
+
+impl std::fmt::Display for Boundary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Source(maturity) => write!(f, "source-resolved {maturity}"),
+            Self::Attested(rx) => match *rx.borrow() {
+                Some(height) => write!(f, "attested height (currently {height})"),
+                None => write!(f, "attested height (none published yet)"),
+            },
+        }
+    }
 }
 
 /// Ordered Eth root stream, backed by [`eth::Client`] under the hood.
@@ -284,45 +328,74 @@ async fn stream_rpc(
         tokio::time::sleep(delay).await;
     };
 
-    // Mature-height pipeline. Every source head — the first one above and each one the
-    // subscription delivers — is resolved to a mature height through `config.maturity`, and the
-    // block numbers between the last fetched height and that mature height are what this stream
-    // fetches next. With a fixed lag that is the classic `head - lag` walk (one block per head,
-    // gaps backfilled); with a block tag the mature height moves in jumps whenever the node's
-    // `safe` / `finalized` advances. A failed tag lookup is logged and skipped: the next head
-    // retries, and `next_unfetched` guarantees no block is skipped or fetched twice.
-    let maturity = config.maturity;
-    let client_for_maturity = config.client.clone();
-    let mut stream_n = futures::stream::once(futures::future::ready(next))
-        .chain(stream_headers.map(|header| header.number))
-        .then(move |head| {
-            let client = client_for_maturity.clone();
-            async move { (head, maturity.mature_height(&client, head).await) }
-        })
-        .filter_map(move |(head, mature)| {
-            futures::future::ready(match mature {
-                Ok(Some(mature)) => Some(mature),
-                Ok(None) => None,
-                Err(err) => {
-                    tracing::warn!(
-                        head,
-                        %maturity,
-                        %err,
-                        "could not resolve mature height for this head; retrying on the next one"
-                    );
-                    None
-                }
-            })
-        })
-        .scan(config.start_height, |next_unfetched, mature| {
-            let range = eth::Maturity::newly_mature(*next_unfetched, mature);
-            if !range.is_empty() {
-                *next_unfetched = mature + 1;
+    // Bound pipeline. Every source head — the first one above and each one the subscription
+    // delivers — becomes a candidate upper bound through `config.bound`, and the block numbers
+    // between the last fetched height and that bound are what this stream fetches next
+    // (`heights_to_fetch`). With a fixed lag that is the classic `head - lag` walk, one block per
+    // head, gaps backfilled; with a block tag or an attested bound the bound moves in jumps and
+    // a whole range is released at once. A bound that cannot be resolved for a head is skipped:
+    // the next head retries, and the walk guarantees no block is skipped or fetched twice.
+    // The first head was consumed above to seed the pipeline, so it is handed to the watchdog
+    // as its baseline: a subscription that dies right after it must still be caught.
+    let heads = futures::stream::once(futures::future::ready(next)).chain(end_on_silence(
+        stream_headers.map(|header| header.number).boxed(),
+        config.client.clone(),
+        config.head_silence_timeout,
+        Some(next),
+    ));
+    let bounds: stream_util::BoxedStream<Option<u64>> = match config.bound.clone() {
+        Boundary::Source(maturity) => {
+            let client = config.client.clone();
+            heads
+                .then(move |head| {
+                    let client = client.clone();
+                    async move { (head, maturity.mature_height(&client, head).await) }
+                })
+                .map(move |(head, mature)| match mature {
+                    Ok(mature) => mature,
+                    Err(err) => {
+                        tracing::warn!(
+                            head,
+                            %maturity,
+                            %err,
+                            "could not resolve mature height for this head; retrying on the next one"
+                        );
+                        None
+                    }
+                })
+                .boxed()
+        }
+        Boundary::Attested(rx) => {
+            // Each head and each change of the published bound is a candidate, so an
+            // attestation landing between heads is acted on without waiting. The bound is
+            // clamped to the newest head *this* subscription has delivered: the attestors may be
+            // ahead of the node we read from, and a released height above that node's head fails
+            // its fetch, which the outer layer treats as a dead connection and tears the whole
+            // batch down. Same invariant `Maturity::mature_height` keeps for block tags. The
+            // stream ends when the heads end, so a silent subscription still reconnects.
+            enum Obs {
+                Head(u64),
+                Bound(Option<u64>),
+                End,
             }
-            futures::future::ready(Some(futures::stream::iter(range)))
-        })
-        .flatten()
-        .boxed();
+            let on_heads = heads
+                .map(Obs::Head)
+                .chain(futures::stream::once(futures::future::ready(Obs::End)));
+            let on_bounds = watch_values(rx).map(Obs::Bound);
+            futures::stream::select(on_heads, on_bounds)
+                .take_while(|obs| futures::future::ready(!matches!(obs, Obs::End)))
+                .scan((None, None), |(head, bound), obs| {
+                    match obs {
+                        Obs::Head(h) => *head = Some(h),
+                        Obs::Bound(b) => *bound = b,
+                        Obs::End => unreachable!("filtered by take_while"),
+                    }
+                    futures::future::ready(Some(clamp_to_head(*bound, *head)))
+                })
+                .boxed()
+        }
+    };
+    let mut stream_n = heights_to_fetch(config.start_height, bounds).boxed();
 
     let mut blocks = tokio::task::JoinSet::new();
 
@@ -403,4 +476,227 @@ async fn stream_rpc(
         }
     }
     .boxed()
+}
+
+/// The heights to fetch, in order, as candidate upper `bounds` arrive.
+///
+/// A bound of `None` (nothing resolvable yet) or one that does not advance past what has already
+/// been released contributes nothing, so heads, tag lookups and attested-height changes can all
+/// feed this freely and out of step with each other. Every height from `start` upwards is
+/// released exactly once.
+fn heights_to_fetch<B>(start: u64, bounds: B) -> impl futures::Stream<Item = u64>
+where
+    B: futures::Stream<Item = Option<u64>>,
+{
+    use futures::StreamExt as _;
+    bounds
+        .filter_map(futures::future::ready)
+        .scan(start, |next_unfetched, bound| {
+            let range = eth::Maturity::newly_mature(*next_unfetched, bound);
+            if !range.is_empty() {
+                *next_unfetched = bound + 1;
+            }
+            futures::future::ready(Some(futures::stream::iter(range)))
+        })
+        .flatten()
+}
+
+/// An externally published bound, limited to the newest head this subscription has seen.
+/// `None` until both are known: a bound with no head to clamp against must not release anything.
+fn clamp_to_head(bound: Option<u64>, head: Option<u64>) -> Option<u64> {
+    Some(bound?.min(head?))
+}
+
+/// What a silent `newHeads` subscription means once the node has been asked for its head.
+#[derive(Debug, PartialEq, Eq)]
+enum Silence {
+    /// The node agrees nothing new has happened; keep waiting.
+    QuietChain,
+    /// The chain advanced (or the node is unreachable) while the subscription said nothing.
+    DeadSubscription,
+}
+
+/// `baseline` is the newest head this stream knows about: the last one the subscription
+/// delivered, or, when it has delivered nothing yet, the last probe. Returns the verdict and the
+/// baseline to carry forward, so a subscription that is silent from the start is judged against
+/// its own first probe on the next round rather than never.
+fn judge_silence(baseline: Option<u64>, probe: Result<u64, String>) -> (Silence, Option<u64>) {
+    match (baseline, probe) {
+        (None, Ok(head)) => (Silence::QuietChain, Some(head)),
+        (Some(seen), Ok(head)) if head <= seen => (Silence::QuietChain, Some(seen)),
+        (_, Ok(head)) => (Silence::DeadSubscription, Some(head)),
+        (seen, Err(_)) => (Silence::DeadSubscription, seen),
+    }
+}
+
+/// Ends a head-number stream when it stays silent for `timeout` and the node, asked directly,
+/// says the chain has moved on or cannot be reached. A chain that genuinely produced no block
+/// (dev chains mining on demand, a stalled rollup) keeps the stream open. Ending the stream is
+/// what makes the outer layer reconnect, so a dead socket surfaces as a reconnect instead of
+/// as an endless "nothing new to fetch".
+pub(crate) fn end_on_silence(
+    heads: stream_util::BoxedStream<u64>,
+    client: eth::Client,
+    timeout: std::time::Duration,
+    baseline: Option<u64>,
+) -> impl futures::Stream<Item = u64> {
+    use futures::StreamExt as _;
+    futures::stream::unfold(
+        (heads, client, baseline),
+        move |(mut heads, client, mut baseline)| async move {
+            loop {
+                match tokio::time::timeout(timeout, heads.next()).await {
+                    Ok(Some(head)) => return Some((head, (heads, client, Some(head)))),
+                    Ok(None) => return None,
+                    Err(_) => {
+                        let probe =
+                            match tokio::time::timeout(timeout, client.get_last_block()).await {
+                                Ok(Ok(head)) => Ok(head),
+                                Ok(Err(err)) => Err(err.to_string()),
+                                Err(_) => Err("head probe timed out".to_owned()),
+                            };
+                        let (verdict, next_baseline) = judge_silence(baseline, probe.clone());
+                        match verdict {
+                            Silence::QuietChain => {
+                                tracing::debug!(
+                                    ?baseline,
+                                    ?probe,
+                                    silent_for = ?timeout,
+                                    "no new heads, and the node agrees the chain is quiet"
+                                );
+                                baseline = next_baseline;
+                            }
+                            Silence::DeadSubscription => {
+                                tracing::warn!(
+                                    ?baseline,
+                                    ?probe,
+                                    silent_for = ?timeout,
+                                    "newHeads subscription went silent while the chain moved on; \
+                                     ending the stream so it reconnects"
+                                );
+                                return None;
+                            }
+                        }
+                    }
+                }
+            }
+        },
+    )
+}
+
+/// The current value of a watch channel, then every subsequent change, until the sender is gone.
+fn watch_values<T: Copy + Send + Sync + 'static>(
+    rx: tokio::sync::watch::Receiver<T>,
+) -> impl futures::Stream<Item = T> {
+    futures::stream::unfold((rx, true), |(mut rx, first)| async move {
+        if !first && rx.changed().await.is_err() {
+            return None;
+        }
+        let value = *rx.borrow_and_update();
+        Some((value, (rx, false)))
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::StreamExt as _;
+
+    #[tokio::test]
+    async fn heights_to_fetch_releases_each_height_once_and_ignores_non_advancing_bounds() {
+        let bounds = futures::stream::iter([None, Some(5), Some(5), Some(3), None, Some(8)]);
+        let got: Vec<u64> = heights_to_fetch(3, bounds).collect().await;
+        assert_eq!(got, vec![3, 4, 5, 6, 7, 8]);
+    }
+
+    #[test]
+    fn the_attested_bound_never_exceeds_the_observed_head() {
+        assert_eq!(clamp_to_head(None, None), None);
+        assert_eq!(
+            clamp_to_head(Some(100), None),
+            None,
+            "no head yet: release nothing"
+        );
+        assert_eq!(clamp_to_head(None, Some(100)), None);
+        assert_eq!(clamp_to_head(Some(100), Some(150)), Some(100));
+        assert_eq!(
+            clamp_to_head(Some(150), Some(100)),
+            Some(100),
+            "lagging node: clamp"
+        );
+    }
+
+    #[test]
+    fn silence_is_only_fatal_when_the_chain_moved_or_the_node_is_gone() {
+        assert_eq!(
+            judge_silence(Some(100), Ok(100)),
+            (Silence::QuietChain, Some(100))
+        );
+        assert_eq!(
+            judge_silence(Some(100), Ok(99)),
+            (Silence::QuietChain, Some(100))
+        );
+        assert_eq!(
+            judge_silence(Some(100), Ok(101)),
+            (Silence::DeadSubscription, Some(101))
+        );
+        assert_eq!(
+            judge_silence(Some(100), Err("connection refused".into())),
+            (Silence::DeadSubscription, Some(100))
+        );
+    }
+
+    /// A subscription silent from the very start has no head to compare against. The first
+    /// probe becomes the baseline, so the *second* silent round catches a chain that moved.
+    #[test]
+    fn a_subscription_silent_from_the_start_is_judged_against_its_first_probe() {
+        let (verdict, baseline) = judge_silence(None, Ok(5));
+        assert_eq!((verdict, baseline), (Silence::QuietChain, Some(5)));
+        assert_eq!(
+            judge_silence(baseline, Ok(5)),
+            (Silence::QuietChain, Some(5)),
+            "still nothing happened"
+        );
+        assert_eq!(
+            judge_silence(baseline, Ok(6)),
+            (Silence::DeadSubscription, Some(6)),
+            "the chain moved and the subscription said nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn heights_to_fetch_releases_nothing_below_start() {
+        let bounds = futures::stream::iter([Some(2), Some(1)]);
+        let got: Vec<u64> = heights_to_fetch(3, bounds).collect().await;
+        assert!(got.is_empty());
+    }
+
+    /// An attested bound advancing releases the newly covered range without waiting for a source
+    /// head, and the initial `None` holds everything back.
+    #[tokio::test]
+    async fn attested_bound_changes_drive_the_walk_on_their_own() {
+        let (tx, rx) = tokio::sync::watch::channel(None);
+        let mut heights = Box::pin(heights_to_fetch(10, watch_values(rx)));
+
+        let nothing_yet =
+            tokio::time::timeout(std::time::Duration::from_millis(50), heights.next()).await;
+        assert!(
+            nothing_yet.is_err(),
+            "no bound published, nothing may be fetched"
+        );
+
+        tx.send(Some(12)).unwrap();
+        let mut got = vec![];
+        for _ in 0..3 {
+            got.push(heights.next().await.unwrap());
+        }
+        assert_eq!(got, vec![10, 11, 12]);
+
+        tx.send(Some(11)).unwrap(); // a bound moving backwards releases nothing
+        tx.send(Some(13)).unwrap();
+        assert_eq!(heights.next().await, Some(13));
+
+        drop(tx);
+        assert_eq!(heights.next().await, None, "sender gone, stream ends");
+    }
 }
