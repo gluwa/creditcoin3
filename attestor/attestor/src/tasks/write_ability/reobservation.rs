@@ -275,7 +275,7 @@ mod tests {
         use serde_json::json;
 
         let rpc = RpcMock::start().await;
-        let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+        let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
         let resolved = RpcMock::resolved();
         let request = ReobservationRequest {
             chain_key: 1,

@@ -80,10 +80,10 @@ pub async fn authorized_at<P: Provider>(
     outbox: Address,
     block: u64,
 ) -> Result<bool> {
-    Ok(IOutboxDiscovery::new(discovery, provider)
+    IOutboxDiscovery::new(discovery, provider)
         .isActiveOutbox(registry_chain_key(route.chain_key)?, outbox)
         .block(BlockNumberOrTag::Number(block).into())
         .call()
         .await
-        .context("historical Discovery membership lookup failed")?)
+        .context("historical Discovery membership lookup failed")
 }

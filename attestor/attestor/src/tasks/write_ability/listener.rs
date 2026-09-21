@@ -907,7 +907,7 @@ mod tests {
         use alloy::providers::ProviderBuilder;
         use serde_json::json;
         let rpc = test_rpc::RpcMock::start().await;
-        let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+        let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
         let resolved = test_rpc::RpcMock::resolved();
         let mut finality = FinalityTracker::new(Instant::now());
         let mut last_seen = 90;

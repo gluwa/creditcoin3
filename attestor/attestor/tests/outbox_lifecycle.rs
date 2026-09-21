@@ -179,8 +179,7 @@ async fn handle(
             let data = hex::decode(raw.trim_start_matches("0x")).unwrap();
             let expected_registry = if block < 130 { REGISTRY } else { REPLACEMENT };
             let encoded = if to == resolver::CHAIN_INFO_PRECOMPILE {
-                let call =
-                    IChainInfo::get_outbox_discovery_addressCall::abi_decode(&data, true).unwrap();
+                let call = IChainInfo::get_outbox_discovery_addressCall::abi_decode(&data).unwrap();
                 assert_eq!(call.chainKey, 7);
                 (expected_registry, true).abi_encode()
             } else {
@@ -188,7 +187,7 @@ async fn handle(
                     to, expected_registry,
                     "must use the registry at the message block, not today's registry"
                 );
-                let call = IOutboxDiscovery::isActiveOutboxCall::abi_decode(&data, true).unwrap();
+                let call = IOutboxDiscovery::isActiveOutboxCall::abi_decode(&data).unwrap();
                 assert_eq!(call.chainKey, 7);
                 // A is removed at 120, re-registered at 125, and absent from the new registry.
                 // B is active throughout (it became default at 105, which is irrelevant here).
@@ -205,7 +204,7 @@ async fn handle(
 }
 
 async fn poll(rpc: &Rpc, last_seen: &mut u64) -> anyhow::Result<Vec<listener::IndexedMessage>> {
-    let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+    let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
     let (tx, mut rx) = tokio::sync::mpsc::channel(32);
     listener::poll_once(
         &provider,
@@ -277,7 +276,7 @@ async fn historical_reobservation_survives_removal_and_registry_replacement() {
         message(ROGUE, 119, 5),
     ])
     .await;
-    let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+    let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
     for (id, block, expected) in [(3, 119, true), (4, 120, false), (5, 119, false)] {
         let request = ReobservationRequest {
             chain_key: 7,
