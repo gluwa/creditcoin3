@@ -23,7 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
-const { ethers, HDNodeWallet } = require('ethers');
+const { ethers } = require('ethers');
 const { ApiPromise, WsProvider } = require('@polkadot/api');
 const { blake2AsU8a, decodeAddress, encodeAddress } = require('@polkadot/util-crypto');
 
@@ -59,17 +59,15 @@ function mappedAccountId(evmAddress) {
 
 /** The CLI accepts either secret form, so the raw EVM private key is enough. */
 function stashSecret() {
-    const secret = process.env.STASH_PRIVATE_KEY || process.env.STASH_MNEMONIC;
+    const secret = process.env.STASH_PRIVATE_KEY;
     if (!secret) {
-        throw new Error('neither STASH_PRIVATE_KEY nor STASH_MNEMONIC is set — run scripts/new-stash.js');
+        throw new Error('STASH_PRIVATE_KEY is not set — run scripts/new-stash.js');
     }
     return secret;
 }
 
 function stashAddressFrom(secret) {
-    return /^0x[0-9a-fA-F]{64}$/.test(secret)
-        ? new ethers.Wallet(secret).address
-        : HDNodeWallet.fromPhrase(secret).address;
+    return new ethers.Wallet(secret).address;
 }
 
 function cli(args, secret) {

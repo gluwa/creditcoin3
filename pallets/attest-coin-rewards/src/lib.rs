@@ -63,6 +63,7 @@ pub mod pallet {
 
     pub trait WeightInfo {
         fn set_attest_coin_token() -> Weight;
+        fn set_reward_vault() -> Weight;
     }
 
     #[pallet::storage]
@@ -88,6 +89,17 @@ pub mod pallet {
     #[pallet::storage]
     pub type AttestCoinErc20<T: Config> = StorageValue<_, sp_core::H160, OptionQuery>;
 
+    /// EVM address of the treasury vault holding attestation-reward funds. The precompile spends
+    /// from this address via `transferFrom`, under an allowance the vault grants it.
+    ///
+    /// `OptionQuery` so "not yet configured" is representable and distinct from the zero address,
+    /// matching [`AttestCoinErc20`]. Deliberately a runtime storage value rather than a config
+    /// constant: the vault must be replaceable without a runtime upgrade, since rotating to a
+    /// redeployed vault after an incident is exactly what the split treasury design exists to
+    /// serve.
+    #[pallet::storage]
+    pub type RewardVault<T: Config> = StorageValue<_, sp_core::H160, OptionQuery>;
+
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
@@ -99,6 +111,8 @@ pub mod pallet {
         },
         /// ERC-20 token address configured (governance).
         AttestCoinTokenSet { token: sp_core::H160 },
+        /// Reward treasury vault configured (governance).
+        RewardVaultSet { vault: sp_core::H160 },
         /// At least one eligible signer in the committed attestation had no
         /// `pallet_attestation::Attestors` entry for `chain_key`, so they were skipped during
         /// reward accrual. Normal during a chill/kick at the same block; persistent occurrences
@@ -111,6 +125,9 @@ pub mod pallet {
     pub enum Error<T> {
         /// No ERC-20 configured yet.
         TokenNotConfigured,
+        /// No reward treasury vault configured yet. Raised by the precompile's claim path rather
+        /// than by any dispatchable here, in the same way as [`Error::TokenNotConfigured`].
+        VaultNotConfigured,
         /// Reserved; claims no longer require an active attestation ledger entry.
         NotStash,
         /// Claim exceeds accrued points.
@@ -130,6 +147,23 @@ pub mod pallet {
             ensure_root(origin)?;
             AttestCoinErc20::<T>::put(token);
             Self::deposit_event(Event::AttestCoinTokenSet { token });
+            Ok(())
+        }
+
+        /// Set the attestcoin reward treasury vault. **Root only** (governance / sudo).
+        ///
+        /// The vault holds attestation-reward funds and grants the attest-coin precompile an
+        /// ERC-20 allowance; the precompile pulls from it with `transferFrom` when an attestor
+        /// claims. No validation is performed here — the extrinsic cannot tell a contract from an
+        /// EOA, nor check that the vault has granted an allowance — so after setting the vault,
+        /// confirm the vault's `availableToSpend()` is non-zero before considering the change
+        /// complete.
+        #[pallet::call_index(1)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_reward_vault())]
+        pub fn set_reward_vault(origin: OriginFor<T>, vault: sp_core::H160) -> DispatchResult {
+            ensure_root(origin)?;
+            RewardVault::<T>::put(vault);
+            Self::deposit_event(Event::RewardVaultSet { vault });
             Ok(())
         }
     }
@@ -207,6 +241,15 @@ pub mod pallet {
 
         pub fn erc20_token() -> Option<sp_core::H160> {
             AttestCoinErc20::<T>::get()
+        }
+
+        /// Treasury vault the precompile pulls reward payouts from, if governance has set one.
+        ///
+        /// Mirrors [`Self::erc20_token`]. The precompile reads the vault address through this
+        /// accessor rather than touching storage directly, keeping the pallet the single source of
+        /// truth for governance-set addresses.
+        pub fn reward_vault() -> Option<sp_core::H160> {
+            RewardVault::<T>::get()
         }
 
         /// Add accrued points to a stash. Production reward accrual uses

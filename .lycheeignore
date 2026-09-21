@@ -11,6 +11,8 @@ https://www.buymeacoffee.com/ricmoo
 git+https://github.com/gluwa/frontier_2.git
 https://github.com/gluwa/creditcoin3/security/advisories(.*)
 https://github.com/gluwa/creditcoin3-next(.*)
+# Private repo: the vault contract's home. 404s for anonymous link checkers.
+https://github.com/gluwa/atc-treasury-and-gov(.*)
 https://gitcoin.co/grants/13/ethersjs-complete-simple-and-tiny-2
 https://feross.org/support
 https://www.patreon.com/feross

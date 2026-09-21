@@ -8,9 +8,10 @@ A minimal set of steps to test the functionality of the attestcoin precompile.
     b. set_min_bond_requirement -> 100
 3. Deploy Attestcoin ERC20 contract
 4. Set Attestcoin rewards token in palletAttestcoinRewards
-5. Fund Attestcoin precompile account, attestor stash, and attestor operator account using sudo
-    a. With CTC, 100 each
-    b. With ATC, 10,000 for the precompile and 100 for the attestor stash
+    a. Deploy the treasury vault, then set it in palletAttestcoinRewards
+5. Fund the treasury vault, attestor stash, and attestor operator account
+    a. With CTC, 100 each for the attestor stash and the attestor operator account
+    b. With ATC, 10,000 for the treasury vault (pays reward claims) and 100 for the attestor stash
 6. Call `deposit` in the attestcoin precompile to fund a mapped EVM stash account with pallet assets attestcoin
 7. Call `register_attestor` in the attestor stash precompile
 8. Start your attestor, mostly following steps from https://docs.creditcoin.org/attestcoin-protocol/attestcoin-protocol-operator-guides/attestor-operator-guide
@@ -77,17 +78,42 @@ Go to Developer -> Sudo and select the call AttestCoinRewards -> setAttestCoinTo
 Params:
 token -> <ATTESTCOIN_ERC20 from .env>
 
-### 5. Fund Accounts
+### 4b. Deploy the Treasury Vault and Register It
 
-5.1: Fund precompile account
+Reward claims are **not** paid from the precompile's own balance. They come from a treasury vault
+contract that grants the precompile an ERC-20 allowance, and `claim` spends it with
+`transferFrom(vault, attestor, amount)`.
 
-- ATC funding
-
-The mint is an EVM call signed with the `DEPLOYER_PRIVATE_KEY` from step 3. The `precompile`
-alias resolves to `0x...0fd5` so you don't have to paste it:
+The vault contract is not in this repository. It lives in [atc-treasury-and-gov](https://github.com/gluwa/atc-treasury-and-gov) and arrives through the `@gluwa/atc-treasury-and-gov` npm package. To ensure our treasury contract definition is current, we re-build its artifact from solidity using:
 
 ```sh
-node scripts/fund-erc20.js precompile 10000
+cd ../../../cli && yarn install && yarn sync:vault-artifact
+```
+
+Then deploy:
+
+```sh
+cd ../precompiles/attest-coin/manual-testing
+node scripts/deploy-vault.js
+```
+
+Then register it with the runtime. In polkadot.js:
+
+Go to Developer -> Sudo and select the call
+AttestCoinRewards -> setRewardVault.
+Params:
+vault -> <ATTESTCOIN_VAULT from .env>
+
+### 5. Fund Accounts
+
+5.1: Fund the treasury vault
+
+The vault is the only address that needs pre-funding with ATC. It pays every reward claim, and
+nothing else fills it. The mint is an EVM call signed with the `DEPLOYER_PRIVATE_KEY` from step 3;
+the `vault` alias resolves the address from `.env` for you:
+
+```sh
+node scripts/fund-erc20.js vault 10000
 ```
 
 5.2: Fund Attestor stash EVM account
@@ -120,8 +146,10 @@ bonds.
 
 - Create Attestor Substrate Account
 ```sh
-OUT=$(subkey generate --output-type json); { printf '\n# Attestor operator account (sr25519), from `subkey generate`.\n'; printf 'ATTESTOR_SS58=%s\n' "$(echo "$OUT" | jq -r .ss58Address)"; printf 'ATTESTOR_SEED=%s\n' "$(echo "$OUT" | jq -r .secretSeed)"; } >> .env; grep ATTESTOR_ .env
+./scripts/new-attestor-account.sh
 ```
+
+Writes `ATTESTOR_SS58` / `ATTESTOR_SEED` **in place** in .env.
 
 - Fund the account
 In polkadot.js go to Developer -> Sudo and select the call Balances -> forceSetBalance.
@@ -154,8 +182,8 @@ stash is `blake2_256("evm:" || address)` — a hash with no signing key — so i
 can never sign an extrinsic. That is what the attestor-stash precompile is for.
 
 Submits via the CLI's `attestor register` (same precompile); the script adds the
-pre-flight checks the CLI lacks. Needs the built CLI and `STASH_MNEMONIC`, as in
-step 10.
+pre-flight checks the CLI lacks. Needs the built CLI and `STASH_PRIVATE_KEY`, as
+in step 10.
 
 ```sh
 node scripts/register-attestor.js
@@ -219,6 +247,9 @@ node scripts/withdraw.js
 node scripts/show-balances.js
 ```
 
-Read-only. After a full run the stash holds nothing bonded, nothing liquid and
-nothing unclaimed, and its ERC-20 balance is the rewards claimed plus the bond
-that round-tripped back out.
+After a full run we should have:
+
+Stash -> ` ERC-20 (ATC)               101.0 ATC`
+
+This indicates that we got our bond of 100 ATC back, and that we claimed 1 ATC as a reward for
+submitting 1 attestation.

@@ -40,6 +40,13 @@ pub const ERC20_ADDRESS: H160 = H160([
     0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x01,
 ]);
 
+/// Treasury vault holding reward funds. Deliberately distinct from the precompile's own address:
+/// reward claims are paid from here via `transferFrom`, while the precompile's balance backs only
+/// the bond bridge.
+pub const VAULT_ADDRESS: H160 = H160([
+    0xA0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x02,
+]);
+
 /// Helper to create an AccountId32 from a u8 prefix (padded to 32 bytes).
 #[allow(dead_code)]
 pub fn account(prefix: u8) -> AccountId32 {
