@@ -9,6 +9,12 @@ import {
     TransactionVerified,
 } from '../types';
 import { flushStore } from './storeUtils';
+import {
+    authorizedOutboxChainKey,
+    discoveryAddress,
+    isAuthorizedOutbox,
+    registeredOutboxes,
+} from './outboxAuthorization';
 
 // Encode a u64 write-ability chain key as its bytes32 form: `bytes32(uint256(chainKey))`, i.e. the
 // 8 big-endian bytes right-aligned in a 32-byte word (matches `chain_key_to_bytes32` in the shared
@@ -66,9 +72,10 @@ export async function handleTransactionVerified(event: FrontierEvmEvent<Transact
 
 // USC write-ability: on-chain-discovered Outbox contracts on Creditcoin L1, authorized per event
 // against governance state (see datasources.ts for the discovery/authorization model).
-// OutboxFactory: OutboxCreated(bytes32 indexed chainKey, address indexed outboxAddress)
 // OutboxCreated(address indexed outbox, uint32 indexed chainKey, address indexed owner, address validator, string version)
 type OutboxCreatedArgs = [string, bigint, string, string, string];
+// OutboxDiscovery: OutboxRegistered(uint32 indexed chainKey, address indexed outbox, address indexed registrar)
+type OutboxRegisteredArgs = [bigint, string, string];
 // Outbox: MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool canAck, bytes payload)
 // canAck (renamed from requiresAck in usc-contracts #23): acknowledgment is optional, requested by
 // a nonzero acknowledgmentPrice in the signed relayer quote — the flag only says an ack MAY land.
@@ -81,12 +88,9 @@ function eventTimestamp(event: { blockTimestamp?: Date }): bigint {
     return event.blockTimestamp ? BigInt(event.blockTimestamp.getTime()) : BigInt(Date.now());
 }
 
-// Quarantine bounds. Both caps are deliberately small: in a correct deployment the quarantine only
-// bridges the gap between `deployOutbox` and its registration being indexed (a few blocks), so
-// anything approaching these numbers is counterfeit traffic. Rejected overflow is logged loudly —
-// a legitimate Outbox hitting the cap is an operator problem to surface, never silent truncation.
-// Both values double as `getByFields` limits, which SubQuery hard-caps at 100 — a larger cap makes
-// the lookup THROW at runtime, halting the indexer on the first quarantined message (seen in CI).
+// Candidate bounds and the old message-quarantine cleanup limit. Authentic registry membership
+// bypasses this candidate cap; permissionless factory deployments cannot exhaust admission.
+// Both values are getByFields limits, which SubQuery hard-caps at 100.
 export const MAX_PENDING_OUTBOXES_PER_CHAIN_KEY = 8;
 export const MAX_QUARANTINED_MESSAGES_PER_OUTBOX = 100;
 
@@ -119,12 +123,15 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         return;
     }
 
-    // An OutboxContract row is the authorization the chain-wide message handlers key on, so creating
-    // one requires the emitting factory to be the exact address governance registered for this raw
-    // USC chain key. `OutboxFactoryRegistration` is keyed by chain key, which also handles multi-key
-    // factories and rotations without relying on the display-oriented OutboxFactory row.
+    // A registered factory is permissionless: its event proves provenance, not authorization.
+    // Admission additionally requires membership in governance's Discovery at this indexed block.
     const registration = await OutboxFactoryRegistration.get(chainKeyNumber.toString());
-    if (factoryId && registration && registration.factoryAddress === factoryId) {
+    if (
+        factoryId &&
+        registration &&
+        registration.factoryAddress === factoryId &&
+        (await isAuthorizedOutbox(chainKeyNumber, address, event.blockNumber))
+    ) {
         await admitOutbox({
             address,
             chainKeyBytes32: chainKey,
@@ -136,12 +143,9 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         return;
     }
 
-    // Fail-closed, but not fail-forever: the registration for this chain key may simply not be
-    // indexed yet (governance can authorize a factory AFTER it deployed its Outbox — observed live
-    // on usc-dev, where OutboxCreated landed ~200 blocks before OutboxFactoryRegistered). Quarantine
-    // the announcement so handleOutboxFactoryRegistered can promote it retroactively. Quarantine is
-    // bounded: only chain keys governance actually created can hold pending rows, and each key holds
-    // at most MAX_PENDING_OUTBOXES_PER_CHAIN_KEY of them.
+    // Keep only a bounded candidate announcement. A later authentic Discovery registration or
+    // an authorized publication may admit it; factory registration alone never does. Messages
+    // published before Discovery authorization are not backfilled as authorized history.
     if (!factoryId) {
         logger.warn(`Rejecting OutboxCreated with no emitter address: outbox=${address}`);
         return;
@@ -167,7 +171,7 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
         logger.error(
             `Pending-Outbox quarantine full for chain key ${chainKeyNumber.toString()} ` +
                 `(${MAX_PENDING_OUTBOXES_PER_CHAIN_KEY} rows) — dropping OutboxCreated for ${address}. ` +
-                `If this Outbox is legitimate, register its factory and reindex past this block.`,
+                `Discovery registration will admit legitimate Outboxes independently of this candidate cap.`,
         );
         return;
     }
@@ -190,7 +194,7 @@ export async function handleOutboxCreated(event: FrontierEvmEvent<OutboxCreatedA
 async function admitOutbox(outbox: {
     address: string;
     chainKeyBytes32: string;
-    factoryAddress: string;
+    factoryAddress?: string;
     createdAt: bigint;
     createdTimestamp: bigint;
     createdTxHash: string;
@@ -205,26 +209,18 @@ async function admitOutbox(outbox: {
     }).save();
 }
 
-/**
- * Backfill half of fail-closed discovery, called by `handleOutboxFactoryRegistered` right after it
- * stores the registration: promote every quarantined Outbox this registration retroactively
- * authorizes, along with the messages observed on it while it was pending. Non-matching pending rows
- * for the key are left alone — a later rotation may authorize them.
- */
-export async function promotePendingOutboxes(chainKey: bigint, factoryAddress: string): Promise<void> {
-    // The registration (and, same-block, possibly the pending rows) must be visible to getByFields.
+/** Refresh bounded candidates after factory registration; Discovery remains authoritative. */
+export async function promotePendingOutboxes(
+    chainKey: bigint,
+    factoryAddress: string,
+    blockNumber: number,
+): Promise<void> {
     await flushStore();
     const pending = await PendingOutbox.getByFields([['chainKey', '=', chainKey]], {
         limit: MAX_PENDING_OUTBOXES_PER_CHAIN_KEY,
     });
     for (const p of pending) {
-        if (p.factoryAddress !== factoryAddress) {
-            continue;
-        }
-        logger.info(
-            `Promoting quarantined Outbox ${p.id} (chainKey=${chainKey.toString()}) — ` +
-                `its factory ${factoryAddress} is now governance-registered`,
-        );
+        if (p.factoryAddress !== factoryAddress || !(await isAuthorizedOutbox(chainKey, p.id, blockNumber))) continue;
         if (!(await OutboxContract.get(p.id))) {
             await admitOutbox({
                 address: p.id,
@@ -235,32 +231,62 @@ export async function promotePendingOutboxes(chainKey: bigint, factoryAddress: s
                 createdTxHash: p.createdTxHash,
             });
         }
-        const messages = await QuarantinedMessage.getByFields([['outboxAddress', '=', p.id]], {
-            limit: MAX_QUARANTINED_MESSAGES_PER_OUTBOX,
+        await discardPendingOutbox(p.id);
+    }
+}
+
+/** Retire old quarantine rows without retroactively authorizing publications. */
+async function discardPendingOutbox(address: string): Promise<void> {
+    await flushStore();
+    const messages = await QuarantinedMessage.getByFields([['outboxAddress', '=', address]], {
+        limit: MAX_QUARANTINED_MESSAGES_PER_OUTBOX,
+    });
+    for (const message of messages) await QuarantinedMessage.remove(message.id);
+    await PendingOutbox.remove(address);
+}
+
+/** The caller has verified this address against the canonical registry at the indexed height. */
+async function admitRegistryMember(
+    address: string,
+    chainKey: bigint,
+    blockNumber: number,
+    timestamp: bigint,
+    txHash: string,
+): Promise<void> {
+    if (!(await OutboxContract.get(address))) {
+        // Do not trust metadata from arbitrary OutboxCreated emitters. The registry event/snapshot
+        // suffices for admission even if the factory event was earlier or the candidate cap is full.
+        await admitOutbox({
+            address,
+            chainKeyBytes32: u64ChainKeyToBytes32(chainKey),
+            createdAt: BigInt(blockNumber),
+            createdTimestamp: timestamp,
+            createdTxHash: txHash,
         });
-        for (const m of messages) {
-            if (!(await OutboxMessage.get(m.id))) {
-                await OutboxMessage.create({
-                    id: m.id,
-                    outboxId: p.id,
-                    emitter: m.emitter,
-                    canAck: m.canAck,
-                    payload: m.payload,
-                    publishedAt: m.publishedAt,
-                    publishedTimestamp: m.publishedTimestamp,
-                    publishedTxHash: m.publishedTxHash,
-                    acknowledged: m.acknowledged,
-                    acknowledgedAt: m.acknowledgedAt,
-                    acknowledgedTimestamp: m.acknowledgedTimestamp,
-                    acknowledgedTxHash: m.acknowledgedTxHash,
-                }).save();
-            }
-            await QuarantinedMessage.remove(m.id);
-        }
-        if (messages.length > 0) {
-            logger.info(`Backfilled ${messages.length} quarantined message(s) for promoted Outbox ${p.id}`);
-        }
-        await PendingOutbox.remove(p.id);
+    }
+    await discardPendingOutbox(address);
+}
+
+export async function handleOutboxRegistered(event: FrontierEvmEvent<OutboxRegisteredArgs>): Promise<void> {
+    if (!event.args || !event.address || !event.transactionHash) return;
+    const [chainKeyRaw, outboxRaw] = event.args;
+    const chainKey = BigInt(chainKeyRaw);
+    const address = outboxRaw.toLowerCase();
+    if ((await discoveryAddress(chainKey)) !== event.address.toLowerCase()) return;
+    if (!(await isAuthorizedOutbox(chainKey, address, event.blockNumber))) return;
+    await admitRegistryMember(address, chainKey, event.blockNumber, eventTimestamp(event), event.transactionHash);
+}
+
+/** Bootstrap a newly governance-registered Discovery, including Outboxes registered before it. */
+export async function admitDiscoverySnapshot(
+    chainKey: bigint,
+    discovery: string,
+    blockNumber: number,
+    timestamp: bigint,
+    txHash: string,
+): Promise<void> {
+    for (const address of await registeredOutboxes(chainKey, discovery, blockNumber)) {
+        await admitRegistryMember(address, chainKey, blockNumber, timestamp, txHash);
     }
 }
 
@@ -311,19 +337,26 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     const emitter = `0x${emitterRaw.slice(2, 42)}`.toLowerCase();
     const outboxAddress = event.address.toLowerCase();
 
-    // Per-event authorization: this handler is chain-wide (no address filter), so the emitting
-    // contract decides the event's fate. An admitted Outbox indexes normally; one still in
-    // quarantine gets its message quarantined alongside it (promoted together later); anything
-    // else is an arbitrary contract emitting a look-alike event and is dropped without state.
+    // Authorization is checked at publication height every time. An existing history row must
+    // not keep admitting new messages after a scheduled removal, registry rotation or chain removal.
+    // Pending creation events only identify candidates; never promote unauthorized past messages.
     const outbox = await OutboxContract.get(outboxAddress);
+    // PendingOutbox is deliberately not a routing authority: an attacker can announce a real
+    // address under the wrong key or fill the candidate cap. Query all configured registries
+    // for a previously unknown emitter, including publication before registration in this block.
+    const chainKey = outbox
+        ? BigInt(outbox.chainKey)
+        : await authorizedOutboxChainKey(outboxAddress, event.blockNumber);
+    if (chainKey === undefined) return;
+    if (outbox && !(await isAuthorizedOutbox(chainKey, outboxAddress, event.blockNumber))) return;
     if (!outbox) {
-        const pending = await PendingOutbox.get(outboxAddress);
-        if (!pending) {
-            logger.debug(`Ignoring MessagePublished from ${outboxAddress} — not an admitted or pending Outbox`);
-            return;
-        }
-        await quarantineMessage(event, event.transactionHash, messageId, outboxAddress, emitter, canAck, payload);
-        return;
+        await admitRegistryMember(
+            outboxAddress,
+            chainKey,
+            event.blockNumber,
+            eventTimestamp(event),
+            event.transactionHash,
+        );
     }
 
     logger.info(`MessagePublished: messageId=${messageId}, emitter=${emitter}, canAck=${canAck}`);
@@ -355,51 +388,6 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
     });
 
     await message.save();
-}
-
-/** Hold a message observed on a still-pending Outbox for promotion, bounded per Outbox. */
-async function quarantineMessage(
-    event: FrontierEvmEvent<MessagePublishedArgs>,
-    // Separate from `event` because the caller has already null-guarded it (TS can't carry that
-    // narrowing across the function boundary).
-    publishedTxHash: string,
-    messageId: string,
-    outboxAddress: string,
-    emitter: string,
-    canAck: boolean,
-    payload: string,
-): Promise<void> {
-    if (await QuarantinedMessage.get(messageId)) {
-        logger.warn(`MessagePublished replay for already-quarantined message ${messageId} — keeping existing record`);
-        return;
-    }
-    await flushStore();
-    const held = await QuarantinedMessage.getByFields([['outboxAddress', '=', outboxAddress]], {
-        limit: MAX_QUARANTINED_MESSAGES_PER_OUTBOX,
-    });
-    if (held.length >= MAX_QUARANTINED_MESSAGES_PER_OUTBOX) {
-        logger.error(
-            `Message quarantine full for pending Outbox ${outboxAddress} ` +
-                `(${MAX_QUARANTINED_MESSAGES_PER_OUTBOX} rows) — dropping message ${messageId}. ` +
-                `If this Outbox is legitimate, register its factory and reindex past this block.`,
-        );
-        return;
-    }
-    logger.info(`Quarantining MessagePublished ${messageId} from pending Outbox ${outboxAddress}`);
-    await QuarantinedMessage.create({
-        id: messageId,
-        outboxAddress,
-        emitter,
-        canAck,
-        payload,
-        publishedAt: BigInt(event.blockNumber),
-        publishedTimestamp: eventTimestamp(event),
-        publishedTxHash,
-        acknowledged: false,
-        acknowledgedAt: undefined,
-        acknowledgedTimestamp: undefined,
-        acknowledgedTxHash: undefined,
-    }).save();
 }
 
 export async function handleMessageAcknowledged(event: FrontierEvmEvent<MessageAcknowledgedArgs>): Promise<void> {
@@ -436,28 +424,7 @@ export async function handleMessageAcknowledged(event: FrontierEvmEvent<MessageA
         return;
     }
 
-    // An ack can land while the message is still quarantined (Outbox not yet authorized). Record it
-    // on the quarantine row so promotion carries the full lifecycle, not just the publish.
-    const quarantined = await QuarantinedMessage.get(messageId);
-    if (quarantined) {
-        if (quarantined.outboxAddress !== outboxAddress) {
-            logger.warn(
-                `Ignoring MessageAcknowledged for quarantined ${messageId} from ${outboxAddress} — ` +
-                    `the message was observed on ${quarantined.outboxAddress}`,
-            );
-            return;
-        }
-        logger.info(`MessageAcknowledged (quarantined): messageId=${messageId}`);
-        quarantined.acknowledged = true;
-        quarantined.acknowledgedAt = BigInt(event.blockNumber);
-        quarantined.acknowledgedTimestamp = eventTimestamp(event);
-        quarantined.acknowledgedTxHash = event.transactionHash ?? undefined;
-        await quarantined.save();
-        return;
-    }
-
-    // The publish is always seen first when its Outbox is admitted or pending. If neither record
-    // exists, this is either an arbitrary contract emitting a look-alike event (drop silently-ish)
-    // or an Outbox that was never authorized at all.
+    // No pre-authorization publications are retained or promoted. A previously admitted message
+    // may still receive its same-emitter acknowledgement after its Outbox leaves the active set.
     logger.debug(`MessageAcknowledged for unknown message ${messageId} from ${outboxAddress} — skipping`);
 }

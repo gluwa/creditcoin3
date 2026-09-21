@@ -225,14 +225,20 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                 },
             },
             {
-                // USC write-ability: on-chain factory registration. The handler records the
-                // governance authorization used to authenticate subsequent chain-wide
-                // OutboxCreated events (no address is configured anywhere).
+                // Factory provenance is informational; Discovery membership authorizes Outboxes.
                 kind: SubstrateHandlerKind.Event,
                 handler: 'handleOutboxFactoryRegistered',
                 filter: {
                     module: 'supportedChains',
                     method: 'OutboxFactoryRegistered',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleOutboxDiscoveryRegistered',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'OutboxDiscoveryRegistered',
                 },
             },
             {
@@ -316,15 +322,17 @@ export const blockProverDatasource: FrontierEvmDatasource = {
 
 // USC write-ability — fully on-chain discovery, no configured addresses and no dynamic datasources:
 //
-//   OutboxCreated            (EVM, chain-wide topic filter)  ─▶ OutboxContract | PendingOutbox
-//   MessagePublished         (EVM, chain-wide topic filter)  ─▶ OutboxMessage | QuarantinedMessage
-//   MessageAcknowledged      (EVM, chain-wide topic filter)  ─▶ updates either of the above
+//   OutboxCreated            (EVM, chain-wide topic filter)  ─▶ candidate, subject to Discovery
+//   OutboxRegistered         (EVM, canonical Discovery)     ─▶ OutboxContract
+//   MessagePublished         (EVM, active Discovery member)  ─▶ OutboxMessage
+//   MessageAcknowledged      (EVM, same historical Outbox)   ─▶ updates OutboxMessage
 //
 // Every event is matched by topic across all contracts and *authorized per event in the handler*:
-// OutboxCreated against the governance factory registration for its chain key, messages against the
-// OutboxContract row of their emitting contract. Events whose authorization has not been indexed yet
-// are quarantined (bounded) and promoted by handleOutboxFactoryRegistered — fail-closed with
-// backfill, instead of fail-forever on a deploy-ordering race.
+// Factory events only identify candidates: anybody can deploy through a registered factory.
+// Admission and every publication consult governance's Discovery at the indexed historical block.
+// Its getters enforce scheduled removals/cancellations without a second event at the deadline.
+// Runtime Discovery registration snapshots existing members to handle deployment ordering. There
+// is no retroactive authorization of messages published before a registry admitted their Outbox.
 //
 // This deliberately replaces the earlier per-Outbox dynamic datasources: a dynamic datasource is
 // persistent, reorg-unsafe indexer state that had to be guarded against counterfeit creation (audit
@@ -352,6 +360,26 @@ export const outboxDiscoveryDatasource: FrontierEvmDatasource = {
                 filter: {
                     topics: ['OutboxCreated(address,uint32,address,address,string)'],
                 },
+            },
+        ],
+    },
+};
+
+export const outboxRegistryDatasource: FrontierEvmDatasource = {
+    kind: 'substrate/FrontierEvm',
+    startBlock: 1,
+    processor: {
+        file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
+        options: { abi: 'outbox_discovery' },
+    },
+    assets: new Map([['outbox_discovery', { file: './abis/outbox_discovery.json' }]]),
+    mapping: {
+        file: './dist/index.js',
+        handlers: [
+            {
+                handler: 'handleOutboxRegistered',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: { topics: ['OutboxRegistered(uint32,address,address)'] },
             },
         ],
     },
