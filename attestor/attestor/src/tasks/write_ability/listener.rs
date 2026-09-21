@@ -5,8 +5,8 @@
 //!
 //! Finality: the Outbox lives on Creditcoin L1, which has deterministic GRANDPA finality, so events
 //! are surfaced up to the **finalized head** ([`FinalityPolicy::Finalized`]) — a finalized block
-//! cannot be reorged out from under a signed vote (§6.8). `block_confirmation_depth` is only a
-//! *fallback* probabilistic bound, used if finality stalls or the `finalized` tag is unavailable.
+//! cannot be reorged out from under a signed vote (§6.8). A stalled or unavailable finalized head
+//! pauses signing; an RPC failure must never weaken the finality requirement.
 //! Polling (rather than `eth_subscribe`) avoids the silent-stream-stall failure mode, matching the
 //! relayer.
 
@@ -73,20 +73,16 @@ const CURSOR_RESUME_LOOKBACK_BLOCKS: u64 = 256;
 /// blocks is comfortably within the common provider caps (Alchemy/Infra allow ≥2k per query).
 const MAX_LOG_BLOCK_RANGE: u64 = 2000;
 
-/// How long the finalized head may stay frozen while the tip keeps advancing before we treat
-/// finality as *stalled* (not merely lagging) and fall back to the probabilistic depth bound.
-/// GRANDPA finality on Creditcoin normally lags the tip by seconds; a freeze this long means
-/// finality is genuinely stuck, at which point signing must continue under the governed depth
-/// bound rather than halt. Well above normal finality lag, well below any real outage budget.
+/// How long the finalized head may stay frozen before we log a stalled-finality warning.
+/// This is only an operational alert: elapsed time never authorizes unfinalized messages.
 const FINALITY_STALL_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// The finality policy for the Outbox source chain (Creditcoin L1).
 #[derive(Clone, Copy, Debug)]
 pub enum FinalityPolicy {
     /// Sign up to the chain's GRANDPA-**finalized** head (exact, reorg-proof) — the production
-    /// policy for Creditcoin. Falls back to `tip - fallback_depth` *only* when finality is
-    /// unavailable or has stalled past [`FINALITY_STALL_TIMEOUT`] (governed probabilistic bound).
-    Finalized { fallback_depth: u64 },
+    /// policy for Creditcoin. Pauses if finality is unavailable or stalled.
+    Finalized,
     /// Always sign up to `tip - depth` (probabilistic). For chains/harnesses without deterministic
     /// finality — e.g. the anvil unit-e2e, where the `finalized` tag has no GRANDPA meaning.
     Depth(u64),
@@ -98,7 +94,7 @@ pub enum FinalityPolicy {
 pub struct FinalityTracker {
     last_finalized: Option<u64>,
     last_advance: Instant,
-    in_fallback: bool,
+    stalled: bool,
 }
 
 impl FinalityTracker {
@@ -107,14 +103,14 @@ impl FinalityTracker {
         Self {
             last_finalized: None,
             last_advance: now,
-            in_fallback: false,
+            stalled: false,
         }
     }
 }
 
 /// Decide the highest block to sign up to. Pure so the finality policy is unit-testable without an
-/// RPC. Updates `tracker` (finalized-advance timestamp + whether we're in probabilistic fallback);
-/// never regresses below the last known finalized head.
+/// RPC. Elapsed time and the tip never advance the finalized-policy boundary. A missing or older
+/// response preserves the last known finalized height, including across provider reconnections.
 fn pick_to_block(
     finalized: Option<u64>,
     tip: u64,
@@ -124,39 +120,19 @@ fn pick_to_block(
 ) -> u64 {
     match *policy {
         FinalityPolicy::Depth(depth) => {
-            tracker.in_fallback = false;
+            tracker.stalled = false;
             tip.saturating_sub(depth)
         }
-        FinalityPolicy::Finalized { fallback_depth } => match finalized {
-            Some(f) => {
-                let advanced = tracker.last_finalized.is_none_or(|prev| f > prev);
-                if advanced {
+        FinalityPolicy::Finalized => {
+            if let Some(f) = finalized {
+                if tracker.last_finalized.is_none_or(|prev| f > prev) {
                     tracker.last_finalized = Some(f);
                     tracker.last_advance = now;
-                    tracker.in_fallback = false;
-                    f
-                } else if now.duration_since(tracker.last_advance) >= FINALITY_STALL_TIMEOUT {
-                    // Finality genuinely stalled: sign the probabilistic bound, but never below the
-                    // last finalized head we already trust.
-                    tracker.in_fallback = true;
-                    tip.saturating_sub(fallback_depth).max(f)
-                } else {
-                    // Finality is lagging but not stalled — stay at the finalized head.
-                    tracker.in_fallback = false;
-                    f
                 }
             }
-            None => {
-                // Chain reports no finalized head (or the tag is unsupported / errored this poll).
-                // Sign the probabilistic bound, but NEVER regress below the last finalized head we
-                // already trusted: a transient `finalized`-read blip after a prior good read must not
-                // let `tip - depth` advance the scan past a head we know is final and re-sign
-                // not-yet-finalized logs (bugbot). `max(last_finalized)` mirrors the stall branch.
-                tracker.in_fallback = true;
-                tip.saturating_sub(fallback_depth)
-                    .max(tracker.last_finalized.unwrap_or(0))
-            }
-        },
+            tracker.stalled = now.duration_since(tracker.last_advance) >= FINALITY_STALL_TIMEOUT;
+            tracker.last_finalized.unwrap_or(0)
+        }
     }
 }
 
@@ -212,7 +188,7 @@ pub async fn watch<P, R, Fut>(
     shared_provider: watch::Sender<P>,
     reconnect: R,
     resolved: ResolvedOutbox,
-    block_confirmation_depth: u64,
+    _block_confirmation_depth: u64,
     start_block: Option<u64>,
     cursor: CursorStore,
     tx: mpsc::Sender<IndexedMessage>,
@@ -280,19 +256,16 @@ where
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
     // Creditcoin L1 has deterministic GRANDPA finality, so the normal signing boundary is the
-    // finalized head (reorg-proof); `block_confirmation_depth` is the governed probabilistic bound
-    // used only if finality stalls or the `finalized` tag is unavailable (audit P1-2).
-    let policy = FinalityPolicy::Finalized {
-        fallback_depth: block_confirmation_depth,
-    };
+    // finalized head (reorg-proof). The legacy confirmation-depth argument is retained for callers,
+    // but never substitutes a probabilistic boundary when deterministic finality is unavailable.
+    let policy = FinalityPolicy::Finalized;
     let mut finality = FinalityTracker::new(Instant::now());
 
     tracing::info!(
         outbox = %resolved.address,
         ?resolved.destination_chain_key,
         creditcoin_chain_id = resolved.creditcoin_chain_id,
-        fallback_depth = block_confirmation_depth,
-        "📡 message-attestation Outbox listener online (signing finalized head; depth is fallback)"
+        "📡 message-attestation Outbox listener online (signing finalized head only)"
     );
 
     let mut consecutive_failures: u32 = 0;
@@ -416,7 +389,7 @@ where
 }
 
 /// Run a single poll iteration, signing up to the boundary chosen by `policy` (the finalized head,
-/// or a probabilistic depth fallback — see [`pick_to_block`]). Exposed (beyond the internal
+/// or an explicitly selected test-chain depth policy — see [`pick_to_block`]). Exposed (beyond the internal
 /// [`watch`] loop) so the anvil e2e test can drive polling deterministically.
 pub async fn poll_once<P: Provider>(
     provider: &P,
@@ -426,16 +399,12 @@ pub async fn poll_once<P: Provider>(
     last_seen: &mut u64,
     tx: &mpsc::Sender<IndexedMessage>,
 ) -> Result<()> {
-    let tip = tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number())
-        .await
-        .context("eth_blockNumber timed out")??;
-
-    // Read the finalized head only when the policy uses it. A finalized-tag read failure (node up
-    // but the tag is unsupported/errored) is treated as "finalized unavailable" → depth fallback,
-    // rather than failing the whole poll — the tip read above already covers a dead RPC.
-    let finalized = match policy {
-        FinalityPolicy::Finalized { .. } => {
-            match tokio::time::timeout(
+    // A failed/null finalized read is a failed poll, so the existing reconnect budget can heal a
+    // broken provider. Neither the cursor nor the remembered finality boundary advances on failure.
+    // The finalized policy does not even read the tip: it is not evidence of deterministic finality.
+    let (finalized, tip) = match policy {
+        FinalityPolicy::Finalized => {
+            let block = tokio::time::timeout(
                 RPC_TIMEOUT,
                 provider.get_block_by_number(
                     BlockNumberOrTag::Finalized,
@@ -443,30 +412,33 @@ pub async fn poll_once<P: Provider>(
                 ),
             )
             .await
+            .context("finalized-head read timed out; signing paused")?
+            .context("finalized-head read failed; signing paused")?
+            .context("finalized head unavailable; signing paused")?;
+            if finality
+                .last_finalized
+                .is_some_and(|previous| block.header.number < previous)
             {
-                Ok(Ok(Some(b))) => Some(b.header.number),
-                Ok(Ok(None)) => None,
-                Ok(Err(err)) => {
-                    tracing::warn!(%err, "finalized-head read failed; using depth fallback this poll");
-                    None
-                }
-                Err(_) => {
-                    tracing::warn!("finalized-head read timed out; using depth fallback this poll");
-                    None
-                }
+                anyhow::bail!("finalized head regressed; signing paused");
             }
+            (Some(block.header.number), 0)
         }
-        FinalityPolicy::Depth(_) => None,
+        FinalityPolicy::Depth(_) => (
+            None,
+            tokio::time::timeout(RPC_TIMEOUT, provider.get_block_number())
+                .await
+                .context("eth_blockNumber timed out")??,
+        ),
     };
 
-    let was_fallback = finality.in_fallback;
+    let was_stalled = finality.stalled;
     let to_block = pick_to_block(finalized, tip, policy, finality, Instant::now());
-    if finality.in_fallback && !was_fallback {
+    if finality.stalled && !was_stalled {
         tracing::warn!(
-            tip,
-            "⚠️ source finality stalled/unavailable — signing under the probabilistic depth fallback"
+            finalized = to_block,
+            "⚠️ source finality stalled — waiting for finalized head to advance"
         );
-    } else if !finality.in_fallback && was_fallback {
+    } else if !finality.stalled && was_stalled {
         tracing::info!("✅ source finality recovered — signing the finalized head again");
     }
 
@@ -564,6 +536,88 @@ async fn scan_range<P: Provider>(
 }
 
 #[cfg(test)]
+pub(super) mod test_rpc {
+    use super::*;
+    use axum::{extract::State, routing::post, Json, Router};
+    use parking_lot::Mutex;
+    use serde_json::{json, Value};
+    use std::sync::Arc;
+
+    #[derive(Default)]
+    pub struct RpcState {
+        pub finalized_response: Value,
+        pub requests: Vec<Value>,
+    }
+
+    pub struct RpcMock {
+        pub url: url::Url,
+        pub state: Arc<Mutex<RpcState>>,
+        server: tokio::task::JoinHandle<()>,
+    }
+
+    impl RpcMock {
+        pub async fn start() -> Self {
+            async fn handle(
+                State(state): State<Arc<Mutex<RpcState>>>,
+                Json(request): Json<Value>,
+            ) -> Json<Value> {
+                let mut state = state.lock();
+                state.requests.push(request.clone());
+                let mut response = match request["method"].as_str().unwrap() {
+                    "eth_getBlockByNumber" => {
+                        assert_eq!(request["params"][0], "finalized");
+                        state.finalized_response.clone()
+                    }
+                    // The old fallback would fetch this high tip and then scan unfinalized logs.
+                    "eth_blockNumber" => json!({"result": "0x2710"}),
+                    "eth_getLogs" => json!({"result": []}),
+                    method => panic!("unexpected method {method}"),
+                };
+                response["jsonrpc"] = json!("2.0");
+                response["id"] = request["id"].clone();
+                Json(response)
+            }
+
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap())
+                .parse()
+                .unwrap();
+            let state = Arc::new(Mutex::new(RpcState {
+                finalized_response: json!({"result": null}),
+                requests: Vec::new(),
+            }));
+            let router = Router::new()
+                .route("/", post(handle))
+                .with_state(state.clone());
+            let server = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            Self { url, state, server }
+        }
+
+        pub fn set_finalized(&self, height: u64) {
+            let mut block: alloy::rpc::types::eth::Block = Default::default();
+            block.header.inner.number = height;
+            self.state.lock().finalized_response = json!({"result": block});
+        }
+
+        pub fn resolved() -> ResolvedOutbox {
+            ResolvedOutbox {
+                address: Address::repeat_byte(1),
+                destination_chain_key: B256::repeat_byte(2),
+                creditcoin_chain_id: 102030,
+            }
+        }
+    }
+
+    impl Drop for RpcMock {
+        fn drop(&mut self) {
+            self.server.abort();
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -616,7 +670,7 @@ mod tests {
             pick_to_block(None, 110, &FinalityPolicy::Depth(3), &mut tr, t0),
             107
         );
-        assert!(!tr.in_fallback);
+        assert!(!tr.stalled);
         // depth 0 = index up to tip (the anvil e2e case).
         assert_eq!(
             pick_to_block(None, 110, &FinalityPolicy::Depth(0), &mut tr, t0),
@@ -627,69 +681,135 @@ mod tests {
     #[test]
     fn finalized_primary_uses_finalized_head() {
         let t0 = Instant::now();
-        let pol = FinalityPolicy::Finalized { fallback_depth: 3 };
+        let pol = FinalityPolicy::Finalized;
         let mut tr = tracker(t0);
         // First observation + subsequent advance both sign the finalized head, not tip-depth.
         assert_eq!(pick_to_block(Some(100), 110, &pol, &mut tr, t0), 100);
-        assert!(!tr.in_fallback);
+        assert!(!tr.stalled);
         assert_eq!(
             pick_to_block(Some(105), 120, &pol, &mut tr, t0 + Duration::from_secs(6)),
             105
         );
-        assert!(!tr.in_fallback);
+        assert!(!tr.stalled);
     }
 
     #[test]
     fn lagging_but_not_stalled_stays_at_finalized() {
         let t0 = Instant::now();
-        let pol = FinalityPolicy::Finalized { fallback_depth: 3 };
+        let pol = FinalityPolicy::Finalized;
         let mut tr = tracker(t0);
         assert_eq!(pick_to_block(Some(100), 110, &pol, &mut tr, t0), 100);
         // Finalized frozen at 100 while tip climbs, but within the stall window → still 100.
         let within = t0 + FINALITY_STALL_TIMEOUT - Duration::from_secs(1);
         assert_eq!(pick_to_block(Some(100), 200, &pol, &mut tr, within), 100);
-        assert!(!tr.in_fallback);
+        assert!(!tr.stalled);
     }
 
     #[test]
-    fn stalled_finality_falls_back_to_depth_bound() {
+    fn stalled_finality_never_advances_past_finalized_head() {
         let t0 = Instant::now();
-        let pol = FinalityPolicy::Finalized { fallback_depth: 3 };
+        let pol = FinalityPolicy::Finalized;
         let mut tr = tracker(t0);
         assert_eq!(pick_to_block(Some(100), 110, &pol, &mut tr, t0), 100);
-        // Finalized frozen past the stall timeout while tip advances → probabilistic bound,
-        // never below the last finalized head.
-        let past = t0 + FINALITY_STALL_TIMEOUT + Duration::from_secs(1);
-        assert_eq!(pick_to_block(Some(100), 200, &pol, &mut tr, past), 197);
-        assert!(tr.in_fallback);
+        // Even hours of stalled finality and an advancing tip never authorize another block.
+        let past = t0 + Duration::from_secs(24 * 60 * 60);
+        assert_eq!(pick_to_block(Some(100), 200, &pol, &mut tr, past), 100);
+        assert!(tr.stalled);
         // Then finality recovers (advances) → back to signing the finalized head.
         assert_eq!(
             pick_to_block(Some(210), 220, &pol, &mut tr, past + Duration::from_secs(6)),
             210
         );
-        assert!(!tr.in_fallback);
+        assert!(!tr.stalled);
     }
 
     #[test]
-    fn no_finalized_head_uses_depth_bound() {
+    fn no_finalized_head_does_not_authorize_any_new_block() {
         let t0 = Instant::now();
-        let pol = FinalityPolicy::Finalized { fallback_depth: 5 };
+        let pol = FinalityPolicy::Finalized;
         let mut tr = tracker(t0);
-        assert_eq!(pick_to_block(None, 100, &pol, &mut tr, t0), 95);
-        assert!(tr.in_fallback);
+        assert_eq!(pick_to_block(None, 100, &pol, &mut tr, t0), 0);
+        assert!(!tr.stalled);
     }
 
     #[test]
-    fn no_finalized_head_never_regresses_below_last_finalized() {
-        // A prior good read established finalized head 100; a later `finalized`-read blip (None) with
-        // `tip - depth` = 96 must NOT regress below 100 and re-sign not-yet-finalized logs (bugbot).
+    fn missing_or_regressed_finalized_head_preserves_the_known_boundary() {
+        // A prior good read established finalized head 100. Neither a missing head nor a stale
+        // response is evidence authorizing signatures beyond it.
         let t0 = Instant::now();
-        let pol = FinalityPolicy::Finalized { fallback_depth: 5 };
+        let pol = FinalityPolicy::Finalized;
         let mut tr = tracker(t0);
         assert_eq!(pick_to_block(Some(100), 100, &pol, &mut tr, t0), 100);
-        // Blip: no finalized head, tip advanced to 101 → tip-depth = 96, but clamp holds it at 100.
+        // A missing tag keeps the known boundary, regardless of how far the tip advances.
         assert_eq!(pick_to_block(None, 101, &pol, &mut tr, t0), 100);
-        // Once tip-depth climbs past the last finalized head, the depth bound applies normally.
-        assert_eq!(pick_to_block(None, 110, &pol, &mut tr, t0), 105);
+        assert_eq!(pick_to_block(None, 10_000, &pol, &mut tr, t0), 100);
+        assert_eq!(pick_to_block(Some(99), 10_000, &pol, &mut tr, t0), 100);
+    }
+
+    #[tokio::test]
+    async fn failed_finalized_reads_never_scan_and_recovery_resumes_from_cursor() {
+        use alloy::providers::ProviderBuilder;
+        use serde_json::json;
+        let rpc = test_rpc::RpcMock::start().await;
+        let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+        let resolved = test_rpc::RpcMock::resolved();
+        let mut finality = FinalityTracker::new(Instant::now());
+        let mut last_seen = 90;
+        let (tx, mut rx) = mpsc::channel(8);
+        for failure in [
+            json!({"result": null}),
+            json!({"error": {"code": -32000, "message": "finality unavailable"}}),
+        ] {
+            rpc.state.lock().finalized_response = failure;
+            assert!(poll_once(
+                &provider,
+                &resolved,
+                &FinalityPolicy::Finalized,
+                &mut finality,
+                &mut last_seen,
+                &tx
+            )
+            .await
+            .is_err());
+            assert_eq!(last_seen, 90);
+            assert!(rx.try_recv().is_err());
+        }
+        assert!(rpc
+            .state
+            .lock()
+            .requests
+            .iter()
+            .all(|r| r["method"] == "eth_getBlockByNumber"));
+        rpc.set_finalized(100);
+        poll_once(
+            &provider,
+            &resolved,
+            &FinalityPolicy::Finalized,
+            &mut finality,
+            &mut last_seen,
+            &tx,
+        )
+        .await
+        .unwrap();
+        assert_eq!(last_seen, 100);
+        let scan = rpc.state.lock().requests.last().unwrap().clone();
+        assert_eq!(scan["method"], "eth_getLogs");
+        assert_eq!(scan["params"][0]["fromBlock"], "0x5b");
+        assert_eq!(scan["params"][0]["toBlock"], "0x64");
+
+        // A later stale provider response cannot authorize scanning against that provider.
+        rpc.set_finalized(99);
+        assert!(poll_once(
+            &provider,
+            &resolved,
+            &FinalityPolicy::Finalized,
+            &mut finality,
+            &mut last_seen,
+            &tx
+        )
+        .await
+        .is_err());
+        assert_eq!(last_seen, 100);
+        assert_eq!(finality.last_finalized, Some(100));
     }
 }

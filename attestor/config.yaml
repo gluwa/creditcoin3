@@ -118,8 +118,8 @@ write_ability:
   #
   # validator_address: "0x..."
 
-  # Confirmation depth below the EVM tip before signing a MessagePublished log.
-  # Defaults to 3 (matches Creditcoin time-to-finality).
+  # Legacy setting (accepted for compatibility, ignored for message signing).
+  # Signing always requires the source finalized head, including during RPC/finality outages.
   #
   # block_confirmation_depth: 3
 
