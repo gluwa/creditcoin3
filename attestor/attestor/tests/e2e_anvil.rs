@@ -188,7 +188,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         publish_tx: tokio::sync::mpsc::channel(8).0,
         set_update_publish_tx: tokio::sync::mpsc::channel(8).0,
         reobs_tx: tokio::sync::mpsc::channel(8).0,
-        destination_chain_key: ck_b32,
+        destination_chain_key: parking_lot::RwLock::new(Some(ck_b32)),
     };
     // Chain-seen (the listener just indexed it).
     state

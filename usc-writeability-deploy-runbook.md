@@ -104,6 +104,15 @@ first smoke test, set a real value before opening to users.
    at listener startup, and the all-Outbox scan advancing through finalized blocks without
    historical-state failures.
 
+With #1384, finalized governance is refreshed while running. Until the first successful read,
+message signing stays paused. Subsequent RPC errors/timeouts retain the last successfully read
+enabled/disabled state and destination key, keep the listener and in-flight quorum, and set
+`write_ability_governance_degraded` to 1. A successful read clears the gauge and logs recovery.
+Monitor this metric for loss of governance freshness; it does not change the liveness health check.
+A successful disable or rekey still pauses or changes signing and clears obsolete quorum state.
+During an outage, a governance change can be delayed until reads recover, potentially much longer
+than one poll interval. Source-block finality remains mandatory throughout.
+
 ## 5. Relayer deploy
 
 IaC gaps to close first (tracked): pin chart image to `gluwa/usc-message-relayer:0.1.1`, add
@@ -165,8 +174,9 @@ Mirror the e2e assertions, on devnet:
 
 ## 9. Rollback / kill switches
 
-- Pallet: `setWriteAbilityConfig(8, enabled: false)` — attestors stop attesting messages; publish
-  keeps working on the EVM side but nothing is delivered.
+- Pallet: `setWriteAbilityConfig(8, enabled: false)` — with #1384, attestors stop signing new
+  message votes once the finalized change is successfully read. An RPC outage delays this switch;
+  existing signatures are not revoked. Publishing remains possible on the EVM side.
 - Contracts: Outbox/Inbox are `Pausable` — pause on the destination stops delivery instantly.
 - Relayer: scale to 0; scan cursors + `scan_lookback_blocks: 600` re-discover in-flight work on
   restart, settlements are idempotent (`RelayAlreadySettled` dedup).

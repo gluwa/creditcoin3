@@ -59,6 +59,12 @@ impl VoteAggregator {
         }
     }
 
+    /// Forget chain-seen messages when governance changes the destination or pauses attestation.
+    /// Preserve the threshold installed by the destination-validator watcher.
+    pub fn clear_messages(&mut self) {
+        self.entries.clear();
+    }
+
     /// Update the quorum threshold after an on-chain attestor-set change, re-evaluating every
     /// tracked entry against the new value (a hot-reload must not leave entries frozen at the old
     /// quorum's verdict):
