@@ -191,6 +191,8 @@ pub enum TxRx {
     /// An OP-Stack deposit transaction (type `0x7e`) and its receipt.
     OpDeposit {
         tx: Box<op_stack::DepositTransaction>,
+        /// `gas_used` is canonicalized from authenticated cumulative receipt gas by
+        /// [`OrderedBlock::try_from_fetched_block`], never copied from RPC metadata.
         rx: Box<TransactionReceipt<AnyReceiptEnvelope<RpcLog>>>,
         deposit_fields: op_stack::DepositReceiptFields,
         encoding: EncodingVersion,
@@ -386,7 +388,7 @@ impl OrderedBlock {
         txs.sort_by_key(|tx| tx.transaction_index);
         receipts.sort_by_key(|rx| rx.transaction_index);
 
-        let items = txs
+        let mut items = txs
             .into_iter()
             .zip(receipts)
             .enumerate()
@@ -431,6 +433,33 @@ impl OrderedBlock {
             if computed_receipt_root != header.receipts_root {
                 return Err(Error::BlockHeaderRootsMismatch(expected_number));
             }
+        }
+
+        // RPC `gasUsed` is not part of receiptsRoot. Deposits must use the difference
+        // between consecutive authenticated cumulative gas values before building a leaf.
+        // This also preserves pre-Regolith accounting: system deposits contribute zero,
+        // while user deposits contribute their entire gas limit. Do not infer the fork
+        // from unauthenticated `depositNonce` metadata.
+        let mut previous_cumulative_gas_used = 0;
+        for item in &mut items {
+            let cumulative_gas_used = match item {
+                TxRx::Ethereum { rx, .. } => rx.inner.cumulative_gas_used(),
+                TxRx::OpDeposit { tx, rx, .. } => {
+                    let cumulative = rx.inner.cumulative_gas_used();
+                    rx.gas_used = cumulative.checked_sub(previous_cumulative_gas_used).ok_or(
+                        Error::Deposit {
+                            block: expected_number,
+                            source: op_stack::DepositError::DecreasingCumulativeGas {
+                                hash: tx.hash,
+                                previous: previous_cumulative_gas_used,
+                                cumulative,
+                            },
+                        },
+                    )?;
+                    cumulative
+                }
+            };
+            previous_cumulative_gas_used = cumulative_gas_used;
         }
 
         Ok(Self {
