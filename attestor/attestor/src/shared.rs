@@ -106,6 +106,19 @@ pub struct Shared {
     /// writes it; it rebuilds its eth streams from the new value in the same handler, so a reader
     /// can never see a maturity that no stream is acting on.
     pub maturity: parking_lot::RwLock<eth::Maturity>,
+
+    /// Monotonic counter bumped once per applied maturity change, immediately *after* the pool
+    /// has been reset for it. The validation task snapshots it the moment a quorum leaves the
+    /// pool — before the RPC round-trips that aggregate and re-validate it — and abandons the
+    /// submission if it has moved by the time it is about to sign. So an attestation aggregated
+    /// under the previous strategy is never pushed on chain by a node that has already seen the
+    /// change, including when the change lands mid-aggregation.
+    ///
+    /// The bump ordering is the contract: observing a newer generation guarantees the pool reset
+    /// already happened, so an abandoning submission knows the pool it is releasing back to is
+    /// the post-change one. Mirrors [`Self::eligibility_gen`], which guards the post-election
+    /// warm-up the same way.
+    pub maturity_gen: AtomicU64,
     pub start_height: Height,
     pub genesis: Height,
 

@@ -575,6 +575,14 @@ async fn handle_one(
             shared
                 .pool_send
                 .note_attestation_chain_reversion(latest_cc3.height, latest_cc3.digest);
+            // Bump *after* the pool reset, never before: the validation task's in-flight
+            // submission abandons itself when it sees a newer generation, and it skips
+            // unlocking its own height on the strength of the reset having already happened.
+            // Relaxed would be wrong here — `SeqCst` matches `eligibility_gen` and keeps the
+            // reset visible to the submission task before the counter it keys off.
+            shared
+                .maturity_gen
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             // Roll p2p's local-production cursor back to the attested boundary so it prunes the
             // pending votes it buffered for heights we are about to re-produce.
             let _ = shared.local_produced_tx.send(Some(latest_cc3.height));

@@ -406,6 +406,7 @@ impl Attestor {
             interval_attestation: parking_lot::RwLock::new(interval_attestation),
             max_catchup: parking_lot::RwLock::new(max_catchup),
             maturity: parking_lot::RwLock::new(maturity),
+            maturity_gen: std::sync::atomic::AtomicU64::new(0),
             start_height,
             genesis: genesis_height,
 

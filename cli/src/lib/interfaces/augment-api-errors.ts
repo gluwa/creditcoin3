@@ -971,6 +971,13 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaturityStrategy: AugmentedError<ApiType>;
             /**
+             * The chain already uses the requested maturity strategy. Rejected rather than applied
+             * as a no-op: every attestor for the chain drops its in-flight production and votes on
+             * `MaturityStrategySet`, so a resubmission that changes nothing must not cost the
+             * network a round of churn.
+             **/
+            MaturityStrategyUnchanged: AugmentedError<ApiType>;
+            /**
              * Generic error
              **/
             [key: string]: AugmentedError<ApiType>;

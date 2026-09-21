@@ -3475,6 +3475,25 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, bool]
             >;
             /**
+             * Replaces the maturity strategy of an already-registered chain.
+             *
+             * Maturity decides how far behind the source tip a block has to be before an attestor
+             * will attest to it, so changing it invalidates every attestation an attestor is
+             * currently building and every vote it is holding — but *not* anything already
+             * committed on chain. Attestations already in storage stay valid and are never
+             * revisited; off-chain consumers resume from the latest attested height under the new
+             * strategy (see `MaturityStrategySet`).
+             *
+             * Only accounts in the Operators membership can call this extrinsic.
+             **/
+            setMaturityStrategy: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    maturityStrategy: Text | string,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, Text]
+            >;
+            /**
              * Generic tx
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;
