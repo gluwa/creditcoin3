@@ -49,7 +49,9 @@ fn main() {
         let config = stream_eth::roots::ConfigBuilder::new()
             .with_client(client)
             .with_start_height(args.start_height)
-            .with_finalization_lag(FINALIZATION_LAG)
+            .with_bound(stream_eth::roots::Boundary::Source(
+                eth::Maturity::FixedLag(FINALIZATION_LAG),
+            ))
             .with_max_concurrency(MAX_CONCURRENT_REQUESTS)
             .with_max_parallelism(parallelism)
             .build();

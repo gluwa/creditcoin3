@@ -620,6 +620,28 @@ jobs:
           SOURCE_CHAIN: "ws://127.0.0.1:9944"
           CHAIN_KEY_ON_SOURCE: 2
 
+      - name: Wait for the archiver to reach the latest on-chain checkpoint
+        if: always()
+        run: |
+          # The archiver follows the latest attested height rather than the source head, so it
+          # starts fetching only once the first attestation lands and trails the attestors while
+          # they catch up. It is a cache: it converges, it is not required to be ahead. Give it
+          # a bounded window to reach the last checkpoint the attestors produced before reading
+          # its range, otherwise the builder CSV is compared against checkpoints it has not
+          # stored yet.
+          TARGET=$(awk -F, 'END {print $1}' attestor/scripts/checkpoints_2.csv)
+          echo "waiting for archiver to reach on-chain checkpoint $TARGET"
+          for _ in $(seq 1 90); do
+            LATEST=$(curl -sf http://127.0.0.1:8080/status | python3 -c 'import sys,json;print(json.load(sys.stdin).get("latest_archived_block") or 0)' 2>/dev/null || echo 0)
+            if [ "$LATEST" -ge "$TARGET" ]; then
+              echo "archiver at $LATEST >= $TARGET"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "archiver stuck at $LATEST, below on-chain checkpoint $TARGET" >&2
+          exit 1
+
       - name: Discover archiver available range and compute builder range
         if: always()
         id: range
@@ -2049,6 +2071,22 @@ jobs:
         run: |
           # note: chain_key is hard-coded in this script so waiting only on Anvil_1
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
+
+      - name: Wait for the archiver to store its first attested block
+        run: |
+          # The archiver follows the latest attested height rather than the source head, so it
+          # stores nothing until the attestors have produced their first attestation. The tests
+          # below assert on stored blocks; give the pipeline a bounded window to produce one.
+          for _ in $(seq 1 90); do
+            LATEST=$(curl -sf http://127.0.0.1:8080/status | python3 -c 'import sys,json;print(json.load(sys.stdin).get("latest_archived_block") or 0)' 2>/dev/null || echo 0)
+            if [ "$LATEST" -gt 0 ]; then
+              echo "archiver stored up to block $LATEST"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "archiver stored nothing after 15 minutes: no attestation landed on chain key 2" >&2
+          exit 1
 
       - name: Run integration tests for archiver
         working-directory: ./cli
