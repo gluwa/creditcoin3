@@ -567,15 +567,19 @@ jobs:
           # anvil1-restart.json — the restart reloads that state, and the dumped-state
           # check below hard-fails without it. So: TERM + wait for the dump, then KILL
           # as a fallback, then wait for port 8141 to be released before restarting.
+          # The dump is the whole 10k-block fixture state (gigabytes of JSON) written
+          # while the archiver is still hammering eth_getBlockReceipts, so give it
+          # minutes, not seconds: a KILL here truncates the file and the restart fails
+          # on "failed to parse json file" instead of exercising recovery.
           kill -TERM "$ANVIL_PID" 2>/dev/null || true
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 180); do
             if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
               break
             fi
             sleep 1
           done
           if kill -0 "$ANVIL_PID" 2>/dev/null; then
-            echo "Anvil did not exit on TERM — sending KILL" >&2
+            echo "Anvil did not exit on TERM within 180s — sending KILL (the restart will likely fail to load state)" >&2
             kill -KILL "$ANVIL_PID" 2>/dev/null || true
           fi
           for _ in $(seq 1 30); do
