@@ -1355,6 +1355,20 @@ declare module '@polkadot/api-base/types/submittable' {
                 [H160]
             >;
             /**
+             * Set the attestcoin reward treasury vault. **Root only** (governance / sudo).
+             *
+             * The vault holds attestation-reward funds and grants the attest-coin precompile an
+             * ERC-20 allowance; the precompile pulls from it with `transferFrom` when an attestor
+             * claims. No validation is performed here — the extrinsic cannot tell a contract from an
+             * EOA, nor check that the vault has granted an allowance — so after setting the vault,
+             * confirm the vault's `availableToSpend()` is non-zero before considering the change
+             * complete.
+             **/
+            setRewardVault: AugmentedSubmittable<
+                (vault: H160 | string | Uint8Array) => SubmittableExtrinsic<ApiType>,
+                [H160]
+            >;
+            /**
              * Generic tx
              **/
             [key: string]: SubmittableExtrinsicFunction<ApiType>;

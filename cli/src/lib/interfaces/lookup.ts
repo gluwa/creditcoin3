@@ -1370,6 +1370,9 @@ export default {
             AttestCoinTokenSet: {
                 token: 'H160',
             },
+            RewardVaultSet: {
+                vault: 'H160',
+            },
             RewardSkippedNoStash: {
                 chainKey: 'u64',
                 skipped: 'u32',
@@ -3403,6 +3406,9 @@ export default {
             set_attest_coin_token: {
                 token: 'H160',
             },
+            set_reward_vault: {
+                vault: 'H160',
+            },
         },
     },
     /**
@@ -4028,7 +4034,14 @@ export default {
      * Lookup476: pallet_attest_coin_rewards::pallet::Error<T>
      **/
     PalletAttestCoinRewardsError: {
-        _enum: ['TokenNotConfigured', 'NotStash', 'InsufficientAccrued', 'BadClaimNonce', 'BadWithdrawNonce'],
+        _enum: [
+            'TokenNotConfigured',
+            'VaultNotConfigured',
+            'NotStash',
+            'InsufficientAccrued',
+            'BadClaimNonce',
+            'BadWithdrawNonce',
+        ],
     },
     /**
      * Lookup479: frame_system::extensions::check_non_zero_sender::CheckNonZeroSender<T>

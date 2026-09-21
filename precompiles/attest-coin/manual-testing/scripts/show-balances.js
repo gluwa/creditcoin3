@@ -104,7 +104,28 @@ async function main() {
         console.log('\nchain-wide');
         row('asset 1 total supply', atc(supply));
         row('bond pool holds', atc(pool));
-        row('treasury ERC-20', atc(await token.balanceOf(ATTEST_COIN_PRECOMPILE)));
+        // Two separate pots since the treasury split: the precompile's own balance backs the bond
+        // bridge, and the vault pays reward claims under an allowance.
+        row('bridge backing ERC-20', atc(await token.balanceOf(ATTEST_COIN_PRECOMPILE)));
+
+        const vaultOpt = await api.query.attestCoinRewards.rewardVault();
+        if (vaultOpt.isNone) {
+            row('reward vault', 'not configured');
+        } else {
+            const vault = vaultOpt.unwrap().toString();
+            const vaultBal = BigInt((await token.balanceOf(vault)).toString());
+            const allowance = BigInt(
+                (await token.allowance(vault, ATTEST_COIN_PRECOMPILE)).toString(),
+            );
+            row('reward vault', vault);
+            row('vault ERC-20', atc(vaultBal));
+            row(
+                'claimable now',
+                allowance === 0n
+                    ? '0  (rewards PAUSED — allowance revoked)'
+                    : atc(vaultBal < allowance ? vaultBal : allowance),
+            );
+        }
 
         const done = !ledger.exists && liquid === 0n && accrued === 0n;
         console.log(

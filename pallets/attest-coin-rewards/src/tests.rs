@@ -8,6 +8,10 @@ const ERC20: H160 = H160([
     0xE0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1,
 ]);
 
+const VAULT: H160 = H160([
+    0xA0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2,
+]);
+
 // ── set_attest_coin_token ─────────────────────────────────────────────────────
 
 #[test]
@@ -32,6 +36,103 @@ fn set_attest_coin_token_rejects_non_root() {
             ),
             frame_support::error::BadOrigin
         );
+    });
+}
+
+// ── set_reward_vault ─────────────────────────────────────────────────────────
+
+#[test]
+fn set_reward_vault_works_for_root() {
+    new_test_ext().execute_with(|| {
+        assert!(RewardVault::<Runtime>::get().is_none());
+        assert_ok!(crate::Pallet::<Runtime>::set_reward_vault(
+            frame_system::RawOrigin::Root.into(),
+            VAULT
+        ));
+        assert_eq!(RewardVault::<Runtime>::get(), Some(VAULT));
+    });
+}
+
+#[test]
+fn set_reward_vault_rejects_non_root() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            crate::Pallet::<Runtime>::set_reward_vault(
+                frame_system::RawOrigin::Signed(alice()).into(),
+                VAULT
+            ),
+            frame_support::error::BadOrigin
+        );
+        assert!(RewardVault::<Runtime>::get().is_none());
+    });
+}
+
+#[test]
+fn set_reward_vault_emits_event() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(crate::Pallet::<Runtime>::set_reward_vault(
+            frame_system::RawOrigin::Root.into(),
+            VAULT
+        ));
+        let events = System::events();
+        assert!(
+            events.iter().any(|e| matches!(
+                e.event,
+                RuntimeEvent::AttestCoinRewards(crate::pallet::Event::RewardVaultSet {
+                    vault
+                }) if vault == VAULT
+            )),
+            "should emit RewardVaultSet"
+        );
+    });
+}
+
+/// The vault is replaceable without a runtime upgrade — rotating to a redeployed vault after an
+/// incident is the scenario the split treasury design exists to serve.
+#[test]
+fn set_reward_vault_overwrites_previous_vault() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(crate::Pallet::<Runtime>::set_reward_vault(
+            frame_system::RawOrigin::Root.into(),
+            VAULT
+        ));
+        let replacement = H160::repeat_byte(0x77);
+        assert_ok!(crate::Pallet::<Runtime>::set_reward_vault(
+            frame_system::RawOrigin::Root.into(),
+            replacement
+        ));
+        assert_eq!(RewardVault::<Runtime>::get(), Some(replacement));
+    });
+}
+
+/// The precompile reads the vault through this accessor rather than touching storage directly.
+#[test]
+fn reward_vault_accessor_mirrors_storage() {
+    new_test_ext().execute_with(|| {
+        assert!(crate::Pallet::<Runtime>::reward_vault().is_none());
+        assert_ok!(crate::Pallet::<Runtime>::set_reward_vault(
+            frame_system::RawOrigin::Root.into(),
+            VAULT
+        ));
+        assert_eq!(crate::Pallet::<Runtime>::reward_vault(), Some(VAULT));
+    });
+}
+
+/// The reward vault and the ERC-20 are independent governance knobs: setting one must not
+/// disturb the other. Their coupling on one balance is what the split design removes.
+#[test]
+fn reward_vault_and_erc20_are_independent() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(crate::Pallet::<Runtime>::set_attest_coin_token(
+            frame_system::RawOrigin::Root.into(),
+            ERC20
+        ));
+        assert_ok!(crate::Pallet::<Runtime>::set_reward_vault(
+            frame_system::RawOrigin::Root.into(),
+            VAULT
+        ));
+        assert_eq!(AttestCoinErc20::<Runtime>::get(), Some(ERC20));
+        assert_eq!(RewardVault::<Runtime>::get(), Some(VAULT));
     });
 }
 

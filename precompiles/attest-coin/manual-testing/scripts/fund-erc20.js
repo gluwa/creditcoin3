@@ -8,7 +8,9 @@
 // used. Only the CTC half of step 5 is a sudo operation.
 //
 // Usage:
-//   node scripts/fund-erc20.js precompile 10000     # the precompile's ERC-20 treasury
+//   node scripts/fund-erc20.js vault 10000          # the treasury vault, which pays reward claims
+//   node scripts/fund-erc20.js precompile 10000     # bond-bridge backing; only needed to repair
+//                                                   # a reused chain (see README step 5.1)
 //   node scripts/fund-erc20.js 0x<address> 100      # e.g. the attestor stash
 //
 // Amounts are whole ATC; the script applies the token's 18 decimals.
@@ -32,19 +34,35 @@ const ATTEST_COIN_PRECOMPILE = '0x0000000000000000000000000000000000000fd5';
 const RPC_URL = process.env.CC3_RPC_URL || 'http://127.0.0.1:9944';
 const DEPLOYER_PRIVATE_KEY = process.env.DEPLOYER_PRIVATE_KEY;
 const TOKEN_ADDRESS = process.env.ATTESTCOIN_ERC20;
+const VAULT_ADDRESS = process.env.ATTESTCOIN_VAULT;
 
-const USAGE = `usage: node scripts/fund-erc20.js <precompile|0xADDRESS> <whole-ATC>
+const USAGE = `usage: node scripts/fund-erc20.js <vault|precompile|0xADDRESS> <whole-ATC>
 
+  node scripts/fund-erc20.js vault 10000
   node scripts/fund-erc20.js precompile 10000
   node scripts/fund-erc20.js 0x1234...cdef 100`;
 
-/** Accept the `precompile` alias so nobody has to memorise 0x…0fd5. */
+/**
+ * Accept the `precompile` and `vault` aliases so nobody has to memorise 0x…0fd5 or paste the
+ * deployed vault address. They fund two different obligations: the vault pays reward claims, and
+ * the precompile's own balance backs bonded pallet-assets attest coin for `deposit`/`withdraw`.
+ * Only the vault needs pre-funding — bridge backing is self-funding via `deposit`, so the
+ * `precompile` alias is a repair tool for a reused chain, not a routine step.
+ */
 function resolveTarget(arg) {
     if (arg.toLowerCase() === 'precompile') {
         return ethers.getAddress(ATTEST_COIN_PRECOMPILE);
     }
+    if (arg.toLowerCase() === 'vault') {
+        if (!VAULT_ADDRESS) {
+            throw new Error(
+                'ATTESTCOIN_VAULT is not set in .env — run step 4b (deploy-vault.js) first',
+            );
+        }
+        return ethers.getAddress(VAULT_ADDRESS);
+    }
     if (!ethers.isAddress(arg)) {
-        throw new Error(`"${arg}" is not an EVM address (or the "precompile" alias)\n\n${USAGE}`);
+        throw new Error(`"${arg}" is not an EVM address (or the "vault"/"precompile" alias)\n\n${USAGE}`);
     }
     return ethers.getAddress(arg);
 }
@@ -100,9 +118,13 @@ async function main() {
     console.log(`RPC          ${RPC_URL} (evm chain id ${network.chainId})`);
     console.log(`token        ${TOKEN_ADDRESS}`);
     console.log(`minter       ${minter.address}`);
-    console.log(
-        `target       ${target}${target === ethers.getAddress(ATTEST_COIN_PRECOMPILE) ? '  (attest-coin precompile)' : ''}`,
-    );
+    let targetLabel = '';
+    if (target === ethers.getAddress(ATTEST_COIN_PRECOMPILE)) {
+        targetLabel = '  (attest-coin precompile — bond-bridge backing)';
+    } else if (VAULT_ADDRESS && target === ethers.getAddress(VAULT_ADDRESS)) {
+        targetLabel = '  (treasury vault — reward claims)';
+    }
+    console.log(`target       ${target}${targetLabel}`);
     console.log(`balance      ${ethers.formatUnits(before, 18)} ATC`);
 
     const receipt = await (await token.mint(target, amount)).wait();
