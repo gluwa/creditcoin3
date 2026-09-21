@@ -30,6 +30,9 @@ use serde::{Deserialize, Serialize};
 /// cross-check the file's provenance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct CursorRecord {
+    /// Version marker: false/absent is the legacy single-Outbox scanner.
+    #[serde(default)]
+    all_outboxes: bool,
     /// Highest Creditcoin L1 block fully scanned for `MessagePublished` (inclusive).
     last_seen_block: u64,
     /// Outbox address the cursor was advanced against.
@@ -64,6 +67,8 @@ pub fn ensure_writable(dir: &Path) -> Result<()> {
 /// durable position and [`save`](Self::save) advances it.
 #[derive(Clone, Debug)]
 pub struct CursorStore {
+    all_outboxes: bool,
+    migration_floor: u64,
     path: PathBuf,
     outbox: Address,
     chain_key: u64,
@@ -84,10 +89,28 @@ impl CursorStore {
     #[must_use]
     pub fn new(dir: &Path, chain_key: u64, outbox: Address) -> Self {
         Self {
+            all_outboxes: false,
+            migration_floor: 0,
             path: dir.join(format!("outbox-cursor-{chain_key}.json")),
             outbox,
             chain_key,
         }
+    }
+
+    /// A single cursor covers every Outbox because the entire source-block range is scanned and
+    /// historically authenticated before it advances. A default/registry change cannot reset it.
+    #[must_use]
+    pub fn for_all_outboxes(dir: &Path, chain_key: u64, start_block: Option<u64>) -> Self {
+        Self {
+            all_outboxes: true,
+            migration_floor: start_block.unwrap_or(0).saturating_sub(1),
+            ..Self::new(dir, chain_key, Address::ZERO)
+        }
+    }
+
+    /// Explicit operator floor used during migration and restart lookback. Zero means no floor.
+    pub(super) fn scan_floor(&self) -> u64 {
+        self.migration_floor
     }
 
     /// The file this store reads and writes (for logging).
@@ -127,7 +150,18 @@ impl CursorStore {
                 return None;
             }
         };
-        if record.outbox != self.outbox {
+        if record.chain_key != self.chain_key {
+            tracing::warn!(path = %self.path.display(), "persisted cursor belongs to another chain");
+            return None;
+        }
+        if self.all_outboxes && !record.all_outboxes {
+            // The previous scanner skipped every non-default Outbox, so its progress does not
+            // certify that any historical range was completely scanned. Replay once on upgrade;
+            // never seed from the current head and silently discard downtime/rotation messages.
+            tracing::info!(path = %self.path.display(), "migrating single-Outbox cursor: replaying all authorized history");
+            return Some(self.migration_floor);
+        }
+        if record.all_outboxes != self.all_outboxes || record.outbox != self.outbox {
             tracing::warn!(
                 path = %self.path.display(),
                 persisted = %record.outbox,
@@ -144,6 +178,7 @@ impl CursorStore {
     /// leave a torn cursor — a reader sees either the old value or the new one, never a partial file.
     pub fn save(&self, last_seen: u64) -> Result<()> {
         let record = CursorRecord {
+            all_outboxes: self.all_outboxes,
             last_seen_block: last_seen,
             outbox: self.outbox,
             chain_key: self.chain_key,
@@ -266,5 +301,44 @@ mod tests {
         // No probe file should linger after the check.
         let leftover: Vec<_> = std::fs::read_dir(&nested).unwrap().collect();
         assert!(leftover.is_empty(), "probe file must be cleaned up");
+    }
+    #[test]
+    fn single_outbox_cursor_upgrade_replays_all_history_once() {
+        let dir = TmpDir::new("migrate-all");
+        CursorStore::new(dir.path(), 7, outbox())
+            .save(9000)
+            .unwrap();
+        let store = CursorStore::for_all_outboxes(dir.path(), 7, None);
+        assert_eq!(
+            store.load(),
+            Some(0),
+            "old progress did not cover other Outboxes"
+        );
+        store.save(2000).unwrap();
+        assert_eq!(
+            CursorStore::for_all_outboxes(dir.path(), 7, None).load(),
+            Some(2000)
+        );
+    }
+
+    #[test]
+    fn cursor_rejects_wrong_chain_even_when_address_matches() {
+        let dir = TmpDir::new("wrong-chain");
+        let store = CursorStore::for_all_outboxes(dir.path(), 7, None);
+        store.save(9000).unwrap();
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(store.path()).unwrap()).unwrap();
+        record["chain_key"] = 8.into();
+        std::fs::write(store.path(), serde_json::to_vec(&record).unwrap()).unwrap();
+        assert_eq!(store.load(), None);
+    }
+    #[test]
+    fn migration_honors_explicit_start_before_runtime_support() {
+        let dir = TmpDir::new("migration-floor");
+        CursorStore::new(dir.path(), 7, outbox())
+            .save(9000)
+            .unwrap();
+        let store = CursorStore::for_all_outboxes(dir.path(), 7, Some(4000));
+        assert_eq!(store.load(), Some(3999));
     }
 }

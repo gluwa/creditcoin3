@@ -1,7 +1,11 @@
 //! Creditcoin L1 Outbox event listener (confluence §7.3 A3 / §6.8).
 //!
-//! Polls `eth_getLogs` for `MessagePublished` on the resolved Outbox and emits an
-//! [`IndexedMessage`] (with the canonical `messageHash` already computed) for each finalized event.
+//! Polls `eth_getLogs` for candidate `MessagePublished` events, authenticates each emitter against
+//! Discovery at its finalized source block, and emits an [`IndexedMessage`] with its canonical hash.
+//! Every registered Outbox is covered by the same durable block cursor, independent of defaults.
+//! Historical `eth_call` support is required; unavailable history stops progress rather than
+//! dropping messages or trusting the permissionless factory. Authority is evaluated at block end,
+//! matching Discovery's source-block removal boundaries (the effective block is excluded).
 //!
 //! Finality: the Outbox lives on Creditcoin L1, which has deterministic GRANDPA finality, so events
 //! are surfaced up to the **finalized head** ([`FinalityPolicy::Finalized`]) — a finalized block
@@ -10,13 +14,14 @@
 //! Polling (rather than `eth_subscribe`) avoids the silent-stream-stall failure mode, matching the
 //! relayer.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::time::{Duration, Instant};
 
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::rpc::types::{BlockTransactionsKind, Filter};
+use alloy::rpc::types::{BlockTransactionsKind, Filter, Log};
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 use tokio::sync::{mpsc, watch};
@@ -26,7 +31,7 @@ use write_ability::abi::IOutbox;
 use write_ability::hash::message_hash;
 
 use super::cursor::CursorStore;
-use super::resolver::ResolvedOutbox;
+use super::resolver::{self, ResolvedRoute};
 
 /// Poll cadence for `eth_getLogs`.
 pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 6;
@@ -142,12 +147,11 @@ pub struct IndexedMessage {
     pub message_id: B256,
     /// The dApp that published the message (`MessagePublished.emitterAddress`) — **not** the Outbox.
     pub emitter: Address,
-    /// Outbox this was observed on. Carried so a consumer can tell whether the message still belongs
-    /// to the active Outbox: on a governance/factory rotation the old listener is aborted, but
-    /// messages it already queued stay buffered in the channel and would otherwise be signed against
-    /// a superseded Outbox. `message_hash` is Outbox-independent, so provenance cannot be recovered
-    /// from it downstream.
+    /// Actual Outbox that emitted the message, authenticated at its finalized source block.
     pub outbox: Address,
+    /// Signing domain captured when this message was indexed. A governance key change must not
+    /// permit a buffered message from the previous route to be signed under the new configuration.
+    pub destination_chain_key: B256,
     pub payload: Vec<u8>,
     /// `keccak256(abi.encode(...))` — the digest the attestor signs (PoC §5.2).
     pub message_hash: B256,
@@ -168,7 +172,7 @@ fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
     }
 }
 
-/// Watch the resolved Outbox until `token` fires. Sends each finalized message on `tx`.
+/// Watch every historically authorized Outbox for the route until `token` fires. Sends each finalized message on `tx`.
 ///
 /// `cursor` persists the scan position (`last_seen`) across restarts: on boot the persisted value
 /// is preferred over `start_block`/head so a restart resumes exactly where it left off, and after
@@ -187,7 +191,7 @@ fn next_failure_count(prev: u32, poll_ok: bool, made_progress: bool) -> u32 {
 pub async fn watch<P, R, Fut>(
     shared_provider: watch::Sender<P>,
     reconnect: R,
-    resolved: ResolvedOutbox,
+    resolved: ResolvedRoute,
     _block_confirmation_depth: u64,
     start_block: Option<u64>,
     cursor: CursorStore,
@@ -199,6 +203,13 @@ where
     R: Fn() -> Fut,
     Fut: Future<Output = Result<P>>,
 {
+    tracing::warn!(
+        chain_key = resolved.chain_key,
+        "Outbox authorization requires archive state and historical eth_call for the entire \
+         scan and recovery range, including the chain-info precompile and Discovery registry; \
+         unavailable history pauses the affected range. Before migrating a legacy cursor, \
+         configure start_block or expect a replay from genesis"
+    );
     // Local handle for the hot path; the channel is only touched on a rebuild. Cloning an alloy
     // provider is an `Arc` bump. Start from whatever is current, which after a rotation re-spawn
     // may already be a rebuilt connection rather than the boot-time one.
@@ -226,7 +237,9 @@ where
         let clamped = persisted.min(head);
         // Rewind by a bounded lookback so a crash between enqueuing a range's votes and gossiping them
         // re-scans that window (at-least-once; downstream dedups). See CURSOR_RESUME_LOOKBACK_BLOCKS.
-        let resume = clamped.saturating_sub(CURSOR_RESUME_LOOKBACK_BLOCKS);
+        let resume = clamped
+            .saturating_sub(CURSOR_RESUME_LOOKBACK_BLOCKS)
+            .max(cursor.scan_floor());
         tracing::info!(
             persisted,
             head,
@@ -262,7 +275,7 @@ where
     let mut finality = FinalityTracker::new(Instant::now());
 
     tracing::info!(
-        outbox = %resolved.address,
+        chain_key = resolved.chain_key,
         ?resolved.destination_chain_key,
         creditcoin_chain_id = resolved.creditcoin_chain_id,
         "📡 message-attestation Outbox listener online (signing finalized head only)"
@@ -393,7 +406,7 @@ where
 /// [`watch`] loop) so the anvil e2e test can drive polling deterministically.
 pub async fn poll_once<P: Provider>(
     provider: &P,
-    resolved: &ResolvedOutbox,
+    resolved: &ResolvedRoute,
     policy: &FinalityPolicy,
     finality: &mut FinalityTracker,
     last_seen: &mut u64,
@@ -451,13 +464,127 @@ pub async fn poll_once<P: Provider>(
     // wide gap keeps everything already scanned, and a retry/restart resumes from there rather than
     // re-attempting (or skipping) the whole span.
     let mut from_block = *last_seen + 1;
+    let mut span = MAX_LOG_BLOCK_RANGE;
     while from_block <= to_block {
-        let chunk_to = to_block.min(from_block + MAX_LOG_BLOCK_RANGE - 1);
-        scan_range(provider, resolved, from_block, chunk_to, tx).await?;
-        *last_seen = chunk_to;
-        from_block = chunk_to + 1;
+        let chunk_to = to_block.min(from_block.saturating_add(span - 1));
+        match scan_range(provider, resolved, from_block, chunk_to, tx).await {
+            Ok(()) => {
+                *last_seen = chunk_to;
+                from_block = chunk_to + 1;
+                // Grow back after a successful chunk so one dense prefix does not turn the rest
+                // of a wide backfill into a crawl of tiny queries (bugbot). Doubling rather than
+                // snapping to the maximum keeps a still-dense region from paying a failed
+                // oversized query on every step.
+                span = span.saturating_mul(2).min(MAX_LOG_BLOCK_RANGE);
+            }
+            Err(err) if err.is::<LogRangeTooLarge>() => {
+                // Process and persist each smaller prefix before fetching the next. Collecting
+                // every split result into a single original-range Vec would let spam bypass the
+                // provider's cap into unbounded memory growth across thousands of source blocks.
+                span = (chunk_to - from_block).div_ceil(2);
+            }
+            Err(err) => return Err(err),
+        }
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct LogRangeTooLarge;
+impl std::fmt::Display for LogRangeTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("source log range exceeds the provider result limit")
+    }
+}
+impl std::error::Error for LogRangeTooLarge {}
+
+/// Fetch one bounded candidate range. The caller shrinks a capped multi-block range and drains
+/// each successful prefix before continuing. A single block uses receipts, avoiding a permanent
+/// stall on unauthorized spam while keeping the fallback bounded to one source block.
+pub(super) async fn fetch_message_logs<P: Provider>(
+    provider: &P,
+    from_block: u64,
+    to_block: u64,
+    message_id: Option<B256>,
+) -> Result<Vec<Log>> {
+    let mut filter = Filter::new()
+        .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
+        .from_block(from_block)
+        .to_block(to_block);
+    if let Some(id) = message_id {
+        filter = filter.topic1(id);
+    }
+    match tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
+        .await
+        .context("eth_getLogs timed out")?
+    {
+        Ok(found) => Ok(found),
+        Err(err) if log_limit_error(&err.to_string()) && from_block < to_block => {
+            Err(LogRangeTooLarge.into())
+        }
+        Err(err) if log_limit_error(&err.to_string()) => {
+            message_logs_from_receipts(provider, from_block, message_id).await
+        }
+        Err(err) => Err(err).context("eth_getLogs failed"),
+    }
+}
+
+fn log_limit_error(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    // Frontier's max_past_logs error, plus common hosted-provider equivalents.
+    message.contains("query returned more than")
+        || message.contains("too many results")
+        || message.contains("too many logs")
+        || message.contains("log response size exceeded")
+}
+
+async fn message_logs_from_receipts<P: Provider>(
+    provider: &P,
+    number: u64,
+    message_id: Option<B256>,
+) -> Result<Vec<Log>> {
+    let block = tokio::time::timeout(
+        RPC_TIMEOUT,
+        provider.get_block_by_number(
+            BlockNumberOrTag::Number(number),
+            BlockTransactionsKind::Hashes,
+        ),
+    )
+    .await
+    .context("receipt fallback block lookup timed out")??
+    .context("receipt fallback block missing")?;
+    anyhow::ensure!(
+        block.header.number == number,
+        "receipt fallback returned the wrong block"
+    );
+    let mut logs = Vec::new();
+    for hash in block.transactions.hashes() {
+        let receipt = tokio::time::timeout(RPC_TIMEOUT, provider.get_transaction_receipt(hash))
+            .await
+            .context("receipt fallback lookup timed out")??
+            .context("receipt fallback transaction receipt missing")?;
+        anyhow::ensure!(
+            receipt.transaction_hash == hash
+                && receipt.block_number == Some(number)
+                && receipt.block_hash == Some(block.header.hash),
+            "receipt fallback returned inconsistent provenance"
+        );
+        for log in receipt.inner.logs() {
+            anyhow::ensure!(
+                log.block_number == Some(number)
+                    && log.block_hash == receipt.block_hash
+                    && log.transaction_hash == Some(hash)
+                    && !log.removed,
+                "receipt fallback log has inconsistent provenance"
+            );
+            if log.topic0() == Some(&IOutbox::MessagePublished::SIGNATURE_HASH)
+                && message_id.is_none_or(|id| log.topics().get(1) == Some(&id))
+            {
+                logs.push(log.clone());
+            }
+        }
+    }
+    Ok(logs)
 }
 
 /// Fetch + index `MessagePublished` logs in the inclusive block range `[from_block, to_block]`.
@@ -465,23 +592,57 @@ pub async fn poll_once<P: Provider>(
 /// decode error, so the exact range is retried rather than stepped over.
 async fn scan_range<P: Provider>(
     provider: &P,
-    resolved: &ResolvedOutbox,
+    resolved: &ResolvedRoute,
     from_block: u64,
     to_block: u64,
     tx: &mpsc::Sender<IndexedMessage>,
 ) -> Result<()> {
-    let filter = Filter::new()
-        .address(resolved.address)
-        .event_signature(IOutbox::MessagePublished::SIGNATURE_HASH)
-        .from_block(from_block)
-        .to_block(to_block);
+    let logs = fetch_message_logs(provider, from_block, to_block, None).await?;
 
-    let logs = tokio::time::timeout(RPC_TIMEOUT, provider.get_logs(&filter))
-        .await
-        .with_context(|| format!("eth_getLogs from {from_block} to {to_block} timed out"))?
-        .with_context(|| format!("eth_getLogs from {from_block} to {to_block} failed"))?;
-
+    // Cache only within this bounded chunk, and key every decision by its historical block.
+    // Querying all candidate emitters avoids missing an Outbox's complete registration/removal
+    // lifecycle between polls, or an old Discovery registry replaced during downtime.
+    let mut discoveries = HashMap::new();
+    let mut memberships = HashMap::new();
     for log in logs {
+        let block = log
+            .block_number
+            .context("MessagePublished has no block number")?;
+        anyhow::ensure!(
+            !log.removed && (from_block..=to_block).contains(&block),
+            "MessagePublished is removed or outside the requested finalized range"
+        );
+        let discovery = match discoveries.get(&block) {
+            Some(discovery) => *discovery,
+            None => {
+                let discovery = tokio::time::timeout(
+                    RPC_TIMEOUT,
+                    resolver::discovery_at(provider, resolved, block),
+                )
+                .await
+                .context("historical Discovery lookup timed out")??;
+                discoveries.insert(block, discovery);
+                discovery
+            }
+        };
+        let Some(discovery) = discovery else { continue };
+        let outbox = log.address();
+        let authorized = match memberships.get(&(block, outbox)) {
+            Some(authorized) => *authorized,
+            None => {
+                let authorized = tokio::time::timeout(
+                    RPC_TIMEOUT,
+                    resolver::authorized_at(provider, resolved, discovery, outbox, block),
+                )
+                .await
+                .context("historical Outbox membership lookup timed out")??;
+                memberships.insert((block, outbox), authorized);
+                authorized
+            }
+        };
+        if !authorized {
+            continue;
+        }
         match IOutbox::MessagePublished::decode_log(&log.inner, true) {
             Ok(decoded) => {
                 let payload = decoded.data.payload.to_vec();
@@ -493,7 +654,7 @@ async fn scan_range<P: Provider>(
                 let hash = message_hash(
                     decoded.data.messageId,
                     emitter,
-                    resolved.address,
+                    outbox,
                     resolved.destination_chain_key,
                     resolved.creditcoin_chain_id,
                     &payload,
@@ -501,7 +662,8 @@ async fn scan_range<P: Provider>(
                 let indexed = IndexedMessage {
                     message_id: decoded.data.messageId,
                     emitter,
-                    outbox: resolved.address,
+                    outbox,
+                    destination_chain_key: resolved.destination_chain_key,
                     payload,
                     message_hash: hash,
                 };
@@ -601,9 +763,9 @@ pub(super) mod test_rpc {
             self.state.lock().finalized_response = json!({"result": block});
         }
 
-        pub fn resolved() -> ResolvedOutbox {
-            ResolvedOutbox {
-                address: Address::repeat_byte(1),
+        pub fn resolved() -> ResolvedRoute {
+            ResolvedRoute {
+                chain_key: 1,
                 destination_chain_key: B256::repeat_byte(2),
                 creditcoin_chain_id: 102030,
             }
