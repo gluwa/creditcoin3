@@ -144,7 +144,10 @@ jobs:
           chmod a+x ./target/release/creditcoin3-node ./target/release/attestor* ./target/release/message-relayer ./target/release/proof-gen-api-server
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
+        with:
+          # Previously unpinned (latest); pinned to the repo-wide v1.5.1 — see the action.
+          version: v1.5.1
 
       - name: Install Node.js
         uses: actions/setup-node@v6

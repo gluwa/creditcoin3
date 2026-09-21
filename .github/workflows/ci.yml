@@ -290,7 +290,7 @@ jobs:
           ls -lh
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1046,7 +1046,7 @@ jobs:
             --base-path ./alice-data >/var/tmp/integration-test-blockchain/creditcoin3-node.log 2>&1 &
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1264,7 +1264,7 @@ jobs:
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1407,7 +1407,7 @@ jobs:
             --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1639,7 +1639,7 @@ jobs:
           ./.github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -1987,7 +1987,7 @@ jobs:
             --base-path ./alice-data >/var/tmp/archiver-testing/creditcoin3-node.log 2>&1 &
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
