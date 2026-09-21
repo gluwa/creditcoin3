@@ -741,10 +741,14 @@ jobs:
         run: |
           # This test deliberately restarts the eth (anvil) WebSocket node to exercise recovery,
           # so the archiver logs "connection reset by peer" / "connection refused" as it drops and
-          # reconnects — benign, expected transport noise. Two sources emit it during that window:
-          #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub; and
+          # reconnects — benign, expected transport noise. Several sources emit it during that window:
+          #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub;
           #   * stream_eth's reconnect path, which logs "Eth connection error" wrapping the same
-          #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)".
+          #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)";
+          #     and
+          #   * archiver's own root-stream reconnect loop (main.rs), which retries
+          #     `eth::Client::new` on a backoff and logs each failed attempt as "failed to connect
+          #     WS client: ..." wrapping the same underlying IO error while anvil is still down.
           # Killing anvil mid-connection also surfaces one step *above* the socket layer: when the
           # peer vanishes without sending a WS close frame, tungstenite reports the protocol error
           # "Connection reset without closing handshake" instead of a raw os error, and
@@ -756,7 +760,7 @@ jobs:
           # everywhere else (e.g. the archiver-testing job, which never restarts eth). Any other
           # error from those sources still fails the gate; functional correctness is asserted
           # separately (checkpoint compare).
-          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|failed to connect WS client).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
       - name: Check attestor logs for errors
