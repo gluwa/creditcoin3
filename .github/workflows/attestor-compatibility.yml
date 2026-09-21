@@ -176,6 +176,15 @@ jobs:
       # (each with their own logs/ subdir for per-attestor structured JSON logs).
       LOG_DIR: /var/tmp/attestor-compatibility
       DATA_DIR: /var/tmp/attestor-compatibility-data
+      # Log lines that mean an attestor cannot work against the current runtime.
+      # Benign, transient ERROR lines (e.g. "Invalid attestation continuity chain
+      # tail digest", which healthy SUT attestors emit during catch-up) are
+      # deliberately absent. Shared by the registration wait, which fails fast on
+      # a hit, and by the log scan that runs at the end of the job.
+      #   not compatible with the node / Metadata error  - subxt metadata mismatch
+      #   pallet metadata mismatch                       - attestor startup guard
+      #   Validation worker failure / Worker thread error / panicked
+      ATTESTOR_FATAL_PATTERN: 'not compatible with the node|Metadata error|pallet metadata mismatch|Validation worker failure|Worker thread error|panicked'
     steps:
       - uses: actions/checkout@v7
 
@@ -465,10 +474,29 @@ jobs:
             esac
           }
 
+          # An attestor that refuses to start never registers, so sitting out the
+          # full timeout only delays the same failure by 20 minutes. The failure
+          # is printed by the zombienet wrapper on its own stderr - before the
+          # attestor writes a single JSON log line - so the wrapper logs are the
+          # ones to watch here.
+          fail_fast_on_fatal() {
+            local hits log
+            hits=$(grep -El "${ATTESTOR_FATAL_PATTERN}" "${LOG_DIR}"/zombienet-*.log 2>/dev/null || true)
+            [ -n "${hits}" ] || return 0
+            echo "ERROR: an attestor hit a fatal/incompatibility error and will never register:" >&2
+            for log in ${hits}; do
+              echo "--- ${log}" >&2
+              grep -E "${ATTESTOR_FATAL_PATTERN}" "${log}" >&2
+            done
+            exit 1
+          }
+
           COUNT=0
           COUNTER=0
           MAX_ATTEMPTS=40  # up to 20 min (40 × 30s)
           while [ "${COUNTER}" -lt "${MAX_ATTEMPTS}" ]; do
+            fail_fast_on_fatal
+
             HEX=$(curl --silent \
               -H 'Content-Type: application/json' \
               -d "{\"id\":\"1\",\"jsonrpc\":\"2.0\",\"method\":\"state_getStorage\",\"params\":[\"${STORAGE_KEY}\"]}" \
@@ -607,26 +635,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Attestor JSON logs contain some benign, transient ERROR lines that
-          # show up even on the current (SUT) attestors and therefore do NOT
-          # indicate a version incompatibility, e.g.:
-          #   "Invalid attestation continuity chain tail digest" (attestation
-          #    catch-up race; seen on healthy SUT attestors too)
-          # We ignore those and only fail on signals that mean an attestor could
-          # not actually work against the current runtime:
-          #   - "not compatible with the node"  (subxt metadata mismatch)
-          #   - "Metadata error"
-          #   - "Validation worker failure" / "Worker thread error"
-          #   - "panicked"
-          FATAL_PATTERN='not compatible with the node|Metadata error|Validation worker failure|Worker thread error|panicked'
-
+          # ATTESTOR_FATAL_PATTERN (job env) holds the signals that mean an
+          # attestor could not work against the current runtime, and leaves out
+          # the benign transient ERROR lines healthy SUT attestors also emit.
+          #
+          # Both the per-attestor JSON logs and the zombienet wrapper logs are
+          # scanned: a startup failure kills the attestor before it opens a JSON
+          # log, so it is only ever reported on the wrapper's stderr.
           FAIL=0
           # shellcheck disable=SC2044
-          for LOG in $(find "${LOG_DIR}" -type f -name 'attestor-zombie-*.json.*'); do
-            if grep -Eq "${FATAL_PATTERN}" "${LOG}"; then
+          for LOG in $(find "${LOG_DIR}" -type f \
+                         \( -name 'attestor-zombie-*.json.*' -o -name 'zombienet-*.log' \)); do
+            if grep -Eq "${ATTESTOR_FATAL_PATTERN}" "${LOG}"; then
               echo "FAIL: fatal/incompatibility error in ${LOG}" >&2
               echo "======" >&2
-              grep -E "${FATAL_PATTERN}" "${LOG}" >&2
+              grep -E "${ATTESTOR_FATAL_PATTERN}" "${LOG}" >&2
               echo "======" >&2
               FAIL=1
             else
