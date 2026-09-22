@@ -1089,6 +1089,129 @@ fn find_highest_attested_before_finds_checkpoint_beyond_old_fixed_ceiling() {
         });
 }
 
+// Review (BradleyOlson64, #1280): the downward walks stop at the chain's attestation genesis.
+// Checkpoints cannot exist below it, so every bucket between the genesis and block 0 is
+// known-empty and walking them only charges the caller. Costs are asserted exactly so the walk
+// length is pinned: 3 fixed lookups (chain supported, last checkpoint, genesis floor) plus one
+// per bucket from the target's bucket down to the genesis bucket inclusive.
+const GENESIS_FLOOR_TEST_GENESIS: u64 = 50_000;
+const GENESIS_FLOOR_TEST_TARGET: u64 = 60_000;
+/// Buckets 59_000, 58_000, ..., 50_000.
+const GENESIS_FLOOR_TEST_BUCKETS_WALKED: u64 = 10;
+
+fn set_genesis_and_last_checkpoint_above_target() {
+    pallet_attestation::AttestationChainGenesisBlockNumber::<Runtime>::insert(
+        SUPPORTED_CHAIN_KEY,
+        GENESIS_FLOOR_TEST_GENESIS,
+    );
+    // >= target, forces the bucket-search branch in both precompiles.
+    LastCheckpoint::<Runtime>::insert(
+        SUPPORTED_CHAIN_KEY,
+        AttestationCheckpoint {
+            block_number: GENESIS_FLOOR_TEST_TARGET + 500,
+            digest: H256::random(),
+        },
+    );
+}
+
+#[test]
+fn find_highest_attested_before_stops_walking_at_the_attestation_genesis() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            set_genesis_and_last_checkpoint_above_target();
+
+            // No checkpoint anywhere: the walk must give up at the genesis bucket, not at block 0
+            // (which would be 60 buckets, six times the cost asserted here).
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .expect_cost(crate::GAS_STORAGE_LOOKUP * (3 + GENESIS_FLOOR_TEST_BUCKETS_WALKED))
+                .execute_returns(HeightHashResult::default());
+        });
+}
+
+#[test]
+fn is_height_attested_stops_walking_at_the_attestation_genesis() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            set_genesis_and_last_checkpoint_above_target();
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::is_height_attested {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .expect_cost(crate::GAS_STORAGE_LOOKUP * (3 + GENESIS_FLOOR_TEST_BUCKETS_WALKED))
+                .execute_returns(false);
+        });
+}
+
+/// The floor is inclusive: a checkpoint sitting exactly at the attestation genesis is still found.
+#[test]
+fn find_highest_attested_before_still_finds_a_checkpoint_at_the_genesis() {
+    let alice: H160 = Alice.into();
+    let digest = H256::from_slice(&[7_u8; 32]);
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            set_genesis_and_last_checkpoint_above_target();
+            let pivot =
+                AttestationPallet::<Runtime>::compute_block_index_for(GENESIS_FLOOR_TEST_GENESIS);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, pivot, GENESIS_FLOOR_TEST_GENESIS),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, GENESIS_FLOOR_TEST_GENESIS, digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .execute_returns(HeightHashResult {
+                    height: GENESIS_FLOOR_TEST_GENESIS,
+                    hash: digest,
+                    is_attestation: false,
+                    exists: true,
+                });
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::is_height_attested {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .execute_returns(true);
+        });
+}
+
 #[test]
 fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height() {
     let alice: H160 = Alice.into();

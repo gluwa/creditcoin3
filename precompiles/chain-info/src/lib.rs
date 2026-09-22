@@ -48,8 +48,10 @@ const MAX_ATTESTATION_SCAN_ITEMS: u64 = 100_000;
 /// CHECKPOINT_BUCKET_SIZE) + 1` (the `+1` covers the partial bucket at each end).
 ///
 /// The caller is responsible for passing the span that matches the walk *direction*:
-/// - a downward walk (toward genesis) spans from `target_height` down to block 0, i.e.
-///   `span_blocks = target_height`;
+/// - a downward walk (toward genesis) spans from `target_height` down to the chain's
+///   attestation genesis (see [`downward_walk_floor`]), i.e.
+///   `span_blocks = target_height - genesis`; no checkpoint can exist below the genesis, so
+///   walking on to block 0 would only burn gas;
 /// - an upward walk (toward the chain tip) spans from `target_height` up to the last checkpoint,
 ///   i.e. `span_blocks = last_checkpoint_height - target_height`.
 ///
@@ -69,6 +71,23 @@ fn bucket_search_attempts(span_blocks: u64) -> u32 {
         .div_ceil(CHECKPOINT_BUCKET_SIZE)
         .saturating_add(1);
     buckets.try_into().unwrap_or(u32::MAX)
+}
+
+/// The lowest height a downward bucket walk for `chain_key` needs to visit: the chain's
+/// attestation genesis. Attestations, and therefore checkpoints, start there, so the buckets
+/// between it and block 0 are known-empty and walking them would only charge the caller
+/// `GAS_STORAGE_LOOKUP` per bucket for nothing. Charges one storage lookup for the read.
+fn downward_walk_floor<Runtime>(
+    handle: &mut impl PrecompileHandle,
+    chain_key: ChainKey,
+) -> EvmResult<u64>
+where
+    Runtime: pallet_attestation::Config,
+{
+    handle.record_cost(GAS_STORAGE_LOOKUP)?;
+    Ok(AttestationChainGenesisBlockNumber::<Runtime>::get(
+        chain_key,
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Codec)]
@@ -288,11 +307,14 @@ where
 
             let mut maybe_highest = None;
 
-            // This walks *downward* from `target_height - 1` toward block 0, so the span is
-            // `target_height` (a checkpoint below the target can sit anywhere down to genesis,
-            // independent of where the last checkpoint is). The loop is bounded by gas
-            // (each bucket charges `GAS_STORAGE_LOOKUP`), not an artificial attempt ceiling.
-            let attempts = bucket_search_attempts(target_height);
+            // This walks *downward* from `target_height - 1` toward the attestation genesis, so
+            // the span is `target_height - genesis` (a checkpoint below the target can sit
+            // anywhere down to the genesis, independent of where the last checkpoint is; nothing
+            // can sit below it). The loop is bounded by gas (each bucket charges
+            // `GAS_STORAGE_LOOKUP`), not an artificial attempt ceiling.
+            let genesis = downward_walk_floor::<Runtime>(handle, chain_key)?;
+            let genesis_pivot = PalletAttestationPoc::<Runtime>::compute_block_index_for(genesis);
+            let attempts = bucket_search_attempts(target_height.saturating_sub(genesis));
             for _ in 0..attempts {
                 handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
@@ -342,7 +364,10 @@ where
                     break;
                 }
 
-                // Move to the next bucket
+                // Move to the next bucket, never past the one holding the attestation genesis.
+                if block_pivot <= genesis_pivot {
+                    break;
+                }
                 block_pivot = block_pivot.saturating_sub(CHECKPOINT_BUCKET_SIZE);
             }
 
@@ -352,7 +377,7 @@ where
 
             let mut items_processed = 0_u64;
 
-            // If the target height is lower than the last checkpoint height, we first search through the attestations directly.
+            // If the target height is higher than the last checkpoint height, we first search through the attestations directly.
             let highest = if let Some(highest) = Attestations::<Runtime>::iter_prefix(chain_key)
                 // Defensive hard cap (see MAX_ATTESTATION_SCAN_ITEMS): bound the scan even if gas
                 // accounting is bypassed; far above any realistic store, so normal scans are unaffected.
@@ -558,10 +583,14 @@ where
 
                 let mut found_prev_checkpoint = false;
 
-                // This walks *downward* from `target_height - 1` toward block 0 (same direction as
-                // `find_highest_attested_before`), so the span is `target_height`, not the
-                // distance to the last checkpoint. Bounded by gas per bucket, not a fixed ceiling.
-                let attempts = bucket_search_attempts(target_height);
+                // This walks *downward* from `target_height - 1` toward the attestation genesis
+                // (same direction and floor as `find_highest_attested_before`), so the span is
+                // `target_height - genesis`, not the distance to the last checkpoint. Bounded by
+                // gas per bucket, not a fixed ceiling.
+                let genesis = downward_walk_floor::<Runtime>(handle, chain_key)?;
+                let genesis_pivot =
+                    PalletAttestationPoc::<Runtime>::compute_block_index_for(genesis);
+                let attempts = bucket_search_attempts(target_height.saturating_sub(genesis));
                 for _ in 0..attempts {
                     handle.record_cost(GAS_STORAGE_LOOKUP)?;
 
@@ -580,7 +609,10 @@ where
                         break;
                     }
 
-                    // Move to the next bucket
+                    // Move to the next bucket, never past the one holding the attestation genesis.
+                    if block_pivot <= genesis_pivot {
+                        break;
+                    }
                     block_pivot = block_pivot.saturating_sub(CHECKPOINT_BUCKET_SIZE);
                 }
 
