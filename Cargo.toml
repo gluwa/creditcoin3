@@ -289,8 +289,8 @@ pallet-randomness = { path = "pallets/randomness", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Encoding
-usc-abi-encoding = { version = "0.6" }
-usc-query-builder = { version = "0.8" }
+usc-abi-encoding = { version = "0.6.0" }
+usc-query-builder = { version = "0.8.0" }
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }
@@ -360,13 +360,6 @@ stream_eth = { path = "common/streams/eth" }
 stream_util = { path = "common/streams/util" }
 sysinfo = { version = "0.37.2" }
 utils = { path = "common/utils", default-features = false }
-
-# usc-abi-encoding 0.6 / usc-query-builder 0.8 are the alloy-1.6 ports of the USC SDK. They are
-# not on crates.io yet, so resolve them from the branch that carries the port. Drop this stanza
-# once gluwa/usc-sdk-rs#update_dependencies is merged and released.
-[patch.crates-io]
-usc-abi-encoding = { git = "https://github.com/gluwa/usc-sdk-rs", branch = "update_dependencies" }
-usc-query-builder = { git = "https://github.com/gluwa/usc-sdk-rs", branch = "update_dependencies" }
 
 [profile.release]
 # Substrate runtime requires unwinding.
