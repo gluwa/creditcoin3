@@ -741,10 +741,14 @@ jobs:
         run: |
           # This test deliberately restarts the eth (anvil) WebSocket node to exercise recovery,
           # so the archiver logs "connection reset by peer" / "connection refused" as it drops and
-          # reconnects — benign, expected transport noise. Two sources emit it during that window:
-          #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub; and
+          # reconnects — benign, expected transport noise. Several sources emit it during that window:
+          #   * the alloy WS consumer itself, under alloy_transport_ws / alloy_pubsub;
           #   * stream_eth's reconnect path, which logs "Eth connection error" wrapping the same
-          #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)".
+          #     "IO error: Connection reset by peer (os error 104)" / "... refused (os error 111)";
+          #     and
+          #   * archiver's own root-stream reconnect loop (main.rs), which retries
+          #     `eth::Client::new` on a backoff and logs each failed attempt as "failed to connect
+          #     WS client: ..." wrapping the same underlying IO error while anvil is still down.
           # Killing anvil mid-connection also surfaces one step *above* the socket layer: when the
           # peer vanishes without sending a WS close frame, tungstenite reports the protocol error
           # "Connection reset without closing handshake" instead of a raw os error, and
@@ -756,7 +760,7 @@ jobs:
           # everywhere else (e.g. the archiver-testing job, which never restarts eth). Any other
           # error from those sources still fails the gate; functional correctness is asserted
           # separately (checkpoint compare).
-          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|failed to connect WS client).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
       - name: Check attestor logs for errors
@@ -783,6 +787,14 @@ jobs:
           # through. It now rebuilds its provider in place at WARN level, so any ERROR carrying that
           # phrase again is a regression the gate must catch.
           ALLOWLIST='Failed to reconnect to CC3|Reconnected but at_latest failed|connection (error|lost)|Subscription error while fetching next block|Failed to start finalized-block subscription|ping failed|Outbox resolution still failing after prolonged retrying|Outbox resolution failed [0-9]+ consecutive times|Received close frame'
+          # Same family, new in alloy >=1.0: 0.11 sent keepalive pings but never tracked the
+          # reply, so an unresponsive-but-open socket went unnoticed. 1.6 added an
+          # `expecting_pong` watchdog (alloy-transport-ws native.rs:219) that errors and
+          # recycles the connection when the previous ping is unanswered after the 10s
+          # keepalive interval. Anvil and the CC3 node routinely stall past that under CI load,
+          # so the attestors log it while reconnecting normally. Scoped to the alloy transport
+          # that emits it, so the same message from anywhere else still fails the gate.
+          ALLOWLIST="$ALLOWLIST"'|WS server missed a pong.*alloy_transport_ws'
           shopt -s nullglob
           LOGS=(./logs/attestor-*.json.*)
           if [ "${#LOGS[@]}" -eq 0 ]; then

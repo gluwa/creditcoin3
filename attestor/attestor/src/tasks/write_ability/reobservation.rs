@@ -27,7 +27,6 @@ use std::time::{Duration, Instant};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::rpc::types::BlockTransactionsKind;
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 
@@ -159,7 +158,7 @@ pub async fn reobserve<P: Provider>(
     // Missing/failed reads stop before eth_getLogs; the relayer can retry after RPC recovery.
     // The legacy confirmation-depth argument is retained for caller compatibility only.
     let finalized = provider
-        .get_block_by_number(BlockNumberOrTag::Finalized, BlockTransactionsKind::Hashes)
+        .get_block_by_number(BlockNumberOrTag::Finalized)
         .await
         .context("reobservation finalized-head read failed")?
         .context("reobservation finalized head unavailable")?
@@ -206,7 +205,7 @@ pub async fn reobserve<P: Provider>(
         {
             continue;
         }
-        let Ok(decoded) = IOutbox::MessagePublished::decode_log(&log.inner, true) else {
+        let Ok(decoded) = IOutbox::MessagePublished::decode_log_validate(&log.inner) else {
             continue;
         };
         if decoded.data.messageId != requested_id {
@@ -276,7 +275,7 @@ mod tests {
         use serde_json::json;
 
         let rpc = RpcMock::start().await;
-        let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+        let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
         let resolved = RpcMock::resolved();
         let request = ReobservationRequest {
             chain_key: 1,

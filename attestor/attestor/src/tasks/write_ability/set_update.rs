@@ -126,7 +126,7 @@ async fn propose_once(
     }
 
     let provider = ProviderBuilder::new()
-        .on_builtin(dest_rpc_url)
+        .connect(dest_rpc_url)
         .await
         .map_err(|e| anyhow::anyhow!("connect destination chain RPC: {e}"))?;
     let contract = IVoteValidator::new(validator, &provider);
@@ -135,8 +135,7 @@ async fn propose_once(
         .attestors()
         .call()
         .await
-        .context("read EOAValidator.attestors()")?
-        ._0;
+        .context("read EOAValidator.attestors()")?;
     if !set_needs_update(&current, &candidate) {
         return Ok(None);
     }
@@ -145,8 +144,7 @@ async fn propose_once(
         .attestorSetUpdateNonce()
         .call()
         .await
-        .context("read EOAValidator.attestorSetUpdateNonce()")?
-        ._0;
+        .context("read EOAValidator.attestorSetUpdateNonce()")?;
     let chain_id = U256::from(
         provider
             .get_chain_id()

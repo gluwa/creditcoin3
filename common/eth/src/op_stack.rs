@@ -142,7 +142,7 @@ impl DepositTransaction {
         tx: &AnyRpcTransaction,
         receipt: DepositReceiptFields,
     ) -> Result<Self, DepositError> {
-        let unknown = match &tx.inner.inner {
+        let unknown = match &*tx.inner.inner {
             AnyTxEnvelope::Unknown(unknown) if unknown.inner.ty.0 == DEPOSIT_TX_TYPE => unknown,
             AnyTxEnvelope::Unknown(unknown) => {
                 return Err(DepositError::NotADeposit {
@@ -157,7 +157,7 @@ impl DepositTransaction {
                 })
             }
         };
-        Self::try_from_unknown(unknown, tx.inner.from, receipt)
+        Self::try_from_unknown(unknown, tx.inner.inner.signer(), receipt)
     }
 
     /// Parse a deposit from the catch-all envelope plus the RPC-level `from`.

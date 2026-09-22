@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 use alloy::primitives::{Address, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
-use alloy::rpc::types::{BlockTransactionsKind, Filter, Log};
+use alloy::rpc::types::{Filter, Log};
 use alloy::sol_types::SolEvent;
 use anyhow::{Context, Result};
 use tokio::sync::{mpsc, watch};
@@ -419,10 +419,7 @@ pub async fn poll_once<P: Provider>(
         FinalityPolicy::Finalized => {
             let block = tokio::time::timeout(
                 RPC_TIMEOUT,
-                provider.get_block_by_number(
-                    BlockNumberOrTag::Finalized,
-                    BlockTransactionsKind::Hashes,
-                ),
+                provider.get_block_by_number(BlockNumberOrTag::Finalized),
             )
             .await
             .context("finalized-head read timed out; signing paused")?
@@ -545,10 +542,7 @@ async fn message_logs_from_receipts<P: Provider>(
 ) -> Result<Vec<Log>> {
     let block = tokio::time::timeout(
         RPC_TIMEOUT,
-        provider.get_block_by_number(
-            BlockNumberOrTag::Number(number),
-            BlockTransactionsKind::Hashes,
-        ),
+        provider.get_block_by_number(BlockNumberOrTag::Number(number)),
     )
     .await
     .context("receipt fallback block lookup timed out")??
@@ -643,7 +637,7 @@ async fn scan_range<P: Provider>(
         if !authorized {
             continue;
         }
-        match IOutbox::MessagePublished::decode_log(&log.inner, true) {
+        match IOutbox::MessagePublished::decode_log_validate(&log.inner) {
             Ok(decoded) => {
                 let payload = decoded.data.payload.to_vec();
                 // `emitterAddress` is emitted as `bytes32` (cross-chain consistency); the 20-byte
@@ -913,7 +907,7 @@ mod tests {
         use alloy::providers::ProviderBuilder;
         use serde_json::json;
         let rpc = test_rpc::RpcMock::start().await;
-        let provider = ProviderBuilder::new().on_http(rpc.url.clone());
+        let provider = ProviderBuilder::new().connect_http(rpc.url.clone());
         let resolved = test_rpc::RpcMock::resolved();
         let mut finality = FinalityTracker::new(Instant::now());
         let mut last_seen = 90;
