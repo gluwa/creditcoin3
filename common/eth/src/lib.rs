@@ -25,7 +25,7 @@ use alloy::{
         },
     },
     signers::{k256::ecdsa::SigningKey, local::PrivateKeySigner},
-    transports::{http::reqwest::Url, TransportErrorKind},
+    transports::{http::reqwest::Url, ws::WebSocketConfig, TransportErrorKind},
 };
 
 use alloy::rpc::client::RpcClient as AlloyRpcClient;
@@ -783,6 +783,11 @@ pub const DEFAULT_PRIMARY_DIAL_TIMEOUT: std::time::Duration = std::time::Duratio
 /// best-effort there; a slow one must not hold a repaired primary hostage.
 pub const FALLBACK_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+fn ws_connect(url: impl Into<String>) -> WsConnect {
+    WsConnect::new(url)
+        .with_config(WebSocketConfig::default().max_frame_size(Some(32 * 1024 * 1024)))
+}
+
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
         let url = Url::parse(url)?;
@@ -805,7 +810,7 @@ impl Client {
             }
 
             "ws" | "wss" => {
-                let ws = WsConnect::new(url.clone());
+                let ws = ws_connect(url.clone());
                 ProviderBuilder::new()
                     .network::<Ethereum>()
                     .on_ws(ws)
@@ -1131,7 +1136,7 @@ impl Client {
 
         match scheme {
             "wss" | "ws" => {
-                let ws = WsConnect::new(self.url.clone());
+                let ws = ws_connect(self.url.clone());
                 Ok(ConnectionTransport::Ws(ws))
             }
             "https" | "http" => Ok(ConnectionTransport::Http(self.url.clone())),
