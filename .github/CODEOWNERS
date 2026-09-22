@@ -1,4 +1,29 @@
-# Default owners for everything in the repository
+# Ownership here mirrors the "usc-dev merge policy" ruleset.
+#
+# Review requirements are ENFORCED by that ruleset, not by this file:
+# the ruleset's "require code owner review" is off, so CODEOWNERS only
+# routes review requests. Keep the two in sync when either changes.
+#
+# Note: CODEOWNERS is last-match-wins, so order matters below.
 
-* @gluwa/blockchain-engineering
-* @gluwa/creditcoin
+* @gluwa/protocol
+
+# Paths that merge without review. Listed with no owner so that no
+# review is requested, matching the ruleset's exempt patterns.
+/.github/
+/scripts/
+/cli/
+/query-cli/
+/docs/
+
+# Release and promotion machinery, re-owned to match the ruleset's
+# .github/**/*release*, *promot*, *propose* and *runtime-upgrade* globs.
+/.github/check-promotion-is-safe.sh                  @gluwa/protocol
+/.github/extract-release-tag.sh                      @gluwa/protocol
+/.github/workflows/create-devnet-release.yml         @gluwa/protocol
+/.github/workflows/promote-branch.yml                @gluwa/protocol
+/.github/workflows/propose-mainnet-pr.yml            @gluwa/protocol
+/.github/workflows/propose-testnet-pr.yml            @gluwa/protocol
+/.github/workflows/rebase-branch-and-propose-pr.yml  @gluwa/protocol
+/.github/workflows/release.yml                       @gluwa/protocol
+/.github/workflows/runtime-upgrade.yml               @gluwa/protocol
