@@ -1,14 +1,10 @@
 #!/bin/bash
 
-# Samples memory / disk / CPU while a job runs, then reports the peaks against
-# what the runner actually provides.
+# Sample memory / disk / CPU during a job and report the peaks against what the
+# runner provides, so VM plan sizes can be checked against evidence.
 #
-# Purpose: several workflows provision g6-standard-16 (16 vCPU / 64 GB) VMs.
-# Nothing verified those sizes were needed. This makes real usage visible in
-# the job summary so plan sizes can be checked against evidence.
-#
-#   resource-monitor.sh start  [label]   # begin sampling in the background
-#   resource-monitor.sh report [label]   # stop sampling, print + summarise peaks
+#   resource-monitor.sh start  [label]
+#   resource-monitor.sh report [label]
 #
 # Never fails a job: every path exits 0.
 
@@ -18,18 +14,15 @@ SAMPLES="${STATE_DIR}/${LABEL}.tsv"
 PIDFILE="${STATE_DIR}/${LABEL}.pid"
 BASEFILE="${STATE_DIR}/${LABEL}.baseline"
 PATHFILE="${STATE_DIR}/${LABEL}.diskpath"
-INTERVAL="${RESOURCE_MONITOR_INTERVAL:-10}"
-# Defaults to the workspace, which is right for build jobs (cargo target dir).
-# Jobs that write their bulk data elsewhere MUST set RESOURCE_MONITOR_DISK_PATH
-# -- runtime-upgrade uses /mnt, the compatibility workflows /var/tmp. Watching
-# the wrong path silently reports ~0% once that data lands on its own volume.
-# Only the `start` step needs to set it: the path is recorded there and read
-# back by `report`, so the two cannot disagree.
+HWMFILE="${STATE_DIR}/${LABEL}.hwmbase"
+# 2s: a few-second spike hides entirely between longer samples.
+INTERVAL="${RESOURCE_MONITOR_INTERVAL:-2}"
+# Jobs writing outside the workspace (/mnt, /var/tmp) set this on `start` only;
+# report reads the path back so the two cannot disagree.
 DISK_PATH="${RESOURCE_MONITOR_DISK_PATH:-${GITHUB_WORKSPACE:-$PWD}}"
 
-# One awk pass over /proc/meminfo -> "used_mb total_mb swap_used_mb".
-# used = MemTotal-MemAvailable, which is what the workload actually needs;
-# "used" as reported by free() counts reclaimable page cache against you.
+# -> "used_mb total_mb swap_used_mb". used = MemTotal-MemAvailable, so
+# reclaimable page cache is not charged to the workload.
 mem_stats() {
     awk '/^MemTotal:/ {t=$2} /^MemAvailable:/ {a=$2}
          /^SwapTotal:/ {st=$2} /^SwapFree:/ {sf=$2}
@@ -37,28 +30,26 @@ mem_stats() {
         /proc/meminfo
 }
 
-# Cumulative busy/total jiffies -> "busy total". Deltas between two readings
-# give real CPU utilisation. loadavg is a 60s EMA and cannot see a burst
-# shorter than ~45s, which is the shape of most jobs here, so it is not used
-# for the verdict. iowait counts as idle on purpose: a job waiting on disk is
-# disk-bound, not CPU-bound, and should be reported that way.
+# -> "busy total" cumulative jiffies; deltas give CPU%. loadavg is a 60s EMA and
+# misses short bursts. iowait counts as idle: waiting on disk is not CPU-bound.
 cpu_jiffies() {
     awk '/^cpu / { idle = $5 + $6; total = 0
                    for (i = 2; i <= NF; i++) total += $i
                    printf "%d %d", total - idle, total; exit }' /proc/stat
 }
 
+# Summed per-process peak RSS. Catches spikes that fall between samples, but
+# over-counts, so it is an upper bound and does not feed the verdict.
+vmhwm_sum_mb() {
+    awk '/^VmHWM:/ { s += $2 } END { printf "%d", s/1024 }' /proc/[0-9]*/status 2>/dev/null
+}
+
 disk_used_mb() { df -m --output=used "$DISK_PATH" 2>/dev/null | tail -1 | tr -d ' '; }
 disk_size_mb() { df -m --output=size "$DISK_PATH" 2>/dev/null | tail -1 | tr -d ' '; }
 
 # $1 = mem %, $2 = disk %, $3 = cpu %
-#
-# Order matters: these conditions are not mutually exclusive. A job can be
-# memory-light and CPU-idle while filling its disk -- live-sync-creditcoin
-# expands a 114 GB mainnet snapshot to 158 GB while needing little RAM. Linode
-# bundles disk with RAM (g6-standard-6/8/16 = 320/640/1280 GB), so "shrink the
-# plan" on memory evidence alone would cut the disk such a job depends on.
-# Disk is checked first, and over-provisioned requires low disk as well.
+# Disk first: plans bundle disk with RAM, so a memory-light job that fills its
+# disk must not be reported as shrinkable.
 verdict() {
     if [ "$1" -gt 85 ] || [ "$2" -gt 85 ]; then
         echo "**near a limit** - consider a larger plan"
@@ -74,16 +65,15 @@ verdict() {
 case "${1:-}" in
 start)
     mkdir -p "$STATE_DIR" || exit 0
-    printf 'epoch\tmem_used_mb\tswap_used_mb\tdisk_used_mb\tcpu_pct\n' > "$SAMPLES"
-    # Disk baseline: the runner image and any earlier job on this VM already
-    # occupy space that is not this job's doing. Peak stays absolute (the plan
-    # has to hold it) but the delta says what the job itself needed.
+    printf 'epoch\tmem_used_mb\tswap_used_mb\tdisk_used_mb\tcpu_pct\thwm_sum_mb\n' > "$SAMPLES"
+    # Disk and summed HWM are machine-wide; baseline them so the report can show
+    # the rise this job caused.
     disk_used_mb > "$BASEFILE"
     printf '%s\n' "$DISK_PATH" > "$PATHFILE"
+    vmhwm_sum_mb > "$HWMFILE"
     (
-        # stdio must be detached. Inheriting the step's pipe makes
-        # actions/runner wait out its full 5s "STDIO streams did not close"
-        # grace period at the end of every start step.
+        # Detach stdio, or the runner waits out its STDIO grace period on every
+        # start step.
         read -r prev_busy prev_total < <(cpu_jiffies)
         while true; do
             sleep "$INTERVAL"
@@ -96,8 +86,9 @@ start)
             prev_busy=$busy
             prev_total=$total
             read -r used _ swap < <(mem_stats)
-            printf '%s\t%s\t%s\t%s\t%s\n' \
-                "$(date -u +%s)" "$used" "$swap" "$(disk_used_mb)" "$cpu" >> "$SAMPLES"
+            printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+                "$(date -u +%s)" "$used" "$swap" "$(disk_used_mb)" "$cpu" \
+                "$(vmhwm_sum_mb)" >> "$SAMPLES"
         done
     ) </dev/null >/dev/null 2>&1 &
     echo $! > "$PIDFILE"
@@ -114,15 +105,12 @@ report)
         exit 0
     fi
 
-    # Measure the same filesystem the sampler did. Without this, report falls
-    # back to the workspace and mislabels the disk row (plus its total) for any
-    # job whose data lives elsewhere.
+    # Measure the filesystem the sampler used, not the workspace.
     if [ -s "$PATHFILE" ]; then
         DISK_PATH=$(cat "$PATHFILE")
     fi
 
-    # One final sample over a 1s window so a job shorter than the interval
-    # still yields a real CPU figure rather than a fabricated zero.
+    # Final sample over a 1s window so a short job still gets a real CPU figure.
     read -r b0 t0 < <(cpu_jiffies)
     sleep 1
     read -r b1 t1 < <(cpu_jiffies)
@@ -132,21 +120,24 @@ report)
         final_cpu=0
     fi
     read -r final_used MEM_TOTAL final_swap < <(mem_stats)
-    printf '%s\t%s\t%s\t%s\t%s\n' \
-        "$(date -u +%s)" "$final_used" "$final_swap" "$(disk_used_mb)" "$final_cpu" >> "$SAMPLES"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$(date -u +%s)" "$final_used" "$final_swap" "$(disk_used_mb)" "$final_cpu" \
+        "$(vmhwm_sum_mb)" >> "$SAMPLES"
 
     CPUS=$(nproc)
     DISK_TOTAL=$(disk_size_mb); DISK_TOTAL=${DISK_TOTAL:-0}
     DISK_BASE=$(cat "$BASEFILE" 2>/dev/null); DISK_BASE=${DISK_BASE:-0}
+    HWM_BASE=$(cat "$HWMFILE" 2>/dev/null); HWM_BASE=${HWM_BASE:-0}
 
-    read -r PEAK_MEM PEAK_SWAP PEAK_DISK PEAK_CPU SAMPLE_COUNT <<< "$(
+    read -r PEAK_MEM PEAK_SWAP PEAK_DISK PEAK_CPU PEAK_HWM SAMPLE_COUNT <<< "$(
         awk -F'\t' 'NR>1 {
             if ($2+0 > m) m = $2+0
             if ($3+0 > s) s = $3+0
             if ($4+0 > d) d = $4+0
             if ($5+0 > c) c = $5+0
+            if ($6+0 > h) h = $6+0
             n++
-        } END { printf "%d %d %d %d %d", m, s, d, c, n }' "$SAMPLES"
+        } END { printf "%d %d %d %d %d %d", m, s, d, c, h, n }' "$SAMPLES"
     )"
 
     pct() { # $1 = part, $2 = whole -> integer percent, 0 when whole is 0
@@ -156,15 +147,17 @@ report)
     DISK_PCT=$(pct "$PEAK_DISK" "$DISK_TOTAL")
     DISK_DELTA=$(( PEAK_DISK - DISK_BASE ))
     [ "$DISK_DELTA" -lt 0 ] && DISK_DELTA=0
+    HWM_DELTA=$(( PEAK_HWM - HWM_BASE ))
+    [ "$HWM_DELTA" -lt 0 ] && HWM_DELTA=0
 
     echo "INFO: ---- resource peaks for '${LABEL}' (${SAMPLE_COUNT} samples) ----"
     echo "INFO: memory  ${PEAK_MEM} MB peak of ${MEM_TOTAL} MB provisioned (${MEM_PCT}%)"
+    echo "INFO: hwm     ${HWM_DELTA} MB peak RSS above baseline (upper bound; raw sum ${PEAK_HWM} MB)"
     echo "INFO: swap    ${PEAK_SWAP} MB peak"
     echo "INFO: disk    ${PEAK_DISK} MB peak of ${DISK_TOTAL} MB on ${DISK_PATH} (${DISK_PCT}%), ${DISK_DELTA} MB added by this job"
     echo "INFO: cpu     ${PEAK_CPU}% peak across ${CPUS} vCPU"
 
-    # A verdict needs data, and only means something where the plan is ours to
-    # choose. GitHub-hosted runner sizes are fixed, so there is nothing to resize.
+    # A verdict needs data, and only means something where we pick the plan.
     if [ "$SAMPLE_COUNT" -lt 2 ]; then
         VERDICT="not enough samples (${SAMPLE_COUNT}) - sampler may have died; treat peaks as unreliable"
     elif [ "${RUNNER_ENVIRONMENT:-}" = "github-hosted" ]; then
@@ -184,13 +177,15 @@ report)
             echo "| Disk (\`${DISK_PATH}\`) | ${PEAK_DISK} MB | ${DISK_TOTAL} MB | ${DISK_PCT}% |"
             echo "| Disk added by this job | ${DISK_DELTA} MB | - | - |"
             echo "| CPU | ${PEAK_CPU}% | ${CPUS} vCPU | ${PEAK_CPU}% |"
+            echo "| Peak RSS above baseline (upper bound) | ${HWM_DELTA} MB | ${MEM_TOTAL} MB | $(pct "$HWM_DELTA" "$MEM_TOTAL")% |"
             echo "| Swap | ${PEAK_SWAP} MB | - | - |"
             echo ""
             echo "Verdict: ${VERDICT}"
             echo ""
             echo "<sub>${SAMPLE_COUNT} samples at ${INTERVAL}s by \`.github/resource-monitor.sh\`. "
-            echo "Memory is MemTotal-MemAvailable (reclaimable page cache not counted); "
-            echo "CPU is busy jiffies from /proc/stat between samples, with iowait as idle.</sub>"
+            echo "Memory is MemTotal-MemAvailable; CPU is /proc/stat busy jiffies with iowait as idle. "
+            echo "Peak RSS above baseline is summed VmHWM: an upper bound that catches between-sample "
+            echo "spikes, shown as a cross-check and not used for the verdict.</sub>"
         } >> "$GITHUB_STEP_SUMMARY"
     fi
     ;;
