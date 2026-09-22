@@ -25,7 +25,7 @@ use alloy::{
         },
     },
     signers::{k256::ecdsa::SigningKey, local::PrivateKeySigner},
-    transports::{http::reqwest::Url, TransportErrorKind},
+    transports::{http::reqwest::Url, ws::WebSocketConfig, TransportErrorKind},
 };
 
 use anyhow::{Context, Result};
@@ -590,6 +590,11 @@ pub struct Client {
     fetch_mode: BlockFetchMode,
 }
 
+fn ws_connect(url: impl Into<String>) -> WsConnect {
+    WsConnect::new(url)
+        .with_config(WebSocketConfig::default().max_frame_size(Some(32 * 1024 * 1024)))
+}
+
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
         let url = Url::parse(url)?;
@@ -601,7 +606,7 @@ impl Client {
                 .on_http(url.clone()),
 
             "ws" | "wss" => {
-                let ws = WsConnect::new(url.clone());
+                let ws = ws_connect(url.clone());
                 ProviderBuilder::new()
                     .network::<Ethereum>()
                     .on_ws(ws)
@@ -810,7 +815,7 @@ impl Client {
 
         match scheme {
             "wss" | "ws" => {
-                let ws = WsConnect::new(self.url.clone());
+                let ws = ws_connect(self.url.clone());
                 Ok(ConnectionTransport::Ws(ws))
             }
             "https" | "http" => Ok(ConnectionTransport::Http(self.url.clone())),
