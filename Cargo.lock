@@ -17030,7 +17030,8 @@ dependencies = [
 [[package]]
 name = "usc-abi-encoding"
 version = "0.6.0"
-source = "git+https://github.com/gluwa/usc-sdk-rs?branch=update_dependencies#463daa76f91e1fd1f646394014d8ac275d7d03af"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "918f59ac7ef6eb70c2e608d2488894c88e55e00eeabc3c663c476f9510dbaf6d"
 dependencies = [
  "alloy",
  "serde",
@@ -17039,7 +17040,8 @@ dependencies = [
 [[package]]
 name = "usc-query-builder"
 version = "0.8.0"
-source = "git+https://github.com/gluwa/usc-sdk-rs?branch=update_dependencies#463daa76f91e1fd1f646394014d8ac275d7d03af"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "12fd598cd55a21e6c8565e2ed45f2151fb6520c130e9826f738f7e5480379217"
 dependencies = [
  "alloy",
  "alloy-json-abi",
