@@ -2,12 +2,17 @@
 name: Build WASM Runtime
 
 "on":
+  # The srtool build is a release artifact (a deterministic, reproducible runtime), not a
+  # per-PR check: nothing in a PR consumes it, and a WASM compile break is already caught by
+  # the node build every PR runs (wasm-builder compiles the runtime into the node). So a PR
+  # builds it only when it carries the `ci:wasm` label (a labeled event re-runs this
+  # workflow); every push to a trunk branch builds once, so a runtime artifact exists for
+  # the merged commit; release.yml builds the tagged runtime itself. Rust/toml changes on
+  # their own no longer trigger anything.
   pull_request:
-    paths:
-      - '**.rs'
-      - '**.toml'
-      - '**Cargo**'
-      - '.github/workflows/wasm.yml'
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main, usc-testnet, usc-dev]
   workflow_dispatch:
 
 concurrency:
@@ -18,6 +23,7 @@ permissions: read-all
 
 jobs:
   build:
+    if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:wasm') }}
     uses: ./.github/workflows/build-wasm.yml
     with:
       build-options: "--features devnet"
