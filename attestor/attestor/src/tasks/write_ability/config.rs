@@ -51,7 +51,7 @@ pub struct Config {
     /// Write-ability chain key (`u64`) for this attestor, set from the top-level `chain_key` at
     /// configuration generation. Used as the `u64` key to resolve the Outbox on-chain (chain-info
     /// precompile → factory) and, via [`write_ability::protocol::chain_key_to_bytes32`], as the
-    /// `bytes32` key passed to `getOutbox` and bound into each `messageHash`.
+    /// `bytes32` key passed to `getOutbox` and matched against each indexed message's route.
     pub write_ability_chain_key: ChainKey,
 
     /// Legacy confirmation-depth setting, retained for configuration compatibility. Production
@@ -72,7 +72,7 @@ pub struct Config {
     /// the cursor to survive pod restarts.
     pub state_dir: PathBuf,
 
-    /// Hard cap on distinct tracked `message_hash` entries (anti-abuse — confluence §5.4).
+    /// Hard cap on distinct tracked `message_id` entries (anti-abuse — confluence §5.4).
     pub max_tracked_messages: usize,
 
     /// Drop partial vote aggregates older than this unless already complete (anti-abuse).

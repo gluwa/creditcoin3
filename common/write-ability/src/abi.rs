@@ -1,9 +1,10 @@
 //! Solidity ABI bindings for the USC write-ability contracts, as consumed by the ATTESTOR.
 //!
-//! The message-relayer was extracted to gluwa/usc-message-relayer and keeps its own (wider)
+//! The message-relayer was extracted to gluwa/asc-message-relayer and keeps its own (wider)
 //! mirror of these bindings; the cross-repo contract is that both decode the *same*
-//! `MessagePublished` signature and recompute the *same* `messageHash` (see `hash.rs` and its
-//! golden vectors) — a mismatch would make every signature verify as invalid on-chain. This copy
+//! `MessagePublished` signature — a mismatch would make every signature verify as invalid
+//! on-chain. Since asc-contracts #54, the digest attestors sign is `messageId` itself (see
+//! `hash.rs`'s module doc), so there is no separate hash preimage left to keep in sync. This copy
 //! deliberately binds only what the attestor calls; destination-chain surfaces (`IInbox`,
 //! `IAcknowledgmentValidator`, the proof envelopes) and Outbox view/error bindings the attestor
 //! never reads live in the relayer repo only.
@@ -25,6 +26,9 @@ sol! {
         /// `emitterAddress` is the dApp that called `publishMessage`, emitted as `bytes32` for
         /// cross-chain consistency — the 20-byte EVM address occupies the **high** bytes
         /// (`bytes32(bytes20(emitter))`), so recover it with `Address::from_slice(&value[..20])`.
+        /// `sequence` is the per-emitter Outbox sequence number `messageId` was derived from
+        /// (asc-contracts #54); the attestor does not need it (`messageId` is already the value
+        /// it signs) but must decode it to keep the ABI byte-identical with the deployed Outbox.
         /// `canAck` flags whether the message may be acknowledged on-chain (usc-contracts #23
         /// renamed it from `requiresAck`: the ack is optional, requested by a nonzero
         /// acknowledgmentPrice in the relayer quote) before it is
@@ -33,6 +37,7 @@ sol! {
         event MessagePublished(
             bytes32 indexed messageId,
             bytes32 indexed emitterAddress,
+            uint64 sequence,
             bool canAck,
             bytes payload
         );
