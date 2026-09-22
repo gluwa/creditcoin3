@@ -43,4 +43,3 @@ inside `.github/workflows/ci.yml`. The later exercises the cli command from the 
 
 The entry-points are `test:unit`, `test:validator-cli` and `test:attestor-cli` in `cli/package.json`
 and the primary test suite locations are under `cli/src/test/unit-tests/` and `cli/src/test/integration-tests/`.
-
