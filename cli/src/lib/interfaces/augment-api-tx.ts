@@ -3477,12 +3477,17 @@ declare module '@polkadot/api-base/types/submittable' {
             /**
              * Replaces the maturity strategy of an already-registered chain.
              *
-             * Maturity decides how far behind the source tip a block has to be before an attestor
-             * will attest to it, so changing it invalidates every attestation an attestor is
-             * currently building and every vote it is holding — but *not* anything already
-             * committed on chain. Attestations already in storage stay valid and are never
-             * revisited; off-chain consumers resume from the latest attested height under the new
-             * strategy (see `MaturityStrategySet`).
+             * **This is a rare, coordinated operation, not a runtime knob.** Attestors and
+             * archivers resolve the maturity strategy once, at startup, and hold it for the life of
+             * the process; none of them watch for `MaturityStrategySet`. Calling this leaves every
+             * already-running attestor and archiver on the *old* strategy, so the change only takes
+             * effect once **all** of them have been restarted. Until that is done the network is
+             * split across two maturity policies, which is exactly the disagreement that stalls
+             * attestation quorum, so the restarts should be planned and executed together with the
+             * call rather than left to trickle in.
+             *
+             * Attestations already committed on chain stay valid under the new strategy and are
+             * never revisited; a restarted node resumes from the latest attested height.
              *
              * Only accounts in the Operators membership can call this extrinsic.
              **/

@@ -1263,9 +1263,9 @@ declare module '@polkadot/api-base/types/events' {
             >;
             /**
              * The maturity strategy of a registered chain has been changed. Off-chain consumers
-             * (attestors, archivers) treat this as an instruction to drop whatever they derived
-             * from the previous strategy and resume from the latest on-chain attestation under the
-             * new one, so it is only emitted when the stored value actually changes.
+             * (attestors, archivers) read the strategy once at startup and do not react to this
+             * event, so it is a record of the change for indexers and operators rather than a
+             * signal any node acts on. See `set_maturity_strategy` for what operators must do.
              **/
             MaturityStrategySet: AugmentedEvent<
                 ApiType,
