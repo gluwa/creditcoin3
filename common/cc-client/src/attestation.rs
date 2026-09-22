@@ -19,7 +19,6 @@ use crate::cc3::{
     },
     randomness::events::StoreRandomnessForEpoch,
     staking::events::Kicked,
-    supported_chains::events::MaturityStrategySet,
 };
 
 use crate::{Client, Randomness};
@@ -66,10 +65,6 @@ pub enum CcEvent {
     AttestorKicked(AccountId32),
     AttestationChainGenesisBlockNumberSet(ChainKey, u64),
     RevertedAttestationChainTo(ChainKey, u64, Digest),
-    /// The on-chain `MaturityStrategy` string for a chain was replaced. Carries the new value.
-    /// Only emitted when it actually changed (the pallet rejects a no-op write), so a subscriber
-    /// can treat every one of these as a real policy change without de-duplicating.
-    MaturityStrategySet(ChainKey, String),
 }
 
 const BUFFER_SIZE: usize = 100;
@@ -470,27 +465,6 @@ impl Client {
                             chain_key,
                             checkpoint_height,
                             Digest::from(checkpoint_digest.0),
-                        )))
-                    }
-                    (MaturityStrategySet::PALLET, MaturityStrategySet::EVENT) => {
-                        let Ok(Some(event)) = event.as_event::<MaturityStrategySet>() else {
-                            tracing::error!("Invalid event mapping");
-                            return None;
-                        };
-
-                        let MaturityStrategySet {
-                            chain_key,
-                            maturity_strategy,
-                            ..
-                        } = event;
-
-                        if !chain_filter.contains(&chain_key) {
-                            return None;
-                        }
-
-                        Some(Ok(CcEvent::MaturityStrategySet(
-                            chain_key,
-                            maturity_strategy,
                         )))
                     }
                     (_module, _event) => None,

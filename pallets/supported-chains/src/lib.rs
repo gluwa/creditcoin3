@@ -151,9 +151,9 @@ pub mod pallet {
         },
 
         /// The maturity strategy of a registered chain has been changed. Off-chain consumers
-        /// (attestors, archivers) treat this as an instruction to drop whatever they derived
-        /// from the previous strategy and resume from the latest on-chain attestation under the
-        /// new one, so it is only emitted when the stored value actually changes.
+        /// (attestors, archivers) read the strategy once at startup and do not react to this
+        /// event, so it is a record of the change for indexers and operators rather than a
+        /// signal any node acts on. See `set_maturity_strategy` for what operators must do.
         MaturityStrategySet {
             chain_key: ChainKey,
             chain_id: ChainId,
@@ -185,9 +185,9 @@ pub mod pallet {
         InvalidMaturityStrategy,
 
         /// The chain already uses the requested maturity strategy. Rejected rather than applied
-        /// as a no-op: every attestor for the chain drops its in-flight production and votes on
-        /// `MaturityStrategySet`, so a resubmission that changes nothing must not cost the
-        /// network a round of churn.
+        /// as a no-op so that every `MaturityStrategySet` event stands for a real change: the
+        /// event is the operator-facing record that a restart of the chain's attestors and
+        /// archivers is due, and a no-op write would call for a restart that is not needed.
         MaturityStrategyUnchanged,
     }
 
@@ -309,12 +309,17 @@ pub mod pallet {
 
         /// Replaces the maturity strategy of an already-registered chain.
         ///
-        /// Maturity decides how far behind the source tip a block has to be before an attestor
-        /// will attest to it, so changing it invalidates every attestation an attestor is
-        /// currently building and every vote it is holding — but *not* anything already
-        /// committed on chain. Attestations already in storage stay valid and are never
-        /// revisited; off-chain consumers resume from the latest attested height under the new
-        /// strategy (see `MaturityStrategySet`).
+        /// **This is a rare, coordinated operation, not a runtime knob.** Attestors and
+        /// archivers resolve the maturity strategy once, at startup, and hold it for the life of
+        /// the process; none of them watch for `MaturityStrategySet`. Calling this leaves every
+        /// already-running attestor and archiver on the *old* strategy, so the change only takes
+        /// effect once **all** of them have been restarted. Until that is done the network is
+        /// split across two maturity policies, which is exactly the disagreement that stalls
+        /// attestation quorum, so the restarts should be planned and executed together with the
+        /// call rather than left to trickle in.
+        ///
+        /// Attestations already committed on chain stay valid under the new strategy and are
+        /// never revisited; a restarted node resumes from the latest attested height.
         ///
         /// Only accounts in the Operators membership can call this extrinsic.
         #[pallet::call_index(2)]

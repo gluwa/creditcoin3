@@ -65,10 +65,6 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
                     tracing::info!("📮 attestation pool closed — exiting validation loop");
                     return Ok(());
                 };
-                // Snapshotted here, not at spawn: `handle_quorum` awaits RPC inside
-                // `aggregate_and_validate`, and a maturity change landing in that window has to
-                // invalidate this quorum rather than be read back as the current generation.
-                let maturity_gen = current_maturity_gen(&shared);
                 // If we're already submitting at this height, drop this fork on the floor — the
                 // height is already locked by the in-flight submission, and re-stashing the same
                 // height is wasted work. Use `mark_skipped`, NOT `mark_valid`: this fork was never
@@ -91,7 +87,6 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
                     &mut in_flight_height,
                     quorum,
                     permit,
-                    maturity_gen,
                 ).await?;
             }
         }
@@ -107,7 +102,6 @@ async fn handle_quorum(
     in_flight_height: &mut Option<Height>,
     quorum: Quorum,
     permit: Permit,
-    maturity_gen: u64,
 ) -> Result<(), Error> {
     let height = quorum.height;
     let digest = quorum.digest;
@@ -179,7 +173,7 @@ async fn handle_quorum(
     if in_flight.is_none() {
         pool_rx.mark_valid(permit);
         *in_flight_height = Some(agg.height);
-        *in_flight = Some(spawn_submission(shared.clone(), agg, maturity_gen));
+        *in_flight = Some(spawn_submission(shared.clone(), agg));
     } else {
         tracing::info!(?digest, height, "🗃️ stash for later");
         pool_rx.mark_for_later(
@@ -211,7 +205,6 @@ async fn handle_submission_result(
         votes,
     } = submission;
     let unlock_if_unfinalized = should_unlock_if_unfinalized(&outcome);
-    let superseded_outcome = matches!(outcome, Outcome::Superseded);
     // Set whenever we clear the validation lock for `height` below. Drives the held-vote
     // re-injection at the end: `mark_valid` deleted this height's fork at submit time, so an
     // unlocked height needs its votes back to reform the quorum (gossip won't redeliver them).
@@ -307,37 +300,10 @@ async fn handle_submission_result(
                 "❓ submission outcome unresolved — unlocking height unless it finalizes shortly"
             );
         }
-        Outcome::Superseded => {
-            tracing::warn!(
-                height,
-                "🧭 submission superseded by a maturity strategy change — dropping the aggregate \
-                 and its votes"
-            );
-            // Unlock directly instead of through `unlock_if_unfinalized`. That flag also drives
-            // the held-vote re-injection at the end of this function, and re-injecting is
-            // precisely what must not happen here: those votes are the superseded quorum, and
-            // pushing them back would rebuild it in a pool that was just reset for the change.
-            // So `should_unlock_if_unfinalized` keeps excluding this outcome and `unlocked`
-            // stays false.
-            //
-            // The unlock itself is still needed. The maturity reset normally clears this
-            // height's lock, but a permit issued before the reset can land its `mark_valid`
-            // after it — `Pool::mark_valid` does not check the permit's `validation_generation`
-            // the way `defer` does — re-establishing a lock the reset had cleared. Leaving that
-            // in place would reject every post-change vote at this height.
-            // `note_majority_not_reached` only clears a lock that is exactly this height, so it
-            // is a no-op in the common case and never steals a higher lock.
-            shared.pool_send.note_majority_not_reached(height);
-        }
     }
 
-    // Wait briefly for this height to finalize on chain before pulling the next stash — but not
-    // for a superseded submission: it is waiting on nothing, this height may never finalize
-    // under the new strategy, and this wait runs for `ATTESTATION_TIMEOUT`, which would block
-    // the whole validation loop from serving the first post-change quorum.
-    if !superseded_outcome {
-        wait_finalized(shared, height).await;
-    }
+    // Wait briefly for this height to finalize on chain before pulling the next stash.
+    wait_finalized(shared, height).await;
 
     // Unresolved/invalid outcome (timeout, txpool rejection, chilled skip, rpc failure): if the
     // height *still* hasn't finalized after the bounded wait, clear the local validation lock.
@@ -368,10 +334,6 @@ async fn handle_submission_result(
     while let Some(stashed) = pool_rx.take_next_validated() {
         let stash_height = stashed.height;
         let stash_digest = stashed.digest;
-        // Same reasoning as the dequeue site: `revalidate_stashed` awaits RPC, so the snapshot
-        // has to precede it. Taken per stash rather than once for the whole drain so a stash
-        // that was itself queued after the change is not judged against a pre-change value.
-        let stash_maturity_gen = current_maturity_gen(shared);
         match revalidate_stashed(shared, stashed).await {
             Some(agg) => {
                 tracing::info!(
@@ -379,7 +341,7 @@ async fn handle_submission_result(
                     "🛫 submitting pre-validated stash"
                 );
                 *in_flight_height = Some(agg.height);
-                *in_flight = Some(spawn_submission(shared.clone(), agg, stash_maturity_gen));
+                *in_flight = Some(spawn_submission(shared.clone(), agg));
                 break;
             }
             None => {
@@ -770,12 +732,6 @@ enum Outcome {
     /// the height if it still hasn't finalized after the bounded wait, so future votes and
     /// quorums aren't rejected forever behind a stale validation lock.
     Unresolved,
-    /// The chain's maturity strategy changed while this submission was still deciding whether
-    /// to sign, so it abandoned itself. The aggregate was built from blocks the network may no
-    /// longer consider mature, and the pool has already been reset for the change — so unlike
-    /// [`Unresolved`](Self::Unresolved) this height must **not** be unlocked or have its held
-    /// votes re-injected: both would push the superseded quorum straight back at the pool.
-    Superseded,
 }
 
 /// Max times the submitter will re-inject a single height's held votes after an unlock before
@@ -836,35 +792,16 @@ fn should_unlock_if_unfinalized(outcome: &Outcome) -> bool {
     )
 }
 
-/// Read the maturity generation to validate a quorum against.
-///
-/// Callers snapshot this **before** any await that precedes the decision to submit — at the
-/// moment a quorum is taken off the pool, or a stash off the validated queue. Reading it later
-/// (at spawn, say) is too late: `aggregate_and_validate` and `revalidate_stashed` both make RPC
-/// round-trips, and a maturity change landing inside one of those would be read back as the
-/// *current* generation, so the aggregate built under the old strategy would look current and
-/// submit.
-fn current_maturity_gen(shared: &Arc<Shared>) -> u64 {
-    shared
-        .maturity_gen
-        .load(std::sync::atomic::Ordering::SeqCst)
-}
-
-fn spawn_submission(
-    shared: Arc<Shared>,
-    agg: Aggregated,
-    maturity_gen: u64,
-) -> tokio::task::JoinHandle<Submission> {
+fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHandle<Submission> {
     tokio::spawn(async move {
         let height = agg.height;
         // Stash a copy of the votes — submit_one moves `agg`, but we need them in `Submission`
         // so the handler can re-inject on any unlock path.
         let votes = agg.votes.clone();
-        let outcome = match submit_one(&shared, agg, maturity_gen).await {
+        let outcome = match submit_one(&shared, agg).await {
             OutcomeInternal::Eligible(result) => Outcome::Eligible { result },
             OutcomeInternal::Finalized => Outcome::Finalized,
             OutcomeInternal::Unresolved => Outcome::Unresolved,
-            OutcomeInternal::Superseded => Outcome::Superseded,
         };
         Submission {
             height,
@@ -880,17 +817,9 @@ enum OutcomeInternal {
     Eligible(Result<subxt::blocks::ExtrinsicEvents<subxt::SubstrateConfig>, subxt::Error>),
     Finalized,
     Unresolved,
-    Superseded,
 }
 
-/// Whether the maturity strategy changed since `snapshot` was taken, i.e. whether the aggregate
-/// we are holding was built under a policy the chain has since replaced. `snapshot` comes from
-/// [`current_maturity_gen`] at the point the quorum left the pool.
-fn superseded(shared: &Arc<Shared>, snapshot: u64) -> bool {
-    current_maturity_gen(shared) != snapshot
-}
-
-async fn submit_one(shared: &Arc<Shared>, agg: Aggregated, maturity_gen: u64) -> OutcomeInternal {
+async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
     let height = agg.height;
 
     if !*shared.can_attest_rx.borrow() {
@@ -898,14 +827,6 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated, maturity_gen: u64) ->
         // unlocks the height and the pool keeps collecting for it (matters if we reactivate).
         tracing::info!(height, "⏳ chilled, skipping submission");
         return OutcomeInternal::Unresolved;
-    }
-
-    if superseded(shared, maturity_gen) {
-        tracing::warn!(
-            height,
-            "🧭 maturity strategy changed before submission — abandoning this aggregate"
-        );
-        return OutcomeInternal::Superseded;
     }
 
     // Submit jitter (skipped for genesis). Every attestor submits on quorum — the
@@ -944,14 +865,6 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated, maturity_gen: u64) ->
             // Chilled while jittering — same reasoning as the pre-jitter chill check above.
             return OutcomeInternal::Unresolved;
         }
-
-        if superseded(shared, maturity_gen) {
-            tracing::warn!(
-                height,
-                "🧭 maturity strategy changed while jittering — abandoning this aggregate"
-            );
-            return OutcomeInternal::Superseded;
-        }
     }
 
     // Submit.
@@ -987,17 +900,6 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated, maturity_gen: u64) ->
     let submit_deadline = tokio::time::Instant::now() + common::constants::ATTESTATION_TIMEOUT;
 
     let submit_handle = loop {
-        // Re-checked every round, not just once before the loop: this retry window runs for
-        // `ATTESTATION_TIMEOUT`, far longer than the jitter above, and reaching here means no
-        // submission has been accepted yet — so abandoning is still free.
-        if superseded(shared, maturity_gen) {
-            tracing::warn!(
-                height,
-                "🧭 maturity strategy changed mid-retry — abandoning this aggregate"
-            );
-            return OutcomeInternal::Superseded;
-        }
-
         match shared
             .cc3
             .api()
@@ -1248,20 +1150,6 @@ mod tests {
         assert!(should_unlock_if_unfinalized(&outcome));
         assert!(should_unlock_if_unfinalized(&Outcome::Unresolved));
         assert!(!should_unlock_if_unfinalized(&Outcome::Finalized));
-    }
-
-    /// A submission abandoned because the maturity strategy changed must not take the shared
-    /// unlock path. `unlock_if_unfinalized` is what drives the held-vote re-injection at the end
-    /// of `handle_submission_result`, and re-injecting here would push the very quorum the
-    /// change invalidated straight back into a pool that was just reset for it — the aggregate
-    /// was built from blocks the network may no longer consider mature.
-    ///
-    /// The arm still unlocks the height, just directly, so the two concerns stay separable.
-    /// This is the one outcome that is neither "it landed" nor "retry it", so pinning it here
-    /// guards against it being folded into `Unresolved` later.
-    #[test]
-    fn a_superseded_submission_neither_unlocks_nor_reinjects() {
-        assert!(!should_unlock_if_unfinalized(&Outcome::Superseded));
     }
 
     #[test]

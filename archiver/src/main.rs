@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
             );
 
             Some((
-                Arc::new(cc3_client),
+                cc3_client,
                 chain_key,
                 chain.maturity_strategy.as_str().to_owned(),
             ))
@@ -260,7 +260,7 @@ async fn main() -> Result<()> {
     tracing::info!(chain_id = source_chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
 
     // ── Root stream (with automatic reconnection) ───────────────────────
-    let (mut boundary, attested) = match mode {
+    let (boundary, attested) = match mode {
         TipMode::Attested { chain_key } => {
             let (cc3_client, _, _) = registered
                 .as_ref()
@@ -286,15 +286,6 @@ async fn main() -> Result<()> {
         .build();
 
     let mut root_stream = stream_eth::StreamRoots::new(stream_config).await;
-
-    // ── Maturity strategy watcher ───────────────────────────────────────
-    // Only useful with a chain key: without one there is no registration to watch, and the
-    // effective maturity is whatever FINALIZATION_LAG says.
-    let mut maturity_rx = registered
-        .as_ref()
-        .map(|(cc3_client, chain_key, strategy)| {
-            follow_maturity_strategy(cc3_client.clone(), *chain_key, strategy.clone())
-        });
 
     // ── Chain head tracker (for ETA) ───────────────────────────────────
     // `chain_head` is 0 until the first successful read, and `head_seen_at` is the wall-clock
@@ -380,160 +371,9 @@ async fn main() -> Result<()> {
     let stream_timeout = Duration::from_secs(cfg.stream_timeout_secs);
     let mut last_height: Option<u64> = None;
 
-    // Set by the `select!` arm below when the maturity watcher fires: `Some(true)` for a real
-    // change, `Some(false)` when the watcher gave up. The arm cannot act on either itself —
-    // its own future borrows `maturity_rx`, and reacting means replacing `maturity_rx`,
-    // `root_stream` and `boundary` — so it only records what happened and lets the top of the
-    // loop do the work.
-    let mut maturity_wake: Option<bool> = None;
-
     loop {
-        match maturity_wake.take() {
-            None => {}
-            // The watcher task ended and logged why. Stop waiting on a channel that will never
-            // fire again; the archiver keeps running on the boundary it has.
-            Some(false) => maturity_rx = None,
-            Some(true) => {
-                // `let Some(..) else` rather than an unwrap: the arm that sets the flag only
-                // fires while the receiver is live, but nothing in the type system says so.
-                let Some(strategy) = maturity_rx.as_ref().map(|rx| rx.borrow().clone()) else {
-                    continue;
-                };
-
-                match apply_maturity_change(
-                    &strategy,
-                    mode,
-                    cfg.finalization_lag_override,
-                    &boundary,
-                ) {
-                    // An unparseable or unresolvable strategy means this binary does not know
-                    // the policy the chain now runs. Under an attested bound that is harmless
-                    // (the attestors resolve it, we just follow them); under a source bound we
-                    // would keep archiving against a policy the network has abandoned, so say so
-                    // loudly and keep the old boundary rather than stopping an archiver that is
-                    // still serving valid history.
-                    Err(err) => tracing::error!(
-                        strategy = %strategy,
-                        %err,
-                        "cannot resolve the new on-chain MaturityStrategy; continuing on the \
-                         previous boundary — this archiver may need an upgrade"
-                    ),
-                    Ok(None) => {}
-                    Ok(Some(new_maturity)) => {
-                        tracing::warn!(
-                            strategy = %strategy,
-                            %new_maturity,
-                            "on-chain MaturityStrategy changed; rebuilding the root stream"
-                        );
-
-                        // Persist whatever is buffered before deciding what to drop, so the
-                        // truncation below sees every root this run has produced.
-                        if !batch_buf.is_empty() {
-                            store.put_roots(&batch_buf)?;
-                            batch_buf.clear();
-                        }
-
-                        // A tightened strategy leaves roots above the new mature height for
-                        // blocks the source chain can still re-org. Drop them: `put_roots`
-                        // hard-fails on a canonical replacement at an occupied height, so a
-                        // stale tail would wedge the stream rather than heal.
-                        //
-                        // The cut is floored at the latest attested height. Attestations already
-                        // committed on Creditcoin stay valid under the new strategy, so the
-                        // roots backing them have to survive even where the new strategy would
-                        // now call their blocks premature — proof-gen serves exactly that range.
-                        // A floor we cannot read is a floor we cannot respect, so a failed read
-                        // leaves the tail alone rather than risking an attested root.
-                        let head = known_head(&chain_head, &head_seen_at)
-                            .unwrap_or_else(|| chain_head.load(Ordering::Acquire));
-                        let mature = new_maturity.mature_height(&http_client, head).await;
-                        let attested_floor = match registered.as_ref() {
-                            Some((cc3_client, chain_key, _)) => {
-                                cc3_client.fetch_last_finalized(*chain_key).await
-                            }
-                            None => Ok(None),
-                        };
-                        match (mature, attested_floor) {
-                            (Ok(mature), Ok(attested)) => {
-                                // `mature` is `None` only when nothing is mature at all (a lag
-                                // deeper than the chain); height 0 is then the right floor.
-                                let keep_to = mature
-                                    .unwrap_or(0)
-                                    .max(attested.map(|(height, _)| height).unwrap_or(0));
-                                let removed = store.remove_above(keep_to)?;
-                                if removed > 0 {
-                                    tracing::warn!(
-                                        removed,
-                                        keep_to,
-                                        "dropped roots above the new mature height; they will be \
-                                         re-derived once the new strategy considers them mature"
-                                    );
-                                    last_height = store.latest_height()?;
-                                }
-                            }
-                            // Rebuilding the stream is still correct and safe in both cases —
-                            // the stream resolves maturity per head itself — so proceed and
-                            // leave the tail for the next start's reconciliation.
-                            (Err(err), _) => tracing::warn!(
-                                %err,
-                                "could not resolve the new mature height; rebuilding the stream \
-                                 without trimming the stored tail"
-                            ),
-                            (_, Err(err)) => tracing::warn!(
-                                %err,
-                                "could not read the latest attested height; rebuilding the \
-                                 stream without trimming the stored tail"
-                            ),
-                        }
-
-                        let resume_from = last_height.map(|h| h + 1).unwrap_or(start_height);
-                        let new_boundary = stream_eth::roots::Boundary::Source(new_maturity);
-
-                        // Same bounded-backoff dial as the stream-reconnect path below: a WS
-                        // blip while rebuilding must not kill an archiver that is otherwise
-                        // healthy. `boundary` is only moved once the new stream exists, so a
-                        // failure here cannot leave the published boundary describing a stream
-                        // that was never built.
-                        let mut delay = RECONNECT_BASE_DELAY;
-                        let new_ws = loop {
-                            match eth::Client::new(cfg.rpc_ws.as_str(), None).await {
-                                Ok(client) => break client,
-                                Err(e) => {
-                                    tracing::warn!(
-                                        "failed to connect WS client for the rebuilt stream: {e}"
-                                    );
-                                    tokio::time::sleep(delay).await;
-                                    delay = (delay * 2).min(RECONNECT_MAX_DELAY);
-                                }
-                            }
-                        };
-
-                        let new_config = stream_eth::roots::ConfigBuilder::new()
-                            .with_client(new_ws)
-                            .with_start_height(resume_from)
-                            .with_bound(new_boundary.clone())
-                            .with_max_concurrency(cfg.max_fetch_tasks)
-                            .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
-                            .build();
-                        root_stream = stream_eth::StreamRoots::new(new_config).await;
-                        boundary = new_boundary;
-                        tracing::info!(resume_from, boundary = %boundary, "root stream rebuilt");
-                    }
-                }
-            }
-        }
-
         let next_item = tokio::select! {
             _ = &mut cancel_rx => break,
-            // `OptionFuture` so this arm is simply never ready when there is no watcher (no
-            // CHAIN_KEY), instead of needing a second `select!` shape. `changed()` marks the
-            // value seen, so the handler above reads it with a plain `borrow()`.
-            Some(result) = futures::future::OptionFuture::from(
-                maturity_rx.as_mut().map(|rx| Box::pin(rx.changed()))
-            ) => {
-                maturity_wake = Some(result.is_ok());
-                continue;
-            }
             result = tokio::time::timeout(stream_timeout, root_stream.next()) => result,
         };
 
@@ -728,75 +568,6 @@ fn on_chain_maturity(maturity_strategy: &str) -> Result<eth::Maturity> {
     })
 }
 
-/// Decide what a `MaturityStrategySet` means for this archiver run.
-///
-/// `Ok(Some(maturity))` — the boundary must be rebuilt against `maturity`.
-/// `Ok(None)` — nothing to do (already logged why).
-/// `Err(_)` — the strategy string is one this binary cannot resolve.
-///
-/// The three outcomes track the three ways an archiver can be bounded:
-///
-/// - **Attested bound.** The attestors resolve maturity and publish the result as attestations;
-///   the archiver follows that. A strategy change reaches the archiver through the attested
-///   height moving (or not moving) on its own, and roots already stored are backing attestations
-///   that stay valid. Nothing to rebuild.
-/// - **Source bound with `FINALIZATION_LAG`.** The override is the escape hatch and still wins,
-///   so the effective maturity does not move. What *does* change is whether the override agrees
-///   with the network, which is exactly what the startup warning reported — so re-report it
-///   against the new strategy rather than leaving a stale assessment in the log.
-/// - **Source bound without an override.** The on-chain strategy *is* the boundary. Rebuild.
-fn apply_maturity_change(
-    strategy: &str,
-    mode: TipMode,
-    override_lag: Option<u64>,
-    current: &stream_eth::roots::Boundary,
-) -> Result<Option<eth::Maturity>> {
-    let on_chain = on_chain_maturity(strategy)?;
-
-    if matches!(mode, TipMode::Attested { .. }) {
-        tracing::info!(
-            strategy = %strategy,
-            %on_chain,
-            "on-chain MaturityStrategy changed; this archiver follows the latest attested height, \
-             so its boundary and its stored roots are unaffected"
-        );
-        return Ok(None);
-    }
-
-    if let Some(lag) = override_lag {
-        if on_chain == eth::Maturity::FixedLag(lag) {
-            tracing::info!(
-                lag,
-                strategy = %strategy,
-                "on-chain MaturityStrategy changed; FINALIZATION_LAG now agrees with it"
-            );
-        } else {
-            tracing::warn!(
-                lag,
-                %on_chain,
-                strategy = %strategy,
-                "on-chain MaturityStrategy changed; FINALIZATION_LAG overrides it and no longer \
-                 matches what the attestors use"
-            );
-        }
-        return Ok(None);
-    }
-
-    if matches!(current, stream_eth::roots::Boundary::Source(m) if *m == on_chain) {
-        // Reachable when the strategy string changed but resolves to the same maturity
-        // (`FixedDelay:10` respelled as `FixedDelay: 10`). Rebuilding would drop the stream's
-        // in-flight fetches for no gain.
-        tracing::info!(
-            strategy = %strategy,
-            %on_chain,
-            "on-chain MaturityStrategy restated; it resolves to the boundary already in use"
-        );
-        return Ok(None);
-    }
-
-    Ok(Some(on_chain))
-}
-
 /// How the tip-following stream bounds what it fetches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TipMode {
@@ -833,7 +604,7 @@ fn tip_mode(chain_key: Option<u64>, end_height: Option<u64>, override_lag: Optio
 /// the same connection would freeze the bound until the process restarted. The bound can only
 /// stall, never go backwards or invent progress.
 fn follow_attested_height(
-    cc3_client: Arc<CcClient>,
+    cc3_client: CcClient,
     chain_key: u64,
     poll: Duration,
 ) -> tokio::sync::watch::Receiver<Option<u64>> {
@@ -883,77 +654,6 @@ fn follow_attested_height(
                 break;
             }
             tokio::time::sleep(poll).await;
-        }
-    });
-    rx
-}
-
-/// Publish the chain's on-chain `MaturityStrategy` string, updated from every
-/// `SupportedChains::MaturityStrategySet` event for `chain_key`.
-///
-/// `StreamCC3` is the same subscription the attestors run: it walks parent hashes across
-/// reconnects and in-stream gaps, so a strategy change that lands while the Creditcoin socket is
-/// down is still delivered rather than silently missed. The channel is seeded with the value read
-/// at startup, so a receiver's first `changed()` is always a genuine change.
-///
-/// The stream ending is only possible on a permanent backfill error (state pruned past
-/// recovery). There is nothing useful to do about that here — the archiver is not restarted by
-/// this task — so it is logged loudly and the watcher stops; the archiver keeps running on the
-/// last strategy it saw, which is the same posture it had before this watcher existed.
-fn follow_maturity_strategy(
-    cc3: Arc<CcClient>,
-    chain_key: u64,
-    initial: String,
-) -> tokio::sync::watch::Receiver<String> {
-    let (tx, rx) = tokio::sync::watch::channel(initial);
-    tokio::spawn(async move {
-        let config = stream_cc3::ConfigBuilder::new()
-            .with_cc3(cc3)
-            .with_chain_keys(vec![chain_key])
-            .build();
-        let mut events = match stream_cc3::StreamCC3::new(config).await {
-            Ok(events) => events.flatten(),
-            Err(err) => {
-                tracing::error!(
-                    chain_key,
-                    %err,
-                    "could not subscribe to Creditcoin events; maturity strategy changes will \
-                     not be picked up until the archiver restarts"
-                );
-                return;
-            }
-        };
-
-        loop {
-            match events.next().await {
-                Some(Ok(cc_client::attestation::CcEvent::MaturityStrategySet(_, strategy))) => {
-                    // `send_if_modified` rather than `send`: the pallet already rejects a no-op
-                    // write, but the startup seed can race the first event carrying the value we
-                    // already read, and a spurious wake costs the main loop a stream rebuild.
-                    tx.send_if_modified(|current| {
-                        let changed = *current != strategy;
-                        if changed {
-                            *current = strategy;
-                        }
-                        changed
-                    });
-                }
-                Some(Ok(_)) => {}
-                Some(Err(err)) => {
-                    tracing::warn!(chain_key, %err, "Creditcoin event stream error");
-                }
-                None => {
-                    tracing::error!(
-                        chain_key,
-                        "Creditcoin event stream ended; maturity strategy changes will not be \
-                         picked up until the archiver restarts"
-                    );
-                    return;
-                }
-            }
-            if tx.is_closed() {
-                return;
-            }
         }
     });
     rx
@@ -1200,102 +900,5 @@ mod tests {
     #[test]
     fn neither_source_is_an_error() {
         assert!(resolve_maturity(None, None).is_err());
-    }
-
-    // ------------------------ [ reacting to a maturity strategy change ] ---------------------- //
-
-    fn source(maturity: Maturity) -> stream_eth::roots::Boundary {
-        stream_eth::roots::Boundary::Source(maturity)
-    }
-
-    /// Following the attested height, the attestors own the maturity decision and their
-    /// attestations are what bounds us — so a strategy change never rebuilds anything.
-    #[test]
-    fn an_attested_run_never_rebuilds() {
-        let mode = TipMode::Attested { chain_key: 2 };
-        assert_eq!(
-            apply_maturity_change("RpcFinalized", mode, None, &source(Maturity::FixedLag(10)))
-                .unwrap(),
-            None
-        );
-        // Including when a (ignored) FINALIZATION_LAG is set.
-        assert_eq!(
-            apply_maturity_change(
-                "RpcFinalized",
-                mode,
-                Some(10),
-                &source(Maturity::FixedLag(10))
-            )
-            .unwrap(),
-            None
-        );
-    }
-
-    /// The override is the operator's escape hatch and still governs, whether or not it now
-    /// agrees with the chain. Either way the boundary does not move.
-    #[test]
-    fn an_override_keeps_governing_the_boundary() {
-        let mode = TipMode::Source;
-        // Disagrees with the new strategy.
-        assert_eq!(
-            apply_maturity_change(
-                "EvmFinalized",
-                mode,
-                Some(10),
-                &source(Maturity::FixedLag(10))
-            )
-            .unwrap(),
-            None
-        );
-        // Now agrees with it.
-        assert_eq!(
-            apply_maturity_change("EvmSafe", mode, Some(32), &source(Maturity::FixedLag(10)))
-                .unwrap(),
-            None
-        );
-    }
-
-    #[test]
-    fn a_source_bound_run_rebuilds_against_the_new_strategy() {
-        let mode = TipMode::Source;
-        assert_eq!(
-            apply_maturity_change("EvmFinalized", mode, None, &source(Maturity::FixedLag(10)))
-                .unwrap(),
-            Some(Maturity::FixedLag(64))
-        );
-        assert_eq!(
-            apply_maturity_change("RpcSafe", mode, None, &source(Maturity::FixedLag(10))).unwrap(),
-            Some(Maturity::Tag(BlockTag::Safe))
-        );
-    }
-
-    /// `FixedDelay:10` and `FixedDelay: 10` are different strings the pallet accepts as a change,
-    /// but they resolve to the same boundary — rebuilding would drop in-flight fetches for
-    /// nothing.
-    #[test]
-    fn a_restatement_that_resolves_the_same_does_not_rebuild() {
-        assert_eq!(
-            apply_maturity_change(
-                "FixedDelay:10",
-                TipMode::Source,
-                None,
-                &source(Maturity::FixedLag(10))
-            )
-            .unwrap(),
-            None
-        );
-    }
-
-    /// A strategy this binary cannot parse must not be silently treated as "no change": the
-    /// caller logs it and keeps the old boundary, which is only correct because it is told.
-    #[test]
-    fn an_unknown_strategy_is_an_error() {
-        assert!(apply_maturity_change(
-            "SomethingFromTheFuture",
-            TipMode::Source,
-            None,
-            &source(Maturity::FixedLag(10))
-        )
-        .is_err());
     }
 }

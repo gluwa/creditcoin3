@@ -100,25 +100,8 @@ pub struct Shared {
     /// On-chain `MaxCatchup` (block-count bound per continuity proof). Fetched at startup and
     /// kept in sync by the production task via `MaxCatchupChanged` events.
     pub max_catchup: parking_lot::RwLock<NonZero<Height>>,
-    /// How mature heights are derived from source heads (fixed lag or RPC block tag). Resolved
-    /// from the chain's on-chain `MaturityStrategy` at startup and replaced by the production
-    /// task when a `MaturityStrategySet` event lands for our chain key. Only the production task
-    /// writes it; it rebuilds its eth streams from the new value in the same handler, so a reader
-    /// can never see a maturity that no stream is acting on.
-    pub maturity: parking_lot::RwLock<eth::Maturity>,
-
-    /// Monotonic counter bumped once per applied maturity change, immediately *after* the pool
-    /// has been reset for it. The validation task snapshots it the moment a quorum leaves the
-    /// pool — before the RPC round-trips that aggregate and re-validate it — and abandons the
-    /// submission if it has moved by the time it is about to sign. So an attestation aggregated
-    /// under the previous strategy is never pushed on chain by a node that has already seen the
-    /// change, including when the change lands mid-aggregation.
-    ///
-    /// The bump ordering is the contract: observing a newer generation guarantees the pool reset
-    /// already happened, so an abandoning submission knows the pool it is releasing back to is
-    /// the post-change one. Mirrors [`Self::eligibility_gen`], which guards the post-election
-    /// warm-up the same way.
-    pub maturity_gen: AtomicU64,
+    /// How mature heights are derived from source heads (fixed lag or RPC block tag).
+    pub maturity: eth::Maturity,
     pub start_height: Height,
     pub genesis: Height,
 
@@ -141,11 +124,5 @@ impl Shared {
     /// Cheap typed accessor.
     pub fn max_catchup(&self) -> NonZero<Height> {
         *self.max_catchup.read()
-    }
-
-    /// Cheap typed accessor. `eth::Maturity` is `Copy`, so this never holds the lock past the
-    /// read.
-    pub fn maturity(&self) -> eth::Maturity {
-        *self.maturity.read()
     }
 }

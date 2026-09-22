@@ -678,9 +678,9 @@ fn set_maturity_strategy_rejects_an_invalid_strategy(#[case] strategy: String) {
     });
 }
 
-/// Re-submitting the strategy the chain already has is rejected rather than applied: the event
-/// makes every attestor for the chain drop its in-flight production and votes, so a no-op write
-/// would cost the network a round of churn for nothing.
+/// Re-submitting the strategy the chain already has is rejected rather than applied, so that
+/// every `MaturityStrategySet` event stands for a real change: the event is what tells operators
+/// the chain's attestors and archivers are due a restart.
 #[test]
 fn set_maturity_strategy_rejects_the_current_strategy() {
     ExtBuilder.build_and_execute(|| {
