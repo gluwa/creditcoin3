@@ -14,14 +14,13 @@ use parity_scale_codec::{Decode, DecodeAll, Encode};
 pub struct MessageVote {
     /// USC chain_key this vote is scoped to. Must match the gossipsub topic prefix.
     pub chain_key: u64,
-    /// Outbox `messageId` the attestor is voting on.
+    /// Outbox `messageId` the attestor is voting on — also the signed digest (asc-contracts #54:
+    /// `Inbox.validateVotes` takes `messageId` directly, so there is no separate derived hash).
     pub message_id: [u8; 32],
-    /// `keccak256(abi.encode(...))` per PoC §5.2 — the signed digest.
-    pub message_hash: [u8; 32],
     /// EVM address recovered from `signature` (also published explicitly so the relayer can
     /// short-circuit the allowlist check before paying for `ecrecover`).
     pub signer: [u8; 20],
-    /// 65-byte ECDSA signature (`r || s || v`) over `message_hash` matching the reference
+    /// 65-byte ECDSA signature (`r || s || v`) over `message_id` matching the reference
     /// `EOAValidator` (PoC §6.2).
     pub signature: [u8; 65],
 }
@@ -47,8 +46,8 @@ impl MessageVote {
 /// attestor set re-signs. It carries **no signature and no authority** — every field is a pointer to
 /// public on-chain data. An attestor that receives it does not trust the request: it independently
 /// re-fetches the named transaction from its own Creditcoin RPC, re-verifies the `MessagePublished`
-/// event for `message_id` was emitted by the resolved Outbox, recomputes the `messageHash`, and only
-/// then re-signs and re-gossips its [`MessageVote`]. This makes the request safe to accept from any
+/// event for `message_id` was emitted by the resolved Outbox, and only then re-signs (over
+/// `message_id` itself) and re-gossips its [`MessageVote`]. This makes the request safe to accept from any
 /// peer — the worst a forged request can do is make attestors do a bounded amount of RPC work, which
 /// the responder rate-limits per `message_id`.
 #[derive(Clone, Debug, Eq, PartialEq, Encode, Decode)]
@@ -126,7 +125,6 @@ mod tests {
         MessageVote {
             chain_key: 2,
             message_id: [1u8; 32],
-            message_hash: [2u8; 32],
             signer: [3u8; 20],
             signature: [4u8; 65],
         }

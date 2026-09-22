@@ -37,7 +37,8 @@ pub fn attestor_set_update_topic(chain_key: u64) -> String {
 }
 
 /// Canonical mapping of a Substrate `ChainKey` (`u64`) to the Solidity `bytes32` chain key passed
-/// to `IOutboxFactory.getOutbox` and bound into each `messageHash` (research §2.3).
+/// to `IOutboxFactory.getOutbox` and used as the governance-scoped destination key attestors
+/// match each indexed message against (research §2.3).
 ///
 /// The `u64` is stored big-endian in the **low** 8 bytes (left-padded with zeros), i.e.
 /// `bytes32(uint256(value))` in Solidity terms.

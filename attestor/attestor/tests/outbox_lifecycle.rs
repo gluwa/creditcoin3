@@ -29,6 +29,7 @@ fn message(outbox: Address, block: u64, id: u8) -> Log {
     let event = IOutbox::MessagePublished {
         messageId: B256::repeat_byte(id),
         emitterAddress: B256::repeat_byte(4),
+        sequence: 1,
         canAck: false,
         payload: vec![id].into(),
     };
