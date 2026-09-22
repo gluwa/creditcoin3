@@ -82,11 +82,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_maturity_strategy() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `381`
-		//  Estimated: `3846`
-		// Minimum execution time: 20_000_000 picoseconds.
-		Weight::from_parts(40_000_000, 0)
-			.saturating_add(Weight::from_parts(0, 3846))
+		//  Measured:  `406`
+		//  Estimated: `3871`
+		// Minimum execution time: 30_900_000 picoseconds.
+		Weight::from_parts(31_880_000, 0)
+			.saturating_add(Weight::from_parts(0, 3871))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
 	}
