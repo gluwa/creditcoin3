@@ -128,6 +128,35 @@ jobs:
           # couldn't be elevated without a hard startup_failure (see comment above).
           github-token: ${{ secrets.GLUWA_BOT_PR }}
 
+      # The comment above is only ever *added*; if a later push takes the CVE change back out,
+      # the first step passes and nothing would touch the stale report. So on a passing compare,
+      # rewrite any earlier Scout comment on this PR into a one-line "resolved" note (the action
+      # marks its comments with an HTML marker, which is how they are found). Edited rather than
+      # deleted so the history of what was reported stays visible.
+      - name: Docker Scout - mark an earlier vulnerability comment on the PR as resolved
+        if: ${{ inputs.build-node-image && steps.scout-compare.outcome == 'success' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GLUWA_BOT_PR }}
+          script: |
+            const marker = '<!-- Docker Scout | compare | Docker -- __docker_scout-action -->';
+            const resolved = 'Docker Scout: resolved.';
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            for (const c of comments) {
+              if (!c.body || !c.body.includes(marker) || c.body.includes(resolved)) continue;
+              const sha = context.payload.pull_request.head.sha.slice(0, 9);
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: c.id,
+                body: `${marker}\n\n**${resolved}** A later push (${sha}) restored the published image's vulnerability set, so the CVE delta reported here earlier no longer applies. The current compare is in the job summary of run ${context.runId}.`,
+              });
+              core.info(`marked Scout comment ${c.id} as resolved`);
+            }
+
       # Summary-only (write-comment: false): no published moving tag exists for this image
       # (only versioned indexer-for-<x.y.z>-<net> tags), so there is no stable baseline to compare
       # against — and its base layers are shared with the node image, whose compare above
