@@ -5,10 +5,11 @@ name: Build WASM Runtime
   # The srtool build is a release artifact (a deterministic, reproducible runtime), not a
   # per-PR check: nothing in a PR consumes it, and a WASM compile break is already caught by
   # the node build every PR runs (wasm-builder compiles the runtime into the node). So a PR
-  # builds it only when it carries the `ci:wasm` label (a labeled event re-runs this
-  # workflow); every push to a trunk branch builds once, so a runtime artifact exists for
-  # the merged commit; release.yml builds the tagged runtime itself. Rust/toml changes on
-  # their own no longer trigger anything.
+  # builds it only when it carries the `ci:wasm` label (a `labeled` event re-runs this
+  # workflow, and the label stays on the PR so later pushes keep building until it is
+  # removed); every push to a trunk branch builds once, so a runtime artifact exists for the
+  # merged commit; release.yml builds the tagged runtime itself. Nothing else triggers a
+  # build.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   push:
@@ -16,7 +17,10 @@ name: Build WASM Runtime
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
+  # One build per ref, newest wins — except that a `labeled` event for some *other* label
+  # must not cancel a build already in progress on this ref. Such runs skip immediately, so
+  # they get a throwaway group of their own instead of joining the ref's group.
+  group: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && !contains(github.event.pull_request.labels.*.name, 'ci:wasm')) && format('noop-{0}', github.run_id) || format('{0}-{1}', github.ref, github.workflow) }}
   cancel-in-progress: true
 
 permissions: read-all

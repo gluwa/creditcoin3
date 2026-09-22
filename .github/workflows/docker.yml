@@ -4,14 +4,13 @@ name: Docker
 "on":
   # Image builds are release artifacts, not a per-PR check: the node image alone is a ~27
   # minute Rust compile on a dedicated Linode runner, and nothing in a PR consumes the
-  # result. So a PR builds images only when it asks for them:
-  #   * it changes how the images are built (Dockerfile, compose, these workflows), the one
-  #     class of change that can only be validated by building; or
-  #   * it carries the `ci:docker` label (add the label to (re)build on demand — a labeled
-  #     event re-runs this workflow).
+  # result. A PR therefore builds images only when it asks for them by carrying the
+  # `ci:docker` label (a `labeled` event re-runs this workflow, so the label is an on-demand
+  # build button; it stays on the PR, so later pushes keep building until it is removed).
   # Every push to a trunk branch builds once, so a deployable image artifact exists for the
   # merged commit (the devnet roll downloads it from here), and release.yml builds and
-  # pushes the tagged images. Rust/toml changes on their own no longer trigger anything.
+  # pushes the tagged images. Nothing else triggers a build, not even a Dockerfile change:
+  # label the PR if you want that validated before merge.
   pull_request:
     branches: [main, usc-testnet, usc-dev]
     types: [opened, synchronize, reopened, labeled]
@@ -20,7 +19,10 @@ name: Docker
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
+  # One build per ref, newest wins — except that a `labeled` event for some *other* label
+  # must not cancel a build already in progress on this ref. Such runs skip immediately, so
+  # they get a throwaway group of their own instead of joining the ref's group.
+  group: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && !contains(github.event.pull_request.labels.*.name, 'ci:docker')) && format('noop-{0}', github.run_id) || format('{0}-{1}', github.ref, github.workflow) }}
   cancel-in-progress: true
 
 # DO-2336/DO-2338: any explicit narrower permissions declaration here (workflow-level
@@ -32,63 +34,34 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # Decide whether this run builds at all (`build`) and whether the node image is part of it
-  # (`node_image`). Trunk pushes and manual runs always build everything: a manual run has no
-  # base ref to diff against, and a trunk build is the deploy artifact. A PR builds only on the
-  # `ci:docker` label or when the files that define the images changed. The indexer and
-  # stress-test images are built from their own external base images (subql-node-substrate,
-  # deno) and never derive from the node image, so a change to one of their Dockerfiles builds
-  # them without paying for the node image's Rust compile.
-  detect-changes:
+  # Trunk pushes and manual runs always build; a PR builds only with the `ci:docker` label.
+  # A job rather than an inline expression so the decision is logged once and shared by the
+  # runner deploy, the build, the test and the runner removal below.
+  gate:
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
-      build: ${{ github.event_name != 'pull_request' && 'true' || steps.decide.outputs.build }}
-      node_image: ${{ github.event_name != 'pull_request' && 'true' || steps.decide.outputs.node_image }}
+      build: ${{ steps.decide.outputs.build }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4.0.2
-        if: github.event_name == 'pull_request'
-        id: filter
-        with:
-          filters: |
-            node_image:
-              # The root Dockerfile only. cc3-indexer/Dockerfile and
-              # scripts/stress-test/Dockerfile build their own images, not this one.
-              - 'Dockerfile'
-              # docker-compose.yaml runs `image: gluwa/creditcoin3`, which docker-test
-              # exercises in its "Start validator via compose" step.
-              - 'docker-compose.**'
-              - '.github/workflows/build-docker.yml'
-              - '.github/workflows/docker.yml'
-            any_image:
-              - '**Dockerfile**'
-              - 'docker-compose.**'
-              - '.github/workflows/build-docker.yml'
-              - '.github/workflows/docker.yml'
-      - name: Decide what this PR builds
-        if: github.event_name == 'pull_request'
+      - name: Decide whether this run builds
         id: decide
         env:
+          EVENT: ${{ github.event_name }}
           LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'ci:docker') }}
-          ANY_IMAGE: ${{ steps.filter.outputs.any_image }}
-          NODE_IMAGE: ${{ steps.filter.outputs.node_image }}
         run: |
-          if [ "$LABELED" = "true" ]; then
-            echo "INFO: ci:docker label present — building every image"
+          if [ "$EVENT" != "pull_request" ] || [ "$LABELED" = "true" ]; then
+            echo "INFO: building (event=$EVENT, ci:docker label=$LABELED)"
             echo "build=true" >> "$GITHUB_OUTPUT"
-            echo "node_image=true" >> "$GITHUB_OUTPUT"
           else
-            echo "INFO: image-defining files changed: any=$ANY_IMAGE node=$NODE_IMAGE"
-            echo "build=$ANY_IMAGE" >> "$GITHUB_OUTPUT"
-            echo "node_image=$NODE_IMAGE" >> "$GITHUB_OUTPUT"
+            echo "INFO: pull request without the ci:docker label — nothing to build"
+            echo "build=false" >> "$GITHUB_OUTPUT"
           fi
 
   docker-build:
     needs:
-      - detect-changes
+      - gate
       - deploy-runner-docker-build
-    if: ${{ needs.detect-changes.outputs.build == 'true' }}
+    if: ${{ needs.gate.outputs.build == 'true' }}
     uses: ./.github/workflows/build-docker.yml
     # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
     # deliberately has no DOCKER_PUSH_USERNAME/PASSWORD (only release.yml, tag-triggered,
@@ -104,14 +77,13 @@ jobs:
       build-options: "BUILD_ARGS="
       version-string: "latest"
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
-      build-node-image: ${{ needs.detect-changes.outputs.node_image == 'true' }}
+      build-node-image: true
 
   docker-test:
     needs:
-      - detect-changes
+      - gate
       - docker-build
-    # Every assertion here runs against the node image; skip when it was not (re)built.
-    if: ${{ needs.detect-changes.outputs.build == 'true' && needs.detect-changes.outputs.node_image == 'true' }}
+    if: ${{ needs.gate.outputs.build == 'true' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
@@ -212,8 +184,8 @@ jobs:
   # The Linode runner is only worth deploying when something will be built on it.
   deploy-runner-docker-build:
     needs:
-      - detect-changes
-    if: ${{ needs.detect-changes.outputs.build == 'true' }}
+      - gate
+    if: ${{ needs.gate.outputs.build == 'true' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -224,11 +196,11 @@ jobs:
 
   rm-gh-runner-docker-build:
     needs:
-      - detect-changes
+      - gate
       - docker-build
     # `always()` so a failed build still releases its runner; the second clause keeps it from
     # trying to remove a runner that was never deployed.
-    if: ${{ always() && needs.detect-changes.outputs.build == 'true' }}
+    if: ${{ always() && needs.gate.outputs.build == 'true' }}
     uses: ./.github/workflows/remove-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
