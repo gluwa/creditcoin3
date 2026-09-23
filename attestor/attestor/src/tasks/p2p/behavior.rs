@@ -39,7 +39,29 @@ pub(crate) struct P2PBehavior {
     /// disseminated this way are scoped by _source chain_ into individual gossip topics.
     ///
     /// [`gossipsub`]: libp2p::gossipsub
-    pub gossipsub: libp2p::gossipsub::Behaviour,
+    pub gossipsub:
+        libp2p::gossipsub::Behaviour<libp2p::gossipsub::IdentityTransform, SubscriptionFilter>,
+}
+
+/// Only the attestation topic is accepted from peers, so peers cannot make us track arbitrary
+/// topic state; the count caps bound what a single peer may hold or send per request.
+pub(crate) type SubscriptionFilter =
+    libp2p::gossipsub::MaxCountSubscriptionFilter<libp2p::gossipsub::WhitelistSubscriptionFilter>;
+
+/// Topics a peer may be subscribed to at once. Attestors use one topic; the slack keeps
+/// subscribe/unsubscribe churn from tripping the cap.
+const MAX_SUBSCRIBED_TOPICS_PER_PEER: usize = 4;
+/// Subscription entries accepted in a single message from a peer.
+const MAX_SUBSCRIPTIONS_PER_REQUEST: usize = 8;
+
+fn subscription_filter(topic: &libp2p::gossipsub::IdentTopic) -> SubscriptionFilter {
+    libp2p::gossipsub::MaxCountSubscriptionFilter {
+        filter: libp2p::gossipsub::WhitelistSubscriptionFilter(std::collections::HashSet::from([
+            topic.hash(),
+        ])),
+        max_subscribed_topics: MAX_SUBSCRIBED_TOPICS_PER_PEER,
+        max_subscriptions_per_request: MAX_SUBSCRIPTIONS_PER_REQUEST,
+    }
 }
 
 impl P2PBehavior {
@@ -92,13 +114,15 @@ impl P2PBehavior {
             libp2p::kad::Config::new(super::protocols::KADEMLIA),
         );
 
-        let mut gossipsub = libp2p::gossipsub::Behaviour::new(
+        let mut gossipsub = libp2p::gossipsub::Behaviour::new_with_subscription_filter(
             libp2p::gossipsub::MessageAuthenticity::Signed(key.clone()),
             libp2p::gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(std::time::Duration::from_secs(10))
                 .validation_mode(libp2p::gossipsub::ValidationMode::Strict)
                 .validate_messages()
                 .build()?,
+            None,
+            subscription_filter(topic),
         )?;
 
         // Peer scoring: without it, `report_message_validation_result(.., Reject)` only drops
@@ -179,4 +203,29 @@ fn peer_score_params(topic: &libp2p::gossipsub::IdentTopic) -> libp2p::gossipsub
         .ip_colocation_factor_whitelist
         .insert(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
     params
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libp2p::gossipsub::{IdentTopic, TopicHash, TopicSubscriptionFilter as _};
+
+    #[test]
+    fn only_the_attestation_topic_is_accepted() {
+        let topic = IdentTopic::new("7/attest");
+        let mut filter = subscription_filter(&topic);
+        assert!(filter.can_subscribe(&topic.hash()));
+        assert!(!filter.can_subscribe(&IdentTopic::new("8/attest").hash()));
+        assert!(!filter.can_subscribe(&TopicHash::from_raw("anything")));
+    }
+
+    #[test]
+    fn subscription_caps_are_set() {
+        let filter = subscription_filter(&IdentTopic::new("7/attest"));
+        assert_eq!(filter.max_subscribed_topics, MAX_SUBSCRIBED_TOPICS_PER_PEER);
+        assert_eq!(
+            filter.max_subscriptions_per_request,
+            MAX_SUBSCRIPTIONS_PER_REQUEST
+        );
+    }
 }
