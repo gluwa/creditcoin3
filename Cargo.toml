@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["attestor/vendor/libp2p-gossipsub"]
 members = [
     "archiver",
     "node",
@@ -50,7 +51,6 @@ members = [
     "tracing/client/rpc/debug",
     "tracing/client/rpc/trace",
 ]
-exclude = ["attestor/vendor/libp2p-gossipsub"]
 resolver = "2"
 
 [workspace.package]
