@@ -2,27 +2,34 @@
 name: Docker
 
 "on":
+  # Image builds are release artifacts, not a per-PR or per-commit check: the node image
+  # alone is a ~27 minute Rust compile on a dedicated Linode runner, and nothing in a PR
+  # consumes the result. So:
+  # - usc-dev builds once a day (09:00 UTC, the default branch) and posts to Slack when the
+  #   build or the image test fails, instead of building every merged commit;
+  # - a push to a release trunk (main, usc-testnet) builds once, so a deployable image
+  #   artifact exists for that commit; release.yml builds and pushes the tagged images;
+  # - a PR builds only when it carries the `ci:docker` label (a `labeled` event re-runs this
+  #   workflow, so the label is an on-demand build button; it stays on the PR, so later
+  #   pushes keep building until it is removed);
+  # - anything else, e.g. an image for a devnet roll of a specific usc-dev commit, is a
+  #   manual `workflow_dispatch`.
+  # Nothing else triggers a build, not even a Dockerfile change: label the PR if you want
+  # that validated before merge.
   pull_request:
     branches: [main, usc-testnet, usc-dev]
-    paths:
-      - '**.rs'
-      - '**.toml'
-      - '**Cargo**'
-      - '**Dockerfile**'
-      - 'docker-compose.**'
-      # NOTE: cli/src/** deliberately absent. A CLI-only change cannot affect the Rust
-      # binaries, and the one thing this workflow uniquely proved about the CLI -- that
-      # it packages and installs, then answers --help -- is already checked on EVERY PR
-      # by sanity.yml's npm-packages job (yarn build; npm install -g .; which creditcoin;
-      # creditcoin help/wizard --help/attestor --help), which is a superset of the
-      # docker-test check and costs ~1 minute instead of ~29.
-      - 'cc3-indexer/**'
-      - '.github/workflows/build-docker.yml'
-      - '.github/workflows/docker.yml'
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main, usc-testnet]
+  schedule:
+    - cron: "0 9 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
+  # One build per ref, newest wins — except that a `labeled` event for some *other* label
+  # must not cancel a build already in progress on this ref. Such runs skip immediately, so
+  # they get a throwaway group of their own instead of joining the ref's group.
+  group: ${{ (github.event_name == 'pull_request' && github.event.action == 'labeled' && !contains(github.event.pull_request.labels.*.name, 'ci:docker')) && format('noop-{0}', github.run_id) || format('{0}-{1}', github.ref, github.workflow) }}
   cancel-in-progress: true
 
 # DO-2336/DO-2338: any explicit narrower permissions declaration here (workflow-level
@@ -34,43 +41,35 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # The node image's Rust compile is ~27 of this workflow's ~29 build minutes, and a
-  # third of Docker runs historically rebuilt it for changes that cannot affect it
-  # (measured over 160 commits). The indexer and stress-test images are built from
-  # their own external base images (subql-node-substrate, deno) and never derive from
-  # the node image, so they are unaffected when it is skipped.
-  detect-changes:
+  # The nightly, trunk pushes and manual runs always build; a PR builds only with the
+  # `ci:docker` label.
+  # A job rather than an inline expression so the decision is logged once and shared by the
+  # runner deploy, the build, the test and the runner removal below.
+  gate:
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     outputs:
-      # A manual run has no base ref to diff against, so build everything rather than
-      # silently skipping the image the operator most likely wanted.
-      node_image: ${{ github.event_name != 'pull_request' && 'true' || steps.filter.outputs.node_image }}
+      build: ${{ steps.decide.outputs.build }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4.0.2
-        if: github.event_name == 'pull_request'
-        id: filter
-        with:
-          filters: |
-            node_image:
-              - '**.rs'
-              - '**.toml'
-              - '**Cargo**'
-              # The root Dockerfile only. cc3-indexer/Dockerfile and
-              # scripts/stress-test/Dockerfile still trigger this workflow via the
-              # '**Dockerfile**' path above, but build their own images, not this one.
-              - 'Dockerfile'
-              # docker-compose.yaml runs `image: gluwa/creditcoin3`, which docker-test
-              # exercises in its "Start validator via compose" step.
-              - 'docker-compose.**'
-              - '.github/workflows/build-docker.yml'
-              - '.github/workflows/docker.yml'
+      - name: Decide whether this run builds
+        id: decide
+        env:
+          EVENT: ${{ github.event_name }}
+          LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'ci:docker') }}
+        run: |
+          if [ "$EVENT" != "pull_request" ] || [ "$LABELED" = "true" ]; then
+            echo "INFO: building (event=$EVENT, ci:docker label=$LABELED)"
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "INFO: pull request without the ci:docker label — nothing to build"
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          fi
 
   docker-build:
     needs:
-      - detect-changes
+      - gate
       - deploy-runner-docker-build
+    if: ${{ needs.gate.outputs.build == 'true' }}
     uses: ./.github/workflows/build-docker.yml
     # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
     # deliberately has no DOCKER_PUSH_USERNAME/PASSWORD (only release.yml, tag-triggered,
@@ -86,14 +85,13 @@ jobs:
       build-options: "BUILD_ARGS="
       version-string: "latest"
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
-      build-node-image: ${{ needs.detect-changes.outputs.node_image == 'true' }}
+      build-node-image: true
 
   docker-test:
     needs:
-      - detect-changes
+      - gate
       - docker-build
-    # Every assertion here runs against the node image, which was not rebuilt.
-    if: ${{ needs.detect-changes.outputs.node_image == 'true' }}
+    if: ${{ needs.gate.outputs.build == 'true' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
@@ -191,7 +189,11 @@ jobs:
           name: docker-logs
           path: docker-*.log
 
+  # The Linode runner is only worth deploying when something will be built on it.
   deploy-runner-docker-build:
+    needs:
+      - gate
+    if: ${{ needs.gate.outputs.build == 'true' }}
     uses: ./.github/workflows/deploy-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
@@ -202,10 +204,37 @@ jobs:
 
   rm-gh-runner-docker-build:
     needs:
+      - gate
       - docker-build
-    if: ${{ always() }}
+    # `always()` so a failed build still releases its runner; the second clause keeps it from
+    # trying to remove a runner that was never deployed.
+    if: ${{ always() && needs.gate.outputs.build == 'true' }}
     uses: ./.github/workflows/remove-runner.yml
     with:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "docker-build"
     secrets: inherit
+
+  # The nightly is the only regular signal that usc-dev still produces a working image, so a
+  # red one has to reach people instead of waiting in the Actions tab. A cancelled run counts:
+  # it usually means the Linode runner never came up, which is just as much "no image".
+  report-nightly-failure:
+    needs:
+      - gate
+      - deploy-runner-docker-build
+      - docker-build
+      - docker-test
+    if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Nightly Docker image build failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            Runner: ${{ needs.deploy-runner-docker-build.result }}, build: ${{ needs.docker-build.result }}, image test: ${{ needs.docker-test.result }}.
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
