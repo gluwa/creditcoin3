@@ -12,6 +12,10 @@ pub(crate) struct P2PBehavior {
     /// [`Limits`]: libp2p::connection_limits
     pub limits: libp2p::connection_limits::Behaviour,
 
+    /// Keeps inbound capacity for configured boot peers and known attestor peers, so other
+    /// peers cannot occupy every slot (see [`super::admission`]).
+    pub admission: super::admission::Behaviour,
+
     /// [`Identify`] is used for identification between peers. This is required as other protocols
     /// in this behavior do not implement identification of their own.
     ///
@@ -90,6 +94,8 @@ impl P2PBehavior {
                 .with_max_established_incoming(Some(256)),
         );
 
+        let admission = super::admission::Behaviour::new(super::admission::MAX_UNRESERVED_INCOMING);
+
         let identify = libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
             super::protocols::IDENTIFY.to_string(),
             key.public(),
@@ -138,6 +144,7 @@ impl P2PBehavior {
         Ok(Self {
             ping,
             limits,
+            admission,
             identify,
             mdns,
             kad,

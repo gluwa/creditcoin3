@@ -8,6 +8,7 @@
 //! - Verifies incoming votes via the local `proof_cache` (peers must have produced their own
 //!   AttestationData at that height to verify a remote BLS signature).
 
+pub(crate) mod admission;
 pub mod behavior;
 pub mod protocols;
 
@@ -115,6 +116,7 @@ pub async fn run(
             continue;
         };
         boot_peers.insert(peer_id);
+        swarm.behaviour_mut().admission.reserve(peer_id);
         swarm.behaviour_mut().kad.add_address(&peer_id, address);
     }
 
@@ -459,6 +461,7 @@ async fn handle_swarm(
             // is chilled.
             if let (Some(attestor), Some(source)) = (learned, message.source) {
                 note_attestor_peer(peers_by_attestor, attestor, source);
+                swarm.behaviour_mut().admission.reserve(source);
             }
 
             let decision = match acceptance {
@@ -729,6 +732,7 @@ fn is_peer_denied(
 ///
 /// [`PeerId`]: libp2p::PeerId
 fn evict_peer(swarm: &mut libp2p::Swarm<behavior::P2PBehavior>, peer_id: libp2p::PeerId) {
+    swarm.behaviour_mut().admission.unreserve(&peer_id);
     swarm.behaviour_mut().kad.remove_peer(&peer_id);
     if swarm.disconnect_peer_id(peer_id).is_ok() {
         tracing::info!(%peer_id, "✂️  closed connection to denied peer");
