@@ -79,12 +79,6 @@ pub fn build_app(
         .layer(Extension(prom_metrics.clone()));
 
     router
-        // Request metrics middleware - tracks count, duration, and sizes
-        // Note: Extension(metrics) must be AFTER (outer) the middleware so it's available
-        .layer(axum::middleware::from_fn(
-            middleware::request_metrics_middleware,
-        ))
-        .layer(Extension(metrics.clone()))
         .layer({
             let allowed_chain_keys = allowed_chain_keys.clone();
             axum::middleware::from_fn(move |request, next| {
@@ -99,6 +93,13 @@ pub fn build_app(
                 }
             })
         })
+        // Request metrics middleware - tracks count, duration, and sizes.
+        // Must be outside the chain-key validator so its rejections are counted too.
+        // Note: Extension(metrics) must be AFTER (outer) the middleware so it's available
+        .layer(axum::middleware::from_fn(
+            middleware::request_metrics_middleware,
+        ))
+        .layer(Extension(metrics.clone()))
         // CORS must be outside the middleware so error responses also get CORS headers
         .layer(cors)
         .layer(
