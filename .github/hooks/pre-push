@@ -1,13 +1,43 @@
 #!/bin/bash
 
+# Reject merge commits, but only among the commits actually being pushed.
+#
+# The previous version scanned `git log HEAD~100..HEAD`, which reaches back
+# into the history of the branch this one was cut from. Reconcile merges on
+# usc-dev (merging main and usc-testnet back in) therefore tripped it on every
+# branch, whether or not the person pushing had created a merge commit.
+
 # Redirect output to stderr.
 exec 1>&2
 
-# Check for Merge commits in the last 100
-commits=$(git log HEAD~100..HEAD | grep "Merge: ")
-if [ -n "$commits" ]; then
-    echo "FAIL: pre-push: found Merge: commit(s)"
-    exit 1
-fi
+ZERO="0000000000000000000000000000000000000000"
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+    # Branch is being deleted; nothing to inspect.
+    if [ "$local_sha" = "$ZERO" ]; then
+        continue
+    fi
+
+    if [ "$remote_sha" = "$ZERO" ]; then
+        # New branch: compare against the upstream default branch, so only the
+        # commits this branch adds are considered.
+        base=$(git merge-base "$local_sha" origin/usc-dev 2>/dev/null)
+        if [ -z "$base" ]; then
+            continue
+        fi
+        range="$base..$local_sha"
+    else
+        # Existing branch: only the commits this push adds.
+        range="$remote_sha..$local_sha"
+    fi
+
+    merges=$(git rev-list --merges "$range")
+    if [ -n "$merges" ]; then
+        echo "FAIL: pre-push: found Merge: commit(s) in $range"
+        echo "$merges" | sed 's/^/  /'
+        echo "usc-dev requires linear history; rebase instead of merging."
+        exit 1
+    fi
+done
 
 exit 0
