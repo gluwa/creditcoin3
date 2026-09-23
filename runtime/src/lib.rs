@@ -583,7 +583,7 @@ impl pallet_babe::Config for Runtime {
         pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
     type WeightInfo = ();
     type MaxAuthorities = MaxAuthorities;
-    type DisabledValidators = ();
+    type DisabledValidators = Session;
     type MaxNominators = MaxNominatorRewardedPerValidator;
 }
 
@@ -2114,5 +2114,26 @@ mod tests {
             .get(frame_support::dispatch::DispatchClass::Normal)
             .base_extrinsic;
         assert!(base_extrinsic.ref_time() <= min_ethereum_transaction_weight.ref_time());
+    }
+
+    #[test]
+    fn babe_follows_session_disabled_validators() {
+        use frame_support::traits::DisabledValidators as _;
+        use sp_runtime::BuildStorage as _;
+
+        let storage = frame_system::GenesisConfig::<Runtime>::default()
+            .build_storage()
+            .unwrap();
+        sp_io::TestExternalities::new(storage).execute_with(|| {
+            let validators: Vec<super::AccountId> =
+                (1u8..=4).map(|i| super::AccountId::from([i; 32])).collect();
+            pallet_session::Validators::<Runtime>::put(validators);
+
+            type Babe = <Runtime as pallet_babe::Config>::DisabledValidators;
+            assert!(!Babe::is_disabled(1));
+            assert!(pallet_session::Pallet::<Runtime>::disable_index(1));
+            assert!(Babe::is_disabled(1));
+            assert!(!Babe::is_disabled(0));
+        });
     }
 }
