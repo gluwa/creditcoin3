@@ -1,10 +1,11 @@
 //! Source module for reading block root data.
 
 pub mod archive;
+pub mod chained;
 pub mod sled;
 
 pub use self::archive::ArchiveSource;
-pub use self::sled::SledSource;
+pub use self::chained::ChainedSledSource;
 
 use anyhow::Result;
 use attestor_primitives::Digest;
