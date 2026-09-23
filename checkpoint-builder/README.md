@@ -42,13 +42,56 @@ The tool uses **subcommands** to select the block root source (`sled` or `archiv
 
 | Option | CLI Argument | Environment Variable | Default | Description |
 |--------|--------------|----------------------|---------|-------------|
-| Sled DB Path | `--sled-db-path` | `SLED_DB_PATH` | - | **Required**. Path to the Sled database directory |
+| Sled DB Path(s) | `--sled-db-path` | `SLED_DB_PATH` | - | **Required**. Path to the Sled database directory. Repeat the flag or comma-separate the env var to chain multiple databases together — see [Chaining Multiple Sled Databases](#chaining-multiple-sled-databases) |
+| Fail On Overlap | `--fail-on-overlap` | `FAIL_ON_OVERLAP` | `false` | When chaining multiple Sled databases, fail instead of warning if their block ranges overlap |
 
 **`archiver` subcommand:**
 
 | Option | CLI Argument | Environment Variable | Default | Description |
 |--------|--------------|----------------------|---------|-------------|
 | Archiver URL | `--archiver-url` | `ARCHIVER_URL` | - | **Required**. Base URL of the archiver HTTP API (e.g. `http://localhost:8080`) |
+
+### Chaining Multiple Sled Databases
+
+The `sled` subcommand can read from more than one Sled database, treating them as a single
+logical source of block roots. This is useful when block-root data has been ingested into
+separate databases covering different height windows.
+
+**Specifying multiple databases:**
+
+```bash
+# Repeat the flag
+--sled-db-path ./db_part1 --sled-db-path ./db_part2
+
+# Or comma-separate the env var
+SLED_DB_PATH="./db_part1,./db_part2"
+```
+
+A single path (today's usage) still works unchanged.
+
+**How chaining works:**
+
+1. Each database is opened and checked for internal completeness — it must have no gaps
+   between its own first and last block.
+2. Databases are ordered by their starting block height.
+3. If two databases' ranges overlap, the **earlier-starting** database wins the overlapping
+   blocks; the later database only contributes the blocks beyond that overlap (or is dropped
+   entirely if its whole range is contained within an earlier database's range). Every overlap
+   is logged as a warning.
+4. Pass `--fail-on-overlap` (or set `FAIL_ON_OVERLAP=true`) to make the tool refuse to start
+   instead of just warning when an overlap is detected.
+5. A genuine **gap** between databases (heights covered by neither) is not an error at this
+   stage — it surfaces the same way a gap in a single database would, when
+   `--validate-database`/`--dry-run` or normal processing tries to read across it.
+
+**Example:**
+
+```bash
+cargo run -p checkpoint-builder --release -- sled \
+  --sled-db-path ./block_roots_0_999 \
+  --sled-db-path ./block_roots_1000_1999 \
+  --checkpoint-ranges "0;1,999,100;1000,1999,100"
+```
 
 ### Common Options (both subcommands)
 
@@ -57,7 +100,7 @@ The tool uses **subcommands** to select the block root source (`sled` or `archiv
 | Checkpoint Ranges | `--checkpoint-ranges` | `CHECKPOINT_RANGES` | - | **Required** unless `--dry-run`. Ranges in format `genesis_height` or `start,end,interval;...` |
 | Starting Digest | `--starting-digest` | `STARTING_DIGEST` | - | 32-byte hex genesis digest. Required when first range is not a genesis checkpoint |
 | Commit Interval | `--checkpoint-flush-interval` | `CHECKPOINT_FLUSH_INTERVAL` | `20` | Checkpoints to batch before writing to CSV |
-| Validate Database | `--validate-database` | `VALIDATE_DATABASE` | `false` | Check that all blocks in the specified ranges exist in the source before processing |
+| Validate Database | `--validate-database` | `VALIDATE_DATABASE` | `true` | Check that all blocks in the specified ranges exist in the source before processing |
 | Output File | `--output-file` | `OUTPUT_FILE` | `checkpoints.csv` | Output CSV path (timestamp will be appended) |
 | Dry Run | `--dry-run` | `DRY_RUN` | `false` | Print the available block range in the source and exit without generating checkpoints |
 
@@ -199,6 +242,25 @@ cargo run -p checkpoint-builder --release -- sled \
 
 The `--starting-digest` represents the checkpoint at block 49999, allowing the tool to continue the checkpoint chain from block 50000 onwards.
 
+### Sled Source — Chaining Multiple Databases
+
+```bash
+# Chain two Sled databases covering different height ranges
+cargo run -p checkpoint-builder --release -- sled \
+  --sled-db-path ./block_roots_part1 \
+  --sled-db-path ./block_roots_part2 \
+  --checkpoint-ranges "0;1,999,100;1000,1999,100"
+
+# Fail instead of warning if the databases' ranges overlap
+cargo run -p checkpoint-builder --release -- sled \
+  --sled-db-path ./block_roots_part1 \
+  --sled-db-path ./block_roots_part2 \
+  --fail-on-overlap \
+  --checkpoint-ranges "0;1,999,100;1000,1999,100"
+```
+
+See [Chaining Multiple Sled Databases](#chaining-multiple-sled-databases) for how overlaps and gaps between databases are handled.
+
 ### Archiver Source
 
 ```bash
@@ -230,18 +292,21 @@ Output:
 Available range: 0 to 99999
 ```
 
-### Enabling Source Validation
+### Disabling Source Validation
 
-By default the tool doesn't check that all blocks in the specified ranges exist in the source before processing. To enable the checks use the `--validate-dabase` flags:
+By default the tool checks that all blocks in the specified ranges exist in the source before
+processing (`--validate-database` defaults to `true`). Since it's already on, the
+`--validate-database` flag itself has no effect — to turn validation **off**, set the
+`VALIDATE_DATABASE` environment variable (CLI-only flags have no way to unset a flag that
+defaults to on):
 
 ```bash
-cargo run -p checkpoint-builder --release -- archiver \
+VALIDATE_DATABASE=false cargo run -p checkpoint-builder --release -- archiver \
   --archiver-url http://localhost:8080 \
-  --validate-database \
   --checkpoint-ranges "0;1,999,100;1000,4999,500"
 ```
 
-Keep in mind that depending on the size of the intervals to validate the operation could take a long time!
+Keep in mind that depending on the size of the intervals to validate, leaving validation enabled could take a long time!
 
 ### Using Built Binary
 
@@ -342,13 +407,14 @@ RUST_LOG=checkpoint_builder=debug,stream_eth=info cargo run -p checkpoint-builde
 - **Main**: Orchestrates block processing, source selection, and graceful shutdown
 - **Config**: Parses CLI subcommands, arguments, and environment variables
 - **Source/Sled**: Reads block root data from a local Sled database
+- **Source/Chained**: Orders, validates, and resolves overlaps across multiple Sled databases, presenting them as a single `RootSource`
 - **Source/Archiver**: Reads block root data from an archiver HTTP API (with automatic batching for large ranges)
 - **Sink/CSV**: Manages buffered writing to CSV with persistent file handle
 - **Digest Computation**: Incremental Merkle root hashing using keccak256
 
 ### Key Design Features
 
-- **Pluggable Sources**: Supports both local Sled databases and remote archiver HTTP APIs via the `RootSource` trait
+- **Pluggable Sources**: Supports local Sled databases (optionally chaining several together — see [Chaining Multiple Sled Databases](#chaining-multiple-sled-databases)) and remote archiver HTTP APIs, via the `RootSource` trait
 - **Automatic Batching**: The archiver source automatically splits large range requests into batches of up to 99,999 blocks
 - **Source Validation**: Optionally validates that all required blocks exist before processing begins
 - **Persistent File Handle**: The CSV writer is opened once and reused across all writes (vs. reopening per batch)
