@@ -50,6 +50,7 @@ members = [
     "tracing/client/rpc/debug",
     "tracing/client/rpc/trace",
 ]
+exclude = ["attestor/vendor/libp2p-gossipsub"]
 resolver = "2"
 
 [workspace.package]
@@ -367,3 +368,9 @@ inherits = "release"
 # https://doc.rust-lang.org/rustc/linker-plugin-lto.html
 codegen-units = 1
 lto = "fat"
+
+# Local copy of libp2p-gossipsub 0.47.0 carrying upstream backoff hardening
+# (rust-libp2p 0.49.3/0.49.4). libp2p 0.54 cannot take gossipsub >= 0.48, and
+# sc-network pins libp2p 0.54. Drop once the workspace moves past libp2p 0.54.
+[patch.crates-io]
+libp2p-gossipsub = { path = "attestor/vendor/libp2p-gossipsub" }
