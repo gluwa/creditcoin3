@@ -1,9 +1,9 @@
 //! In-memory message-vote aggregator (confluence §7.3 A7 + A11 / §3.2, §5).
 //!
-//! Counts **unique** signers per `messageHash` until the 2N/3+1 threshold is reached, with the
-//! anti-abuse properties from §5 baked in:
+//! Counts **unique** signers per `messageId` (the digest attestors sign — asc-contracts #54) until
+//! the 2N/3+1 threshold is reached, with the anti-abuse properties from §5 baked in:
 //!
-//! * **Chain-first allowlist** — vote state is only allocated for a `messageHash` after the
+//! * **Chain-first allowlist** — vote state is only allocated for a `messageId` after the
 //!   corresponding finalized `MessagePublished` has been observed on-chain ([`note_indexed`]).
 //!   Votes for unknown hashes are dropped without allocating, so a peer cannot grow memory by
 //!   gossiping votes for hashes that were never published.
@@ -29,7 +29,7 @@ pub enum VoteOutcome {
     Accepted { reached_threshold: bool },
     /// Signer already counted for this hash — ignored.
     Duplicate,
-    /// `messageHash` has not been seen on-chain yet — dropped per the chain-first allowlist.
+    /// `messageId` has not been seen on-chain yet — dropped per the chain-first allowlist.
     NotIndexed,
 }
 
@@ -40,7 +40,7 @@ struct Entry {
     completed: bool,
 }
 
-/// Per-`chain_key` vote aggregator. Keyed by `messageHash` (`[u8; 32]`).
+/// Per-`chain_key` vote aggregator. Keyed by `messageId` (`[u8; 32]`).
 pub struct VoteAggregator {
     threshold: usize,
     max_tracked: usize,
@@ -130,7 +130,7 @@ impl VoteAggregator {
         self.entries.get(hash).map_or(0, |e| e.signers.len())
     }
 
-    /// Mark a `messageHash` as observed on-chain (chain-first allowlist). Allocates the entry so
+    /// Mark a `messageId` as observed on-chain (chain-first allowlist). Allocates the entry so
     /// subsequent votes for it are counted. Idempotent. Enforces the tracked-hash cap by evicting
     /// the least-recently-updated incomplete entry.
     pub fn note_indexed(&mut self, hash: [u8; 32], now: Instant) {

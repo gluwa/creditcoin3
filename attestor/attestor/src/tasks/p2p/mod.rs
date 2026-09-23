@@ -1210,11 +1210,11 @@ fn handle_message_vote(shared: &Arc<Shared>, bytes: &[u8]) -> libp2p::gossipsub:
     match ingest::validate_and_count(state, shared.chain_key, bytes) {
         ingest::Acceptance::Accept {
             reached_threshold,
-            message_hash,
+            message_id,
         } => {
             shared.metrics.note_message_vote();
             if reached_threshold {
-                ingest::note_threshold(shared.chain_key, &message_hash);
+                ingest::note_threshold(shared.chain_key, &message_id);
             }
             MessageAcceptance::Accept
         }

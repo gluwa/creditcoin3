@@ -30,7 +30,7 @@ use super::MessageVoteState;
 pub enum Acceptance {
     Accept {
         reached_threshold: bool,
-        message_hash: B256,
+        message_id: B256,
     },
     Ignore,
     Reject,
@@ -59,11 +59,11 @@ pub fn validate_and_count(
         return Acceptance::Reject;
     }
 
-    let message_hash = B256::from(vote.message_hash);
+    let message_id = B256::from(vote.message_id);
 
     // Recover the signer from the signature and require it to match the advertised `signer` field
     // and to be in the active attestor set. Recovering first stops a forged `signer` being trusted.
-    let recovered = match recover_signer(&message_hash, &vote.signature) {
+    let recovered = match recover_signer(&message_id, &vote.signature) {
         Ok(addr) => addr,
         Err(err) => {
             tracing::warn!(%err, "🔏 unrecoverable message-vote signature — rejecting");
@@ -88,15 +88,15 @@ pub fn validate_and_count(
     match state
         .aggregator
         .lock()
-        .add_vote(vote.message_hash, recovered, Instant::now())
+        .add_vote(vote.message_id, recovered, Instant::now())
     {
         VoteOutcome::Accepted { reached_threshold } => Acceptance::Accept {
             reached_threshold,
-            message_hash,
+            message_id,
         },
         VoteOutcome::Duplicate => Acceptance::Ignore,
         VoteOutcome::NotIndexed => {
-            tracing::debug!(%message_hash, "🚮 vote for unindexed message — dropping");
+            tracing::debug!(%message_id, "🚮 vote for unindexed message — dropping");
             Acceptance::Ignore
         }
     }
@@ -104,10 +104,10 @@ pub fn validate_and_count(
 
 /// Record that a message reached the delivery threshold. Relayers perform the actual on-chain
 /// delivery; the attestor only surfaces the milestone for observability.
-pub fn note_threshold(chain_key: u64, message_hash: &B256) {
+pub fn note_threshold(chain_key: u64, message_id: &B256) {
     tracing::info!(
         chain_key,
-        %message_hash,
+        %message_id,
         "🎯 message vote reached 2/3+1 — ready for relayer delivery"
     );
 }
@@ -148,12 +148,11 @@ mod tests {
         }
     }
 
-    fn signed_vote(signer: &MessageSigner, message_hash: B256) -> MessageVote {
-        let signature = signer.sign(&message_hash).unwrap();
+    fn signed_vote(signer: &MessageSigner, message_id: B256) -> MessageVote {
+        let signature = signer.sign(&message_id).unwrap();
         MessageVote {
             chain_key: CHAIN_KEY,
-            message_id: [1u8; 32],
-            message_hash: message_hash.0,
+            message_id: message_id.0,
             signer: signer.address().into_array(),
             signature,
         }
@@ -172,7 +171,7 @@ mod tests {
             validate_and_count(&state, CHAIN_KEY, &bytes),
             Acceptance::Accept {
                 reached_threshold: true,
-                message_hash: hash
+                message_id: hash
             }
         );
     }
@@ -260,7 +259,7 @@ mod tests {
             validate_and_count(&state, CHAIN_KEY, &v1),
             Acceptance::Accept {
                 reached_threshold: false,
-                message_hash: hash
+                message_id: hash
             }
         );
         // Same signer again → ignored, count stays at 1.

@@ -8,10 +8,10 @@
 //! threshold gossips one on [`reobservation_topic`](write_ability::protocol::reobservation_topic);
 //! the [`p2p`](crate::tasks::p2p) task forwards it here. We do **not** trust the request: it is
 //! unauthenticated, so before re-signing we independently re-fetch the named transaction from our
-//! own Creditcoin RPC, confirm the `MessagePublished` for that `message_id` was emitted by the
-//! Discovery-authorized Outbox at that source block, and recompute the canonical `messageHash`.
-//! Later default changes, removal, and replacement of Discovery do not invalidate this history.
-//! Only then do we re-sign and re-gossip
+//! own Creditcoin RPC and confirm the `MessagePublished` for that `message_id` was emitted by the
+//! Discovery-authorized Outbox at that source block. Later default changes, removal, and
+//! replacement of Discovery do not invalidate this history. Only then do we re-sign (over
+//! `message_id` itself — asc-contracts #54) and re-gossip
 //! the same [`MessageVote`] we would have produced originally.
 //!
 //! The worst a forged or spammed request can do is make us perform a bounded `eth_getLogs` — bounded
@@ -24,7 +24,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::time::{Duration, Instant};
 
-use alloy::primitives::{Address, B256};
+use alloy::primitives::B256;
 use alloy::providers::Provider;
 use alloy::rpc::types::eth::BlockNumberOrTag;
 use alloy::sol_types::SolEvent;
@@ -32,7 +32,6 @@ use anyhow::{Context, Result};
 
 use write_ability::abi::IOutbox;
 use write_ability::envelope::ReobservationRequest;
-use write_ability::hash::message_hash;
 
 use super::listener::IndexedMessage;
 use super::resolver::{self, ResolvedRoute};
@@ -217,25 +216,13 @@ pub async fn reobserve<P: Provider>(
         {
             continue;
         }
-        let payload = decoded.data.payload.to_vec();
-        // `emitterAddress` is a `bytes32` with the 20-byte EVM address in the high bytes; recover
-        // the plain `Address` (the signed `messageHash` uses `address`). See the listener.
-        let emitter = Address::from_slice(&decoded.data.emitterAddress.as_slice()[..20]);
-        let hash = message_hash(
-            decoded.data.messageId,
-            emitter,
-            outbox,
-            resolved.destination_chain_key,
-            resolved.creditcoin_chain_id,
-            &payload,
-        );
+        // `messageId` is already cryptographically bound to emitter/outbox/sequence/payload by
+        // `OutboxTypes.computeMessageId` at emission time (asc-contracts #54) — nothing left to
+        // recompute; sign `messageId` itself, same as the listener's fast path.
         return Ok(Some(IndexedMessage {
             message_id: decoded.data.messageId,
-            emitter,
             outbox,
             destination_chain_key: resolved.destination_chain_key,
-            payload,
-            message_hash: hash,
         }));
     }
 
