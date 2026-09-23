@@ -72,23 +72,23 @@ jobs:
           docker build -f scripts/stress-test/Dockerfile -t ${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }} --sbom=true --provenance=mode=max .
           docker images
 
-      # DO-2217/DO-2338: informational only — never fails the build (continue-on-error backs up
-      # exit-code:false in case the action itself errors). See DO-2104 for the org-wide compliance
-      # initiative. Despite scanning a local:// image, docker/scout-action still authenticates to the
-      # Scout backend and hard-fails ("no credential found") without a real DockerHub login — empty
-      # dockerhub-user/password does NOT mean "scan locally without auth", confirmed live on PR #1214
-      # where continue-on-error silently masked this for every PR build. Uses the read-only
-      # gluwabot/DOCKERHUB_SCOUT_TOKEN credential (never DOCKER_PUSH_*) since PR builds run untrusted
-      # Dockerfile/build-script content and must not see a push-capable credential.
-      # `compare`, not `cves`: a full-inventory scan is dominated by the base image's CVE
-      # backlog, identical on every PR and unrelated to its diff — which had gluwa-bot posting
-      # the same ~130-CVE wall on every Rust-touching PR. Comparing the PR's build against the
-      # *published* image instead makes the comment show only what the PR changes (packages and
-      # CVEs added/removed relative to what is deployed). NOTE: on PR runs `version-string` is
-      # literally "latest", so both sides of the compare print as `gluwa/creditcoin3:latest` —
-      # the `local://` / `registry://` schemes are what distinguish the PR's local build from
-      # the published Docker Hub image.
+      # Compare the freshly built node image against the *published* `:latest` so the report
+      # shows only what this build changes (packages and CVEs added or removed relative to what
+      # is deployed). NOTE: on PR runs `version-string` is literally "latest", so both sides of
+      # the compare print as `gluwa/creditcoin3:latest` — the `local://` / `registry://` schemes
+      # are what distinguish the PR's local build from the published Docker Hub image.
+      #
+      # Two steps on purpose. The first always runs and writes the full report to the job
+      # summary, and it *fails* (exit-on: vulnerability) only when the vulnerability set of this
+      # build differs from the published image's. The second step re-runs the same compare with
+      # the PR comment enabled, and only when the first one failed. So a PR gets a Scout comment
+      # when it changes the image's vulnerabilities and never otherwise: the previous
+      # unconditional comment landed on every PR that built the node image (41 PRs in the last
+      # 30 days), almost always to report "0 vulnerability changes" and a base-image label
+      # timestamp, which trained everyone to ignore it. The weekly report
+      # (docker-scout-weekly-report.yml) covers the standing inventory of the published images.
       - name: Docker Scout - compare ${{ github.repository }} against published :latest
+        id: scout-compare
         if: ${{ inputs.build-node-image }}
         continue-on-error: true
         uses: docker/scout-action@v1.23.1
@@ -96,19 +96,66 @@ jobs:
           command: compare
           image: local://${{ github.repository }}:${{ inputs.version-string }}
           to: registry://${{ github.repository }}:latest
-          # Keep the comment to the actual delta — unchanged packages are exactly the
+          # Keep the report to the actual delta — unchanged packages are exactly the
           # inventory noise this step exists to eliminate.
           ignore-unchanged: true
           dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
           dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
+          # Fail the step only on a vulnerability change (package and label churn does not
+          # count); that failure is the signal the comment step below keys off.
+          # `continue-on-error` keeps it from failing the job.
+          exit-on: vulnerability
+          summary: true
+          write-comment: false
+
+      - name: Docker Scout - comment on the PR about the vulnerability change
+        if: ${{ inputs.build-node-image && steps.scout-compare.outcome == 'failure' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: docker/scout-action@v1.23.1
+        with:
+          command: compare
+          image: local://${{ github.repository }}:${{ inputs.version-string }}
+          to: registry://${{ github.repository }}:latest
+          ignore-unchanged: true
+          dockerhub-user: ${{ secrets.DOCKERHUB_SCOUT_USERNAME }}
+          dockerhub-password: ${{ secrets.DOCKERHUB_SCOUT_TOKEN }}
           exit-code: false
-          # This is now the only step that comments (the two scans below are summary-only), so
-          # the action's default replace-my-previous-comment behavior gives one live comparison
-          # per PR instead of the DO-2336 pile-up.
+          summary: false
+          write-comment: true
+          # One live comment per PR, updated in place, rather than a pile-up (DO-2336).
           keep-previous-comments: false
           # gluwa-bot PAT (pull-requests:write only) — GITHUB_TOKEN's own permissions
           # couldn't be elevated without a hard startup_failure (see comment above).
           github-token: ${{ secrets.GLUWA_BOT_PR }}
+
+      # The comment above is only ever *added*; if a later push takes the CVE change back out,
+      # the first step passes and nothing would touch the stale report. So on a passing compare,
+      # rewrite any earlier Scout comment on this PR into a one-line "resolved" note (the action
+      # marks its comments with an HTML marker, which is how they are found). Edited rather than
+      # deleted so the history of what was reported stays visible.
+      - name: Docker Scout - mark an earlier vulnerability comment on the PR as resolved
+        if: ${{ inputs.build-node-image && steps.scout-compare.outcome == 'success' && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        uses: actions/github-script@v9
+        with:
+          github-token: ${{ secrets.GLUWA_BOT_PR }}
+          script: |
+            const marker = '<!-- Docker Scout | compare | Docker -- __docker_scout-action -->';
+            const resolved = 'Docker Scout: resolved.';
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner, repo, issue_number, per_page: 100,
+            });
+            for (const c of comments) {
+              if (!c.body || !c.body.includes(marker) || c.body.includes(resolved)) continue;
+              const sha = context.payload.pull_request.head.sha.slice(0, 9);
+              await github.rest.issues.updateComment({
+                owner, repo, comment_id: c.id,
+                body: `${marker}\n\n**${resolved}** A later push (${sha}) restored the published image's vulnerability set, so the CVE delta reported here earlier no longer applies. The current compare is in the job summary of run ${context.runId}.`,
+              });
+              core.info(`marked Scout comment ${c.id} as resolved`);
+            }
 
       # Summary-only (write-comment: false): no published moving tag exists for this image
       # (only versioned indexer-for-<x.y.z>-<net> tags), so there is no stable baseline to compare

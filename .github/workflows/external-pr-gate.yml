@@ -1,0 +1,68 @@
+---
+# Pull requests opened from forks require review regardless of which files
+# they touch, because the path exemptions in the "usc-dev merge policy"
+# ruleset cannot see who opened a pull request.
+#
+# A branch that lives in this repository can only have been pushed by
+# someone with write access, so those pull requests are left to the
+# ruleset's path-based rules.
+name: External PR gate
+
+"on":
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: read-all
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  external-pr-gate:
+    name: external-pr-gate
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Require two approvals for pull requests opened from forks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_REPO: ${{ github.repository }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          REQUIRED_APPROVALS: "2"
+        run: |
+          set -euo pipefail
+
+          if [ "$HEAD_REPO" = "$BASE_REPO" ]; then
+            echo "Head branch lives in $BASE_REPO, so only an account with write access could have pushed it."
+            echo "Leaving review requirements to the usc-dev merge policy ruleset."
+            exit 0
+          fi
+
+          echo "Pull request was opened from fork $HEAD_REPO."
+
+          # Keep only each reviewer's most recent decisive review, so an
+          # approval that was later dismissed or superseded does not count.
+          approvals=$(gh api "repos/$BASE_REPO/pulls/$PR_NUMBER/reviews" --paginate --jq '
+            [ .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED") ]
+            | group_by(.user.login)
+            | map(last)
+            | map(select(
+                .state == "APPROVED"
+                and (.author_association == "MEMBER"
+                     or .author_association == "OWNER"
+                     or .author_association == "COLLABORATOR")
+                and .user.login != env.PR_AUTHOR))
+            | length')
+
+          echo "Qualifying approvals: $approvals (need $REQUIRED_APPROVALS)"
+
+          if [ "$approvals" -lt "$REQUIRED_APPROVALS" ]; then
+            echo "::error::Pull requests from forks need $REQUIRED_APPROVALS approvals from accounts with write access, whichever files they touch. Found $approvals."
+            echo "Once the approvals are in, re-run this job to refresh the check."
+            exit 1
+          fi
+
+          echo "Approval requirement satisfied."
