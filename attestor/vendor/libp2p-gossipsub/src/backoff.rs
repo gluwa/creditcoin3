@@ -48,8 +48,7 @@ pub(crate) struct BackoffStorage {
 
 impl BackoffStorage {
     fn heartbeats(d: &Duration, heartbeat_interval: &Duration) -> usize {
-        ((d.as_nanos() + heartbeat_interval.as_nanos() - 1) / heartbeat_interval.as_nanos())
-            as usize
+        d.as_nanos().div_ceil(heartbeat_interval.as_nanos()) as usize
     }
 
     pub(crate) fn new(
@@ -72,7 +71,11 @@ impl BackoffStorage {
     /// Updates the backoff for a peer (if there is already a more restrictive backoff then this call
     /// doesn't change anything).
     pub(crate) fn update_backoff(&mut self, topic: &TopicHash, peer: &PeerId, time: Duration) {
-        let instant = Instant::now() + time;
+        let Some(instant) = Instant::now().checked_add(time) else {
+            tracing::warn!("ignoring oversized prune backoff");
+            return;
+        };
+
         let insert_into_backoffs_by_heartbeat =
             |heartbeat_index: HeartbeatIndex,
              backoffs_by_heartbeat: &mut Vec<HashSet<_>>,
@@ -171,5 +174,24 @@ impl BackoffStorage {
         // Increase heartbeat index
         self.heartbeat_index =
             HeartbeatIndex((self.heartbeat_index.0 + 1) % self.backoffs_by_heartbeat.len());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn oversized_backoff_is_ignored() {
+        let mut storage =
+            BackoffStorage::new(&Duration::from_secs(60), Duration::from_secs(1), 1);
+        let topic = TopicHash::from_raw("t");
+        let peer = PeerId::random();
+
+        storage.update_backoff(&topic, &peer, Duration::from_secs(u64::MAX));
+        assert!(storage.get_backoff_time(&topic, &peer).is_none());
+
+        storage.update_backoff(&topic, &peer, Duration::from_secs(30));
+        assert!(storage.get_backoff_time(&topic, &peer).is_some());
     }
 }

@@ -69,6 +69,9 @@ use crate::{PublishError, SubscriptionError, ValidationError};
 use quick_protobuf::{MessageWrite, Writer};
 use std::{cmp::Ordering::Equal, fmt::Debug};
 
+/// Max allowed PRUNE backoff, 1 hour.
+const MAX_REMOTE_PRUNE_BACKOFF_SECONDS: u64 = 3600;
+
 #[cfg(test)]
 mod tests;
 
@@ -1379,14 +1382,22 @@ where
                                 }
                                 peer_score.add_penalty(peer_id, 1);
 
-                                // check the flood cutoff
-                                // See: https://github.com/rust-lang/rust-clippy/issues/10061
-                                #[allow(unknown_lints, clippy::unchecked_duration_subtraction)]
-                                let flood_cutoff = (backoff_time
-                                    + self.config.graft_flood_threshold())
-                                    - self.config.prune_backoff();
-                                if flood_cutoff > now {
-                                    //extra penalty
+                                // Apply an extra graft-backoff penalty only when the peer is still
+                                // far enough from backoff expiry. Compares durations only, avoiding
+                                // Instant arithmetic: if graft_flood_threshold >= prune_backoff, any
+                                // active backoff qualifies for the extra penalty.
+                                let apply_extra_penalty = match self
+                                    .config
+                                    .prune_backoff()
+                                    .checked_sub(self.config.graft_flood_threshold())
+                                {
+                                    Some(required_remaining) => {
+                                        backoff_time.saturating_duration_since(now)
+                                            > required_remaining
+                                    }
+                                    None => true,
+                                };
+                                if apply_extra_penalty {
                                     peer_score.add_penalty(peer_id, 1);
                                 }
                             }
@@ -1522,7 +1533,7 @@ where
         }
         if update_backoff {
             let time = if let Some(backoff) = backoff {
-                Duration::from_secs(backoff)
+                Duration::from_secs(std::cmp::min(backoff, MAX_REMOTE_PRUNE_BACKOFF_SECONDS))
             } else {
                 self.config.prune_backoff()
             };
