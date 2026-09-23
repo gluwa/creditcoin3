@@ -2,20 +2,27 @@
 name: Docker
 
 "on":
-  # Image builds are release artifacts, not a per-PR check: the node image alone is a ~27
-  # minute Rust compile on a dedicated Linode runner, and nothing in a PR consumes the
-  # result. A PR therefore builds images only when it asks for them by carrying the
-  # `ci:docker` label (a `labeled` event re-runs this workflow, so the label is an on-demand
-  # build button; it stays on the PR, so later pushes keep building until it is removed).
-  # Every push to a trunk branch builds once, so a deployable image artifact exists for the
-  # merged commit (the devnet roll downloads it from here), and release.yml builds and
-  # pushes the tagged images. Nothing else triggers a build, not even a Dockerfile change:
-  # label the PR if you want that validated before merge.
+  # Image builds are release artifacts, not a per-PR or per-commit check: the node image
+  # alone is a ~27 minute Rust compile on a dedicated Linode runner, and nothing in a PR
+  # consumes the result. So:
+  # - usc-dev builds once a day (09:00 UTC, the default branch) and posts to Slack when the
+  #   build or the image test fails, instead of building every merged commit;
+  # - a push to a release trunk (main, usc-testnet) builds once, so a deployable image
+  #   artifact exists for that commit; release.yml builds and pushes the tagged images;
+  # - a PR builds only when it carries the `ci:docker` label (a `labeled` event re-runs this
+  #   workflow, so the label is an on-demand build button; it stays on the PR, so later
+  #   pushes keep building until it is removed);
+  # - anything else, e.g. an image for a devnet roll of a specific usc-dev commit, is a
+  #   manual `workflow_dispatch`.
+  # Nothing else triggers a build, not even a Dockerfile change: label the PR if you want
+  # that validated before merge.
   pull_request:
     branches: [main, usc-testnet, usc-dev]
     types: [opened, synchronize, reopened, labeled]
   push:
-    branches: [main, usc-testnet, usc-dev]
+    branches: [main, usc-testnet]
+  schedule:
+    - cron: "0 9 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -34,7 +41,8 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # Trunk pushes and manual runs always build; a PR builds only with the `ci:docker` label.
+  # The nightly, trunk pushes and manual runs always build; a PR builds only with the
+  # `ci:docker` label.
   # A job rather than an inline expression so the decision is logged once and shared by the
   # runner deploy, the build, the test and the runner removal below.
   gate:
@@ -206,3 +214,27 @@ jobs:
       RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
       proxy: "docker-build"
     secrets: inherit
+
+  # The nightly is the only regular signal that usc-dev still produces a working image, so a
+  # red one has to reach people instead of waiting in the Actions tab. A cancelled run counts:
+  # it usually means the Linode runner never came up, which is just as much "no image".
+  report-nightly-failure:
+    needs:
+      - gate
+      - deploy-runner-docker-build
+      - docker-build
+      - docker-test
+    if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Nightly Docker image build failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            Runner: ${{ needs.deploy-runner-docker-build.result }}, build: ${{ needs.docker-build.result }}, image test: ${{ needs.docker-test.result }}.
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

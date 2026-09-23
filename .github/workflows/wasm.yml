@@ -3,17 +3,21 @@ name: Build WASM Runtime
 
 "on":
   # The srtool build is a release artifact (a deterministic, reproducible runtime), not a
-  # per-PR check: nothing in a PR consumes it, and a WASM compile break is already caught by
-  # the node build every PR runs (wasm-builder compiles the runtime into the node). So a PR
-  # builds it only when it carries the `ci:wasm` label (a `labeled` event re-runs this
-  # workflow, and the label stays on the PR so later pushes keep building until it is
-  # removed); every push to a trunk branch builds once, so a runtime artifact exists for the
-  # merged commit; release.yml builds the tagged runtime itself. Nothing else triggers a
-  # build.
+  # per-PR or per-commit check: nothing in a PR consumes it, and a WASM compile break is
+  # already caught by the node build every PR runs (wasm-builder compiles the runtime into
+  # the node). So usc-dev builds it once a day (09:00 UTC, the default branch) and posts to
+  # Slack when it fails; a push to a release trunk (main, usc-testnet) builds once, so a
+  # runtime artifact exists for that commit; a PR builds only when it carries the `ci:wasm`
+  # label (a `labeled` event re-runs this workflow, and the label stays on the PR so later
+  # pushes keep building until it is removed); anything else is a manual
+  # `workflow_dispatch`; release.yml builds the tagged runtime itself. Nothing else
+  # triggers a build.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   push:
-    branches: [main, usc-testnet, usc-dev]
+    branches: [main, usc-testnet]
+  schedule:
+    - cron: "0 9 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -34,3 +38,21 @@ jobs:
       build-subwasm: true
       version-string: ${{ github.sha }}
       runs-on: "['ubuntu-26.04']"
+
+  # See docker.yml: the nightly is the regular signal for usc-dev, so a red one is posted.
+  report-nightly-failure:
+    needs:
+      - build
+    if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Nightly srtool WASM runtime build failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
