@@ -56,7 +56,7 @@ name: Promote Branch (fast-forward)
     paths:
       - '.github/workflows/promote-branch.yml'
       - '.github/check-promotion-is-safe.sh'
-      - '.github/dev-branch.sh'
+      - '.github/branch-on-origin.sh'
 
 permissions: read-all
 
@@ -107,7 +107,7 @@ jobs:
 
           # usc-dev is being renamed to dev. Accept either spelling as the source
           # and compare against whichever name origin has.
-          DEV_BRANCH=$(.github/dev-branch.sh)
+          DEV_BRANCH=$(.github/branch-on-origin.sh dev usc-dev)
           # Only a rewritten SOURCE_REF goes to GITHUB_ENV: the raw input could carry
           # a newline and inject variables into later steps.
           case "$SOURCE_REF" in

@@ -62,7 +62,7 @@ check_slot_duration() {
 
 #### main part
 
-FROM=$(git rev-parse "${1:-origin/$("$(dirname "$0")/dev-branch.sh")}")
+FROM=$(git rev-parse "${1:-origin/$("$(dirname "$0")/branch-on-origin.sh" dev usc-dev)}")
 TO=$(git rev-parse "${2:-HEAD}")
 
 greenprint "DEBUG: Inspecting range $FROM..$TO"

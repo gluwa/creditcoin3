@@ -19,7 +19,7 @@ GIT_TAG="${TAG_NAME:-$(git describe --tag)}"
 SUFFIX_FROM_GIT_TAG=$(echo "$GIT_TAG" | cut -d"-" -f2,99)
 
 case "$SUFFIX_FROM_GIT_TAG" in
-    devnet)  EXPECTED_BRANCH=$("$(dirname "$0")/dev-branch.sh") ;;
+    devnet)  EXPECTED_BRANCH=$("$(dirname "$0")/branch-on-origin.sh" dev usc-dev) ;;
     testnet) EXPECTED_BRANCH="usc-testnet" ;;
     mainnet) EXPECTED_BRANCH="main" ;;
     *)
