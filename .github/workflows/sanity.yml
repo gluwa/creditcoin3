@@ -158,7 +158,7 @@ jobs:
 
       - name: Prepare ENV for Devnet
         id: devnet-env
-        if: github.base_ref == 'usc-dev'
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
         run: |
           echo "target_chain=devnet" >> "$GITHUB_OUTPUT"
           RELEASE_TAG=$(.github/extract-release-tag.sh "devnet")

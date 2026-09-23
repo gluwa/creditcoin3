@@ -73,6 +73,7 @@ for sha in $WITH_CONTENT; do
     git --no-pager log -1 --format="      %h %s" "$sha"
 done
 echo
-echo "      Every change must enter at usc-dev and be promoted upward. Backport"
-echo "      the commits above to usc-dev first, then re-run this workflow."
+DEV_BRANCH=$("$(dirname "$0")/dev-branch.sh")
+echo "      Every change must enter at $DEV_BRANCH and be promoted upward. Backport"
+echo "      the commits above to $DEV_BRANCH first, then re-run this workflow."
 exit 1

@@ -26,7 +26,7 @@ name: rust
   # keeps serving new PRs. Warming on every source push would re-pay a full build for
   # a cache that did not need refreshing.
   push:
-    branches: [usc-dev]
+    branches: [usc-dev, dev]
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"
@@ -48,7 +48,7 @@ env:
 
 jobs:
   cargo-audit:
-    if: github.base_ref == 'usc-dev'
+    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:

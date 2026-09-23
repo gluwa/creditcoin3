@@ -56,6 +56,7 @@ name: Promote Branch (fast-forward)
     paths:
       - '.github/workflows/promote-branch.yml'
       - '.github/check-promotion-is-safe.sh'
+      - '.github/dev-branch.sh'
 
 permissions: read-all
 
@@ -104,6 +105,19 @@ jobs:
                   ;;
           esac
 
+          # usc-dev is being renamed to dev. Accept either spelling as the source
+          # and compare against whichever name origin has.
+          DEV_BRANCH=$(.github/dev-branch.sh)
+          # Only a rewritten SOURCE_REF goes to GITHUB_ENV: the raw input could carry
+          # a newline and inject variables into later steps.
+          case "$SOURCE_REF" in
+              usc-dev|dev)
+                  SOURCE_REF="$DEV_BRANCH"
+                  echo "SOURCE_REF=$DEV_BRANCH" >> "$GITHUB_ENV"
+                  ;;
+          esac
+          echo "DEV_BRANCH=$DEV_BRANCH" >> "$GITHUB_ENV"
+
           # Accept a branch name, a tag or a raw SHA. Prefer the remote-tracking
           # branch so 'usc-dev' means origin's usc-dev, not a stale local copy.
           if git rev-parse -q --verify "refs/remotes/origin/$SOURCE_REF^{commit}" >/dev/null; then
@@ -128,17 +142,17 @@ jobs:
           # Every change enters at usc-dev and is promoted upward. Enforcing that
           # here also means the commit is already on origin, so the push moves a
           # label over objects the remote (LFS included) already has.
-          if ! git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/usc-dev"; then
-              echo "FAIL: $SOURCE_SHA is not contained in origin/usc-dev."
-              echo "      Every change must enter at usc-dev and be promoted upward,"
-              echo "      so only a commit already on usc-dev can be promoted."
+          if ! git merge-base --is-ancestor "$SOURCE_SHA" "refs/remotes/origin/$DEV_BRANCH"; then
+              echo "FAIL: $SOURCE_SHA is not contained in origin/$DEV_BRANCH."
+              echo "      Every change must enter at $DEV_BRANCH and be promoted upward,"
+              echo "      so only a commit already on $DEV_BRANCH can be promoted."
               echo
               echo "      If this is a mainnet hotfix that cannot wait, cut a"
               echo "      release/x.y.z-mainnet branch from main, ship from there, and"
               echo "      let the normal promotion carry the fix later."
               exit 1
           fi
-          echo "PASS: $SOURCE_SHA is contained in origin/usc-dev"
+          echo "PASS: $SOURCE_SHA is contained in origin/$DEV_BRANCH"
 
           # main is the last stage of usc-dev -> usc-testnet -> main. Containment
           # in usc-dev alone isn't enough here, or a source that skipped
@@ -189,9 +203,9 @@ jobs:
           echo "      would be lost, but the label still cannot move forward over"
           echo "      them. Reconcile once, from a clone with push rights:"
           echo
-          echo "          git checkout usc-dev"
+          echo "          git checkout $DEV_BRANCH"
           echo "          git merge --no-ff origin/$TARGET_BRANCH"
-          echo "          git push origin usc-dev"
+          echo "          git push origin $DEV_BRANCH"
           echo
           echo "      then re-run this workflow."
           exit 1
