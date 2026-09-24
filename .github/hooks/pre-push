@@ -34,7 +34,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     merges=$(git rev-list --merges "$range")
     if [ -n "$merges" ]; then
         echo "FAIL: pre-push: found Merge: commit(s) in $range"
-        echo "$merges" | sed 's/^/  /'
+        while read -r sha; do echo "  $sha"; done <<< "$merges"
         echo "usc-dev requires linear history; rebase instead of merging."
         exit 1
     fi
