@@ -312,10 +312,25 @@ pub fn asc_devnet_template_config() -> Result<ChainSpec, String> {
 }
 
 fn asc_devnet_genesis() -> RuntimeGenesisConfig {
-    // FIXME: Alice dev keys are placeholders. Replace them with the cluster's validator and
-    // sudo keys and regenerate the spec before asc-dev is deployed.
-    let sudo = get_account_id_from_seed::<sr25519::Public>("Alice");
-    let validator = authority_keys_from_seed("Alice");
+    const SUDO: &str = "5DvkDUXfs72eg3ehvDSMrMBjxqTdguqJ4qVMGxBEZJR2tc6o";
+    // (sr25519, ed25519) per validator. With two authorities GRANDPA needs both online to
+    // finalize; more validators join through staking after launch.
+    const VALIDATORS: [(&str, &str); 2] = [
+        (
+            "5Gpq8DoaWTiQwtQvkV2pXnnA3kWE4CvBLbgEDhdJdTzu4fvX",
+            "5FSpmoxTZHHVzZXuKXPk8HsnYLQn9eif8fdvqoGvda9bAC7X",
+        ),
+        (
+            "5Eykkt72PPNotAAkJ8eX3YSVeGcHMmRxxgLadouhcZup3q9P",
+            "5DViKKax8wfJoocjdad8XkMDdxD2qKx9Q5rWNd6L7DbtF5yJ",
+        ),
+    ];
+
+    let sudo = AccountId::from_ss58check(SUDO).expect("valid SS58 address");
+    let validators = VALIDATORS
+        .iter()
+        .map(|(sr25519, ed25519)| authority_keys_from_ss58(sr25519, ed25519))
+        .collect();
 
     RuntimeGenesisConfig {
         // Chains are registered after launch by the runbook, not baked into genesis.
@@ -328,7 +343,7 @@ fn asc_devnet_genesis() -> RuntimeGenesisConfig {
             sudo.clone(),
             vec![sudo],
             vec![],
-            vec![validator],
+            validators,
             ASC_DEVNET_EVM_CHAIN_ID,
             vec![],
         )
@@ -695,6 +710,12 @@ mod tests {
             .is_empty());
         assert!(genesis.operators.members.is_empty());
         assert_eq!(genesis.evm_chain_id.chain_id, ASC_DEVNET_EVM_CHAIN_ID);
+
+        let sudo = AccountId::from_ss58check("5DvkDUXfs72eg3ehvDSMrMBjxqTdguqJ4qVMGxBEZJR2tc6o")
+            .expect("valid SS58 address");
+        assert_eq!(genesis.sudo.key, Some(sudo));
+        assert_eq!(genesis.session.keys.len(), 2);
+        assert_eq!(genesis.staking.validator_count, 2);
     }
 
     #[test]
