@@ -150,6 +150,15 @@ pub mod pallet {
             maturity_strategy: String,
         },
 
+        /// A chain has been removed with a given ID
+        ChainRemoved {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            chain_name: Vec<u8>,
+            chain_encoding: ChainEncodingVersion,
+            maturity_strategy: String,
+        },
+
         /// The maturity strategy of a registered chain has been changed. Off-chain consumers
         /// (attestors, archivers) read the strategy once at startup and do not react to this
         /// event, so it is a record of the change for indexers and operators rather than a
@@ -157,15 +166,6 @@ pub mod pallet {
         MaturityStrategySet {
             chain_key: ChainKey,
             chain_id: ChainId,
-            maturity_strategy: String,
-        },
-
-        /// A chain has been removed with a given ID
-        ChainRemoved {
-            chain_key: ChainKey,
-            chain_id: ChainId,
-            chain_name: Vec<u8>,
-            chain_encoding: ChainEncodingVersion,
             maturity_strategy: String,
         },
     }
