@@ -21,7 +21,7 @@ jobs:
 
       - name: Devnet ENV
         id: devnet-env
-        if: github.base_ref == 'usc-dev'
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
         run: |
           # shellcheck disable=SC2129
           PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
@@ -107,7 +107,7 @@ jobs:
 
   rebase-check:
     runs-on: ubuntu-26.04
-    if: github.base_ref == 'usc-dev'
+    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
     steps:
       - uses: actions/checkout@v7
         with:
@@ -152,7 +152,7 @@ jobs:
 
   merge-check:
     runs-on: ubuntu-26.04
-    if: github.base_ref == 'usc-dev'
+    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
     steps:
       - uses: actions/checkout@v7
         with:
@@ -213,7 +213,8 @@ jobs:
         run: |
           TARGET_BRANCH="${{ github.base_ref }}"
 
-          if [ "$TARGET_BRANCH" == "usc-dev" ]; then
+          # usc-dev is being renamed to dev; accept both until the cleanup lands.
+          if [ "$TARGET_BRANCH" == "usc-dev" ] || [ "$TARGET_BRANCH" == "dev" ]; then
             exit 0
           fi
 

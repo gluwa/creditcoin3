@@ -27,7 +27,7 @@ name: cache-warm
   # ordinary .rs change leaves the existing key valid and the warmed entry still
   # applies. Warming on every push would re-pay a full build to refresh nothing.
   push:
-    branches: [usc-dev]
+    branches: [usc-dev, dev]
     paths:
       - "**/Cargo.toml"
       - "**/Cargo.lock"

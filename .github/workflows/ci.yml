@@ -166,7 +166,7 @@ jobs:
     needs:
       - should-run
     # extrinsics check below needs the build unconditionally on usc-dev, regardless of path filters
-    if: ${{ needs.should-run.outputs.changes != '[]' || github.base_ref == 'usc-dev' }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
     strategy:
       fail-fast: false
       matrix:
@@ -184,7 +184,7 @@ jobs:
     needs:
       - should-run
       - deploy-runner-build-creditcoin-for-testing
-    if: ${{ needs.should-run.outputs.changes != '[]' || github.base_ref == 'usc-dev' }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -195,7 +195,7 @@ jobs:
     secrets: inherit
 
   integration-test-check-extrinsics:
-    if: github.base_ref == 'usc-dev'
+    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
     needs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-26.04
@@ -953,7 +953,7 @@ jobs:
           yarn build
 
       - name: Extra ENV for PRs towards dev branch
-        if: github.base_ref == 'usc-dev'
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
         id: for-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -963,7 +963,7 @@ jobs:
           echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
 
       - name: Extra ENV for other PRs and commits
-        if: github.base_ref != 'usc-dev'
+        if: ${{ !contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
         id: non-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -1288,7 +1288,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Devnet
-        if: github.base_ref == 'usc-dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
