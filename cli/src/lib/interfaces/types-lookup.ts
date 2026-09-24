@@ -1507,12 +1507,6 @@ declare module '@polkadot/types/lookup' {
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
             readonly maturityStrategy: Text;
         } & Struct;
-        readonly isMaturityStrategySet: boolean;
-        readonly asMaturityStrategySet: {
-            readonly chainKey: u64;
-            readonly chainId: u64;
-            readonly maturityStrategy: Text;
-        } & Struct;
         readonly isChainRemoved: boolean;
         readonly asChainRemoved: {
             readonly chainKey: u64;
@@ -1521,7 +1515,13 @@ declare module '@polkadot/types/lookup' {
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
             readonly maturityStrategy: Text;
         } & Struct;
-        readonly type: 'ChainRegistered' | 'MaturityStrategySet' | 'ChainRemoved';
+        readonly isMaturityStrategySet: boolean;
+        readonly asMaturityStrategySet: {
+            readonly chainKey: u64;
+            readonly chainId: u64;
+            readonly maturityStrategy: Text;
+        } & Struct;
+        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'MaturityStrategySet';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (109) */
