@@ -518,6 +518,142 @@ type TransactionVerified @entity {
     txHash: String! @index
 }
 
+type OutboxFactory @entity {
+    """
+    A USC write-ability OutboxFactory discovered on-chain via the substrate
+    `supportedChains.OutboxFactoryRegistered` event. Factory provenance is informational:
+    deployment is permissionless and only canonical Discovery membership authorizes an Outbox.
+    """
+    # Factory contract address (hex, lowercase)
+    id: ID!
+    # USC chain key the factory serves
+    chainKey: BigInt! @index
+    # Creditcoin L1 block the factory was registered at
+    registeredAt: BigInt! @index
+    # Registration block timestamp (ms since epoch)
+    registeredTimestamp: BigInt!
+}
+
+type OutboxFactoryRegistration @entity {
+    """
+    Current governance-authorized OutboxFactory for one USC chain key. This separate mapping keeps
+    authentication exact when one factory serves multiple chain keys or governance rotates a key to
+    a new factory address.
+    """
+    # USC chain key as a decimal string
+    id: ID!
+    # Governance-authorized factory contract address (hex, lowercase)
+    factoryAddress: String! @index
+    # Creditcoin L1 block at which this registration became authoritative
+    registeredAt: BigInt! @index
+}
+
+type OutboxContract @entity {
+    """
+    An Outbox admitted by governance's canonical Discovery at an indexed historical height.
+    This row retains history after removal; it is not ongoing authorization. Every publication
+    checks Discovery membership at its own block. Existing messages can still be acknowledged
+    by their original emitting Outbox after removal.
+    """
+    # Outbox contract address (hex, lowercase)
+    id: ID!
+    # bytes32 write-ability chain key this Outbox serves
+    chainKey: String! @index
+    # The factory that created it
+    factory: OutboxFactory
+    # First authenticated observation: factory creation, Discovery registration, or registry snapshot
+    createdAt: BigInt! @index
+    # Observation block timestamp (ms since epoch)
+    createdTimestamp: BigInt!
+    # Observation transaction hash (0x when unavailable)
+    createdTxHash: String! @index
+    # Messages published on this Outbox
+    messages: [OutboxMessage!] @derivedFrom(field: "outbox")
+}
+
+type OutboxMessage @entity {
+    """
+    A USC write-ability cross-chain message published on a Creditcoin L1 Outbox.
+    Keyed by the on-chain messageId so the MessageAcknowledged handler updates the
+    same record: `acknowledged == true` means the ack (with its native delivery
+    proof) landed back on Creditcoin. Messages published with canAck == false
+    are never acknowledged on this chain — their delivery is confirmed only on the
+    destination chain, which this indexer does not observe.
+    """
+    # messageId (bytes32, hex) — the unique message handle
+    id: ID!
+
+    # Outbox contract that emitted the message (the dynamically-discovered instance).
+    # Foreign keys are indexed automatically, so no @index is needed here.
+    outbox: OutboxContract!
+    # dApp (emitterAddress) that called publishMessage
+    emitter: String! @index
+    # Whether the message must be acknowledged on-chain before it is complete
+    canAck: Boolean! @index
+    # Opaque payload bytes (hex) handed to the destination dApp's receiveMessage
+    payload: String!
+
+    # --- publish (MessagePublished) ---
+    # Creditcoin L1 block number the message was published at
+    publishedAt: BigInt! @index
+    # Publish block timestamp (ms since epoch)
+    publishedTimestamp: BigInt!
+    # Publish transaction hash
+    publishedTxHash: String! @index
+
+    # --- acknowledgment (MessageAcknowledged; only for canAck == true) ---
+    # True once the ack landed on the Outbox
+    acknowledged: Boolean! @index
+    # Creditcoin L1 block number the ack landed at (null until acknowledged)
+    acknowledgedAt: BigInt
+    # Ack block timestamp (ms since epoch, null until acknowledged)
+    acknowledgedTimestamp: BigInt
+    # Ack transaction hash (null until acknowledged)
+    acknowledgedTxHash: String
+}
+
+type PendingOutbox @entity {
+    """
+    A bounded candidate from OutboxCreated, which is permissionless even for registered factories.
+    The row never authorizes publications: admission requires canonical Discovery membership.
+    Authentic registry events and governance registry snapshots bypass the candidate cap.
+    """
+    # Announced Outbox contract address (hex, lowercase)
+    id: ID!
+    # Raw u64 USC chain key from the event
+    chainKey: BigInt! @index
+    # The contract that emitted OutboxCreated — authorized retroactively, or never
+    factoryAddress: String! @index
+    # bytes32 form of chainKey, stored so promotion needs no re-derivation
+    chainKeyBytes32: String!
+    # Creditcoin L1 block / timestamp / tx of the quarantined OutboxCreated
+    createdAt: BigInt!
+    createdTimestamp: BigInt!
+    createdTxHash: String!
+}
+
+type QuarantinedMessage @entity {
+    """
+    Legacy quarantine rows retained for schema compatibility and removal during promotion/purge.
+    New unauthorized publications are dropped. Historical messages are never retroactively
+    authorized merely because an Outbox becomes a member of Discovery later.
+    """
+    # messageId (bytes32, hex)
+    id: ID!
+    # The pending Outbox the message was observed on
+    outboxAddress: String! @index
+    emitter: String!
+    canAck: Boolean!
+    payload: String!
+    publishedAt: BigInt!
+    publishedTimestamp: BigInt!
+    publishedTxHash: String!
+    acknowledged: Boolean!
+    acknowledgedAt: BigInt
+    acknowledgedTimestamp: BigInt
+    acknowledgedTxHash: String
+}
+
 type SupportedChain @entity {
     id: ID!
     # Chain key

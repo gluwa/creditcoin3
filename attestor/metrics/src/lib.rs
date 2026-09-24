@@ -201,6 +201,11 @@ struct Store {
         prometheus_client::metrics::counter::Counter<u64, std::sync::atomic::AtomicU64>,
     >,
 
+    /// One while finalized write-ability governance reads are failing. Authorization retains its
+    /// last successful value (initially paused); this is informational, not a liveness failure.
+    pub metrics_write_ability_governance_degraded:
+        prometheus_client::metrics::gauge::Gauge<u64, std::sync::atomic::AtomicU64>,
+
     /// Metrics which keep track of failed state.
     ///
     /// - _Known invalid attestations_ ([`Counter`])
@@ -254,6 +259,9 @@ impl Metrics {
             prometheus_client::metrics::gauge::Gauge::<u64, std::sync::atomic::AtomicU64>::default(
             );
         let metrics_error = prometheus_client::metrics::family::Family::default();
+        let metrics_write_ability_governance_degraded =
+            prometheus_client::metrics::gauge::Gauge::<u64, std::sync::atomic::AtomicU64>::default(
+            );
 
         registry.register(
             "attestor",
@@ -314,6 +322,12 @@ impl Metrics {
             metrics_error.clone(),
         );
 
+        registry.register(
+            "write_ability_governance_degraded",
+            "Finalized governance read failed; retaining the last successful authorization (initially paused)",
+            metrics_write_ability_governance_degraded.clone(),
+        );
+
         let metrics = Self(std::sync::Arc::new(Store {
             registry,
             metrics_production,
@@ -324,6 +338,7 @@ impl Metrics {
             metrics_p2p_messages,
             metrics_connected_peers,
             metrics_error,
+            metrics_write_ability_governance_degraded,
         }));
 
         let attestation_latest_cc3 = config
@@ -537,6 +552,40 @@ impl Metrics {
             .inc();
     }
 
+    /// Report stale write-ability governance without changing the liveness watchdog. Returns the
+    /// previous degraded state so callers can log recovery once.
+    pub fn set_write_ability_governance_degraded(&self, degraded: bool) -> bool {
+        self.0
+            .metrics_write_ability_governance_degraded
+            .set(u64::from(degraded))
+            != 0
+    }
+
+    /// Count a USC write-ability message vote that was accepted and counted toward quorum.
+    pub fn note_message_vote(&self) {
+        self.0
+            .metrics_p2p_messages
+            .get_or_create(&labels::LabelPeerToPeerMessages {
+                kind: labels::PeerToPeerMessages::MessageVote,
+            })
+            .inc();
+    }
+
+    /// Count a USC write-ability message vote this attestor *produced* (signed locally — from the
+    /// Outbox listener or a reobservation re-sign). Distinct from [`Self::note_message_vote`], which
+    /// counts *incoming* peer votes: if the local signing pipeline wedges (e.g. a dead Creditcoin
+    /// RPC), incoming votes keep arriving and `MessageVote` keeps moving, so only this counter going
+    /// flat while the chain has Outbox activity reveals that we stopped producing (S4). Alert on
+    /// `rate(...MessageVoteProduced) == 0` with Outbox activity present.
+    pub fn note_message_vote_produced(&self) {
+        self.0
+            .metrics_p2p_messages
+            .get_or_create(&labels::LabelPeerToPeerMessages {
+                kind: labels::PeerToPeerMessages::MessageVoteProduced,
+            })
+            .inc();
+    }
+
     pub fn increase_invalid_attestation_count(&self) {
         self.0
             .metrics_error
@@ -671,6 +720,11 @@ mod labels {
         /// Total gossipsub messages received by this peer. Was a `Gauge` under `metrics_p2p`
         /// before — moved to a `Counter` family so PromQL `rate()` is well-defined.
         Gossipsub,
+        /// USC write-ability message votes that were accepted and counted toward quorum.
+        MessageVote,
+        /// USC write-ability message votes this attestor produced (signed) locally — the liveness
+        /// signal for the local signing pipeline (see [`super::Metrics::note_message_vote_produced`]).
+        MessageVoteProduced,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]

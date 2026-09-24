@@ -1,0 +1,465 @@
+#!/usr/bin/env tsx
+
+// =====================================================================================
+// WARNING — LEGACY PoC DEPLOY PATH; the RUST ATTESTOR WILL NOT DISCOVER THIS FACTORY.
+//
+// This script deploys from the published @gluwa/usc-contracts npm package, whose latest
+// version (0.1.2) still ships the pre-#23 SimpleOutboxFactory (createOutbox/getOutbox,
+// 2-arg OutboxCreated(bytes32,address)). The attestor and indexer discover Outboxes by
+// scanning the CREATE2 factory's OutboxCreated(address,uint32,address,address,string) —
+// a different event signature — so registering this factory with the pallet leaves
+// message attestation permanently idle (the attestor logs "no Outbox factory/Outbox
+// registered on-chain yet" forever).
+//
+// Use the fee-integrated stack instead (what write-ability-e2e.yml runs): the deploy-*
+// scripts in this directory against a post-#23 usc-contracts checkout. This script gets
+// rewritten for the new stack once a post-#23 @gluwa/usc-contracts package is published.
+// =====================================================================================
+
+import "dotenv/config";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { ApiPromise, WsProvider, Keyring } from "@polkadot/api";
+import { cryptoWaitReady } from "@polkadot/util-crypto";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const REPO_ROOT = path.resolve(__dirname, "..");
+const CONTRACTS_DIR = path.join(REPO_ROOT, "contracts");
+const ENV_FILE = path.join(REPO_ROOT, ".env");
+
+// EvmV1Decoder ships as a *linked* (public) library from @gluwa/usc-contracts, so it must be
+// deployed on its own and its address linked into consumers at create time (`forge create` rejects
+// dynamic linking). forge identifies the library by its on-disk source id — the node_modules path
+// that `remappings.txt` maps `@gluwa/usc-contracts/` onto — and uses it for both the deploy target
+// and the `--libraries` linker reference. This path MUST stay inside the Foundry project root
+// (CONTRACTS_DIR) with no leading `../`, otherwise forge's internal source id won't match the
+// `--libraries` key and linking silently falls back to "dynamic linking not supported". That is why
+// the dependency is installed into `contracts/node_modules` (see contracts/package.json), not the
+// parent package's node_modules.
+const EVM_V1_DECODER_LIB =
+  "node_modules/@gluwa/usc-contracts/contracts/decoding/EvmV1Decoder.sol:EvmV1Decoder";
+
+// The write-ability contracts now live in the published @gluwa/usc-contracts package (and are tested
+// there), so `forge create` targets them by their on-disk node_modules source id rather than a local
+// `src/` copy. Same reasoning as EVM_V1_DECODER_LIB: the path stays inside the Foundry project root
+// so forge's source id resolves cleanly. Note the package file is `AcknowledgementValidator.sol`
+// (British spelling) while the contract it declares is `AcknowledgmentValidator`.
+const USC_WRITE_ABILITY =
+  "node_modules/@gluwa/usc-contracts/contracts/write-ability";
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing ${name}`);
+  }
+  return value;
+}
+
+// Names of environment variables that hold secrets. Their *values* are masked by exact match (see
+// `redactSecrets`) so a leak is caught regardless of how the value is formatted in the output —
+// 0x-prefixed or not, quoted inside JSON, or embedded in an RPC URL.
+const SECRET_ENV_VARS = [
+  "DESTINATION_CHAIN_PRIVATE_KEY",
+  "CREDITCOIN_CHAIN_PRIVATE_KEY",
+  "CREDITCOIN_SUDO_SURI",
+];
+
+// Collect the concrete secret values from the environment, plus the 0x-toggled variant of each hex
+// key, so both `--private-key aabb…` (foundry accepts no `0x`) and `--private-key 0xaabb…` are
+// masked. Short values (e.g. the well-known `//Alice` dev SURI) are skipped to avoid masking noise.
+function secretValues(): string[] {
+  const vals = new Set<string>();
+  for (const name of SECRET_ENV_VARS) {
+    const v = process.env[name]?.trim();
+    if (!v || v.length < 16) continue;
+    vals.add(v);
+    vals.add(v.startsWith("0x") ? v.slice(2) : `0x${v}`);
+  }
+  return [...vals];
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Mask secrets anywhere in a rendered string before it reaches an error message or CI log (audit
+// P2-4). forge/cast take the key as `--private-key <hex>` on argv, so a failed command's args — and
+// any tool output that echoes them — would otherwise leak the deployer key. Three layers:
+//   1. exact-value match of every configured secret (catches unprefixed keys, JSON-embedded keys,
+//      and secrets that appear inside a URL);
+//   2. any 0x-prefixed 32-byte hex run (defense-in-depth for keys not sourced from the env list);
+//   3. basic-auth credentials in URLs (`//user:pass@host` → `//user:<redacted>@host`).
+// NOTE: this does not hide the key from OS process listings (`ps`) while forge/cast run, nor an API
+// key embedded in an RPC URL *path* (`/v2/<key>`) — both need keystore/KMS-backed signing, the
+// audit's larger P2-4 remediation. This demo deploy script is not the production signing path.
+function redactSecrets(s: string): string {
+  let out = s;
+  for (const secret of secretValues()) {
+    out = out.replace(new RegExp(escapeRegExp(secret), "g"), "<redacted>");
+  }
+  out = out.replace(/0x[0-9a-fA-F]{64}/g, "0x<redacted>");
+  out = out.replace(/(\/\/[^/@\s:]+:)[^/@\s]+@/g, "$1<redacted>@");
+  return out;
+}
+
+function runCommand(cmd: string, args: string[], cwd: string): string {
+  try {
+    const output = execFileSync(cmd, args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return output;
+  } catch (err: any) {
+    const stdout = err?.stdout ? String(err.stdout) : "";
+    const stderr = err?.stderr ? String(err.stderr) : "";
+    const combined = [stdout, stderr].filter(Boolean).join("\n");
+    throw new Error(
+      redactSecrets(`Command failed: ${cmd} ${args.join(" ")}\n${combined}`),
+    );
+  }
+}
+
+function parseDeployedAddress(output: string, label: string): string {
+  const match = output.match(/Deployed to:\s*(0x[a-fA-F0-9]{40})/);
+  if (!match) {
+    throw new Error(`Failed to parse deployed address for ${label}\n${output}`);
+  }
+  return match[1];
+}
+
+function deployToDestination(
+  contractSpec: string,
+  constructorArgs: string[] = [],
+): string {
+  const rpcUrl = requireEnv("DESTINATION_CHAIN_RPC_URL");
+  const privateKey = requireEnv("DESTINATION_CHAIN_PRIVATE_KEY");
+
+  const args = [
+    "create",
+    "--rpc-url",
+    rpcUrl,
+    "--private-key",
+    privateKey,
+    "--broadcast",
+    contractSpec,
+    ...(constructorArgs.length > 0
+      ? ["--constructor-args", ...constructorArgs]
+      : []),
+  ];
+
+  const output = runCommand("forge", args, CONTRACTS_DIR);
+  process.stderr.write(output);
+  return parseDeployedAddress(output, contractSpec);
+}
+
+function deployToSource(
+  contractSpec: string,
+  constructorArgs: string[] = [],
+  libraries: string[] = [],
+): string {
+  const rpcUrl = requireEnv("CREDITCOIN_RPC_URL");
+  const privateKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
+
+  const args = [
+    "create",
+    "--rpc-url",
+    rpcUrl,
+    "--private-key",
+    privateKey,
+    "--broadcast",
+    // Pre-linked libraries (`<sourceId>:<Lib>:<address>`) must precede the contract spec.
+    ...libraries.flatMap((lib) => ["--libraries", lib]),
+    contractSpec,
+    ...(constructorArgs.length > 0
+      ? ["--constructor-args", ...constructorArgs]
+      : []),
+  ];
+
+  const output = runCommand("forge", args, CONTRACTS_DIR);
+  process.stderr.write(output);
+  return parseDeployedAddress(output, contractSpec);
+}
+
+function castSendSource(to: string, sig: string, args: string[]): void {
+  const rpcUrl = requireEnv("CREDITCOIN_RPC_URL");
+  const privateKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
+  const output = runCommand(
+    "cast",
+    [
+      "send",
+      to,
+      sig,
+      ...args,
+      "--rpc-url",
+      rpcUrl,
+      "--private-key",
+      privateKey,
+    ],
+    CONTRACTS_DIR,
+  );
+  process.stderr.write(output);
+}
+
+function castCallSource(to: string, sig: string, args: string[]): string {
+  const rpcUrl = requireEnv("CREDITCOIN_RPC_URL");
+  const output = runCommand(
+    "cast",
+    ["call", to, sig, ...args, "--rpc-url", rpcUrl],
+    CONTRACTS_DIR,
+  );
+  return output.trim();
+}
+
+function toWs(url: string): string {
+  return url.replace(/^http:\/\//, "ws://").replace(/^https:\/\//, "wss://");
+}
+
+// Register the deployed OutboxFactory with `pallet_supported_chains` so the attestor (and relayer)
+// can resolve the outbox on-chain via the chain-info precompile (`get_outbox_factory_address` ->
+// factory -> `getOutbox(chainKey)`). This is a Substrate extrinsic
+// (`supportedChains.setOutboxFactoryAddr`), NOT an EVM call, and it is operator-gated — on a --dev
+// node we submit it through sudo with the dev sudo account. The chain must already be supported.
+//
+// TODO(write-ability): for non-dev environments, submit this with a real Operators-membership key
+//   instead of dev sudo, and inspect the `sudo.Sudid` event to surface inner-call failures (here we
+//   only resolve once the wrapping extrinsic is in a block).
+async function registerOutboxFactory(
+  chainKey: bigint,
+  factoryAddr: string,
+): Promise<void> {
+  // Note: `??` only falls back on undefined/null, but these env vars are commonly present-but-empty
+  // (`CREDITCOIN_SUBSTRATE_WS_URL=""` in .env.example), so treat blank as unset.
+  const configuredWs = process.env.CREDITCOIN_SUBSTRATE_WS_URL?.trim();
+  const wsUrl = configuredWs
+    ? configuredWs
+    : toWs(requireEnv("CREDITCOIN_RPC_URL"));
+  const sudoSuri = process.env.CREDITCOIN_SUDO_SURI?.trim() || "//Alice";
+
+  const api = await ApiPromise.create({
+    provider: new WsProvider(wsUrl),
+    noInitWarn: true,
+  });
+  try {
+    await api.isReady;
+    await cryptoWaitReady();
+    const sudo = new Keyring({ type: "sr25519" }).addFromUri(sudoSuri);
+
+    await new Promise<void>((resolve, reject) => {
+      api.tx.sudo
+        .sudo(
+          api.tx.supportedChains.setOutboxFactoryAddr(chainKey, factoryAddr),
+        )
+        .signAndSend(sudo, ({ status, dispatchError }) => {
+          if (dispatchError) {
+            reject(
+              new Error(
+                `setOutboxFactoryAddr failed: ${dispatchError.toString()}`,
+              ),
+            );
+          } else if (status.isInBlock || status.isFinalized) {
+            resolve();
+          }
+        })
+        .catch(reject);
+    });
+  } finally {
+    await api.disconnect();
+  }
+}
+
+function updateEnvVar(key: string, value: string): void {
+  const newLine = `${key}="${value}"`;
+
+  let text = existsSync(ENV_FILE) ? readFileSync(ENV_FILE, "utf8") : "";
+  const pattern = new RegExp(`^${key}=.*$`, "m");
+
+  if (pattern.test(text)) {
+    text = text.replace(pattern, newLine);
+  } else {
+    if (text && !text.endsWith("\n")) {
+      text += "\n";
+    }
+    text += `${newLine}\n`;
+  }
+
+  writeFileSync(ENV_FILE, text, "utf8");
+}
+
+function getPayeeAddress(): string {
+  const privateKey = requireEnv("CREDITCOIN_CHAIN_PRIVATE_KEY");
+  const output = runCommand(
+    "cast",
+    ["wallet", "address", "--private-key", privateKey],
+    CONTRACTS_DIR,
+  );
+  return output.trim();
+}
+
+function getDestinationChainId(): string {
+  const rpcUrl = requireEnv("DESTINATION_CHAIN_RPC_URL");
+  const output = runCommand(
+    "cast",
+    ["chain-id", "--rpc-url", rpcUrl],
+    CONTRACTS_DIR,
+  );
+  return output.trim();
+}
+
+function getDestinationDeployerAddress(): string {
+  const privateKey = requireEnv("DESTINATION_CHAIN_PRIVATE_KEY");
+  const output = runCommand(
+    "cast",
+    ["wallet", "address", "--private-key", privateKey],
+    CONTRACTS_DIR,
+  );
+  return output.trim();
+}
+
+// Initial attestor EVM set the EOAValidator is seeded with at deploy time. The authoritative set is
+// only known once the attestors launch (step 3), so we seed best-effort here and `launch-attestors.sh`
+// syncs the live discovered set via `updateAttestorSet` afterwards. Prefer a `.attestor-set` written
+// by a previous launch; otherwise fall back to the config.yaml defaults so the constructor has a
+// valid (non-empty) set.
+const ATTESTOR_SET_FILE = path.join(__dirname, ".attestor-set");
+const DEFAULT_ATTESTORS = [
+  "0x3C3224ECf3e12ec671D200a2802a2525Fa1B04aC",
+  "0x0aC32750Ed79f301248afD9B398cc5723911c392",
+  "0x4910156288781F080d81c607E3a830a7019d9Bc6",
+];
+
+function readInitialAttestors(): string[] {
+  if (existsSync(ATTESTOR_SET_FILE)) {
+    const set = readFileSync(ATTESTOR_SET_FILE, "utf8")
+      .trim()
+      .split(",")
+      .map((a) => a.trim())
+      .filter(Boolean);
+    if (set.length > 0) {
+      return set;
+    }
+  }
+  return DEFAULT_ATTESTORS;
+}
+
+async function main(): Promise<void> {
+  // Creditcoin L1 EVM chain id (eth_chainId). On `--dev` this is SS58Prefix = 42.
+  const sourceChainId = process.env.SOURCE_CHAIN_ID ?? "42";
+  // chain_key of the destination chain, given as a plain number in the env. In the dev genesis,
+  // chain_key 2 = the local anvil ("Anvil1", chain id 31337) — the same chain_key the attestor
+  // zombienet attests; 3 = Sepolia. `chainKeyBytes32` is the left-padded bytes32 form contracts use.
+  const chainKeyU64 = BigInt(process.env.DESTINATION_CHAIN_KEY ?? "2");
+  const chainKeyBytes32 = `0x${chainKeyU64.toString(16).padStart(64, "0")}`;
+
+  const creditcoinRpcUrl = requireEnv("CREDITCOIN_RPC_URL");
+  const destinationRpcUrl = requireEnv("DESTINATION_CHAIN_RPC_URL");
+
+  const payee = getPayeeAddress();
+
+  console.log(
+    `Deploying to source: ${creditcoinRpcUrl}, destination: ${destinationRpcUrl}...`,
+  );
+
+  // Outbox is created via the factory, not deployed directly: deploy the USC-operated factory
+  // first, then have it create the outbox for our chain key (the factory passes its own owner to
+  // the outbox). This mirrors the "create factory first -> use factory to create outbox" pattern.
+  const outboxFactory = deployToSource(
+    `${USC_WRITE_ABILITY}/SimpleOutboxFactory.sol:OutboxFactory`,
+  );
+  // chainKeyU64 (above) is also the destination chain key the AcknowledgmentValidator proves
+  // MessageDelivered events on.
+
+  // EvmV1Decoder is a public (linked) library that AcknowledgmentValidator depends on. Deploy it
+  // standalone first so its address can be linked into the validator's bytecode at create time.
+  const evmV1Decoder = deployToSource(EVM_V1_DECODER_LIB);
+
+  // Trust-minimized acknowledgment validator (research §05/§10): verifies a native USC delivery
+  // proof (block-prover precompile: merkle inclusion + continuity) that MessageDelivered was emitted
+  // in a finalized block on the destination chain, decodes the messageIds, and acknowledges them on
+  // the Outbox. It is the Outbox's `validator` (acknowledgeMessage is onlyValidator). Created first
+  // (without the Outbox), then `setOutbox` once the factory has created the Outbox.
+  const ackValidator = deployToSource(
+    `${USC_WRITE_ABILITY}/AcknowledgementValidator.sol:AcknowledgmentValidator`,
+    [chainKeyU64.toString(), payee], // (destinationChainKey, owner)
+    [`${EVM_V1_DECODER_LIB}:${evmV1Decoder}`], // link the pre-deployed EvmV1Decoder library
+  );
+  castSendSource(outboxFactory, "createOutbox(bytes32,address)", [
+    chainKeyBytes32,
+    ackValidator, // the Outbox's onlyValidator ack authority
+  ]);
+  const outbox = castCallSource(outboxFactory, "getOutbox(bytes32)(address)", [
+    chainKeyBytes32,
+  ]);
+  castSendSource(ackValidator, "setOutbox(address)", [outbox]);
+
+  // Register the factory on-chain so the attestor/relayer can resolve the outbox via the chain-info
+  // precompile.
+  console.log(
+    `Registering OutboxFactory ${outboxFactory} for chain_key ${chainKeyU64} with pallet-supported-chains...`,
+  );
+  await registerOutboxFactory(chainKeyU64, outboxFactory);
+
+  const dapp = deployToSource("src/SimpleDApp.sol:SimpleDApp", [outbox]);
+
+  // Destination chain
+  // Production vote validator: EOAValidator verifies attestor ECDSA signatures + 2/3+1 threshold on
+  // every deliverMessage (replaces the always-accept DummyVoteValidator). Seeded with a best-effort
+  // attestor set; launch-attestors.sh syncs the live discovered set via updateAttestorSet (the
+  // destination deployer is the validator admin). threshold = 2/3 + 1, minAttestorCount = 1.
+  const validatorAdmin = getDestinationDeployerAddress();
+  const initialAttestors = readInitialAttestors();
+  const validator = deployToDestination(
+    `${USC_WRITE_ABILITY}/EOAValidator.sol:EOAValidator`,
+    [
+      validatorAdmin,
+      `[${initialAttestors.join(",")}]`,
+      "1", // minAttestorCount
+      "2", // thresholdNumerator
+      "3", // thresholdDenominator
+      "1", // thresholdAddition
+    ],
+  );
+  const destination = deployToDestination(
+    "src/TestDestination.sol:TestDestination",
+  );
+  const inbox = deployToDestination(
+    `${USC_WRITE_ABILITY}/SimpleInbox.sol:SimpleInbox`,
+    [validator, sourceChainId, chainKeyBytes32],
+  );
+  const destinationChainId = getDestinationChainId();
+  console.log(`Destination chainId: ${destinationChainId}`);
+
+  // Write addresses back into .env
+  updateEnvVar("INBOX_ADDR", inbox);
+  updateEnvVar("VOTE_VALIDATOR_ADDR", validator);
+  updateEnvVar("DESTINATION_CONTRACT_ADDR", destination);
+  updateEnvVar("OUTBOX_FACTORY_ADDR", outboxFactory);
+  updateEnvVar("OUTBOX_ADDR", outbox);
+  updateEnvVar("ACK_VALIDATOR_ADDR", ackValidator);
+  updateEnvVar("DAPP_CONTRACT_ADDR", dapp);
+  updateEnvVar("DESTINATION_CHAIN_ID", destinationChainId);
+
+  console.log(
+    `EOAValidator: ${validator} (admin ${validatorAdmin}, ${initialAttestors.length} seed attestors)`,
+  );
+  console.log(`SimpleInbox: ${inbox}`);
+  console.log(`OutboxFactory: ${outboxFactory}`);
+  console.log(`SimpleOutbox (via factory): ${outbox}`);
+  console.log(`EvmV1Decoder (library): ${evmV1Decoder}`);
+  console.log(`AcknowledgmentValidator (outbox validator): ${ackValidator}`);
+  console.log(`SimpleDApp: ${dapp}`);
+  console.log(`TestDestination: ${destination}`);
+  console.log(`Updated ${ENV_FILE}`);
+}
+
+main().catch((err) => {
+  // Redact any private key that made it into the error before it reaches stdout / CI logs.
+  const rendered =
+    err instanceof Error ? (err.stack ?? err.message) : String(err);
+  console.error(redactSecrets(rendered));
+  process.exit(1);
+});

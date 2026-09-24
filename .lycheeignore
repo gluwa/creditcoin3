@@ -25,6 +25,7 @@ https://github.com/gluwa/creditcoin3/pull(.*)
 # GitHub API URLs that embed shell template variables in workflow scripts
 https://api\.github\.com/repos/(.*)/releases(.*)
 https://sepolia.infura.io/v3/(.*)
+https://base-sepolia.core.chainstack.com/(.*)
 https://registry.npmjs.org/-/npm/v1/(.*)
 https://github.com/request/request/issues/(.*)
 https://blockscout(.*)creditcoin.network/
@@ -35,3 +36,4 @@ https://proof-gen-api(.*)creditcoin.network/
 https://nixos.wiki/wiki/flakes#Enable_flakes_temporarily
 https://opencollective.com/(.*)
 https://scout\.docker\.com/(.*)
+https://github.com/gluwa/asc-contracts(.*)

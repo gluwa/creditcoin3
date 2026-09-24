@@ -12,6 +12,7 @@ describe('handleSupportedChainRemoved()', () => {
     const newChainId = BigInt(Date.now());
     const newChainName = `Test Chain ${newChainId}`;
     const encoding = 'V1';
+    const outboxFactoryAddr = `0x${newChainId.toString(16).padStart(40, '0')}`;
     let newChainKey = 0n;
 
     beforeAll(async () => {
@@ -42,6 +43,10 @@ describe('handleSupportedChainRemoved()', () => {
             .unwrap()
             .toBigInt();
         expect(newChainKey).toBeGreaterThan(0n);
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setOutboxFactoryAddr(newChainKey, outboxFactoryAddr))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
 
         // there should be a SupportedChain entity for this new chain
         await forElapsedBlocks(api, { minBlocks: 3 });
@@ -128,6 +133,17 @@ describe('handleSupportedChainRemoved()', () => {
             );
             expect(response.data.attestationChainData.nodes).toBeTruthy();
             expect(response.data.attestationChainData.nodes.length).toEqual(0);
+        });
+
+        it('former OutboxFactory authorization should be removed', async () => {
+            const response = await graphQLQuery(
+                `query {
+                    outboxFactoryRegistrations(
+                        filter: { id: { equalTo: "${newChainKey}" }},
+                        last: 1,
+                    ) { nodes { id, factoryAddress }}}`,
+            );
+            expect(response.data.outboxFactoryRegistrations.nodes).toEqual([]);
         });
     });
 });

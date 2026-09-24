@@ -10,6 +10,7 @@
         "dev": "subql codegen && subql build && docker compose pull && docker compose up --remove-orphans",
         "prepack": "rm -rf dist && npm run build",
         "test": "subql build && c8 --exclude-after-remap subql-node test",
+        "test:outbox-authorization": "node --test tests/outbox-authorization.test.cjs",
         "format": "prettier --write \"src/**/*.ts\"",
         "check-format": "prettier --check \"src/**/*.ts\"",
         "lint": "eslint -c .eslintrc.js --max-warnings 0 --ext .ts ./src",
@@ -51,6 +52,7 @@
         "ipfs-unixfs": "6.0.6"
     },
     "dependencies": {
+        "@ethersproject/abi": "5.8.0",
         "package-json-type": "^1.1.2",
         "pino": "^10.3.0",
         "typechain": "^8.3.2"

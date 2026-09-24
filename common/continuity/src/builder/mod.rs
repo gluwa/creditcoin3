@@ -180,7 +180,8 @@ impl ContinuityBuilder {
             .context("Failed to create CC client")?;
         let eth_client = EthClient::new(&config.eth_rpc_url, None)
             .await
-            .context("Failed to create ETH client")?;
+            .context("Failed to create ETH client")?
+            .with_chain_family_override(config.eth_chain_family);
 
         let encoding = resolve_chain_encoding(&cc_client, config.chain_key).await;
 

@@ -225,6 +225,23 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
                 },
             },
             {
+                // Factory provenance is informational; Discovery membership authorizes Outboxes.
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleOutboxFactoryRegistered',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'OutboxFactoryRegistered',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
+                handler: 'handleOutboxDiscoveryRegistered',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'OutboxDiscoveryRegistered',
+                },
+            },
+            {
                 kind: SubstrateHandlerKind.Event,
                 handler: 'handleMaxAttestorsChanged',
                 filter: {
@@ -297,6 +314,103 @@ export const blockProverDatasource: FrontierEvmDatasource = {
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
                     topics: ['TransactionVerified(uint64,uint64,uint64)'],
+                },
+            },
+        ],
+    },
+};
+
+// USC write-ability — fully on-chain discovery, no configured addresses and no dynamic datasources:
+//
+//   OutboxCreated            (EVM, chain-wide topic filter)  ─▶ candidate, subject to Discovery
+//   OutboxRegistered         (EVM, canonical Discovery)     ─▶ OutboxContract
+//   MessagePublished         (EVM, active Discovery member)  ─▶ OutboxMessage
+//   MessageAcknowledged      (EVM, same historical Outbox)   ─▶ updates OutboxMessage
+//
+// Every event is matched by topic across all contracts and *authorized per event in the handler*:
+// Factory events only identify candidates: anybody can deploy through a registered factory.
+// Admission and every publication consult governance's Discovery at the indexed historical block.
+// Its getters enforce scheduled removals/cancellations without a second event at the deadline.
+// Runtime Discovery registration snapshots existing members to handle deployment ordering. There
+// is no retroactive authorization of messages published before a registry admitted their Outbox.
+//
+// This deliberately replaces the earlier per-Outbox dynamic datasources: a dynamic datasource is
+// persistent, reorg-unsafe indexer state that had to be guarded against counterfeit creation (audit
+// P2-1) and could never see messages published before it existed. Chain-wide filters match the same
+// logs through the same topic0 dictionary lookups, so legitimate indexing cost is unchanged, while
+// counterfeit events now cost one bounded row (or a log line) instead of a datasource.
+
+export const outboxDiscoveryDatasource: FrontierEvmDatasource = {
+    kind: 'substrate/FrontierEvm',
+    startBlock: 1,
+    processor: {
+        file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
+        options: {
+            // No `address`: match OutboxCreated by topic across all contracts.
+            abi: 'outbox_factory',
+        },
+    },
+    assets: new Map([['outbox_factory', { file: './abis/outbox_factory.json' }]]),
+    mapping: {
+        file: './dist/index.js',
+        handlers: [
+            {
+                handler: 'handleOutboxCreated',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: {
+                    topics: ['OutboxCreated(address,uint32,address,address,string)'],
+                },
+            },
+        ],
+    },
+};
+
+export const outboxRegistryDatasource: FrontierEvmDatasource = {
+    kind: 'substrate/FrontierEvm',
+    startBlock: 1,
+    processor: {
+        file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
+        options: { abi: 'outbox_discovery' },
+    },
+    assets: new Map([['outbox_discovery', { file: './abis/outbox_discovery.json' }]]),
+    mapping: {
+        file: './dist/index.js',
+        handlers: [
+            {
+                handler: 'handleOutboxRegistered',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: { topics: ['OutboxRegistered(uint32,address,address)'] },
+            },
+        ],
+    },
+};
+
+export const outboxMessagesDatasource: FrontierEvmDatasource = {
+    kind: 'substrate/FrontierEvm',
+    startBlock: 1,
+    processor: {
+        file: './node_modules/@subql/frontier-evm-processor/dist/bundle.js',
+        options: {
+            // No `address`: the handlers authorize each event by its emitting contract instead.
+            abi: 'outbox',
+        },
+    },
+    assets: new Map([['outbox', { file: './abis/outbox.json' }]]),
+    mapping: {
+        file: './dist/index.js',
+        handlers: [
+            {
+                handler: 'handleMessagePublished',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: {
+                    topics: ['MessagePublished(bytes32,bytes32,bool,bytes)'],
+                },
+            },
+            {
+                handler: 'handleMessageAcknowledged',
+                kind: 'substrate/FrontierEvmEvent',
+                filter: {
+                    topics: ['MessageAcknowledged(bytes32)'],
                 },
             },
         ],

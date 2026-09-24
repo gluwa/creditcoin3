@@ -7,6 +7,11 @@ DISABLE_LINTERS:
   # https://gluwa.atlassian.net/browse/CSUB-460
   - REPOSITORY_TRIVY
   - REPOSITORY_OSV_SCANNER
+  # gitleaks is deprecated in MegaLinter (superseded by betterleaks, same author, kept enabled
+  # below). The two read the same .gitleaks.toml, but deprecated gitleaks does not honor the
+  # allowlisted well-known dev-key value-regexes that betterleaks does, so it re-flags the published
+  # test keys in usc-messaging/.env.example. Rely on betterleaks for secret scanning.
+  - REPOSITORY_GITLEAKS
   - RUST_CLIPPY
   - SPELL_CSPELL
   - SPELL_MISSPELL
