@@ -35,9 +35,11 @@ fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::Non
 
 mod api;
 mod config;
+mod health;
 mod store;
 
 use config::Config;
+use health::MatureTarget;
 use store::RootStore;
 
 #[tokio::main]
@@ -367,11 +369,54 @@ async fn main() -> Result<()> {
         s = stream_eth::StreamRoots::new(stream_config) => s,
     };
 
-    // ── Chain head tracker (for ETA) ───────────────────────────────────
+    // ── Health / freshness bookkeeping ──────────────────────────────────
+    // Readiness is judged against the same number the stream fetches up to: the attested height
+    // clamped to the source head, or the source-resolved mature height. It is re-derived with
+    // every head sample, so an idle chain stays ready and a stalled archiver does not.
+    let ready_target = match &attested {
+        Some(rx) => ReadyTarget::Attested(rx.clone()),
+        None => ReadyTarget::Source(source_maturity()?),
+    };
+    let stale_after = Duration::from_secs(cfg.stale_after_secs.get());
+    // Two successful samples can be a full poll interval plus one sample's RPC budget apart (the
+    // poller sleeps, then samples under `RPC_TIMEOUT_SECS`), so the stale window must cover both.
+    anyhow::ensure!(
+        cfg.stale_after_secs.get() > cfg.head_poll_interval_secs.get() + cfg.rpc_timeout_secs.get(),
+        "STALE_AFTER_SECS ({}) must exceed HEAD_POLL_INTERVAL_SECS ({}) + RPC_TIMEOUT_SECS ({}), \
+         or a live source reads as stale between two head samples",
+        cfg.stale_after_secs,
+        cfg.head_poll_interval_secs,
+        cfg.rpc_timeout_secs
+    );
+    let health = Arc::new(health::Health::new(
+        source_chain_id,
+        ready_target.to_string(),
+        cfg.ready_lag_blocks,
+        stale_after,
+    ));
+
+    // ── Chain head tracker (for ETA, stall judgement and freshness) ─────
     // `chain_head` is 0 until the first successful read, and `head_seen_at` is the wall-clock
     // second of the last one, so consumers can tell a real head from "never read" or "stale
-    // because HTTP has been failing"; see `known_head`.
-    let current_head = http_client.get_last_block().await.unwrap_or(0);
+    // because HTTP has been failing"; see `known_head`. The poller runs on the same cadence as
+    // the stream's head poll (`--head-poll-interval-secs`), so `/ready` freshness and the
+    // stream's own liveness floor move together and a sample is stale after three missed
+    // polls. Every read is bounded by the RPC call timeout: a hung HTTP node must age the
+    // sample out, not freeze the poller.
+    let head_call_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
+    let head_poll_interval = Duration::from_secs(cfg.head_poll_interval_secs.get());
+    let head_stale_after = head_poll_interval * HEAD_STALE_AFTER_POLLS;
+    let current_head = match ready_target.sample(&http_client, head_call_timeout).await {
+        Ok((h, target)) => {
+            health.note_head(h);
+            health.note_mature_target(target);
+            h
+        }
+        Err(e) => {
+            tracing::warn!("initial head read failed: {e}");
+            0
+        }
+    };
     let chain_head = Arc::new(AtomicU64::new(current_head));
     let head_seen_at = Arc::new(AtomicU64::new(if current_head > 0 {
         now_secs()
@@ -382,12 +427,24 @@ async fn main() -> Result<()> {
         let head = chain_head.clone();
         let seen_at = head_seen_at.clone();
         let client = http_client.clone();
+        let health = health.clone();
+        let mut ready_target = ready_target.clone();
         tokio::spawn(async move {
             loop {
-                tokio::time::sleep(Duration::from_secs(HEAD_POLL_SECS)).await;
-                if let Ok(h) = client.get_last_block().await {
-                    head.store(h, Ordering::Release);
-                    seen_at.store(now_secs(), Ordering::Release);
+                // A new attested height re-samples at once rather than on the next tick, so
+                // `/ready` leaves "target unknown" as soon as Creditcoin has been read.
+                tokio::select! {
+                    _ = tokio::time::sleep(head_poll_interval) => {}
+                    _ = ready_target.changed() => {}
+                }
+                match ready_target.sample(&client, head_call_timeout).await {
+                    Ok((h, target)) => {
+                        head.store(h, Ordering::Release);
+                        seen_at.store(now_secs(), Ordering::Release);
+                        health.note_head(h);
+                        health.note_mature_target(target);
+                    }
+                    Err(e) => tracing::warn!("head poll failed: {e}"),
                 }
             }
         });
@@ -407,6 +464,7 @@ async fn main() -> Result<()> {
     let api_state = Arc::new(api::AppState {
         store: store.clone(),
         max_api_range: cfg.max_api_range,
+        health: health.clone(),
     });
 
     let api_router = api::router(api_state);
@@ -425,11 +483,16 @@ async fn main() -> Result<()> {
 
     // ── Background flush task ───────────────────────────────────────────
     let flush_store = store.clone();
+    let flush_health = health.clone();
     let (flush_tx, mut flush_rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
         while flush_rx.recv().await.is_some() {
-            if let Err(e) = flush_store.flush().await {
-                tracing::error!("flush failed: {e}");
+            match flush_store.flush().await {
+                Ok(()) => flush_health.note_flush_ok(),
+                Err(e) => {
+                    tracing::error!("flush failed: {e}");
+                    flush_health.note_flush_error(&e);
+                }
             }
         }
     });
@@ -468,7 +531,7 @@ async fn main() -> Result<()> {
                     // is then judged against the raw bound, which errs towards a reconnect,
                     // never towards hiding a hung fetch behind "nothing to fetch".
                     let published = *rx.borrow();
-                    let source_head = known_head(&chain_head, &head_seen_at);
+                    let source_head = known_head(&chain_head, &head_seen_at, head_stale_after);
                     let fetchable = fetchable_bound(published, source_head);
                     if fetchable.is_none_or(|bound| bound < next_wanted) {
                         tracing::info!(
@@ -486,6 +549,7 @@ async fn main() -> Result<()> {
                     _ => "ended unexpectedly",
                 };
                 tracing::warn!(?last_height, reason = msg, "stream died, reconnecting...");
+                health.note_reconnect();
 
                 // Flush any pending batch before reconnecting.
                 if !batch_buf.is_empty() {
@@ -564,6 +628,7 @@ async fn main() -> Result<()> {
         // Persist the source block hash with the root for reorg reconciliation.
         batch_buf.push((height, root, block_hash));
         count += 1;
+        health.note_progress(height);
 
         let end_reached = cfg.end_height.is_some_and(|end| height >= end);
         // Distance to whatever bounds this run: the explicit end, the attested height, or,
@@ -572,8 +637,11 @@ async fn main() -> Result<()> {
         // next, so "at the tip" must be measured against that bound rather than the head.
         let target = cfg.end_height.unwrap_or_else(|| {
             let published = attested.as_ref().and_then(|rx| *rx.borrow());
-            fetchable_bound(published, known_head(&chain_head, &head_seen_at))
-                .unwrap_or_else(|| chain_head.load(Ordering::Acquire))
+            fetchable_bound(
+                published,
+                known_head(&chain_head, &head_seen_at, head_stale_after),
+            )
+            .unwrap_or_else(|| chain_head.load(Ordering::Acquire))
         });
         let remaining = target.saturating_sub(height);
         let at_tip = at_tip(remaining, cfg.tip_window);
@@ -823,10 +891,9 @@ fn follow_attested_height(
     rx
 }
 
-/// Seconds between reads of the source head over HTTP (ETA and stall judgement only).
-const HEAD_POLL_SECS: u64 = 12;
-/// A head older than this many polls is treated as unknown rather than trusted.
-const HEAD_STALE_AFTER: Duration = Duration::from_secs(HEAD_POLL_SECS * 3);
+/// A head older than this many `--head-poll-interval-secs` polls is treated as unknown rather
+/// than trusted.
+const HEAD_STALE_AFTER_POLLS: u32 = 3;
 
 fn now_secs() -> u64 {
     std::time::SystemTime::now()
@@ -836,18 +903,75 @@ fn now_secs() -> u64 {
 }
 
 /// The HTTP head tracker's value, if it can be trusted: read at least once and refreshed within
-/// [`HEAD_STALE_AFTER`]. `None` otherwise, so callers fall back to not clamping.
-fn known_head(head: &AtomicU64, seen_at: &AtomicU64) -> Option<u64> {
+/// `max_age`. `None` otherwise, so callers fall back to not clamping.
+fn known_head(head: &AtomicU64, seen_at: &AtomicU64, max_age: Duration) -> Option<u64> {
     head_if_fresh(
         head.load(Ordering::Acquire),
         seen_at.load(Ordering::Acquire),
         now_secs(),
-        HEAD_STALE_AFTER,
+        max_age,
     )
 }
 
 fn head_if_fresh(head: u64, seen_at: u64, now: u64, max_age: Duration) -> Option<u64> {
     (head > 0 && now.saturating_sub(seen_at) <= max_age.as_secs()).then_some(head)
+}
+
+/// What `/ready` measures the archive against: the bound the tip stream fetches up to.
+#[derive(Clone)]
+enum ReadyTarget {
+    /// The attested height, clamped to the source head exactly as `fetchable_bound` does.
+    Attested(tokio::sync::watch::Receiver<Option<u64>>),
+    /// The source-resolved mature height for the sampled head.
+    Source(eth::Maturity),
+}
+
+impl ReadyTarget {
+    /// Resolves when the target's input moved: a new attested height. Never resolves for a
+    /// source-resolved target (the head poll is its only input), nor once the attested poller
+    /// has gone away.
+    async fn changed(&mut self) {
+        if let Self::Attested(rx) = self {
+            if rx.changed().await.is_ok() {
+                return;
+            }
+        }
+        std::future::pending().await
+    }
+
+    /// Read the source head and derive the mature target from it in one go, so the two never
+    /// describe different moments. The whole sample is bounded by `timeout`: a tag-resolved
+    /// maturity costs a second RPC call. Under an attested bound an attested height that has
+    /// not been read yet is [`MatureTarget::Unknown`], never "nothing mature": the poller may
+    /// simply not have reached Creditcoin, and the archive could be far behind a published one.
+    async fn sample(&self, client: &eth::Client, timeout: Duration) -> Result<(u64, MatureTarget)> {
+        tokio::time::timeout(timeout, async {
+            let head = client.get_last_block().await?;
+            let target = match self {
+                Self::Attested(rx) => match *rx.borrow() {
+                    None => MatureTarget::Unknown,
+                    published => fetchable_bound(published, Some(head))
+                        .map_or(MatureTarget::NothingMature, MatureTarget::Height),
+                },
+                Self::Source(maturity) => maturity
+                    .mature_height(client, head)
+                    .await?
+                    .map_or(MatureTarget::NothingMature, MatureTarget::Height),
+            };
+            Ok::<_, anyhow::Error>((head, target))
+        })
+        .await
+        .map_err(|_| anyhow!("timed out after {timeout:?}"))?
+    }
+}
+
+impl std::fmt::Display for ReadyTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Attested(_) => f.write_str("attested height, clamped to the source head"),
+            Self::Source(maturity) => write!(f, "source-resolved {maturity}"),
+        }
+    }
 }
 
 /// What the stream can fetch up to: the published bound, clamped to the source head when one is

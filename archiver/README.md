@@ -44,6 +44,8 @@ All flags can also be set via environment variables (see below).
 | `--backfill` | — | `false` | Scan for gaps and fill them before resuming |
 | `--head-poll-interval-secs` | `HEAD_POLL_INTERVAL_SECS` | `12` | `eth_blockNumber` poll alongside the `newHeads` subscription; bounds how long a silent subscription can stall archiving |
 | `--rpc-timeout-secs` | `RPC_TIMEOUT_SECS` | `30` | Deadline per RPC call while (re)establishing the block stream |
+| `--ready-lag-blocks` | `READY_LAG_BLOCKS` | `1000` | `/ready` is 503 when more than this many blocks behind the mature target |
+| `--stale-after-secs` | `STALE_AFTER_SECS` | `60` | `/ready` is 503 when the source head has not been sampled for this long; must exceed `--head-poll-interval-secs` (which paces that sample) plus `--rpc-timeout-secs` |
 | `--finalization_lag_override` | - | *(none)* | Configurable finalization lag override |
 
 A `.env` file in the working directory is loaded automatically.
@@ -52,14 +54,45 @@ A `.env` file in the working directory is loaded automatically.
 
 ### `GET /status`
 
-Returns archiver status.
+Liveness plus freshness. Always `200` while the store is readable (a store error is `500`), so a
+stale archive is visible in the body rather than hidden behind a status code. Ages are
+milliseconds; `null` means "never".
 
 ```json
 {
+  "chain_id": 56,
+  "bound": "attested height, clamped to the source head",
+  "uptime_ms": 86400000,
   "latest_archived_block": 1234567,
-  "total_blocks": 1234568
+  "total_blocks": 1234568,
+  "source_head": 1234580,
+  "source_head_age_ms": 2100,
+  "mature_target": 1234577,
+  "lag_blocks": 10,
+  "last_progress_age_ms": 900,
+  "last_flush_ok_age_ms": 400,
+  "flush_errors": 0,
+  "last_flush_error": null,
+  "reconnects": 2,
+  "ready": true,
+  "not_ready_reasons": []
 }
 ```
+
+`mature_target` is the highest block the archive should hold by now, the same bound the tip
+stream fetches up to: the attested height clamped to the source head when following a
+`CHAIN_KEY`, the source-resolved mature height otherwise. `lag_blocks` is how far
+`latest_archived_block` trails it; both are `null` until a target is known. An unknown target
+(no head sample yet, or the attested height not yet read from Creditcoin) keeps `/ready` at 503;
+a target known to be empty (a fixed lag deeper than the chain) is ready.
+
+### `GET /ready`
+
+Same body as `/status`; `200` only when the source head was sampled within `STALE_AFTER_SECS`,
+`lag_blocks <= READY_LAG_BLOCKS`, and the last durability flush succeeded, otherwise `503`.
+Point Kubernetes readiness probes and the proof provider's health check here. A halted source
+chain with a fresh head sample and full coverage is ready; a silently stale subscription with an
+unchanged height is not.
 
 ### `GET /roots/latest`
 

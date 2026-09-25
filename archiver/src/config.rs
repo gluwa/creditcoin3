@@ -94,7 +94,8 @@ pub struct Config {
 
     /// Seconds between `eth_blockNumber` polls that run alongside the `newHeads` subscription.
     /// The poll is the liveness floor: a subscription that acknowledges but stops delivering
-    /// headers cannot stall archiving for longer than this.
+    /// headers cannot stall archiving for longer than this. The HTTP head sample behind
+    /// `/status` and `/ready` runs on the same cadence, so keep `--stale-after-secs` above it.
     #[arg(long, env = "HEAD_POLL_INTERVAL_SECS", default_value = "12")]
     pub head_poll_interval_secs: NonZeroU64,
 
@@ -102,4 +103,19 @@ pub struct Config {
     /// (subscribe, initial head read, head polls). alloy transports have no default timeout.
     #[arg(long, env = "RPC_TIMEOUT_SECS", default_value = "30")]
     pub rpc_timeout_secs: NonZeroU64,
+
+    /// `/ready` reports 503 when the archive is more than this many blocks behind the mature
+    /// target (the attested height clamped to the source head, or the source-resolved mature
+    /// height). Size it to the chain's block rate: it is the catch-up debt you are willing to
+    /// serve proofs from.
+    #[arg(long, env = "READY_LAG_BLOCKS", default_value = "1000")]
+    pub ready_lag_blocks: u64,
+
+    /// `/ready` reports 503 when the source head has not been sampled successfully for this
+    /// many seconds. Distinguishes "the chain is idle" (fresh sample, no new blocks: ready)
+    /// from "we lost sight of the chain" (not ready). Must exceed `--head-poll-interval-secs`
+    /// plus `--rpc-timeout-secs` (the gap between two successful samples can be both), or a
+    /// live source reads as stale between samples.
+    #[arg(long, env = "STALE_AFTER_SECS", default_value = "60")]
+    pub stale_after_secs: NonZeroU64,
 }
