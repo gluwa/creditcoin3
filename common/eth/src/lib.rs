@@ -25,6 +25,9 @@ use alloy::{
     transports::{http::reqwest::Url, TransportErrorKind},
 };
 
+use alloy::rpc::client::RpcClient as AlloyRpcClient;
+use alloy::transports::http::{reqwest, Http};
+use alloy::transports::utils::guess_local_url;
 use anyhow::{Context, Result};
 use hex::FromHexError;
 use sp_core::H256;
@@ -443,6 +446,21 @@ async fn timed<T>(
     }
 }
 
+/// Whether a configured endpoint string and a dialled [`Url`] name the same endpoint.
+///
+/// A dialled provider carries the *parsed* URL, and `Url` normalises on parse: scheme and host are
+/// lowercased, a default port is dropped, an empty path becomes `/`. Comparing that back to the
+/// raw configured string therefore misses a working backup whenever the operator wrote
+/// `HTTPS://Host:443` and the parser stored `https://host/`. Parse the configured string the same
+/// way and compare the normalised forms; only if it does not parse fall back to a trailing-slash
+/// insensitive string compare.
+fn same_endpoint(configured: &str, dialed: &Url) -> bool {
+    match Url::parse(configured) {
+        Ok(url) => url == *dialed,
+        Err(_) => configured.trim_end_matches('/') == dialed.as_str().trim_end_matches('/'),
+    }
+}
+
 /// The block a source node reports for a settlement tag, identified by hash as well as height.
 /// See [`Client::get_block_by_tag`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -507,6 +525,10 @@ pub struct Client {
     /// answers) would hang the lookup, and with it the tip stream that awaits it inline, forever.
     /// Generous: it only has to beat a hang, not a slow answer.
     call_timeout: std::time::Duration,
+    /// Every fallback URL as configured, including ones that were unreachable when dialled.
+    /// [`Client::reconnect`] re-dials from this list, so a backup that was down at startup is
+    /// picked up on the next repair instead of being forgotten for the life of the process.
+    fallback_urls: Vec<String>,
 }
 
 /// Default for the tag lookup's per-call timeout: a healthy provider answers a header read in
@@ -514,15 +536,38 @@ pub struct Client {
 /// treated as absent for this round.
 pub const DEFAULT_CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// Per-request deadline on the HTTP transport. alloy's default reqwest client has no timeout
+/// at all, so a server that accepts the connection and never answers keeps the request (and
+/// every caller waiting on it) pending forever.
+const HTTP_REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// TCP/TLS connect deadline on the HTTP transport.
+const HTTP_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Default bound on re-dialling the primary in [`Client::reconnect`].
+pub const DEFAULT_PRIMARY_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// Bound on re-dialling one fallback during [`Client::reconnect_with_deadline`]. Fallbacks are
+/// best-effort there; a slow one must not hold a repaired primary hostage.
+pub const FALLBACK_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
 impl Client {
     async fn init_rpc(url: &str) -> Result<(Url, AlloyProvider, u64), Error> {
         let url = Url::parse(url)?;
         let url_scheme = url.scheme();
 
         let rpc_provider = match url_scheme {
-            "http" | "https" => ProviderBuilder::new()
-                .network::<Ethereum>()
-                .on_http(url.clone()),
+            "http" | "https" => {
+                let http_client = reqwest::Client::builder()
+                    .connect_timeout(HTTP_CONNECT_TIMEOUT)
+                    .timeout(HTTP_REQUEST_TIMEOUT)
+                    .build()
+                    .map_err(|e| {
+                        Error::ClientError(anyhow::anyhow!("building HTTP client: {e}"))
+                    })?;
+                let transport = Http::with_client(http_client, url.clone());
+                let is_local = guess_local_url(url.as_str());
+                ProviderBuilder::new()
+                    .network::<Ethereum>()
+                    .on_client(AlloyRpcClient::new(transport, is_local))
+            }
 
             "ws" | "wss" => {
                 let ws = WsConnect::new(url.clone());
@@ -561,6 +606,7 @@ impl Client {
             chain_id,
             mem_cache: None,
             call_timeout: DEFAULT_CALL_TIMEOUT,
+            fallback_urls: Vec::new(),
         })
     }
 
@@ -611,11 +657,45 @@ impl Client {
             chain_id,
             mem_cache: None,
             call_timeout: DEFAULT_CALL_TIMEOUT,
+            fallback_urls: fallback_urls.to_vec(),
         })
     }
 
+    /// Re-dial the primary under [`DEFAULT_PRIMARY_DIAL_TIMEOUT`]; see
+    /// [`Self::reconnect_with_deadline`].
     pub async fn reconnect(&mut self) -> Result<(), Error> {
-        let (url, rpc_provider, chain_id) = Self::init_rpc(self.url.as_ref()).await?;
+        self.reconnect_with_deadline(DEFAULT_PRIMARY_DIAL_TIMEOUT)
+            .await
+    }
+
+    /// Re-dial the primary under `primary_deadline`, then each fallback under its own
+    /// [`FALLBACK_DIAL_TIMEOUT`].
+    ///
+    /// Success means the client can serve again: the primary came back, or at least one
+    /// fallback is connected. A fallback that hangs or fails keeps its previous provider (if
+    /// any) and is logged; it never discards a primary connection that already came up. And a
+    /// primary that stays down does not stop the fallbacks from being refreshed: a backup that
+    /// was unreachable at startup (and so never became a provider) is dialled here too, so the
+    /// tip, tag and block walks have something to fail over to while the primary is out. Only
+    /// when nothing at all is reachable does this return the primary's error.
+    pub async fn reconnect_with_deadline(
+        &mut self,
+        primary_deadline: std::time::Duration,
+    ) -> Result<(), Error> {
+        let primary = tokio::time::timeout(primary_deadline, Self::init_rpc(self.url.as_ref()))
+            .await
+            .map_err(|_| {
+                Error::ClientError(anyhow::anyhow!(
+                    "primary RPC dial timed out after {primary_deadline:?}"
+                ))
+            })
+            .and_then(|r| r);
+        // Fallbacks are verified against the chain the client is pinned to: the freshly dialled
+        // primary's id when it came up, the id recorded at construction otherwise.
+        let chain_id = match &primary {
+            Ok((_, _, id)) => *id,
+            Err(_) => self.chain_id,
+        };
 
         // Reconnect each fallback against its own URL too, otherwise a
         // recovered primary would silently keep using a stale fallback
@@ -626,19 +706,37 @@ impl Client {
         // fails to reconnect (transport error or chain_id mismatch), keep the
         // existing provider in place, log a loud error, and let the next
         // primary-failure path retry it on its own.
-        let mut new_fallbacks = Vec::with_capacity(self.fallback_providers.len());
-        for (idx, fp) in self.fallback_providers.iter().enumerate() {
-            match Self::init_rpc(fp.url.as_ref()).await {
+        //
+        // Re-dial from the *configured* list, not from the providers currently held: a
+        // fallback that was unreachable at startup (and therefore never became a provider) is
+        // retried here instead of being lost for the life of the process.
+        let mut new_fallbacks = Vec::with_capacity(self.fallback_urls.len());
+        for (idx, raw_url) in self.fallback_urls.iter().enumerate() {
+            let previous = self
+                .fallback_providers
+                .iter()
+                .find(|fp| same_endpoint(raw_url, &fp.url));
+            let dialed = tokio::time::timeout(FALLBACK_DIAL_TIMEOUT, Self::init_rpc(raw_url))
+                .await
+                .map_err(|_| {
+                    Error::ClientError(anyhow::anyhow!(
+                        "fallback dial timed out after {FALLBACK_DIAL_TIMEOUT:?}"
+                    ))
+                })
+                .and_then(|r| r);
+            match dialed {
                 Ok((fp_url, fp_provider, fp_chain_id)) => {
                     if fp_chain_id != chain_id {
                         tracing::error!(
                             fallback_index = idx,
-                            fallback_url = %redact_url_query(fp.url.as_str()),
+                            fallback_url = %redact_url_query(raw_url),
                             fallback_chain_id = fp_chain_id,
                             primary_chain_id = chain_id,
-                            "⛔ Fallback RPC chain_id mismatch on reconnect; keeping previous fallback provider"
+                            "⛔ Fallback RPC chain_id mismatch on reconnect; keeping previous fallback provider if any"
                         );
-                        new_fallbacks.push(fp.clone());
+                        if let Some(fp) = previous {
+                            new_fallbacks.push(fp.clone());
+                        }
                     } else {
                         new_fallbacks.push(FallbackProvider {
                             url: fp_url,
@@ -649,21 +747,41 @@ impl Client {
                 Err(err) => {
                     tracing::error!(
                         fallback_index = idx,
-                        fallback_url = %redact_url_query(fp.url.as_str()),
+                        fallback_url = %redact_url_query(raw_url),
                         error = %err,
-                        "⛔ Failed to reconnect fallback RPC; keeping previous fallback provider"
+                        "⛔ Failed to reconnect fallback RPC; keeping previous fallback provider if any"
                     );
-                    new_fallbacks.push(fp.clone());
+                    if let Some(fp) = previous {
+                        new_fallbacks.push(fp.clone());
+                    }
                 }
             }
         }
 
-        self.url = url;
-        self.rpc_provider = rpc_provider;
-        self.fallback_providers = new_fallbacks;
-        self.chain_id = chain_id;
-
-        Ok(())
+        match primary {
+            Ok((url, rpc_provider, chain_id)) => {
+                self.url = url;
+                self.rpc_provider = rpc_provider;
+                self.fallback_providers = new_fallbacks;
+                self.chain_id = chain_id;
+                Ok(())
+            }
+            Err(err) if new_fallbacks.is_empty() => Err(err),
+            Err(err) => {
+                // The primary is out but a backup is up: keep the (dead) primary handle so the
+                // walks still try it first and pick the primary back up the moment it answers,
+                // and serve from the fallbacks meanwhile. The old primary connection is not
+                // replaced; a later repair re-dials it again.
+                tracing::error!(
+                    primary_url = %redact_url_query(self.url.as_str()),
+                    error = %err,
+                    fallbacks = new_fallbacks.len(),
+                    "⛔ primary RPC re-dial failed; serving from the fallback provider(s) until it returns"
+                );
+                self.fallback_providers = new_fallbacks;
+                Ok(())
+            }
+        }
     }
 
     /// Connect to each fallback URL in declaration order and verify each
@@ -674,13 +792,22 @@ impl Client {
     ) -> anyhow::Result<Vec<FallbackProvider>> {
         let mut providers: Vec<FallbackProvider> = Vec::with_capacity(fallback_urls.len());
         for (idx, raw_url) in fallback_urls.iter().enumerate() {
-            let (url, provider, chain_id) =
-                Self::init_rpc(raw_url.as_ref()).await.with_context(|| {
-                    format!(
-                        "Failed to connect to fallback RPC URL #{idx} ({})",
-                        redact_url_query(raw_url),
-                    )
-                })?;
+            // An unreachable backup must not stop a healthy primary from serving: log it and
+            // carry on without it; `reconnect` re-dials every configured URL and picks it up
+            // once it is back. A backup on the *wrong chain* is a misconfiguration and stays
+            // fatal — silently serving from it would corrupt proofs.
+            let (url, provider, chain_id) = match Self::init_rpc(raw_url.as_ref()).await {
+                Ok(connected) => connected,
+                Err(err) => {
+                    tracing::error!(
+                        fallback_index = idx,
+                        fallback_url = %redact_url_query(raw_url),
+                        error = %err,
+                        "⛔ Fallback RPC unreachable at startup; continuing without it until the next reconnect"
+                    );
+                    continue;
+                }
+            };
 
             if chain_id != primary_chain_id {
                 anyhow::bail!(
@@ -1032,8 +1159,39 @@ impl Client {
         }
     }
 
+    /// Current chain head, tried on the primary first and then on each fallback in order.
+    ///
+    /// The head seeds and paces every stream (the archiver's head poll, the streams' silence
+    /// watchdog, the tip stream's catch-up), so a tip read that only ever asked the primary made
+    /// a healthy backup useless the moment the primary failed. A fallback that lags reports a
+    /// lower tip, which can only make the consumer *more* conservative, never release an
+    /// unconfirmed block.
+    ///
+    /// Each provider is bounded by [`Client::call_timeout`], like the tag lookup: a primary that
+    /// accepts the connection and never answers must fail over within that bound rather than
+    /// pin the walk on the transport's own (much longer, or absent) deadline.
     pub async fn get_last_block(&self) -> Result<u64, Error> {
-        Ok(self.rpc_provider.get_block_number().await?)
+        let mut failures: Vec<(String, Error)> = Vec::new();
+        for (label, provider) in self.providers_with_labels() {
+            match timed(self.call_timeout, provider.get_block_number()).await {
+                Ok(number) => {
+                    for (failed, err) in &failures {
+                        tracing::warn!(
+                            provider = %failed,
+                            served_by = %label,
+                            error = %err,
+                            "eth_blockNumber: provider errored but another succeeded"
+                        );
+                    }
+                    return Ok(number);
+                }
+                Err(err) => failures.push((label, err)),
+            }
+        }
+        // Surface the primary's error so callers' transient/permanent classifiers see the
+        // same shape they always did.
+        let (_, primary_err) = failures.remove(0);
+        Err(primary_err)
     }
 
     /// Number of the block the providers agree on for a settlement `tag`. See
@@ -1817,5 +1975,32 @@ mod error_classification_tests {
         // A stringified error loses the type and must not be classified as permanent.
         let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
         assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
+    }
+}
+
+#[cfg(test)]
+mod same_endpoint_tests {
+    use super::*;
+
+    #[test]
+    fn a_configured_url_matches_its_own_normalised_dialled_form() {
+        let dialed = Url::parse("https://host.example/v1/KEY").unwrap();
+        assert!(same_endpoint("https://host.example/v1/KEY", &dialed));
+        assert!(
+            same_endpoint("HTTPS://Host.Example:443/v1/KEY", &dialed),
+            "scheme and host case and the default port are normalised on parse"
+        );
+        let root = Url::parse("http://127.0.0.1:8545").unwrap();
+        assert!(same_endpoint("http://127.0.0.1:8545/", &root));
+        assert!(same_endpoint("http://127.0.0.1:8545", &root));
+    }
+
+    #[test]
+    fn different_endpoints_do_not_match() {
+        let dialed = Url::parse("https://host.example/v1/KEY").unwrap();
+        assert!(!same_endpoint("https://host.example/v1/OTHER", &dialed));
+        assert!(!same_endpoint("https://other.example/v1/KEY", &dialed));
+        assert!(!same_endpoint("wss://host.example/v1/KEY", &dialed));
+        assert!(!same_endpoint("not a url", &dialed));
     }
 }
