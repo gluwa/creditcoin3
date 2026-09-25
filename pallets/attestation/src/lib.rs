@@ -808,10 +808,6 @@ pub mod pallet {
         /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
         /// would either overflow those bounds or undercharge weight.
         InvalidMaxAttestors,
-        /// Tried to set the per-chain `MinBondRequirement` to zero. A zero minimum lets
-        /// `register_attestor` admit a stash with no stake, so the resulting ledger carries no
-        /// lock and the account can still reach `ActiveAttestors` and vote in quorum decisions.
-        InvalidMinBondRequirement,
         /// A `commit_attestation` payload carried more attestor accounts than the per-chain
         /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
         /// is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
@@ -896,6 +892,10 @@ pub mod pallet {
         // NOTE: appended at the end of the enum on purpose — inserting mid-list would shift the
         // SCALE index of every following variant relative to the last released runtime.
         OversizedContinuityProof,
+        /// Tried to set the per-chain `MinBondRequirement` to zero. A zero minimum lets
+        /// `register_attestor` admit a stash with no stake, so the resulting ledger carries no
+        /// lock and the account can still reach `ActiveAttestors` and vote in quorum decisions.
+        InvalidMinBondRequirement,
     }
 
     #[pallet::hooks]
