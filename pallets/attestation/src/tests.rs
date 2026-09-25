@@ -305,6 +305,35 @@ fn set_min_bond_requirement_should_succeed_when_signed_by_operator() {
 }
 
 #[test]
+fn set_min_bond_requirement_should_error_with_zero_value() {
+    ExtBuilder.build_and_execute(|| {
+        let before = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        assert_noop!(
+            Attestation::set_min_bond_requirement(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 0),
+            Error::<Test>::InvalidMinBondRequirement
+        );
+
+        // Storage is untouched, so any previously admitted attestors keep the same requirement.
+        assert_eq!(
+            Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY),
+            before
+        );
+    })
+}
+
+#[test]
+fn set_min_bond_requirement_should_error_on_unsupported_chain() {
+    ExtBuilder.build_and_execute(|| {
+        let chain_key = 2;
+        assert_noop!(
+            Attestation::set_min_bond_requirement(RuntimeOrigin::root(), chain_key, 200),
+            Error::<Test>::ChainNotSupported
+        );
+    })
+}
+
+#[test]
 fn set_max_attestors_should_update_storage_and_emit_event() {
     ExtBuilder.build_and_execute(|| {
         // Stay at-or-below the mock runtime ceiling (`MaxAttestorsDefault = 100`).
