@@ -2,9 +2,10 @@
 
 # Verify that a release tag was cut from the branch its suffix names:
 #
-#     *-devnet   ->  dev (usc-dev until the rename)
-#     *-testnet  ->  usc-testnet
-#     *-mainnet  ->  main
+#     *-devnet      ->  dev (usc-dev until the rename)
+#     *-asc-devnet  ->  asc-dev (writeability-off-usc-dev until the rename)
+#     *-testnet     ->  usc-testnet
+#     *-mainnet     ->  main
 #
 # We ask "is this commit contained in the branch the suffix names?" rather than
 # "which branch is this commit on?". Once branches are promoted by fast-forward
@@ -16,15 +17,16 @@ set -euo pipefail
 # In CI the tag comes from the ref that triggered the workflow. Fall back to
 # `git describe` so the script stays runnable by hand on a tagged checkout.
 GIT_TAG="${TAG_NAME:-$(git describe --tag)}"
-SUFFIX_FROM_GIT_TAG=$(echo "$GIT_TAG" | cut -d"-" -f2,99)
+SUFFIX_FROM_GIT_TAG=$(echo "$GIT_TAG" | cut -d"-" -f2-)
 
 case "$SUFFIX_FROM_GIT_TAG" in
-    devnet)  EXPECTED_BRANCH=$("$(dirname "$0")/branch-on-origin.sh" dev usc-dev) ;;
-    testnet) EXPECTED_BRANCH="usc-testnet" ;;
-    mainnet) EXPECTED_BRANCH="main" ;;
+    devnet)     EXPECTED_BRANCH=$("$(dirname "$0")/branch-on-origin.sh" dev usc-dev) ;;
+    asc-devnet) EXPECTED_BRANCH=$("$(dirname "$0")/branch-on-origin.sh" asc-dev writeability-off-usc-dev) ;;
+    testnet)    EXPECTED_BRANCH="usc-testnet" ;;
+    mainnet)    EXPECTED_BRANCH="main" ;;
     *)
         echo "FAIL: '$GIT_TAG' has no recognized network suffix"
-        echo "      expected one of: devnet, testnet, mainnet; got '$SUFFIX_FROM_GIT_TAG'"
+        echo "      expected one of: devnet, asc-devnet, testnet, mainnet; got '$SUFFIX_FROM_GIT_TAG'"
         exit 1
         ;;
 esac
