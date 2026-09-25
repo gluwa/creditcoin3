@@ -282,6 +282,11 @@ pub struct CacheFreshness {
 const CACHE_METRICS_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const MERKLE_BACKFILL_POLL_INTERVAL: Duration = Duration::from_secs(15);
 const MERKLE_BACKFILL_MAX_BLOCKS_PER_TICK: usize = 50;
+/// Backfill's own ceiling on concurrent block fills. Deliberately separate from (and below the
+/// default of) `max_concurrent_block_fills`, which is the chain-wide budget shared with live
+/// proof requests: backfill can use at most this many of those slots, so warming the cache never
+/// starves requests of fill capacity. Raising `max_concurrent_block_fills` adds headroom for
+/// requests, not backfill throughput.
 const MERKLE_BACKFILL_MAX_CONCURRENCY: usize = 8;
 const MERKLE_PROOF_CACHE_CHECKPOINT_RETENTION_MULTIPLIER: u64 = 4;
 
@@ -791,6 +796,14 @@ impl ContinuityService {
                     header_number,
                     notify: &notify,
                 };
+                // A previous leader inserts into the cache *before* its guard removes the map
+                // entry, so a caller that saw "not processed", then found no entry and took
+                // leadership, may be looking at a height that was just filled. Re-check now that
+                // the slot is ours, so a straggler never re-fetches a block (the guard still
+                // releases the slot and wakes anyone who queued behind us).
+                if chain.merkle_proof_cache.is_processed(header_number).await {
+                    return Ok(0);
+                }
                 let result =
                     async {
                         let _permit = chain.fill_permits.acquire().await.map_err(|_| {

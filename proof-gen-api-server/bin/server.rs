@@ -170,7 +170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     // MAX_IN_FLIGHT_REQUESTS / MAX_IN_FLIGHT_PER_CHAIN / REQUEST_TIMEOUT_SECS override YAML.
     let mut config = config;
-    config.admission.apply_env_overrides();
+    config.admission.apply_env_overrides()?;
 
     let server = Server::new(config).await?;
     server.run().await?;

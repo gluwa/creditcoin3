@@ -187,22 +187,6 @@ impl MerkleProofCache {
         Ok(tx_count)
     }
 
-    pub async fn insert_block_and_get(
-        &self,
-        chain_key: u64,
-        header_number: u64,
-        txs: Vec<(H256, Vec<u8>)>,
-        tx_index: u64,
-    ) -> Result<(usize, Option<MerkleProofItem>), String> {
-        let block = Arc::new(CachedMerkleBlock::build(header_number, txs).await?);
-        let tx_count = block.tx_hashes.len();
-        let item = block.proof_item(chain_key, tx_index as usize);
-
-        self.insert_cached_block(header_number, block).await;
-
-        Ok((tx_count, item))
-    }
-
     async fn insert_cached_block(&self, header_number: u64, block: Arc<CachedMerkleBlock>) {
         let mut cache = self.inner.write().await;
         // Re-inserting a height already cached is normal (an on-demand fill can race a

@@ -80,6 +80,24 @@ impl Admission {
     }
 }
 
+/// Counts one admitted request on `requests_in_flight` for exactly as long as it lives.
+struct InFlight<'a> {
+    metrics: &'a ProofGenMetrics,
+}
+
+impl<'a> InFlight<'a> {
+    fn enter(metrics: &'a ProofGenMetrics) -> Self {
+        metrics.request_admitted();
+        Self { metrics }
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        self.metrics.request_finished();
+    }
+}
+
 struct Permits {
     _global: OwnedSemaphorePermit,
     _chain: Option<OwnedSemaphorePermit>,
@@ -119,9 +137,11 @@ pub async fn admission_middleware(
         }
     };
 
-    admission.metrics.request_admitted();
+    // Guarded like the permits: a client that disconnects makes axum drop this future
+    // mid-request, and a handler panic unwinds through it; either must still take the request
+    // back off the gauge, or `requests_in_flight` only ever climbs.
+    let _in_flight = InFlight::enter(&admission.metrics);
     let outcome = tokio::time::timeout(admission.request_timeout, next.run(request)).await;
-    admission.metrics.request_finished();
     match outcome {
         Ok(response) => response,
         Err(_elapsed) => {
@@ -151,4 +171,33 @@ fn rejected(status: StatusCode, code: &str, message: &str) -> Response {
         })),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn in_flight(metrics: &ProofGenMetrics) -> Option<String> {
+        metrics
+            .encode()
+            .lines()
+            .find(|l| l.starts_with("proof_gen_requests_in_flight"))
+            .map(str::to_owned)
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_request_comes_back_off_the_in_flight_gauge() {
+        let metrics = ProofGenMetrics::new(&[1]);
+        let baseline = in_flight(&metrics);
+        let request = async {
+            let _in_flight = InFlight::enter(&metrics);
+            std::future::pending::<()>().await;
+        };
+        // Poll once so the guard is live, then drop the future as axum does on disconnect.
+        let mut request = Box::pin(request);
+        assert!(futures::poll!(request.as_mut()).is_pending());
+        assert_ne!(in_flight(&metrics), baseline, "counted while in flight");
+        drop(request);
+        assert_eq!(in_flight(&metrics), baseline, "released on cancellation");
+    }
 }
