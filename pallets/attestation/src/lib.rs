@@ -497,6 +497,14 @@ pub mod pallet {
     pub type BucketClearingCursors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
 
+    /// Progress markers for removing [`Attestations`] entries left over after a chain removal
+    /// or a `revert_to` reversion. Drained by `on_init_clear_attestations`, mirroring
+    /// [`CheckpointClearingCursors`].
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_clearing_cursors)]
+    pub type AttestationClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
     /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
     /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
     #[pallet::storage]
@@ -865,7 +873,8 @@ pub mod pallet {
         InvalidAttestationContinuityProofBlockGenesis,
         // Attestation previous digest is invalid
         InvalidAttestationPrevDigest,
-        // More attestations in storage than there should have been during `revert_to`
+        /// No longer constructed — `do_revert_to` now defers leftover rows to a cursor instead
+        /// of failing. Kept so this doesn't shift the SCALE index of variants below it.
         TooManyAttestations,
         // Tried to revert to a height at which there is no checkpoint
         NoSuchCheckpoint,
@@ -900,11 +909,13 @@ pub mod pallet {
             let prune_weight = Self::on_init_prune_checkpoints();
             let checkpoint_clear_weight = Self::on_init_clear_checkpoints();
             let bucket_clear_weight = Self::on_init_clear_buckets();
+            let attestation_clear_weight = Self::on_init_clear_attestations();
 
             // Return combined weight from helpers this is a more practical
             prune_weight
                 .saturating_add(checkpoint_clear_weight)
                 .saturating_add(bucket_clear_weight)
+                .saturating_add(attestation_clear_weight)
         }
     }
 
@@ -1459,8 +1470,11 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
+            // Both cursors are seeded together but drain independently, so either can still be
+            // mid-flight after the other finishes.
             ensure! {
-                CheckpointPruningStates::<T>::get(chain_key).is_none(),
+                CheckpointPruningStates::<T>::get(chain_key).is_none()
+                    && AttestationClearingCursors::<T>::get(chain_key).is_none(),
                 Error::<T>::TriedToRevertDuringOngoingReversion
             };
 

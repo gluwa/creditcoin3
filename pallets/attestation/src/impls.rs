@@ -1492,7 +1492,9 @@ impl<T: Config> Pallet<T> {
         ensure!(
             CheckpointPruningStates::<T>::get(chain_key).is_none()
                 && CheckpointClearingCursors::<T>::get(chain_key).is_none()
-                && BucketClearingCursors::<T>::get(chain_key).is_none(),
+                && BucketClearingCursors::<T>::get(chain_key).is_none()
+                // Can outlive `CheckpointPruningStates` (seeded together, drained independently).
+                && AttestationClearingCursors::<T>::get(chain_key).is_none(),
             Error::<T>::CheckpointMaintenanceInProgress
         );
         ensure!(!checkpoints.is_empty(), Error::<T>::EmptyCheckpointPatch);

@@ -1,5 +1,7 @@
 use super::*;
-use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
+use crate::clear_or_revert::{
+    CheckpointPruningState, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, MAX_CHECKPOINTS_CLEARED_PER_BLOCK,
+};
 use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
 use crate::Call;
@@ -5413,6 +5415,70 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
         })
 }
 
+/// Regression test: `on_supported_chain_removed` used to discard the leftover `clear_prefix`
+/// cursor outright, stranding rows under the removed chain key. It now persists a cursor and
+/// drains it via `on_init_clear_attestations`, like `Checkpoints`/`CheckpointBuckets` above.
+#[test]
+fn on_supported_chain_removed_defers_excess_attestations_to_a_cursor() {
+    let attestation_count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+    let mut test_ext = ExtBuilder.build();
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    test_ext
+        .then_run(|| {
+            for i in 0..attestation_count as u64 {
+                let a = create_signed_attestation(
+                    Vec::from([attestor.clone()]),
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10,
+                    None,
+                    None,
+                );
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+            }
+            System::set_block_number(1);
+            Timestamp::set_timestamp(1);
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                attestation_count as usize
+            );
+        })
+        .then_run(|| {
+            assert_ok!(SupportedChains::remove_chain(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false
+            ));
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                attestation_count as usize - MAX_ATTESTATIONS_CLEARED_PER_BLOCK as usize
+            );
+            assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+        })
+        .then_run(|| {
+            progress_to_block(2);
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                10
+            );
+            assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+        })
+        .run(|| {
+            progress_to_block(3);
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                0
+            );
+            assert_eq!(
+                AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                None
+            );
+        })
+}
+
 #[test]
 fn unregister_attestor_still_works_after_removing_that_attestors_chain() {
     ExtBuilder.build_and_execute(|| {
@@ -6760,46 +6826,102 @@ mod revert_to {
         })
     }
 
+    /// Regression test: a leftover `clear_prefix` cursor used to abort the whole
+    /// `#[transactional]` revert with `TooManyAttestations`, permanently blocking emergency
+    /// reorg recovery on retry. The checkpoint anchor update now always succeeds and any
+    /// leftover attestation rows drain over the following blocks instead.
     #[test]
-    fn revert_to_should_fail_if_more_than_expected_attestation_count() {
-        let mut ext = ExtBuilder.build();
-        // Add attestations first
-        ext.execute_with(|| {
-            let checkpoint_interval =
-                AttestationCheckpointInterval::<Test>::get(SUPPORTED_CHAIN_KEY);
-            let retention_duration = AttestationRetentionDuration::<Test>::get(SUPPORTED_CHAIN_KEY);
+    fn revert_to_defers_excess_attestations_to_an_on_initialize_cursor() {
+        let attestation_count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+        let mut test_ext = ExtBuilder.build();
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let revert_height: u64 = 1_500;
 
-            let excessive_attestation_count =
-                ((checkpoint_interval + retention_duration) * 10) as u64;
+        test_ext
+            .then_run(|| {
+                for i in 0..attestation_count as u64 {
+                    let a = create_signed_attestation(
+                        Vec::from([attestor.clone()]),
+                        SUPPORTED_CHAIN_KEY,
+                        i * 10, // We don't need attestations to be at realistic heights
+                        None,
+                        None,
+                    );
+                    Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+                }
+                System::set_block_number(1);
+                Timestamp::set_timestamp(1);
 
-            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-
-            for i in 0..excessive_attestation_count {
-                let a = create_signed_attestation(
-                    Vec::from([attestor.clone()]),
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    attestation_count as usize
+                );
+            })
+            .then_run(|| {
+                // Revert target checkpoint + a LastCheckpoint so pruning state can be established.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
                     SUPPORTED_CHAIN_KEY,
-                    i * 10, // We don't need attestations to be at realistic heights
-                    None,
-                    None,
+                    revert_height,
+                    revert_digest,
+                );
+                let last_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+                let last_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&last_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    last_height,
+                    last_digest,
+                );
+                LastCheckpoint::<Test>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    AttestationCheckpoint {
+                        block_number: last_height,
+                        digest: last_digest,
+                    },
                 );
 
-                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
-            }
-        });
+                let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_ok!(Attestation::revert_to(
+                    root_origin,
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ));
 
-        // Commit attestations to `DB` layer rather than leaving them in overlay.
-        // This prevents unexpected behavior from iter_prefix.
-        ext.commit_all().expect("commit should work");
+                // Only the first fixed batch cleared synchronously ...
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    attestation_count as usize - MAX_ATTESTATIONS_CLEARED_PER_BLOCK as usize
+                );
+                // ... and the anchor updated regardless of the leftover attestations.
+                assert_eq!(
+                    LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY),
+                    Some((revert_height, revert_digest))
+                );
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+            })
+            .then_run(|| {
+                progress_to_block(2);
 
-        ext.execute_with(|| {
-            let revert_height: u64 = 1_500;
-            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    10
+                );
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+            })
+            .run(|| {
+                progress_to_block(3);
 
-            assert_noop!(
-                Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
-                Error::<Test>::TooManyAttestations
-            );
-        })
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    0
+                );
+                assert_eq!(
+                    AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                    None
+                );
+            })
     }
 
     #[test]
@@ -6848,6 +6970,79 @@ mod revert_to {
                 Error::<Test>::TriedToRevertDuringOngoingReversion
             );
         });
+    }
+
+    /// `CheckpointPruningStates` and `AttestationClearingCursors` drain independently, so a
+    /// second `revert_to` must stay blocked as long as *either* is still active — not just
+    /// `CheckpointPruningStates`.
+    #[test]
+    fn revert_to_should_fail_if_attestation_cursor_still_draining_even_after_checkpoint_pruning_finished(
+    ) {
+        // Two rounds of clearing (the synchronous batch plus one `on_initialize` batch) still
+        // leaves a cursor, since a backlog that fits in two batches would finish after one.
+        let attestation_count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+        let mut test_ext = ExtBuilder.build();
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // Revert straight to the last checkpoint: nothing sits above it, so bucket pruning has
+        // no work to do and `CheckpointPruningStates` clears on the very next block.
+        let revert_height: u64 = 1_500;
+
+        test_ext
+            .then_run(|| {
+                for i in 0..attestation_count as u64 {
+                    let a = create_signed_attestation(
+                        Vec::from([attestor.clone()]),
+                        SUPPORTED_CHAIN_KEY,
+                        i * 10,
+                        None,
+                        None,
+                    );
+                    Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+                }
+
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height,
+                    revert_digest,
+                );
+                LastCheckpoint::<Test>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    AttestationCheckpoint {
+                        block_number: revert_height,
+                        digest: revert_digest,
+                    },
+                );
+                System::set_block_number(1);
+                Timestamp::set_timestamp(1);
+            })
+            .then_run(|| {
+                let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_ok!(Attestation::revert_to(
+                    root_origin,
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ));
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+            })
+            .run(|| {
+                progress_to_block(2);
+
+                // Checkpoint pruning had nothing above the revert height to do, so it's done ...
+                assert_eq!(
+                    CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY),
+                    None
+                );
+                // ... but the attestation backlog needed a second batch and is still draining.
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+
+                let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_noop!(
+                    Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
+                    Error::<Test>::TriedToRevertDuringOngoingReversion
+                );
+            })
     }
 
     #[test]
@@ -7503,6 +7698,28 @@ fn forward_patch_checkpoints_blocked_during_pruning() {
                 next_pivot: 1000,
             },
         );
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 50,
+            digest: H256::from([4u8; 32]),
+        }];
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ),
+            Error::<Test>::CheckpointMaintenanceInProgress,
+        );
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_blocked_while_attestation_cursor_draining() {
+    ExtBuilder.build_and_execute(|| {
+        // Simulates a `revert_to`/removal whose `Attestations` clear is still draining.
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
 
         let patch = vec![AttestationCheckpoint {
             block_number: 50,
