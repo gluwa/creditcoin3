@@ -729,15 +729,10 @@ mod benchmarks {
         let revert_height: u64 = 1_500;
         let pivot = Pallet::<T>::compute_block_index_for(revert_height);
 
-        // Set pessimistic checkpoint interval and retention duration. These will be used to
-        // cap how many attestations we remove in `revert_to`
-        let retention_duration = 40;
-        let checkpoint_interval = 100;
-        AttestationCheckpointInterval::<T>::set(chain_key, checkpoint_interval);
-        AttestationRetentionDuration::<T>::set(chain_key, retention_duration);
-
-        // 1) Pessimistic case for attestation cleanup:
-        let attestations_to_remove = (checkpoint_interval * 2 - 1 + retention_duration) as u64;
+        // `revert_to` bounds its synchronous `Attestations` clear to
+        // `MAX_ATTESTATIONS_CLEARED_PER_BLOCK`; queuing more doesn't cost this call anything
+        // extra.
+        let attestations_to_remove = clear_or_revert::MAX_ATTESTATIONS_CLEARED_PER_BLOCK as u64;
 
         let attestor = Attestor::new(stash_id, attestor_id, 0);
 
@@ -751,16 +746,7 @@ mod benchmarks {
             );
 
             Attestations::<T>::insert(chain_key, a.digest(), a.clone());
-
-            // mimic checkpointing queue with 2 checkpoints - 1 worth of entries
-            if i < (attestations_to_remove - retention_duration as u64) {
-                CheckpointingQueues::<T>::mutate(chain_key, |q| q.push_back(a.digest()));
-            }
-
-            // mimic removal queue
-            if i >= (attestations_to_remove - retention_duration as u64) {
-                AttestationRemovalQueues::<T>::mutate(chain_key, |q| q.push_back(a.digest()));
-            }
+            CheckpointingQueues::<T>::mutate(chain_key, |q| q.push_back(a.digest()));
 
             // Set LastDigest
             if i == (attestations_to_remove) - 1 {

@@ -339,7 +339,9 @@ where
     ///
     /// Retrieves a signed attestation that anchors a specific block digest
     /// to the Creditcoin3 consensus. Used to validate continuity chain endpoints.
-    /// Charges gas for the storage lookup.
+    /// Delegates to [`pallet_attestation::Pallet::get`], which returns `None` while a
+    /// `revert_to`/removal cleanup cursor is draining for `chain_key` — leftover entries are
+    /// stale until then. Charges gas for the storage lookup.
     ///
     /// Returns `Ok(Some(..))` / `Ok(None)` on success; gas recording failures surface as `EvmResult` errors.
     fn get_attestation(
@@ -350,7 +352,7 @@ where
     {
         // Charge for attestation storage lookup
         handle.record_cost(GAS_STORAGE_LOOKUP)?;
-        Ok(pallet_attestation::Pallet::<Runtime>::attestations(
+        Ok(pallet_attestation::Pallet::<Runtime>::get(
             chain_key, digest,
         ))
     }

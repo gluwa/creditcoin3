@@ -25,6 +25,11 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             AlreadyAttestor: AugmentedError<ApiType>;
             AlreadyBonded: AugmentedError<ApiType>;
+            /**
+             * A `revert_to`/removal attestation cleanup cursor is still draining for this chain;
+             * commits are rejected so cleanup can't collaterally delete a new attestation.
+             **/
+            AttestationCleanupInProgress: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;
             AttestationFoundWhileImporting: AugmentedError<ApiType>;
             AttestationNotFound: AugmentedError<ApiType>;
@@ -142,6 +147,10 @@ declare module '@polkadot/api-base/types/errors' {
              * Too many retired attestor key entries are queued for this stash
              **/
             RetiredAttestorPendingFull: AugmentedError<ApiType>;
+            /**
+             * No longer constructed — `do_revert_to` now defers leftover rows to a cursor instead
+             * of failing. Kept so this doesn't shift the SCALE index of variants below it.
+             **/
             TooManyAttestations: AugmentedError<ApiType>;
             /**
              * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
