@@ -62,7 +62,9 @@ pub struct Progress {
 }
 
 impl Progress {
-    fn note(&self, height: u64) {
+    /// Record that `height` has been processed. Driven by the stream; public so consumers
+    /// and tests can seed it.
+    pub fn note(&self, height: u64) {
         use std::sync::atomic::Ordering;
         self.height.store(height, Ordering::Release);
         self.advanced_at_unix_ms
@@ -158,6 +160,13 @@ pub struct Config {
     /// Optional shared progress record for health reporting.
     #[default(None)]
     progress: Option<std::sync::Arc<Progress>>,
+    /// Height the consumer's state is already consistent up to (typically the finalized
+    /// height its startup snapshot was read at). Blocks at or below it are not yielded; the
+    /// blocks between it and the first subscribed block are backfilled through the parent
+    /// walk, so nothing that landed between snapshot and subscription is skipped. `None`
+    /// starts from the first subscribed block.
+    #[default(None)]
+    resume_from: Option<u64>,
 }
 
 pub struct StreamCC3 {
@@ -174,6 +183,7 @@ impl StreamCC3 {
         let backfill_min_interval = config.backfill_min_interval;
         let progress_timeout = config.progress_timeout;
         let progress = config.progress;
+        let resume_from = config.resume_from;
 
         // Initial subscription + first-block seed, under the same unbounded
         // reconnect-and-re-subscribe policy as the steady-state repair loop below. A
@@ -182,7 +192,7 @@ impl StreamCC3 {
         // in place (and a crash-loop under a persistently flappy RPC). Cancellation point is
         // the sleep: callers race construction against the root token / the bounded shutdown
         // drain, so an endless outage cannot pin shutdown.
-        let (finalized, mut latest, first_events) = {
+        let (finalized, first) = {
             let mut backoff = RESUBSCRIBE_BACKOFF_START;
             loop {
                 let attempt = async {
@@ -202,9 +212,7 @@ impl StreamCC3 {
                         .map_err(|_| Error::NoProgress(progress_timeout))?
                         .map_err(Error::Subxt)?
                         .ok_or(Error::EndOfStream)?;
-                    let latest = first.number() as u64;
-                    let events = first.events().await.map_err(Error::Subxt)?;
-                    Ok::<_, Error>((finalized, latest, events))
+                    Ok::<_, Error>((finalized, first))
                 };
                 match attempt.await {
                     Ok(seed) => break seed,
@@ -221,14 +229,33 @@ impl StreamCC3 {
             }
         };
 
-        if let Some(p) = &progress {
-            p.note(latest);
+        // Everything at or below `latest` is already known to the consumer. With `resume_from`
+        // that is the consumer's snapshot height and the gap up to the first subscribed block
+        // is backfilled by the parent walk below like any reconnect gap; without it nothing is
+        // known yet (`None`) and the first subscribed block is the first thing yielded, genesis
+        // included (it goes through the same head path, so its events fetch gets the same retry
+        // policy as every later block). `None` rather than "first height minus one" because
+        // that arithmetic has no answer at height 0 and would silently skip the genesis block.
+        let first_height = first.number() as u64;
+        let mut latest: Option<u64> = resume_from;
+        if let Some(from) = resume_from {
+            tracing::info!(
+                from,
+                first = first_height,
+                "🛟 cc3 stream resuming from consumer snapshot"
+            );
+            // The consumer is consistent up to `from` and the subscription is live: that is
+            // progress in its own right. Usually the first subscribed block *is* the snapshot
+            // height, gets skipped below, and nothing else arrives for a while; without this
+            // note the consumer would report "not caught up" until the next finalized block.
+            if let Some(p) = &progress {
+                p.note(from);
+            }
         }
 
         let stream = async_stream::stream! {
-            yield StreamEvents::new(latest as attestor_primitives::Height, first_events, &chain_keys);
-
             let mut finalized = finalized;
+            let mut pending = Some(first);
             // Reusable scratch buffer for the parent-walk backfill. Capacity tuned for
             // typical disconnects of <16 blocks; grows if needed.
             let mut backfill: Vec<(u64, subxt::events::Events<subxt::SubstrateConfig>)> =
@@ -238,44 +265,46 @@ impl StreamCC3 {
                 // Progress watchdog. `try_next` alone can pend forever on a socket that is
                 // open but no longer delivering (subscription dropped server-side, a proxy
                 // that stopped forwarding, a peer that answers pings and nothing else).
-                let next = match tokio::time::timeout(progress_timeout, finalized.try_next()).await {
+                let next = if let Some(first) = pending.take() {
+                    Ok(Some(first))
+                } else { match tokio::time::timeout(progress_timeout, finalized.try_next()).await {
                     Ok(next) => next,
                     Err(_elapsed) => match cc3.finalized_head_number().await {
-                        Ok(head) if head > latest => {
+                        Ok(head) if latest.is_none_or(|l| head > l) => {
                             tracing::warn!(
-                                latest, head, timeout = ?progress_timeout,
+                                ?latest, head, timeout = ?progress_timeout,
                                 "🛜 finalized subscription silent while the node kept finalizing — replacing it"
                             );
                             if let Some(p) = &progress {
                                 p.note_silent_recovery();
                             }
                             Err(subxt::Error::Other(format!(
-                                "no finalized block for {progress_timeout:?} while node is at {head} (last seen {latest})"
+                                "no finalized block for {progress_timeout:?} while node is at {head} (last seen {latest:?})"
                             )))
                         }
                         Ok(head) => {
                             tracing::warn!(
-                                latest, head, timeout = ?progress_timeout,
+                                ?latest, head, timeout = ?progress_timeout,
                                 "⏸️ no finalized block from the node either — finality stalled upstream, waiting"
                             );
                             continue;
                         }
                         Err(err) => {
                             tracing::warn!(
-                                latest, ?err, timeout = ?progress_timeout,
+                                ?latest, ?err, timeout = ?progress_timeout,
                                 "🛜 finalized subscription silent and the progress probe failed — reconnecting"
                             );
                             Err(subxt::Error::Other(format!("progress probe failed: {err}")))
                         }
                     },
-                };
+                } };
                 match next {
                     Ok(Some(mut block)) => {
                         let n = block.number() as u64;
-                        if n <= latest {
+                        if latest.is_some_and(|l| n <= l) {
                             // Re-delivery (sub-fork retraction etc.). Skip — we already
                             // yielded this height or older.
-                            tracing::debug!(n, latest, "🛜 non-advancing block, skipping");
+                            tracing::debug!(n, ?latest, "🛜 non-advancing block, skipping");
                             continue;
                         }
 
@@ -283,11 +312,12 @@ impl StreamCC3 {
                         // `backfill` before draining, so a huge (but servable) gap could OOM the
                         // pod mid-recovery. Bail before fetching anything: end the stream like the
                         // permanent-pruned path so a restart re-seeds from the current head with no
-                        // backfill (`n > latest` here, so `gap` never underflows).
-                        let gap = n - latest - 1;
+                        // backfill (`n > latest` here, so `gap` never underflows; with nothing
+                        // known yet there is no gap to fill).
+                        let gap = latest.map_or(0, |l| n - l - 1);
                         if gap > MAX_BACKFILL_BLOCKS {
                             tracing::error!(
-                                n, latest, gap, cap = MAX_BACKFILL_BLOCKS,
+                                n, ?latest, gap, cap = MAX_BACKFILL_BLOCKS,
                                 "🧱 cc3 backfill gap exceeds cap — ending the cc3 stream; \
                                  a restart re-seeds from the current head with no backfill"
                             );
@@ -338,7 +368,9 @@ impl StreamCC3 {
                         // single bad block doesn't poison the cap for the rest of the walk.
                         const PARENT_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_secs(30);
                         const PARENT_BACKOFF_START: std::time::Duration = std::time::Duration::from_millis(500);
-                        while walk_n > latest + 1 {
+                        // Nothing known yet: the head block stands alone, no parents to walk.
+                        let walk_floor = latest.map_or(n, |l| l + 1);
+                        while walk_n > walk_floor {
                             // Throttle: keep at least `backfill_min_interval` between
                             // consecutive parent fetches so a long gap (post-outage recovery)
                             // doesn't burst the cc3 RPC.
@@ -401,13 +433,13 @@ impl StreamCC3 {
                         }
 
                         if backfill.len() > 1 {
-                            tracing::info!(latest, head = n, gap = (n - latest - 1), "🛟 cc3 stream backfill");
+                            tracing::info!(?latest, head = n, gap, "🛟 cc3 stream backfill");
                         }
 
                         // Record progress before yielding: a `yield` parks this generator
                         // until the consumer polls again, so noting afterwards would lag the
                         // consumer's view by one block.
-                        latest = n;
+                        latest = Some(n);
                         if let Some(p) = &progress {
                             p.note(n);
                         }
