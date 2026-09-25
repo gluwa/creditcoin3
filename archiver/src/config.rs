@@ -13,14 +13,23 @@ use url::Url;
     about = "Source chain archiver — fetches blocks, computes merkle roots, serves data over HTTP"
 )]
 pub struct Config {
-    /// HTTP RPC endpoint for block fetching.
+    /// HTTP RPC endpoint, used for chain-head tracking and the canonical-anchor check (blocks
+    /// themselves are fetched over the WebSocket client that also carries the subscription).
     #[arg(long, env = "RPC_HTTP", alias = "rpc-url", required = true)]
     pub rpc_http: Url,
 
-    /// WebSocket RPC endpoint for new-head subscriptions.
+    /// WebSocket RPC endpoint for the new-head subscription and block fetching.
     /// Required for the root stream to follow the chain tip.
     #[arg(long, env = "RPC_WS", required = true)]
     pub rpc_ws: Url,
+
+    /// Additional RPC endpoints (comma-separated) tried in order when the primary returns
+    /// "not found" or a transport error for a block fetch. Every fallback must serve the same
+    /// chain id as the primary. If any fallback is unreachable (or on another chain) at dial
+    /// time, the archiver logs a warning and continues with the primary alone rather than
+    /// letting a backup endpoint block startup or reconnection.
+    #[arg(long, env = "RPC_FALLBACK_URLS", value_delimiter = ',', num_args = 0..)]
+    pub rpc_fallback_urls: Vec<String>,
 
     /// Creditcoin3 RPC (WebSocket). `CC3_RPC_URL` or `--cc3-rpc-url` (CLI overrides env; not in YAML).
     #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
