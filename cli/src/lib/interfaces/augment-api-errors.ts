@@ -112,6 +112,12 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaxAttestors: AugmentedError<ApiType>;
             InvalidMaxCatchup: AugmentedError<ApiType>;
+            /**
+             * Tried to set the per-chain `MinBondRequirement` to zero. A zero minimum lets
+             * `register_attestor` admit a stash with no stake, so the resulting ledger carries no
+             * lock and the account can still reach `ActiveAttestors` and vote in quorum decisions.
+             **/
+            InvalidMinBondRequirement: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
             /**

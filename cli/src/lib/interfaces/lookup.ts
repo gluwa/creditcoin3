@@ -3573,6 +3573,7 @@ export default {
             'CheckpointSuffixWipeTooLarge',
             'TooManyAttestationsForForwardPatchClear',
             'OversizedContinuityProof',
+            'InvalidMinBondRequirement',
         ],
     },
     /**
