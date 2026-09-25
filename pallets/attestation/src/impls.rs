@@ -871,7 +871,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn contains_digest(chain_key: ChainKey, digest: Digest, block_number: u64) -> bool {
-        Attestations::<T>::contains_key(chain_key, digest)
+        Self::get(chain_key, digest).is_some()
             || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
     }
 
@@ -927,10 +927,16 @@ impl<T: Config> Pallet<T> {
         AttestorsCount::<T>::get(chain_key) < MaxAttestors::<T>::get(chain_key)
     }
 
+    /// Unlike [`checkpoint_if_stable`](Self::checkpoint_if_stable)'s per-pivot gate, this is
+    /// all-or-nothing per chain: a draining cursor clears the whole `Attestations` prefix in
+    /// unpredictable (hash) order, so there's no way to know a given entry is unreached.
     pub fn get(
         chain_key: ChainKey,
         digest: Digest,
     ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
+        if AttestationClearingCursors::<T>::get(chain_key).is_some() {
+            return None;
+        }
         Attestations::<T>::get(chain_key, digest)
     }
 
@@ -975,6 +981,14 @@ impl<T: Config> Pallet<T> {
         ensure!(
             T::SupportedChains::is_chain_supported(chain_key),
             Error::<T>::ChainNotSupported
+        );
+
+        // A draining cursor clears this chain's whole `Attestations` prefix in unpredictable
+        // (hash) order, so a new row accepted now could still get swept up by it. Block commits
+        // until it's done rather than risk that.
+        ensure!(
+            AttestationClearingCursors::<T>::get(chain_key).is_none(),
+            Error::<T>::AttestationCleanupInProgress
         );
 
         // Reject over-long attestor lists before the expensive BLS aggregation/verification.

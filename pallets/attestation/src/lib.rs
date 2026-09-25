@@ -900,6 +900,9 @@ pub mod pallet {
         // NOTE: appended at the end of the enum on purpose — inserting mid-list would shift the
         // SCALE index of every following variant relative to the last released runtime.
         OversizedContinuityProof,
+        /// A `revert_to`/removal attestation cleanup cursor is still draining for this chain;
+        /// commits are rejected so cleanup can't collaterally delete a new attestation.
+        AttestationCleanupInProgress,
     }
 
     #[pallet::hooks]

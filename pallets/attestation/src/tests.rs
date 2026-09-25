@@ -5479,6 +5479,94 @@ fn on_supported_chain_removed_defers_excess_attestations_to_a_cursor() {
         })
 }
 
+/// Regression test: a draining cursor clears `Attestations` in unpredictable (hash) order, so a
+/// new row accepted mid-drain could be collaterally deleted. `commit_attestation` must reject
+/// while a cursor is active and resume once it's gone.
+#[test]
+fn commit_attestation_blocked_while_attestation_cursor_draining() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        progress_to_block(5);
+
+        let attestation_1 =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_1.clone()
+        ));
+
+        let attestation_2 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            11,
+            Some(attestation_1.digest()),
+            None,
+        );
+
+        // Simulate a cursor left draining by a `revert_to` or chain removal.
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
+
+        assert_noop!(
+            Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation_2.clone()
+            ),
+            Error::<Test>::AttestationCleanupInProgress
+        );
+
+        AttestationClearingCursors::<Test>::remove(SUPPORTED_CHAIN_KEY);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_2
+        ));
+    })
+}
+
+/// Regression test: `get`/`contains_digest` used to trust whatever a draining cursor hadn't
+/// reached yet, even though it's pre-revert garbage on its way out.
+#[test]
+fn get_and_contains_digest_treat_leftover_attestations_as_stale_while_cursor_draining() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+        let digest = attestation.digest();
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, digest, attestation.clone());
+
+        assert_eq!(
+            Attestation::get(SUPPORTED_CHAIN_KEY, digest),
+            Some(attestation)
+        );
+        assert!(Attestation::contains_digest(SUPPORTED_CHAIN_KEY, digest, 0));
+
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
+
+        // Still physically present, but no longer trusted while cleanup is draining.
+        assert!(Attestations::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            digest
+        ));
+        assert_eq!(Attestation::get(SUPPORTED_CHAIN_KEY, digest), None);
+        assert!(!Attestation::contains_digest(
+            SUPPORTED_CHAIN_KEY,
+            digest,
+            0
+        ));
+    })
+}
+
 #[test]
 fn unregister_attestor_still_works_after_removing_that_attestors_chain() {
     ExtBuilder.build_and_execute(|| {
