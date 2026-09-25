@@ -73,6 +73,7 @@ pub mod pallet {
     pub trait WeightInfo {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
+        fn set_maturity_strategy() -> Weight;
     }
 
     #[pallet::storage]
@@ -157,6 +158,16 @@ pub mod pallet {
             chain_encoding: ChainEncodingVersion,
             maturity_strategy: String,
         },
+
+        /// The maturity strategy of a registered chain has been changed. Off-chain consumers
+        /// (attestors, archivers) read the strategy once at startup and do not react to this
+        /// event, so it is a record of the change for indexers and operators rather than a
+        /// signal any node acts on. See `set_maturity_strategy` for what operators must do.
+        MaturityStrategySet {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            maturity_strategy: String,
+        },
     }
 
     #[pallet::error]
@@ -172,6 +183,12 @@ pub mod pallet {
 
         /// Maturity strategy doesn't match one in the expected set
         InvalidMaturityStrategy,
+
+        /// The chain already uses the requested maturity strategy. Rejected rather than applied
+        /// as a no-op so that every `MaturityStrategySet` event stands for a real change: the
+        /// event is the operator-facing record that a restart of the chain's attestors and
+        /// archivers is due, and a no-op write would call for a restart that is not needed.
+        MaturityStrategyUnchanged,
     }
 
     #[pallet::call]
@@ -285,6 +302,74 @@ pub mod pallet {
                 chain_name: item.chain_name.clone(),
                 chain_encoding: item.chain_encoding,
                 maturity_strategy: item.maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        /// Replaces the maturity strategy of an already-registered chain.
+        ///
+        /// **This is a rare, coordinated operation, not a runtime knob.** Attestors and
+        /// archivers resolve the maturity strategy once, at startup, and hold it for the life of
+        /// the process; none of them watch for `MaturityStrategySet`. Calling this leaves every
+        /// already-running attestor and archiver on the *old* strategy, so the change only takes
+        /// effect once **all** of them have been restarted.
+        ///
+        /// Roll the change out in this order:
+        ///
+        /// 1. **Deploy an attestor/archiver image that understands the new strategy string.**
+        ///    A binary that cannot parse it refuses to boot — the attestor fails startup with
+        ///    `InvalidMaturityStrategy`, and an archiver resolving maturity against the source
+        ///    node (an explicit `END_HEIGHT` range, a gap backfill, or no `CHAIN_KEY`) exits the
+        ///    same way. Doing this first is what keeps step 3 from crash-looping the fleet.
+        ///    Deploying the image alone changes nothing: the running processes keep serving the
+        ///    strategy they booted with.
+        /// 2. **Call this extrinsic.** Nothing reacts to it. Every attestor and archiver keeps
+        ///    running under the old strategy, which is fine and expected — they stay in
+        ///    agreement with each other, so quorum is unaffected. The emitted
+        ///    `MaturityStrategySet` is the operator-facing record that a restart is now due.
+        /// 3. **Restart the attestors (and any source-resolved archivers).** Each one re-reads
+        ///    the strategy from chain on startup and comes back on the new policy.
+        ///
+        /// Step 3 is the only window where the network is split across two maturity policies,
+        /// so keep it short: attestors on different policies derive different mature heights and
+        /// stop agreeing, which stalls quorum until the rollout completes. Restarts should be
+        /// planned and executed together rather than left to trickle in.
+        ///
+        /// Attestations already committed on chain stay valid under the new strategy and are
+        /// never revisited; a restarted node resumes from the latest attested height.
+        ///
+        /// Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::WeightInfo::set_maturity_strategy())]
+        pub fn set_maturity_strategy(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            maturity_strategy: String,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                is_valid_maturity_strategy(&maturity_strategy),
+                Error::<T>::InvalidMaturityStrategy
+            );
+
+            let mut chain =
+                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+
+            ensure!(
+                chain.maturity_strategy != maturity_strategy,
+                Error::<T>::MaturityStrategyUnchanged
+            );
+
+            let chain_id = chain.chain_id;
+            chain.maturity_strategy = maturity_strategy.clone();
+            SupportedChains::<T>::insert(chain_key, chain);
+
+            Self::deposit_event(Event::MaturityStrategySet {
+                chain_key,
+                chain_id,
+                maturity_strategy,
             });
 
             Ok(())

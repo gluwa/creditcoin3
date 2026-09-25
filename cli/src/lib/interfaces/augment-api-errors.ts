@@ -971,6 +971,13 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaturityStrategy: AugmentedError<ApiType>;
             /**
+             * The chain already uses the requested maturity strategy. Rejected rather than applied
+             * as a no-op so that every `MaturityStrategySet` event stands for a real change: the
+             * event is the operator-facing record that a restart of the chain's attestors and
+             * archivers is due, and a no-op write would call for a restart that is not needed.
+             **/
+            MaturityStrategyUnchanged: AugmentedError<ApiType>;
+            /**
              * Generic error
              **/
             [key: string]: AugmentedError<ApiType>;

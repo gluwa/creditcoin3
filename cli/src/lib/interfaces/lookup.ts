@@ -1170,6 +1170,11 @@ export default {
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
                 maturityStrategy: 'Text',
             },
+            MaturityStrategySet: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                maturityStrategy: 'Text',
+            },
         },
     },
     /**
@@ -2994,6 +2999,10 @@ export default {
                 chainKey: 'u64',
                 removeCheckpoints: 'bool',
             },
+            set_maturity_strategy: {
+                chainKey: 'u64',
+                maturityStrategy: 'Text',
+            },
         },
     },
     /**
@@ -3579,7 +3588,13 @@ export default {
      * Lookup451: pallet_supported_chains::pallet::Error<T>
      **/
     PalletSupportedChainsError: {
-        _enum: ['ChainAlreadyRegistered', 'ChainNotSupported', 'Arithmetic', 'InvalidMaturityStrategy'],
+        _enum: [
+            'ChainAlreadyRegistered',
+            'ChainNotSupported',
+            'Arithmetic',
+            'InvalidMaturityStrategy',
+            'MaturityStrategyUnchanged',
+        ],
     },
     /**
      * Lookup456: pallet_randomness::pallet::Error<T>
