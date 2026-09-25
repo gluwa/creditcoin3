@@ -995,6 +995,9 @@ impl pallet_nomination_pools::Config for Runtime {
 
 parameter_types! {
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
+    /// Ceiling for the per-chain checkpoint interval settable via
+    /// `set_attestations_per_checkpoint` / chain registration.
+    pub const MaxAttestationCheckpointInterval: u32 = 1_000;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 3;
     /// The default maximum catchup bound, expressed in **blocks**.
@@ -1026,6 +1029,7 @@ type EnsureRootOrOperators =
 
 impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
+    type MaxAttestationCheckpointInterval = MaxAttestationCheckpointInterval;
     type DefaultAttestationInterval = DefaultAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = DefaultMaxCatchup;
