@@ -25,6 +25,15 @@ pub struct HealthCheckResponse {
     cc3_cache_fresh: bool,
     /// Seconds since the least-recently-advanced chain's cache last changed.
     cc3_cache_age_seconds: u64,
+    /// Highest Creditcoin finalized block the event stream has processed, once it has one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cc3_finalized_height: Option<u64>,
+    /// Seconds since the event stream last processed a finalized block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cc3_finalized_age_seconds: Option<u64>,
+    /// Times the stream watchdog replaced a subscription that went silent while the node kept
+    /// finalizing. Rising on a healthy chain points at the RPC endpoint, not the chain.
+    cc3_silent_recoveries: u64,
     /// Why the cc3 event task ended, when it has. A replica in this state is draining and
     /// about to exit; it must not receive new traffic.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -86,6 +95,7 @@ pub async fn health_check(
     }
 
     let event_stream_dead = service.event_stream_dead();
+    let progress = service.cc3_progress();
     let status = if freshness.fresh && eth_connected && event_stream_dead.is_none() {
         "healthy".to_string()
     } else {
@@ -98,6 +108,9 @@ pub async fn health_check(
         eth_rpc_connected: eth_connected,
         cc3_cache_fresh: freshness.fresh,
         cc3_cache_age_seconds: freshness.max_age_seconds,
+        cc3_finalized_height: progress.height(),
+        cc3_finalized_age_seconds: progress.age_seconds(),
+        cc3_silent_recoveries: progress.silent_recoveries(),
         cc3_event_stream_dead: event_stream_dead,
         uptime_seconds: service.uptime_seconds(),
     })

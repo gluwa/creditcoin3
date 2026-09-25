@@ -1,13 +1,11 @@
 //! Liveness regression tests for the cc3 event task and the shared Creditcoin client.
 //! All endpoints are disposable loopback fixtures; no live chain is touched.
 
-mod cc3_ws_fixture;
-
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cc3_ws_fixture::WsFixture;
+use cc_client::ws_fixture::WsFixture;
 
 /// The server hands one `Arc<CcClient>` to the builders and the event task. A reconnect
 /// through any holder must repair every holder — that is the property the `Arc` buys and the
@@ -27,7 +25,7 @@ async fn reconnect_through_the_shared_arc_repairs_every_holder() {
         .await
         .is_ok());
 
-    fixture.close.send(()).unwrap();
+    fixture.close_open_connections();
     tokio::time::timeout(Duration::from_secs(2), async {
         while builder_client
             .legacy()
@@ -67,7 +65,11 @@ async fn reconnect_through_the_shared_arc_repairs_every_holder() {
 /// looping on a dead subscription.
 #[tokio::test]
 async fn pruned_history_makes_the_event_task_return_an_error() {
-    let fixture = WsFixture::start_with_pruned_events(true).await;
+    let fixture = WsFixture::start().await;
+    // Heads 1 and 2 are pushed on subscribe; the second event read hits pruned state.
+    fixture.chain.prune_events_after(1);
+    fixture.finalize(1);
+    fixture.finalize(2);
     let cc = Arc::new(
         cc_client::Client::new_read_only(&fixture.url)
             .await

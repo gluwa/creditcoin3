@@ -44,6 +44,77 @@ const DEFAULT_BACKFILL_MIN_INTERVAL: std::time::Duration = std::time::Duration::
 /// realistic reconnect/outage while keeping the buffer bounded.
 const MAX_BACKFILL_BLOCKS: u64 = 10_000;
 
+/// Default progress deadline: how long the finalized subscription may stay silent before the
+/// stream asks the node point-to-point where its finalized head is. Creditcoin finalizes a
+/// block every 5–15 s depending on the network, so 90 s is several missed blocks — long enough
+/// that a slow-but-live chain never trips it, short enough that a dead subscription is
+/// replaced well inside any downstream freshness window. Override with
+/// [`ConfigBuilder::with_progress_timeout`].
+const DEFAULT_PROGRESS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// Live progress of a [`StreamCC3`], for health reporting. Shared with the consumer through
+/// [`ConfigBuilder::with_progress`]; all fields are plain atomics.
+#[derive(Debug, Default)]
+pub struct Progress {
+    height: std::sync::atomic::AtomicU64,
+    advanced_at_unix_ms: std::sync::atomic::AtomicU64,
+    silent_recoveries: std::sync::atomic::AtomicU64,
+}
+
+impl Progress {
+    fn note(&self, height: u64) {
+        use std::sync::atomic::Ordering;
+        self.height.store(height, Ordering::Release);
+        self.advanced_at_unix_ms
+            .store(now_unix_ms(), Ordering::Release);
+    }
+
+    fn note_silent_recovery(&self) {
+        self.silent_recoveries
+            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+    }
+
+    /// Highest finalized height the stream has yielded, if any.
+    #[must_use]
+    pub fn height(&self) -> Option<u64> {
+        use std::sync::atomic::Ordering;
+        (self.advanced_at_unix_ms.load(Ordering::Acquire) != 0)
+            .then(|| self.height.load(Ordering::Acquire))
+    }
+
+    /// Wall-clock unix millis when [`Self::height`] last advanced, if ever.
+    #[must_use]
+    pub fn advanced_at_unix_ms(&self) -> Option<u64> {
+        let at = self
+            .advanced_at_unix_ms
+            .load(std::sync::atomic::Ordering::Acquire);
+        (at != 0).then_some(at)
+    }
+
+    /// Seconds since the stream last yielded a finalized block, if it ever has.
+    #[must_use]
+    pub fn age_seconds(&self) -> Option<u64> {
+        self.advanced_at_unix_ms()
+            .map(|at| now_unix_ms().saturating_sub(at) / 1000)
+    }
+
+    /// How many times the watchdog replaced a subscription that had gone silent while the node
+    /// kept finalizing. A rising count on a healthy node points at the RPC endpoint (or the
+    /// path to it), not at the chain.
+    #[must_use]
+    pub fn silent_recoveries(&self) -> u64 {
+        self.silent_recoveries
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+}
+
+fn now_unix_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+        .max(1)
+}
+
 /// Whether a block/events fetch failed *permanently* for the block being asked about: the node
 /// has pruned the state (or never had the block) and no amount of reconnecting brings it back —
 /// only an archive node could answer. This happens when an outage outlasts the node's pruning
@@ -78,6 +149,15 @@ pub struct Config {
     /// to gap recovery, not to the live `subscribe_finalized` flow.
     #[default(DEFAULT_BACKFILL_MIN_INTERVAL)]
     backfill_min_interval: std::time::Duration,
+    /// Progress watchdog: with no finalized block for this long, the stream reads the node's
+    /// finalized head point-to-point. Node ahead of us → the subscription is dead even though
+    /// the socket is up: reconnect and re-subscribe (the parent walk fills the gap). Node not
+    /// ahead → finality itself is stalled: keep waiting and log. Probe failure → reconnect.
+    #[default(DEFAULT_PROGRESS_TIMEOUT)]
+    progress_timeout: std::time::Duration,
+    /// Optional shared progress record for health reporting.
+    #[default(None)]
+    progress: Option<std::sync::Arc<Progress>>,
 }
 
 pub struct StreamCC3 {
@@ -92,6 +172,8 @@ impl StreamCC3 {
         let chain_keys: std::sync::Arc<[attestor_primitives::ChainKey]> = config.chain_keys.into();
         let cc3 = config.cc3;
         let backfill_min_interval = config.backfill_min_interval;
+        let progress_timeout = config.progress_timeout;
+        let progress = config.progress;
 
         // Initial subscription + first-block seed, under the same unbounded
         // reconnect-and-re-subscribe policy as the steady-state repair loop below. A
@@ -112,10 +194,12 @@ impl StreamCC3 {
                         .map_err(Error::Subxt)?;
                     // Seed from the first block. An immediately-ended stream or a failed
                     // events fetch is the same transport blip as a failed subscribe — retry
-                    // it, don't die on it.
-                    let first = finalized
-                        .try_next()
+                    // it, don't die on it. A subscription that never delivers is one too: a
+                    // node accepts the subscribe, then nothing (seen on overloaded RPCs); the
+                    // deadline turns that into a reconnect rather than a hang.
+                    let first = tokio::time::timeout(progress_timeout, finalized.try_next())
                         .await
+                        .map_err(|_| Error::NoProgress(progress_timeout))?
                         .map_err(Error::Subxt)?
                         .ok_or(Error::EndOfStream)?;
                     let latest = first.number() as u64;
@@ -137,6 +221,10 @@ impl StreamCC3 {
             }
         };
 
+        if let Some(p) = &progress {
+            p.note(latest);
+        }
+
         let stream = async_stream::stream! {
             yield StreamEvents::new(latest as attestor_primitives::Height, first_events, &chain_keys);
 
@@ -147,7 +235,41 @@ impl StreamCC3 {
                 Vec::with_capacity(16);
 
             loop {
-                match finalized.try_next().await {
+                // Progress watchdog. `try_next` alone can pend forever on a socket that is
+                // open but no longer delivering (subscription dropped server-side, a proxy
+                // that stopped forwarding, a peer that answers pings and nothing else).
+                let next = match tokio::time::timeout(progress_timeout, finalized.try_next()).await {
+                    Ok(next) => next,
+                    Err(_elapsed) => match cc3.finalized_head_number().await {
+                        Ok(head) if head > latest => {
+                            tracing::warn!(
+                                latest, head, timeout = ?progress_timeout,
+                                "🛜 finalized subscription silent while the node kept finalizing — replacing it"
+                            );
+                            if let Some(p) = &progress {
+                                p.note_silent_recovery();
+                            }
+                            Err(subxt::Error::Other(format!(
+                                "no finalized block for {progress_timeout:?} while node is at {head} (last seen {latest})"
+                            )))
+                        }
+                        Ok(head) => {
+                            tracing::warn!(
+                                latest, head, timeout = ?progress_timeout,
+                                "⏸️ no finalized block from the node either — finality stalled upstream, waiting"
+                            );
+                            continue;
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                latest, ?err, timeout = ?progress_timeout,
+                                "🛜 finalized subscription silent and the progress probe failed — reconnecting"
+                            );
+                            Err(subxt::Error::Other(format!("progress probe failed: {err}")))
+                        }
+                    },
+                };
+                match next {
                     Ok(Some(mut block)) => {
                         let n = block.number() as u64;
                         if n <= latest {
@@ -282,6 +404,13 @@ impl StreamCC3 {
                             tracing::info!(latest, head = n, gap = (n - latest - 1), "🛟 cc3 stream backfill");
                         }
 
+                        // Record progress before yielding: a `yield` parks this generator
+                        // until the consumer polls again, so noting afterwards would lag the
+                        // consumer's view by one block.
+                        latest = n;
+                        if let Some(p) = &progress {
+                            p.note(n);
+                        }
                         for (block_n, events) in backfill.drain(..).rev() {
                             yield StreamEvents::new(
                                 block_n as attestor_primitives::Height,
@@ -289,13 +418,15 @@ impl StreamCC3 {
                                 &chain_keys,
                             );
                         }
-                        latest = n;
                     }
                     Ok(None) | Err(_) => {
                         // Stream ended or errored. Reconnect (which has its own shared
                         // backoff) and re-subscribe. *Unbounded* — RPC downtime can be long
                         // and the right behavior is to ride it out rather than crash.
                         // Cancellation point is the sleep below: shutdown drops this future.
+                        if let Err(err) = &next {
+                            tracing::warn!(?err, "🛜 cc3 finalized subscription failed");
+                        }
                         let mut backoff = RESUBSCRIBE_BACKOFF_START;
                         let new_finalized = loop {
                             tracing::warn!("🛜 cc3 stream lost — reconnecting + re-subscribing");
