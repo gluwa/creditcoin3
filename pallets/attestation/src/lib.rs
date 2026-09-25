@@ -50,6 +50,7 @@ pub mod pallet {
     };
     use frame_system::pallet_prelude::*;
     use parity_scale_codec::{DecodeWithMemTracking, FullCodec};
+    use sp_runtime::traits::Zero;
     use sp_staking::StakingInterface;
     use sp_std::collections::{btree_set::BTreeSet, vec_deque::VecDeque};
     use sp_std::{fmt::Debug, vec::Vec};
@@ -807,6 +808,10 @@ pub mod pallet {
         /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
         /// would either overflow those bounds or undercharge weight.
         InvalidMaxAttestors,
+        /// Tried to set the per-chain `MinBondRequirement` to zero. A zero minimum lets
+        /// `register_attestor` admit a stash with no stake, so the resulting ledger carries no
+        /// lock and the account can still reach `ActiveAttestors` and vote in quorum decisions.
+        InvalidMinBondRequirement,
         /// A `commit_attestation` payload carried more attestor accounts than the per-chain
         /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
         /// is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting
@@ -1164,6 +1169,16 @@ pub mod pallet {
             min_bond_requirement: BalanceOf<T>,
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
+
+            ensure!(
+                T::SupportedChains::is_chain_supported(chain_key),
+                Error::<T>::ChainNotSupported
+            );
+
+            ensure!(
+                !min_bond_requirement.is_zero(),
+                Error::<T>::InvalidMinBondRequirement
+            );
 
             MinBondRequirement::<T>::set(chain_key, min_bond_requirement);
 
