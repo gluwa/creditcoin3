@@ -8881,7 +8881,7 @@ mod prevalidate_attestation_commit_extension {
     use crate::extensions::PrevalidateAttestationCommit;
     use sp_runtime::traits::{TransactionExtension, TxBaseImplication};
     use sp_runtime::transaction_validity::{
-        InvalidTransaction, TransactionSource, TransactionValidityError,
+        InvalidTransaction, TransactionSource, TransactionValidityError, ValidTransaction,
     };
 
     #[test]
@@ -9212,6 +9212,209 @@ mod prevalidate_attestation_commit_extension {
             assert!(
                 !Attestations::<Test>::contains_key(chain_key, digest),
                 "postcondition: attestation must not have been committed on-chain"
+            );
+        })
+    }
+
+    /// Build the two submissions the slot-squatting scenario needs: a valid quorum attestation,
+    /// and an invalid variant carrying the *same* digest.
+    ///
+    /// `digest()` covers only `(header_number, root, prev_digest)`, so corrupting the aggregate
+    /// signature leaves the digest — and therefore the `provides` tag the old code derived from
+    /// it — completely unchanged. That is the whole basis of the attack.
+    fn valid_and_same_digest_forgery(
+        attestors: Vec<Attestor>,
+    ) -> (
+        SignedAttestation<H256, mock::AccountId>,
+        SignedAttestation<H256, mock::AccountId>,
+    ) {
+        let valid = create_signed_attestation(attestors, SUPPORTED_CHAIN_KEY, 0, None, None);
+        let mut forged = valid.clone();
+        // Any non-verifying aggregate works; zeroes are the clearest statement of intent.
+        forged.signature = [0u8; 96];
+        assert_eq!(
+            valid.digest(),
+            forged.digest(),
+            "precondition: the forgery must address the same pool slot as the honest submission"
+        );
+        (valid, forged)
+    }
+
+    fn prevalidate(
+        signer: mock::AccountId,
+        attestation: &SignedAttestation<H256, mock::AccountId>,
+    ) -> ValidTransaction {
+        let call = RuntimeCall::Attestation(crate::Call::commit_attestation {
+            attestation: attestation.clone(),
+        });
+        let info = call.get_dispatch_info();
+        PrevalidateAttestationCommit::<Test>::new()
+            .validate(
+                RuntimeOrigin::signed(signer),
+                &call,
+                &info,
+                0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
+            )
+            .expect("prevalidation admits the transaction")
+            .0
+    }
+
+    fn activate(attestor: &Attestor) {
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+    }
+
+    /// An active attestor submitting an attestation whose aggregate signature does not verify is
+    /// still admitted — it pays its fee in dispatch — but must not receive the `provides` tag.
+    #[test]
+    fn prevalidate_withholds_the_tag_from_an_unverifiable_signature() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            activate(&attestor);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let (valid, forged) = valid_and_same_digest_forgery(vec![attestor.clone()]);
+
+            assert!(
+                prevalidate(attestor.attestor_id, &forged)
+                    .provides
+                    .is_empty(),
+                "an attestation whose signature does not verify must not claim the slot"
+            );
+            assert!(
+                !prevalidate(attestor.attestor_id, &valid)
+                    .provides
+                    .is_empty(),
+                "control: the same attestor's valid submission still claims the slot"
+            );
+        })
+    }
+
+    /// The fix, stated as the property that matters: an invalid submission must not be able to
+    /// occupy the pool slot the honest quorum submission needs. Both name the same digest, so
+    /// before full prevalidation both received the same exclusive tag and conflicted — the
+    /// attacker's arriving first was enough to keep the real attestation out.
+    #[test]
+    fn prevalidate_forgery_cannot_squat_the_honest_attestations_slot() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            activate(&attestor);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let (valid, forged) = valid_and_same_digest_forgery(vec![attestor.clone()]);
+
+            let squatter = prevalidate(attestor.attestor_id, &forged);
+            let honest = prevalidate(attestor.attestor_id, &valid);
+
+            assert!(
+                !honest.provides.is_empty(),
+                "the honest quorum submission must claim the slot"
+            );
+            assert!(
+                honest
+                    .provides
+                    .iter()
+                    .all(|tag| !squatter.provides.contains(tag)),
+                "an invalid submission must not conflict with the honest attestation's slot"
+            );
+        })
+    }
+
+    /// Quorum is enforced at admission too, not just in dispatch: an aggregate that verifies but
+    /// carries fewer signers than the threshold cannot reserve the slot either.
+    #[test]
+    fn prevalidate_withholds_the_tag_below_quorum() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor_1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let attestor_2 = Attestor::new(STASH_2, ATTESTOR_2);
+            activate(&attestor_1);
+            activate(&attestor_2);
+
+            // Written straight to storage: `set_target_sample_size` defers to the next epoch
+            // (`PendingTargetSampleSize`), so the extrinsic would leave the mock's default of 1
+            // in force and a single signer would legitimately be a quorum. With two active
+            // attestors and a target of two the threshold is `2 * 2 / 3 + 1 == 2`.
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 2u32);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+            assert_eq!(
+                ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).len(),
+                2,
+                "precondition: both attestors must be active for the threshold to be 2"
+            );
+
+            // Signed by one of two: a genuine aggregate, just not a quorum.
+            let under_quorum = create_signed_attestation(
+                vec![attestor_1.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+
+            assert!(
+                prevalidate(attestor_1.attestor_id, &under_quorum)
+                    .provides
+                    .is_empty(),
+                "a sub-quorum attestation must not claim the slot"
+            );
+        })
+    }
+
+    /// The full check set is pool-only. During block execution the tag is meaningless and dispatch
+    /// re-validates anyway, so the expensive path is skipped — an `InBlock` submission is admitted
+    /// without the aggregate signature check being run a second time.
+    #[test]
+    fn prevalidate_skips_the_full_check_set_in_block() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            activate(&attestor);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let (_, forged) = valid_and_same_digest_forgery(vec![attestor.clone()]);
+            let call = RuntimeCall::Attestation(crate::Call::commit_attestation {
+                attestation: forged,
+            });
+            let info = call.get_dispatch_info();
+
+            let in_block = PrevalidateAttestationCommit::<Test>::new()
+                .validate(
+                    RuntimeOrigin::signed(attestor.attestor_id),
+                    &call,
+                    &info,
+                    0,
+                    (),
+                    &TxBaseImplication(call.clone()),
+                    TransactionSource::InBlock,
+                )
+                .expect("in-block submissions are admitted");
+
+            assert!(
+                !in_block.0.provides.is_empty(),
+                "block execution keeps the cheap path: dispatch is what rejects this"
             );
         })
     }
