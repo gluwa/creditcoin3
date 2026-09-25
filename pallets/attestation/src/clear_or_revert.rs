@@ -1,4 +1,4 @@
-use frame_support::{pallet_prelude::*, transactional};
+use frame_support::pallet_prelude::*;
 
 use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
 use sp_std::vec::Vec;
@@ -12,6 +12,11 @@ use super::pallet::*;
 // This happens when removing from both `Checkpoints` and `CheckpointBuckets`
 pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
 
+/// Per-call/per-block bound for clearing `Attestations` rows in `do_revert_to` and
+/// `on_supported_chain_removed`. Both are charged fixed weight, so the clear must stay fixed
+/// too; any remainder is drained later via [`AttestationClearingCursors`].
+pub const MAX_ATTESTATIONS_CLEARED_PER_BLOCK: u32 = 40;
+
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct CheckpointPruningState {
     pub stop_height: u64, // This is the height of the last checkpoint before reversion was initiated
@@ -19,33 +24,32 @@ pub struct CheckpointPruningState {
 }
 
 impl<T: Config> Pallet<T> {
-    #[transactional]
     pub(crate) fn do_revert_to(
         chain_key: ChainKey,
         checkpoint_height: u64,
     ) -> Result<Digest, sp_runtime::DispatchError> {
-        let retention_duration = AttestationRetentionDuration::<T>::get(chain_key);
-        let checkpoint_interval = AttestationCheckpointInterval::<T>::get(chain_key);
+        // Validate before mutating: this is no longer `#[transactional]`, so a failure here
+        // must not follow any storage writes.
+        let digest = Checkpoints::<T>::get(chain_key, checkpoint_height)
+            .ok_or(Error::<T>::NoSuchCheckpoint)?;
+        let last_checkpoint =
+            LastCheckpoint::<T>::get(chain_key).ok_or(Error::<T>::LastCheckpointNotSet)?;
 
-        // Clearing attestations. Steady state holds `2 * checkpoint_interval - 1 +
-        // retention_duration` attestations, but during the narrow window of a checkpoint cycle
-        // (a full checkpointing queue that hasn't been drained yet) the count can briefly reach
-        // `2 * checkpoint_interval + retention_duration`. Bound the clear to that peak —
-        // otherwise an emergency reversion attempted inside the window leaves a `clear_prefix`
-        // cursor and the transactional revert aborts with `TooManyAttestations`.
-        let max_attestations_to_remove = checkpoint_interval * 2 + retention_duration;
-
+        // Bound the clear to a small fixed batch and defer any remainder to a persisted cursor,
+        // like the `CheckpointBuckets` pruning below. This used to bound the clear to a
+        // peak-state estimate and abort the whole revert on a leftover cursor, permanently
+        // blocking emergency reorg recovery whenever the estimate was wrong.
         let maybe_cursor =
-            Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None)
+            Attestations::<T>::clear_prefix(chain_key, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, None)
                 .maybe_cursor;
-        ensure!(maybe_cursor.is_none(), Error::<T>::TooManyAttestations);
+        match maybe_cursor {
+            Some(cursor) => AttestationClearingCursors::<T>::insert(chain_key, cursor),
+            None => AttestationClearingCursors::<T>::remove(chain_key),
+        }
 
         CheckpointingQueues::<T>::remove(chain_key);
         AttestationRemovalQueues::<T>::remove(chain_key);
 
-        // Get checkpoint digest for height
-        let digest = Checkpoints::<T>::get(chain_key, checkpoint_height)
-            .ok_or(Error::<T>::NoSuchCheckpoint)?;
         let checkpoint_data = AttestationCheckpoint {
             block_number: checkpoint_height,
             digest,
@@ -64,19 +68,14 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        let last_checkpoint = LastCheckpoint::<T>::get(chain_key);
-        if let Some(checkpoint) = last_checkpoint {
-            let pruning_state = CheckpointPruningState {
-                stop_height: checkpoint.block_number,
-                next_pivot: checkpoint_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE),
-            };
-            // Set an initial pivot at which to begin clearing checkpoint buckets.
-            // MAX_CHECKPOINTS_CLEARED_PER_BLOCK entries will be cleared per block
-            // in on_initialize until all buckets above our revert height are cleared.
-            CheckpointPruningStates::<T>::insert(chain_key, pruning_state);
-        } else {
-            return Err(Error::<T>::LastCheckpointNotSet.into());
-        }
+        let pruning_state = CheckpointPruningState {
+            stop_height: last_checkpoint.block_number,
+            next_pivot: checkpoint_pivot.saturating_add(CHECKPOINT_BUCKET_SIZE),
+        };
+        // Set an initial pivot at which to begin clearing checkpoint buckets.
+        // MAX_CHECKPOINTS_CLEARED_PER_BLOCK entries will be cleared per block
+        // in on_initialize until all buckets above our revert height are cleared.
+        CheckpointPruningStates::<T>::insert(chain_key, pruning_state);
 
         // Set last digest and last checkpoint equal to `checkpoint_digest`
         LastCheckpoint::<T>::set(chain_key, Some(checkpoint_data));
@@ -140,6 +139,37 @@ impl<T: Config> Pallet<T> {
 
             // Cursor persistance
             BucketClearingCursors::<T>::set(chain_key, maybe_cursor);
+            w = w.saturating_add(T::DbWeight::get().writes(1));
+        }
+        w
+    }
+
+    /// Drains [`AttestationClearingCursors`], continuing an `Attestations` clear left unfinished
+    /// by `do_revert_to` or `on_supported_chain_removed`.
+    pub fn on_init_clear_attestations() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
+        if let Some((chain_key, cursor)) = AttestationClearingCursors::<T>::iter().next() {
+            let maybe_cursor = Attestations::<T>::clear_prefix(
+                chain_key,
+                MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
+                Some(&cursor[..]),
+            )
+            .maybe_cursor;
+            // Record pessimistic cost that assumes max clear
+            w = w
+                .saturating_add(
+                    T::DbWeight::get().reads(u64::from(MAX_ATTESTATIONS_CLEARED_PER_BLOCK)),
+                )
+                .saturating_add(
+                    T::DbWeight::get().writes(u64::from(MAX_ATTESTATIONS_CLEARED_PER_BLOCK)),
+                );
+
+            match maybe_cursor {
+                Some(cursor) => AttestationClearingCursors::<T>::set(chain_key, Some(cursor)),
+                None => AttestationClearingCursors::<T>::remove(chain_key),
+            }
             w = w.saturating_add(T::DbWeight::get().writes(1));
         }
         w
@@ -242,13 +272,16 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
         MaxInvulnerables::<T>::remove(chain_key);
 
-        // Clearing attestations (same peak-state bound as `do_revert_to`: a full checkpointing
-        // queue mid-cycle can briefly hold `2 * checkpoint_interval + retention_duration`).
-        let retention_duration = AttestationRetentionDuration::<T>::get(chain_key);
-        let max_attestations_to_remove =
-            AttestationCheckpointInterval::<T>::get(chain_key) * 2 + retention_duration;
-        // Can dispense with result, since limit is equal to maximum storage size
-        _ = Attestations::<T>::clear_prefix(chain_key, max_attestations_to_remove, None);
+        // Bound the clear to a small fixed batch and persist any remainder as a cursor, like
+        // `Checkpoints`/`CheckpointBuckets` below. This used to bound the clear to a peak-state
+        // estimate and discard the leftover cursor outright, stranding rows under this
+        // now-removed chain key.
+        let maybe_cursor =
+            Attestations::<T>::clear_prefix(chain_key, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, None)
+                .maybe_cursor;
+        if let Some(cursor) = maybe_cursor {
+            AttestationClearingCursors::<T>::set(chain_key, Some(cursor));
+        }
 
         CheckpointingQueues::<T>::remove(chain_key);
         AttestationRemovalQueues::<T>::remove(chain_key);
