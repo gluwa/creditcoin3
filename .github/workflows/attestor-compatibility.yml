@@ -218,7 +218,7 @@ jobs:
       # pure waste. The key is the discovered version list: a new release changes the
       # list and therefore the key, and nothing else can change the contents.
       - name: Restore cached historical attestor binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Only the archives: the unzipped copies are re-derived cheaply below, and
           # caching both would double this entry against the repo-wide 10 GB cache

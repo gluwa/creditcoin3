@@ -248,7 +248,7 @@ jobs:
           save-if: false
 
       - name: Install cargo-machete
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.87.18
         with:
           tool: cargo-machete@0.9.1
 
@@ -290,7 +290,7 @@ jobs:
           shared-key: rust-test
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.87.18
         with:
           tool: cargo-nextest@0.9.78
 
