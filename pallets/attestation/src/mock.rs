@@ -263,6 +263,7 @@ parameter_types! {
     pub const MaxAttestorsDefault: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultAttestationsPerCheckpoint: u32 = 10;
+    pub const MaxAttestationCheckpointInterval: u32 = 1_000;
     pub const DefaultAttestationInterval: u64 = 10;
     pub const DefaultTargetSampleSize: u32 = 1;
     pub const DefaultMaxCatchup: u32 = 500;
@@ -282,6 +283,7 @@ type EnsureRootOrOperators =
 
 impl attestation_poc::Config for Test {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
+    type MaxAttestationCheckpointInterval = MaxAttestationCheckpointInterval;
     type DefaultAttestationInterval = DefaultAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = DefaultMaxCatchup;
