@@ -831,6 +831,387 @@ fn find_lowest_attested_after_probes_within_bucket_past_orphan() {
         });
 }
 
+// Regression for the sparse-checkpoint false negative (#18): the bucket walk used to give up
+// after a fixed 5 buckets, so a valid checkpoint more than 5 buckets away from the target was
+// never found and the call wrongly reported "not attested". The walk is now bounded by the real
+// distance to the last checkpoint, so a distant-but-valid checkpoint is found.
+#[test]
+fn find_highest_attested_before_finds_checkpoint_more_than_five_buckets_away() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 10_000; // pivot 10_000
+                                     // Valid checkpoint ~8 buckets below the target pivot \u2014 beyond the old fixed 5-bucket limit.
+    let valid_height: u64 = 2_000; // pivot 2_000 => 8 buckets down from 10_000
+    let valid_digest = H256::from_slice(&[55_u8; 32]);
+    let last_checkpoint_height: u64 = 20_000; // >= target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_height,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let valid_pivot = AttestationPallet::<Runtime>::compute_block_index_for(valid_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, valid_pivot, valid_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_height, valid_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+// Symmetric regression for #18 on the upward walk.
+#[test]
+fn find_lowest_attested_after_finds_checkpoint_more_than_five_buckets_away() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 2_000; // pivot 2_000
+                                    // Valid checkpoint ~8 buckets above the target pivot \u2014 beyond the old fixed 5-bucket limit.
+    let valid_height: u64 = 10_000; // pivot 10_000 => 8 buckets up from 2_000
+    let valid_digest = H256::from_slice(&[66_u8; 32]);
+    let last_checkpoint_height: u64 = 20_000; // > target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_height,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let valid_pivot = AttestationPallet::<Runtime>::compute_block_index_for(valid_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, valid_pivot, valid_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_height, valid_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_lowest_attested_after {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+// Bugbot regression (PR #1108): the downward walk in `find_highest_attested_before` must be
+// bounded by `target_height` (distance to genesis), NOT `abs_diff(target, last_checkpoint)`.
+// Here the last checkpoint sits just ONE block above the target, so the old `abs_diff` bound was
+// only ~1 bucket — yet the nearest valid checkpoint below the target is ~8 buckets down. With the
+// wrong bound the search stopped early and falsely reported "not attested".
+#[test]
+fn find_highest_attested_before_finds_far_checkpoint_when_last_checkpoint_just_above_target() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 10_000; // pivot 10_000
+    let valid_height: u64 = 2_000; // pivot 2_000 => 8 buckets below the target pivot
+    let valid_digest = H256::from_slice(&[77_u8; 32]);
+    // Last checkpoint is only ONE block above the target: abs_diff(10_000, 10_001) == 1, which
+    // under the old buggy bound capped the walk at ~1 bucket and missed `valid_height`.
+    let last_checkpoint_height: u64 = 10_001;
+
+    let expected_result = HeightHashResult {
+        height: valid_height,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let valid_pivot = AttestationPallet::<Runtime>::compute_block_index_for(valid_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, valid_pivot, valid_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_height, valid_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+// Bugbot regression (PR #1108) for the same downward-walk bound in `is_height_attested`: last
+// checkpoint one block above target, a valid checkpoint ~8 buckets below — must report attested.
+#[test]
+fn is_height_attested_finds_far_checkpoint_when_last_checkpoint_just_above_target() {
+    let alice: H160 = Alice.into();
+
+    let target_height: u64 = 10_000;
+    let below_height: u64 = 2_000; // 8 buckets below target pivot
+    let last_checkpoint_height: u64 = 10_001; // just above target => tiny abs_diff
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let below_pivot = AttestationPallet::<Runtime>::compute_block_index_for(below_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, below_pivot, below_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                below_height,
+                H256::from_slice(&[88_u8; 32]),
+            );
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::is_height_attested {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(true);
+        });
+}
+
+// Bugbot regression (PR #1108, 2nd pass): the bucket walk must not be clamped to a fixed ceiling.
+// The earlier fix capped attempts at MAX_BUCKET_SEARCH_ATTEMPTS=4096, so for a target above
+// ~4_096_000 blocks the downward walk stopped thousands of buckets short of genesis and
+// false-negatived. Here target is ~4.098M with a valid checkpoint 4097 buckets below (beyond the
+// old ceiling): it must still be found now that the walk is bounded by gas, not a fixed cap.
+#[test]
+fn find_highest_attested_before_finds_checkpoint_beyond_old_fixed_ceiling() {
+    let alice: H160 = Alice.into();
+
+    // 4097 buckets below the target pivot => beyond the old 4096-attempt clamp.
+    let target_height: u64 = 4_098_000; // pivot 4_098_000
+    let valid_height: u64 = 1_000; // pivot 1_000
+    let valid_digest = H256::from_slice(&[99_u8; 32]);
+    let last_checkpoint_height: u64 = 4_098_500; // >= target, forces the bucket-search branch
+
+    let expected_result = HeightHashResult {
+        height: valid_height,
+        hash: valid_digest,
+        is_attestation: false,
+        exists: true,
+    };
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            LastCheckpoint::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                AttestationCheckpoint {
+                    block_number: last_checkpoint_height,
+                    digest: H256::random(),
+                },
+            );
+
+            let valid_pivot = AttestationPallet::<Runtime>::compute_block_index_for(valid_height);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, valid_pivot, valid_height),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, valid_height, valid_digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height,
+                    },
+                )
+                .execute_returns(expected_result);
+        });
+}
+
+// Review (BradleyOlson64, #1280): the downward walks stop at the chain's attestation genesis.
+// Checkpoints cannot exist below it, so every bucket between the genesis and block 0 is
+// known-empty and walking them only charges the caller. Costs are asserted exactly so the walk
+// length is pinned: 3 fixed lookups (chain supported, last checkpoint, genesis floor) plus one
+// per bucket from the target's bucket down to the genesis bucket inclusive.
+const GENESIS_FLOOR_TEST_GENESIS: u64 = 50_000;
+const GENESIS_FLOOR_TEST_TARGET: u64 = 60_000;
+/// Buckets 59_000, 58_000, ..., 50_000.
+const GENESIS_FLOOR_TEST_BUCKETS_WALKED: u64 = 10;
+
+fn set_genesis_and_last_checkpoint_above_target() {
+    pallet_attestation::AttestationChainGenesisBlockNumber::<Runtime>::insert(
+        SUPPORTED_CHAIN_KEY,
+        GENESIS_FLOOR_TEST_GENESIS,
+    );
+    // >= target, forces the bucket-search branch in both precompiles.
+    LastCheckpoint::<Runtime>::insert(
+        SUPPORTED_CHAIN_KEY,
+        AttestationCheckpoint {
+            block_number: GENESIS_FLOOR_TEST_TARGET + 500,
+            digest: H256::random(),
+        },
+    );
+}
+
+#[test]
+fn find_highest_attested_before_stops_walking_at_the_attestation_genesis() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            set_genesis_and_last_checkpoint_above_target();
+
+            // No checkpoint anywhere: the walk must give up at the genesis bucket, not at block 0
+            // (which would be 60 buckets, six times the cost asserted here).
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .expect_cost(crate::GAS_STORAGE_LOOKUP * (3 + GENESIS_FLOOR_TEST_BUCKETS_WALKED))
+                .execute_returns(HeightHashResult::default());
+        });
+}
+
+#[test]
+fn is_height_attested_stops_walking_at_the_attestation_genesis() {
+    let alice: H160 = Alice.into();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            set_genesis_and_last_checkpoint_above_target();
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::is_height_attested {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .expect_cost(crate::GAS_STORAGE_LOOKUP * (3 + GENESIS_FLOOR_TEST_BUCKETS_WALKED))
+                .execute_returns(false);
+        });
+}
+
+/// The floor is inclusive: a checkpoint sitting exactly at the attestation genesis is still found.
+#[test]
+fn find_highest_attested_before_still_finds_a_checkpoint_at_the_genesis() {
+    let alice: H160 = Alice.into();
+    let digest = H256::from_slice(&[7_u8; 32]);
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            set_genesis_and_last_checkpoint_above_target();
+            let pivot =
+                AttestationPallet::<Runtime>::compute_block_index_for(GENESIS_FLOOR_TEST_GENESIS);
+            CheckpointBuckets::<Runtime>::insert(
+                (SUPPORTED_CHAIN_KEY, pivot, GENESIS_FLOOR_TEST_GENESIS),
+                (),
+            );
+            Checkpoints::<Runtime>::insert(SUPPORTED_CHAIN_KEY, GENESIS_FLOOR_TEST_GENESIS, digest);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .execute_returns(HeightHashResult {
+                    height: GENESIS_FLOOR_TEST_GENESIS,
+                    hash: digest,
+                    is_attestation: false,
+                    exists: true,
+                });
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::is_height_attested {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: GENESIS_FLOOR_TEST_TARGET,
+                    },
+                )
+                .execute_returns(true);
+        });
+}
+
 #[test]
 fn get_checkpoint_by_height_returns_default_when_no_checkpoint_at_query_height() {
     let alice: H160 = Alice.into();
