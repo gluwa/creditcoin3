@@ -335,8 +335,13 @@ where
                 Ok(LedgerInfo::default())
             }
             Some(ledger) => {
-                use parity_scale_codec::Encode;
+                use parity_scale_codec::{Encode, MaxEncodedLen};
                 handle.record_db_read::<Runtime>(ledger.encoded_size())?;
+                // `current_era()` reads `pallet_staking`'s `CurrentEra: StorageValue<_, EraIndex>`
+                // under the hood; meter that read too, since it isn't covered by the `Ledger`
+                // read above.
+                handle
+                    .record_db_read::<Runtime>(Option::<sp_staking::EraIndex>::max_encoded_len())?;
                 // Sum unlocking chunks whose unbonding era has already passed.
                 let current_era = <Runtime as pallet_attestation::Config>::Staking::current_era();
                 let withdrawable = ledger

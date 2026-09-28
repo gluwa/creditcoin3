@@ -6,7 +6,11 @@ use frame_election_provider_support::{
 };
 use frame_support::pallet_prelude::ConstU32;
 use frame_support::traits::{ConstU64, KeyOwnerProofSystem};
-use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
+use frame_support::{
+    construct_runtime, parameter_types,
+    traits::Everything,
+    weights::{RuntimeDbWeight, Weight},
+};
 use pallet_babe::AuthorityId;
 use pallet_evm::{
     EnsureAddressNever, EnsureAddressRoot, FrameSystemAccountProvider, IdentityAddressMapping,
@@ -137,6 +141,9 @@ impl From<sp_core::sr25519::Public> for Account {
 parameter_types! {
     pub const BlockHashCount: u32 = 250;
     pub const SS58Prefix: u8 = 42;
+    // Non-zero so precompile gas-metering tests can distinguish "N reads recorded" from "read
+    // metering was skipped" instead of both collapsing to a cost of 0.
+    pub const TestDbWeight: RuntimeDbWeight = RuntimeDbWeight { read: 25_000_000, write: 100_000_000 };
 }
 
 impl frame_system::Config for Runtime {
@@ -147,7 +154,7 @@ impl frame_system::Config for Runtime {
     type MultiBlockMigrator = ();
     type SingleBlockMigrations = ();
     type BaseCallFilter = Everything;
-    type DbWeight = ();
+    type DbWeight = TestDbWeight;
     type RuntimeOrigin = RuntimeOrigin;
     type Nonce = u64;
     type Block = Block;
