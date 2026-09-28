@@ -12,7 +12,10 @@ use pallet_attestation::{
     Attestations, CheckpointBuckets, Checkpoints, LastCheckpoint, LastDigest,
     Pallet as AttestationPallet,
 };
-use precompile_utils::{prelude::UnboundedBytes, testing::*};
+use precompile_utils::{
+    prelude::{RuntimeHelper, UnboundedBytes},
+    testing::*,
+};
 
 use sp_core::{H160, H256};
 
@@ -140,6 +143,70 @@ fn get_chain_by_key_returns_default_data_with_unknown_chain_key() {
                     },
                 )
                 .execute_returns(expected_result);
+        });
+}
+
+// Regression test: the missing-key path used to skip the DB-read charge entirely, so a lookup
+// on an unregistered chain_key was metered for free. Both branches must charge identically.
+//
+// Every call pays one DB-read charge before reaching the precompile body, for the framework's
+// own `get_address_type` caller check (see `precompile_set::get_address_type`), on top of
+// whichever charge `get_chain_by_key` itself applies. Both are `db_read_gas_cost()`-sized, so the
+// expected total per call is twice that.
+#[test]
+fn get_chain_by_key_charges_db_read_cost_for_present_and_absent_keys() {
+    let alice: H160 = Alice.into();
+
+    let unknown_supported_chain_key: u64 = 9999;
+
+    let db_read_cost = RuntimeHelper::<Runtime>::db_read_gas_cost();
+    assert_ne!(
+        db_read_cost, 0,
+        "test runtime must be configured with a non-zero DB-read cost"
+    );
+    let expected_cost = db_read_cost.saturating_mul(2);
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_chain_by_key {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                    },
+                )
+                .expect_cost(expected_cost)
+                .execute_returns(ChainInfoResult {
+                    chain: ChainInfo {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        chain_id: SUPPORTED_CHAIN_ID,
+                        chain_name: UnboundedBytes::from(SUPPORTED_CHAIN_NAME),
+                        chain_encoding: SUPPORTED_CHAIN_ENCODING as u8,
+                    },
+                    exists: true,
+                });
+        });
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_chain_by_key {
+                        chain_key: unknown_supported_chain_key,
+                    },
+                )
+                .expect_cost(expected_cost)
+                .execute_returns(ChainInfoResult {
+                    chain: ChainInfo::default(),
+                    exists: false,
+                });
         });
 }
 

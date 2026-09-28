@@ -143,19 +143,25 @@ where
         handle: &mut impl PrecompileHandle,
         chain_key: ChainKey,
     ) -> EvmResult<ChainInfoResult> {
-        if let Some(sc) = SupportedChains::<Runtime>::get(chain_key) {
-            handle.record_db_read::<Runtime>(sc.encoded_size())?;
-            let chain = ChainInfo {
-                chain_key,
-                chain_id: sc.chain_id,
-                chain_name: UnboundedBytes::from(sc.chain_name),
-                chain_encoding: sc.chain_encoding as u8,
-            };
+        // The lookup is a real DB read whether or not `chain_key` resolves, so both arms must
+        // charge it (matches `AttestorStashPrecompile::get_attestor`).
+        match SupportedChains::<Runtime>::get(chain_key) {
+            Some(sc) => {
+                handle.record_db_read::<Runtime>(sc.encoded_size())?;
+                let chain = ChainInfo {
+                    chain_key,
+                    chain_id: sc.chain_id,
+                    chain_name: UnboundedBytes::from(sc.chain_name),
+                    chain_encoding: sc.chain_encoding as u8,
+                };
 
-            Ok(ChainInfoResult::with_chain(chain))
-        } else {
-            // We want an empty return rather than a revert here
-            Ok(ChainInfoResult::default())
+                Ok(ChainInfoResult::with_chain(chain))
+            }
+            None => {
+                handle.record_db_read::<Runtime>(0)?;
+                // We want an empty return rather than a revert here
+                Ok(ChainInfoResult::default())
+            }
         }
     }
 

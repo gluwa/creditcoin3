@@ -6,6 +6,7 @@ use frame_election_provider_support::{
 };
 use frame_support::pallet_prelude::ConstU32;
 use frame_support::traits::{ConstU64, KeyOwnerProofSystem};
+use frame_support::weights::constants::ParityDbWeight;
 use frame_support::{construct_runtime, parameter_types, traits::Everything, weights::Weight};
 use pallet_babe::AuthorityId;
 use pallet_evm::{
@@ -138,7 +139,9 @@ impl frame_system::Config for Runtime {
     type MultiBlockMigrator = ();
     type SingleBlockMigrations = ();
     type BaseCallFilter = Everything;
-    type DbWeight = ();
+    // Non-zero (matches the real runtime's `RuntimeDbWeight`) so tests can assert on the
+    // metered DB-read gas cost instead of it trivially being zero.
+    type DbWeight = ParityDbWeight;
     type RuntimeOrigin = RuntimeOrigin;
     type Nonce = u64;
     type Block = Block;
