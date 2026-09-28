@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Validate commit headers / PR titles against the repo's Conventional Commits rules.
+# Validate commit headers / PR titles against the repo's Conventional Commits rules. A scope is
+# required: "fix(archiver): …", never "fix: …".
 #
 #   check.sh "fix(archiver): keep the watchdog above the retry budget"
 #   check.sh --pr-title "feat(eth): raw-RLP block fetch mode"
@@ -35,7 +36,7 @@ while [ "$#" -gt 0 ]; do
         exit 2
       fi
       tickets+=("$1") ;;
-    -h|--help) sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,16p' "$0"; exit 0 ;;
     *) headers+=("$1") ;;
   esac
   shift
@@ -62,15 +63,22 @@ for header in "${headers[@]}"; do
   esac
 
   problems=()
-  if ! [[ "$header" =~ ^($types)(\(([a-z0-9._/-]+(,[a-z0-9._/-]+)*)\))?!?:\ (.+)$ ]]; then
+  if ! [[ "$header" =~ ^($types)(\(([a-z0-9._/-]+(,[a-z0-9._/-]+)*)\))!?:\ (.+)$ ]]; then
     if [[ "$header" =~ ^$jira ]]; then
       problems+=("starts with a ticket ID; use '<type>(<scope>): <subject> (${BASH_REMATCH[0]})'")
-    elif [[ "$header" =~ ^[a-z]+(\([^\)]*\))?!?:\  ]]; then
-      scope="${BASH_REMATCH[1]}"
-      if [[ -n "$scope" && ! "$scope" =~ ^\([a-z0-9._/-]+(,[a-z0-9._/-]+)*\)$ ]]; then
-        problems+=("scope must be lowercase crate/area names, comma-separated, no ticket IDs")
-      else
+    elif [[ "$header" =~ ^([a-z]+)(\([^\)]*\))?!?:\  ]]; then
+      type="${BASH_REMATCH[1]}"
+      scope="${BASH_REMATCH[2]}"
+      if ! [[ "$type" =~ ^($types)$ ]]; then
         problems+=("unknown type; use one of: ${types//|/, }")
+      elif [ -z "$scope" ]; then
+        case "$type" in
+          ci) example=docker ;; build) example=deps ;; chore) example=release ;; docs) example=attestor ;;
+          *) example=archiver ;;
+        esac
+        problems+=("missing scope: use '$type(<area>): …', e.g. '$type($example): …' (see the scope table in SKILL.md)")
+      else
+        problems+=("scope must be lowercase crate/area names, comma-separated, no ticket IDs")
       fi
     else
       problems+=("not '<type>(<scope>): <subject>'")
