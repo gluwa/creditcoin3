@@ -105,6 +105,7 @@ randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
 [dev-dependencies]
+finality-grandpa = { version = "0.16.3", features = ["derive-codec"] }
 sp-io = { workspace = true, features = ["std"] }
 
 [build-dependencies]
