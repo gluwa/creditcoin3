@@ -1518,6 +1518,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
             readonly maturityStrategy: Text;
         } & Struct;
+        readonly isMaturityStrategySet: boolean;
+        readonly asMaturityStrategySet: {
+            readonly chainKey: u64;
+            readonly chainId: u64;
+            readonly maturityStrategy: Text;
+        } & Struct;
         readonly isOutboxFactoryRegistered: boolean;
         readonly asOutboxFactoryRegistered: {
             readonly chainKey: u64;
@@ -1542,6 +1548,7 @@ declare module '@polkadot/types/lookup' {
         readonly type:
             | 'ChainRegistered'
             | 'ChainRemoved'
+            | 'MaturityStrategySet'
             | 'OutboxFactoryRegistered'
             | 'WriteAbilityConfigSet'
             | 'CoreFeeSet'
@@ -3584,10 +3591,10 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly removeCheckpoints: bool;
         } & Struct;
-        readonly isSetOutboxFactoryAddr: boolean;
-        readonly asSetOutboxFactoryAddr: {
+        readonly isSetMaturityStrategy: boolean;
+        readonly asSetMaturityStrategy: {
             readonly chainKey: u64;
-            readonly address: H160;
+            readonly maturityStrategy: Text;
         } & Struct;
         readonly isSetWriteAbilityConfig: boolean;
         readonly asSetWriteAbilityConfig: {
@@ -3605,13 +3612,19 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly address: H160;
         } & Struct;
+        readonly isSetOutboxFactoryAddr: boolean;
+        readonly asSetOutboxFactoryAddr: {
+            readonly chainKey: u64;
+            readonly address: H160;
+        } & Struct;
         readonly type:
             | 'RegisterChain'
             | 'RemoveChain'
-            | 'SetOutboxFactoryAddr'
+            | 'SetMaturityStrategy'
             | 'SetWriteAbilityConfig'
             | 'SetCoreFee'
-            | 'SetOutboxDiscoveryAddr';
+            | 'SetOutboxDiscoveryAddr'
+            | 'SetOutboxFactoryAddr';
     }
 
     /** @name PalletRandomnessCall (352) */
@@ -4347,6 +4360,7 @@ declare module '@polkadot/types/lookup' {
         readonly isChainNotSupported: boolean;
         readonly isArithmetic: boolean;
         readonly isInvalidMaturityStrategy: boolean;
+        readonly isMaturityStrategyUnchanged: boolean;
         readonly isZeroOutboxFactoryAddress: boolean;
         readonly isZeroWriteAbilityChainKey: boolean;
         readonly isZeroOutboxDiscoveryAddress: boolean;
@@ -4355,6 +4369,7 @@ declare module '@polkadot/types/lookup' {
             | 'ChainNotSupported'
             | 'Arithmetic'
             | 'InvalidMaturityStrategy'
+            | 'MaturityStrategyUnchanged'
             | 'ZeroOutboxFactoryAddress'
             | 'ZeroWriteAbilityChainKey'
             | 'ZeroOutboxDiscoveryAddress';

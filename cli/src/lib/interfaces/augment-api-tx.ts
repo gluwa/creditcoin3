@@ -3517,6 +3517,48 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, U256]
             >;
             /**
+             * Replaces the maturity strategy of an already-registered chain.
+             *
+             * **This is a rare, coordinated operation, not a runtime knob.** Attestors and
+             * archivers resolve the maturity strategy once, at startup, and hold it for the life of
+             * the process; none of them watch for `MaturityStrategySet`. Calling this leaves every
+             * already-running attestor and archiver on the *old* strategy, so the change only takes
+             * effect once **all** of them have been restarted.
+             *
+             * Roll the change out in this order:
+             *
+             * 1. **Deploy an attestor/archiver image that understands the new strategy string.**
+             * A binary that cannot parse it refuses to boot — the attestor fails startup with
+             * `InvalidMaturityStrategy`, and an archiver resolving maturity against the source
+             * node (an explicit `END_HEIGHT` range, a gap backfill, or no `CHAIN_KEY`) exits the
+             * same way. Doing this first is what keeps step 3 from crash-looping the fleet.
+             * Deploying the image alone changes nothing: the running processes keep serving the
+             * strategy they booted with.
+             * 2. **Call this extrinsic.** Nothing reacts to it. Every attestor and archiver keeps
+             * running under the old strategy, which is fine and expected — they stay in
+             * agreement with each other, so quorum is unaffected. The emitted
+             * `MaturityStrategySet` is the operator-facing record that a restart is now due.
+             * 3. **Restart the attestors (and any source-resolved archivers).** Each one re-reads
+             * the strategy from chain on startup and comes back on the new policy.
+             *
+             * Step 3 is the only window where the network is split across two maturity policies,
+             * so keep it short: attestors on different policies derive different mature heights and
+             * stop agreeing, which stalls quorum until the rollout completes. Restarts should be
+             * planned and executed together rather than left to trickle in.
+             *
+             * Attestations already committed on chain stay valid under the new strategy and are
+             * never revisited; a restarted node resumes from the latest attested height.
+             *
+             * Only accounts in the Operators membership can call this extrinsic.
+             **/
+            setMaturityStrategy: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    maturityStrategy: Text | string,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, Text]
+            >;
+            /**
              * Registers the Outbox discovery-registry contract address for a supported chain — the
              * `OutboxDeployer`/`OutboxDiscovery` in asc-contracts, whose `outboxOf`/`defaultOutbox`
              * getter attestor/relayer resolvers should read instead of scanning the permissionless
@@ -3531,7 +3573,11 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, H160]
             >;
             /**
-             * Registers the outbox factory contract address for a supported chain. Only accounts in
+             * Registers the outbox factory contract address for a supported chain.
+             *
+             * Call index 6: index 2 belongs to `set_maturity_strategy` on usc-dev (live on the cc3
+             * networks), so the write-ability calls keep 3–6 and usc-devnet re-encodes on its next
+             * runtime upgrade. Only accounts in
              * the Operators membership (or root) can call this extrinsic.
              **/
             setOutboxFactoryAddr: AugmentedSubmittable<

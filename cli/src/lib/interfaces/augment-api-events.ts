@@ -1272,6 +1272,17 @@ declare module '@polkadot/api-base/types/events' {
              **/
             CoreFeeSet: AugmentedEvent<ApiType, [chainKey: u64, amount: U256], { chainKey: u64; amount: U256 }>;
             /**
+             * The maturity strategy of a registered chain has been changed. Off-chain consumers
+             * (attestors, archivers) read the strategy once at startup and do not react to this
+             * event, so it is a record of the change for indexers and operators rather than a
+             * signal any node acts on. See `set_maturity_strategy` for what operators must do.
+             **/
+            MaturityStrategySet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, maturityStrategy: Text],
+                { chainKey: u64; chainId: u64; maturityStrategy: Text }
+            >;
+            /**
              * The Outbox discovery-registry address for a supported chain has been registered.
              * This signals to attestors/relayers that they can resolve the Outbox for this chain
              * key from the registry instead of scanning the factory's `OutboxCreated` logs.

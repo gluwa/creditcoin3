@@ -1171,6 +1171,11 @@ export default {
                 chainEncoding: 'AttestorPrimitivesChainEncodingVersion',
                 maturityStrategy: 'Text',
             },
+            MaturityStrategySet: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                maturityStrategy: 'Text',
+            },
             OutboxFactoryRegistered: {
                 chainKey: 'u64',
                 outboxFactoryAddr: 'H160',
@@ -3017,9 +3022,9 @@ export default {
                 chainKey: 'u64',
                 removeCheckpoints: 'bool',
             },
-            set_outbox_factory_addr: {
+            set_maturity_strategy: {
                 chainKey: 'u64',
-                address: 'H160',
+                maturityStrategy: 'Text',
             },
             set_write_ability_config: {
                 chainKey: 'u64',
@@ -3031,6 +3036,10 @@ export default {
                 amount: 'U256',
             },
             set_outbox_discovery_addr: {
+                chainKey: 'u64',
+                address: 'H160',
+            },
+            set_outbox_factory_addr: {
                 chainKey: 'u64',
                 address: 'H160',
             },
@@ -3640,6 +3649,7 @@ export default {
             'ChainNotSupported',
             'Arithmetic',
             'InvalidMaturityStrategy',
+            'MaturityStrategyUnchanged',
             'ZeroOutboxFactoryAddress',
             'ZeroWriteAbilityChainKey',
             'ZeroOutboxDiscoveryAddress',
