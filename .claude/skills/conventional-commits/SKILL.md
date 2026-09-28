@@ -70,8 +70,8 @@ directory. Recent examples: `archiver`, `attestor`, `attestation`, `proof-gen`, 
 parentheses: `fix(attestation): harden commit validation (CSUB-2053)`. Several tickets:
 `(CSUB-2053, CSUB-2054)`. This is how the squash commit on `usc-dev` links back to the ticket.
 
-Treat the work as coming from a ticket when a Jira key (`CSUB-2054`, `DO-2338`: uppercase project,
-dash, number) appears in any of:
+Treat the work as coming from a ticket when a key of one of the team's Jira projects (`CSUB-2054`,
+`DO-2338`) appears in any of:
 
 - the user's request;
 - the branch name (`fix/CSUB-2054-pop-hardening`);
@@ -81,7 +81,9 @@ dash, number) appears in any of:
 If none of those has a key but the user describes ticket work ("the audit item", "the Jira task"),
 ask for the key rather than omitting it. Individual commit headers may carry the key too; in a PR
 title it is required. Check with `check.sh --pr-title --ticket CSUB-2054 "<title>"`, which fails if
-the key is missing or not at the end.
+the key is missing or not at the end. Only the team's projects count as ticket keys (`CSUB`, `DO`;
+set `CC3_JIRA_PROJECTS="CSUB|DO|NEW"` to add one), so `EIP-1559`, `ERC-20` or `SHA-256` in a subject
+are fine.
 
 ### Audit and security fixes
 
@@ -142,7 +144,7 @@ gh pr view <n> --json title,baseRefName,author,headRefName,body \
   --jq '"\(.baseRefName) \(.author.login) \(.headRefName) \(.title)"'
 # Jira keys mentioned in the branch name or description: the title must end with them.
 gh pr view <n> --json headRefName,body --jq '.headRefName + " " + (.body // "")' \
-  | grep -oE '\b[A-Z][A-Z0-9]+-[0-9]+\b' | sort -u
+  | grep -oE '\b(CSUB|DO)-[0-9]+\b' | sort -u
 gh pr view <n> --json commits --jq '.commits[].messageHeadline' \
   | .claude/skills/conventional-commits/check.sh --stdin
 ```
@@ -167,7 +169,7 @@ gh pr list --state open --limit 100 --json number,title,author,headRefName \
   --jq '.[] | "\(.number)\t\(.author.login)\t\(.headRefName)\t\(.title)"' \
   | while IFS=$'\t' read -r n who branch title; do
       tickets=()
-      for key in $(grep -oE '[A-Z][A-Z0-9]+-[0-9]+' <<<"$branch" | sort -u); do
+      for key in $(grep -oE '(CSUB|DO)-[0-9]+' <<<"$branch" | sort -u); do
         tickets+=(--ticket "$key")
       done
       .claude/skills/conventional-commits/check.sh --pr-title --quiet "${tickets[@]}" "$title" \
