@@ -513,10 +513,19 @@ impl<T: Config> Pallet<T> {
         let signature = Signature::from_bytes(&proof_of_possession[..])
             .map_err(|_| Error::<T>::InvalidBlsSignature)?;
 
+        // The proof must be bound to *this* claimant on *this* chain, not merely to the key.
+        // See `proof_of_possession_message` for why an unbound proof is replayable by anyone who
+        // watched the victim's `attest` transaction, and what the squatter gains by replaying it.
+        let pop_message = attestor_primitives::proof_of_possession_message(
+            chain_key,
+            attestor_id.encode().as_slice(),
+            &bls_public_key,
+        );
+
         ensure!(
             bls_signatures::verify(
                 &signature,
-                &[bls_signatures::hash(bls_public_key[..].into())],
+                &[bls_signatures::hash(pop_message.as_slice().into())],
                 &[public_key]
             ),
             Error::<T>::InvalidProofOfPossession

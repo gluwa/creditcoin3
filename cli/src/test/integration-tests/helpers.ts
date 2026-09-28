@@ -1,4 +1,5 @@
 import { ApiPromise } from '@polkadot/api';
+import { proofOfPossessionMessage } from '../../lib/attestor/proof-of-possession';
 import { WasmPrivateKey } from 'bls-signatures-bindings';
 import { BN, mnemonicGenerate } from '../../lib';
 import { initKeyringPair, CallerKeyring } from '../../lib/account/keyring';
@@ -265,7 +266,9 @@ export async function activateAttestor(
     if (initialStatus !== 'Active') {
         const blsKey = WasmPrivateKey.generate(new TextEncoder().encode(attestor.secret));
         const blsPublicKey = blsKey.public_key().as_bytes();
-        const proofOfPossession = blsKey.sign(blsPublicKey).as_bytes();
+        const proofOfPossession = blsKey
+            .sign(proofOfPossessionMessage(chainKey, attestor.address, blsPublicKey))
+            .as_bytes();
 
         console.log(
             `[activateAttestor] submitting attest() for ${attestor.address} on chain ${chainKey} (current status=${initialStatus})`,

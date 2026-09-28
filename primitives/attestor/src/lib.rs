@@ -113,6 +113,57 @@ pub type BlsPublicKey = [u8; 48];
 /// BLS signatures as bytes
 pub type BlsSignature = [u8; 96];
 
+/// Domain-separation tag for the BLS proof-of-possession message.
+///
+/// Versioned so a future change to the message layout is a different domain rather than an
+/// ambiguous re-encoding: a proof built for `v1` can never verify under a later scheme.
+pub const POP_DOMAIN_V1: &[u8] = b"CC3:ATTESTOR:POP:v1";
+
+/// The message a BLS proof of possession must be signed over.
+///
+/// The proof exists to show that whoever submits `bls_public_key` actually holds the
+/// corresponding private key. Signing the public key *alone* proves possession of the key but
+/// says nothing about **who** is claiming it, and the proof travels in the clear as an argument
+/// of the public `attest` extrinsic — so anyone who has seen a victim's registration can replay
+/// their proof under a different controller and take ownership of `BlsKeyOwner` for that key.
+/// The victim is then permanently locked out with `BlsKeyAlreadyRegistered`, and the squatter
+/// holds a committee slot it cannot service: it counts toward the quorum denominator while never
+/// being able to produce a signature, which is a liveness problem, not just a nuisance.
+///
+/// Binding `chain_key` and `attestor_id` into the message makes a proof usable only by the
+/// account that claims it, on the chain it was built for. `attest` derives `attestor_id` from
+/// `ensure_signed(origin)` and is the only caller of `start_attesting`, so a third party cannot
+/// submit a bound proof at all — they would have to sign the extrinsic as the victim. That is
+/// also why the message carries no nonce or expiry: the only party who can replay a bound proof
+/// is its owner, re-asserting their own key, which the pallet already treats as an idempotent
+/// no-op.
+///
+/// `attestor_id` is taken as raw bytes so the runtime (generic over `T::AccountId`) and the
+/// off-chain attestor (concrete `AccountId32`) can both reach this one definition. Callers pass
+/// the SCALE encoding of the account; for `AccountId32` that is its 32 raw bytes.
+///
+/// Changing this layout is a coordinated upgrade: an attestor binary signing the old message
+/// cannot register against a runtime verifying the new one. Already-active attestors are
+/// unaffected until they chill, since `attest` is only called from `Idle`.
+///
+/// **Both sides must build the message here.** A second implementation that agrees today is a
+/// second implementation that can drift tomorrow, and the failure mode is every attestor being
+/// unable to register.
+#[must_use]
+pub fn proof_of_possession_message(
+    chain_key: ChainKey,
+    attestor_id: &[u8],
+    bls_public_key: &BlsPublicKey,
+) -> Vec<u8> {
+    let mut message =
+        Vec::with_capacity(POP_DOMAIN_V1.len() + 8 + attestor_id.len() + bls_public_key.len());
+    message.extend_from_slice(POP_DOMAIN_V1);
+    message.extend_from_slice(&chain_key.to_le_bytes());
+    message.extend_from_slice(attestor_id);
+    message.extend_from_slice(bls_public_key);
+    message
+}
+
 #[derive(Serialize, Deserialize, Debug, Encode, Decode, DecodeWithMemTracking, PartialEq, Eq)]
 pub struct BlsPublicKeyWrapper(#[serde(with = "serde_bytes")] pub BlsPublicKey);
 
@@ -541,5 +592,33 @@ mod test {
     fn calculate_threshold_saturates_instead_of_wrapping() {
         assert_eq!(calculate_threshold(u32::MAX), u32::MAX / 3 + 1);
         assert_eq!(calculate_quorum(10, u32::MAX), 7);
+    }
+}
+
+#[cfg(test)]
+mod pop_message_tests {
+    use super::*;
+
+    /// Fixed vector, duplicated byte-for-byte in `cli/src/lib/attestor/proof-of-possession.ts`.
+    ///
+    /// The TypeScript integration tests have to build this message independently, so the two
+    /// implementations can silently diverge — and the symptom would be every attestor failing to
+    /// register. Pinning the same vector on both sides turns that into a test failure instead.
+    #[test]
+    fn message_layout_is_pinned() {
+        let chain_key: ChainKey = 2;
+        let attestor_id = [0x11u8; 32];
+        let bls_public_key: BlsPublicKey = [0x22u8; 48];
+
+        let message = proof_of_possession_message(chain_key, &attestor_id, &bls_public_key);
+
+        let mut expected = Vec::new();
+        expected.extend_from_slice(b"CC3:ATTESTOR:POP:v1");
+        expected.extend_from_slice(&[2, 0, 0, 0, 0, 0, 0, 0]);
+        expected.extend_from_slice(&attestor_id);
+        expected.extend_from_slice(&bls_public_key);
+
+        assert_eq!(message, expected);
+        assert_eq!(message.len(), 19 + 8 + 32 + 48);
     }
 }

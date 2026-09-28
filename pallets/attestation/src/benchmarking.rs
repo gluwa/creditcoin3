@@ -6,6 +6,7 @@ use continuity_dev::construct_fragment;
 use frame_benchmarking::v2::*;
 use frame_support::assert_ok;
 use frame_support::traits::{Get, OriginTrait};
+use parity_scale_codec::Encode as _;
 use sp_core::H256;
 use sp_runtime::traits::Bounded;
 use sp_std::{ops::RangeInclusive, vec::Vec};
@@ -42,8 +43,15 @@ impl<T: frame_system::Config> Attestor<T> {
         let mut rng = H256::repeat_byte(123).0;
         rng[0..4].copy_from_slice(&index.to_le_bytes());
         let private_key = PrivateKey::new(rng);
-        let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
-        let signature = private_key.sign(public_key).as_bytes()[..]
+        let public_key: BlsPublicKey = private_key.public_key().as_bytes()[..].try_into().unwrap();
+        // Bound to `(DEV_CHAIN_KEY, attestor)` to match what the runtime verifies; every
+        // `attest` call in this file registers on `DEV_CHAIN_KEY`.
+        let pop_message = attestor_primitives::proof_of_possession_message(
+            DEV_CHAIN_KEY,
+            attestor.encode().as_slice(),
+            &public_key,
+        );
+        let signature = private_key.sign(pop_message).as_bytes()[..]
             .try_into()
             .unwrap();
 

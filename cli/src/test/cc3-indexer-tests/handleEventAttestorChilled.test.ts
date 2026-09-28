@@ -5,6 +5,7 @@ import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount, waitEras } from '../integration-tests/helpers';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import { proofOfPossessionMessage } from '../../lib/attestor/proof-of-possession';
 import { graphQLQuery } from './common';
 
 describe('handleEventAttestorChilled()', () => {
@@ -28,7 +29,9 @@ describe('handleEventAttestorChilled()', () => {
 
         const blsSecretKey = WasmPrivateKey.generate(new TextEncoder().encode(attestor.secret));
         const blsPublicKey = blsSecretKey.public_key().as_bytes();
-        const proofOfPossession = blsSecretKey.sign(blsPublicKey);
+        const proofOfPossession = blsSecretKey.sign(
+            proofOfPossessionMessage(chain_Anvil1_Key, attestor.address, blsPublicKey),
+        );
         await api.tx.attestation
             .attest(chain_Anvil1_Key, blsPublicKey, proofOfPossession.as_bytes())
             .signAndSend(attestor.keyring, { nonce: await api.rpc.system.accountNextIndex(attestor.address) });

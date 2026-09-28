@@ -15,6 +15,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, Pays},
     BoundedVec,
 };
+use parity_scale_codec::Encode as _;
 use sp_core::Pair as _;
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
@@ -64,10 +65,11 @@ impl Attestor {
     pub fn new(stash_id: u64, attestor_id: u64) -> Self {
         let rng = sp_core::H256::random().0;
         let private_key = PrivateKey::new(rng);
-        let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
-        let signature = private_key.sign(public_key).as_bytes()[..]
-            .try_into()
-            .unwrap();
+        let public_key: BlsPublicKey = private_key.public_key().as_bytes()[..].try_into().unwrap();
+        // The proof of possession is bound to `(chain_key, attestor_id)`, so it can only be
+        // minted for a specific claimant on a specific chain. Pre-built for the chain nearly
+        // every test uses; `pop_for` covers the rest and the negative cases.
+        let signature = Self::sign_pop(&private_key, SUPPORTED_CHAIN_KEY, attestor_id, &public_key);
 
         let stash = RuntimeOrigin::signed(stash_id);
 
@@ -80,6 +82,28 @@ impl Attestor {
             public_key,
             signature,
         }
+    }
+
+    /// Mint a proof of possession for an arbitrary `(chain_key, attestor_id)` pair.
+    ///
+    /// Passing a pair other than this attestor's own is how the replay tests build the proof an
+    /// attacker would have copied off the wire.
+    pub fn pop_for(&self, chain_key: ChainKey, attestor_id: mock::AccountId) -> BlsSignature {
+        Self::sign_pop(&self.private_key, chain_key, attestor_id, &self.public_key)
+    }
+
+    fn sign_pop(
+        private_key: &PrivateKey,
+        chain_key: ChainKey,
+        attestor_id: mock::AccountId,
+        public_key: &BlsPublicKey,
+    ) -> BlsSignature {
+        let message = attestor_primitives::proof_of_possession_message(
+            chain_key,
+            attestor_id.encode().as_slice(),
+            public_key,
+        );
+        private_key.sign(message).as_bytes()[..].try_into().unwrap()
     }
 
     pub fn sign(&self, message: &[u8]) -> BlsSignature {
@@ -1949,6 +1973,27 @@ fn set_chain_attestation_interval_should_error_with_interval_0() {
 }
 
 #[test]
+fn set_chain_attestation_interval_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidAttestationInterval
+        );
+
+        assert_ok!(Attestation::set_chain_attestation_interval(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
+    })
+}
+
+#[test]
 fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
         let chain_key = 2;
@@ -2161,6 +2206,30 @@ fn set_attestations_per_checkpoint_should_error_with_invalid_interval_value() {
             ),
             Error::<Test>::InvalidAttestationsPerCheckpoint
         );
+    })
+}
+
+#[test]
+fn set_attestations_per_checkpoint_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        // Mock runtime ceiling is `MaxAttestationCheckpointInterval = 1_000`. Anything above it
+        // must be rejected: `commit_attestation`'s dispatch weight scales linearly with this
+        // interval, so accepting a higher value would let it exceed the `Normal` block budget.
+        let ceiling = <Test as crate::Config>::MaxAttestationCheckpointInterval::get();
+        assert_noop!(
+            Attestation::set_attestations_per_checkpoint(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidAttestationsPerCheckpoint
+        );
+
+        assert_ok!(Attestation::set_attestations_per_checkpoint(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
     })
 }
 
@@ -8235,7 +8304,9 @@ fn register_and_attest(chain_key: ChainKey, attestor: &Attestor) {
         RuntimeOrigin::signed(attestor.attestor_id),
         chain_key,
         attestor.public_key,
-        attestor.signature,
+        // Minted for this chain: the pre-built `signature` is bound to `SUPPORTED_CHAIN_KEY`,
+        // and this helper is also used to register on other chains.
+        attestor.pop_for(chain_key, attestor.attestor_id),
     ));
 }
 
@@ -9350,12 +9421,18 @@ mod bls_key_uniqueness {
                 Some(att1.attestor_id)
             );
 
+            // The uniqueness gate is what stops this, and it is still needed after the proof of
+            // possession became identity-bound: binding stops someone *copying* a proof, not the
+            // holder of a key minting a correctly-bound proof for a second account they control.
+            // So mint a genuinely valid proof for att2 over att1's key — the case binding cannot
+            // catch — and require `BlsKeyAlreadyRegistered` to catch it.
+            let minted_for_att2 = att1.pop_for(SUPPORTED_CHAIN_KEY, att2.attestor_id);
             assert_noop!(
                 Attestation::attest(
                     RuntimeOrigin::signed(att2.attestor_id),
                     SUPPORTED_CHAIN_KEY,
                     att1.public_key,
-                    att1.signature,
+                    minted_for_att2,
                 ),
                 Error::<Test>::BlsKeyAlreadyRegistered
             );
@@ -9376,6 +9453,104 @@ mod bls_key_uniqueness {
                     .bls_public_key,
                 None
             );
+        })
+    }
+
+    /// The attack the identity binding exists to stop.
+    ///
+    /// The proof of possession travels in the clear as an argument of the public `attest`
+    /// extrinsic. Before it was bound to a claimant, anyone who had seen a victim's registration
+    /// could replay that proof under their own controller account and take `BlsKeyOwner` for a key
+    /// they do not hold — front-running the victim, who is then locked out with
+    /// `BlsKeyAlreadyRegistered` forever.
+    ///
+    /// Note the ordering: the attacker registers *first*. The pre-existing uniqueness test has the
+    /// victim claim the key first, so `BlsKeyAlreadyRegistered` masked this path.
+    #[test]
+    fn a_copied_proof_of_possession_cannot_claim_another_controllers_key() {
+        ExtBuilder.build_and_execute(|| {
+            let victim = Attestor::new(STASH_1, ATTESTOR_1);
+            let attacker = Attestor::new(STASH_2, ATTESTOR_2);
+
+            for att in [&victim, &attacker] {
+                assert_ok!(Attestation::register_attestor(
+                    att.stash.clone(),
+                    SUPPORTED_CHAIN_KEY,
+                    att.attestor_id,
+                ));
+            }
+
+            // Lifted verbatim off the wire: the victim's key and the victim's proof.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(attacker.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    victim.public_key,
+                    victim.signature,
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, victim.public_key),
+                None,
+                "the squatter must not own a key it cannot sign with"
+            );
+
+            // And the victim is not locked out: their own registration still succeeds.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(victim.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                victim.public_key,
+                victim.signature,
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, victim.public_key),
+                Some(victim.attestor_id)
+            );
+        })
+    }
+
+    /// A proof is bound to one claimant on one chain. Neither coordinate may be varied.
+    #[test]
+    fn a_proof_of_possession_does_not_transfer_across_identity_or_chain() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                att.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id,
+            ));
+
+            // Right key, right chain, wrong claimant.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(att.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    att.public_key,
+                    att.pop_for(SUPPORTED_CHAIN_KEY, ATTESTOR_2),
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+
+            // Right key, right claimant, wrong chain.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(att.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    att.public_key,
+                    att.pop_for(SUPPORTED_CHAIN_KEY + 1, att.attestor_id),
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+
+            // The correctly-bound proof still works, so the rejections above are the binding
+            // doing its job and not the whole path being broken.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att.public_key,
+                att.pop_for(SUPPORTED_CHAIN_KEY, att.attestor_id),
+            ));
         })
     }
 
@@ -9975,6 +10150,8 @@ mod on_register_chain_rejects_zero {
         target_sample_size: Option<u32>,
         chain_attestation_interval: Option<u64>,
         attestation_checkpoint_interval: Option<u32>,
+        max_attestors: Option<u32>,
+        max_invulnerables: Option<u32>,
     ) -> sp_runtime::DispatchResult {
         // Distinct (chain_id, chain_name) per call so each test starts from a clean slot.
         SupportedChains::register_chain(
@@ -9984,8 +10161,8 @@ mod on_register_chain_rejects_zero {
             target_sample_size,
             chain_attestation_interval,
             attestation_checkpoint_interval,
-            None,
-            None,
+            max_attestors,
+            max_invulnerables,
             None,
             ChainEncodingVersion::V1,
             None,
@@ -9996,7 +10173,7 @@ mod on_register_chain_rejects_zero {
     fn target_sample_size_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(Some(0), None, None),
+                register(Some(0), None, None, None, None),
                 DispatchError::Other("InvalidTargetSampleSize")
             );
         })
@@ -10006,7 +10183,18 @@ mod on_register_chain_rejects_zero {
     fn chain_attestation_interval_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(None, Some(0), None),
+                register(None, Some(0), None, None, None),
+                DispatchError::Other("InvalidAttestationInterval")
+            );
+        })
+    }
+
+    #[test]
+    fn chain_attestation_interval_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+            assert_noop!(
+                register(None, Some(ceiling + 1), None, None, None),
                 DispatchError::Other("InvalidAttestationInterval")
             );
         })
@@ -10016,7 +10204,60 @@ mod on_register_chain_rejects_zero {
     fn attestation_checkpoint_interval_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(None, None, Some(0)),
+                register(None, None, Some(0), None, None),
+                DispatchError::Other("InvalidAttestationsPerCheckpoint")
+            );
+        })
+    }
+
+    #[test]
+    fn max_attestors_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, None, Some(0), None),
+                DispatchError::Other("InvalidMaxAttestors")
+            );
+        })
+    }
+
+    #[test]
+    fn max_attestors_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let over_ceiling = <Test as crate::Config>::MaxAttestationNodes::get() + 1;
+            assert_noop!(
+                register(None, None, None, Some(over_ceiling), None),
+                DispatchError::Other("InvalidMaxAttestors")
+            );
+        })
+    }
+
+    #[test]
+    fn max_invulnerables_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, None, None, Some(0)),
+                DispatchError::Other("InvalidMaxInvulnerables")
+            );
+        })
+    }
+
+    #[test]
+    fn max_invulnerables_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let over_ceiling = <Test as crate::Config>::MaxAttestationNodes::get() + 1;
+            assert_noop!(
+                register(None, None, None, None, Some(over_ceiling)),
+                DispatchError::Other("InvalidMaxInvulnerables")
+            );
+        })
+    }
+
+    #[test]
+    fn attestation_checkpoint_interval_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let ceiling = <Test as crate::Config>::MaxAttestationCheckpointInterval::get();
+            assert_noop!(
+                register(None, None, Some(ceiling + 1), None, None),
                 DispatchError::Other("InvalidAttestationsPerCheckpoint")
             );
         })
@@ -10025,7 +10266,7 @@ mod on_register_chain_rejects_zero {
     #[test]
     fn all_none_is_accepted_uses_defaults() {
         ExtBuilder.build_and_execute(|| {
-            assert!(register(None, None, None).is_ok());
+            assert!(register(None, None, None, None, None).is_ok());
 
             // `on_register_chain` writes the per-chain config directly (not via `Pending*` maps —
             // those only carry operator updates between epoch boundaries). When every param is
@@ -10065,18 +10306,21 @@ mod on_register_chain_rejects_zero {
         const TARGET_SAMPLE_SIZE: u32 = 3;
         const CHAIN_ATTESTATION_INTERVAL: u64 = 10;
         const ATTESTATION_CHECKPOINT_INTERVAL: u32 = 5;
+        const MAX_ATTESTORS: u32 = 7;
+        const MAX_INVULNERABLES: u32 = 9;
 
         ExtBuilder.build_and_execute(|| {
             assert!(register(
                 Some(TARGET_SAMPLE_SIZE),
                 Some(CHAIN_ATTESTATION_INTERVAL),
-                Some(ATTESTATION_CHECKPOINT_INTERVAL)
+                Some(ATTESTATION_CHECKPOINT_INTERVAL),
+                Some(MAX_ATTESTORS),
+                Some(MAX_INVULNERABLES),
             )
             .is_ok());
 
-            // Explicit `Some(_)` values land in storage verbatim for the three
-            // attestation-config params; the others are `None` here, so they should still pick
-            // up the runtime-config defaults.
+            // Explicit `Some(_)` values land in storage verbatim for every param now that
+            // `max_attestors`/`max_invulnerables` are validated the same way as the rest.
             assert_eq!(TargetSampleSize::<Test>::get(CHAIN_KEY), TARGET_SAMPLE_SIZE);
             assert_eq!(
                 ChainAttestationInterval::<Test>::get(CHAIN_KEY),
@@ -10086,14 +10330,8 @@ mod on_register_chain_rejects_zero {
                 AttestationCheckpointInterval::<Test>::get(CHAIN_KEY),
                 ATTESTATION_CHECKPOINT_INTERVAL
             );
-            assert_eq!(
-                MaxAttestors::<Test>::get(CHAIN_KEY),
-                <Test as crate::Config>::MaxAttestationNodes::get()
-            );
-            assert_eq!(
-                MaxInvulnerables::<Test>::get(CHAIN_KEY),
-                <Test as crate::Config>::MaxAttestationNodes::get()
-            );
+            assert_eq!(MaxAttestors::<Test>::get(CHAIN_KEY), MAX_ATTESTORS);
+            assert_eq!(MaxInvulnerables::<Test>::get(CHAIN_KEY), MAX_INVULNERABLES);
             assert_eq!(
                 AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
                 <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
