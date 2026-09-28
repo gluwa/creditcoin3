@@ -75,6 +75,7 @@ integration-tests = []
 [dev-dependencies]
 alloy-node-bindings = "~1.6"
 async-trait = { workspace = true }
+cc-client = { workspace = true, features = ["ws-fixture"] }
 parameterized = "2.1.0"
 reqwest = { workspace = true }
 wiremock = "0.6"

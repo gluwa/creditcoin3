@@ -79,7 +79,7 @@ jobs:
     needs: sanity-check
     outputs:
       build_options: ${{ steps.set-build-options.outputs.build_options}}
-      previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
+      previous_release: ${{ steps.devnet-env.outputs.previous_release || steps.asc-devnet-env.outputs.previous_release || steps.testnet-env.outputs.previous_release || steps.mainnet-env.outputs.previous_release }}
 
     steps:
       - uses: actions/checkout@v7
@@ -93,6 +93,7 @@ jobs:
         id: set-build-options
         shell: bash
         run: |
+          # Deliberately a substring match: asc-devnet is devnet-flavoured too.
           echo "build_options=${{ contains( needs.sanity-check.outputs.TAG_NAME, 'devnet') && '--features devnet,metadata-hash' || '--features metadata-hash' }}" >> "$GITHUB_OUTPUT"
 
       - name: View the build options
@@ -102,10 +103,26 @@ jobs:
 
       - name: Devnet ENV
         id: devnet-env
-        if: contains( needs.sanity-check.outputs.TAG_NAME, 'devnet')
+        if: endsWith( needs.sanity-check.outputs.TAG_NAME, '-devnet') && !endsWith( needs.sanity-check.outputs.TAG_NAME, '-asc-devnet')
         run: |
           # shellcheck disable=SC2129
           PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: ASC Devnet ENV
+        id: asc-devnet-env
+        if: endsWith( needs.sanity-check.outputs.TAG_NAME, '-asc-devnet')
+        run: |
+          # shellcheck disable=SC2129
+          PREV_RELEASE=$(.github/extract-release-tag.sh "asc-devnet")
+          # asc-dev branched from dev, so its first release is described relative to
+          # the latest devnet release.
+          if [ -z "$PREV_RELEASE" ]; then
+              PREV_RELEASE=$(.github/extract-release-tag.sh "devnet")
+          fi
           echo "previous_release=$PREV_RELEASE" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

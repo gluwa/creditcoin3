@@ -166,7 +166,7 @@ jobs:
     needs:
       - should-run
     # extrinsics check below needs the build unconditionally on usc-dev, regardless of path filters
-    if: ${{ needs.should-run.outputs.changes != '[]' || github.base_ref == 'usc-dev' }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
     strategy:
       fail-fast: false
       matrix:
@@ -184,7 +184,7 @@ jobs:
     needs:
       - should-run
       - deploy-runner-build-creditcoin-for-testing
-    if: ${{ needs.should-run.outputs.changes != '[]' || github.base_ref == 'usc-dev' }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -195,7 +195,7 @@ jobs:
     secrets: inherit
 
   integration-test-check-extrinsics:
-    if: github.base_ref == 'usc-dev'
+    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
     needs:
       - build-creditcoin-node-for-testing-ci
     runs-on: ubuntu-26.04
@@ -567,15 +567,19 @@ jobs:
           # anvil1-restart.json — the restart reloads that state, and the dumped-state
           # check below hard-fails without it. So: TERM + wait for the dump, then KILL
           # as a fallback, then wait for port 8141 to be released before restarting.
+          # The dump is the whole 10k-block fixture state (gigabytes of JSON) written
+          # while the archiver is still hammering eth_getBlockReceipts, so give it
+          # minutes, not seconds: a KILL here truncates the file and the restart fails
+          # on "failed to parse json file" instead of exercising recovery.
           kill -TERM "$ANVIL_PID" 2>/dev/null || true
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 180); do
             if ! kill -0 "$ANVIL_PID" 2>/dev/null; then
               break
             fi
             sleep 1
           done
           if kill -0 "$ANVIL_PID" 2>/dev/null; then
-            echo "Anvil did not exit on TERM — sending KILL" >&2
+            echo "Anvil did not exit on TERM within 180s — sending KILL (the restart will likely fail to load state)" >&2
             kill -KILL "$ANVIL_PID" 2>/dev/null || true
           fi
           for _ in $(seq 1 30); do
@@ -755,12 +759,18 @@ jobs:
           # alloy_transport_ws logs it as "WS connection error". Same benign restart, different
           # layer — so it is enumerated here too rather than left to fail the gate intermittently
           # (which layer wins is a race between anvil's exit and the read syscall).
+          # The job also restarts the Creditcoin node (the "CC3 restart" step above). The archiver
+          # follows the latest attested height by polling Creditcoin and repairs that connection
+          # when a read fails, so while the node is down its one dial per poll is refused and it
+          # logs "Creditcoin reconnect failed ... Connection refused". The gate matches "error:"
+          # case-insensitively anywhere in a line, and the subxt error text inside that WARN
+          # contains it, so the same benign restart would otherwise fail the gate.
           # Allowlist ONLY these three documented errors, and ONLY from those known reconnect
           # sources, scoped to THIS step via ERROR_ALLOWLIST so the shared gate stays strict
           # everywhere else (e.g. the archiver-testing job, which never restarts eth). Any other
           # error from those sources still fails the gate; functional correctness is asserted
           # separately (checkpoint compare).
-          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|failed to connect WS client).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
+          export ERROR_ALLOWLIST='(alloy_transport_ws|alloy_pubsub|stream_eth|Eth connection error|failed to connect WS client|Creditcoin reconnect failed).*(Connection reset by peer \(os error 104\)|Connection refused \(os error 111\)|Connection reset without closing handshake)'
           .github/check-logs-for-error.sh /var/tmp/integration-test-attestor-network/archiver.log
 
       - name: Check attestor logs for errors
@@ -974,7 +984,7 @@ jobs:
           yarn build
 
       - name: Extra ENV for PRs towards dev branch
-        if: github.base_ref == 'usc-dev'
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
         id: for-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -984,7 +994,7 @@ jobs:
           echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
 
       - name: Extra ENV for other PRs and commits
-        if: github.base_ref != 'usc-dev'
+        if: ${{ !contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
         id: non-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
@@ -1309,7 +1319,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Devnet
-        if: github.base_ref == 'usc-dev' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")

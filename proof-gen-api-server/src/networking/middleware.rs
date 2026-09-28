@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use crate::prom::{Endpoint, Metrics, Status};
+use crate::prom::{Endpoint, Metrics};
 
 /// Middleware that records request metrics (count, duration, and sizes).
 pub async fn request_metrics_middleware(
@@ -45,19 +45,9 @@ pub async fn request_metrics_middleware(
     let response = next.run(request).await;
     let duration = start.elapsed();
 
-    // Determine status category from response status code
-    let status_code = response.status();
-    let status = if status_code.is_success() {
-        Status::Success
-    } else if status_code.is_client_error() {
-        Status::ClientError
-    } else {
-        Status::ServerError
-    };
-
     // Record metrics if we have a valid endpoint
     if let Some(ep) = endpoint {
-        metrics.inc_request(ep.clone(), status);
+        metrics.inc_request(ep.clone(), response.status());
         metrics.observe_request_duration(ep.clone(), duration);
 
         // Use Content-Length header when present (axum's Json sets it) to avoid

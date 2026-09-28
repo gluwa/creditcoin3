@@ -17,7 +17,7 @@ name: Docker
   # Nothing else triggers a build, not even a Dockerfile change: label the PR if you want
   # that validated before merge.
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
+    branches: [main, usc-testnet, usc-dev, dev]
     types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main, usc-testnet]

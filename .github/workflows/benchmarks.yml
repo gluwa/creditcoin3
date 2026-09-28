@@ -3,7 +3,7 @@ name: BENCHMARKS
 
 "on":
   pull_request:
-    branches: [main, usc-testnet, usc-dev]
+    branches: [main, usc-testnet, usc-dev, dev]
     paths:
       - "**weights.rs"
       - "**benchmarking.rs"
@@ -194,7 +194,7 @@ jobs:
           args: --release
 
       - name: Commit changes to current branch
-        if: github.base_ref == 'usc-dev'
+        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
         uses: EndBug/add-and-commit@v10
         with:
           author_name: gluwa-bot

@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicI64, AtomicU64};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use axum::http::StatusCode;
 use prometheus_client::metrics::counter::Counter;
 use prometheus_client::metrics::family::Family;
 use prometheus_client::metrics::gauge::Gauge;
@@ -56,7 +57,7 @@ pub struct CacheOccupancy {
 
 pub trait MetricsTrait: Send + Sync + Debug {
     // Request metrics
-    fn inc_request(&self, endpoint: Endpoint, status: Status);
+    fn inc_request(&self, endpoint: Endpoint, http_status: StatusCode);
     fn observe_request_duration(&self, endpoint: Endpoint, duration: Duration);
     fn observe_request_size(&self, endpoint: Endpoint, bytes: u64);
     fn observe_response_size(&self, endpoint: Endpoint, bytes: u64);
@@ -92,7 +93,7 @@ impl NoopMetrics {
 
 impl MetricsTrait for NoopMetrics {
     // Request metrics
-    fn inc_request(&self, _endpoint: Endpoint, _status: Status) {}
+    fn inc_request(&self, _endpoint: Endpoint, _http_status: StatusCode) {}
     fn observe_request_duration(&self, _endpoint: Endpoint, _duration: Duration) {}
     fn observe_request_size(&self, _endpoint: Endpoint, _bytes: u64) {}
     fn observe_response_size(&self, _endpoint: Endpoint, _bytes: u64) {}
@@ -152,6 +153,11 @@ pub struct ProofGenMetrics {
     /// so it's not directly read in code but is used by Prometheus.
     #[allow(dead_code)]
     start_time_seconds: Gauge<f64, AtomicU64>,
+
+    // Admission metrics. In-flight is a gauge so a stall is visible before any request
+    // completes; rejections are counted by reason.
+    requests_in_flight: Gauge<i64, AtomicI64>,
+    requests_rejected: Family<labels::LabelRejection, Counter<u64, AtomicU64>>,
 
     // Hardware metrics
     cpu_usage_percent: Gauge<f64, AtomicU64>,
@@ -320,6 +326,19 @@ impl ProofGenMetrics {
             memory_usage_bytes.clone(),
         );
 
+        let requests_in_flight = Gauge::default();
+        registry.register(
+            "proof_gen_requests_in_flight",
+            "Proof requests currently admitted and running",
+            requests_in_flight.clone(),
+        );
+        let requests_rejected = Family::default();
+        registry.register(
+            "proof_gen_requests_rejected",
+            "Proof requests refused or cut off by admission control, by reason",
+            requests_rejected.clone(),
+        );
+
         let thread_count = Gauge::default();
         registry.register(
             "proof_gen_thread_count",
@@ -363,8 +382,27 @@ impl ProofGenMetrics {
             start_time_seconds,
             cpu_usage_percent,
             memory_usage_bytes,
+            requests_in_flight,
+            requests_rejected,
             thread_count,
         }
+    }
+
+    /// A proof request passed admission and started running.
+    pub fn request_admitted(&self) {
+        self.requests_in_flight.inc();
+    }
+
+    /// An admitted proof request finished (any outcome).
+    pub fn request_finished(&self) {
+        self.requests_in_flight.dec();
+    }
+
+    /// A proof request was refused or cut off by admission control.
+    pub fn request_rejected(&self, reason: labels::Rejection) {
+        self.requests_rejected
+            .get_or_create(&labels::LabelRejection { reason })
+            .inc();
     }
 
     /// Encode all metrics to OpenMetrics text format.
@@ -379,7 +417,7 @@ impl ProofGenMetrics {
     /// this just encodes the current gauge values without blocking.
     pub fn build_metrics_response(&self) -> axum::response::Response {
         axum::response::Response::builder()
-            .status(axum::http::StatusCode::OK)
+            .status(StatusCode::OK)
             .header(
                 axum::http::header::CONTENT_TYPE,
                 "application/openmetrics-text; version=1.0.0; charset=utf-8",
@@ -449,9 +487,13 @@ pub fn handle_metrics_response(metrics: Arc<ProofGenMetrics>) -> impl axum::resp
 
 impl MetricsTrait for ProofGenMetrics {
     // Request metrics
-    fn inc_request(&self, endpoint: Endpoint, status: Status) {
+    fn inc_request(&self, endpoint: Endpoint, http_status: StatusCode) {
         self.requests
-            .get_or_create(&labels::LabelRequest { endpoint, status })
+            .get_or_create(&labels::LabelRequest {
+                endpoint,
+                status: Status::from(http_status),
+                http_status: http_status.as_u16(),
+            })
             .inc();
     }
 
@@ -568,7 +610,8 @@ mod items {
 }
 
 /// Label definitions following the attestor pattern.
-mod labels {
+pub mod labels {
+    use axum::http::StatusCode;
     use prometheus_client::encoding::{EncodeLabelSet, EncodeLabelValue};
 
     // Endpoint labels
@@ -608,15 +651,38 @@ mod labels {
     // Request status labels
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
     pub enum Status {
+        Informational,
         Success,
+        Redirect,
         ClientError,
         ServerError,
+    }
+
+    impl From<StatusCode> for Status {
+        fn from(code: StatusCode) -> Self {
+            if code.is_informational() {
+                Self::Informational
+            } else if code.is_success() {
+                Self::Success
+            } else if code.is_redirection() {
+                Self::Redirect
+            } else if code.is_client_error() {
+                Self::ClientError
+            } else {
+                // `StatusCode` only admits 100..=999; anything outside the standard
+                // classes (600+) is non-standard and treated as a server fault.
+                Self::ServerError
+            }
+        }
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
     pub struct LabelRequest {
         pub endpoint: Endpoint,
+        /// Coarse class of the response, kept for existing dashboards and alerts.
         pub status: Status,
+        /// Exact HTTP status code of the response (e.g. `404`, `503`).
+        pub http_status: u16,
     }
 
     // Error type labels
@@ -650,5 +716,59 @@ mod labels {
     #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
     pub struct LabelError {
         pub error_type: ErrorType,
+    }
+
+    /// Why admission control refused or cut off a request.
+    #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq, EncodeLabelValue)]
+    pub enum Rejection {
+        /// Process-wide in-flight limit reached.
+        Overloaded,
+        /// Per-chain in-flight limit reached.
+        ChainOverloaded,
+        /// Request exceeded its end-to-end deadline.
+        Timeout,
+    }
+
+    #[derive(Clone, Debug, Hash, PartialEq, Eq, EncodeLabelSet)]
+    pub struct LabelRejection {
+        pub reason: Rejection,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn status_class_follows_http_status_code() {
+        let cases = [
+            (StatusCode::CONTINUE, Status::Informational),
+            (StatusCode::OK, Status::Success),
+            (StatusCode::PERMANENT_REDIRECT, Status::Redirect),
+            (StatusCode::BAD_REQUEST, Status::ClientError),
+            (StatusCode::UNPROCESSABLE_ENTITY, Status::ClientError),
+            (StatusCode::INTERNAL_SERVER_ERROR, Status::ServerError),
+            (StatusCode::SERVICE_UNAVAILABLE, Status::ServerError),
+            (StatusCode::from_u16(600).unwrap(), Status::ServerError),
+        ];
+        for (code, expected) in cases {
+            assert_eq!(Status::from(code), expected, "{code}");
+        }
+    }
+
+    #[test]
+    fn requests_counter_exposes_exact_http_status() {
+        let metrics = ProofGenMetrics::new(&[2]);
+        metrics.inc_request(Endpoint::ProofWithTx, StatusCode::OK);
+        metrics.inc_request(Endpoint::ProofWithTx, StatusCode::SERVICE_UNAVAILABLE);
+        metrics.inc_request(Endpoint::ProofWithTx, StatusCode::SERVICE_UNAVAILABLE);
+
+        let body = metrics.encode();
+        assert!(body.contains(
+            r#"proof_gen_requests_total{endpoint="ProofWithTx",status="Success",http_status="200"} 1"#
+        ));
+        assert!(body.contains(
+            r#"proof_gen_requests_total{endpoint="ProofWithTx",status="ServerError",http_status="503"} 2"#
+        ));
     }
 }

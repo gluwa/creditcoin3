@@ -94,11 +94,16 @@ async fn run_runtime_updater(cc3: Arc<CcClient>) {
 
 /// Start a single CC3 event subscription for all configured chain keys (one finalized-block stream).
 /// Will automatically reconnect to the CC3 node if the connection is lost.
+///
+/// `resume_from` is the Creditcoin finalized height the service's caches were snapshotted at;
+/// events after it are replayed before the live flow so nothing between snapshot and
+/// subscription is skipped.
 pub async fn start_cc3_event_subscription(
-    cc3_client: CcClient,
+    cc3_client: Arc<CcClient>,
     checkpoint_intervals: CheckpointIntervalMap,
     last_checkpoint_blocks: LastCheckpointBlockMap,
     service: Arc<ContinuityService>,
+    resume_from: Option<u64>,
 ) -> Result<()> {
     let chain_keys = service.configured_chain_keys();
 
@@ -107,11 +112,12 @@ pub async fn start_cc3_event_subscription(
         "no chains configured for event subscription"
     );
 
-    // One shared handle for the stream AND the updater. `Client::clone()` gives each value clone
-    // its own `ArcSwap`, so a `reconnect()` performed by the stream would be invisible to an
-    // updater holding a different clone; through the same `Arc` the updater sees the swapped
-    // connection via `connection_id()` and rebinds to the client the decoder actually uses.
-    let cc3 = Arc::new(cc3_client);
+    // One shared handle for the stream AND the updater (the caller already hands us the process-wide
+    // `Arc<CcClient>`, see #1350). `Client::clone()` gives each value clone its own `ArcSwap`, so a
+    // `reconnect()` performed by the stream would be invisible to an updater holding a different
+    // clone; through the same `Arc` the updater sees the swapped connection via `connection_id()`
+    // and rebinds to the client the decoder actually uses.
+    let cc3 = cc3_client;
 
     // Keep the client's metadata in step with the chain across runtime upgrades (see
     // `run_runtime_updater`). Without it every event from a pallet whose layout changed in a
@@ -121,6 +127,11 @@ pub async fn start_cc3_event_subscription(
     let config = stream::cc3::ConfigBuilder::new()
         .with_cc3(cc3)
         .with_chain_keys(chain_keys.iter().copied().collect::<Vec<_>>())
+        // Finalized-block progress feeds /health: the flattened event stream below has no
+        // per-block signal of its own, and attestation writes are too sparse on a quiet
+        // chain to tell "subscription dead" from "nothing attested lately".
+        .with_progress(Some(service.cc3_progress()))
+        .with_resume_from(resume_from)
         .build();
     let mut events = stream::cc3::StreamCC3::new(config).await?.flatten();
 

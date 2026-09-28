@@ -37,6 +37,7 @@ import {
     RevertedAttestationChainTo,
     OutboxFactory,
     OutboxFactoryRegistration,
+    MaturityStrategySet,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, fetchAttestationParams, chainDataId } from './initStore';
@@ -225,6 +226,52 @@ export async function handleOutboxDiscoveryRegistered(event: SubstrateEvent): Pr
         event.block.timestamp ? BigInt(event.block.timestamp.getTime()) : BigInt(0),
         event.extrinsic?.extrinsic.hash.toHex() ?? '0x',
     );
+}
+
+export async function handleMaturityStrategySet(event: SubstrateEvent): Promise<void> {
+    const {
+        event: {
+            data: [chainKey, chainId, maturityStrategy],
+        },
+    } = event;
+
+    const from = event.extrinsic?.extrinsic.signer;
+    assert(from, 'Signer is missing');
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyStr = chainKey.toString();
+    const chainKeyNumber = BigInt(chainKeyStr);
+    const maturityStrategyStr = maturityStrategy.toString();
+
+    const maturityStrategySet = MaturityStrategySet.create({
+        id: `${blockNumber}-${event.idx}`,
+        at: blockNumber,
+        chainKey: chainKeyNumber,
+        chainId: BigInt(chainId.toString()),
+        maturityStrategy: maturityStrategyStr,
+        whoId: from.toString(),
+    });
+
+    // Keep the SupportedChain row in step with chain state. It is keyed by `chainDataId`, the
+    // same id `handleSupportedChainRegistered` writes under, so this is an in-place update of
+    // the registration rather than a second row for the same chain.
+    const supportedChain = await SupportedChain.get(chainDataId(chainKeyNumber));
+    if (supportedChain) {
+        supportedChain.maturityStrategy = maturityStrategyStr;
+        supportedChain.at = blockNumber;
+        await supportedChain.save();
+    } else {
+        // Only reachable when indexing starts after the chain was registered, so the
+        // registration event was never seen. The event row above still records the change.
+        logger.error(
+            `Supported Chains : ${chainKeyStr} not found in db for block number event: ${blockNumber}. MaturityStrategySet recorded without updating the registration.`,
+        );
+    }
+
+    logger.info(`Maturity strategy for chain ${chainKeyStr} set to ${maturityStrategyStr} at block ${blockNumber}`);
+
+    await maturityStrategySet.save();
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {

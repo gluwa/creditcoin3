@@ -6,7 +6,7 @@
 
 When merging this PR:
 
-- For PRs against `usc-dev` use the "Squash and merge" button
+- For PRs against `dev` (formerly `usc-dev`) use the "Squash and merge" button
 - For PRs against `usc-testnet`/`main` use the "Create a merge commit" button
 - Hotfixes against `usc-testnet`/`main` should use the "Squash and merge" button
 
