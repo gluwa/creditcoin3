@@ -3,11 +3,13 @@
 #
 #   check.sh "fix(archiver): keep the watchdog above the retry budget"
 #   check.sh --pr-title "feat(eth): raw-RLP block fetch mode"
+#   check.sh --pr-title --ticket CSUB-2054 "fix(attestation): harden proof of possession (CSUB-2054)"
 #   git log --format=%s origin/usc-dev..HEAD | check.sh --stdin
 #
 # Flags: --pr-title (92-char limit, since GitHub appends " (#1234)" on squash), --stdin (one header
-# per line), --quiet (no output, exit status only). Exits 1 if any header fails. The hard limit is
-# commitlint's conventional default (100); aim for 72 so `git log --oneline` stays readable.
+# per line), --quiet (no output, exit status only), --ticket KEY (repeatable: the header must end with
+# "(KEY)" / "(KEY, KEY2)"). Exits 1 if any header fails. The hard limit is commitlint's conventional
+# default (100); aim for 72 so `git log --oneline` stays readable.
 set -uo pipefail
 
 types='feat|fix|perf|refactor|test|docs|build|ci|chore|revert|style'
@@ -15,15 +17,25 @@ max=100
 from_stdin=0
 quiet=0
 headers=()
+tickets=()
+jira='[A-Z][A-Z0-9]+-[0-9]+'
 
-for arg in "$@"; do
-  case "$arg" in
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --pr-title) max=92 ;;
     --stdin) from_stdin=1 ;;
     --quiet) quiet=1 ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
-    *) headers+=("$arg") ;;
+    --ticket)
+      shift
+      if ! [[ "${1:-}" =~ ^$jira$ ]]; then
+        echo "--ticket needs a Jira key like CSUB-2054, got '${1:-}'" >&2
+        exit 2
+      fi
+      tickets+=("$1") ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+    *) headers+=("$1") ;;
   esac
+  shift
 done
 
 if [ "$from_stdin" -eq 1 ]; then
@@ -66,6 +78,22 @@ for header in "${headers[@]}"; do
       && problems+=("use the imperative ('add', 'fix', 'update', 'remove')")
   fi
   [ "${#header}" -gt "$max" ] && problems+=("header is ${#header} chars (max $max)")
+
+  # Jira keys belong in one trailing group: "... (CSUB-1)" or "... (CSUB-1, CSUB-2)".
+  trailing=""
+  if [[ "$header" =~ \((($jira)(,\ $jira)*)\)$ ]]; then
+    trailing="${BASH_REMATCH[1]}"
+  fi
+  body_part="${header%"($trailing)"}"
+  [ -z "$trailing" ] && body_part="$header"
+  if [[ "$body_part" =~ $jira ]]; then
+    problems+=("Jira key '${BASH_REMATCH[0]}' belongs at the end in parentheses, e.g. '(${BASH_REMATCH[0]})'")
+  fi
+  for key in ${tickets[@]+"${tickets[@]}"}; do
+    if ! [[ ", $trailing, " == *", $key, "* ]]; then
+      problems+=("missing Jira key: end the title with '($key)'")
+    fi
+  done
 
   if [ "${#problems[@]}" -gt 0 ]; then
     failed=1

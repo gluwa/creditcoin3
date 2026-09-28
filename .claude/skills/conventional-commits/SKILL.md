@@ -64,6 +64,25 @@ directory. Recent examples: `archiver`, `attestor`, `attestation`, `proof-gen`, 
   Not `CSUB-2054 (fix) Proof of possession hardening`.
 - On a PR title, GitHub appends ` (#1234)` when squash-merging, so the title's hard limit is 92.
 
+### Jira tickets
+
+**Work that comes from a Jira ticket must carry the ticket key at the end of the PR title**, in
+parentheses: `fix(attestation): harden commit validation (CSUB-2053)`. Several tickets:
+`(CSUB-2053, CSUB-2054)`. This is how the squash commit on `usc-dev` links back to the ticket.
+
+Treat the work as coming from a ticket when a Jira key (`CSUB-2054`, `DO-2338`: uppercase project,
+dash, number) appears in any of:
+
+- the user's request;
+- the branch name (`fix/CSUB-2054-pop-hardening`);
+- the PR description or an existing PR title;
+- a commit message on the branch.
+
+If none of those has a key but the user describes ticket work ("the audit item", "the Jira task"),
+ask for the key rather than omitting it. Individual commit headers may carry the key too; in a PR
+title it is required. Check with `check.sh --pr-title --ticket CSUB-2054 "<title>"`, which fails if
+the key is missing or not at the end.
+
 ### Audit and security fixes
 
 Name the area, not the weakness. The history is public, and a descriptive subject tells an attacker
@@ -87,11 +106,14 @@ Run the validator in this skill's directory on every commit header and PR title 
 ```bash
 .claude/skills/conventional-commits/check.sh "fix(archiver): keep the watchdog above the retry budget"
 .claude/skills/conventional-commits/check.sh --pr-title "feat(eth): raw-RLP block fetch mode"
+.claude/skills/conventional-commits/check.sh --pr-title --ticket CSUB-2054 \
+  "fix(attestation): harden proof of possession (CSUB-2054)"
 git log --format=%s origin/usc-dev..HEAD | .claude/skills/conventional-commits/check.sh --stdin
 ```
 
 It exits non-zero and says why when a header does not conform. `--pr-title` applies the 92-character
-limit.
+limit. `--ticket KEY` (repeatable) requires those keys in the trailing parentheses. Any Jira key
+that appears elsewhere in a header is flagged, since keys belong at the end.
 
 ## Committing
 
@@ -103,7 +125,9 @@ limit.
 
 ## Opening a PR
 
-1. Title the PR as the squash commit should read on `usc-dev`, and run `check.sh --pr-title` on it.
+1. Title the PR as the squash commit should read on `usc-dev`. If the work comes from a Jira ticket
+   (see above), end the title with the key, and run `check.sh --pr-title --ticket <KEY>` on it;
+   otherwise `check.sh --pr-title`.
 2. Base branch is `usc-dev` unless you are doing a release or a hotfix.
 3. For PRs into `usc-testnet` or `main`, which are merged with a merge commit, every commit on the
    branch lands as-is, so every commit subject must conform, not only the title.
@@ -114,7 +138,11 @@ When you create, update or are asked to look at a PR, check its title, and for m
 commits:
 
 ```bash
-gh pr view <n> --json title,baseRefName,author --jq '"\(.baseRefName) \(.author.login) \(.title)"'
+gh pr view <n> --json title,baseRefName,author,headRefName,body \
+  --jq '"\(.baseRefName) \(.author.login) \(.headRefName) \(.title)"'
+# Jira keys mentioned in the branch name or description: the title must end with them.
+gh pr view <n> --json headRefName,body --jq '.headRefName + " " + (.body // "")' \
+  | grep -oE '\b[A-Z][A-Z0-9]+-[0-9]+\b' | sort -u
 gh pr view <n> --json commits --jq '.commits[].messageHeadline' \
   | .claude/skills/conventional-commits/check.sh --stdin
 ```
@@ -131,15 +159,23 @@ gh pr view <n> --json commits --jq '.commits[].messageHeadline' \
   `git rebase -i` with `reword`, then `git push --force-with-lease=<branch>:<old-sha>`. Never
   force-push someone else's branch.
 
-To sweep all open PRs for non-conforming titles:
+To sweep all open PRs for non-conforming titles, including a missing Jira key that the branch name
+mentions:
 
 ```bash
-gh pr list --state open --limit 100 --json number,title,author \
-  --jq '.[] | "\(.number)\t\(.author.login)\t\(.title)"' \
-  | while IFS=$'\t' read -r n who title; do
-      .claude/skills/conventional-commits/check.sh --pr-title --quiet "$title" \
+gh pr list --state open --limit 100 --json number,title,author,headRefName \
+  --jq '.[] | "\(.number)\t\(.author.login)\t\(.headRefName)\t\(.title)"' \
+  | while IFS=$'\t' read -r n who branch title; do
+      tickets=()
+      for key in $(grep -oE '[A-Z][A-Z0-9]+-[0-9]+' <<<"$branch" | sort -u); do
+        tickets+=(--ticket "$key")
+      done
+      .claude/skills/conventional-commits/check.sh --pr-title --quiet "${tickets[@]}" "$title" \
         || echo "#$n ($who): $title"
     done
 ```
+
+Also read the description of each PR it lists: a key mentioned only there still belongs in the
+title.
 
 Report the list with a proposed title for each, and apply only what the user approves.
