@@ -2,7 +2,8 @@
 //!
 //! The database schema is:
 //! - Key: block height as big-endian u64 bytes (8 bytes)
-//! - Value: block root digest (32 bytes)
+//! - Value: block root digest (32 bytes), optionally followed by the source block hash
+//!   (32 bytes) — the 64-byte layout the archiver writes. Only the root feeds checkpoints.
 
 use std::path::Path;
 
@@ -147,15 +148,16 @@ fn parse_height(key: &sled::IVec) -> Result<u64> {
     Ok(u64::from_be_bytes(bytes))
 }
 
-/// Parse a digest from a sled value (32 bytes).
+/// Parse the block root from a sled value.
+///
+/// Accepts the legacy 32-byte layout (`root`) and the archiver's current 64-byte layout
+/// (`root ++ block_hash`); in both the root is the first 32 bytes. The block hash only backs the
+/// archiver's reorg guard and is not part of the checkpoint digest, so it is ignored here.
 fn parse_digest(value: &sled::IVec) -> Result<Digest> {
-    if value.len() != 32 {
-        anyhow::bail!(
-            "Invalid digest length: expected 32 bytes, got {}",
-            value.len()
-        );
+    match value.len() {
+        32 | 64 => Ok(Digest::from_slice(&value[..32])),
+        other => anyhow::bail!("Invalid digest length: expected 32 or 64 bytes, got {other}"),
     }
-    Ok(Digest::from_slice(value.as_ref()))
 }
 
 #[cfg(test)]
@@ -325,5 +327,86 @@ mod tests {
             source.get_range(0, 9).is_err(),
             "expected error when range exceeds available data"
         );
+    }
+
+    /// Root for `height` in these tests: height in the first 8 bytes, rest zero.
+    fn test_root(height: u64) -> [u8; 32] {
+        let mut root = [0u8; 32];
+        root[0..8].copy_from_slice(&height.to_be_bytes());
+        root
+    }
+
+    /// Write heights `0..count` in the archiver's 64-byte layout: root, then a block hash
+    /// filled with `0xff` so it can never be mistaken for the root.
+    fn write_archiver_layout(db_path: &std::path::Path, count: u64) {
+        let db = sled::open(db_path).unwrap();
+        for height in 0..count {
+            let mut value = [0xffu8; 64];
+            value[..32].copy_from_slice(&test_root(height));
+            db.insert(height.to_be_bytes(), &value[..]).unwrap();
+        }
+        db.flush().unwrap();
+    }
+
+    #[test]
+    fn test_reads_archiver_64_byte_values_as_root() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_db");
+        write_archiver_layout(&db_path, 5);
+
+        let source = open_after_close(&db_path);
+        let expected = |h: u64| Digest::from_slice(&test_root(h));
+
+        assert_eq!(source.get(3).unwrap().unwrap().digest, expected(3));
+        assert_eq!(source.first().unwrap().unwrap().digest, expected(0));
+        assert_eq!(source.last().unwrap().unwrap().digest, expected(4));
+        let roots = source.get_range(0, 4).unwrap();
+        assert_eq!(roots.len(), 5);
+        for root in roots {
+            assert_eq!(root.digest, expected(root.height));
+        }
+    }
+
+    #[test]
+    fn test_64_and_32_byte_layouts_yield_identical_roots() {
+        let dir = tempdir().unwrap();
+        let wide_path = dir.path().join("wide_db");
+        let narrow_path = dir.path().join("narrow_db");
+        write_archiver_layout(&wide_path, 10);
+        {
+            let db = sled::open(&narrow_path).unwrap();
+            for height in 0u64..10 {
+                db.insert(height.to_be_bytes(), &test_root(height)[..])
+                    .unwrap();
+            }
+            db.flush().unwrap();
+        }
+
+        let wide = open_after_close(&wide_path).get_range(0, 9).unwrap();
+        let narrow = open_after_close(&narrow_path).get_range(0, 9).unwrap();
+        assert_eq!(
+            wide.iter()
+                .map(|r| (r.height, r.digest))
+                .collect::<Vec<_>>(),
+            narrow
+                .iter()
+                .map(|r| (r.height, r.digest))
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_rejects_unexpected_value_length() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_db");
+        {
+            let db = sled::open(&db_path).unwrap();
+            db.insert(0u64.to_be_bytes(), &[0u8; 48][..]).unwrap();
+            db.flush().unwrap();
+        }
+
+        let source = open_after_close(&db_path);
+        let err = source.get(0).unwrap_err();
+        assert!(err.to_string().contains("got 48"), "{err:#}");
     }
 }

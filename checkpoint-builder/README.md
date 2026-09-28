@@ -16,7 +16,7 @@ The Checkpoint Builder performs the following:
 
 **Sled** — reads from a local Sled database where:
 - **Key**: block height as big-endian u64 bytes (8 bytes)
-- **Value**: block root digest (32 bytes)
+- **Value**: block root digest (32 bytes), or root followed by the source block hash (64 bytes, the layout the archiver writes). Only the root is used; the block hash is ignored
 
 **Archiver** — reads from an archiver HTTP API that exposes block root data via REST endpoints (`/roots`, `/roots/latest`, `/status`).
 
