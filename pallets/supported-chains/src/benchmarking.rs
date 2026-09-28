@@ -1,7 +1,9 @@
 //! Pallet Supported Chains Benchmarks
+use super::Pallet as SupportedChains;
 use super::*;
 use attestor_primitives::{ChainEncodingVersion, ChainId, ChainKey};
 use frame_benchmarking::v2::*;
+use frame_support::assert_ok;
 use frame_support::traits::OriginTrait;
 use scale_info::prelude::string::String;
 use sp_core::H160;

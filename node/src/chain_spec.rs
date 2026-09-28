@@ -338,6 +338,12 @@ fn asc_devnet_genesis() -> RuntimeGenesisConfig {
         // Chains are registered after launch by the runbook, not baked into genesis.
         supported_chains: SupportedChainsConfig {
             supported_chains: vec![],
+            // Write-ability state follows the chains: registered post-genesis through
+            // `set_write_ability_config`, `set_outbox_factory_addr` and
+            // `set_outbox_discovery_addr` once each chain and its contracts exist.
+            write_ability_configs: vec![],
+            outbox_factories: vec![],
+            outbox_discoveries: vec![],
             _phantom: Default::default(),
         },
         ..devnet_genesis(
