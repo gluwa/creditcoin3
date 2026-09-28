@@ -308,6 +308,12 @@ parameter_types! {
 
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();
+
+    // Equivocation reports are checked against the session range of the reported set id and
+    // the one before it, so both entries must still be in `SetIdSession`. Keep one entry per
+    // session over the bonding period, which is as far back as an offence can still be slashed.
+    pub const MaxSetIdSessionEntries: u64 =
+        BondingDuration::get() as u64 * SessionsPerEra::get() as u64;
 }
 
 impl pallet_grandpa::Config for Runtime {
@@ -315,7 +321,7 @@ impl pallet_grandpa::Config for Runtime {
     type WeightInfo = ();
     type MaxAuthorities = MaxAuthorities;
     type MaxNominators = MaxNominatorRewardedPerValidator;
-    type MaxSetIdSessionEntries = ();
+    type MaxSetIdSessionEntries = MaxSetIdSessionEntries;
     type KeyOwnerProof = sp_session::MembershipProof;
     type EquivocationReportSystem =
         pallet_grandpa::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
@@ -1776,23 +1782,27 @@ impl_runtime_apis! {
         }
 
         fn submit_report_equivocation_unsigned_extrinsic(
-            _equivocation_proof: fg_primitives::EquivocationProof<
+            equivocation_proof: fg_primitives::EquivocationProof<
                 <Block as BlockT>::Hash,
                 NumberFor<Block>,
             >,
-            _key_owner_proof: fg_primitives::OpaqueKeyOwnershipProof,
+            key_owner_proof: fg_primitives::OpaqueKeyOwnershipProof,
         ) -> Option<()> {
-            None
+            let key_owner_proof = key_owner_proof.decode()?;
+
+            Grandpa::submit_unsigned_equivocation_report(
+                equivocation_proof,
+                key_owner_proof,
+            )
         }
 
         fn generate_key_ownership_proof(
             _set_id: fg_primitives::SetId,
-            _authority_id: GrandpaId,
+            authority_id: GrandpaId,
         ) -> Option<fg_primitives::OpaqueKeyOwnershipProof> {
-            // NOTE: this is the only implementation possible since we've
-            // defined our key owner proof type as a bottom type (i.e. a type
-            // with no values).
-            None
+            Historical::prove((fg_primitives::KEY_TYPE, authority_id))
+                .map(|p| p.encode())
+                .map(fg_primitives::OpaqueKeyOwnershipProof::new)
         }
     }
 
@@ -2326,5 +2336,366 @@ mod tests {
             .get(frame_support::dispatch::DispatchClass::Normal)
             .base_extrinsic;
         assert!(base_extrinsic.ref_time() <= min_ethereum_transaction_weight.ref_time());
+    }
+}
+
+#[cfg(test)]
+mod grandpa_equivocation_tests {
+    use super::*;
+    use fg_primitives::runtime_decl_for_grandpa_api::GrandpaApiV3;
+    use frame_support::{assert_err, assert_ok, traits::Hooks};
+    use sp_consensus_babe::digests::{PreDigest, SecondaryPlainPreDigest};
+    use sp_core::{
+        ed25519,
+        offchain::{testing::TestTransactionPoolExt, TransactionPoolExt},
+        sr25519, Pair,
+    };
+    use sp_runtime::{
+        transaction_validity::{InvalidTransaction, TransactionSource},
+        BuildStorage, Digest, DigestItem,
+    };
+
+    const VALIDATORS: [&str; 4] = ["//Alice", "//Bob", "//Charlie", "//Dave"];
+
+    fn stash(seed: &str) -> AccountId {
+        sr25519::Pair::from_string(seed, None)
+            .unwrap()
+            .public()
+            .into()
+    }
+
+    fn grandpa_pair(seed: &str) -> ed25519::Pair {
+        ed25519::Pair::from_string(seed, None).unwrap()
+    }
+
+    fn new_test_ext() -> sp_io::TestExternalities {
+        let stashes: Vec<_> = VALIDATORS.iter().map(|s| stash(s)).collect();
+        let t = RuntimeGenesisConfig {
+            balances: BalancesConfig {
+                balances: stashes
+                    .iter()
+                    .map(|a| (a.clone(), 1_000_000 * CTC))
+                    .collect(),
+                ..Default::default()
+            },
+            babe: BabeConfig {
+                epoch_config: BABE_GENESIS_EPOCH_CONFIG,
+                ..Default::default()
+            },
+            session: SessionConfig {
+                keys: VALIDATORS
+                    .iter()
+                    .map(|seed| {
+                        let keys = opaque::SessionKeys {
+                            grandpa: grandpa_pair(seed).public().into(),
+                            babe: sr25519::Pair::from_string(seed, None)
+                                .unwrap()
+                                .public()
+                                .into(),
+                            im_online: sr25519::Pair::from_string(seed, None)
+                                .unwrap()
+                                .public()
+                                .into(),
+                        };
+                        (stash(seed), stash(seed), keys)
+                    })
+                    .collect(),
+                ..Default::default()
+            },
+            // No invulnerables, so the offence has an economic consequence to assert on.
+            staking: StakingConfig {
+                validator_count: VALIDATORS.len() as u32,
+                minimum_validator_count: 1,
+                stakers: stashes
+                    .iter()
+                    .map(|a| (a.clone(), a.clone(), 100_000 * CTC, StakerStatus::Validator))
+                    .collect(),
+                slash_reward_fraction: Perbill::from_percent(10),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+        .build_storage()
+        .unwrap();
+        t.into()
+    }
+
+    /// Author a block through BABE so the session handlers see an initialized epoch, rotate
+    /// the session, and enact the GRANDPA change it schedules.
+    fn start_session() {
+        let number = System::block_number() + 1;
+        let pre_digest = PreDigest::SecondaryPlain(SecondaryPlainPreDigest {
+            authority_index: 0,
+            slot: (number as u64).into(),
+        });
+        let digest = Digest {
+            logs: vec![DigestItem::PreRuntime(
+                sp_consensus_babe::BABE_ENGINE_ID,
+                pre_digest.encode(),
+            )],
+        };
+        System::reset_events();
+        System::initialize(&number, &System::parent_hash(), &digest);
+        <Babe as Hooks<BlockNumber>>::on_initialize(number);
+        // Count every validator as online so ImOnline does not report them, which would
+        // otherwise slash and disable validators behind the assertions below.
+        for validator in Session::validators() {
+            pallet_im_online::AuthoredBlocks::<Runtime>::insert(
+                Session::current_index(),
+                validator,
+                1,
+            );
+        }
+        Session::rotate_session();
+        <Babe as Hooks<BlockNumber>>::on_finalize(number);
+        <Grandpa as Hooks<BlockNumber>>::on_finalize(number);
+        let header = System::finalize();
+        System::set_parent_hash(header.hash());
+    }
+
+    fn advance_sets(min_set_id: u64) {
+        while Grandpa::current_set_id() < min_set_id {
+            start_session();
+        }
+    }
+
+    fn equivocation_proof(
+        set_id: u64,
+        round: u64,
+        signer: &ed25519::Pair,
+        identity: GrandpaId,
+        targets: [(Hash, BlockNumber); 2],
+    ) -> fg_primitives::EquivocationProof<Hash, BlockNumber> {
+        let sign = |(target_hash, target_number): (Hash, BlockNumber)| {
+            let prevote = finality_grandpa::Prevote {
+                target_hash,
+                target_number,
+            };
+            let payload = fg_primitives::localized_payload(
+                round,
+                set_id,
+                &finality_grandpa::Message::Prevote(prevote.clone()),
+            );
+            (prevote, signer.sign(&payload).into())
+        };
+        fg_primitives::EquivocationProof::new(
+            set_id,
+            fg_primitives::Equivocation::Prevote(finality_grandpa::Equivocation {
+                round_number: round,
+                identity,
+                first: sign(targets[0]),
+                second: sign(targets[1]),
+            }),
+        )
+    }
+
+    fn conflicting_proof(
+        set_id: u64,
+        signer: &ed25519::Pair,
+    ) -> fg_primitives::EquivocationProof<Hash, BlockNumber> {
+        let targets = [(Hash::repeat_byte(1), 10), (Hash::repeat_byte(2), 10)];
+        equivocation_proof(set_id, 1, signer, signer.public().into(), targets)
+    }
+
+    fn ownership_proof(authority: &ed25519::Pair) -> fg_primitives::OpaqueKeyOwnershipProof {
+        <Runtime as GrandpaApiV3<Block>>::generate_key_ownership_proof(
+            Grandpa::current_set_id(),
+            authority.public().into(),
+        )
+        .expect("historical session proofs are always generated")
+    }
+
+    fn report(
+        proof: fg_primitives::EquivocationProof<Hash, BlockNumber>,
+        key_owner_proof: fg_primitives::OpaqueKeyOwnershipProof,
+    ) -> frame_support::dispatch::DispatchResultWithPostInfo {
+        Grandpa::report_equivocation_unsigned(
+            RuntimeOrigin::none(),
+            Box::new(proof),
+            key_owner_proof.decode().unwrap(),
+        )
+    }
+
+    fn grandpa_offences() -> usize {
+        pallet_offences::ConcurrentReportsIndex::<Runtime>::iter_prefix(*b"grandpa:equivoca")
+            .map(|(_, reports)| reports.len())
+            .sum()
+    }
+
+    fn validator_index(seed: &str) -> u32 {
+        Session::validators()
+            .iter()
+            .position(|v| *v == stash(seed))
+            .unwrap() as u32
+    }
+
+    #[test]
+    fn report_submitted_through_runtime_api_reaches_offences_staking_and_session() {
+        let mut ext = new_test_ext();
+        let (pool, pool_state) = TestTransactionPoolExt::new();
+        ext.register_extension(TransactionPoolExt::new(pool));
+
+        ext.execute_with(|| {
+            // Go past the first sets: the report is checked against the previous set's
+            // session too, which must not have been pruned.
+            advance_sets(3);
+            let offender = grandpa_pair(VALIDATORS[1]);
+            let set_id = Grandpa::current_set_id();
+            let era = Staking::active_era().unwrap().index;
+            let offender_index = validator_index(VALIDATORS[1]);
+
+            // What the client does on detecting conflicting votes.
+            let key_owner_proof = ownership_proof(&offender);
+            assert_eq!(
+                <Runtime as GrandpaApiV3<Block>>::submit_report_equivocation_unsigned_extrinsic(
+                    conflicting_proof(set_id, &offender),
+                    key_owner_proof,
+                ),
+                Some(())
+            );
+
+            let tx = pool_state
+                .write()
+                .transactions
+                .pop()
+                .expect("report must reach the pool");
+            let xt = UncheckedExtrinsic::decode(&mut &tx[..]).unwrap();
+            let call = xt.0.function;
+            let RuntimeCall::Grandpa(ref grandpa_call) = call else {
+                panic!("unexpected call submitted: {call:?}");
+            };
+            assert_ok!(
+                <Grandpa as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                    TransactionSource::Local,
+                    grandpa_call,
+                )
+            );
+            assert_ok!(call.clone().dispatch(RuntimeOrigin::none()));
+
+            assert_eq!(grandpa_offences(), 1);
+            assert!(System::events().iter().any(|r| matches!(
+                &r.event,
+                RuntimeEvent::Offences(pallet_offences::Event::Offence { kind, .. })
+                    if *kind == *b"grandpa:equivoca"
+            )));
+            assert!(
+                pallet_staking::ValidatorSlashInEra::<Runtime>::get(era, stash(VALIDATORS[1]))
+                    .is_some()
+            );
+            assert!(System::events().iter().any(|r| matches!(
+                &r.event,
+                RuntimeEvent::Staking(pallet_staking::Event::SlashReported { validator, .. })
+                    if *validator == stash(VALIDATORS[1])
+            )));
+            assert!(Session::disabled_validators().contains(&offender_index));
+
+            // The same offence cannot be reported twice.
+            assert_err!(
+                <Grandpa as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                    TransactionSource::Local,
+                    grandpa_call,
+                ),
+                InvalidTransaction::Stale
+            );
+            assert_err!(
+                call.dispatch(RuntimeOrigin::none()).map_err(|e| e.error),
+                pallet_grandpa::Error::<Runtime>::DuplicateOffenceReport
+            );
+        });
+    }
+
+    #[test]
+    fn report_for_a_previous_set_is_accepted() {
+        new_test_ext().execute_with(|| {
+            advance_sets(3);
+            let offender = grandpa_pair(VALIDATORS[2]);
+            let set_id = Grandpa::current_set_id();
+            let key_owner_proof = ownership_proof(&offender);
+
+            // Report after the chain has moved on by a few sets.
+            advance_sets(set_id + 3);
+
+            assert_ok!(report(
+                conflicting_proof(set_id, &offender),
+                key_owner_proof
+            ));
+            assert_eq!(grandpa_offences(), 1);
+        });
+    }
+
+    #[test]
+    fn invalid_reports_are_rejected() {
+        new_test_ext().execute_with(|| {
+            advance_sets(3);
+            let offender = grandpa_pair(VALIDATORS[1]);
+            let set_id = Grandpa::current_set_id();
+
+            // Two votes for the same target are not an equivocation.
+            let same = (Hash::repeat_byte(1), 10);
+            assert_err!(
+                report(
+                    equivocation_proof(
+                        set_id,
+                        1,
+                        &offender,
+                        offender.public().into(),
+                        [same, same]
+                    ),
+                    ownership_proof(&offender),
+                )
+                .map_err(|e| e.error),
+                pallet_grandpa::Error::<Runtime>::InvalidEquivocationProof
+            );
+
+            // Votes signed by someone other than the authority they claim to be from.
+            let forged = equivocation_proof(
+                set_id,
+                1,
+                &grandpa_pair(VALIDATORS[3]),
+                offender.public().into(),
+                [(Hash::repeat_byte(1), 10), (Hash::repeat_byte(2), 10)],
+            );
+            assert_err!(
+                report(forged, ownership_proof(&offender)).map_err(|e| e.error),
+                pallet_grandpa::Error::<Runtime>::InvalidEquivocationProof
+            );
+
+            // Ownership proof for a different authority than the offender.
+            assert_err!(
+                report(
+                    conflicting_proof(set_id, &offender),
+                    ownership_proof(&grandpa_pair(VALIDATORS[0]))
+                )
+                .map_err(|e| e.error),
+                pallet_grandpa::Error::<Runtime>::InvalidKeyOwnershipProof
+            );
+
+            // A set id the ownership proof's session does not belong to.
+            assert_err!(
+                report(
+                    conflicting_proof(set_id + 1, &offender),
+                    ownership_proof(&offender)
+                )
+                .map_err(|e| e.error),
+                pallet_grandpa::Error::<Runtime>::InvalidEquivocationProof
+            );
+
+            // An authority outside the validator set gets a proof, but only one of absence.
+            let outsider = grandpa_pair("//Eve");
+            let call = pallet_grandpa::Call::<Runtime>::report_equivocation_unsigned {
+                equivocation_proof: Box::new(conflicting_proof(set_id, &outsider)),
+                key_owner_proof: ownership_proof(&outsider).decode().unwrap(),
+            };
+            assert_err!(
+                <Grandpa as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                    TransactionSource::Local,
+                    &call,
+                ),
+                InvalidTransaction::BadProof
+            );
+
+            assert_eq!(grandpa_offences(), 0);
+            assert!(Session::disabled_validators().is_empty());
+        });
     }
 }
