@@ -73,6 +73,10 @@ impl SubstrateCli for Cli {
             }
             "usc_devnet" => Box::new(chain_spec::usc_devnet_config()?),
             "usc_testnet" => Box::new(chain_spec::usc_testnet_config()?),
+
+            // ASC
+            "asc_devnet" => Box::new(chain_spec::asc_devnet_config()?),
+            "asc_devnet_template" => Box::new(chain_spec::asc_devnet_template_config()?),
             "" | "local" => Box::new(chain_spec::usc_local_testnet_config()),
             path => Box::new(chain_spec::ChainSpec::from_json_file(
                 std::path::PathBuf::from(path),

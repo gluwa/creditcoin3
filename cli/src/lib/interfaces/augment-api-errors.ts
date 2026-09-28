@@ -984,6 +984,13 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaturityStrategy: AugmentedError<ApiType>;
             /**
+             * The chain already uses the requested maturity strategy. Rejected rather than applied
+             * as a no-op so that every `MaturityStrategySet` event stands for a real change: the
+             * event is the operator-facing record that a restart of the chain's attestors and
+             * archivers is due, and a no-op write would call for a restart that is not needed.
+             **/
+            MaturityStrategyUnchanged: AugmentedError<ApiType>;
+            /**
              * The Outbox discovery-registry address is the zero address. A zero registry cannot be
              * resolved by the attestor/relayer (it reads as "not registered"), so setting it via the
              * operator path is rejected to fail loudly instead of silently disabling registry-based

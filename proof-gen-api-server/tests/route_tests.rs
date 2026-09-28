@@ -195,6 +195,43 @@ async fn test_metrics_route_should_return_success() {
 }
 
 #[tokio::test]
+async fn test_metrics_route_should_report_requests_by_http_status() {
+    let configured_chain_key = 2u64;
+    let app = test_utils::start_test_app(configured_chain_key).await;
+
+    // One success, and one rejected by the chain-key validator before reaching the handler.
+    for (uri, expected) in [
+        ("/api/v1/proof/2/100/0", StatusCode::OK),
+        ("/api/v1/proof/99/100/0", StatusCode::BAD_REQUEST),
+    ] {
+        let request = Request::builder()
+            .uri(uri)
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), expected, "{uri}");
+    }
+
+    let request = Request::builder()
+        .uri("/metrics")
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let body = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(body.contains(
+        r#"proof_gen_requests_total{endpoint="ProofWithTx",status="Success",http_status="200"} 1"#
+    ));
+    assert!(body.contains(
+        r#"proof_gen_requests_total{endpoint="ProofWithTx",status="ClientError",http_status="400"} 1"#
+    ));
+}
+
+#[tokio::test]
 async fn test_swagger_route_should_redirect() {
     let configured_chain_key = 2u64;
     let app = test_utils::start_test_app(configured_chain_key).await;

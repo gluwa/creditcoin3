@@ -8,7 +8,7 @@ mod sink;
 mod source;
 
 use config::{CheckpointConfig, CheckpointRange, Cli, SourceCommand};
-use source::{ArchiveSource, RootSource, SledSource};
+use source::{ArchiveSource, ChainedSledSource, RootSource};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,20 +29,27 @@ async fn main() -> Result<()> {
 
     let (source, config): (Box<dyn RootSource>, CheckpointConfig) = match cli.command {
         SourceCommand::Sled(args) => {
-            if !args.sled_db_path.exists() {
-                bail!(
-                    "Sled database path does not exist: {}",
-                    args.sled_db_path.display()
-                );
+            for path in &args.sled_db_paths {
+                if !path.exists() {
+                    bail!("Sled database path does not exist: {}", path.display());
+                }
             }
 
             info!(
-                "Using Sled database at path: {}",
-                args.sled_db_path.display()
+                "Using {} Sled database(s): {}",
+                args.sled_db_paths.len(),
+                args.sled_db_paths
+                    .iter()
+                    .map(|p| p.display().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             );
 
             (
-                Box::new(SledSource::open(&args.sled_db_path)?),
+                Box::new(ChainedSledSource::open(
+                    &args.sled_db_paths,
+                    args.fail_on_overlap,
+                )?),
                 CheckpointConfig::from_common(args.common)?,
             )
         }

@@ -709,12 +709,105 @@
       "type": "timeseries"
     },
     {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Request rate by endpoint and exact HTTP status code (e.g. 400 vs 404 vs 422, 500 vs 503). Requires API traffic.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 20
+      },
+      "id": 23,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.0.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum(rate(proof_gen_requests_total{pod=~\"${pod}\"}[$__rate_interval])) by (endpoint, http_status)",
+          "legendFormat": "{{endpoint}} - {{http_status}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Requests by Endpoint & HTTP Status",
+      "type": "timeseries"
+    },
+    {
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 20
+        "y": 28
       },
       "id": 30,
       "panels": [],
@@ -781,7 +874,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 29
+        "y": 37
       },
       "id": 33,
       "options": {
@@ -892,7 +985,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 29
+        "y": 37
       },
       "id": 34,
       "options": {
@@ -940,7 +1033,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 46
+        "y": 54
       },
       "id": 50,
       "panels": [],
@@ -1007,7 +1100,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 47
+        "y": 55
       },
       "id": 51,
       "options": {
@@ -1109,7 +1202,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 47
+        "y": 55
       },
       "id": 52,
       "options": {
@@ -1232,7 +1325,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 55
+        "y": 63
       },
       "id": 53,
       "options": {
@@ -1324,7 +1417,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 55
+        "y": 63
       },
       "id": 54,
       "options": {
@@ -1362,7 +1455,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 63
+        "y": 71
       },
       "id": 60,
       "panels": [],
@@ -1429,7 +1522,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 64
+        "y": 72
       },
       "id": 61,
       "options": {
@@ -1521,7 +1614,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 64
+        "y": 72
       },
       "id": 62,
       "options": {
@@ -1560,7 +1653,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 72
+        "y": 80
       },
       "id": 70,
       "panels": [],
@@ -1606,7 +1699,7 @@
         "h": 6,
         "w": 8,
         "x": 0,
-        "y": 73
+        "y": 81
       },
       "id": 71,
       "options": {
@@ -1668,7 +1761,7 @@
         "h": 6,
         "w": 8,
         "x": 8,
-        "y": 73
+        "y": 81
       },
       "id": 72,
       "options": {
@@ -1760,7 +1853,7 @@
         "h": 6,
         "w": 8,
         "x": 16,
-        "y": 73
+        "y": 81
       },
       "id": 73,
       "options": {
@@ -1884,7 +1977,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 79
+        "y": 87
       },
       "id": 74,
       "options": {

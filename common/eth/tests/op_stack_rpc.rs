@@ -166,7 +166,7 @@ async fn every_chain_id_defaults_to_ethereum_with_or_without_fallbacks() {
 }
 
 #[tokio::test]
-async fn optional_family_survives_chain_id_changes_and_reset_detaches_cached_deposits() {
+async fn optional_family_survives_refused_chain_id_changes_and_reset_detaches_cached_deposits() {
     let (block, receipts) = fixture();
     let primary = RpcMock::start(999999, block.clone(), receipts.clone());
     let backup = RpcMock::start(999999, block, receipts);
@@ -180,19 +180,24 @@ async fn optional_family_survives_chain_id_changes_and_reset_detaches_cached_dep
         .get_block(46388021, EncodingVersion::V1)
         .await
         .unwrap();
+    // A reconnect that finds the endpoints on another chain is refused (fail closed, pinned to
+    // the chain id the client was built against); the previously dialed fallback handle keeps
+    // serving, so the call succeeds, the family and chain id are unchanged, and the cache is kept.
     for chain_id in [84532, 1] {
         primary.chain_id.store(chain_id, Ordering::SeqCst);
         backup.chain_id.store(chain_id, Ordering::SeqCst);
         configured.reconnect().await.unwrap();
         assert_eq!(configured.chain_family(), ChainFamily::OpStack);
+        assert_eq!(configured.chain_id(), 999999, "chain id stays pinned");
         let reads = primary.reads.load(Ordering::SeqCst);
         let reconnected = configured
             .get_block(46388021, EncodingVersion::V1)
             .await
             .unwrap();
-        assert!(
-            primary.reads.load(Ordering::SeqCst) > reads,
-            "chain change must drop cached blocks"
+        assert_eq!(
+            primary.reads.load(Ordering::SeqCst),
+            reads,
+            "a refused chain change keeps the cached blocks"
         );
         assert_eq!(
             eth::simple_merkle_tree(&first).root(),
