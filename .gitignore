@@ -76,8 +76,10 @@ bridge-usage-example/lib/*
 primitives/data/*
 prover/artifacts/*
 
-# Editor / IDE local settings (Claude Code, etc.)
-.claude/
+# Editor / IDE local settings (Claude Code, etc.). Shared team skills under .claude/skills are
+# committed; everything else in .claude (settings.local.json, per-user state) stays local.
+.claude/*
+!.claude/skills/
 
 # Local write-ability scan cursor (attestor state_dir; see attestor/config.yaml)
 .attestor-state/

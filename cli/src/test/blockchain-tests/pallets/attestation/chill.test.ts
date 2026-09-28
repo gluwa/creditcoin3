@@ -4,6 +4,7 @@ import { newApi, ApiPromise, KeyringPair, BN, MICROUNITS_PER_CTC } from '../../.
 import { randomFundedAccount } from '../../../integration-tests/helpers';
 import { extractFee, forElapsedBlocks } from '../../../utils';
 import { chain_Anvil2_Key } from '../supported-chains/consts';
+import { proofOfPossessionMessage } from '../../../../lib/attestor/proof-of-possession';
 import { describeIf } from '../../../utils';
 
 describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Chill', (): void => {
@@ -30,7 +31,9 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Chill', (): void => {
 
         const blsSecretKey = WasmPrivateKey.generate(new TextEncoder().encode(attestorAccount.secret));
         const blsPublicKey = blsSecretKey.public_key().as_bytes();
-        const proofOfPossession = blsSecretKey.sign(blsPublicKey);
+        const proofOfPossession = blsSecretKey.sign(
+            proofOfPossessionMessage(chain_Anvil2_Key, attestorAccount.address, blsPublicKey),
+        );
         nonce = await api.rpc.system.accountNextIndex(attestorAccount.address);
         await api.tx.attestation
             .attest(chain_Anvil2_Key, blsPublicKey, proofOfPossession.as_bytes())

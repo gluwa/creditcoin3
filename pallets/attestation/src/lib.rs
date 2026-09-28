@@ -117,8 +117,25 @@ pub mod pallet {
             + MaxEncodedLen;
         #[pallet::constant]
         type DefaultAttestationsPerCheckpoint: Get<u32>;
+        /// Runtime-safe ceiling for the per-chain checkpoint interval (see
+        /// [`Pallet::set_attestations_per_checkpoint`]). `CommitAttestationWeight::weigh_data`
+        /// charges `commit_attestation`'s declared dispatch weight with reads/writes that scale
+        /// linearly with this interval, so an unbounded value would let a privileged caller
+        /// inflate `commit_attestation`'s weight past the `Normal` block budget, after which no
+        /// attestor's commit could be included in a block. This must stay low enough that the
+        /// interval-driven weight leaves comfortable headroom under the smallest `Normal`
+        /// extrinsic weight limit configured across build profiles.
+        #[pallet::constant]
+        type MaxAttestationCheckpointInterval: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
+        /// Runtime-safe ceiling for the per-chain attestation interval (see
+        /// [`Pallet::set_chain_attestation_interval`]). Bounds `max_roots` (`max(MaxCatchup,
+        /// interval)`) in continuity-proof validation, so an unbounded value would neuter the
+        /// `OversizedContinuityProof` guard the same way an unbounded checkpoint interval
+        /// neuters the `commit_attestation` weight bound.
+        #[pallet::constant]
+        type MaxChainAttestationInterval: Get<ChainAttestationIntervalType>;
         /// Default committee **cap** for chains registered without an explicit one.
         ///
         /// This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
@@ -833,9 +850,11 @@ pub mod pallet {
         AttestorNotIdle,
         // No supported chains
         NoSupportedChains,
-        // Tried to set attestation interval to an invalid value.
+        /// Tried to set attestation interval to zero, or above `MaxChainAttestationInterval`.
         InvalidAttestationInterval,
-        // Tried to set attestations per checkpoint to an invalid value.
+        /// Tried to set attestations per checkpoint to zero, or above the runtime-level
+        /// `MaxAttestationCheckpointInterval` ceiling. That ceiling keeps the interval-driven
+        /// part of `commit_attestation`'s dispatch weight within the `Normal` block budget.
         InvalidAttestationsPerCheckpoint,
         InvalidMaxCatchup,
         // Tried to set committee set size to an invalid value.
@@ -976,6 +995,13 @@ pub mod pallet {
                 chain_attestation_interval > 0,
                 Error::<T>::InvalidAttestationInterval
             };
+
+            // An unbounded interval would inflate `max_roots` in continuity-proof validation,
+            // neutering the `OversizedContinuityProof` guard (see `MaxChainAttestationInterval`).
+            ensure!(
+                chain_attestation_interval <= T::MaxChainAttestationInterval::get(),
+                Error::<T>::InvalidAttestationInterval
+            );
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1186,6 +1212,15 @@ pub mod pallet {
                 attestations_per_checkpoint > 0,
                 Error::<T>::InvalidAttestationsPerCheckpoint
             };
+
+            // Bound by the runtime-level ceiling: `weigh_data` charges `commit_attestation`'s
+            // weight with reads/writes that scale linearly with this interval, so accepting an
+            // unbounded value here would let a privileged caller inflate that weight past the
+            // `Normal` block budget and lock every attestor out of `commit_attestation`.
+            ensure!(
+                attestations_per_checkpoint <= T::MaxAttestationCheckpointInterval::get(),
+                Error::<T>::InvalidAttestationsPerCheckpoint
+            );
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1637,28 +1672,39 @@ pub mod pallet {
             attestation_chain_genesis_block_number: Option<u64>,
             _encoding: ChainEncodingVersion,
         ) -> Result<(), &'static str> {
-            // Reject zero attestation parameters before any storage write — `Some(0)` would
-            // otherwise bypass the per-setter `ensure! ... > 0` checks (those only fire when an
-            // operator updates the value later, not at registration). A live `Some(0)` for
-            // `chain_attestation_interval` or `attestation_checkpoint_interval` panics the
-            // `commit_attestation` weight calc (`proof_len / checkpoint_width` where
-            // `checkpoint_width = attestation_interval * checkpoint_interval`), bricking the
-            // chain's attestation submission until storage is repaired. The extrinsic in
-            // `pallet-supported-chains::register_chain` is transactional, so returning Err here
-            // rolls back the chain insert too.
+            // Registration must mirror each setter's zero/ceiling checks — those only run when
+            // an operator updates the value later, so `Some(_)` here could otherwise plant a
+            // value that bricks submission or defeats a weight/proof-size guard. This handler is
+            // transactional, so an `Err` here rolls back the chain insert too.
             if let Some(v) = target_sample_size {
                 if v == 0 {
                     return Err("InvalidTargetSampleSize");
                 }
             }
             if let Some(v) = chain_attestation_interval {
-                if v == 0 {
+                if v == 0 || v > T::MaxChainAttestationInterval::get() {
                     return Err("InvalidAttestationInterval");
                 }
             }
             if let Some(v) = attestation_checkpoint_interval {
-                if v == 0 {
+                if v == 0 || v > T::MaxAttestationCheckpointInterval::get() {
                     return Err("InvalidAttestationsPerCheckpoint");
+                }
+            }
+            // Same rationale, extended to the roster-capacity params: `set_max_attestors`
+            // enforces `0 < new_max <= MaxAttestationNodes` (the ceiling backing the
+            // `BoundedVec` capacities and the `commit_attestation` weight bound), but that
+            // check only runs when an operator updates the value later — registration must
+            // enforce it too, or a chain can be stored with a roster limit the rest of the
+            // pallet never expects.
+            if let Some(v) = max_attestors {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxAttestors");
+                }
+            }
+            if let Some(v) = max_invulnerables {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxInvulnerables");
                 }
             }
 

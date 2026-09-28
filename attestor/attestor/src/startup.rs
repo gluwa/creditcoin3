@@ -8,7 +8,10 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use bls_signatures::Serialize as _;
+// `AccountId32` is a newtype over `[u8; 32]`, so this encodes to the account's 32 raw bytes —
+// byte-identical to what the runtime's `T::AccountId` encoding feeds the same helper.
 use futures::{StreamExt as _, TryStreamExt as _};
+use parity_scale_codec::Encode as _;
 use tokio_util::sync::CancellationToken;
 
 use attestor_primitives::{AttestorStatus, ChainKey};
@@ -67,7 +70,16 @@ pub async fn register_bls(
         .try_into()
         .context("bls public key length")
         .map_err(Error::Init)?;
-    let pop: [u8; 96] = bls_key.sign(public).as_bytes()[..]
+    // Signed over the runtime's canonical proof-of-possession message, not over the bare public
+    // key: the runtime binds the proof to `(chain_key, attestor_id)` so it cannot be replayed by
+    // another controller. Built by the shared helper rather than reconstructed here — the two
+    // sides drifting means every attestor fails to register.
+    let pop_message = attestor_primitives::proof_of_possession_message(
+        chain_key,
+        account_id.encode().as_slice(),
+        &public,
+    );
+    let pop: [u8; 96] = bls_key.sign(pop_message).as_bytes()[..]
         .try_into()
         .context("bls signature length")
         .map_err(Error::Init)?;
