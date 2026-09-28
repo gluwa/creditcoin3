@@ -54,8 +54,27 @@ declare module '@polkadot/api-base/types/consts' {
              * largest fleet a chain is expected to run.
              **/
             defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
+            /**
+             * Runtime-safe ceiling for the per-chain checkpoint interval (see
+             * [`Pallet::set_attestations_per_checkpoint`]). `CommitAttestationWeight::weigh_data`
+             * charges `commit_attestation`'s declared dispatch weight with reads/writes that scale
+             * linearly with this interval, so an unbounded value would let a privileged caller
+             * inflate `commit_attestation`'s weight past the `Normal` block budget, after which no
+             * attestor's commit could be included in a block. This must stay low enough that the
+             * interval-driven weight leaves comfortable headroom under the smallest `Normal`
+             * extrinsic weight limit configured across build profiles.
+             **/
+            maxAttestationCheckpointInterval: u32 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
+            /**
+             * Runtime-safe ceiling for the per-chain attestation interval (see
+             * [`Pallet::set_chain_attestation_interval`]). Bounds `max_roots` (`max(MaxCatchup,
+             * interval)`) in continuity-proof validation, so an unbounded value would neuter the
+             * `OversizedContinuityProof` guard the same way an unbounded checkpoint interval
+             * neuters the `commit_attestation` weight bound.
+             **/
+            maxChainAttestationInterval: u64 & AugmentedConst<ApiType>;
             maxCheckpointsImportedPerCall: u32 & AugmentedConst<ApiType>;
             maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
             /**

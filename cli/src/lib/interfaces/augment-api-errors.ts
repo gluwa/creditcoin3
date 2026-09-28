@@ -97,8 +97,16 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestationContinuityProofBlockGenesis: AugmentedError<ApiType>;
             InvalidAttestationContinuityProofHead: AugmentedError<ApiType>;
             InvalidAttestationContinuityProofTail: AugmentedError<ApiType>;
+            /**
+             * Tried to set attestation interval to zero, or above `MaxChainAttestationInterval`.
+             **/
             InvalidAttestationInterval: AugmentedError<ApiType>;
             InvalidAttestationPrevDigest: AugmentedError<ApiType>;
+            /**
+             * Tried to set attestations per checkpoint to zero, or above the runtime-level
+             * `MaxAttestationCheckpointInterval` ceiling. That ceiling keeps the interval-driven
+             * part of `commit_attestation`'s dispatch weight within the `Normal` block budget.
+             **/
             InvalidAttestationsPerCheckpoint: AugmentedError<ApiType>;
             InvalidAttestorAccount: AugmentedError<ApiType>;
             InvalidAttestorFound: AugmentedError<ApiType>;

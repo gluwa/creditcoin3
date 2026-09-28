@@ -1972,6 +1972,27 @@ fn set_chain_attestation_interval_should_error_with_interval_0() {
 }
 
 #[test]
+fn set_chain_attestation_interval_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidAttestationInterval
+        );
+
+        assert_ok!(Attestation::set_chain_attestation_interval(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
+    })
+}
+
+#[test]
 fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
         let chain_key = 2;
@@ -2184,6 +2205,30 @@ fn set_attestations_per_checkpoint_should_error_with_invalid_interval_value() {
             ),
             Error::<Test>::InvalidAttestationsPerCheckpoint
         );
+    })
+}
+
+#[test]
+fn set_attestations_per_checkpoint_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        // Mock runtime ceiling is `MaxAttestationCheckpointInterval = 1_000`. Anything above it
+        // must be rejected: `commit_attestation`'s dispatch weight scales linearly with this
+        // interval, so accepting a higher value would let it exceed the `Normal` block budget.
+        let ceiling = <Test as crate::Config>::MaxAttestationCheckpointInterval::get();
+        assert_noop!(
+            Attestation::set_attestations_per_checkpoint(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidAttestationsPerCheckpoint
+        );
+
+        assert_ok!(Attestation::set_attestations_per_checkpoint(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
     })
 }
 
@@ -9828,6 +9873,17 @@ mod on_register_chain_rejects_zero {
     }
 
     #[test]
+    fn chain_attestation_interval_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+            assert_noop!(
+                register(None, Some(ceiling + 1), None, None, None),
+                DispatchError::Other("InvalidAttestationInterval")
+            );
+        })
+    }
+
+    #[test]
     fn attestation_checkpoint_interval_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
@@ -9875,6 +9931,17 @@ mod on_register_chain_rejects_zero {
             assert_noop!(
                 register(None, None, None, None, Some(over_ceiling)),
                 DispatchError::Other("InvalidMaxInvulnerables")
+            );
+        })
+    }
+
+    #[test]
+    fn attestation_checkpoint_interval_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let ceiling = <Test as crate::Config>::MaxAttestationCheckpointInterval::get();
+            assert_noop!(
+                register(None, None, Some(ceiling + 1), None, None),
+                DispatchError::Other("InvalidAttestationsPerCheckpoint")
             );
         })
     }

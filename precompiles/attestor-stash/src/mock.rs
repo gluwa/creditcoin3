@@ -275,7 +275,9 @@ parameter_types! {
 
 impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
+    type MaxAttestationCheckpointInterval = ConstU32<1_000>;
     type DefaultAttestationInterval = DefaultAttestationInterval;
+    type MaxChainAttestationInterval = ConstU64<10_000>;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = ConstU32<500>;
     type RuntimeEvent = RuntimeEvent;
