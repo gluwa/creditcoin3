@@ -9321,6 +9321,78 @@ mod prevalidate_attestation_commit_extension {
         })
     }
 
+    /// Mirrors `validate_attestation`'s `AttestationCleanupInProgress` check: a doomed commit
+    /// must be rejected at admission, before fees are charged, regardless of signer identity.
+    #[test]
+    fn prevalidate_rejects_commit_while_attestation_cursor_draining() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature,
+            ));
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            let chain_key = attestation.chain_key();
+            AttestationClearingCursors::<Test>::insert(chain_key, Vec::from([0u8; 4]));
+
+            let call = RuntimeCall::Attestation(crate::Call::commit_attestation { attestation });
+            let info = call.get_dispatch_info();
+
+            // Rejected for the active attestor ...
+            let active = PrevalidateAttestationCommit::<Test>::new().validate(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                &call,
+                &info,
+                0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
+            );
+            assert_eq!(
+                active.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Custom(
+                    crate::extensions::ATTESTATION_CLEANUP_IN_PROGRESS_CODE
+                ))
+            );
+
+            // ... and for a signer that isn't even an active attestor, unlike the other checks
+            // below that only reject active signers.
+            let inactive = PrevalidateAttestationCommit::<Test>::new().validate(
+                RuntimeOrigin::signed(ATTESTOR_2),
+                &call,
+                &info,
+                0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
+            );
+            assert_eq!(
+                inactive.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Custom(
+                    crate::extensions::ATTESTATION_CLEANUP_IN_PROGRESS_CODE
+                ))
+            );
+        })
+    }
+
     /// Regression test for ATTESTOR-V2-008: only *active attestors* get the shared
     /// `(chain_key, digest)` `provides` tag.
     ///

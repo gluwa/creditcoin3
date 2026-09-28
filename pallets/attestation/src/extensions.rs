@@ -26,7 +26,9 @@ use sp_runtime::{
 };
 use sp_std::collections::btree_set::BTreeSet;
 
-use crate::pallet::{ActiveAttestors, Call, Config, MaxCatchup, Pallet};
+use crate::pallet::{
+    ActiveAttestors, AttestationClearingCursors, Call, Config, MaxCatchup, Pallet,
+};
 
 /// `TransactionExtension` that pre-validates `commit_attestation` calls in the transaction pool,
 /// rejecting:
@@ -100,6 +102,15 @@ where
         if let Some(who) = origin.as_signer() {
             if let Some(Call::commit_attestation { attestation }) = call.is_sub_type() {
                 let chain_key = attestation.chain_key();
+
+                // Mirrors `validate_attestation`'s `AttestationCleanupInProgress` check: every
+                // commit for this chain fails while its cleanup cursor drains, regardless of
+                // signer, so reject here before fees are charged.
+                if AttestationClearingCursors::<T>::get(chain_key).is_some() {
+                    return Err(TransactionValidityError::Invalid(
+                        InvalidTransaction::Custom(ATTESTATION_CLEANUP_IN_PROGRESS_CODE),
+                    ));
+                }
 
                 // Reject over-long attestor lists at admission time (mirrors the on-chain
                 // `validate_attestation` `TooManyAttestors` check) so a malformed/oversized payload
@@ -182,3 +193,7 @@ where
 /// `Stale`/`BadProof` so downstream tooling can disambiguate resource-exhaustion attempts from
 /// race-loser duplicates.
 pub const OVERSIZED_PROOF_CODE: u8 = 1;
+
+/// `InvalidTransaction::Custom` code returned while a chain's `AttestationClearingCursors` entry
+/// is still draining, so downstream tooling can disambiguate from other rejection reasons.
+pub const ATTESTATION_CLEANUP_IN_PROGRESS_CODE: u8 = 2;
