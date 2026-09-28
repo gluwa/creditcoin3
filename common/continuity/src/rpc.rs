@@ -84,11 +84,16 @@ fn flap_cooldown(
     } else {
         state.level = state.level.saturating_add(1);
     }
-    // Shift clamped well past the point where the cap takes over (base << 9 already exceeds it).
+    // The first short-lived failure is one incident, not a storm: the repair must start
+    // immediately so an unrelated caller is never parked behind a sleeping one (see
+    // `a_slow_repair_does_not_block_other_callers` in proof-gen's liveness tests). Cooling down
+    // starts from the second consecutive short-lived cycle, `base << (level - 1)`, so the storm
+    // case still climbs to the cap. Shift clamped well past the point where the cap takes over
+    // (base << 9 already exceeds it).
     let exp = FLAP_COOLDOWN_BASE_MS
-        .saturating_mul(1u64 << state.level.min(20))
+        .saturating_mul(1u64 << state.level.saturating_sub(1).min(20))
         .min(FLAP_COOLDOWN_MAX_MS);
-    let mut cooldown_ms = if state.level == 0 { 0 } else { exp };
+    let mut cooldown_ms = if state.level <= 1 { 0 } else { exp };
     if rate_limited {
         cooldown_ms = cooldown_ms.max(RATE_LIMIT_MIN_COOLDOWN_MS);
     }
@@ -871,6 +876,22 @@ mod flap_tests {
             last = d;
         }
         assert_eq!(last, Duration::from_millis(FLAP_COOLDOWN_MAX_MS));
+    }
+
+    // One short-lived failure is an incident, not a storm: the very first repair must not sleep,
+    // or every unrelated caller waiting on it (proof-gen's shared repair) is delayed with it.
+    #[test]
+    fn the_first_short_lived_failure_repairs_without_cooldown() {
+        let mut s = state(0);
+        let d = flap_cooldown(&mut s, Some(Duration::from_secs(2)), false);
+        assert_eq!(s.level, 1);
+        assert_eq!(d, Duration::ZERO);
+        let d = flap_cooldown(&mut s, Some(Duration::from_secs(2)), false);
+        assert_eq!(s.level, 2);
+        assert!(
+            d > Duration::ZERO,
+            "the second consecutive short-lived cycle cools down"
+        );
     }
 
     #[test]
