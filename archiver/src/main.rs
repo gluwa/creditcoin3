@@ -70,6 +70,28 @@ async fn main() -> Result<()> {
 
     let store = RootStore::open(&cfg.sled_db_path)?;
 
+    // ── Range backfill mode ─────────────────────────────────────────────
+    // `--backfill` with `--end-height` is a one-shot "make start..=end complete, then exit".
+    // Everything else (tip-following, plain end-height runs, open-ended backfill) is unchanged.
+    let range_end = cfg.end_height.filter(|_| cfg.backfill);
+    if let Some(end) = range_end {
+        if end < cfg.start_height {
+            return Err(anyhow!(
+                "--end-height {end} is below --start-height {}",
+                cfg.start_height
+            ));
+        }
+    }
+
+    if cfg.serve_only {
+        return serve_only(&cfg, store).await;
+    }
+
+    if cfg.verify_only {
+        let end = range_end.context("--verify-only requires --backfill and --end-height")?;
+        return ensure_range_complete(&store, cfg.start_height, end);
+    }
+
     // ── HTTP API + health, before any network handshake ─────────────────
     // The source-chain handshake, the anchor check and especially `--backfill` can take a long
     // time. Probes and `/roots` readers must be able to see the process during all of it, so
@@ -245,7 +267,9 @@ async fn main() -> Result<()> {
     }
 
     // Check if we've already passed the end height.
-    if let Some(end) = cfg.end_height {
+    // Range backfill skips this: a shard that is archived to its end is exactly what it needs
+    // to verify.
+    if let Some(end) = cfg.end_height.filter(|_| range_end.is_none()) {
         if end < start_height {
             tracing::info!(
                 end_height = end,
@@ -377,7 +401,8 @@ async fn main() -> Result<()> {
         // when the database begins at an intermediate height (e.g. partial snapshot
         // restore). Without an explicit anchor, `find_gaps` could only see neighbour-pair
         // gaps and would silently miss blocks below the first persisted entry.
-        let gaps = store.find_gaps(Some(cfg.start_height))?;
+        // In range mode the scan is also bounded above and includes a missing tail.
+        let gaps = store.find_gaps(Some(cfg.start_height), range_end)?;
         if gaps.is_empty() {
             tracing::info!("backfill: no gaps found");
         } else {
@@ -489,6 +514,12 @@ async fn main() -> Result<()> {
             }
 
             tracing::info!("backfill complete");
+        }
+
+        // Range mode never follows the tip: re-verify what was filled (this also catches a
+        // gap stream that ended before reaching its gap end) and exit.
+        if let Some(end) = range_end {
+            return ensure_range_complete(&store, cfg.start_height, end);
         }
     }
 
@@ -905,6 +936,81 @@ async fn wait_for_shutdown_signal() {
     {
         tokio::signal::ctrl_c().await.ok();
     }
+}
+
+/// Serve `store` over the HTTP API with no chain connection and no writes, until Ctrl+C.
+async fn serve_only(cfg: &Config, store: RootStore) -> Result<()> {
+    // No source is ever attached, so `/ready` stays 503; `/roots` and `/status` still serve.
+    let health = Arc::new(health::Health::new(
+        cfg.ready_lag_blocks,
+        Duration::from_secs(cfg.stale_after_secs.get()),
+    ));
+    let api_state = Arc::new(api::AppState {
+        store: store.clone(),
+        max_api_range: cfg.max_api_range,
+        health,
+    });
+    let listener = tokio::net::TcpListener::bind(cfg.api_bind).await?;
+    tracing::info!(
+        bind = %cfg.api_bind,
+        entries = store.count(),
+        latest = ?store.latest_height()?,
+        "serve-only: HTTP API listening (no fetching, no writes)"
+    );
+    axum::serve(listener, api::router(api_state))
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+            tracing::info!("shutting down...");
+        })
+        .await?;
+    Ok(())
+}
+
+/// How many individual gaps to log before summarising the rest.
+const MAX_LOGGED_GAPS: usize = 50;
+
+/// Warn about stored entries outside `start..=end`. They don't fail verification (they
+/// aren't in the range being checked), but a shard should not have any: they are left over
+/// from a run that strayed past its assigned range.
+fn log_out_of_range(store: &RootStore, start: u64, end: u64) -> Result<()> {
+    let (below, above) = store.count_outside(start, end)?;
+    if below > 0 || above > 0 {
+        tracing::warn!(
+            start,
+            end,
+            below,
+            above,
+            "range backfill: database holds entries outside the requested range"
+        );
+    }
+    Ok(())
+}
+
+/// Verify every block in `start..=end` is stored. Returns an error listing the gaps if not.
+fn ensure_range_complete(store: &RootStore, start: u64, end: u64) -> Result<()> {
+    log_out_of_range(store, start, end)?;
+
+    let expected = end - start + 1;
+    let gaps = store.find_gaps(Some(start), Some(end))?;
+    if gaps.is_empty() {
+        tracing::info!(start, end, blocks = expected, "range verified complete");
+        return Ok(());
+    }
+
+    let missing: u64 = gaps.iter().map(|(s, e)| e - s + 1).sum();
+    for (from, to) in gaps.iter().take(MAX_LOGGED_GAPS) {
+        tracing::error!(from, to, "range verification: missing blocks");
+    }
+    if gaps.len() > MAX_LOGGED_GAPS {
+        tracing::error!(
+            more = gaps.len() - MAX_LOGGED_GAPS,
+            "range verification: further gaps not listed"
+        );
+    }
+    Err(anyhow!(
+        "range {start}..={end} incomplete: {missing} of {expected} blocks missing across {} gap(s)",
+        gaps.len()
+    ))
 }
 
 fn format_eta(remaining: u64, rate: f64) -> String {

@@ -103,6 +103,10 @@ pub struct Config {
     pub attested_poll_secs: u64,
 
     /// Scan the database for gaps and fill them before resuming normal operation.
+    ///
+    /// Combined with `--end-height` this becomes a one-shot range backfill: every block in
+    /// `--start-height..=--end-height` is checked, missing ones are fetched and stored, the
+    /// range is re-verified, and the process exits without following the chain tip.
     #[arg(long, default_value_t = false)]
     pub backfill: bool,
 
@@ -140,6 +144,21 @@ pub struct Config {
     /// the bound keeps a misbehaving RPC from wiping the archive.
     #[arg(long, env = "REANCHOR_MAX_DEPTH", default_value = "0")]
     pub reanchor_max_depth: u64,
+
+    /// With `--backfill` and `--end-height`: only report gaps and entries outside the range,
+    /// without fetching or writing anything. Exits non-zero if the range is incomplete.
+    #[arg(
+        long,
+        default_value_t = false,
+        requires = "backfill",
+        requires = "end_height"
+    )]
+    pub verify_only: bool,
+
+    /// Serve the existing database over the HTTP API without fetching or writing anything,
+    /// until Ctrl+C. Useful for inspecting a finished historical shard (e.g. `compare-roots`).
+    #[arg(long, default_value_t = false, conflicts_with = "backfill")]
+    pub serve_only: bool,
 
     /// How blocks and receipts are fetched: `json` (eth_getBlockByNumber + eth_getBlockReceipts,
     /// works everywhere) or `raw-rlp` (debug_getRawBlock + debug_getRawReceipts, needs the node's

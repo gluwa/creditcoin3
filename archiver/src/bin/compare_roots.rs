@@ -45,6 +45,41 @@ struct Config {
     /// Concurrent independent-RPC fetches.
     #[arg(long, default_value = "4")]
     concurrency: NonZeroUsize,
+
+    /// Minimum milliseconds between independent-RPC block fetches, across all concurrent
+    /// tasks. Each fetch is a block + receipts call; raise this to stay under a rate-limited
+    /// key (e.g. Infura). `0` disables throttling.
+    #[arg(long, default_value = "0")]
+    min_interval_ms: u64,
+}
+
+/// Spaces out calls so they start at least `interval` apart, shared by all tasks.
+struct Throttle {
+    interval: std::time::Duration,
+    next: tokio::sync::Mutex<tokio::time::Instant>,
+}
+
+impl Throttle {
+    fn new(interval: std::time::Duration) -> Self {
+        Self {
+            interval,
+            next: tokio::sync::Mutex::new(tokio::time::Instant::now()),
+        }
+    }
+
+    /// Reserve the next slot and sleep until it arrives.
+    async fn wait(&self) {
+        if self.interval.is_zero() {
+            return;
+        }
+        let slot = {
+            let mut next = self.next.lock().await;
+            let slot = (*next).max(tokio::time::Instant::now());
+            *next = slot + self.interval;
+            slot
+        };
+        tokio::time::sleep_until(slot).await;
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -301,10 +336,16 @@ async fn main() -> Result<()> {
         archiver = %redact_url(&cfg.archiver_url),
         rpc = %redact_url(&cfg.rpc_http),
         fetch_mode = %cfg.fetch_mode,
+        min_interval_ms = cfg.min_interval_ms,
         "comparing roots"
     );
 
     let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(cfg.concurrency.get()));
+    let throttle = std::sync::Arc::new(Throttle::new(std::time::Duration::from_millis(
+        cfg.min_interval_ms,
+    )));
+    let total = heights.len();
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
 
     let mut futs = Vec::new();
     for height in heights {
@@ -312,6 +353,8 @@ async fn main() -> Result<()> {
         let eth = eth.clone();
         let archiver = cfg.archiver_url.clone();
         let permit = sem.clone();
+        let throttle = throttle.clone();
+        let done = done.clone();
         futs.push(async move {
             let _permit = permit.acquire().await.expect("semaphore");
             let mut note = String::new();
@@ -326,6 +369,7 @@ async fn main() -> Result<()> {
                     None
                 }
             };
+            throttle.wait().await;
             let (rpc_root, tx_count) = match rpc_root(&eth, height).await {
                 Ok(pair) => (Some(pair.0), Some(pair.1)),
                 Err(err) => {
@@ -341,13 +385,30 @@ async fn main() -> Result<()> {
                     note = "roots differ".to_string();
                 }
             }
-            Row {
+            let row = Row {
                 block: height,
                 tx_count,
                 archiver_root,
                 rpc_root,
                 note,
+            };
+            let n = done.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            let progress = format!("{n}/{total}");
+            match row.matches() {
+                Some(true) => {
+                    tracing::info!(block = height, progress, tx_count = ?row.tx_count, "match")
+                }
+                Some(false) => tracing::warn!(
+                    block = height,
+                    progress,
+                    tx_count = ?row.tx_count,
+                    archiver_root = ?row.archiver_root,
+                    rpc_root = ?row.rpc_root,
+                    "MISMATCH"
+                ),
+                None => tracing::warn!(block = height, progress, note = %row.note, "incomplete"),
             }
+            row
         });
     }
 
@@ -406,6 +467,33 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn throttle_spaces_calls_across_tasks() {
+        let throttle = std::sync::Arc::new(Throttle::new(std::time::Duration::from_millis(50)));
+        let start = tokio::time::Instant::now();
+        let tasks: Vec<_> = (0..3)
+            .map(|_| {
+                let t = throttle.clone();
+                tokio::spawn(async move { t.wait().await })
+            })
+            .collect();
+        for t in tasks {
+            t.await.unwrap();
+        }
+        // Slots at 0, 50 and 100 ms: the last caller cannot start before 100 ms.
+        assert!(start.elapsed() >= std::time::Duration::from_millis(100));
+    }
+
+    #[tokio::test]
+    async fn zero_interval_does_not_wait() {
+        let throttle = Throttle::new(std::time::Duration::ZERO);
+        let start = tokio::time::Instant::now();
+        for _ in 0..100 {
+            throttle.wait().await;
+        }
+        assert!(start.elapsed() < std::time::Duration::from_millis(50));
+    }
 
     #[test]
     fn archiver_response_requires_one_requested_height() {
