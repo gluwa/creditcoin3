@@ -477,6 +477,30 @@ async fn handle_swarm(
                 tracing::warn!(%message_id, %err, "gossipsub validation-result report failed");
             }
         }
+        // Subscription and gossipsub-support events. These carry no vote, but the absence of
+        // them is the whole signature of a stalled set: a peer whose connection is up while
+        // `Subscribed` never fires has negotiated a TCP/QUIC connection without a working
+        // gossipsub substream, so it never enters the topic's `topic_peers` and never receives
+        // or forwards a vote. Publishing still returns `Ok` in that state, so this is invisible
+        // from the message counters alone.
+        SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
+            libp2p::gossipsub::Event::Subscribed { peer_id, topic },
+        )) => {
+            tracing::info!(%peer_id, %topic, "📬 gossipsub subscribed");
+        }
+        SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
+            libp2p::gossipsub::Event::Unsubscribed { peer_id, topic },
+        )) => {
+            tracing::info!(%peer_id, %topic, "📭 gossipsub unsubscribed");
+        }
+        // Fires when the connection is up but the peer never negotiated the gossipsub protocol
+        // on it, which is the dead-substream case above: connection-up counts, subscription
+        // exchange never happens, no vote is ever delivered in either direction.
+        SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
+            libp2p::gossipsub::Event::GossipsubNotSupported { peer_id },
+        )) => {
+            tracing::warn!(%peer_id, "🚫 peer does not support gossipsub");
+        }
         SwarmEvent::ConnectionClosed {
             connection_id,
             num_established,
