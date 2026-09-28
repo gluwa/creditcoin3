@@ -999,6 +999,9 @@ parameter_types! {
     /// `set_attestations_per_checkpoint` / chain registration.
     pub const MaxAttestationCheckpointInterval: u32 = 1_000;
     pub const DefaultAttestationInterval: u64 = 10;
+    /// Ceiling for the per-chain attestation interval; keeps `max_roots` in continuity-proof
+    /// validation from being inflated past what `OversizedContinuityProof` is meant to catch.
+    pub const MaxChainAttestationInterval: u64 = 10_000;
     pub const DefaultTargetSampleSize: u32 = 3;
     /// The default maximum catchup bound, expressed in **blocks**.
     /// During catchup (e.g. bootstrap or recovery from a stall),
@@ -1031,6 +1034,7 @@ impl pallet_attestation::Config for Runtime {
     type DefaultAttestationsPerCheckpoint = DefaultAttestationsPerCheckpoint;
     type MaxAttestationCheckpointInterval = MaxAttestationCheckpointInterval;
     type DefaultAttestationInterval = DefaultAttestationInterval;
+    type MaxChainAttestationInterval = MaxChainAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = DefaultMaxCatchup;
     type RuntimeEvent = RuntimeEvent;

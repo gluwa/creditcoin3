@@ -128,6 +128,13 @@ pub mod pallet {
         type MaxAttestationCheckpointInterval: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
+        /// Runtime-safe ceiling for the per-chain attestation interval (see
+        /// [`Pallet::set_chain_attestation_interval`]). Bounds `max_roots` (`max(MaxCatchup,
+        /// interval)`) in continuity-proof validation, so an unbounded value would neuter the
+        /// `OversizedContinuityProof` guard the same way an unbounded checkpoint interval
+        /// neuters the `commit_attestation` weight bound.
+        #[pallet::constant]
+        type MaxChainAttestationInterval: Get<ChainAttestationIntervalType>;
         /// Default committee **cap** for chains registered without an explicit one.
         ///
         /// This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
@@ -805,7 +812,7 @@ pub mod pallet {
         AttestorNotIdle,
         // No supported chains
         NoSupportedChains,
-        // Tried to set attestation interval to an invalid value.
+        /// Tried to set attestation interval to zero, or above `MaxChainAttestationInterval`.
         InvalidAttestationInterval,
         /// Tried to set attestations per checkpoint to zero, or above the runtime-level
         /// `MaxAttestationCheckpointInterval` ceiling. That ceiling keeps the interval-driven
@@ -943,6 +950,13 @@ pub mod pallet {
                 chain_attestation_interval > 0,
                 Error::<T>::InvalidAttestationInterval
             };
+
+            // An unbounded interval would inflate `max_roots` in continuity-proof validation,
+            // neutering the `OversizedContinuityProof` guard (see `MaxChainAttestationInterval`).
+            ensure!(
+                chain_attestation_interval <= T::MaxChainAttestationInterval::get(),
+                Error::<T>::InvalidAttestationInterval
+            );
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1536,25 +1550,17 @@ pub mod pallet {
             attestation_chain_genesis_block_number: Option<u64>,
             _encoding: ChainEncodingVersion,
         ) -> Result<(), &'static str> {
-            // Reject zero (and, for the checkpoint interval, out-of-bound) attestation
-            // parameters before any storage write — `Some(0)` would otherwise bypass the
-            // per-setter `ensure! ... > 0` checks (those only fire when an operator updates the
-            // value later, not at registration). A live `Some(0)` for `chain_attestation_interval`
-            // or `attestation_checkpoint_interval` panics the `commit_attestation` weight calc
-            // (`proof_len / checkpoint_width` where `checkpoint_width = attestation_interval *
-            // checkpoint_interval`), bricking the chain's attestation submission until storage is
-            // repaired. A live checkpoint interval above `MaxAttestationCheckpointInterval` would
-            // instead let this path inflate `commit_attestation`'s weight past the `Normal` block
-            // budget, mirroring the `set_attestations_per_checkpoint` bound. The extrinsic in
-            // `pallet-supported-chains::register_chain` is transactional, so returning Err here
-            // rolls back the chain insert too.
+            // Registration must mirror each setter's zero/ceiling checks — those only run when
+            // an operator updates the value later, so `Some(_)` here could otherwise plant a
+            // value that bricks submission or defeats a weight/proof-size guard. This handler is
+            // transactional, so an `Err` here rolls back the chain insert too.
             if let Some(v) = target_sample_size {
                 if v == 0 {
                     return Err("InvalidTargetSampleSize");
                 }
             }
             if let Some(v) = chain_attestation_interval {
-                if v == 0 {
+                if v == 0 || v > T::MaxChainAttestationInterval::get() {
                     return Err("InvalidAttestationInterval");
                 }
             }

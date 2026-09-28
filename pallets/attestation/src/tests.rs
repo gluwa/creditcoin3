@@ -1948,6 +1948,27 @@ fn set_chain_attestation_interval_should_error_with_interval_0() {
 }
 
 #[test]
+fn set_chain_attestation_interval_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidAttestationInterval
+        );
+
+        assert_ok!(Attestation::set_chain_attestation_interval(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
+    })
+}
+
+#[test]
 fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
         let chain_key = 2;
@@ -9716,6 +9737,17 @@ mod on_register_chain_rejects_zero {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
                 register(None, Some(0), None, None, None),
+                DispatchError::Other("InvalidAttestationInterval")
+            );
+        })
+    }
+
+    #[test]
+    fn chain_attestation_interval_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+            assert_noop!(
+                register(None, Some(ceiling + 1), None, None, None),
                 DispatchError::Other("InvalidAttestationInterval")
             );
         })
