@@ -9658,6 +9658,8 @@ mod on_register_chain_rejects_zero {
         target_sample_size: Option<u32>,
         chain_attestation_interval: Option<u64>,
         attestation_checkpoint_interval: Option<u32>,
+        max_attestors: Option<u32>,
+        max_invulnerables: Option<u32>,
     ) -> sp_runtime::DispatchResult {
         // Distinct (chain_id, chain_name) per call so each test starts from a clean slot.
         SupportedChains::register_chain(
@@ -9667,8 +9669,8 @@ mod on_register_chain_rejects_zero {
             target_sample_size,
             chain_attestation_interval,
             attestation_checkpoint_interval,
-            None,
-            None,
+            max_attestors,
+            max_invulnerables,
             None,
             ChainEncodingVersion::V1,
             None,
@@ -9679,7 +9681,7 @@ mod on_register_chain_rejects_zero {
     fn target_sample_size_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(Some(0), None, None),
+                register(Some(0), None, None, None, None),
                 DispatchError::Other("InvalidTargetSampleSize")
             );
         })
@@ -9689,7 +9691,7 @@ mod on_register_chain_rejects_zero {
     fn chain_attestation_interval_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(None, Some(0), None),
+                register(None, Some(0), None, None, None),
                 DispatchError::Other("InvalidAttestationInterval")
             );
         })
@@ -9699,8 +9701,50 @@ mod on_register_chain_rejects_zero {
     fn attestation_checkpoint_interval_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(None, None, Some(0)),
+                register(None, None, Some(0), None, None),
                 DispatchError::Other("InvalidAttestationsPerCheckpoint")
+            );
+        })
+    }
+
+    #[test]
+    fn max_attestors_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, None, Some(0), None),
+                DispatchError::Other("InvalidMaxAttestors")
+            );
+        })
+    }
+
+    #[test]
+    fn max_attestors_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let over_ceiling = <Test as crate::Config>::MaxAttestationNodes::get() + 1;
+            assert_noop!(
+                register(None, None, None, Some(over_ceiling), None),
+                DispatchError::Other("InvalidMaxAttestors")
+            );
+        })
+    }
+
+    #[test]
+    fn max_invulnerables_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, None, None, Some(0)),
+                DispatchError::Other("InvalidMaxInvulnerables")
+            );
+        })
+    }
+
+    #[test]
+    fn max_invulnerables_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let over_ceiling = <Test as crate::Config>::MaxAttestationNodes::get() + 1;
+            assert_noop!(
+                register(None, None, None, None, Some(over_ceiling)),
+                DispatchError::Other("InvalidMaxInvulnerables")
             );
         })
     }
@@ -9708,7 +9752,7 @@ mod on_register_chain_rejects_zero {
     #[test]
     fn all_none_is_accepted_uses_defaults() {
         ExtBuilder.build_and_execute(|| {
-            assert!(register(None, None, None).is_ok());
+            assert!(register(None, None, None, None, None).is_ok());
 
             // `on_register_chain` writes the per-chain config directly (not via `Pending*` maps —
             // those only carry operator updates between epoch boundaries). When every param is
@@ -9748,18 +9792,21 @@ mod on_register_chain_rejects_zero {
         const TARGET_SAMPLE_SIZE: u32 = 3;
         const CHAIN_ATTESTATION_INTERVAL: u64 = 10;
         const ATTESTATION_CHECKPOINT_INTERVAL: u32 = 5;
+        const MAX_ATTESTORS: u32 = 7;
+        const MAX_INVULNERABLES: u32 = 9;
 
         ExtBuilder.build_and_execute(|| {
             assert!(register(
                 Some(TARGET_SAMPLE_SIZE),
                 Some(CHAIN_ATTESTATION_INTERVAL),
-                Some(ATTESTATION_CHECKPOINT_INTERVAL)
+                Some(ATTESTATION_CHECKPOINT_INTERVAL),
+                Some(MAX_ATTESTORS),
+                Some(MAX_INVULNERABLES),
             )
             .is_ok());
 
-            // Explicit `Some(_)` values land in storage verbatim for the three
-            // attestation-config params; the others are `None` here, so they should still pick
-            // up the runtime-config defaults.
+            // Explicit `Some(_)` values land in storage verbatim for every param now that
+            // `max_attestors`/`max_invulnerables` are validated the same way as the rest.
             assert_eq!(TargetSampleSize::<Test>::get(CHAIN_KEY), TARGET_SAMPLE_SIZE);
             assert_eq!(
                 ChainAttestationInterval::<Test>::get(CHAIN_KEY),
@@ -9769,14 +9816,8 @@ mod on_register_chain_rejects_zero {
                 AttestationCheckpointInterval::<Test>::get(CHAIN_KEY),
                 ATTESTATION_CHECKPOINT_INTERVAL
             );
-            assert_eq!(
-                MaxAttestors::<Test>::get(CHAIN_KEY),
-                <Test as crate::Config>::MaxAttestationNodes::get()
-            );
-            assert_eq!(
-                MaxInvulnerables::<Test>::get(CHAIN_KEY),
-                <Test as crate::Config>::MaxAttestationNodes::get()
-            );
+            assert_eq!(MaxAttestors::<Test>::get(CHAIN_KEY), MAX_ATTESTORS);
+            assert_eq!(MaxInvulnerables::<Test>::get(CHAIN_KEY), MAX_INVULNERABLES);
             assert_eq!(
                 AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
                 <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()

@@ -1539,6 +1539,22 @@ pub mod pallet {
                     return Err("InvalidAttestationsPerCheckpoint");
                 }
             }
+            // Same rationale, extended to the roster-capacity params: `set_max_attestors`
+            // enforces `0 < new_max <= MaxAttestationNodes` (the ceiling backing the
+            // `BoundedVec` capacities and the `commit_attestation` weight bound), but that
+            // check only runs when an operator updates the value later — registration must
+            // enforce it too, or a chain can be stored with a roster limit the rest of the
+            // pallet never expects.
+            if let Some(v) = max_attestors {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxAttestors");
+                }
+            }
+            if let Some(v) = max_invulnerables {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxInvulnerables");
+                }
+            }
 
             TargetSampleSize::<T>::insert(
                 chain_key,
