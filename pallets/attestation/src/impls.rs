@@ -936,14 +936,19 @@ impl<T: Config> Pallet<T> {
         AttestorsCount::<T>::get(chain_key) < MaxAttestors::<T>::get(chain_key)
     }
 
-    /// Unlike [`checkpoint_if_stable`](Self::checkpoint_if_stable)'s per-pivot gate, this is
+    /// Whether this chain's `Attestations` are safe to read right now. Unlike
+    /// [`checkpoint_if_stable`](Self::checkpoint_if_stable)'s per-pivot gate, this is
     /// all-or-nothing per chain: a draining cursor clears the whole `Attestations` prefix in
     /// unpredictable (hash) order, so there's no way to know a given entry is unreached.
+    pub fn attestations_stable(chain_key: ChainKey) -> bool {
+        AttestationClearingCursors::<T>::get(chain_key).is_none()
+    }
+
     pub fn get(
         chain_key: ChainKey,
         digest: Digest,
     ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
-        if AttestationClearingCursors::<T>::get(chain_key).is_some() {
+        if !Self::attestations_stable(chain_key) {
             return None;
         }
         Attestations::<T>::get(chain_key, digest)
