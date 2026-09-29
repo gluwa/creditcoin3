@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-26.04
     outputs:
       skip: ${{ steps.head.outputs.skip }}
+      ethereum: ${{ steps.ethereum.outputs.ethereum }}
     steps:
       - name: Check whether the head commit is the weights bot's own
         id: head
@@ -57,6 +58,25 @@ jobs:
               echo "skip=true" >> "$GITHUB_OUTPUT"
           else
               echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The pallet_ethereum benchmarks add about an hour, so they only run when dispatched or
+      # when their own benchmark code changes.
+      - name: Check whether the pallet_ethereum benchmarks changed
+        id: ethereum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+              echo "ethereum=true" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          if gh api --paginate "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" --jq '.[].filename' \
+              | grep -qx 'runtime/src/ethereum_finalize_benchmarking.rs'; then
+              echo "ethereum=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "ethereum=false" >> "$GITHUB_OUTPUT"
           fi
 
   deploy-runner-build-creditcoin-for-testing-benchmarks:
@@ -109,6 +129,7 @@ jobs:
 
   exercise-benchmarks:
     needs:
+      - should-run
       - build-creditcoin-node-for-testing-benchmarks
       - deploy-runner-benchmark
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
@@ -183,18 +204,28 @@ jobs:
 
       # pallet_ethereum lives in Frontier, so it has no weights.rs here and isn't run via bench.sh.
       # Its output goes to an artifact, outside the tree, so the weights bot doesn't commit it.
+      # The five-component full-block benchmark gets fewer steps, or it would run for hours.
       - name: Benchmark pallet_ethereum on_finalize
+        if: ${{ needs.should-run.outputs.ethereum == 'true' }}
         run: |
+          OUT="$RUNNER_TEMP/pallet-ethereum-weights"
+          mkdir -p "$OUT"
           ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=50 --repeat=20 \
-            --pallet pallet_ethereum --extrinsic='*' --wasm-execution=compiled --heap-pages=10000 \
-            --output "$RUNNER_TEMP/pallet_ethereum_weights.rs"
-          cat "$RUNNER_TEMP/pallet_ethereum_weights.rs"
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_transactions,on_finalize_logs,on_finalize_topics,on_finalize_log_data,on_finalize_transaction_size,on_finalize_state_root \
+            --output "$OUT/single_component.rs"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=10 --repeat=5 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_full_block \
+            --output "$OUT/full_block.rs"
+          cat "$OUT"/*.rs
 
       - name: Upload pallet_ethereum weights
+        if: ${{ needs.should-run.outputs.ethereum == 'true' }}
         uses: actions/upload-artifact@v7
         with:
           name: pallet-ethereum-weights
-          path: ${{ runner.temp }}/pallet_ethereum_weights.rs
+          path: ${{ runner.temp }}/pallet-ethereum-weights/
 
       - name: git diff
         run: |
