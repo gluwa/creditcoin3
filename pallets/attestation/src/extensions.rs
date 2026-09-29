@@ -40,7 +40,14 @@ use crate::pallet::{ActiveAttestors, Call, Config, MaxCatchup, Pallet};
 ///
 /// Calls signed by accounts that are **not** in the active attestor set are deliberately let
 /// through: they fail in dispatch (`AttestorNotActive`) and pay fees, so a deregistered or
-/// misconfigured node cannot spam free prevalidation-rejected submissions.
+/// misconfigured node cannot spam free prevalidation-rejected submissions. An *active* attestor's
+/// submission that fails full validation is let through on the same terms, and for the same
+/// reason.
+///
+/// The `provides` tag is only granted to a submission that passes the runtime's full
+/// `validate_attestation` — quorum, aggregate signature, chain support and continuity proof — not
+/// merely the cheap structural checks. See the comment at the call site for why the cheap checks
+/// alone were not enough to safely reserve it.
 ///
 /// `commit_attestation` transactions from *active attestors* carry a `provides` tag keyed by
 /// `(chain_key, digest)` so the pool holds at most one pending submission per attestation —
@@ -94,7 +101,7 @@ where
         _len: usize,
         _self_implicit: Self::Implicit,
         _inherited_implication: &impl Encode,
-        _source: TransactionSource,
+        source: TransactionSource,
     ) -> ValidateResult<Self::Val, <T as frame_system::Config>::RuntimeCall> {
         // Only signed origins carry an attestor account; everything else passes through.
         if let Some(who) = origin.as_signer() {
@@ -149,6 +156,35 @@ where
                 // repeatedly delaying attestation progress (ATTESTOR-V2-008). Authorization is only
                 // checked in dispatch, so it must gate the tag here.
                 if !is_active {
+                    return Ok((ValidTransaction::default(), (), origin));
+                }
+
+                // Full domain validation before the tag is granted.
+                //
+                // `digest()` is `keccak(header_number, root, prev_digest)` — it commits to the
+                // attestation *data* only, not to the aggregate signature, the attestor set or the
+                // continuity proof. All three inputs are derivable from public chain state, so the
+                // digest honest attestors will produce next is predictable. Granting the exclusive
+                // tag on the strength of the cheap checks above therefore let an active attestor
+                // submit a correctly-addressed but otherwise invalid variant, occupy the single pool
+                // slot for that digest, and crowd out the real quorum submission — repeatedly, for
+                // the price of the inclusion fees its own doomed transactions pay.
+                //
+                // This is deliberately the *same* `validate_attestation` the extrinsic runs in
+                // dispatch, called rather than reimplemented, so the pool's notion of a valid
+                // attestation cannot drift from the runtime's as either side changes.
+                //
+                // A failure is not a rejection: the transaction is still admitted, exactly like a
+                // non-active signer's above, so it pays its inclusion fee in dispatch. It simply
+                // does not get the tag, which is the thing that let it block the honest submission.
+                //
+                // Skipped for `InBlock` because the tag is meaningless once the transaction is in a
+                // block, and dispatch re-validates regardless — so running the aggregate signature
+                // check here as well would double the cost of every attestation during block
+                // execution, which this extension declares zero weight for.
+                if source != TransactionSource::InBlock
+                    && Pallet::<T>::validate_attestation(chain_key, attestation).is_err()
+                {
                     return Ok((ValidTransaction::default(), (), origin));
                 }
 
