@@ -15,10 +15,7 @@ mod output;
 pub use frame_support::traits::EqualPrivilegeOnly;
 use parity_scale_codec::{Decode, DecodeWithMemTracking, Encode};
 use sp_api::impl_runtime_apis;
-use sp_core::{
-    crypto::{ByteArray, KeyTypeId},
-    OpaqueMetadata, H160, H256, U256,
-};
+use sp_core::{crypto::KeyTypeId, OpaqueMetadata, H160, H256, U256};
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
@@ -62,8 +59,7 @@ use fp_rpc::TransactionStatus;
 use pallet_ethereum::{Call::transact, PostLogContent, Transaction as EthereumTransaction};
 use pallet_evm::{
     Account as EVMAccount, AddressMapping as _, EnsureAddressTruncated, FeeCalculator,
-    FrameSystemAccountProvider, GasWeightMapping, HashedAddressMapping, OnChargeEVMTransaction,
-    Runner,
+    FrameSystemAccountProvider, GasWeightMapping, HashedAddressMapping, Runner,
 };
 use pallet_session::historical as session_historical;
 
@@ -420,53 +416,20 @@ impl pallet_sudo::Config for Runtime {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
+/// Block author as seen by the EVM (COINBASE, block beneficiary, priority-fee recipient).
+///
+/// The BABE author index is resolved to the validator's stash, and the stash's first 20 bytes are
+/// used as the address. That is the address `EnsureAddressTruncated` lets the stash withdraw from
+/// with `pallet_evm::withdraw`, so priority fees and value sent to COINBASE stay with the
+/// validator. It does not depend on session keys, so it is unchanged across key rotation.
 pub struct FindAuthorTruncated<F>(PhantomData<F>);
 impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
     fn find_author<'a, I>(digests: I) -> Option<H160>
     where
         I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
     {
-        if let Some(author_index) = F::find_author(digests) {
-            let (authority_id, _) = Babe::authorities()[author_index as usize].clone();
-            return Some(H160::from_slice(&authority_id.to_raw_vec()[4..24]));
-        }
-        None
-    }
-}
-
-/// EVM fee handler that burns the priority fee.
-///
-/// Withdrawal, refund and base-fee handling are Frontier's defaults. The tip is burned rather
-/// than credited to the `FindAuthor` address, matching how the EVM base fee and Substrate-side
-/// fees and tips are handled. `FindAuthor` still supplies COINBASE and the block beneficiary.
-pub struct BurnPriorityFee;
-impl OnChargeEVMTransaction<Runtime> for BurnPriorityFee {
-    type LiquidityInfo = <() as OnChargeEVMTransaction<Runtime>>::LiquidityInfo;
-
-    fn withdraw_fee(
-        who: &H160,
-        fee: U256,
-    ) -> Result<Self::LiquidityInfo, pallet_evm::Error<Runtime>> {
-        <() as OnChargeEVMTransaction<Runtime>>::withdraw_fee(who, fee)
-    }
-
-    fn correct_and_deposit_fee(
-        who: &H160,
-        corrected_fee: U256,
-        base_fee: U256,
-        already_withdrawn: Self::LiquidityInfo,
-    ) -> Self::LiquidityInfo {
-        <() as OnChargeEVMTransaction<Runtime>>::correct_and_deposit_fee(
-            who,
-            corrected_fee,
-            base_fee,
-            already_withdrawn,
-        )
-    }
-
-    fn pay_priority_fee(tip: Self::LiquidityInfo) {
-        // Dropping the credit removes it from total issuance.
-        drop(tip);
+        let stash = pallet_session::FindAccountFromAuthorIndex::<Runtime, F>::find_author(digests)?;
+        Some(H160::from_slice(&AsRef::<[u8; 32]>::as_ref(&stash)[0..20]))
     }
 }
 
@@ -534,7 +497,7 @@ impl pallet_evm::Config for Runtime {
     type ChainId = EVMChainId;
     type BlockGasLimit = BlockGasLimit;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
-    type OnChargeTransaction = BurnPriorityFee;
+    type OnChargeTransaction = ();
     type OnCreate = ();
     type FindAuthor = FindAuthorTruncated<Babe>;
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
@@ -2153,11 +2116,19 @@ mod tests {
     }
 
     mod evm_priority_fee {
-        use super::super::{AddressMapping, Balances, Runtime, RuntimeEvent, System};
-        use frame_support::traits::fungible::Inspect;
+        use super::super::{
+            AddressMapping, Balances, Runtime, RuntimeEvent, RuntimeOrigin, System,
+            BABE_GENESIS_EPOCH_CONFIG, EVM,
+        };
+        use frame_support::{traits::fungible::Inspect, WeakBoundedVec};
         use pallet_evm::{AddressMapping as _, Runner as _};
-        use sp_core::{H160, U256};
-        use sp_runtime::{AccountId32, BuildStorage};
+        use parity_scale_codec::Encode;
+        use sp_consensus_babe::{
+            digests::{PreDigest, SecondaryPlainPreDigest},
+            AuthorityId, BABE_ENGINE_ID,
+        };
+        use sp_core::{sr25519, H160, U256};
+        use sp_runtime::{AccountId32, BuildStorage, DigestItem};
 
         const GWEI: u128 = 1_000_000_000;
         const INITIAL: u128 = 10 * 1_000_000_000_000_000_000;
@@ -2171,6 +2142,25 @@ mod tests {
             AddressMapping::into_account_id(sender())
         }
 
+        /// The validator's stash, deliberately unrelated to its BABE session key.
+        fn stash() -> AccountId32 {
+            AccountId32::new([0x5A; 32])
+        }
+
+        fn babe_key(seed: u8) -> AuthorityId {
+            AuthorityId::from(sr25519::Public::from_raw([seed; 32]))
+        }
+
+        /// The stash's truncated EVM address, which `EnsureAddressTruncated` lets it withdraw from.
+        fn stash_evm_address() -> H160 {
+            H160::from_slice(&AsRef::<[u8; 32]>::as_ref(&stash())[0..20])
+        }
+
+        fn base_fee() -> u128 {
+            pallet_base_fee::BaseFeePerGas::<Runtime>::get().as_u128()
+        }
+
+        /// One validator (`stash`) with BABE key `babe_key(7)`, authoring block 1 as index 0.
         fn new_test_ext() -> sp_io::TestExternalities {
             let mut storage = frame_system::GenesisConfig::<Runtime>::default()
                 .build_storage()
@@ -2181,8 +2171,23 @@ mod tests {
             }
             .assimilate_storage(&mut storage)
             .unwrap();
+            pallet_babe::GenesisConfig::<Runtime> {
+                authorities: vec![(babe_key(7), 1)],
+                epoch_config: BABE_GENESIS_EPOCH_CONFIG,
+                ..Default::default()
+            }
+            .assimilate_storage(&mut storage)
+            .unwrap();
             let mut ext = sp_io::TestExternalities::new(storage);
-            ext.execute_with(|| System::set_block_number(1));
+            ext.execute_with(|| {
+                pallet_session::Validators::<Runtime>::put(vec![stash()]);
+                System::set_block_number(1);
+                let pre_digest = PreDigest::SecondaryPlain(SecondaryPlainPreDigest {
+                    authority_index: 0,
+                    slot: 1.into(),
+                });
+                System::deposit_log(DigestItem::PreRuntime(BABE_ENGINE_ID, pre_digest.encode()));
+            });
             ext
         }
 
@@ -2212,69 +2217,104 @@ mod tests {
             before - Balances::balance(&sender_account())
         }
 
-        /// Balance deposits made to anyone other than the sender (whose refund is a deposit).
-        fn deposits_to_others() -> Vec<(AccountId32, u128)> {
+        /// Total of `BurnedDebt` and `MintedCredit` events so far.
+        fn burned_and_minted() -> (u128, u128) {
             System::events()
                 .into_iter()
-                .filter_map(|r| match r.event {
-                    RuntimeEvent::Balances(pallet_balances::Event::Deposit { who, amount })
-                        if who != sender_account() =>
-                    {
-                        Some((who, amount))
+                .fold((0, 0), |(burned, minted), r| match r.event {
+                    RuntimeEvent::Balances(pallet_balances::Event::BurnedDebt { amount }) => {
+                        (burned + amount, minted)
                     }
-                    _ => None,
+                    RuntimeEvent::Balances(pallet_balances::Event::MintedCredit { amount }) => {
+                        (burned, minted + amount)
+                    }
+                    _ => (burned, minted),
                 })
-                .collect()
         }
 
-        fn burned() -> u128 {
-            System::events()
-                .into_iter()
-                .filter_map(|r| match r.event {
-                    RuntimeEvent::Balances(pallet_balances::Event::BurnedDebt { amount }) => {
-                        Some(amount)
-                    }
-                    _ => None,
-                })
-                .sum()
+        fn coinbase_balance() -> u128 {
+            Balances::balance(&AddressMapping::into_account_id(stash_evm_address()))
         }
 
         #[test]
-        fn nonzero_tip_is_burned_not_credited() {
+        fn coinbase_is_the_author_stash_evm_address() {
             new_test_ext().execute_with(|| {
-                let base_fee = pallet_base_fee::BaseFeePerGas::<Runtime>::get().as_u128();
-                let tip = GWEI;
-                let issuance = Balances::total_issuance();
-
-                let paid = transfer(base_fee + 2 * tip, tip);
-
-                // The sender pays base fee + tip, and exactly that leaves total issuance.
-                let expected = u128::from(TRANSFER_GAS) * (base_fee + tip);
-                assert_eq!(paid, expected);
-                assert_eq!(Balances::total_issuance(), issuance - expected);
-                assert_eq!(burned(), expected);
-
-                // Nothing is credited to the FindAuthor-derived account, or to anyone else.
-                let author =
-                    AddressMapping::into_account_id(pallet_evm::Pallet::<Runtime>::find_author());
-                assert_eq!(Balances::balance(&author), 0);
-                assert!(deposits_to_others().is_empty());
+                assert_eq!(EVM::find_author(), stash_evm_address());
             });
         }
 
         #[test]
-        fn zero_tip_burns_only_the_base_fee() {
+        fn coinbase_follows_the_stash_across_babe_key_rotation() {
             new_test_ext().execute_with(|| {
-                let base_fee = pallet_base_fee::BaseFeePerGas::<Runtime>::get().as_u128();
+                pallet_babe::Authorities::<Runtime>::put(WeakBoundedVec::force_from(
+                    vec![(babe_key(8), 1)],
+                    None,
+                ));
+                assert_eq!(EVM::find_author(), stash_evm_address());
+            });
+        }
+
+        #[test]
+        fn nonzero_tip_is_credited_to_the_validator_and_base_fee_burned() {
+            new_test_ext().execute_with(|| {
+                let tip = GWEI;
                 let issuance = Balances::total_issuance();
 
-                let paid = transfer(base_fee, 0);
+                let paid = transfer(base_fee() + 2 * tip, tip);
 
-                let expected = u128::from(TRANSFER_GAS) * base_fee;
-                assert_eq!(paid, expected);
-                assert_eq!(Balances::total_issuance(), issuance - expected);
-                assert_eq!(burned(), expected);
-                assert!(deposits_to_others().is_empty());
+                let base_part = u128::from(TRANSFER_GAS) * base_fee();
+                let tip_part = u128::from(TRANSFER_GAS) * tip;
+                assert_eq!(paid, base_part + tip_part);
+                assert_eq!(coinbase_balance(), tip_part);
+                assert_eq!(Balances::total_issuance(), issuance - base_part);
+                // Frontier drops the tip credit and deposits the same amount to COINBASE, so the
+                // tip shows up as a matching BurnedDebt / MintedCredit pair.
+                assert_eq!(burned_and_minted(), (base_part + tip_part, tip_part));
+            });
+        }
+
+        #[test]
+        fn zero_tip_credits_nothing_and_burns_the_base_fee() {
+            new_test_ext().execute_with(|| {
+                let issuance = Balances::total_issuance();
+
+                let paid = transfer(base_fee(), 0);
+
+                let base_part = u128::from(TRANSFER_GAS) * base_fee();
+                assert_eq!(paid, base_part);
+                assert_eq!(coinbase_balance(), 0);
+                assert_eq!(Balances::total_issuance(), issuance - base_part);
+                assert_eq!(burned_and_minted(), (base_part, 0));
+            });
+        }
+
+        #[test]
+        fn stash_can_withdraw_its_tips() {
+            new_test_ext().execute_with(|| {
+                transfer(base_fee() + GWEI, GWEI);
+                let tips = coinbase_balance();
+                assert!(tips > 0);
+
+                assert!(
+                    EVM::withdraw(RuntimeOrigin::signed(stash()), stash_evm_address(), tips)
+                        .is_ok()
+                );
+                assert_eq!(Balances::balance(&stash()), tips);
+                assert_eq!(coinbase_balance(), 0);
+            });
+        }
+
+        #[test]
+        fn only_the_stash_can_withdraw_its_tips() {
+            new_test_ext().execute_with(|| {
+                transfer(base_fee() + GWEI, GWEI);
+                let tips = coinbase_balance();
+
+                let other = AccountId32::new([0x6B; 32]);
+                assert!(
+                    EVM::withdraw(RuntimeOrigin::signed(other), stash_evm_address(), tips).is_err()
+                );
+                assert_eq!(coinbase_balance(), tips);
             });
         }
     }
