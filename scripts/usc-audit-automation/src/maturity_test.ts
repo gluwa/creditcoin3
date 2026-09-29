@@ -6,6 +6,7 @@ Deno.test("parseMaturity handles every on-chain strategy", () => {
   assertEquals(parseMaturity("EvmSafe"), { kind: "offset", delay: 32 });
   assertEquals(parseMaturity("EvmLatest"), { kind: "offset", delay: 0 });
   assertEquals(parseMaturity("FixedDelay: 10"), { kind: "offset", delay: 10 });
+  assertEquals(parseMaturity("FixedDelay: 10 "), { kind: "offset", delay: 10 });
   assertEquals(parseMaturity("FixedDelay:7"), { kind: "offset", delay: 7 });
   assertEquals(parseMaturity("RpcSafe"), { kind: "rpcTag", tag: "safe" });
   assertEquals(parseMaturity("RpcFinalized"), {
@@ -40,6 +41,6 @@ Deno.test("getMaxBlockDiff uses offset delay or observed tag lag", () => {
   assertEquals(getMaxBlockDiff({ kind: "offset", delay: 32 }, 10), 62);
   assertEquals(getMaxBlockDiff({ kind: "offset", delay: 0 }, 10), 30);
   const tag = { kind: "rpcTag", tag: "finalized" } as const;
-  assertEquals(getMaxBlockDiff(tag, 10, 100), 130);
-  assertEquals(getMaxBlockDiff(tag, 10, -5), 30);
+  assertEquals(getMaxBlockDiff(tag, 10, 100), 162);
+  assertEquals(getMaxBlockDiff(tag, 10, -5), 62);
 });

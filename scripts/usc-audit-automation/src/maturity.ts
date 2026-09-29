@@ -14,6 +14,12 @@ export type Maturity =
 /** Runtime default (`DefaultMaturityStrategy` in runtime/src/lib.rs). */
 export const DEFAULT_MATURITY_STRATEGY = "EvmSafe";
 
+/** Extra slack for tag strategies: the tag jumps by up to an epoch (32 blocks) between attestations. */
+export const RPC_TAG_STEP_BUFFER = 32;
+
+/** Used when a tag strategy's block cannot be fetched; `EvmSafe` is too tight for `tip - safe`. */
+export const TAG_FALLBACK_STRATEGY = "EvmFinalized";
+
 /** Attestations may lag the mature height by up to this many attestation intervals. */
 export const ATTESTATION_LAG_BUFFER_INTERVALS = 3;
 
@@ -31,7 +37,7 @@ export function parseMaturity(strategy: string): Maturity | null {
     case "RpcFinalized":
       return { kind: "rpcTag", tag: "finalized" };
   }
-  const m = strategy.match(/^FixedDelay:\s*(\d+)$/);
+  const m = strategy.match(/^FixedDelay:\s*(\d+)\s*$/);
   return m ? { kind: "offset", delay: Number(m[1]) } : null;
 }
 
@@ -70,6 +76,6 @@ export function getMaxBlockDiff(
 ): number {
   const maturityLag = maturity.kind === "offset"
     ? maturity.delay
-    : Math.max(tagLag ?? 0, 0);
+    : Math.max(tagLag ?? 0, 0) + RPC_TAG_STEP_BUFFER;
   return maturityLag + attestationInterval * ATTESTATION_LAG_BUFFER_INTERVALS;
 }

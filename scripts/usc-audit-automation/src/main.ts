@@ -22,7 +22,12 @@ import {
   getBlockNumberByHash,
   getBlockNumberByTag,
 } from "./eth.ts";
-import { getMaxBlockDiff, resolveMaturity } from "./maturity.ts";
+import {
+  getMaxBlockDiff,
+  parseMaturity,
+  resolveMaturity,
+  TAG_FALLBACK_STRATEGY,
+} from "./maturity.ts";
 import type { ResolvedMaturity } from "./maturity.ts";
 import { queryAttestation } from "./graphql.ts";
 import {
@@ -215,9 +220,10 @@ async function runChecksForChain(
       tagLag = ethBlock - await getBlockNumberByTag(ethRpcUrl, maturity.tag);
     } catch (e) {
       console.warn(
-        `⚠️  [${chainLabel}] could not fetch ${maturity.tag} block (${e}), falling back to EvmSafe`,
+        `⚠️  [${chainLabel}] could not fetch ${maturity.tag} block (${e}), falling back to ${TAG_FALLBACK_STRATEGY}`,
       );
-      ({ maturity, label: maturityLabel } = resolveMaturity(null));
+      maturity = parseMaturity(TAG_FALLBACK_STRATEGY)!;
+      maturityLabel = `${TAG_FALLBACK_STRATEGY} (fallback)`;
     }
   }
   const maxAttBlockDiff = getMaxBlockDiff(
