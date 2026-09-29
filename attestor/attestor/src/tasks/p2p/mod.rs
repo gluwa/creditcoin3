@@ -478,11 +478,14 @@ async fn handle_swarm(
             }
         }
         // Subscription and gossipsub-support events. These carry no vote, but the absence of
-        // them is the whole signature of a stalled set: a peer whose connection is up while
-        // `Subscribed` never fires has negotiated a TCP/QUIC connection without a working
-        // gossipsub substream, so it never enters the topic's `topic_peers` and never receives
-        // or forwards a vote. Publishing still returns `Ok` in that state, so this is invisible
-        // from the message counters alone.
+        // them is the signature of a stalled set. Topics are per-chain, so a peer from a
+        // *different* attestor set never subscribes to your topic and that is normal: only a
+        // missing `Subscribed` from a peer of your own set is a signal. Such a peer has
+        // negotiated a TCP/QUIC connection without a working gossipsub substream, so it never
+        // enters the topic's `topic_peers` and never receives or forwards a vote. Publishing can
+        // still return `Ok` while other topic peers exist, so this is invisible from the message
+        // counters alone; if the stalled peer is the only one on the topic, `publish` returns
+        // `InsufficientPeers` instead.
         SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
             libp2p::gossipsub::Event::Subscribed { peer_id, topic },
         )) => {
@@ -495,10 +498,13 @@ async fn handle_swarm(
         }
         // Fires when the connection is up but the peer never negotiated the gossipsub protocol
         // on it, which is the dead-substream case above: connection-up counts, subscription
-        // exchange never happens, no vote is ever delivered in either direction.
+        // exchange never happens, no vote is ever delivered in either direction. Unlike a missing
+        // `Subscribed`, this one is unambiguous, since it says nothing about which topic is
+        // involved.
         SwarmEvent::Behaviour(P2PBehaviorEvent::Gossipsub(
             libp2p::gossipsub::Event::GossipsubNotSupported { peer_id },
         )) => {
+            shared.metrics.increase_gossipsub_unsupported_peer_count();
             tracing::warn!(%peer_id, "🚫 peer does not support gossipsub");
         }
         SwarmEvent::ConnectionClosed {
