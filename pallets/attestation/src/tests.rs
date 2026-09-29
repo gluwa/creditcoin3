@@ -5636,6 +5636,49 @@ fn get_and_contains_digest_treat_leftover_attestations_as_stale_while_cursor_dra
     })
 }
 
+/// Regression test: chain keys are never reused (they come from a monotonic counter), so an
+/// attestation-cleanup cursor draining for one chain must not affect registering — or
+/// immediately committing on — an unrelated one.
+#[test]
+fn register_chain_unaffected_by_unrelated_chain_attestation_cursor() {
+    ExtBuilder.build_and_execute(|| {
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
+
+        assert_ok!(SupportedChains::register_chain(
+            RuntimeOrigin::root(),
+            SOURCE_CHAIN_ID + 1,
+            "Other".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        ));
+        let new_chain_key =
+            <<Test as Config>::SupportedChains as SupportedChainsProvider>::supported_chains()
+                .into_iter()
+                .find(|k| *k != SUPPORTED_CHAIN_KEY)
+                .expect("second chain registered");
+
+        assert!(AttestationClearingCursors::<Test>::get(new_chain_key).is_none());
+        assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        register_and_attest(new_chain_key, &attestor);
+        progress_to_block(5);
+
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], new_chain_key, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation
+        ));
+    })
+}
+
 #[test]
 fn unregister_attestor_still_works_after_removing_that_attestors_chain() {
     ExtBuilder.build_and_execute(|| {

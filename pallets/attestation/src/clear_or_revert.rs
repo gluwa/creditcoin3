@@ -279,8 +279,9 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         let maybe_cursor =
             Attestations::<T>::clear_prefix(chain_key, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, None)
                 .maybe_cursor;
-        if let Some(cursor) = maybe_cursor {
-            AttestationClearingCursors::<T>::set(chain_key, Some(cursor));
+        match maybe_cursor {
+            Some(cursor) => AttestationClearingCursors::<T>::insert(chain_key, cursor),
+            None => AttestationClearingCursors::<T>::remove(chain_key),
         }
 
         CheckpointingQueues::<T>::remove(chain_key);
