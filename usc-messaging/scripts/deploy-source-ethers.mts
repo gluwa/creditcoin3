@@ -244,7 +244,7 @@ async function main() {
 
   // Acknowledgment round-trip: deploy the AcknowledgmentValidator for the destination chain key,
   // make it the Outbox's validator (only it may call acknowledgeMessage), then point it at the
-  // Outbox. The relayer's ack submitter proves MessageDelivered on the destination and calls
+  // Outbox. The relayer's ack submitter proves MessageExecuted on the destination and calls
   // submitAcknowledgment here, which flips messages[id].acknowledged = true on the Outbox.
   const ackValidator = await deploy("AcknowledgmentValidator",
     ART("write-ability/AcknowledgementValidator.sol", "AcknowledgmentValidator"), [CHAIN_KEY, owner, proofAddr, attestAddr]);
@@ -252,7 +252,7 @@ async function main() {
   await (await outbox.setValidator(ackAddr)).wait();
   await (await (ackValidator as any).setOutbox(outboxAddr)).wait();
   // Without this, trustedInboxes[dest.inbox] stays false and submitAcknowledgment skips every
-  // MessageDelivered log it decodes, reverting NoMessageDeliveredLogs even with a valid proof —
+  // MessageExecuted log it decodes, reverting NoMessageExecutedLogs even with a valid proof —
   // the decoder's own setTrustedInbox below is a separate allowlist and does not cover this one.
   await (await (ackValidator as any).updateTrustedInbox(addrs.dest.inbox, true)).wait();
   console.log("  ack: validator", ackAddr, "→ Outbox, trusted inbox", addrs.dest.inbox);
