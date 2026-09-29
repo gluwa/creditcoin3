@@ -111,7 +111,7 @@ jobs:
           # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
           # could pass or fail as the relayer's default branch moved). Bump this deliberately when
           # a relayer change needs to be exercised here.
-          ref: 2e2321584cbbbe02b6cae6a4edfc79792c613eaa # asc-message-relayer PR #70 @ 2026-09-29 (rebased onto main #73; mirrors asc-contracts #54: messageId-as-signed-digest, deliverMessage's sequence arg, retryFailedMessage/isRetryable, MessageQueued/MessageDeferred split, MessageExecuted-based ack discovery). Pre-merge feature-branch pin — move to a `main` SHA once #70 merges — bump deliberately
+          ref: ec1028c2967bd6ba9366b7fa484e56c3cf6acb2d # asc-message-relayer PR #70 @ 2026-09-29 (rebased onto main #73; mirrors asc-contracts #54: messageId-as-signed-digest, deliverMessage's sequence arg, retryFailedMessage/isRetryable, MessageQueued/MessageDeferred split, MessageExecuted-based ack discovery). Pre-merge feature-branch pin — move to a `main` SHA once #70 merges — bump deliberately
           path: asc-message-relayer
 
       # Fee-integrated write-ability contracts. The plain-ethers deploy scripts read their compiled
