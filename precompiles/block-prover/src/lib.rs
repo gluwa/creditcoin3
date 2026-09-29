@@ -341,7 +341,10 @@ where
     /// to the Creditcoin3 consensus. Used to validate continuity chain endpoints.
     /// Delegates to [`pallet_attestation::Pallet::get`], which returns `None` while a
     /// `revert_to`/removal cleanup cursor is draining for `chain_key` — leftover entries are
-    /// stale until then. Charges gas for the storage lookup.
+    /// stale until then.
+    ///
+    /// Gas: `Pallet::get` does the `AttestationClearingCursors` guard read plus the
+    /// `Attestations` read — charge both (matches `chain-info::get_attestation_height_for_digest`).
     ///
     /// Returns `Ok(Some(..))` / `Ok(None)` on success; gas recording failures surface as `EvmResult` errors.
     fn get_attestation(
@@ -350,8 +353,7 @@ where
         digest: H256,
     ) -> EvmResult<Option<attestor_primitives::SignedAttestation<Runtime::Hash, Runtime::AccountId>>>
     {
-        // Charge for attestation storage lookup
-        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+        handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
         Ok(pallet_attestation::Pallet::<Runtime>::get(
             chain_key, digest,
         ))
