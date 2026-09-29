@@ -85,8 +85,9 @@ it is not configured.
 - `EvmFinalized` (64), `EvmSafe` (32), `EvmLatest` (0) and `FixedDelay: N` are
   fixed offsets behind the tip.
 - `RpcSafe` / `RpcFinalized` use the lag between the tip and the source node's
-  `safe` / `finalized` block, measured on each run. If that query fails, the
-  check falls back to `EvmSafe` with a warning.
+  `safe` / `finalized` block, measured on each run, plus one tag step (32
+  blocks) since the tag jumps by an epoch. If that query fails, the check falls
+  back to `EvmFinalized` with a warning.
 - Each case adds 3 attestation intervals of slack.
 - If the strategy is missing or unrecognised, the audit falls back to `EvmSafe`
   with a warning, and the report shows `EvmSafe (fallback)`.
