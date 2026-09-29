@@ -62,7 +62,8 @@ use fp_rpc::TransactionStatus;
 use pallet_ethereum::{Call::transact, PostLogContent, Transaction as EthereumTransaction};
 use pallet_evm::{
     Account as EVMAccount, AddressMapping as _, EnsureAddressTruncated, FeeCalculator,
-    FrameSystemAccountProvider, GasWeightMapping, HashedAddressMapping, Runner,
+    FrameSystemAccountProvider, GasWeightMapping, HashedAddressMapping, OnChargeEVMTransaction,
+    Runner,
 };
 use pallet_session::historical as session_historical;
 
@@ -433,6 +434,42 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
     }
 }
 
+/// EVM fee handler that burns the priority fee.
+///
+/// Withdrawal, refund and base-fee handling are Frontier's defaults. The tip is burned rather
+/// than credited to the `FindAuthor` address, matching how the EVM base fee and Substrate-side
+/// fees and tips are handled. `FindAuthor` still supplies COINBASE and the block beneficiary.
+pub struct BurnPriorityFee;
+impl OnChargeEVMTransaction<Runtime> for BurnPriorityFee {
+    type LiquidityInfo = <() as OnChargeEVMTransaction<Runtime>>::LiquidityInfo;
+
+    fn withdraw_fee(
+        who: &H160,
+        fee: U256,
+    ) -> Result<Self::LiquidityInfo, pallet_evm::Error<Runtime>> {
+        <() as OnChargeEVMTransaction<Runtime>>::withdraw_fee(who, fee)
+    }
+
+    fn correct_and_deposit_fee(
+        who: &H160,
+        corrected_fee: U256,
+        base_fee: U256,
+        already_withdrawn: Self::LiquidityInfo,
+    ) -> Self::LiquidityInfo {
+        <() as OnChargeEVMTransaction<Runtime>>::correct_and_deposit_fee(
+            who,
+            corrected_fee,
+            base_fee,
+            already_withdrawn,
+        )
+    }
+
+    fn pay_priority_fee(tip: Self::LiquidityInfo) {
+        // Dropping the credit removes it from total issuance.
+        drop(tip);
+    }
+}
+
 /// EVM gas available per block. Held UNIFORM at 75_000_000 across all profiles by
 /// requirement — this is the value external tooling and integrators calibrate against,
 /// so it must not vary per profile.
@@ -497,7 +534,7 @@ impl pallet_evm::Config for Runtime {
     type ChainId = EVMChainId;
     type BlockGasLimit = BlockGasLimit;
     type Runner = pallet_evm::runner::stack::Runner<Self>;
-    type OnChargeTransaction = ();
+    type OnChargeTransaction = BurnPriorityFee;
     type OnCreate = ();
     type FindAuthor = FindAuthorTruncated<Babe>;
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
@@ -2113,6 +2150,133 @@ mod tests {
             SlashDeferDuration::get() < BondingDuration::get(),
             "slash defer duration must be less than bonding duration",
         );
+    }
+
+    mod evm_priority_fee {
+        use super::super::{AddressMapping, Balances, Runtime, RuntimeEvent, System};
+        use frame_support::traits::fungible::Inspect;
+        use pallet_evm::{AddressMapping as _, Runner as _};
+        use sp_core::{H160, U256};
+        use sp_runtime::{AccountId32, BuildStorage};
+
+        const GWEI: u128 = 1_000_000_000;
+        const INITIAL: u128 = 10 * 1_000_000_000_000_000_000;
+        const TRANSFER_GAS: u64 = 21_000;
+
+        fn sender() -> H160 {
+            H160::repeat_byte(0xAA)
+        }
+
+        fn sender_account() -> AccountId32 {
+            AddressMapping::into_account_id(sender())
+        }
+
+        fn new_test_ext() -> sp_io::TestExternalities {
+            let mut storage = frame_system::GenesisConfig::<Runtime>::default()
+                .build_storage()
+                .unwrap();
+            pallet_balances::GenesisConfig::<Runtime> {
+                balances: vec![(sender_account(), INITIAL)],
+                ..Default::default()
+            }
+            .assimilate_storage(&mut storage)
+            .unwrap();
+            let mut ext = sp_io::TestExternalities::new(storage);
+            ext.execute_with(|| System::set_block_number(1));
+            ext
+        }
+
+        /// Runs a plain 21k-gas transfer through the configured runner and returns the fee paid.
+        fn transfer(max_fee_per_gas: u128, max_priority_fee_per_gas: u128) -> u128 {
+            let before = Balances::balance(&sender_account());
+            let info = <Runtime as pallet_evm::Config>::Runner::call(
+                sender(),
+                H160::repeat_byte(0xBB),
+                vec![],
+                U256::zero(),
+                TRANSFER_GAS,
+                Some(U256::from(max_fee_per_gas)),
+                Some(U256::from(max_priority_fee_per_gas)),
+                None,
+                vec![],
+                vec![],
+                true,
+                true,
+                None,
+                None,
+                <Runtime as pallet_evm::Config>::config(),
+            )
+            .expect("transfer runs");
+            assert!(info.exit_reason.is_succeed());
+            assert_eq!(info.used_gas.effective, U256::from(TRANSFER_GAS));
+            before - Balances::balance(&sender_account())
+        }
+
+        /// Balance deposits made to anyone other than the sender (whose refund is a deposit).
+        fn deposits_to_others() -> Vec<(AccountId32, u128)> {
+            System::events()
+                .into_iter()
+                .filter_map(|r| match r.event {
+                    RuntimeEvent::Balances(pallet_balances::Event::Deposit { who, amount })
+                        if who != sender_account() =>
+                    {
+                        Some((who, amount))
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn burned() -> u128 {
+            System::events()
+                .into_iter()
+                .filter_map(|r| match r.event {
+                    RuntimeEvent::Balances(pallet_balances::Event::BurnedDebt { amount }) => {
+                        Some(amount)
+                    }
+                    _ => None,
+                })
+                .sum()
+        }
+
+        #[test]
+        fn nonzero_tip_is_burned_not_credited() {
+            new_test_ext().execute_with(|| {
+                let base_fee = pallet_base_fee::BaseFeePerGas::<Runtime>::get().as_u128();
+                let tip = GWEI;
+                let issuance = Balances::total_issuance();
+
+                let paid = transfer(base_fee + 2 * tip, tip);
+
+                // The sender pays base fee + tip, and exactly that leaves total issuance.
+                let expected = u128::from(TRANSFER_GAS) * (base_fee + tip);
+                assert_eq!(paid, expected);
+                assert_eq!(Balances::total_issuance(), issuance - expected);
+                assert_eq!(burned(), expected);
+
+                // Nothing is credited to the FindAuthor-derived account, or to anyone else.
+                let author =
+                    AddressMapping::into_account_id(pallet_evm::Pallet::<Runtime>::find_author());
+                assert_eq!(Balances::balance(&author), 0);
+                assert!(deposits_to_others().is_empty());
+            });
+        }
+
+        #[test]
+        fn zero_tip_burns_only_the_base_fee() {
+            new_test_ext().execute_with(|| {
+                let base_fee = pallet_base_fee::BaseFeePerGas::<Runtime>::get().as_u128();
+                let issuance = Balances::total_issuance();
+
+                let paid = transfer(base_fee, 0);
+
+                let expected = u128::from(TRANSFER_GAS) * base_fee;
+                assert_eq!(paid, expected);
+                assert_eq!(Balances::total_issuance(), issuance - expected);
+                assert_eq!(burned(), expected);
+                assert!(deposits_to_others().is_empty());
+            });
+        }
     }
 
     #[test]

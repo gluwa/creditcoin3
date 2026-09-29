@@ -104,6 +104,9 @@ pallet-evm-precompile-substrate-transfer = { workspace = true }
 randomness-primitives = { workspace = true }
 supported-chains-primitives = { workspace = true }
 
+[dev-dependencies]
+sp-io = { workspace = true, features = ["std"] }
+
 [build-dependencies]
 substrate-wasm-builder = { workspace = true }
 
