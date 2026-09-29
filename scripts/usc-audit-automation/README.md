@@ -10,7 +10,8 @@ All configuration is loaded from a single JSON file. For CI, env overrides:
 
 ## Features
 
-- Validates attestation block height vs Ethereum current block
+- Validates attestation block height vs the source chain's current block, using
+  each chain's maturity strategy read from USC storage (see below)
 - Verifies attestation header hash matches Ethereum block
 - Checks checkpoint creation is within expected range
 - Compares on-chain data with GraphQL indexer
@@ -75,6 +76,21 @@ is optional; set it to move that check onto a private provider.
 Relative config paths (e.g. `config-devnet.json`) are resolved from the script
 directory, so it works regardless of current working directory.
 
+## Maturity strategy
+
+The allowed lag between the source chain tip and the last attested block is
+derived from the chain's on-chain maturity strategy (`SupportedChains` storage);
+it is not configured.
+
+- `EvmFinalized` (64), `EvmSafe` (32), `EvmLatest` (0) and `FixedDelay: N` are
+  fixed offsets behind the tip.
+- `RpcSafe` / `RpcFinalized` use the lag between the tip and the source node's
+  `safe` / `finalized` block, measured on each run. If that query fails, the
+  check falls back to `EvmSafe` with a warning.
+- Each case adds 3 attestation intervals of slack.
+- If the strategy is missing or unrecognised, the audit falls back to `EvmSafe`
+  with a warning, and the report shows `EvmSafe (fallback)`.
+
 ## CLI
 
 | Argument        | Description                         |
@@ -96,6 +112,7 @@ deno task dev -- --config config-devnet.json --no-slack
 deno task fmt
 deno task lint
 deno task check
+deno task test
 ```
 
 ## Cron / Scheduled Runs
