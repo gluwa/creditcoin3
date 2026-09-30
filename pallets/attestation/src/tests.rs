@@ -10838,22 +10838,44 @@ fn failed_commit_does_not_count_towards_block_limit() {
     ExtBuilder.build_and_execute(|| {
         let (attestor, genesis) = setup_attesting_chain();
         System::set_block_number(System::block_number() + 1);
+        let now = System::block_number();
+        let limit = <<Test as Config>::MaxAttestationsPerBlock as Get<u32>>::get();
+
+        // Use all but the last slot of this block.
+        let mut prev = genesis.digest();
+        for header in 1..limit as u64 {
+            let attestation = direct_link_attestation(&attestor, header, prev);
+            assert_ok!(Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation.clone()
+            ));
+            prev = attestation.digest();
+        }
+        assert_eq!(
+            AttestationsInBlock::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some((now, limit - 1))
+        );
 
         // Does not link to the last digest.
-        let invalid = direct_link_attestation(&attestor, 1, H256::random());
+        let invalid = direct_link_attestation(&attestor, limit as u64, H256::random());
         assert!(
             Attestation::commit_attestation(attestor.attestor_origin.clone(), invalid).is_err()
         );
         assert_eq!(
-            AttestationsInBlock::<Test>::get(SUPPORTED_CHAIN_KEY).map(|(_, c)| c),
-            Some(1)
+            AttestationsInBlock::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some((now, limit - 1))
         );
 
-        let valid = direct_link_attestation(&attestor, 1, genesis.digest());
+        // The failed commit did not take the last slot.
+        let valid = direct_link_attestation(&attestor, limit as u64, prev);
         assert_ok!(Attestation::commit_attestation(
             attestor.attestor_origin.clone(),
             valid
         ));
+        assert_eq!(
+            AttestationsInBlock::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some((now, limit))
+        );
     })
 }
 
