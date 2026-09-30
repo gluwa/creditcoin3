@@ -157,12 +157,8 @@ impl RootStore {
     /// this call pinned it). A database written before this column existed is pinned on
     /// its first start with the new binary.
     pub fn pin_chain_id(&self, live: u64) -> Result<Option<u64>> {
-        match self.meta.get(META_KEY_CHAIN_ID)? {
-            Some(raw) => {
-                let bytes: [u8; 8] = raw.as_ref().try_into().with_context(|| {
-                    format!("invalid chain_id length: expected 8, got {}", raw.len())
-                })?;
-                let stored = u64::from_be_bytes(bytes);
+        match self.chain_id()? {
+            Some(stored) => {
                 if stored != live {
                     return Err(StoreError::ChainIdMismatch { stored, live }.into());
                 }
@@ -174,6 +170,20 @@ impl RootStore {
                 Ok(None)
             }
         }
+    }
+
+    /// The source chain id this archive is pinned to, or `None` if it was never pinned.
+    /// Read-only, unlike [`Self::pin_chain_id`].
+    pub fn chain_id(&self) -> Result<Option<u64>> {
+        self.meta
+            .get(META_KEY_CHAIN_ID)?
+            .map(|raw| {
+                let bytes: [u8; 8] = raw.as_ref().try_into().with_context(|| {
+                    format!("invalid chain_id length: expected 8, got {}", raw.len())
+                })?;
+                Ok(u64::from_be_bytes(bytes))
+            })
+            .transpose()
     }
 
     pub fn put_roots(&self, roots: &[(u64, H256, H256)]) -> Result<()> {
@@ -294,6 +304,37 @@ impl RootStore {
     /// Get the latest (highest) stored block height, or None if empty.
     pub fn latest_height(&self) -> Result<Option<u64>> {
         match self.db.last()? {
+            Some((key, _)) => Ok(Some(parse_height(&key)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Names of any trees, and of any keys in the meta tree, that this store does not write.
+    /// Empty for a database written only by the archiver; anything listed would be lost by a
+    /// tool that copies roots and meta through this type.
+    #[allow(dead_code)] // used by the `merge-shards` binary, not the archiver itself
+    pub fn foreign_contents(&self) -> Result<Vec<String>> {
+        const DEFAULT_TREE: &[u8] = b"__sled__default";
+        let mut foreign: Vec<String> = self
+            .db
+            .tree_names()
+            .into_iter()
+            .filter(|name| name.as_ref() != DEFAULT_TREE && name.as_ref() != META_TREE)
+            .map(|name| format!("tree {:?}", String::from_utf8_lossy(&name)))
+            .collect();
+        for item in self.meta.iter() {
+            let (key, _) = item.context("failed to read meta tree")?;
+            if key.as_ref() != META_KEY_COUNT && key.as_ref() != META_KEY_CHAIN_ID {
+                foreign.push(format!("meta key {:?}", String::from_utf8_lossy(&key)));
+            }
+        }
+        Ok(foreign)
+    }
+
+    /// Get the earliest (lowest) stored block height, or None if empty.
+    #[allow(dead_code)] // used by the `merge-shards` binary, not the archiver itself
+    pub fn first_height(&self) -> Result<Option<u64>> {
+        match self.db.first()? {
             Some((key, _)) => Ok(Some(parse_height(&key)?)),
             None => Ok(None),
         }
@@ -896,6 +937,37 @@ mod tests {
     fn find_gaps_with_start_above_end_is_empty() {
         let (_dir, store) = store_with(&[]);
         assert!(store.find_gaps(Some(20), Some(10)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn first_height_and_chain_id_read_without_writing() {
+        let (_dir, store) = store_with(&[]);
+        assert_eq!(store.first_height().unwrap(), None);
+        assert_eq!(store.chain_id().unwrap(), None);
+        // Reading the chain id must not pin it.
+        assert_eq!(store.pin_chain_id(56).unwrap(), None);
+        assert_eq!(store.chain_id().unwrap(), Some(56));
+
+        let (_dir, store) = store_with(&[7, 3, 9]);
+        assert_eq!(store.first_height().unwrap(), Some(3));
+        assert_eq!(store.latest_height().unwrap(), Some(9));
+    }
+
+    #[test]
+    fn foreign_contents_lists_what_the_store_does_not_write() {
+        let (_dir, store) = store_with(&[1, 2]);
+        store.pin_chain_id(56).unwrap();
+        assert!(store.foreign_contents().unwrap().is_empty());
+
+        store.db.open_tree(b"digests").unwrap();
+        store.meta.insert(b"cursor", &[0u8][..]).unwrap();
+        assert_eq!(
+            store.foreign_contents().unwrap(),
+            vec![
+                "tree \"digests\"".to_string(),
+                "meta key \"cursor\"".to_string()
+            ]
+        );
     }
 
     #[test]

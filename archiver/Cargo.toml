@@ -14,6 +14,10 @@ path = "src/main.rs"
 name = "compare-roots"
 path = "src/bin/compare_roots.rs"
 
+[[bin]]
+name = "merge-shards"
+path = "src/bin/merge_shards.rs"
+
 [dependencies]
 eth = { path = "../common/eth" }
 sp-core = { workspace = true, features = ["std"] }
