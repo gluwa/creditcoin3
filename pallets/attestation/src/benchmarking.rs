@@ -405,6 +405,12 @@ mod benchmarks {
             attestation_prev.clone(),
         ));
 
+        // Move to the next block so the measured commit is not held back by
+        // `MaxAttestationsPerBlock`.
+        frame_system::Pallet::<T>::set_block_number(
+            frame_system::Pallet::<T>::block_number() + 1u32.into(),
+        );
+
         // Round s down to nearest 10 to reduce benchmark iterations (10, 20, 30, ... 500).
         // Continuity proof has att_header - 1 blocks.
         let s_rounded = (s / 10 * 10).max(10) as u64;

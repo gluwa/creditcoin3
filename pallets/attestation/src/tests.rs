@@ -21,6 +21,7 @@ use parity_scale_codec::Encode as _;
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
+use sp_std::collections::vec_deque::VecDeque;
 use sp_std::ops::RangeInclusive;
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
@@ -3606,6 +3607,7 @@ fn creating_checkpoint_works() {
                 last_digest,
                 Some(fragment),
             );
+            System::set_block_number(System::block_number() + 1);
             last_digest = Some(attestation.digest());
             assert_ok!(Attestation::commit_attestation(
                 attestor.attestor_origin.clone(),
@@ -3716,6 +3718,7 @@ fn creating_checkpoint_works_at_expected_intervals() {
                 last_digest,
                 Some(fragment),
             );
+            System::set_block_number(System::block_number() + 1);
             last_digest = Some(attestation.digest());
             assert_ok!(Attestation::commit_attestation(
                 attestor.attestor_origin.clone(),
@@ -4305,6 +4308,7 @@ fn creating_checkpoint_purges_attestations_in_removal_queue() {
                 last_digest,
                 Some(fragment),
             );
+            System::set_block_number(System::block_number() + 1);
             last_digest = Some(attestation.digest());
 
             assert_ok!(Attestation::commit_attestation(
@@ -4399,6 +4403,7 @@ fn checkpointing_rolls_back_storage_changes_if_checkpointing_queue_does_not_matc
                 last_digest,
                 Some(fragment),
             );
+            System::set_block_number(System::block_number() + 1);
             last_digest = Some(attestation.digest());
 
             // Final attestation
@@ -10740,4 +10745,194 @@ mod audit_attestation_bounds {
             )));
         })
     }
+}
+
+fn setup_attesting_chain() -> (Attestor, SignedAttestation<H256, u64>) {
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    assert_ok!(Attestation::register_attestor(
+        attestor.stash.clone(),
+        SUPPORTED_CHAIN_KEY,
+        attestor.attestor_id,
+    ));
+    assert_ok!(Attestation::attest(
+        RuntimeOrigin::signed(attestor.attestor_id),
+        SUPPORTED_CHAIN_KEY,
+        attestor.public_key,
+        attestor.signature
+    ));
+    progress_to_block(5);
+
+    let genesis =
+        create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+    assert_ok!(Attestation::commit_attestation(
+        attestor.attestor_origin.clone(),
+        genesis.clone()
+    ));
+    (attestor, genesis)
+}
+
+fn direct_link_attestation(
+    attestor: &Attestor,
+    header_number: u64,
+    prev_digest: Digest,
+) -> SignedAttestation<H256, u64> {
+    let attestation = AttestationPrimitive {
+        chain_key: SUPPORTED_CHAIN_KEY,
+        header_number,
+        header_hash: H256::random(),
+        root: H256::from([0; 32]),
+        prev_digest: Some(prev_digest),
+    };
+    bls_sign_attestation(
+        vec![attestor.clone()],
+        attestation,
+        ContinuityProof::default(),
+    )
+}
+
+#[test]
+fn commit_attestation_is_limited_per_block() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis) = setup_attesting_chain();
+        let limit = <<Test as Config>::MaxAttestationsPerBlock as Get<u32>>::get() as u64;
+
+        // The genesis commit counts towards this block's limit.
+        let mut prev = genesis.digest();
+        for header in 1..limit {
+            let attestation = direct_link_attestation(&attestor, header, prev);
+            assert_ok!(Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation.clone()
+            ));
+            prev = attestation.digest();
+        }
+
+        // A duplicate of a landed attestation still reports the lost race, not the limit.
+        let landed = Attestation::attestations(SUPPORTED_CHAIN_KEY, prev).unwrap();
+        assert_noop!(
+            Attestation::commit_attestation(attestor.attestor_origin.clone(), landed),
+            Error::<Test>::AttestationExists
+        );
+
+        let over_limit = direct_link_attestation(&attestor, limit, prev);
+        assert_noop!(
+            Attestation::commit_attestation(attestor.attestor_origin.clone(), over_limit.clone()),
+            Error::<Test>::TooManyAttestationsInBlock
+        );
+
+        // Deferred, not rejected: the same attestation lands in the next block.
+        System::set_block_number(System::block_number() + 1);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            over_limit
+        ));
+        assert_eq!(
+            AttestationsInBlock::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some((System::block_number(), 1))
+        );
+    })
+}
+
+#[test]
+fn failed_commit_does_not_count_towards_block_limit() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis) = setup_attesting_chain();
+        System::set_block_number(System::block_number() + 1);
+
+        // Does not link to the last digest.
+        let invalid = direct_link_attestation(&attestor, 1, H256::random());
+        assert!(
+            Attestation::commit_attestation(attestor.attestor_origin.clone(), invalid).is_err()
+        );
+        assert_eq!(
+            AttestationsInBlock::<Test>::get(SUPPORTED_CHAIN_KEY).map(|(_, c)| c),
+            Some(1)
+        );
+
+        let valid = direct_link_attestation(&attestor, 1, genesis.digest());
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            valid
+        ));
+    })
+}
+
+#[test]
+fn commit_attestation_rejected_when_checkpointing_queue_full() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis) = setup_attesting_chain();
+        System::set_block_number(System::block_number() + 1);
+
+        let cap = <<Test as Config>::MaxCheckpointingQueueLen as Get<u32>>::get() as usize;
+        let full: VecDeque<Digest> = (0..cap).map(|_| H256::random()).collect();
+        CheckpointingQueues::<Test>::insert(SUPPORTED_CHAIN_KEY, full);
+
+        let attestation = direct_link_attestation(&attestor, 1, genesis.digest());
+        assert_noop!(
+            Attestation::commit_attestation(attestor.attestor_origin.clone(), attestation.clone()),
+            Error::<Test>::CheckpointingQueueFull
+        );
+
+        CheckpointingQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |q| {
+            q.pop_front();
+        });
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation
+        ));
+        assert_eq!(
+            Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
+            cap
+        );
+    })
+}
+
+#[test]
+fn checkpointing_queue_len_reads_stored_length() {
+    ExtBuilder.build_and_execute(|| {
+        assert_eq!(Attestation::checkpointing_queue_len(SUPPORTED_CHAIN_KEY), 0);
+        for n in [1usize, 63, 64, 300] {
+            let queue: VecDeque<Digest> = (0..n).map(|_| H256::random()).collect();
+            CheckpointingQueues::<Test>::insert(SUPPORTED_CHAIN_KEY, queue);
+            assert_eq!(
+                Attestation::checkpointing_queue_len(SUPPORTED_CHAIN_KEY) as usize,
+                n
+            );
+        }
+    })
+}
+
+#[test]
+fn catch_up_commit_weight_covers_queued_span() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // Proof of 500 roots: a catch-up attestation for the default width of 100.
+        let attestation = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            501,
+            Some(H256::random()),
+            None,
+        );
+        LastCheckpoint::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: 0,
+                digest: H256::random(),
+            },
+        );
+        let weight_of = |a: &SignedAttestation<H256, u64>| {
+            Call::<Test>::commit_attestation {
+                attestation: a.clone(),
+            }
+            .get_dispatch_info()
+            .call_weight
+        };
+
+        LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, (0, H256::random()));
+        let no_gap = weight_of(&attestation);
+        LastDigest::<Test>::insert(SUPPORTED_CHAIN_KEY, (300, H256::random()));
+        let gap = weight_of(&attestation);
+        assert!(gap.ref_time() > no_gap.ref_time());
+    })
 }
