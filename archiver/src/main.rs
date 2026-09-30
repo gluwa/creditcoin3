@@ -247,8 +247,9 @@ async fn main() -> Result<()> {
     }
 
     // ── Boundary ────────────────────────────────────────────────────────
-    // Following the tip with CHAIN_KEY set, the archiver follows the latest attested height:
-    // the attestors have already decided what is mature, and a cache that decides again can
+    // Following the tip with CHAIN_KEY set, the archiver follows the latest attested height,
+    // read at inclusion (Creditcoin's best block) rather than finality: the attestors have
+    // already decided what is mature, and a cache that decides again can
     // only disagree with them. Explicit ranges and gap backfill still resolve maturity against
     // the source node, because they walk history that may have no attestations at all (the BSC
     // sweep computes roots for blocks the attestors will only reach later) and must not become
@@ -946,7 +947,10 @@ fn tip_mode(chain_key: Option<u64>, end_height: Option<u64>, override_lag: Optio
 }
 
 /// Publish the latest attested height for `chain_key` as a high-water mark, re-read every
-/// `poll`. A read failure keeps the last value and repairs the Creditcoin connection before the
+/// `poll`. The height is read from Creditcoin's best block, not its finalized one: an attestation
+/// is only included once it has passed validation, so the roots it covers are mature and valid
+/// even if that block is later re-orged out, and following inclusion saves the Creditcoin
+/// finality delay before those roots can be archived. A read failure keeps the last value and repairs the Creditcoin connection before the
 /// next read: the client is a value clone whose dead socket never heals on its own, so retrying
 /// the same connection would freeze the bound until the process restarted. The bound can only
 /// stall, never go backwards or invent progress.
@@ -958,14 +962,15 @@ fn follow_attested_height(
     let (tx, rx) = tokio::sync::watch::channel(None);
     tokio::spawn(async move {
         loop {
-            match cc3_client.fetch_last_finalized(chain_key).await {
+            match cc3_client.fetch_last_included(chain_key).await {
                 Ok(Some((height, _digest))) => {
                     tx.send_if_modified(|current| {
                         let advanced = advance_bound(current, height);
                         if advanced {
                             tracing::debug!(chain_key, height, "latest attested height");
                         } else if current.is_some_and(|c| height < c) {
-                            // A lower reading is a revert or a lagging Creditcoin node. Neither
+                            // A lower reading is a revert, a best-block fork switch that dropped
+                            // the including block, or a lagging Creditcoin node. None of them
                             // may shrink the bound: roots for the higher range are already
                             // released, and stall detection and flush-at-tip both read this
                             // value. Reconciling roots that a revert orphaned is deliberately
