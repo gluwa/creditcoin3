@@ -152,6 +152,16 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, H256]
             > &
                 QueryableStorageEntry<ApiType, [u64, H256]>;
+            /**
+             * Number of successful attestation commits per chain in the block recorded alongside it.
+             * Bounded by [`Config::MaxAttestationsPerBlock`].
+             **/
+            attestationsInBlock: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<ITuple<[u32, u32]>>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             attestors: AugmentedQuery<
                 ApiType,
                 (

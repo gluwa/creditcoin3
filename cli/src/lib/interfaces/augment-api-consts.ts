@@ -66,6 +66,12 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             maxAttestationCheckpointInterval: u32 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
+            /**
+             * Maximum number of successful `commit_attestation` calls per chain in a single block.
+             * Attestors racing different heights off the same previous digest can land more than
+             * one per block, so this must leave room for those. An over-limit commit fails and stays
+             * valid for resubmission in a later block.
+             **/
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
             /**
              * Runtime-safe ceiling for the per-chain attestation interval (see
@@ -75,6 +81,13 @@ declare module '@polkadot/api-base/types/consts' {
              * neuters the `commit_attestation` weight bound.
              **/
             maxChainAttestationInterval: u64 & AugmentedConst<ApiType>;
+            /**
+             * Maximum length of a chain's [`CheckpointingQueues`] entry. A commit that would push
+             * the queue past this is rejected. `CommitAttestationWeight::weigh_data` charges queue
+             * processing per stored entry, so this bounds `commit_attestation`'s weight; it must sit
+             * above the `2 * checkpoint_interval + 1` entries the queue holds in normal operation.
+             **/
+            maxCheckpointingQueueLen: u32 & AugmentedConst<ApiType>;
             maxCheckpointsImportedPerCall: u32 & AugmentedConst<ApiType>;
             maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
             /**
