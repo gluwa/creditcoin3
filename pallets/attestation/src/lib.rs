@@ -196,9 +196,9 @@ pub mod pallet {
         type CurrentEpochIndex: Get<u64>;
 
         /// Maximum number of successful `commit_attestation` calls per chain in a single block.
-        /// Honest attestors only ever land one per chain per block (each commit links to the
-        /// digest finalized by the previous one). An over-limit commit fails and stays valid for
-        /// resubmission in a later block.
+        /// Attestors racing different heights off the same previous digest can land more than
+        /// one per block, so this must leave room for those. An over-limit commit fails and stays
+        /// valid for resubmission in a later block.
         #[pallet::constant]
         type MaxAttestationsPerBlock: Get<u32>;
         /// Maximum length of a chain's [`CheckpointingQueues`] entry. A commit that would push

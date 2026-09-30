@@ -1011,7 +1011,7 @@ parameter_types! {
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
-    pub const MaxAttestationsPerBlock: u32 = 1;
+    pub const MaxAttestationsPerBlock: u32 = 10;
     pub const MaxCheckpointingQueueLen: u32 = 4096;
     // Attestation retention duration should result in attestations being retained
     // for a period >= proof submission latency.
