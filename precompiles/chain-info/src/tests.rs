@@ -653,6 +653,94 @@ fn is_height_attested_works() {
         });
 }
 
+/// Regression test: a leftover row from `Attestations` must read as absent everywhere in this
+/// precompile while its chain's cleanup cursor is draining, even though it's still physically
+/// present in storage — mirrors `checkpoint_if_stable`'s gating for `Checkpoints`.
+#[test]
+fn attestation_reads_are_stale_while_cleanup_cursor_draining() {
+    let alice: H160 = Alice.into();
+
+    let dummy_height: u64 = 900;
+    let dummy_attestation = create_dummy_attestation(dummy_height);
+    let digest = dummy_attestation.digest();
+
+    ExtBuilder::default()
+        .with_balances(vec![(alice.into(), 300)])
+        .build()
+        .execute_with(|| {
+            Attestations::<Runtime>::insert(SUPPORTED_CHAIN_KEY, digest, dummy_attestation);
+            pallet_attestation::AttestationClearingCursors::<Runtime>::insert(
+                SUPPORTED_CHAIN_KEY,
+                Vec::from([0u8; 4]),
+            );
+            assert!(Attestations::<Runtime>::contains_key(
+                SUPPORTED_CHAIN_KEY,
+                digest
+            ));
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_highest_attested_before {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: dummy_height + 1,
+                    },
+                )
+                .execute_returns(HeightHashResult::default());
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::find_lowest_attested_after {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: dummy_height - 1,
+                    },
+                )
+                .execute_returns(HeightHashResult::default());
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::is_height_attested {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        target_height: dummy_height,
+                    },
+                )
+                .execute_returns(false);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestation_height_for_digest {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        digest,
+                    },
+                )
+                .execute_returns(HeightResult::default());
+
+            // Once the cursor is gone, the same row is trusted again.
+            pallet_attestation::AttestationClearingCursors::<Runtime>::remove(SUPPORTED_CHAIN_KEY);
+
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::get_attestation_height_for_digest {
+                        chain_key: SUPPORTED_CHAIN_KEY,
+                        digest,
+                    },
+                )
+                .execute_returns(HeightResult {
+                    height: dummy_height,
+                    exists: true,
+                });
+        });
+}
+
 #[test]
 fn get_attestation_bounds_works() {
     let alice: H160 = Alice.into();

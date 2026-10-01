@@ -76,6 +76,9 @@ jobs:
       matrix:
         directory: [scripts/stress-test, scripts/usc-audit-automation]
         command: [lint, check, fmt-check]
+        include:
+          - directory: scripts/usc-audit-automation
+            command: test
 
     steps:
       - uses: actions/checkout@v7

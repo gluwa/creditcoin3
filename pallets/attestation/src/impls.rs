@@ -918,7 +918,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn contains_digest(chain_key: ChainKey, digest: Digest, block_number: u64) -> bool {
-        Attestations::<T>::contains_key(chain_key, digest)
+        Self::get(chain_key, digest).is_some()
             || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
     }
 
@@ -974,10 +974,21 @@ impl<T: Config> Pallet<T> {
         AttestorsCount::<T>::get(chain_key) < MaxAttestors::<T>::get(chain_key)
     }
 
+    /// Whether this chain's `Attestations` are safe to read right now. Unlike
+    /// [`checkpoint_if_stable`](Self::checkpoint_if_stable)'s per-pivot gate, this is
+    /// all-or-nothing per chain: a draining cursor clears the whole `Attestations` prefix in
+    /// unpredictable (hash) order, so there's no way to know a given entry is unreached.
+    pub fn attestations_stable(chain_key: ChainKey) -> bool {
+        AttestationClearingCursors::<T>::get(chain_key).is_none()
+    }
+
     pub fn get(
         chain_key: ChainKey,
         digest: Digest,
     ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
+        if !Self::attestations_stable(chain_key) {
+            return None;
+        }
         Attestations::<T>::get(chain_key, digest)
     }
 
@@ -1022,6 +1033,14 @@ impl<T: Config> Pallet<T> {
         ensure!(
             T::SupportedChains::is_chain_supported(chain_key),
             Error::<T>::ChainNotSupported
+        );
+
+        // A draining cursor clears this chain's whole `Attestations` prefix in unpredictable
+        // (hash) order, so a new row accepted now could still get swept up by it. Block commits
+        // until it's done rather than risk that.
+        ensure!(
+            AttestationClearingCursors::<T>::get(chain_key).is_none(),
+            Error::<T>::AttestationCleanupInProgress
         );
 
         // Reject over-long attestor lists before the expensive BLS aggregation/verification.
@@ -1539,7 +1558,9 @@ impl<T: Config> Pallet<T> {
         ensure!(
             CheckpointPruningStates::<T>::get(chain_key).is_none()
                 && CheckpointClearingCursors::<T>::get(chain_key).is_none()
-                && BucketClearingCursors::<T>::get(chain_key).is_none(),
+                && BucketClearingCursors::<T>::get(chain_key).is_none()
+                // Can outlive `CheckpointPruningStates` (seeded together, drained independently).
+                && AttestationClearingCursors::<T>::get(chain_key).is_none(),
             Error::<T>::CheckpointMaintenanceInProgress
         );
         ensure!(!checkpoints.is_empty(), Error::<T>::EmptyCheckpointPatch);

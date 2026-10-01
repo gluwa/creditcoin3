@@ -5,12 +5,14 @@
     "fmt": "deno fmt",
     "fmt-check": "deno fmt --check",
     "lint": "deno lint",
-    "check": "deno check src/main.ts"
+    "check": "deno check src/main.ts",
+    "test": "deno test"
   },
   "imports": {
     "@polkadot/api": "npm:@polkadot/api@^16.5.2",
     "ethers": "npm:ethers@^6.16.0",
-    "@std/cli/parse-args": "jsr:@std/cli@^1.0.0/parse-args"
+    "@std/cli/parse-args": "jsr:@std/cli@^1.0.0/parse-args",
+    "@std/assert": "jsr:@std/assert@^1.0.0"
   },
   "compilerOptions": {
     "strict": true,
