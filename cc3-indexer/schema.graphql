@@ -588,6 +588,9 @@ type OutboxMessage @entity {
     outbox: OutboxContract!
     # dApp (emitterAddress) that called publishMessage
     emitter: String! @index
+    # Per-emitter Outbox sequence the messageId was derived from (asc-contracts #54:
+    # messageId = keccak(outbox, emitter, sequence, payloadHash, sourceChainId))
+    sequence: BigInt!
     # Whether the message must be acknowledged on-chain before it is complete
     canAck: Boolean! @index
     # Opaque payload bytes (hex) handed to the destination dApp's receiveMessage

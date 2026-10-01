@@ -411,7 +411,7 @@ export const outboxMessagesDatasource: FrontierEvmDatasource = {
                 handler: 'handleMessagePublished',
                 kind: 'substrate/FrontierEvmEvent',
                 filter: {
-                    topics: ['MessagePublished(bytes32,bytes32,bool,bytes)'],
+                    topics: ['MessagePublished(bytes32,bytes32,uint64,bool,bytes)'],
                 },
             },
             {

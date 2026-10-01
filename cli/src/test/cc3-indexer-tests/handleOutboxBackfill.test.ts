@@ -79,7 +79,7 @@ describe('Outbox Discovery admission after deployment', () => {
             gasLimit: 1_000_000,
         });
         await tx.wait();
-        tx = await contract.getFunction('emitMessagePublished')(messageId, emitterBytes32, true, payload, {
+        tx = await contract.getFunction('emitMessagePublished')(messageId, emitterBytes32, 1n, true, payload, {
             gasLimit: 1_000_000,
         });
         await tx.wait();
@@ -226,6 +226,7 @@ describe('Outbox Discovery admission after deployment', () => {
             const publish = await contract.getFunction('emitMessagePublished')(
                 authorizedMessageId,
                 emitterBytes32,
+                2n,
                 false,
                 payload,
                 { gasLimit: 1_000_000 },

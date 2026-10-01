@@ -146,9 +146,16 @@ describe('Outbox lifecycle handlers', () => {
 
     describe('when a message is published on that outbox', () => {
         beforeAll(async () => {
-            const tx = await contract.getFunction('emitMessagePublished')(messageId, emitterBytes32, true, payload, {
-                gasLimit: 1_000_000,
-            });
+            const tx = await contract.getFunction('emitMessagePublished')(
+                messageId,
+                emitterBytes32,
+                1n,
+                true,
+                payload,
+                {
+                    gasLimit: 1_000_000,
+                },
+            );
             await tx.wait();
 
             await forElapsedBlocks(api, { minBlocks: 3 });
@@ -161,7 +168,7 @@ describe('Outbox lifecycle handlers', () => {
                         filter: { id: { equalTo: "${messageId}" }},
                         last: 1,
                     ) { nodes {
-                        id, outboxId, emitter, canAck, payload,
+                        id, outboxId, emitter, sequence, canAck, payload,
                         publishedAt, publishedTimestamp, publishedTxHash, acknowledged
                     }}}`,
             );
@@ -174,6 +181,8 @@ describe('Outbox lifecycle handlers', () => {
                 expect(node.outboxId).toEqual(outboxAddress);
                 // The bytes32 emitter is unwrapped back to a plain 20-byte address.
                 expect(node.emitter).toEqual(emitterAddress);
+                // asc-contracts #54: the per-emitter sequence rides in the event and is stored as-is.
+                expect(BigInt(node.sequence)).toEqual(1n);
                 expect(node.canAck).toEqual(true);
                 expect(node.payload).toEqual(payload);
                 expect(BigInt(node.publishedAt)).toBeGreaterThanOrEqual(startingBlock);
