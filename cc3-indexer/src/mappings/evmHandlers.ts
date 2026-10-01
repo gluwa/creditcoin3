@@ -80,9 +80,8 @@ type OutboxRegisteredArgs = [bigint, string, string];
 // canAck (renamed from requiresAck in usc-contracts #23): acknowledgment is optional, requested by
 // a nonzero acknowledgmentPrice in the signed relayer quote — the flag only says an ack MAY land.
 // emitterAddress is a bytes32 (20-byte EVM address left-aligned in the high bytes).
-// sequence (asc-contracts #54): the per-emitter Outbox counter the messageId is derived from;
-// uint64 on the wire, so the processor hands it over as a BigNumber-like value.
-type MessagePublishedArgs = [string, string, { toString(): string } | bigint | number | string, boolean, string];
+// sequence (asc-contracts #54): the per-emitter Outbox counter the messageId is derived from (uint64).
+type MessagePublishedArgs = [string, string, bigint, boolean, string];
 // Outbox: MessageAcknowledged(bytes32 indexed messageId)
 type MessageAcknowledgedArgs = [string];
 
@@ -333,7 +332,7 @@ export async function handleMessagePublished(event: FrontierEvmEvent<MessagePubl
 
     const [messageIdRaw, emitterRaw, sequenceRaw, canAck, payload] = event.args;
     const messageId = messageIdRaw;
-    const sequence = BigInt(String(sequenceRaw));
+    const sequence = BigInt(sequenceRaw);
     // emitterAddress is now a bytes32 with the 20-byte EVM address in the high bytes
     // (bytes32(bytes20(emitter))). Recover the plain address so stored/queried emitters stay
     // 20-byte addresses, consistent with the rest of the schema.
