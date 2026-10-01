@@ -63,7 +63,7 @@ edition = "2021"
 license = "Unlicense"
 publish = false
 repository = "https://github.com/gluwa/creditcoin3-next/"
-version = "3.138.0"
+version = "3.139.0"
 
 [workspace.dependencies]
 arc-swap = "1.9.1"
