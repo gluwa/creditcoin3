@@ -6,15 +6,17 @@
 //! chain:
 //!
 //!   resolve Outbox (`resolver`) → emit `MessagePublished` → index it (`listener::poll_once`,
-//!   real `eth_getLogs`) → recompute `messageHash` → sign (`signing`) → validate + count to quorum
-//!   (`ingest` + `aggregator`).
+//!   real `eth_getLogs`) → sign the decoded `messageId` directly (`signing`, asc-contracts #54) →
+//!   validate + count to quorum (`ingest` + `aggregator`).
 //!
 //! The attestor only ever watches the Outbox on the Creditcoin L1 EVM; it never interacts with the
 //! destination chain or the Inbox (those live on the relayer's delivery path). So the Anvil node
 //! here represents the Creditcoin L1 EVM, not a destination chain.
 //!
-//! This covers the one gap the in-crate unit tests can't: real EVM log decoding + hash binding
-//! against a live node. The libp2p gossip transport is exercised separately; here we hand the
+//! This covers the one gap the in-crate unit tests can't: real EVM log decoding against a live
+//! node, including the `uint64 sequence` field asc-contracts #54 inserted into `MessagePublished`
+//! (a live decode catches an ABI/fixture mismatch the way `abi_surface`'s compiled-artifact check
+//! does for asc-contracts itself). The libp2p gossip transport is exercised separately; here we hand the
 //! signed vote straight to `ingest::validate_and_count` (the same path the p2p task calls).
 //!
 //! `#[ignore]`d because it needs the `anvil` binary (foundry) on PATH. Run with:
@@ -35,18 +37,19 @@ use attestor::tasks::write_ability::aggregator::VoteAggregator;
 use attestor::tasks::write_ability::MessageVoteState;
 use attestor::tasks::write_ability::{ingest, listener, reobservation, resolver, signing};
 use write_ability::envelope::MessageVote;
-use write_ability::hash::message_hash;
 use write_ability::protocol::chain_key_to_bytes32;
 
 sol! {
-    #[sol(rpc, bytecode = "0x6080604052348015600e575f80fd5b506040516103643803806103648339818101604052810190602e9190606b565b805f81905550506091565b5f80fd5b5f819050919050565b604d81603d565b81146056575f80fd5b50565b5f815190506065816046565b92915050565b5f60208284031215607d57607c6039565b5b5f6088848285016059565b91505092915050565b6102c68061009e5f395ff3fe608060405234801561000f575f80fd5b5060043610610034575f3560e01c806370a7453214610038578063d0363ff114610054575b5f80fd5b610052600480360381019061004d9190610167565b610072565b005b61005c6100c6565b60405161006991906101d3565b60405180910390f35b3360601b6bffffffffffffffffffffffff1916837fa6e8e64f148094d0fed92fed35afd7cd97a57c879bec937f42d5c415a509ed9b5f85856040516100b993929190610260565b60405180910390a3505050565b5f5481565b5f80fd5b5f80fd5b5f819050919050565b6100e5816100d3565b81146100ef575f80fd5b50565b5f81359050610100816100dc565b92915050565b5f80fd5b5f80fd5b5f80fd5b5f8083601f84011261012757610126610106565b5b8235905067ffffffffffffffff8111156101445761014361010a565b5b6020830191508360018202830111156101605761015f61010e565b5b9250929050565b5f805f6040848603121561017e5761017d6100cb565b5b5f61018b868287016100f2565b935050602084013567ffffffffffffffff8111156101ac576101ab6100cf565b5b6101b886828701610112565b92509250509250925092565b6101cd816100d3565b82525050565b5f6020820190506101e65f8301846101c4565b92915050565b5f8115159050919050565b610200816101ec565b82525050565b5f82825260208201905092915050565b828183375f83830152505050565b5f601f19601f8301169050919050565b5f61023f8385610206565b935061024c838584610216565b61025583610224565b840190509392505050565b5f6040820190506102735f8301866101f7565b8181036020830152610286818486610234565b905094935050505056fea2646970667358221220de7af322b33ca6c27cfc178896c6aafc20ce4b46487b8532e3c15004b397fcbc64736f6c634300081a0033")]
+    // Generated from fixtures/test-outbox.sol with solc --bin --optimize.
+    #[sol(rpc, bytecode = "0x6080604052348015600e575f5ffd5b5060405161023b38038061023b833981016040819052602b916031565b5f556047565b5f602082840312156040575f5ffd5b5051919050565b6101e7806100545f395ff3fe608060405234801561000f575f5ffd5b5060043610610034575f3560e01c8063cf76838b14610038578063d0363ff11461004d575b5f5ffd5b61004b6100463660046100b3565b610067565b005b6100555f5481565b60405190815260200160405180910390f35b6040513360601b9085907f5e555a630cb4f66d140bee35175986310ec7bbc6532eebb967964bd97dd1d2f3906100a590879060019088908890610144565b60405180910390a350505050565b5f5f5f5f606085870312156100c6575f5ffd5b84359350602085013567ffffffffffffffff811681146100e4575f5ffd5b9250604085013567ffffffffffffffff8111156100ff575f5ffd5b8501601f8101871361010f575f5ffd5b803567ffffffffffffffff811115610125575f5ffd5b876020828401011115610136575f5ffd5b949793965060200194505050565b67ffffffffffffffff85168152831515602082015260606040820152816060820152818360808301375f818301608090810191909152601f909201601f19160101939250505056fea2646970667358221220e2a864f1c5d8490c8f00e2bbc3d890062425e5e0b1e7245c7a4e42654188338864736f6c637827302e382e33362d646576656c6f702e323032362e372e392b636f6d6d69742e38613037393739310058")]
     contract TestOutbox {
         constructor(bytes32 _chainKey);
         function chainKey() external view returns (bytes32);
-        function publish(bytes32 messageId, bytes calldata payload) external;
+        function publish(bytes32 messageId, uint64 sequence, bytes calldata payload) external;
         event MessagePublished(
             bytes32 indexed messageId,
             bytes32 indexed emitterAddress,
+            uint64 sequence,
             bool canAck,
             bytes payload
         );
@@ -68,7 +71,6 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         .try_spawn()
         .expect("spawn anvil — is foundry installed?");
     let signer = PrivateKeySigner::from(anvil.keys()[0].clone());
-    let emitter = signer.address();
     let provider = ProviderBuilder::new()
         .wallet(EthereumWallet::from(signer))
         .connect_http(anvil.endpoint_url());
@@ -107,9 +109,10 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
 
     // 4. Emit a MessagePublished.
     let message_id = B256::from([0x11u8; 32]);
+    let sequence: u64 = 1;
     let payload = Bytes::from_static(b"hello cross-chain");
     let published = outbox
-        .publish(message_id, payload.clone())
+        .publish(message_id, sequence, payload.clone())
         .send()
         .await
         .expect("send publish")
@@ -148,18 +151,8 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         .try_recv()
         .expect("listener indexed the MessagePublished");
     assert_eq!(indexed.message_id, message_id);
-    assert_eq!(indexed.emitter, emitter);
+    assert_eq!(indexed.outbox, *outbox.address());
 
-    // The listener's hash must equal an independent recomputation (the binding attestors sign).
-    let expected = message_hash(
-        message_id,
-        emitter,
-        *outbox.address(),
-        ck_b32,
-        resolved.creditcoin_chain_id,
-        &payload,
-    );
-    assert_eq!(indexed.message_hash, expected, "messageHash must match");
     // Anvil models its finalized tag with a block lag. Advance it past the publication so the
     // reobservation path exercises lifecycle authorization after its independent finality gate.
     provider.anvil_mine(Some(64), None).await.unwrap();
@@ -177,7 +170,7 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     .await
     .unwrap()
     .expect("removed Outbox's historical message must remain recoverable");
-    assert_eq!(recovered.message_hash, expected);
+    assert_eq!(recovered.message_id, message_id);
 
     // 6. Sign and run the full validate+count path; a single-attestor set (threshold 1) reaches quorum.
     let msigner = signing::MessageSigner::from_seed(&[9u8; 32]).unwrap();
@@ -194,13 +187,12 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
     state
         .aggregator
         .lock()
-        .note_indexed(indexed.message_hash.0, Instant::now());
+        .note_indexed(indexed.message_id.0, Instant::now());
 
-    let signature = msigner.sign(&indexed.message_hash).unwrap();
+    let signature = msigner.sign(&indexed.message_id).unwrap();
     let vote = MessageVote {
         chain_key,
         message_id: indexed.message_id.0,
-        message_hash: indexed.message_hash.0,
         signer: msigner.address().into_array(),
         signature,
     };

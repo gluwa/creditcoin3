@@ -111,7 +111,7 @@ jobs:
           # the *same* relayer code — `ref: main` made the e2e non-reproducible (the same commit
           # could pass or fail as the relayer's default branch moved). Bump this deliberately when
           # a relayer change needs to be exercised here.
-          ref: f17231928ff611bf18298d7de75d27b53bb91e1b # main @ 2026-09-09 (#60 outbox in the message hash, 5-arg deliverMessage; includes #59 OutboxDiscovery mirror + #61 finalized-head scan) — bump deliberately
+          ref: 8d64643d2c5046b349c44ad6f4fdb72153a76372 # asc-message-relayer PR #70 @ 2026-09-30 (addresses Bugbot review: isRetryable checks no longer treat a failed/timed-out read as confirmed not-retryable, and on Duplicate/AlreadyValidated + an unobserved pending resolution a stuck retryable message can't be silently stranded). Pre-merge feature-branch pin — move to a `main` SHA once #70 merges — bump deliberately
           path: asc-message-relayer
 
       # Fee-integrated write-ability contracts. The plain-ethers deploy scripts read their compiled
@@ -120,7 +120,7 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: gluwa/asc-contracts
-          ref: a9791c371205571c921c03f6ed9db41910fe1b94 # main @ 2026-09-10 (#36 DispatcherRouter + envelope, on top of #48) — bump deliberately
+          ref: 3f9259e9764b1a77d9c329e2be59d61e7eae676a # main @ 2026-09-25 (#54 merged: messageId is now the signed digest directly, deliverMessage's sequence arg, MessagePublished carries sequence, Inbox retryFailedMessage/isRetryable, MessageReceived/MessageExecuted/DestinationFailed replace MessageDelivered/MessageExecutionFailed) — bump deliberately
           path: asc-contracts
           # asc-contracts is private; the default GITHUB_TOKEN is scoped to creditcoin3 only and
           # gets "Repository not found". Use the org bot PAT (same one build-native uses cross-repo).

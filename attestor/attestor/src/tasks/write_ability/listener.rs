@@ -1,7 +1,8 @@
 //! Creditcoin L1 Outbox event listener (confluence §7.3 A3 / §6.8).
 //!
 //! Polls `eth_getLogs` for candidate `MessagePublished` events, authenticates each emitter against
-//! Discovery at its finalized source block, and emits an [`IndexedMessage`] with its canonical hash.
+//! Discovery at its finalized source block, and emits an [`IndexedMessage`] carrying the
+//! `messageId` the attestor will sign directly (asc-contracts #54 — see `write_ability::hash`).
 //! Every registered Outbox is covered by the same durable block cursor, independent of defaults.
 //! Historical `eth_call` support is required; unavailable history stops progress rather than
 //! dropping messages or trusting the permissionless factory. Authority is evaluated at block end,
@@ -28,7 +29,6 @@ use tokio::sync::{mpsc, watch};
 use tokio_util::sync::CancellationToken;
 
 use write_ability::abi::IOutbox;
-use write_ability::hash::message_hash;
 
 use super::cursor::CursorStore;
 use super::resolver::{self, ResolvedRoute};
@@ -144,17 +144,16 @@ fn pick_to_block(
 /// A finalized `MessagePublished` the attestor should vote on.
 #[derive(Clone, Debug)]
 pub struct IndexedMessage {
+    /// Outbox `messageId` — also the digest the attestor signs directly (asc-contracts #54:
+    /// `Inbox.validateVotes` takes `messageId` itself, which is already cryptographically bound
+    /// to the emitter/outbox/sequence/payload/sourceChainId by `OutboxTypes.computeMessageId` at
+    /// emission time, so nothing needs re-deriving here).
     pub message_id: B256,
-    /// The dApp that published the message (`MessagePublished.emitterAddress`) — **not** the Outbox.
-    pub emitter: Address,
     /// Actual Outbox that emitted the message, authenticated at its finalized source block.
     pub outbox: Address,
     /// Signing domain captured when this message was indexed. A governance key change must not
     /// permit a buffered message from the previous route to be signed under the new configuration.
     pub destination_chain_key: B256,
-    pub payload: Vec<u8>,
-    /// `keccak256(abi.encode(...))` — the digest the attestor signs (PoC §5.2).
-    pub message_hash: B256,
 }
 
 /// Next value of the consecutive-poll-failure budget after one poll.
@@ -639,31 +638,18 @@ async fn scan_range<P: Provider>(
         }
         match IOutbox::MessagePublished::decode_log_validate(&log.inner) {
             Ok(decoded) => {
-                let payload = decoded.data.payload.to_vec();
-                // `emitterAddress` is emitted as `bytes32` (cross-chain consistency); the 20-byte
-                // EVM address sits in the high bytes (`bytes32(bytes20(emitter))`). Recover it as an
-                // `Address` — the signed `messageHash` and `deliverMessage` both use `address`, so
-                // this must be the plain 20-byte value, not the padded word.
-                let emitter = Address::from_slice(&decoded.data.emitterAddress.as_slice()[..20]);
-                let hash = message_hash(
-                    decoded.data.messageId,
-                    emitter,
-                    outbox,
-                    resolved.destination_chain_key,
-                    resolved.creditcoin_chain_id,
-                    &payload,
-                );
+                // `sequence`/`emitterAddress`/`payload` are already cryptographically bound into
+                // `messageId` by `OutboxTypes.computeMessageId` at emission time (asc-contracts
+                // #54); we only need `messageId` itself to sign and `outbox` for the trust
+                // boundary already enforced above. `sequence` is decoded (it shifted the ABI
+                // layout of `canAck`/`payload`) but otherwise unused here.
                 let indexed = IndexedMessage {
                     message_id: decoded.data.messageId,
-                    emitter,
                     outbox,
                     destination_chain_key: resolved.destination_chain_key,
-                    payload,
-                    message_hash: hash,
                 };
                 tracing::debug!(
                     message_id = %indexed.message_id,
-                    message_hash = %indexed.message_hash,
                     "📨 indexed finalized MessagePublished"
                 );
                 if tx.send(indexed).await.is_err() {

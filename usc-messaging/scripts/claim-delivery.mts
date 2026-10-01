@@ -1,4 +1,4 @@
-// Level-2 relayer payout: prove the destination MessageDelivered tx via proof-gen and call
+// Level-2 relayer payout: prove the destination MessageReceived tx via proof-gen and call
 // RelayerContract.claimDelivery on the source (CC EVM). The claim is permissionless — msg.sender
 // (a dedicated claimant EOA here, funded with gas only) receives the funded relayFee (+tip).
 // Post-#23: claimDelivery/getMessageInfo moved from RelayerFeeVault to RelayerContract — the vault
@@ -36,16 +36,18 @@ destProvider.pollingInterval = 500;
 const funder = new ethers.Wallet(BALTHATHAR, srcProvider);
 const claimant = new ethers.Wallet(CLAIMANT_KEY, srcProvider);
 
-// ── 1. Find the destination delivery tx (Inbox.MessageDelivered), retrying until it's visible ─────
-const deliveredSig = ethers.id("MessageDelivered(bytes32,address,address)");
+// ── 1. Find the destination delivery tx (Inbox.MessageReceived, fires on every deliverMessage
+// attempt regardless of destination outcome — the same log EVMDeliveryDecoder proves for
+// claimDelivery), retrying until it's visible ─────
+const deliveredSig = ethers.id("MessageReceived(bytes32,address,address)");
 let deliveryTx: string | undefined;
 for (let i = 0; i < 40; i++) {
   const logs = await destProvider.getLogs({ address: dest.inbox, topics: [deliveredSig, messageId], fromBlock: 0, toBlock: "latest" });
   if (logs.length > 0) { deliveryTx = logs[0].transactionHash; break; }
-  if (i % 5 === 0) console.log(`  waiting for MessageDelivered on dest… [${i}]`);
+  if (i % 5 === 0) console.log(`  waiting for MessageReceived on dest… [${i}]`);
   await new Promise((s) => setTimeout(s, 3000));
 }
-if (!deliveryTx) throw new Error(`no MessageDelivered for ${messageId} on Inbox ${dest.inbox}`);
+if (!deliveryTx) throw new Error(`no MessageReceived for ${messageId} on Inbox ${dest.inbox}`);
 console.log("  delivery tx (dest):", deliveryTx);
 
 // ── 2. Read the funded route from RelayerContract's fee ledger (gives the canonical dest chain key) ─

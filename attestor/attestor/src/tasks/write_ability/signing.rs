@@ -1,8 +1,8 @@
 //! Message-vote signing (confluence §7.3 A5 / §6.3).
 //!
 //! Message votes use **ECDSA / secp256k1** to match the reference `EOAValidator`, distinct from the
-//! BLS scheme used for block attestations (§6.7). Each attestor signs the raw 32-byte `messageHash`
-//! directly — **no** EIP-191 / `personal_sign` prefix — producing a 65-byte `(r, s, v)` signature
+//! BLS scheme used for block attestations (§6.7). Each attestor signs the raw 32-byte `messageId`
+//! directly (asc-contracts #54) — **no** EIP-191 / `personal_sign` prefix — producing a 65-byte `(r, s, v)` signature
 //! that `ecrecover` on-chain maps back to the signer's EVM address.
 //!
 //! The EVM signing key is derived deterministically from the attestor's existing secret with domain
@@ -45,23 +45,23 @@ impl MessageSigner {
         self.address
     }
 
-    /// Sign the raw `messageHash` (no EIP-191 prefix) → 65-byte `(r, s, v)`.
-    pub fn sign(&self, message_hash: &B256) -> Result<[u8; 65]> {
+    /// Sign the raw `messageId` (no EIP-191 prefix) → 65-byte `(r, s, v)`.
+    pub fn sign(&self, message_id: &B256) -> Result<[u8; 65]> {
         let sig = self
             .signer
-            .sign_hash_sync(message_hash)
-            .context("ECDSA sign over messageHash failed")?;
+            .sign_hash_sync(message_id)
+            .context("ECDSA sign over messageId failed")?;
         Ok(sig.as_bytes())
     }
 }
 
-/// Recover the EVM signer address from a 65-byte signature over `message_hash`. Mirrors the
+/// Recover the EVM signer address from a 65-byte signature over `message_id`. Mirrors the
 /// relayer's `recover_signer` so both sides agree on who signed.
-pub fn recover_signer(message_hash: &B256, raw: &[u8; 65]) -> Result<Address> {
+pub fn recover_signer(message_id: &B256, raw: &[u8; 65]) -> Result<Address> {
     let sig: Signature = raw[..]
         .try_into()
         .map_err(|e| anyhow::anyhow!("malformed signature bytes: {e}"))?;
-    sig.recover_address_from_prehash(message_hash)
+    sig.recover_address_from_prehash(message_id)
         .map_err(|e| anyhow::anyhow!("ecrecover failed: {e}"))
 }
 

@@ -4,7 +4,7 @@
 // Sepolia Inbox is redeployed (Kevin, from main c83b3372 with INITIAL_OUTBOXES=<source.outbox>).
 // Two owner calls on Creditcoin must follow or acks and relayer fee claims break against it:
 //
-//   AcknowledgmentValidator.updateTrustedInbox(newInbox, true)   // proofs of MessageDelivered
+//   AcknowledgmentValidator.updateTrustedInbox(newInbox, true)   // proofs of MessageExecuted
 //   EVMDeliveryDecoder.setTrustedInbox(11155111, newInbox)       // claimDelivery proof decoding
 //
 // The old Inbox stays trusted on the ack validator until REVOKE_OLD=true (keep it while in-flight

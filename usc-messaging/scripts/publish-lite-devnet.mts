@@ -52,7 +52,7 @@ const outbox = new ethers.Contract(s.outbox, [
   "function coreFee() view returns (uint256)",
   "function chainKey() view returns (uint32)",
   "function approveForwarder(address forwarder, bool approved)",
-  "event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool canAck, bytes payload)",
+  "event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, uint64 sequence, bool canAck, bytes payload)",
 ], payer);
 const attest = new ethers.Contract(s.attest, [
   "function balanceOf(address) view returns (uint256)",

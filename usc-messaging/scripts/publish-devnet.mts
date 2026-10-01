@@ -84,7 +84,7 @@ const rc = new ethers.Contract(s.relayerContract,
   ["function publishAndCollectRelayerFee(bytes,bytes,uint256,uint256) returns (bytes32)"], payer);
 const rcpt = await (await rc.publishAndCollectRelayerFee(payload, signedQuote, tip, now + 3600n)).wait();
 
-const iface = new ethers.Interface(["event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool canAck, bytes payload)"]);
+const iface = new ethers.Interface(["event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, uint64 sequence, bool canAck, bytes payload)"]);
 const evt = rcpt!.logs.map((l: any) => { try { return iface.parseLog(l); } catch { return null; } }).find((e: any) => e?.name === "MessagePublished");
 if (!evt) throw new Error("no MessagePublished event in receipt");
 const messageId = evt.args.messageId as string;

@@ -1,8 +1,8 @@
 //! USC write-ability: cross-chain message attestation (confluence §7.3).
 //!
 //! When enabled (`message_attestation_enabled`), this task makes the attestor a **message
-//! validator**: it watches the Creditcoin L1 Outbox for its `chain_key`, signs the canonical
-//! `messageHash` of each finalized `MessagePublished`, and gossips an ECDSA [`MessageVote`] on
+//! validator**: it watches the Creditcoin L1 Outbox for its `chain_key`, signs the `messageId`
+//! of each finalized `MessagePublished` directly, and gossips an ECDSA [`MessageVote`] on
 //! `{chain_key}/message-votes/v1`. Relayers snoop the same topic and deliver once 2/3+1 unique
 //! attestors have voted — the attestor never relays or touches the destination chain (§1).
 //!
@@ -104,8 +104,8 @@ pub struct MessageVoteState {
     /// the write-ability task to verify + re-sign. `try_send` from the swarm loop (best effort:
     /// shedding a request under a full buffer just means that stall recovers on the next request).
     pub reobs_tx: mpsc::Sender<ReobservationRequest>,
-    /// The `bytes32` write-ability chain key bound into every `messageHash` and used to resolve the
-    /// Outbox via `historical OutboxDiscovery membership`. Sourced from the on-chain `WriteAbilityConfigs`
+    /// The `bytes32` write-ability chain key this attestor is authorized to sign for, and used to
+    /// resolve the Outbox via `historical OutboxDiscovery membership`. Sourced from the on-chain `WriteAbilityConfigs`
     /// entry when one is registered for this `chain_key`; derived locally (right-padded `u64`)
     /// otherwise. `None` pauses signing until a successful finalized governance read enables it.
     /// Held through signing so a concurrent disable/key change cannot authorize a stale message.
@@ -1219,7 +1219,7 @@ fn produce_vote(
         tracing::debug!(message_id = %indexed.message_id, "message signing paused or destination key changed");
         return;
     }
-    let signature = match signer.sign(&indexed.message_hash) {
+    let signature = match signer.sign(&indexed.message_id) {
         Ok(sig) => sig,
         Err(err) => {
             tracing::error!(%err, message_id = %indexed.message_id, "failed to sign message vote");
@@ -1241,13 +1241,13 @@ fn produce_vote(
     {
         let now = Instant::now();
         let mut agg = state.aggregator.lock();
-        agg.note_indexed(indexed.message_hash.0, now);
+        agg.note_indexed(indexed.message_id.0, now);
         if authorized {
             if let aggregator::VoteOutcome::Accepted {
                 reached_threshold: true,
-            } = agg.add_vote(indexed.message_hash.0, our_address, now)
+            } = agg.add_vote(indexed.message_id.0, our_address, now)
             {
-                ingest::note_threshold(chain_key, &indexed.message_hash);
+                ingest::note_threshold(chain_key, &indexed.message_id);
             }
         }
     }
@@ -1261,7 +1261,6 @@ fn produce_vote(
     let vote = MessageVote {
         chain_key,
         message_id: indexed.message_id.0,
-        message_hash: indexed.message_hash.0,
         signer: our_address.into_array(),
         signature,
     };
@@ -1274,7 +1273,6 @@ fn produce_vote(
     match state.publish_tx.try_send(vote) {
         Ok(()) => tracing::info!(
             message_id = %indexed.message_id,
-            message_hash = %indexed.message_hash,
             "✉️ queued message vote for gossip"
         ),
         Err(mpsc::error::TrySendError::Full(_)) => tracing::warn!(
@@ -1347,7 +1345,6 @@ async fn handle_reobservation<P: alloy::providers::Provider>(
     // itself. Re-gossiping is idempotent at the relayer (it dedups), so the worst case is harmless.
     tracing::info!(
         %message_id,
-        message_hash = %indexed.message_hash,
         "♻️ re-signing reobserved message"
     );
     produce_vote(state, metrics, signer, our_address, chain_key, indexed);
@@ -1480,18 +1477,10 @@ mod tests {
     }
 
     fn message(key: B256) -> listener::IndexedMessage {
-        let message_id = B256::repeat_byte(1);
-        let emitter = KEY_B;
-        let payload = vec![42];
         listener::IndexedMessage {
-            message_id,
-            emitter,
+            message_id: B256::repeat_byte(1),
             outbox: KEY_A,
             destination_chain_key: key,
-            message_hash: write_ability::hash::message_hash(
-                message_id, emitter, KEY_A, key, 42, &payload,
-            ),
-            payload,
         }
     }
 
@@ -1626,10 +1615,7 @@ mod tests {
             sign();
             let first_vote = votes.try_recv().unwrap();
             assert_eq!(
-                state
-                    .aggregator
-                    .lock()
-                    .signer_count(&first_vote.message_hash),
+                state.aggregator.lock().signer_count(&first_vote.message_id),
                 1
             );
 
@@ -1652,7 +1638,7 @@ mod tests {
                 state
                     .aggregator
                     .lock()
-                    .add_vote(first_vote.message_hash, KEY_B, Instant::now(),),
+                    .add_vote(first_vote.message_id, KEY_B, Instant::now(),),
                 aggregator::VoteOutcome::Accepted {
                     reached_threshold: true
                 },

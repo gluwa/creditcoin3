@@ -46,7 +46,7 @@ if (!body.signedQuote) throw new Error("quoter: " + JSON.stringify(body));
 const rc = new ethers.Contract(s.relayerContract, ["function publishAndCollectRelayerFee(bytes,bytes,uint256,uint256) returns (bytes32)"], payer);
 const now = BigInt((await provider.getBlock("latest"))!.timestamp);
 const rcpt = await (await rc.publishAndCollectRelayerFee(payload, body.signedQuote, ethers.parseEther("5"), now + 3600n)).wait();
-const iface = new ethers.Interface(["event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool canAck, bytes payload)"]);
+const iface = new ethers.Interface(["event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, uint64 sequence, bool canAck, bytes payload)"]);
 const evt = rcpt!.logs.map((l: any) => { try { return iface.parseLog(l); } catch { return null; } }).find((e: any) => e?.name === "MessagePublished");
 const messageId = evt!.args.messageId as string;
 // Persist for the ack + claimDelivery assertions (they key off the exact messageId).
