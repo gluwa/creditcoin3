@@ -423,7 +423,7 @@ async fn main() -> Result<()> {
                 let ws_client = tokio::select! {
                     _ = cancelled(&mut backfill_cancel) => {
                         tracing::info!("backfill interrupted by shutdown before dialing");
-                        return Ok(());
+                        return backfill_shutdown(&store, cfg.start_height, range_end);
                     }
                     c = new_fetch_client(&cfg, rpc_timeout) => c?,
                 };
@@ -451,7 +451,7 @@ async fn main() -> Result<()> {
                 let mut gap_stream = tokio::select! {
                     _ = cancelled(&mut backfill_cancel) => {
                         tracing::info!("backfill interrupted by shutdown before subscribing");
-                        return Ok(());
+                        return backfill_shutdown(&store, cfg.start_height, range_end);
                     }
                     s = stream_eth::StreamRoots::new(gap_config) => s,
                 };
@@ -503,7 +503,7 @@ async fn main() -> Result<()> {
                 store.flush().await?;
                 if *backfill_cancel.borrow() {
                     tracing::info!(from = gap_start, filled, "backfill: stopped by shutdown");
-                    return Ok(());
+                    return backfill_shutdown(&store, cfg.start_height, range_end);
                 }
                 tracing::info!(
                     from = gap_start,
@@ -986,6 +986,18 @@ fn log_out_of_range(store: &RootStore, start: u64, end: u64) -> Result<()> {
     Ok(())
 }
 
+/// Exit status for a backfill stopped by SIGTERM / Ctrl+C. Following the tip there is no
+/// "done", so a shutdown is a clean exit. A range shard is only done once `start..=end` is
+/// complete: an interrupted one must exit non-zero, or a job supervisor records the shard as
+/// finished and never reruns it (a rerun resumes from the remaining gaps).
+fn backfill_shutdown(store: &RootStore, start: u64, range_end: Option<u64>) -> Result<()> {
+    match range_end {
+        Some(end) => ensure_range_complete(store, start, end)
+            .context("range backfill interrupted by shutdown before the range was complete"),
+        None => Ok(()),
+    }
+}
+
 /// Verify every block in `start..=end` is stored. Returns an error listing the gaps if not.
 fn ensure_range_complete(store: &RootStore, start: u64, end: u64) -> Result<()> {
     log_out_of_range(store, start, end)?;
@@ -1319,6 +1331,49 @@ mod tests {
 
     use super::*;
     use eth::{BlockTag, Maturity};
+
+    fn store_with(heights: impl IntoIterator<Item = u64>) -> (tempfile::TempDir, RootStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        let entries: Vec<_> = heights
+            .into_iter()
+            .map(|h| (h, sp_core::H256::random(), sp_core::H256::random()))
+            .collect();
+        store.put_roots(&entries).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn a_range_shard_interrupted_mid_range_exits_non_zero() {
+        // SIGTERM after 100..=149 of a 100..=199 shard: the supervisor must see a failure.
+        let (_dir, store) = store_with(100..=149);
+        let err = backfill_shutdown(&store, 100, Some(199)).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("50 of 100 blocks missing"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn a_range_shard_interrupted_before_any_block_exits_non_zero() {
+        // Shutdown before the first dial: nothing stored at all.
+        let (_dir, store) = store_with([]);
+        assert!(backfill_shutdown(&store, 100, Some(199)).is_err());
+    }
+
+    #[test]
+    fn a_range_shard_stopped_after_its_last_block_exits_cleanly() {
+        // SIGTERM landing after the final batch was written: the shard is complete.
+        let (_dir, store) = store_with(100..=199);
+        backfill_shutdown(&store, 100, Some(199)).unwrap();
+    }
+
+    #[test]
+    fn a_tip_following_backfill_stopped_by_shutdown_exits_cleanly() {
+        // No range end: there is no "done", so an interrupted backfill is a clean exit.
+        let (_dir, store) = store_with(100..=149);
+        backfill_shutdown(&store, 100, None).unwrap();
+    }
 
     #[test]
     fn an_unread_or_stale_head_is_unknown_and_does_not_clamp() {
