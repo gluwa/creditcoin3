@@ -2570,6 +2570,14 @@ mod grandpa_equivocation_tests {
                     grandpa_call,
                 )
             );
+            // Reports are only accepted from the local node or in a block, never gossiped.
+            assert_err!(
+                <Grandpa as sp_runtime::traits::ValidateUnsigned>::validate_unsigned(
+                    TransactionSource::External,
+                    grandpa_call,
+                ),
+                InvalidTransaction::Call
+            );
             assert_ok!(call.clone().dispatch(RuntimeOrigin::none()));
 
             assert_eq!(grandpa_offences(), 1);
