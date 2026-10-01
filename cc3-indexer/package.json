@@ -28,7 +28,7 @@
     "author": "gluwa",
     "license": "MIT",
     "devDependencies": {
-        "@polkadot/api": "16.5.2",
+        "@polkadot/api": "17.0.1",
         "@subql/cli": "6.6.0",
         "@subql/common-substrate": "4.5.2",
         "@subql/frontier-evm-processor": "1.0.3",
@@ -38,7 +38,7 @@
         "@typechain/ethers-v5": "^11.1.2",
         "@typescript-eslint/eslint-plugin": "8.68.0",
         "@typescript-eslint/parser": "8.68.0",
-        "dotenv": "17.4.0",
+        "dotenv": "18.0.4",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
         "prettier": "^3.9.4",
