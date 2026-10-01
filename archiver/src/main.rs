@@ -485,7 +485,12 @@ async fn main() -> Result<()> {
     // ── Connect to chain ────────────────────────────────────────────────
     // Reuse the verified clients: WS for StreamRoots (subscriptions + block fetching),
     // HTTP for chain head tracking.
-    tracing::info!(chain_id = source_chain_id, ws = %cfg.rpc_ws, http = %cfg.rpc_http, "connected to chain");
+    tracing::info!(
+        chain_id = source_chain_id,
+        ws = %eth::redact_url_query(cfg.rpc_ws.as_str()),
+        http = %eth::redact_url_query(cfg.rpc_http.as_str()),
+        "connected to chain"
+    );
 
     // ── Root stream (with automatic reconnection) ───────────────────────
     let stream_config = stream_eth::roots::ConfigBuilder::new()
