@@ -423,23 +423,34 @@ where
 
             Ok(maybe_highest.unwrap_or_default())
         } else {
-            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+            // One lookup for the `attestations_stable` guard read, one for the `iter_prefix`
+            // scan that follows it.
+            handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
             let mut items_processed = 0_u64;
 
-            // If the target height is lower than the last checkpoint height, we first search through the attestations directly.
-            let highest = if let Some(highest) = Attestations::<Runtime>::iter_prefix(chain_key)
-                .inspect(|_| {
-                    items_processed += 1;
-                })
-                .filter(|(_, attestation)| attestation.header_number() < target_height)
-                .max_by_key(|(_, attestation)| attestation.header_number())
-                .map(|(hash, attestation)| HeightHashResult {
-                    height: attestation.header_number(),
-                    hash,
-                    is_attestation: true,
-                    exists: true,
-                }) {
+            // If the target height is lower than the last checkpoint height, we first search
+            // through the attestations directly. Skip the scan while a cleanup cursor is
+            // draining `chain_key`'s `Attestations` — any row found could be stale post-revert
+            // data — and fall through to the checkpoint below instead.
+            let highest = if let Some(highest) =
+                PalletAttestationPoc::<Runtime>::attestations_stable(chain_key)
+                    .then(|| {
+                        Attestations::<Runtime>::iter_prefix(chain_key)
+                            .inspect(|_| {
+                                items_processed += 1;
+                            })
+                            .filter(|(_, attestation)| attestation.header_number() < target_height)
+                            .max_by_key(|(_, attestation)| attestation.header_number())
+                            .map(|(hash, attestation)| HeightHashResult {
+                                height: attestation.header_number(),
+                                hash,
+                                is_attestation: true,
+                                exists: true,
+                            })
+                    })
+                    .flatten()
+            {
                 highest
             } else if let Some(last_checkpoint_height) = maybe_last_checkpoint_height {
                 // `checkpoint_if_stable` does the `CheckpointPruningStates` guard read plus the
@@ -550,24 +561,32 @@ where
 
             Ok(maybe_lowest.unwrap_or_default())
         } else {
-            // This is the lookup of the first iter_prefix below.
-            handle.record_cost(GAS_STORAGE_LOOKUP)?;
+            // One lookup for the `attestations_stable` guard read, one for the `iter_prefix`
+            // scan that follows it.
+            handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
             let mut items_processed = 0_u64;
 
-            // Otherwise if the latest checkpoint is below or at the target height, we search through the attestations directly.
-            let lowest = Attestations::<Runtime>::iter_prefix(chain_key)
-                .inspect(|_| {
-                    items_processed += 1;
+            // Otherwise if the latest checkpoint is below or at the target height, we search
+            // through the attestations directly. Skip the scan while a cleanup cursor is
+            // draining `chain_key`'s `Attestations` — any row found could be stale post-revert
+            // data.
+            let lowest = PalletAttestationPoc::<Runtime>::attestations_stable(chain_key)
+                .then(|| {
+                    Attestations::<Runtime>::iter_prefix(chain_key)
+                        .inspect(|_| {
+                            items_processed += 1;
+                        })
+                        .filter(|(_, attestation)| attestation.header_number() >= target_height)
+                        .min_by_key(|(_, attestation)| attestation.header_number())
+                        .map(|(hash, attestation)| HeightHashResult {
+                            height: attestation.header_number(),
+                            hash,
+                            is_attestation: true,
+                            exists: true,
+                        })
                 })
-                .filter(|(_, attestation)| attestation.header_number() >= target_height)
-                .min_by_key(|(_, attestation)| attestation.header_number())
-                .map(|(hash, attestation)| HeightHashResult {
-                    height: attestation.header_number(),
-                    hash,
-                    is_attestation: true,
-                    exists: true,
-                })
+                .flatten()
                 .unwrap_or_default();
 
             handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
@@ -592,16 +611,23 @@ where
 
         let (found_prev, found_next) = match maybe_last_checkpoint_height {
             Some(last_checkpoint_height) if last_checkpoint_height < target_height => {
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                // One lookup for the `attestations_stable` guard read, one for the
+                // `iter_prefix` scan that follows it.
+                handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
                 let mut items_processed = 0_u64;
 
-                // We check through the attestations for any attestation above (or at) the target height.
-                let found_next_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
-                    .inspect(|_| {
-                        items_processed += 1;
-                    })
-                    .any(|(_, attestation)| attestation.header_number() >= target_height);
+                // We check through the attestations for any attestation above (or at) the
+                // target height. Skip while a cleanup cursor is draining `chain_key`'s
+                // `Attestations` — any row found could be stale post-revert data — so we can't
+                // confirm this bound.
+                let found_next_attestation =
+                    PalletAttestationPoc::<Runtime>::attestations_stable(chain_key)
+                        && Attestations::<Runtime>::iter_prefix(chain_key)
+                            .inspect(|_| {
+                                items_processed += 1;
+                            })
+                            .any(|(_, attestation)| attestation.header_number() >= target_height);
 
                 handle.record_cost(GAS_STORAGE_LOOKUP * items_processed)?;
 
@@ -649,8 +675,14 @@ where
                 (true, true)
             }
             None => {
-                // We have no checkpoints, so we check through the attestations directly.
-                handle.record_cost(GAS_STORAGE_LOOKUP)?;
+                // We have no checkpoints, so we check through the attestations directly. While
+                // a cleanup cursor is draining `chain_key`'s `Attestations`, nothing found there
+                // is trustworthy, so we can't confirm either bound.
+                handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
+                if !PalletAttestationPoc::<Runtime>::attestations_stable(chain_key) {
+                    return Ok(false);
+                }
+
                 let mut items_processed = 0_u64;
 
                 let found_attestation = Attestations::<Runtime>::iter_prefix(chain_key)
@@ -736,9 +768,13 @@ where
     ) -> EvmResult<HeightResult> {
         ensure_chain_supported::<Runtime>(handle, chain_key)?;
 
-        handle.record_cost(GAS_STORAGE_LOOKUP)?;
+        // `Pallet::get` does the `AttestationClearingCursors` guard read plus the `Attestations`
+        // read — charge both (matches `get_checkpoint_for_height`). It returns `None` while a
+        // cleanup cursor is draining for `chain_key`, so a stale post-revert row can't be
+        // reported as a live attestation height.
+        handle.record_cost(GAS_STORAGE_LOOKUP.saturating_mul(2))?;
 
-        if let Some(attestation) = Attestations::<Runtime>::get(chain_key, digest) {
+        if let Some(attestation) = PalletAttestationPoc::<Runtime>::get(chain_key, digest) {
             Ok(HeightResult {
                 height: attestation.header_number(),
                 exists: true,

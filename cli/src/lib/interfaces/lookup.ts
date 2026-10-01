@@ -3616,6 +3616,7 @@ export default {
             'CheckpointSuffixWipeTooLarge',
             'TooManyAttestationsForForwardPatchClear',
             'OversizedContinuityProof',
+            'AttestationCleanupInProgress',
         ],
     },
     /**

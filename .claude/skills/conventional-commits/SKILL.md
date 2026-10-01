@@ -18,7 +18,8 @@ Every commit message and every PR title in this repo follows
 <footer>
 ```
 
-- **Header** (`<type>(<scope>): <subject>`) is required: aim for 72 characters, hard limit 100.
+- **Header** (`<type>(<scope>): <subject>`) is required, **scope included**: aim for 72 characters,
+  hard limit 100.
 - **Body** is optional. Explain *why* the change is needed and what it does not do, wrapped at 72.
 - **Footer** is optional: `BREAKING CHANGE: <what breaks and how to migrate>`, `Refs: CSUB-2054`.
 
@@ -43,15 +44,32 @@ A breaking change adds `!` after the type or scope (`feat(attestation)!: …`) *
 extrinsic, event or error index, a precompile ABI change, or anything that forces attestors to
 upgrade in lockstep with the runtime.
 
-### Scope
+### Scope (required)
 
-The scope names the part of the repo that changed, in lowercase: normally the crate or top-level
-directory. Recent examples: `archiver`, `attestor`, `attestation`, `proof-gen`, `eth`, `cli`,
-`node`, `runtime`, `precompiles`, `continuity`, `stream_eth`, `stream_cc3`, `checkpoint-builder`,
-`write-ability`, `hooks`, `docker`, `deps`.
+Every header carries a scope, so `git log` shows at a glance which part of the system changed:
+`fix(archiver): …`, `feat(pallets): …`, not `fix: …`. Use the area the diff lives in, lowercase:
 
-- Two areas: separate with a comma, no space: `fix(eth,continuity): …`.
-- Omit the scope rather than invent a vague one (`ci: …` is fine).
+| path | scope |
+|---|---|
+| `pallets/<name>` | `pallets`, or the pallet for a change confined to it: `attestation`, `supported-chains`, `randomness` |
+| `runtime/` | `runtime` |
+| `precompiles/<name>` | `precompiles`, or the precompile: `block-prover`, `chain-info` |
+| `node/`, `chainspecs/` | `node`, `chainspecs` |
+| `attestor/` | `attestor` |
+| `archiver/` | `archiver` |
+| `proof-gen-api-server/` | `proof-gen` |
+| `checkpoint-builder/`, `checkpoint-verifier/` | `checkpoint-builder`, `checkpoint-verifier` |
+| `common/<crate>` | the crate: `eth`, `cc-client`, `continuity`, `merkle`, `stream_eth`, `stream_cc3` |
+| `primitives/` | `primitives` |
+| `cli/`, `query-cli/` | `cli`, `query-cli` |
+| `cc3-indexer/` | `cc3-indexer` |
+| `.github/workflows/` | the workflow's area: `ci(docker)`, `ci(attestor-network)`, `ci(release)` |
+| dependency bumps | `deps` (Dependabot: `build(deps)`) |
+| release / version bump | `release`: `chore(release): bump version to 3.139.0` |
+| `docs/`, `scripts/`, `.claude/` | `docs`, `scripts`, `claude` |
+
+- Two areas: separate with a comma, no space: `fix(eth,continuity): …`. More than two usually means
+  the commit should be split, or the parent area fits (`pallets` rather than three pallet names).
 - Ticket IDs are **not** scopes. `fix(DO-2338): …` is wrong; see below.
 
 ### Subject

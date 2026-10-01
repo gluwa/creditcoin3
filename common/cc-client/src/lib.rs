@@ -802,28 +802,48 @@ impl Client {
         &self,
         chain_key: ChainKey,
     ) -> Result<Option<(u64, Digest)>, Error> {
-        let storage_query = cc3::storage().attestation().last_digest(chain_key);
+        // `None` here means subxt's `at_latest()`: the latest *finalized* block.
+        self.fetch_last_attestation_at(chain_key, None).await
+    }
 
-        let result = self
-            .api()
-            .storage()
-            .at_latest()
+    /// Height and digest of the chain's latest attestation included in the node's best block,
+    /// with the same checkpoint fallback as [`Self::fetch_last_finalized`]. Runs ahead of the
+    /// finalized reading by Creditcoin's finality delay. An included attestation has already
+    /// passed runtime validation, so the source heights it covers are mature even if the block
+    /// carrying it is later re-orged out; callers must still treat the reading as
+    /// non-monotonic, since a fork switch can lower it.
+    pub async fn fetch_last_included(
+        &self,
+        chain_key: ChainKey,
+    ) -> Result<Option<(u64, Digest)>, Error> {
+        // `None` here is the raw `chain_getBlockHash` RPC's "no block number", which the node
+        // answers with its *best* (unfinalized) head, not the finalized one.
+        let best = self
+            .legacy()
+            .chain_get_block_hash(None)
             .await?
-            .fetch(&storage_query)
-            .await?;
+            .ok_or_else(|| {
+                Error::SubxtError(subxt::Error::Other("node reported no best block".into()))
+            })?;
+        self.fetch_last_attestation_at(chain_key, Some(best)).await
+    }
 
-        if let Some((height, digest)) = result {
+    /// `LastDigest`, else `LastCheckpoint`, both read from one storage snapshot at `at` (the
+    /// latest finalized block when `None`).
+    async fn fetch_last_attestation_at(
+        &self,
+        chain_key: ChainKey,
+        at: Option<H256>,
+    ) -> Result<Option<(u64, Digest)>, Error> {
+        let storage = self.storage_at(at).await?;
+
+        let storage_query = cc3::storage().attestation().last_digest(chain_key);
+        if let Some((height, digest)) = storage.fetch(&storage_query).await? {
             return Ok(Some((height, Digest::from(digest.0))));
         }
 
         let checkpoint_query = cc3::storage().attestation().last_checkpoint(chain_key);
-        let checkpoint = self
-            .api()
-            .storage()
-            .at_latest()
-            .await?
-            .fetch(&checkpoint_query)
-            .await?;
+        let checkpoint = storage.fetch(&checkpoint_query).await?;
 
         Ok(checkpoint.map(|c| (c.block_number, Digest::from_slice(&c.digest.0))))
     }

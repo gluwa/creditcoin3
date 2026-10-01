@@ -15,7 +15,7 @@
     },
     {
       "chainId": 56,
-      "chainKey": 8,
+      "chainKey": 9,
       "url": "https://bsc-rpc.publicnode.com"
     }
   ],
