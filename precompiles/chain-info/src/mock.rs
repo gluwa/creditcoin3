@@ -129,6 +129,12 @@ impl From<sp_core::sr25519::Public> for Account {
 parameter_types! {
     pub const BlockHashCount: u32 = 250;
     pub const SS58Prefix: u8 = 42;
+    // The runtime's smallest (devnet) block budget, so pallet integrity tests see a real limit.
+    pub BlockWeights: frame_system::limits::BlockWeights =
+        frame_system::limits::BlockWeights::with_sensible_defaults(
+            Weight::from_parts(1_666 * frame_support::weights::constants::WEIGHT_REF_TIME_PER_MILLIS, u64::MAX),
+            Perbill::from_percent(75),
+        );
 }
 
 impl frame_system::Config for Runtime {
@@ -158,7 +164,7 @@ impl frame_system::Config for Runtime {
     type OnNewAccount = ();
     type OnKilledAccount = ();
     type SystemWeightInfo = ();
-    type BlockWeights = ();
+    type BlockWeights = BlockWeights;
     type BlockLength = ();
     type SS58Prefix = SS58Prefix;
     type OnSetCode = ();
@@ -435,7 +441,7 @@ impl pallet_attestation::Config for Runtime {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
-    type MaxCheckpointingQueueLen = ConstU32<1024>;
+    type MaxCheckpointingQueueLen = ConstU32<2048>;
     type DefaultAttestationRetentionDuration = ConstU32<10>;
     type MaxCheckpointsImportedPerCall = ConstU32<100>;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
