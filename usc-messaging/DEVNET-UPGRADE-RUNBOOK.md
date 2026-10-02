@@ -22,7 +22,7 @@ Total wall time on usc-devnet: ~4 h including the two detours in §10.
 | Relayer image | `gluwa/asc-message-relayer:main-<sha7>` | pushed by relayer CI |
 | Operator | `gluwa/attestor-operator` ≥ 0.5.3 | needed for `spec.ethChainFamily` (OP-Stack) |
 | IaC | cc-networks-iac `k8s/networks/cc3-usc-dev/cc3-usc-dev/**`, branch `usc/messaging` | attestors are operator `AttestorSet` CRs, the rest is Helm |
-| Clusters | `usc-devnet-cluster` (relayer, spy, proof-gen, Base set, 4 Sepolia attestors), `usc-devnet-kc-cluster`, `usc-devnet-we-cluster` | namespace `creditcoin`; `cc3-dryrun-devnet-cluster` is a different network |
+| Clusters | `usc-devnet-cluster` (relayer, observer, proof-gen, Base set, 4 Sepolia attestors), `usc-devnet-kc-cluster`, `usc-devnet-we-cluster` | namespace `creditcoin`; `cc3-dryrun-devnet-cluster` is a different network |
 
 Decide up front, per destination chain: EVM chain id, attestation interval, checkpoint interval,
 target sample size (quorum is `2/3·target + 1` and target is a cap: keep it ≤ fleet size but ≥ 2),
@@ -92,13 +92,13 @@ Operator image: `docker buildx --builder attest` (docker-container driver, neede
 4. Proof-gen: bump the image, add the chain (`ethChainFamily`, archiver service, depth). Config-only
    Helm changes need `kubectl rollout restart sts/cc3-usc-dev-proof-gen-api`.
 
-## 5. Relayer and spy node (one deployment each, multi-chain)
+## 5. Relayer and observer node (one deployment each, multi-chain)
 
-1. Spy node: `chainKeys: [8, 9, …]`, one bootnode multiaddr per chain
+1. Observer node: `chainKeys: [8, 9, …]`, one bootnode multiaddr per chain
    (`/dns4/cc3-usc-dev-<chain>-attestor-bootnode-headless/tcp/<p2p>/p2p/<peerId>`), then
    `rollout restart` (config-only).
 2. Relayer: image `main-<sha7>`, one route per chain (`chainKey`, `inboxAddress`, destination RPC,
-   signer key, attestor-set contract, ack validator, Lite, depth), votes from the spy node.
+   signer key, attestor-set contract, ack validator, Lite, depth), votes from the observer node.
    Route options: `max_native_coin_value_wei` (default 0), `max_gas_limit` (5M),
    `auto_request_top_up` (off). Restart rewinds scans by 600 blocks; decoder reverts are classified
    terminal and never retried (use `claim-delivery-devnet.mts`).
@@ -133,7 +133,7 @@ IaC PRs. Keep old Inboxes trusted on the ack validator until nothing pends on th
 
 runtime (fast-runtime 136) → discovery for 8 and 9 → operator 0.5.3 + CRD → register Base (chain
 key 9) → Base destination + source contracts → Base attestor set + archiver → proof-gen (8 + 9) →
-Sepolia attestors rolled (3 clusters) → relayer two routes + spy node → Base publish/deliver/ack →
+Sepolia attestors rolled (3 clusters) → relayer two routes + observer node → Base publish/deliver/ack →
 Sepolia #36 Inbox + router (detour) → decoder redeploy (detour) → Base claim.
 
 ## 10. Detours worth remembering

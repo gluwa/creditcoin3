@@ -130,7 +130,7 @@ Config (`config.example.yaml` in the relayer repo is the annotated reference):
 - `ack:` block — **required** whenever `relayer_contract_address` is set, or relay fees are never
   claimed: `proof_gen_url` (devnet proof-gen), `validator_address` (§2b.4), funded Creditcoin
   `signer_key`, `confirmation_depth: 64` (Sepolia).
-- Vote source: embedded `p2p` with the devnet attestor bootnode multiaddrs (spy-node mode is the
+- Vote source: embedded `p2p` with the devnet attestor bootnode multiaddrs (observer-node mode is the
   target architecture but optional for first deploy).
 
 Fund both signers before start; the relayer pays destination gas out of pocket and recoups via
