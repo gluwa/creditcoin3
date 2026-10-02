@@ -8,6 +8,12 @@ pub struct Config {
     pub(crate) url_eth: RpcSecret,
     pub(crate) url_cc3: RpcSecret,
     pub(crate) secret: AttestorSecret,
+    /// Cap on source-chain RPC requests per second. `None` leaves requests unpaced.
+    #[default(None)]
+    pub(crate) eth_rps: Option<std::num::NonZeroU32>,
+    /// Source-chain blocks fetched concurrently while catching up.
+    #[default(common::constants::MAX_CONCURRENT_RPC_CALLS)]
+    pub(crate) eth_max_concurrency: std::num::NonZeroUsize,
 }
 
 /// Secret used for the attestor identity: BIP39 mnemonic or raw 32-byte seed as hex.
