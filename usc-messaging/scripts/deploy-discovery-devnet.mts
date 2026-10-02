@@ -1,5 +1,6 @@
-// usc-dev: deploy the Outbox discovery registry on CREDITCOIN (chain 42) and register the live
-// Outbox as the default for chain key 8. This is prerequisite (b) of the discovery cutover
+// Legacy (usc-devnet): deploy the Outbox discovery registry on CREDITCOIN and register an ALREADY
+// LIVE Outbox as the default for CHAIN_KEY (default 8). Fresh networks get ChainRegistry +
+// OutboxDiscovery from deploy-shared-devnet.mts and register Outboxes in deploy-source-chain-devnet. This is prerequisite (b) of the discovery cutover
 // (creditcoin3 #1292 / asc-message-relayer #50 resolve the Outbox only through this registry):
 //
 //   ChainRegistry(owner) ── setChain(8, 11155111)
@@ -16,6 +17,7 @@
 // main c83b3372 or later), optional CC_RPC, DEPLOY_OUT (defaults to ../usc-dev-deploy.json).
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
 function ascContractsDir(): string {
   const dir = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
@@ -24,15 +26,15 @@ function ascContractsDir(): string {
 }
 const UC = ascContractsDir();
 const ART = (p: string, n: string) => JSON.parse(readFileSync(`${UC}/artifacts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
-const CHAIN_KEY = 8;
-const DEST_CHAIN_ID = 11155111; // Sepolia
-const CC_CHAIN_ID = 42;
+const NET = network();
+const OUT = deployPath(NET);
+const CHAIN_KEY = Number(process.env.CHAIN_KEY ?? 8);
+const DEST_CHAIN_ID = Number(process.env.DEST_CHAIN_ID ?? 11155111); // Sepolia
+const CC_CHAIN_ID = NET.evmChainId;
 if (!process.env.DEPLOYER_KEY) throw new Error("missing DEPLOYER_KEY");
 
-const rpc = process.env.CC_RPC ?? "https://rpc.usc-devnet.creditcoin.network";
-const provider = new ethers.JsonRpcProvider(rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const rpc = ccRpc(NET);
+const { provider } = await ccProvider(NET, rpc);
 const wallet = new ethers.Wallet(process.env.DEPLOYER_KEY, provider);
 
 async function deploy(name: string, art: any, args: any[] = []) {
@@ -44,7 +46,7 @@ async function deploy(name: string, art: any, args: any[] = []) {
 
 const addrs = JSON.parse(readFileSync(OUT, "utf8"));
 const s = addrs.source;
-if (!s?.outbox) throw new Error("usc-dev-deploy.json has no source.outbox");
+if (!s?.outbox) throw new Error(`${OUT} has no source.outbox`);
 if (Number(s.chainKey ?? CHAIN_KEY) !== CHAIN_KEY) throw new Error(`source.chainKey is ${s.chainKey}, expected ${CHAIN_KEY}`);
 console.log(`deployer ${wallet.address}  balance ${ethers.formatEther(await provider.getBalance(wallet.address))} CTC`);
 console.log(`Outbox to register: ${s.outbox} (chain key ${CHAIN_KEY} → Sepolia ${DEST_CHAIN_ID})`);

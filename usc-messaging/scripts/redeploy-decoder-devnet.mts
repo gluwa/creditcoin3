@@ -16,18 +16,19 @@
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
 const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
 if (!UC) throw new Error("set ASC_CONTRACTS_DIR to a compiled asc-contracts checkout (main c83b3372+, `npx hardhat compile`)");
 const ART = (p: string, n: string) => JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
-const CC_CHAIN_ID = 42;
+const NET = network();
+const OUT = deployPath(NET);
+const CC_CHAIN_ID = NET.evmChainId;
 if (!process.env.DEPLOYER_KEY) throw new Error("missing DEPLOYER_KEY");
 
 const addrs = JSON.parse(readFileSync(OUT, "utf8"));
 const s = addrs.source;
-const provider = new ethers.JsonRpcProvider(process.env.CC_RPC ?? s.rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const { provider } = await ccProvider(NET, s.rpc);
 const wallet = new ethers.Wallet(process.env.DEPLOYER_KEY, provider);
 console.log("deployer:", wallet.address, "balance:", ethers.formatEther(await provider.getBalance(wallet.address)), "CTC");
 

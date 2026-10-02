@@ -24,6 +24,28 @@ Total wall time on usc-devnet: ~4 h including the two detours in §10.
 | IaC | cc-networks-iac `k8s/networks/cc3-usc-dev/cc3-usc-dev/**`, branch `usc/messaging` | attestors are operator `AttestorSet` CRs, the rest is Helm |
 | Clusters | `usc-devnet-cluster` (relayer, observer, proof-gen, Base set, 4 Sepolia attestors), `usc-devnet-kc-cluster`, `usc-devnet-we-cluster` | namespace `creditcoin`; `cc3-dryrun-devnet-cluster` is a different network |
 
+### 0a. asc-devnet (since 2 Oct 2026)
+
+The scripts select the network with `NETWORK=asc-devnet` (default) or `NETWORK=usc-devnet`
+(frozen; `scripts/network.mjs` holds the table). The table above is the usc-devnet column; the
+asc-devnet values are:
+
+| Item | asc-devnet value | Notes |
+| --- | --- | --- |
+| Chain | EVM chain id `102037`, Substrate + EVM RPC `rpc.asc-devnet.creditcoin.network`, runtime spec 139 | `cc3-playground-{,kc-,we-}cluster`, namespace `asc-devnet`, release prefix `cc3-asc-dev-` |
+| Sudo | `5DvkDUXfs72eg3ehvDSMrMBjxqTdguqJ4qVMGxBEZJR2tc6o` (`~/.asc-devnet-sudo.env`, `SUDO_URI`) | the `.mjs` scripts refuse a `SUDO_URI` that is not `sudo.key()` |
+| Chain keys | `1` Ethereum Sepolia, `2` Base Sepolia, both `RpcSafe`, already registered | run `pallet-config-devnet.mjs` per key; `register-chain-devnet.mjs` is not needed |
+| Deploy record | `usc-messaging/asc-devnet-deploy.json` | seeded with the chain keys and the attestor EVM signers (`chains.<K>.attestorSigners`) |
+| Deployer | `0xf24FF3a9…` (`~/.usc-dev-deployer.env`) | held 0 CTC on 2 Oct: fund it (sudo `balances.forceSetBalance` or the `attestor-funder` account) before step 0 |
+| Destination deployers | Sepolia `0x66C27cfd…` (`SEPOLIA_ADMIN_KEY`), Base Sepolia `0x97c2cdaB…` (`BASE_SEPOLIA_KEY`) | the only funded EOAs on those chains (0.67 / 0.20 ETH on 2 Oct) |
+| Compiled contracts | asc-contracts `main` ≥ 3f9259e (#54 messageId protocol) | `deliverMessage` selector changed vs usc-devnet: decoder deploys fresh |
+
+Order for a fresh network: `deploy-shared-devnet.mts` (shared Creditcoin contracts + ChainRegistry
++ OutboxDiscovery), then per chain key `pallet-config-devnet.mjs` (sudo), `deploy-dest-chain-devnet.mts`
+(destination; seeds the registry from `chains.<K>.attestorSigners`) and `deploy-source-chain-devnet.mts`
+(Creditcoin per-chain stack, registers the Outbox in discovery). `deploy-source-devnet.mts` /
+`deploy-discovery-devnet.mts` are the usc-devnet legacy path and are not used here.
+
 Decide up front, per destination chain: EVM chain id, attestation interval, checkpoint interval,
 target sample size (quorum is `2/3·target + 1` and target is a cap: keep it ≤ fleet size but ≥ 2),
 max attestors, genesis block (a recent multiple of the interval), maturity (`FixedDelay: 20` on

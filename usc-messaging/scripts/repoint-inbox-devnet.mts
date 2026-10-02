@@ -1,4 +1,4 @@
-// usc-dev: repoint the CREDITCOIN-side contracts at a newly deployed Sepolia Inbox.
+// devnet: repoint the CREDITCOIN-side contracts at a newly deployed Sepolia Inbox.
 //
 // asc-contracts #48 changed the Inbox (5-arg deliverMessage, Outbox in the attested hash), so the
 // Sepolia Inbox is redeployed (Kevin, from main c83b3372 with INITIAL_OUTBOXES=<source.outbox>).
@@ -14,16 +14,18 @@
 // Env: DEPLOYER_KEY (owner of both contracts), NEW_INBOX, optional REVOKE_OLD=true, CC_RPC, DEPLOY_OUT.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
-const DEST_CHAIN_ID = 11155111;
-const CC_CHAIN_ID = 42;
+const NET = network();
+const OUT = deployPath(NET);
+const CC_CHAIN_ID = NET.evmChainId;
 for (const k of ["DEPLOYER_KEY", "NEW_INBOX"]) if (!process.env[k]) throw new Error(`missing ${k}`);
 const NEW_INBOX = ethers.getAddress(process.env.NEW_INBOX!);
 const REVOKE_OLD = (process.env.REVOKE_OLD ?? "false") === "true";
 
 const addrs = JSON.parse(readFileSync(OUT, "utf8"));
 const s = addrs.source;
+const DEST_CHAIN_ID = Number(process.env.DEST_CHAIN_ID ?? addrs.dest?.chainId ?? 11155111);
 // First run: dest.inbox is the old Inbox. Re-run (e.g. REVOKE_OLD=true later): dest.inbox is
 // already NEW_INBOX and the previous one lives in dest.oldInbox; every step below is idempotent.
 const alreadyRepointed = (addrs.dest.inbox as string).toLowerCase() === NEW_INBOX.toLowerCase();
@@ -31,8 +33,7 @@ const oldInbox: string | undefined = alreadyRepointed ? addrs.dest.oldInbox : ad
 if (alreadyRepointed) console.log(`  dest.inbox is already ${NEW_INBOX}; old Inbox from dest.oldInbox: ${oldInbox ?? "none recorded"}`);
 if (REVOKE_OLD && !oldInbox) throw new Error("REVOKE_OLD=true but no old Inbox is known (dest.oldInbox missing)");
 
-const provider = new ethers.JsonRpcProvider(process.env.CC_RPC ?? s.rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const { provider } = await ccProvider(NET, s.rpc);
 const wallet = new ethers.Wallet(process.env.DEPLOYER_KEY!, provider);
 
 // The new Inbox must be the #48 shape and must allowlist our Outbox, or the relayer's first
@@ -45,7 +46,7 @@ if (process.env.SEPOLIA_RPC) {
     "function sourceChainId() view returns (uint256)",
   ], sep);
   if (!(await inbox.isSupportedOutbox(s.outbox))) throw new Error(`${NEW_INBOX} does not allowlist Outbox ${s.outbox}; owner must setSupportedOutbox first`);
-  if (Number(await inbox.sourceChainId()) !== CC_CHAIN_ID) throw new Error("new Inbox sourceChainId != 42");
+  if (Number(await inbox.sourceChainId()) !== CC_CHAIN_ID) throw new Error(`new Inbox sourceChainId != ${CC_CHAIN_ID}`);
   console.log(`  Sepolia Inbox ${NEW_INBOX} allowlists ${s.outbox}`);
   sep.destroy();
 } else {

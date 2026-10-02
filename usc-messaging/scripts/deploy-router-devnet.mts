@@ -27,6 +27,7 @@
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath } from "./network.mjs";
 import { deployRouterStackForInbox, ensureDestinationTrusts, wireRouter, type RouterStack } from "./dispatcher-stack.mjs";
 
 function ascContractsDir(): string {
@@ -36,7 +37,8 @@ function ascContractsDir(): string {
 }
 const UC = ascContractsDir();
 const ART = (p: string, n: string) => JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const NET = network();
+const OUT = deployPath(NET);
 for (const k of ["SEPOLIA_RPC", "INBOX_OWNER_KEY"]) if (!process.env[k]) throw new Error(`missing ${k}`);
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();

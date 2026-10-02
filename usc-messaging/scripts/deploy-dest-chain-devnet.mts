@@ -1,8 +1,8 @@
-// usc-dev: deploy the DESTINATION-chain write-ability stack for a newly registered chain key
+// devnet: deploy the DESTINATION-chain write-ability stack for a newly registered chain key
 // (e.g. Base Sepolia, chain id 84532) — AttestorRegistry, EOAValidator, MockDestination,
 // DefaultDispatcher, DispatcherRouter, Inbox.
 //
-// Step 2 of 3 when adding a destination chain to usc-devnet (Creditcoin EVM chain id 42):
+// Step 2 of 3 when adding a destination chain to the selected devnet (NETWORK=asc-devnet|usc-devnet, see network.mjs):
 //   1. register-chain-devnet.mjs        — pallet side, assigns CHAIN_KEY
 //   2. deploy-dest-chain-devnet.mts     (this)
 //   3. deploy-source-chain-devnet.mts   — Creditcoin: per-chain Outbox / vault / RelayerContractLite,
@@ -14,7 +14,7 @@
 //   MockDestination()                                        // envelope destination (dest.dapp)
 //   DefaultDispatcher(predictedInbox, owner)                 // asc-contracts #36 — see dispatcher-stack.mts
 //   DispatcherRouter(predictedInbox, owner, defaultDispatcher, [])
-//   Inbox(bytes32(CHAIN_KEY), 42 /* sourceChainId */, validator, router, owner, [] /* initialOutboxes */)
+//   Inbox(bytes32(CHAIN_KEY), <Creditcoin EVM chain id> /* sourceChainId */, validator, router, owner, [] /* initialOutboxes */)
 //   DefaultDispatcher.setRouter(router); MockDestination.setTrustedInbox(router | default, true)
 //   AttestorRegistry.setUpdater(validator, true)             // lets submitAttestorSetUpdate rotate the set
 //
@@ -34,7 +34,7 @@
 //   DEST_RPC              destination-chain JSON-RPC URL                     (required)
 //   DEST_CHAIN_ID         destination EVM chain id, e.g. 84532               (required)
 //   DEPLOYER_KEY          destination-chain deployer, needs native gas       (required)
-//   INITIAL_ATTESTORS     comma-separated EVM addresses (default: 3 placeholders, see above)
+//   INITIAL_ATTESTORS     comma-separated EVM addresses (default: chains.<K>.attestorSigners from the record, else 3 placeholders)
 //   MIN_ATTESTOR_COUNT / THRESHOLD_NUMERATOR / THRESHOLD_ADDITION   default 3 / 20 / 1
 //   ASC_CONTRACTS_DIR     compiled asc-contracts checkout (main a9791c37+, #36 DispatcherRouter)
 //   DEPLOY_OUT            default ../usc-dev-deploy.json
@@ -42,6 +42,7 @@
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath } from "./network.mjs";
 import { deployRouterStackWithInbox, ensureDestinationTrusts } from "./dispatcher-stack.mjs";
 
 function ascContractsDir(): string {
@@ -51,7 +52,8 @@ function ascContractsDir(): string {
 }
 const UC = ascContractsDir();
 const ART = (p: string, n: string) => JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const NET = network();
+const OUT = deployPath(NET);
 
 const need = (k: string): string => {
   const v = process.env[k];
@@ -72,19 +74,9 @@ const DEPLOYER_KEY = need("DEPLOYER_KEY");
 const MIN_ATTESTOR_COUNT = uint("MIN_ATTESTOR_COUNT", 3);
 const THRESHOLD_NUMERATOR = uint("THRESHOLD_NUMERATOR", 20);
 const THRESHOLD_ADDITION = uint("THRESHOLD_ADDITION", 1);
-const CREDITCOIN_CHAIN_ID = 42;
+const CREDITCOIN_CHAIN_ID = NET.evmChainId; // Inbox.sourceChainId: the Creditcoin EVM chain id of NETWORK
 const MIN_NATIVE = ethers.parseEther("0.02");
 if (CHAIN_KEY === 0) throw new Error("CHAIN_KEY must be > 0 (Inbox rejects bytes32(0))");
-
-// Same placeholders as deploy-dest-ethers.mts; wiped by the owner via updateAttestorSet later.
-const INITIAL_ATTESTORS = (process.env.INITIAL_ATTESTORS
-  ? process.env.INITIAL_ATTESTORS.split(",").map((a) => a.trim()).filter(Boolean)
-  : ["0x0000000000000000000000000000000000000001", "0x0000000000000000000000000000000000000002", "0x0000000000000000000000000000000000000003"]
-).map((a) => ethers.getAddress(a));
-if (new Set(INITIAL_ATTESTORS.map((a) => a.toLowerCase())).size !== INITIAL_ATTESTORS.length) throw new Error("INITIAL_ATTESTORS has duplicates");
-if (INITIAL_ATTESTORS.length < MIN_ATTESTOR_COUNT) {
-  throw new Error(`INITIAL_ATTESTORS has ${INITIAL_ATTESTORS.length} entries; EOAValidator needs >= MIN_ATTESTOR_COUNT (${MIN_ATTESTOR_COUNT}) in the registry at construction`);
-}
 
 // localChainKey = chain_key_to_bytes32(CHAIN_KEY): value in the low 8 bytes (matches the Rust encoder).
 const LOCAL_CHAIN_KEY = ethers.zeroPadValue(ethers.toBeHex(CHAIN_KEY), 32);
@@ -94,7 +86,21 @@ const rpcForRecord = new URL(DEST_RPC).origin;
 const deployJson = JSON.parse(readFileSync(OUT, "utf8"));
 deployJson.chains ??= {};
 const entry = deployJson.chains[String(CHAIN_KEY)];
-if (!entry) throw new Error(`no chains.${CHAIN_KEY} in ${OUT} — run register-chain-devnet.mjs first`);
+if (!entry) throw new Error(`no chains.${CHAIN_KEY} in ${OUT} — run register-chain-devnet.mjs first, or seed chains.${CHAIN_KEY} for a pre-registered chain key`);
+
+// Registry seed, in order of preference: INITIAL_ATTESTORS, the signers recorded under
+// chains.<K>.attestorSigners (derive-attestor-evm.mjs over the fleet's secrets), else the three
+// placeholders the anvil e2e uses — those must be replaced via updateAttestorSet before any delivery.
+const recordedSigners: string[] | undefined = Array.isArray(entry.attestorSigners) && entry.attestorSigners.length ? entry.attestorSigners : undefined;
+const INITIAL_ATTESTORS = (process.env.INITIAL_ATTESTORS
+  ? process.env.INITIAL_ATTESTORS.split(",").map((a) => a.trim()).filter(Boolean)
+  : recordedSigners ?? ["0x0000000000000000000000000000000000000001", "0x0000000000000000000000000000000000000002", "0x0000000000000000000000000000000000000003"]
+).map((a) => ethers.getAddress(a));
+console.log(`registry seed: ${process.env.INITIAL_ATTESTORS ? "INITIAL_ATTESTORS" : recordedSigners ? `chains.${CHAIN_KEY}.attestorSigners` : "PLACEHOLDERS (replace via updateAttestorSet before delivering)"} (${INITIAL_ATTESTORS.length} signers)`);
+if (new Set(INITIAL_ATTESTORS.map((a) => a.toLowerCase())).size !== INITIAL_ATTESTORS.length) throw new Error("INITIAL_ATTESTORS has duplicates");
+if (INITIAL_ATTESTORS.length < MIN_ATTESTOR_COUNT) {
+  throw new Error(`INITIAL_ATTESTORS has ${INITIAL_ATTESTORS.length} entries; EOAValidator needs >= MIN_ATTESTOR_COUNT (${MIN_ATTESTOR_COUNT}) in the registry at construction`);
+}
 if (entry.destChainId !== undefined && Number(entry.destChainId) !== DEST_CHAIN_ID) {
   throw new Error(`chains.${CHAIN_KEY}.destChainId is ${entry.destChainId}, but DEST_CHAIN_ID=${DEST_CHAIN_ID}`);
 }
@@ -152,7 +158,7 @@ if (!(await registryC.isUpdater(validatorAddr))) {
 const inboxC = new ethers.Contract(inboxAddr, ART("write-ability/Inbox.sol", "Inbox").abi, wallet);
 if ((await inboxC.localChainKey()).toLowerCase() !== LOCAL_CHAIN_KEY.toLowerCase()) throw new Error("Inbox.localChainKey() mismatch");
 // #36 renamed the getter creditcoinChainId() → sourceChainId(); the value is still the Creditcoin EVM chain id.
-if (Number(await inboxC.sourceChainId()) !== CREDITCOIN_CHAIN_ID) throw new Error("Inbox.sourceChainId() != 42");
+if (Number(await inboxC.sourceChainId()) !== CREDITCOIN_CHAIN_ID) throw new Error(`Inbox.sourceChainId() != ${CREDITCOIN_CHAIN_ID}`);
 if ((await inboxC.defaultVoteValidator()).toLowerCase() !== validatorAddr.toLowerCase()) throw new Error("Inbox.defaultVoteValidator() mismatch");
 if ((await inboxC.messageDispatcher()).toLowerCase() !== stack.dispatcherRouter.toLowerCase()) throw new Error("Inbox.messageDispatcher() is not the DispatcherRouter");
 

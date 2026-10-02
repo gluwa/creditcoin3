@@ -4,6 +4,7 @@
 // Env: SEPOLIA_RPC, DEPLOYER_KEY (= Inbox owner).
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath } from "./network.mjs";
 
 function ascContractsDir(): string {
   // ASC_CONTRACTS_DIR since the repo was renamed usc-contracts -> asc-contracts; the old name is
@@ -22,7 +23,8 @@ function ascContractsDir(): string {
 const UC = ascContractsDir();
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? "/tmp/usc-dev-deploy.json";
+const NET = network();
+const OUT = deployPath(NET);
 
 const a = JSON.parse(readFileSync(OUT, "utf8"));
 const OLD_VALIDATOR = "0x71A21Ea8d28D3a0618d61d478Ee20DCB64be8082";

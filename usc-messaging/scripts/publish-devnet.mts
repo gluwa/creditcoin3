@@ -3,9 +3,11 @@
 // Env: DEPLOYER_KEY (payer + quoter EOA), optional MEMO.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath } from "./network.mjs";
 import { memoEnvelope } from "./evm-envelope.mjs";
 
-const OUT = process.env.DEPLOY_OUT ?? "/tmp/usc-dev-deploy.json";
+const NET = network();
+const OUT = deployPath(NET);
 const a = JSON.parse(readFileSync(OUT, "utf8"));
 const s = a.source;
 // Envelope destination: the MockDestination behind the #36 DispatcherRouter (override with DESTINATION).

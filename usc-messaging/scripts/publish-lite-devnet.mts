@@ -14,9 +14,11 @@
 // Env: DEPLOYER_KEY, QUOTER_TEST_KEY, optional MEMO, REQUIRES_ACK=false, DEPLOY_OUT.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath } from "./network.mjs";
 import { memoEnvelope } from "./evm-envelope.mjs";
 
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const NET = network();
+const OUT = deployPath(NET);
 const deployJson = JSON.parse(readFileSync(OUT, "utf8"));
 // CHAIN_KEY selects a secondary destination registered by register-chain-devnet / deploy-*-chain-devnet
 // (e.g. 9 = Base Sepolia): its per-chain source stack (Outbox, Lite, vault) overlays the shared

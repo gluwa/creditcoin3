@@ -1,6 +1,6 @@
-// usc-dev: register a NEW destination chain for write-ability in the Creditcoin runtime (sudo).
+// devnet: register a NEW destination chain for write-ability in the Creditcoin runtime (sudo).
 //
-// Step 1 of 3 when adding a destination chain to usc-devnet (chain id 42):
+// Step 1 of 3 when adding a destination chain to the selected devnet (NETWORK=asc-devnet|usc-devnet):
 //   1. register-chain-devnet.mjs        (this)  — pallet side, assigns the chain key
 //   2. deploy-dest-chain-devnet.mts     — destination EVM chain: AttestorRegistry, EOAValidator, Inbox
 //   3. deploy-source-chain-devnet.mts   — Creditcoin: per-chain Outbox / vault / RelayerContractLite
@@ -29,16 +29,19 @@
 //   MATURITY                      e.g. "FixedDelay: 20", "EvmSafe", "EvmFinalized", "EvmLatest" (required)
 //   CORE_FEE_WEI                  optional, attestcoin wei; unset = left as is
 //   FACTORY_ADDR                  optional, default source.factory from the deploy JSON
-//   CREDITCOIN_SUBSTRATE_WS_URL   default wss://rpc.usc-devnet.creditcoin.network
-//   DEPLOY_OUT                    default ../usc-dev-deploy.json
+//   NETWORK                       asc-devnet (default) | usc-devnet (network.mjs)
+//   CREDITCOIN_SUBSTRATE_WS_URL   default: the NETWORK Substrate WS
+//   DEPLOY_OUT                    default: the NETWORK deploy record
 //
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath, substrateWs, assertSudo } from "./network.mjs";
 
-const WS = process.env.CREDITCOIN_SUBSTRATE_WS_URL || "wss://rpc.usc-devnet.creditcoin.network";
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const NET = network();
+const WS = substrateWs(NET);
+const OUT = deployPath(NET);
 
 const need = (k) => {
   if (!process.env[k]) throw new Error(`missing ${k}`);
@@ -85,6 +88,7 @@ await cryptoWaitReady();
 const sudo = new Keyring({ type: "sr25519" }).addFromUri(SUDO_URI);
 console.log(`runtime ${api.runtimeVersion.specName.toString()}/${api.runtimeVersion.specVersion.toString()} at ${WS}`);
 console.log("sudo account:", sudo.address);
+await assertSudo(api, sudo, NET);
 
 const submit = (label, call) =>
   new Promise((resolve, reject) => {

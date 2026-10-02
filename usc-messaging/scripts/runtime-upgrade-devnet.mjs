@@ -16,13 +16,15 @@ import { ApiPromise, WsProvider, Keyring } from "@polkadot/api";
 import { cryptoWaitReady, blake2AsHex } from "@polkadot/util-crypto";
 import { u8aToHex } from "@polkadot/util";
 import { readFileSync } from "node:fs";
+import { network, substrateWs } from "./network.mjs";
 
-const WS = process.env.CREDITCOIN_SUBSTRATE_WS_URL || "wss://rpc.usc-devnet.creditcoin.network";
+const NET = network();
+const WS = substrateWs(NET);
 const DRY = process.argv.includes("--dry-run");
 if (!process.env.WASM) throw new Error("need WASM=<path to the runtime .wasm>");
 if (!process.env.EXPECT_SPEC_VERSION) throw new Error("need EXPECT_SPEC_VERSION=<spec_version embedded in the wasm, from `subwasm info`>");
 if (!process.env.SUDO_URI && !DRY) throw new Error("need SUDO_URI (or --dry-run)");
-if (!/usc-devnet/.test(WS)) throw new Error(`refusing: ${WS} is not the usc-devnet RPC`);
+if (!WS.includes(NET.name)) throw new Error(`refusing: ${WS} is not the ${NET.name} RPC`);
 const expectSpec = Number(process.env.EXPECT_SPEC_VERSION);
 
 const wasm = readFileSync(process.env.WASM);
