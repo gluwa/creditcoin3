@@ -1,6 +1,6 @@
 ---
 name: conventional-commits
-description: Conventional Commits (commitizen style) for creditcoin3. Use whenever you write or amend a commit message, create or rename a branch for a PR, open a PR, edit a PR title, or are asked to check or clean up commit and PR naming. PRs into usc-dev are squash-merged, so the PR title becomes the commit on usc-dev and must follow this format too.
+description: Conventional Commits (commitizen style) for creditcoin3. Use whenever you write or amend a commit message, create or rename a branch for a PR, open a PR, edit a PR title, or are asked to check or clean up commit and PR naming. PRs into dev (formerly usc-dev) are squash-merged, so the PR title becomes the commit on dev and must follow this format too.
 ---
 
 # Conventional Commits for creditcoin3
@@ -86,7 +86,7 @@ Every header carries a scope, so `git log` shows at a glance which part of the s
 
 **Work that comes from a Jira ticket must carry the ticket key at the end of the PR title**, in
 parentheses: `fix(attestation): harden commit validation (CSUB-2053)`. Several tickets:
-`(CSUB-2053, CSUB-2054)`. This is how the squash commit on `usc-dev` links back to the ticket.
+`(CSUB-2053, CSUB-2054)`. This is how the squash commit on `dev` links back to the ticket.
 
 Treat the work as coming from a ticket when a key of one of the team's Jira projects (`CSUB-2054`,
 `DO-2338`) appears in any of:
@@ -128,7 +128,7 @@ Run the validator in this skill's directory on every commit header and PR title 
 .claude/skills/conventional-commits/check.sh --pr-title "feat(eth): raw-RLP block fetch mode"
 .claude/skills/conventional-commits/check.sh --pr-title --ticket CSUB-2054 \
   "fix(attestation): harden proof of possession (CSUB-2054)"
-git log --format=%s origin/usc-dev..HEAD | .claude/skills/conventional-commits/check.sh --stdin
+git log --format=%s origin/dev..HEAD | .claude/skills/conventional-commits/check.sh --stdin
 ```
 
 It exits non-zero and says why when a header does not conform. `--pr-title` applies the 92-character
@@ -145,10 +145,10 @@ that appears elsewhere in a header is flagged, since keys belong at the end.
 
 ## Opening a PR
 
-1. Title the PR as the squash commit should read on `usc-dev`. If the work comes from a Jira ticket
+1. Title the PR as the squash commit should read on `dev`. If the work comes from a Jira ticket
    (see above), end the title with the key, and run `check.sh --pr-title --ticket <KEY>` on it;
    otherwise `check.sh --pr-title`.
-2. Base branch is `usc-dev` unless you are doing a release or a hotfix.
+2. Base branch is `dev` unless you are doing a release or a hotfix.
 3. For PRs into `usc-testnet` or `main`, which are merged with a merge commit, every commit on the
    branch lands as-is, so every commit subject must conform, not only the title.
 
@@ -172,8 +172,8 @@ gh pr view <n> --json commits --jq '.commits[].messageHeadline' \
   `gh pr edit <n> --title "fix(attestation): harden proof of possession (CSUB-2054)"`
 - **Title wrong on someone else's PR**: propose the corrected title to the user. Edit it only when
   the user asks, then leave a one-line PR comment saying what changed and why.
-- **Commits wrong on a squash-merged PR (into `usc-dev`)**: leave them. Only the title reaches
-  `usc-dev`.
+- **Commits wrong on a squash-merged PR (into `dev`)**: leave them. Only the title reaches
+  `dev`.
 - **Commits wrong on a merge-commit PR (into `usc-testnet` or `main`), or wanted clean anyway**:
   rewording rewrites history. Only do it on your own branch, with the user's go-ahead:
   `git rebase -i` with `reword`, then `git push --force-with-lease=<branch>:<old-sha>`. Never
