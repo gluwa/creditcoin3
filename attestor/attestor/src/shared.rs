@@ -44,6 +44,8 @@ pub struct Shared {
 
     pub cc3: Arc<cc_client::Client>,
     pub eth: eth::Client,
+    /// Source-chain blocks the root stream fetches concurrently.
+    pub eth_max_concurrency: std::num::NonZeroUsize,
 
     pub bls_store: Arc<BlsStore>,
     pub metrics: metrics::Metrics,

@@ -299,15 +299,26 @@ impl<T: Config> Pallet<T> {
         // Value is the minimum of the bond and the active amount
         let mut value = bond.min(ledger.active);
 
-        ensure!(
-            ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
-            Error::<T>::NoMoreChunks,
-        );
-
         // Aligns with the unlock chunk era used below (unbond completes at or after this era).
         let purge_at_era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
 
         if !value.is_zero() {
+            // Like `pallet_staking::unbond`: when the queue is full, first release the chunks
+            // that already matured, so a stash that never calls `withdraw_unbonded` cannot get
+            // stuck. Done on the in-memory ledger only (persisted by `update` below), so this
+            // adds no storage access; retired BLS keys are still purged by `withdraw_unbonded`.
+            if ledger.unlocking.len() >= T::MaxUnlockingChunks::get() as usize {
+                let total_before = ledger.total_staked;
+                ledger = ledger.consolidate_unlocked(Self::current_era());
+                let released = total_before.saturating_sub(ledger.total_staked);
+                if !released.is_zero() {
+                    Self::deposit_event(Event::<T>::Withdrawn {
+                        stash: stash.clone(),
+                        amount: released,
+                    });
+                }
+            }
+
             // Decrease the active amount
             ledger.active -= value;
 

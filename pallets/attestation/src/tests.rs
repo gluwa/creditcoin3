@@ -4656,6 +4656,218 @@ fn unregistering_non_existant_attestor_fails() {
     });
 }
 
+fn current_era() -> u32 {
+    pallet_staking::CurrentEra::<Test>::get().unwrap_or(0)
+}
+
+/// Replace the stash's unlocking queue with `(value, era)` chunks, keeping `total_staked` and the
+/// bond lock consistent with them.
+fn set_unlocking_chunks(stash: AccountId, chunks: Vec<(u128, u32)>) {
+    let mut ledger = Ledger::<Test>::get(stash).expect("stash has a ledger");
+    ledger.total_staked = ledger.active + chunks.iter().map(|(value, _)| value).sum::<u128>();
+    ledger.unlocking = BoundedVec::try_from(
+        chunks
+            .into_iter()
+            .map(|(value, era)| crate::ledger::UnlockChunk { value, era })
+            .collect::<Vec<_>>(),
+    )
+    .expect("within MaxUnlockingChunks");
+    ledger.update().expect("ledger update");
+}
+
+/// A stash whose unlocking queue is at `MaxUnlockingChunks`, at an era late enough for chunks to
+/// have matured. `pending` is how many chunks at the back are still locked (eras below the
+/// `BondingDuration` horizon of a new unbond, so they never merge with it); the rest have matured.
+/// Returns the current era.
+fn stash_with_full_unlocking_queue(stash: AccountId, pending: usize) -> u32 {
+    progress_to_block(120);
+    let era = current_era();
+    let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+    assert!(era > max as u32, "need enough eras for matured chunks");
+
+    let unit = u128::from(ONE_TENTH_CTC);
+    let matured = max - pending;
+    let chunks = (0..max)
+        .map(|i| {
+            if i < matured {
+                (unit, era - (matured - i) as u32)
+            } else {
+                (unit, era + 1 + (i - matured) as u32 % 2)
+            }
+        })
+        .collect();
+    set_unlocking_chunks(stash, chunks);
+    assert_eq!(
+        Ledger::<Test>::get(stash).unwrap().unlocking.len(),
+        max,
+        "queue is full"
+    );
+    era
+}
+
+#[test]
+fn unregistering_attestor_releases_matured_chunks_when_unlocking_is_full() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        // The last two chunks are still locked; the other eight have matured.
+        let era = stash_with_full_unlocking_queue(STASH_1, 2);
+        let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+        let released = (max - 2) as u128 * u128::from(ONE_TENTH_CTC);
+
+        assert_ok!(Attestation::unregister_attestor(
+            attestor.stash,
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        // Only the matured chunks left the queue; the new unbond was appended behind the two
+        // that are still locked.
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        let pending = u128::from(ONE_TENTH_CTC);
+        assert_eq!(
+            ledger
+                .unlocking
+                .iter()
+                .map(|chunk| (chunk.value, chunk.era))
+                .collect::<Vec<_>>(),
+            vec![
+                (pending, era + 1),
+                (pending, era + 2),
+                (bond, era + <Test as Config>::BondingDuration::get()),
+            ]
+        );
+        assert_eq!(ledger.active, 0);
+        // What is still locked matches what the ledger accounts for.
+        assert_eq!(ledger.total_staked, 2 * pending + bond);
+        assert_eq!(
+            Attestation::get_locked_balance(&STASH_1),
+            ledger.total_staked
+        );
+
+        System::assert_has_event(
+            crate::Event::Withdrawn {
+                stash: STASH_1,
+                amount: released,
+            }
+            .into(),
+        );
+        System::assert_has_event(
+            crate::Event::Unbonded {
+                stash: STASH_1,
+                amount: bond,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn unregistering_attestor_fails_when_unlocking_is_full_and_nothing_has_matured() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+        stash_with_full_unlocking_queue(STASH_1, max);
+
+        // `assert_noop!` also proves nothing was persisted on the way to the error.
+        assert_noop!(
+            Attestation::unregister_attestor(
+                attestor.stash,
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ),
+            Error::<Test>::NoMoreChunks
+        );
+    });
+}
+
+#[test]
+fn unregistering_attestor_merges_into_the_last_chunk_when_unlocking_is_full() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        // Full queue, nothing matured, but the last chunk already sits at the era this unbond
+        // would get: it needs no extra slot.
+        let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+        let era = stash_with_full_unlocking_queue(STASH_1, max);
+        let same_era = era + <Test as Config>::BondingDuration::get();
+        let mut ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        ledger.unlocking.last_mut().unwrap().era = same_era;
+        let last_before = ledger.unlocking.last().unwrap().value;
+        ledger.update().unwrap();
+
+        assert_ok!(Attestation::unregister_attestor(
+            attestor.stash,
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(ledger.unlocking.len(), max);
+        let last = ledger.unlocking.last().unwrap();
+        assert_eq!((last.value, last.era), (last_before + bond, same_era));
+    });
+}
+
+// The devnet incident: kicking several attestors of one stash in a row, with a queue full of
+// chunks nobody withdrew. The first kick releases the matured chunks; the rest share its era.
+#[test]
+fn kicking_several_attestors_of_a_stash_with_a_full_unlocking_queue_succeeds() {
+    ExtBuilder.build_and_execute(|| {
+        let first = Attestor::new(STASH_1, ATTESTOR_1);
+        let second = Attestor::new(STASH_1, ATTESTOR_2);
+        for attestor in [&first, &second] {
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+        }
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        let era = stash_with_full_unlocking_queue(STASH_1, 0);
+
+        for attestor in [&first, &second] {
+            assert_ok!(Attestation::kick_active_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+                true
+            ));
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, attestor.attestor_id).is_none());
+        }
+
+        // Every matured chunk is gone; both unbonds share one chunk.
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(
+            ledger
+                .unlocking
+                .iter()
+                .map(|chunk| (chunk.value, chunk.era))
+                .collect::<Vec<_>>(),
+            vec![(2 * bond, era + <Test as Config>::BondingDuration::get())]
+        );
+    });
+}
+
 #[test]
 fn chilled_attestor_cannot_commit_attestation() {
     ExtBuilder.build_and_execute(|| {

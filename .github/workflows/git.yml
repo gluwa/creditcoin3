@@ -68,20 +68,15 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          # checks out the branch of the PR, not in a detached state,
-          ref: ${{ github.head_ref }}
-
-      - name: Setup
-        run: |
-          # checks out the base branch so it is a known reference
-          git checkout "$GITHUB_BASE_REF"
-
-          # switch back to the branch of the PR
-          git checkout "$GITHUB_HEAD_REF"
+          # The PR head as this repository sees it. `refs/pull/<n>/head` exists for fork and
+          # same-repo PRs alike, whereas `github.head_ref` names a branch that only exists in
+          # the fork, so checking that out here failed every fork PR before any check ran.
+          # The full fetch also brings `origin/<base>`, which the merge-commit check needs.
+          ref: refs/pull/${{ github.event.pull_request.number }}/head
 
       - name: Check for Merge commit(s)
         run: |
-          commits=$(git log "$GITHUB_BASE_REF".."$GITHUB_HEAD_REF" | grep "Merge: " || echo -n)
+          commits=$(git log "origin/$GITHUB_BASE_REF..HEAD" | grep "Merge: " || echo -n)
           if [ -n "$commits" ]; then
               echo "FAIL: found Merge: commit(s)"
               exit 1
