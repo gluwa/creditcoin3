@@ -304,6 +304,7 @@ impl attestation_poc::Config for Test {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
+    type MaxCheckpointingQueueLen = ConstU32<2048>;
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;

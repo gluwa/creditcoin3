@@ -286,6 +286,7 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
 
         CheckpointingQueues::<T>::remove(chain_key);
         AttestationRemovalQueues::<T>::remove(chain_key);
+        AttestationsInBlock::<T>::remove(chain_key);
         LastCheckpoint::<T>::remove(chain_key);
         LastDigest::<T>::remove(chain_key);
         PendingTargetSampleSize::<T>::remove(chain_key);

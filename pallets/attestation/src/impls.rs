@@ -390,6 +390,19 @@ impl<T: Config> Pallet<T> {
         // Validate the attestation
         Self::validate_attestation(chain_key, &attestation)?;
 
+        // Checked after validation so a duplicate submission still fails with
+        // `AttestationExists`, which attestors treat as a lost race.
+        let now = frame_system::Pallet::<T>::block_number();
+        let committed_this_block = match AttestationsInBlock::<T>::get(chain_key) {
+            Some((block, count)) if block == now => count,
+            _ => 0,
+        };
+        ensure!(
+            committed_this_block < T::MaxAttestationsPerBlock::get(),
+            Error::<T>::TooManyAttestationsInBlock
+        );
+        AttestationsInBlock::<T>::insert(chain_key, (now, committed_this_block.saturating_add(1)));
+
         // Store the attestation
         let digest = attestation.digest();
         let header_number = attestation.header_number();
@@ -457,6 +470,12 @@ impl<T: Config> Pallet<T> {
         if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key, header_number) {
             log::error!("Error: {e:?}");
         }
+        // Checked after checkpointing, which drains the queue, so the commit that would
+        // checkpoint is never the one rejected.
+        ensure!(
+            queue.len() <= T::MaxCheckpointingQueueLen::get() as usize,
+            Error::<T>::CheckpointingQueueFull
+        );
         CheckpointingQueues::<T>::insert(chain_key, queue);
 
         Ok(())
@@ -1614,6 +1633,16 @@ impl<T: Config> Pallet<T> {
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
     ) -> bool {
         attestation.attestors.len() as u32 <= MaxAttestors::<T>::get(chain_key)
+    }
+
+    /// Length of the chain's [`CheckpointingQueues`] entry, read from its length prefix
+    /// without decoding the digests.
+    pub(crate) fn checkpointing_queue_len(chain_key: ChainKey) -> u32 {
+        // `VecDeque` and `Vec` share a SCALE encoding, so `Vec`'s length decoder applies.
+        let key = CheckpointingQueues::<T>::hashed_key_for(chain_key);
+        <Vec<Digest> as frame_support::storage::StorageDecodeLength>::decode_len(&key)
+            .unwrap_or(0)
+            .min(u32::MAX as usize) as u32
     }
 
     pub(crate) fn check_duplicate(attestation: &SignedAttestation<T::Hash, T::AccountId>) -> bool {

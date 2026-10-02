@@ -64,6 +64,10 @@ declare module '@polkadot/api-base/types/errors' {
             CheckpointCreationError: AugmentedError<ApiType>;
             CheckpointingQueueDrained: AugmentedError<ApiType>;
             /**
+             * The chain's checkpointing queue is at [`Config::MaxCheckpointingQueueLen`].
+             **/
+            CheckpointingQueueFull: AugmentedError<ApiType>;
+            /**
              * Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
              **/
             CheckpointMaintenanceInProgress: AugmentedError<ApiType>;
@@ -164,6 +168,10 @@ declare module '@polkadot/api-base/types/errors' {
              * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
+            /**
+             * The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
+             **/
+            TooManyAttestationsInBlock: AugmentedError<ApiType>;
             /**
              * A `commit_attestation` payload carried more attestor accounts than the per-chain
              * `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
