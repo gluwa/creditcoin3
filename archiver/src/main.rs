@@ -21,19 +21,29 @@ const TIP_FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 /// Maximum delay between reconnection attempts.
 const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(60);
 
-/// Compute parallelism for merkle root computation based on available CPUs
-/// and how many threads are reserved for block fetching.
-fn compute_parallelism(max_fetch_tasks: std::num::NonZeroUsize) -> std::num::NonZeroUsize {
+/// Threads for merkle root computation: the explicit `--max-compute-threads` when given,
+/// otherwise available CPUs minus the threads reserved for block fetching (+1 for the main
+/// loop), floored at 1.
+fn compute_parallelism(cfg: &Config) -> std::num::NonZeroUsize {
+    if let Some(explicit) = cfg.max_compute_threads {
+        return explicit;
+    }
     let available = std::thread::available_parallelism()
         .unwrap_or(std::num::NonZeroUsize::new(4).unwrap())
         .get();
-    // Reserve threads for fetch tasks + 1 for the main loop, use the rest for computation.
-    let parallelism = available.saturating_sub(max_fetch_tasks.get() + 1);
-    // Defaults to at least 1 thread for computation.
+    let parallelism = available.saturating_sub(cfg.max_fetch_tasks.get() + 1);
     std::num::NonZeroUsize::new(parallelism).unwrap_or(std::num::NonZeroUsize::MIN)
 }
 
 mod anchor;
+
+/// WS client used for block fetching: [`dial`] (fallbacks + deadline) with the configured fetch
+/// mode applied.
+async fn new_fetch_client(cfg: &Config, deadline: Duration) -> Result<eth::Client> {
+    Ok(dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, deadline)
+        .await?
+        .with_fetch_mode(cfg.fetch_mode))
+}
 mod api;
 mod config;
 mod health;
@@ -59,6 +69,28 @@ async fn main() -> Result<()> {
     }
 
     let store = RootStore::open(&cfg.sled_db_path)?;
+
+    // ── Range backfill mode ─────────────────────────────────────────────
+    // `--backfill` with `--end-height` is a one-shot "make start..=end complete, then exit".
+    // Everything else (tip-following, plain end-height runs, open-ended backfill) is unchanged.
+    let range_end = cfg.end_height.filter(|_| cfg.backfill);
+    if let Some(end) = range_end {
+        if end < cfg.start_height {
+            return Err(anyhow!(
+                "--end-height {end} is below --start-height {}",
+                cfg.start_height
+            ));
+        }
+    }
+
+    if cfg.serve_only {
+        return serve_only(&cfg, store).await;
+    }
+
+    if cfg.verify_only {
+        let end = range_end.context("--verify-only requires --backfill and --end-height")?;
+        return ensure_range_complete(&store, cfg.start_height, end);
+    }
 
     // ── HTTP API + health, before any network handshake ─────────────────
     // The source-chain handshake, the anchor check and especially `--backfill` can take a long
@@ -235,7 +267,9 @@ async fn main() -> Result<()> {
     }
 
     // Check if we've already passed the end height.
-    if let Some(end) = cfg.end_height {
+    // Range backfill skips this: a shard that is archived to its end is exactly what it needs
+    // to verify.
+    if let Some(end) = cfg.end_height.filter(|_| range_end.is_none()) {
         if end < start_height {
             tracing::info!(
                 end_height = end,
@@ -367,7 +401,8 @@ async fn main() -> Result<()> {
         // when the database begins at an intermediate height (e.g. partial snapshot
         // restore). Without an explicit anchor, `find_gaps` could only see neighbour-pair
         // gaps and would silently miss blocks below the first persisted entry.
-        let gaps = store.find_gaps(Some(cfg.start_height))?;
+        // In range mode the scan is also bounded above and includes a missing tail.
+        let gaps = store.find_gaps(Some(cfg.start_height), range_end)?;
         if gaps.is_empty() {
             tracing::info!("backfill: no gaps found");
         } else {
@@ -388,9 +423,9 @@ async fn main() -> Result<()> {
                 let ws_client = tokio::select! {
                     _ = cancelled(&mut backfill_cancel) => {
                         tracing::info!("backfill interrupted by shutdown before dialing");
-                        return Ok(());
+                        return backfill_shutdown(&store, cfg.start_height, range_end);
                     }
-                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c?,
+                    c = new_fetch_client(&cfg, rpc_timeout) => c?,
                 };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
@@ -408,7 +443,7 @@ async fn main() -> Result<()> {
                     .with_start_height(*gap_start)
                     .with_bound(stream_eth::roots::Boundary::Source(maturity))
                     .with_max_concurrency(cfg.max_fetch_tasks)
-                    .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                    .with_max_parallelism(compute_parallelism(&cfg))
                     .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
                     .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
                     .build();
@@ -416,7 +451,7 @@ async fn main() -> Result<()> {
                 let mut gap_stream = tokio::select! {
                     _ = cancelled(&mut backfill_cancel) => {
                         tracing::info!("backfill interrupted by shutdown before subscribing");
-                        return Ok(());
+                        return backfill_shutdown(&store, cfg.start_height, range_end);
                     }
                     s = stream_eth::StreamRoots::new(gap_config) => s,
                 };
@@ -468,7 +503,7 @@ async fn main() -> Result<()> {
                 store.flush().await?;
                 if *backfill_cancel.borrow() {
                     tracing::info!(from = gap_start, filled, "backfill: stopped by shutdown");
-                    return Ok(());
+                    return backfill_shutdown(&store, cfg.start_height, range_end);
                 }
                 tracing::info!(
                     from = gap_start,
@@ -480,15 +515,24 @@ async fn main() -> Result<()> {
 
             tracing::info!("backfill complete");
         }
+
+        // Range mode never follows the tip: re-verify what was filled (this also catches a
+        // gap stream that ended before reaching its gap end) and exit.
+        if let Some(end) = range_end {
+            return ensure_range_complete(&store, cfg.start_height, end);
+        }
     }
 
     // ── Connect to chain ────────────────────────────────────────────────
     // Reuse the verified clients: WS for StreamRoots (subscriptions + block fetching),
-    // HTTP for chain head tracking.
+    // HTTP for chain head tracking. Apply fetch_mode to the WS client so historical
+    // sweeps can use raw-RLP without opening a second pair of connections.
+    let ws_client = ws_client.with_fetch_mode(cfg.fetch_mode);
     tracing::info!(
         chain_id = source_chain_id,
         ws = %eth::redact_url_query(cfg.rpc_ws.as_str()),
         http = %eth::redact_url_query(cfg.rpc_http.as_str()),
+        fetch_mode = %cfg.fetch_mode,
         "connected to chain"
     );
 
@@ -498,7 +542,7 @@ async fn main() -> Result<()> {
         .with_start_height(start_height)
         .with_bound(boundary.clone())
         .with_max_concurrency(cfg.max_fetch_tasks)
-        .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+        .with_max_parallelism(compute_parallelism(&cfg))
         .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
         .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
         .build();
@@ -613,7 +657,7 @@ async fn main() -> Result<()> {
 
                     let connect = tokio::select! {
                         _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
-                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c,
+                        c = new_fetch_client(&cfg, rpc_timeout) => c,
                     };
                     match connect {
                         // The endpoint must still be the chain this archive is pinned to. A
@@ -666,7 +710,7 @@ async fn main() -> Result<()> {
                                 .with_start_height(resume_from)
                                 .with_bound(boundary.clone())
                                 .with_max_concurrency(cfg.max_fetch_tasks)
-                                .with_max_parallelism(compute_parallelism(cfg.max_fetch_tasks))
+                                .with_max_parallelism(compute_parallelism(&cfg))
                                 .with_head_poll_interval(Duration::from_secs(
                                     cfg.head_poll_interval_secs.get(),
                                 ))
@@ -892,6 +936,93 @@ async fn wait_for_shutdown_signal() {
     {
         tokio::signal::ctrl_c().await.ok();
     }
+}
+
+/// Serve `store` over the HTTP API with no chain connection and no writes, until Ctrl+C.
+async fn serve_only(cfg: &Config, store: RootStore) -> Result<()> {
+    // No source is ever attached, so `/ready` stays 503; `/roots` and `/status` still serve.
+    let health = Arc::new(health::Health::new(
+        cfg.ready_lag_blocks,
+        Duration::from_secs(cfg.stale_after_secs.get()),
+    ));
+    let api_state = Arc::new(api::AppState {
+        store: store.clone(),
+        max_api_range: cfg.max_api_range,
+        health,
+    });
+    let listener = tokio::net::TcpListener::bind(cfg.api_bind).await?;
+    tracing::info!(
+        bind = %cfg.api_bind,
+        entries = store.count(),
+        latest = ?store.latest_height()?,
+        "serve-only: HTTP API listening (no fetching, no writes)"
+    );
+    axum::serve(listener, api::router(api_state))
+        .with_graceful_shutdown(async {
+            tokio::signal::ctrl_c().await.ok();
+            tracing::info!("shutting down...");
+        })
+        .await?;
+    Ok(())
+}
+
+/// How many individual gaps to log before summarising the rest.
+const MAX_LOGGED_GAPS: usize = 50;
+
+/// Warn about stored entries outside `start..=end`. They don't fail verification (they
+/// aren't in the range being checked), but a shard should not have any: they are left over
+/// from a run that strayed past its assigned range.
+fn log_out_of_range(store: &RootStore, start: u64, end: u64) -> Result<()> {
+    let (below, above) = store.count_outside(start, end)?;
+    if below > 0 || above > 0 {
+        tracing::warn!(
+            start,
+            end,
+            below,
+            above,
+            "range backfill: database holds entries outside the requested range"
+        );
+    }
+    Ok(())
+}
+
+/// Exit status for a backfill stopped by SIGTERM / Ctrl+C. Following the tip there is no
+/// "done", so a shutdown is a clean exit. A range shard is only done once `start..=end` is
+/// complete: an interrupted one must exit non-zero, or a job supervisor records the shard as
+/// finished and never reruns it (a rerun resumes from the remaining gaps).
+fn backfill_shutdown(store: &RootStore, start: u64, range_end: Option<u64>) -> Result<()> {
+    match range_end {
+        Some(end) => ensure_range_complete(store, start, end)
+            .context("range backfill interrupted by shutdown before the range was complete"),
+        None => Ok(()),
+    }
+}
+
+/// Verify every block in `start..=end` is stored. Returns an error listing the gaps if not.
+fn ensure_range_complete(store: &RootStore, start: u64, end: u64) -> Result<()> {
+    log_out_of_range(store, start, end)?;
+
+    let expected = end - start + 1;
+    let gaps = store.find_gaps(Some(start), Some(end))?;
+    if gaps.is_empty() {
+        tracing::info!(start, end, blocks = expected, "range verified complete");
+        return Ok(());
+    }
+
+    let missing: u64 = gaps.iter().map(|(s, e)| e - s + 1).sum();
+    for (from, to) in gaps.iter().take(MAX_LOGGED_GAPS) {
+        tracing::error!(from, to, "range verification: missing blocks");
+    }
+    if gaps.len() > MAX_LOGGED_GAPS {
+        tracing::error!(
+            more = gaps.len() - MAX_LOGGED_GAPS,
+            "range verification: further gaps not listed"
+        );
+    }
+    Err(anyhow!(
+        "range {start}..={end} incomplete: {missing} of {expected} blocks missing across {} gap(s)",
+        gaps.len()
+    ))
 }
 
 fn format_eta(remaining: u64, rate: f64) -> String {
@@ -1200,6 +1331,49 @@ mod tests {
 
     use super::*;
     use eth::{BlockTag, Maturity};
+
+    fn store_with(heights: impl IntoIterator<Item = u64>) -> (tempfile::TempDir, RootStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        let entries: Vec<_> = heights
+            .into_iter()
+            .map(|h| (h, sp_core::H256::random(), sp_core::H256::random()))
+            .collect();
+        store.put_roots(&entries).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn a_range_shard_interrupted_mid_range_exits_non_zero() {
+        // SIGTERM after 100..=149 of a 100..=199 shard: the supervisor must see a failure.
+        let (_dir, store) = store_with(100..=149);
+        let err = backfill_shutdown(&store, 100, Some(199)).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("50 of 100 blocks missing"),
+            "{err:#}"
+        );
+    }
+
+    #[test]
+    fn a_range_shard_interrupted_before_any_block_exits_non_zero() {
+        // Shutdown before the first dial: nothing stored at all.
+        let (_dir, store) = store_with([]);
+        assert!(backfill_shutdown(&store, 100, Some(199)).is_err());
+    }
+
+    #[test]
+    fn a_range_shard_stopped_after_its_last_block_exits_cleanly() {
+        // SIGTERM landing after the final batch was written: the shard is complete.
+        let (_dir, store) = store_with(100..=199);
+        backfill_shutdown(&store, 100, Some(199)).unwrap();
+    }
+
+    #[test]
+    fn a_tip_following_backfill_stopped_by_shutdown_exits_cleanly() {
+        // No range end: there is no "done", so an interrupted backfill is a clean exit.
+        let (_dir, store) = store_with(100..=149);
+        backfill_shutdown(&store, 100, None).unwrap();
+    }
 
     #[test]
     fn an_unread_or_stale_head_is_unknown_and_does_not_clamp() {

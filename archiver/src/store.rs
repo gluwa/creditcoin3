@@ -157,12 +157,8 @@ impl RootStore {
     /// this call pinned it). A database written before this column existed is pinned on
     /// its first start with the new binary.
     pub fn pin_chain_id(&self, live: u64) -> Result<Option<u64>> {
-        match self.meta.get(META_KEY_CHAIN_ID)? {
-            Some(raw) => {
-                let bytes: [u8; 8] = raw.as_ref().try_into().with_context(|| {
-                    format!("invalid chain_id length: expected 8, got {}", raw.len())
-                })?;
-                let stored = u64::from_be_bytes(bytes);
+        match self.chain_id()? {
+            Some(stored) => {
                 if stored != live {
                     return Err(StoreError::ChainIdMismatch { stored, live }.into());
                 }
@@ -174,6 +170,20 @@ impl RootStore {
                 Ok(None)
             }
         }
+    }
+
+    /// The source chain id this archive is pinned to, or `None` if it was never pinned.
+    /// Read-only, unlike [`Self::pin_chain_id`].
+    pub fn chain_id(&self) -> Result<Option<u64>> {
+        self.meta
+            .get(META_KEY_CHAIN_ID)?
+            .map(|raw| {
+                let bytes: [u8; 8] = raw.as_ref().try_into().with_context(|| {
+                    format!("invalid chain_id length: expected 8, got {}", raw.len())
+                })?;
+                Ok(u64::from_be_bytes(bytes))
+            })
+            .transpose()
     }
 
     pub fn put_roots(&self, roots: &[(u64, H256, H256)]) -> Result<()> {
@@ -299,6 +309,37 @@ impl RootStore {
         }
     }
 
+    /// Names of any trees, and of any keys in the meta tree, that this store does not write.
+    /// Empty for a database written only by the archiver; anything listed would be lost by a
+    /// tool that copies roots and meta through this type.
+    #[allow(dead_code)] // used by the `merge-shards` binary, not the archiver itself
+    pub fn foreign_contents(&self) -> Result<Vec<String>> {
+        const DEFAULT_TREE: &[u8] = b"__sled__default";
+        let mut foreign: Vec<String> = self
+            .db
+            .tree_names()
+            .into_iter()
+            .filter(|name| name.as_ref() != DEFAULT_TREE && name.as_ref() != META_TREE)
+            .map(|name| format!("tree {:?}", String::from_utf8_lossy(&name)))
+            .collect();
+        for item in self.meta.iter() {
+            let (key, _) = item.context("failed to read meta tree")?;
+            if key.as_ref() != META_KEY_COUNT && key.as_ref() != META_KEY_CHAIN_ID {
+                foreign.push(format!("meta key {:?}", String::from_utf8_lossy(&key)));
+            }
+        }
+        Ok(foreign)
+    }
+
+    /// Get the earliest (lowest) stored block height, or None if empty.
+    #[allow(dead_code)] // used by the `merge-shards` binary, not the archiver itself
+    pub fn first_height(&self) -> Result<Option<u64>> {
+        match self.db.first()? {
+            Some((key, _)) => Ok(Some(parse_height(&key)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Find gaps in the stored block range.
     /// Returns a list of `(start, end)` inclusive ranges that are missing.
     ///
@@ -307,13 +348,33 @@ impl RootStore {
     /// (e.g. after restoring from a partial snapshot). Without it, `--backfill` could
     /// never recover blocks below the first persisted entry because the gap-finder
     /// used neighbour-pair comparison only and had no anchor on the low side.
-    pub fn find_gaps(&self, start_height: Option<u64>) -> Result<Vec<(u64, u64)>> {
+    ///
+    /// When `end_height` is `Some`, only `start_height..=end_height` is scanned: entries
+    /// above `end_height` are ignored and a missing tail (last stored height below
+    /// `end_height`, or an empty database) is reported as a gap too. This is what a
+    /// range-bounded backfill needs to prove a shard is complete.
+    pub fn find_gaps(
+        &self,
+        start_height: Option<u64>,
+        end_height: Option<u64>,
+    ) -> Result<Vec<(u64, u64)>> {
         let mut gaps = Vec::new();
         // `expected` seeded from `start_height` makes the pre-first-stored region act
         // like any other neighbour-pair gap.
         let mut expected: Option<u64> = start_height;
 
-        for item in self.db.iter() {
+        let iter = match end_height {
+            Some(end) => {
+                let from = start_height.unwrap_or(0);
+                if from > end {
+                    return Ok(gaps);
+                }
+                self.db.range(from.to_be_bytes()..=end.to_be_bytes())
+            }
+            None => self.db.iter(),
+        };
+
+        for item in iter {
             let (key, _) = item.context("failed to read from sled")?;
             let height = parse_height(&key)?;
 
@@ -325,7 +386,35 @@ impl RootStore {
             expected = Some(height + 1);
         }
 
+        if let Some(end) = end_height {
+            let tail_start = expected.unwrap_or(0);
+            if tail_start <= end {
+                gaps.push((tail_start, end));
+            }
+        }
+
         Ok(gaps)
+    }
+
+    /// Count stored entries outside `start_height..=end_height`, as `(below, above)`.
+    /// A range-bounded shard should have none; any found were written by a run that
+    /// strayed past its assigned range.
+    pub fn count_outside(&self, start_height: u64, end_height: u64) -> Result<(u64, u64)> {
+        let count = |iter: sled::Iter| -> Result<u64> {
+            let mut n = 0u64;
+            for item in iter {
+                item.context("failed to read from sled")?;
+                n += 1;
+            }
+            Ok(n)
+        };
+
+        let below = count(self.db.range(..start_height.to_be_bytes()))?;
+        let above = count(self.db.range((
+            std::ops::Bound::Excluded(end_height.to_be_bytes()),
+            std::ops::Bound::Unbounded,
+        )))?;
+        Ok((below, above))
     }
 
     /// Return the cached entry count (O(1), updated on each `put_roots` call).
@@ -736,11 +825,11 @@ mod tests {
 
         // Without an anchor, only neighbour-pair gaps are visible — the pre-first
         // region is invisible.
-        let no_anchor = store.find_gaps(None).unwrap();
+        let no_anchor = store.find_gaps(None, None).unwrap();
         assert!(no_anchor.is_empty());
 
         // With `start_height = 10`, the range 10..=49 should now be reported.
-        let with_anchor = store.find_gaps(Some(10)).unwrap();
+        let with_anchor = store.find_gaps(Some(10), None).unwrap();
         assert_eq!(with_anchor, vec![(10, 49)]);
     }
 
@@ -758,7 +847,7 @@ mod tests {
             ])
             .unwrap();
 
-        let gaps = store.find_gaps(Some(5)).unwrap();
+        let gaps = store.find_gaps(Some(5), None).unwrap();
         assert_eq!(gaps, vec![(5, 9), (12, 14), (16, 19)]);
     }
 
@@ -793,5 +882,98 @@ mod tests {
             "{err:?}"
         );
         assert_eq!(store.pin_chain_id(56).unwrap(), Some(56));
+    }
+
+    fn store_with(heights: &[u64]) -> (tempfile::TempDir, RootStore) {
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+        let entries: Vec<_> = heights.iter().map(|h| entry(*h, H256::random())).collect();
+        store.put_roots(&entries).unwrap();
+        (dir, store)
+    }
+
+    #[test]
+    fn find_gaps_with_end_reports_missing_tail() {
+        let (_dir, store) = store_with(&[10, 11, 12]);
+        assert_eq!(store.find_gaps(Some(10), Some(20)).unwrap(), vec![(13, 20)]);
+    }
+
+    #[test]
+    fn find_gaps_with_end_ignores_entries_above_end() {
+        // 21..=25 belong to the next shard; they must neither hide nor create gaps.
+        let (_dir, store) = store_with(&[10, 11, 13, 20, 21, 25]);
+        assert_eq!(
+            store.find_gaps(Some(10), Some(20)).unwrap(),
+            vec![(12, 12), (14, 19)]
+        );
+    }
+
+    #[test]
+    fn find_gaps_with_end_ignores_entries_below_start() {
+        let (_dir, store) = store_with(&[1, 2, 10, 11]);
+        assert_eq!(store.find_gaps(Some(10), Some(11)).unwrap(), vec![]);
+        assert_eq!(
+            store.find_gaps(Some(9), Some(12)).unwrap(),
+            vec![(9, 9), (12, 12)]
+        );
+    }
+
+    #[test]
+    fn find_gaps_with_end_on_empty_db_is_whole_range() {
+        let (_dir, store) = store_with(&[]);
+        assert_eq!(store.find_gaps(Some(10), Some(20)).unwrap(), vec![(10, 20)]);
+    }
+
+    #[test]
+    fn find_gaps_with_end_complete_range_has_no_gaps() {
+        let heights: Vec<u64> = (10..=20).collect();
+        let (_dir, store) = store_with(&heights);
+        assert!(store.find_gaps(Some(10), Some(20)).unwrap().is_empty());
+        // A single-block range is inclusive at both ends.
+        assert!(store.find_gaps(Some(20), Some(20)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn find_gaps_with_start_above_end_is_empty() {
+        let (_dir, store) = store_with(&[]);
+        assert!(store.find_gaps(Some(20), Some(10)).unwrap().is_empty());
+    }
+
+    #[test]
+    fn first_height_and_chain_id_read_without_writing() {
+        let (_dir, store) = store_with(&[]);
+        assert_eq!(store.first_height().unwrap(), None);
+        assert_eq!(store.chain_id().unwrap(), None);
+        // Reading the chain id must not pin it.
+        assert_eq!(store.pin_chain_id(56).unwrap(), None);
+        assert_eq!(store.chain_id().unwrap(), Some(56));
+
+        let (_dir, store) = store_with(&[7, 3, 9]);
+        assert_eq!(store.first_height().unwrap(), Some(3));
+        assert_eq!(store.latest_height().unwrap(), Some(9));
+    }
+
+    #[test]
+    fn foreign_contents_lists_what_the_store_does_not_write() {
+        let (_dir, store) = store_with(&[1, 2]);
+        store.pin_chain_id(56).unwrap();
+        assert!(store.foreign_contents().unwrap().is_empty());
+
+        store.db.open_tree(b"digests").unwrap();
+        store.meta.insert(b"cursor", &[0u8][..]).unwrap();
+        assert_eq!(
+            store.foreign_contents().unwrap(),
+            vec![
+                "tree \"digests\"".to_string(),
+                "meta key \"cursor\"".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn count_outside_counts_both_sides() {
+        let (_dir, store) = store_with(&[1, 2, 10, 15, 20, 21, 22, 23]);
+        assert_eq!(store.count_outside(10, 20).unwrap(), (2, 3));
+        assert_eq!(store.count_outside(0, 100).unwrap(), (0, 0));
     }
 }
