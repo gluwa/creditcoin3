@@ -1012,7 +1012,7 @@ parameter_types! {
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxAttestationsPerBlock: u32 = 10;
-    pub const MaxCheckpointingQueueLen: u32 = 4096;
+    pub const MaxCheckpointingQueueLen: u32 = 2048;
     // Attestation retention duration should result in attestations being retained
     // for a period >= proof submission latency.
     // Proof submission latency means the time it takes for the Oracle user to request

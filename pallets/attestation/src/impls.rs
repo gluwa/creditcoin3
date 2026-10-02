@@ -450,10 +450,6 @@ impl<T: Config> Pallet<T> {
         }
 
         let mut queue = CheckpointingQueues::<T>::get(chain_key);
-        ensure!(
-            queue.len() < T::MaxCheckpointingQueueLen::get() as usize,
-            Error::<T>::CheckpointingQueueFull
-        );
         queue.push_back(digest);
 
         // Make checkpoint if necessary (legacy path for queue-based checkpointing).
@@ -463,6 +459,12 @@ impl<T: Config> Pallet<T> {
         if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key, header_number) {
             log::error!("Error: {e:?}");
         }
+        // Checked after checkpointing, which drains the queue, so the commit that would
+        // checkpoint is never the one rejected.
+        ensure!(
+            queue.len() <= T::MaxCheckpointingQueueLen::get() as usize,
+            Error::<T>::CheckpointingQueueFull
+        );
         CheckpointingQueues::<T>::insert(chain_key, queue);
 
         Ok(())

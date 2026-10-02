@@ -201,10 +201,8 @@ pub mod pallet {
         /// valid for resubmission in a later block.
         #[pallet::constant]
         type MaxAttestationsPerBlock: Get<u32>;
-        /// Maximum length of a chain's [`CheckpointingQueues`] entry. A commit that would push
-        /// the queue past this is rejected. `CommitAttestationWeight::weigh_data` charges queue
-        /// processing per stored entry, so this bounds `commit_attestation`'s weight; it must sit
-        /// above the `2 * checkpoint_interval + 1` entries the queue holds in normal operation.
+        /// Maximum length of a chain's [`CheckpointingQueues`] entry. Must be greater than
+        /// `2 * MaxAttestationCheckpointInterval + 1`.
         #[pallet::constant]
         type MaxCheckpointingQueueLen: Get<u32>;
         #[pallet::constant]
@@ -222,7 +220,7 @@ pub mod pallet {
         fn register_invulnerable() -> Weight;
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
-        fn commit_attestation(a: u32, b: u32) -> Weight;
+        fn commit_attestation(a: u32, b: u32, q: u32) -> Weight;
         fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
@@ -962,25 +960,38 @@ pub mod pallet {
 
         fn integrity_test() {
             assert!(T::MaxAttestationsPerBlock::get() > 0);
+            // Room for the queue a chain holds between checkpoints at the largest allowed
+            // checkpoint interval.
             assert!(
                 T::MaxCheckpointingQueueLen::get()
-                    > T::DefaultAttestationsPerCheckpoint::get().saturating_mul(2)
+                    > T::MaxAttestationCheckpointInterval::get()
+                        .saturating_mul(2)
+                        .saturating_add(1)
             );
-            // A commit against a full queue, with the largest attestor set and a default-sized
-            // continuity proof, must still fit in a single normal extrinsic.
-            let worst = CommitAttestationWeight::<T>::queue_weight(
-                T::MaxCheckpointingQueueLen::get() as u64,
-            )
-            .saturating_add(<T as Config>::WeightInfo::commit_attestation(
-                T::DefaultMaxCatchup::get(),
+            // A catch-up commit against a full queue, with the largest attestor set and the span
+            // such a queue covers at the default attestation interval, must still fit in a single
+            // normal extrinsic. Mirrors `weigh_data`: the gap since the last checkpoint, plus the
+            // attestation's own proof and one more proof's worth of roots.
+            let max_queue = T::MaxCheckpointingQueueLen::get();
+            let interval = T::DefaultAttestationInterval::get();
+            let max_roots = interval.max(T::DefaultMaxCatchup::get() as u64);
+            let gap = (max_queue as u64)
+                .saturating_add(1)
+                .saturating_mul(interval);
+            let span = gap
+                .saturating_add(max_roots.saturating_mul(2))
+                .min(u32::MAX as u64) as u32;
+            let worst = <T as Config>::WeightInfo::commit_attestation(
+                span,
                 T::MaxAttestationNodes::get(),
-            ));
+                max_queue,
+            );
             let normal = T::BlockWeights::get();
             let normal = normal.get(DispatchClass::Normal);
             if let Some(max) = normal.max_extrinsic {
                 assert!(
                     worst.all_lte(max),
-                    "commit_attestation at MaxCheckpointingQueueLen exceeds max_extrinsic"
+                    "worst-case commit_attestation exceeds max_extrinsic: {worst:?} > {max:?}"
                 );
             }
         }
@@ -1769,9 +1780,13 @@ pub mod pallet {
             };
             let s_eff = proof_len.saturating_add(extra_roots).min(u32::MAX as u64) as u32;
 
-            // Base weight from benchmarks, measured with checkpoint_width = 10 * 10 = 100 and an
-            // empty checkpointing queue.
-            let mut weight = <T as Config>::WeightInfo::commit_attestation(s_eff, m);
+            // Charged from the stored queue length, which `do_commit_attestation` keeps at or
+            // below `MaxCheckpointingQueueLen`.
+            let q = Pallet::<T>::checkpointing_queue_len(chain_key)
+                .min(T::MaxCheckpointingQueueLen::get());
+
+            // Base weight from benchmarks, measured with checkpoint_width = 10 * 10 = 100.
+            let weight = <T as Config>::WeightInfo::commit_attestation(s_eff, m, q);
 
             // --- Checkpoint creation writes ---
             // The legacy path creates at most one checkpoint per commit; the catch-up path
@@ -1786,28 +1801,7 @@ pub mod pallet {
             // The benchmark created `proof_len / 100` checkpoints.
             let benchmark_checkpoints = proof_len / 100;
             let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
-            weight = weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)));
-
-            // --- Queue processing ---
-            // Charged from the stored queue length, which `do_commit_attestation` keeps at or
-            // below `MaxCheckpointingQueueLen`.
-            let queue_len = Pallet::<T>::checkpointing_queue_len(chain_key)
-                .min(T::MaxCheckpointingQueueLen::get()) as u64;
-            weight.saturating_add(Self::queue_weight(queue_len))
-        }
-    }
-
-    impl<T: Config> CommitAttestationWeight<T> {
-        /// Storage work that scales with a checkpointing queue of `queue_len` entries: one
-        /// `Attestations` read per queued digest plus the new one, and at most as many
-        /// `Attestations::take` removals. The removal queue is trimmed to the retention duration
-        /// on every write, so it contributes at most one extra removal of its own.
-        pub(crate) fn queue_weight(queue_len: u64) -> Weight {
-            let reads = queue_len.saturating_add(1);
-            let removals = queue_len.saturating_add(2);
-            T::DbWeight::get()
-                .reads(reads)
-                .saturating_add(T::DbWeight::get().reads_writes(removals, removals))
+            weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)))
         }
     }
 
