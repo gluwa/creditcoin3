@@ -28,9 +28,16 @@ contract MockWriteAbilityEmitter {
         string version
     );
 
-    /// Mirrors `Outbox.MessagePublished` — topic `MessagePublished(bytes32,bytes32,bool,bytes)`.
-    /// `emitterAddress` is a bytes32 holding the 20-byte EVM address in the high bytes.
-    event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, bool requiresAck, bytes payload);
+    /// Mirrors `Outbox.MessagePublished` — topic `MessagePublished(bytes32,bytes32,uint64,bool,bytes)`
+    /// (asc-contracts #54 added `sequence`). `emitterAddress` is a bytes32 holding the 20-byte EVM
+    /// address in the high bytes.
+    event MessagePublished(
+        bytes32 indexed messageId,
+        bytes32 indexed emitterAddress,
+        uint64 sequence,
+        bool requiresAck,
+        bytes payload
+    );
 
     /// Mirrors `Outbox.MessageAcknowledged` — topic `MessageAcknowledged(bytes32)`.
     event MessageAcknowledged(bytes32 indexed messageId);
@@ -44,10 +51,11 @@ contract MockWriteAbilityEmitter {
     function emitMessagePublished(
         bytes32 messageId,
         bytes32 emitterAddress,
+        uint64 sequence,
         bool requiresAck,
         bytes calldata payload
     ) external {
-        emit MessagePublished(messageId, emitterAddress, requiresAck, payload);
+        emit MessagePublished(messageId, emitterAddress, sequence, requiresAck, payload);
     }
 
     function emitMessageAcknowledged(bytes32 messageId) external {

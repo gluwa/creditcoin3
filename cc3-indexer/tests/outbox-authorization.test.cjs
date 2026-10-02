@@ -154,7 +154,7 @@ async function fixture() {
         registered: (address = outbox, origin = registry) =>
             handlers.handleOutboxRegistered(event([8n, address, factory], origin)),
         publish: (id = 1, address = outbox) =>
-            handlers.handleMessagePublished(event([messageId(id), emitter, false, '0x1234'], address)),
+            handlers.handleMessagePublished(event([messageId(id), emitter, BigInt(id), false, '0x1234'], address)),
         ack: (id = 1, address = outbox) => handlers.handleMessageAcknowledged(event([messageId(id)], address)),
     };
 }
