@@ -142,6 +142,11 @@ pub mod opaque {
 }
 
 mod version;
+
+#[cfg(feature = "runtime-benchmarks")]
+mod ethereum_finalize_benchmarking;
+#[cfg(feature = "runtime-benchmarks")]
+use ethereum_finalize_benchmarking::Pallet as EthereumFinalizeBench;
 pub use version::VERSION;
 
 macro_rules! prod_devnet_fast {
@@ -1319,6 +1324,7 @@ mod benches {
         [pallet_attestation, Attestation]
         [pallet_randomness, Randomness]
         [pallet_membership, Operators]
+        [pallet_ethereum, EthereumFinalizeBench::<Runtime>]
     );
 }
 
@@ -1829,6 +1835,7 @@ impl_runtime_apis! {
 
             impl baseline::Config for Runtime {}
             impl frame_system_benchmarking::Config for Runtime {}
+            impl ethereum_finalize_benchmarking::Config for Runtime {}
 
             let whitelist: Vec<TrackedStorageKey> = vec![];
 
