@@ -17,6 +17,8 @@ struct Config {
     boot_nodes: Vec<libp2p::Multiaddr>,
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: attestor::secret::RpcSecret,
+    eth_rps: Option<std::num::NonZeroU32>,
+    eth_max_concurrency: Option<std::num::NonZeroUsize>,
     cc3_url: attestor::secret::RpcSecret,
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
@@ -70,6 +72,8 @@ struct ConfigFileP2P {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileEth {
     url: Option<url::Url>,
+    rps: Option<std::num::NonZeroU32>,
+    max_concurrency: Option<std::num::NonZeroUsize>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -214,6 +218,30 @@ impl Config {
                     .env("ATTESTOR_ETH_URL")
                     .required(config_file.eth.url.is_none())
                     .value_parser(clap::value_parser!(url::Url)),
+            )
+            .arg(
+                clap::arg!(--"eth-rps" <RPS>)
+                    .help("Max Eth RPC requests per second")
+                    .long_help(
+                        "Maximum number of Eth RPC requests per second. \
+                        Requests are spaced evenly, so catching up on a range of blocks drains \
+                        at this rate instead of in bursts. Set it below the provider plan's \
+                        limit. Unlimited if not set",
+                    )
+                    .env("ATTESTOR_ETH_RPS")
+                    .required(false)
+                    .value_parser(clap::value_parser!(std::num::NonZeroU32)),
+            )
+            .arg(
+                clap::arg!(--"eth-max-concurrency" <BLOCKS>)
+                    .help("Max Eth blocks fetched concurrently")
+                    .long_help(
+                        "Maximum number of Eth blocks fetched concurrently while catching up. \
+                        Each block is two RPC requests. Defaults to 10",
+                    )
+                    .env("ATTESTOR_ETH_MAX_CONCURRENCY")
+                    .required(false)
+                    .value_parser(clap::value_parser!(std::num::NonZeroUsize)),
             )
             .arg(
                 clap::arg!(--"cc3-url" <URL>)
@@ -363,6 +391,16 @@ impl Config {
             attestor::secret::RpcSecret::new_opaque(eth_url)
         };
 
+        let eth_rps = matches
+            .get_one::<std::num::NonZeroU32>("eth-rps")
+            .copied()
+            .or(config_file.eth.rps);
+
+        let eth_max_concurrency = matches
+            .get_one::<std::num::NonZeroUsize>("eth-max-concurrency")
+            .copied()
+            .or(config_file.eth.max_concurrency);
+
         let cc3_url = match matches.get_one::<url::Url>("cc3-url") {
             Some(url) => url.clone(),
             None => config_file
@@ -398,6 +436,8 @@ impl Config {
             api_port,
             p2p_port,
             eth_url,
+            eth_rps,
+            eth_max_concurrency,
             cc3_url,
             start_height,
             attestation_interval,
@@ -537,6 +577,11 @@ async fn main() -> anyhow::Result<()> {
                 .with_url_eth(args.eth_url)
                 .with_url_cc3(args.cc3_url)
                 .with_secret(args.secret)
+                .with_eth_rps(args.eth_rps)
+                .with_eth_max_concurrency(
+                    args.eth_max_concurrency
+                        .unwrap_or(common::constants::MAX_CONCURRENT_RPC_CALLS),
+                )
                 .build(),
         )
         .with_p2p(
