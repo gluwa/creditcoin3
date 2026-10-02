@@ -171,6 +171,19 @@ impl Error {
     }
 }
 
+/// Rate-limited block-fetch sweeps allowed before the fetch gives up.
+const RATE_LIMIT_MAX_SWEEPS: u32 = 8;
+
+/// How long to hold off after the `sweep`-th consecutive rate-limited sweep of one block fetch
+/// (counting from 0): 1 s doubling up to 60 s, about three minutes over all
+/// [`RATE_LIMIT_MAX_SWEEPS`]. `None` once that budget is spent, so the fetch fails as it did
+/// before rate limits were told apart, roughly as long after the first refusal as five ordinary
+/// failed attempts take.
+fn rate_limit_hold_off(sweep: u32) -> Option<std::time::Duration> {
+    (sweep < RATE_LIMIT_MAX_SWEEPS)
+        .then(|| std::time::Duration::from_secs((1u64 << sweep.min(6)).min(60)))
+}
+
 /// True when any cause in the [`anyhow::Error`] chain is an [`Error`] that
 /// [`Error::inconsistent_block_payload_for_fallback`] classifies as a payload-inconsistency case.
 ///
@@ -967,17 +980,19 @@ impl Client {
         // back off and retry the whole sweep instead of bailing on the first pass.
         //
         // A sweep that failed only because every provider said we are over its rate limit does
-        // not use up an attempt: giving up would make the stream reset and fetch the whole range
-        // again, which is the opposite of backing off. Such sweeps hold off the shared pacer, so
-        // every in-flight fetch on this client pauses with this one, and wait longer each time.
+        // not use up an attempt: giving up after a short burst of 429s would make the stream
+        // reset and fetch the whole range again, which is the opposite of backing off. Such
+        // sweeps hold off the shared pacer, so every fetch on this client pauses with this one,
+        // and wait longer each time, but only within [`rate_limit_hold_off`]'s budget. A limit
+        // that outlasts it (an exhausted quota, say) fails the fetch like any other error, so
+        // the stream resets and health reporting sees it instead of the fetch waiting forever.
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
-        const RATE_LIMIT_HOLD_OFF_BASE: u64 = 1;
 
         let mut attempt: usize = 0;
         let mut delay = DELAY_BASE;
-        let mut rate_limit_hold_off = RATE_LIMIT_HOLD_OFF_BASE;
+        let mut rate_limited_sweeps: u32 = 0;
 
         loop {
             attempt += 1;
@@ -1061,8 +1076,21 @@ impl Client {
                 && !transport_errs.is_empty()
                 && transport_errs.iter().all(|(_, e)| e.is_rate_limited());
             if rate_limited {
+                let Some(hold_off) = rate_limit_hold_off(rate_limited_sweeps) else {
+                    let err = transport_errs
+                        .pop()
+                        .map(|(_, e)| e)
+                        .unwrap_or(Error::FailedToGetBlock(number));
+                    tracing::error!(
+                        block_number = number,
+                        sweeps = rate_limited_sweeps,
+                        error = %err,
+                        "⛔ RPC provider still rate limiting after backing off; giving up on this block"
+                    );
+                    return Err(Interrupt::Cont(err));
+                };
+                rate_limited_sweeps += 1;
                 attempt -= 1;
-                let hold_off = std::time::Duration::from_secs(rate_limit_hold_off);
                 self.pacer.hold_off(hold_off);
                 tracing::warn!(
                     block_number = number,
@@ -1074,7 +1102,6 @@ impl Client {
                     _ = tokio::time::sleep(hold_off) => {},
                     _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
                 }
-                rate_limit_hold_off = (rate_limit_hold_off * 2).min(DELAY_MAX);
                 continue;
             }
 
@@ -2096,6 +2123,17 @@ mod error_classification_tests {
         .is_rate_limited());
         assert!(rpc_error(-32005, "project ID request rate exceeded").is_rate_limited());
         assert!(rpc_error(429, "Too Many Requests").is_rate_limited());
+    }
+
+    #[test]
+    fn rate_limit_hold_off_doubles_then_gives_up() {
+        let schedule: Vec<u64> = (0..)
+            .map_while(rate_limit_hold_off)
+            .map(|d| d.as_secs())
+            .collect();
+        assert_eq!(schedule, [1, 2, 4, 8, 16, 32, 60, 60]);
+        assert_eq!(rate_limit_hold_off(RATE_LIMIT_MAX_SWEEPS), None);
+        assert_eq!(rate_limit_hold_off(u32::MAX), None);
     }
 
     #[test]

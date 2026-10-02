@@ -21,7 +21,25 @@ use tokio::time::Instant;
 #[derive(Debug)]
 pub struct Pacer {
     interval: Option<Duration>,
-    next_slot: Mutex<Instant>,
+    state: Mutex<State>,
+}
+
+#[derive(Debug)]
+struct State {
+    /// Earliest time the next reservation may be served.
+    next_slot: Instant,
+    /// Bumped by every [`Pacer::hold_off`], so a caller that reserved its slot earlier can tell,
+    /// when it wakes, that the slot is no longer valid.
+    hold_offs: u64,
+}
+
+impl State {
+    fn new() -> Mutex<Self> {
+        Mutex::new(Self {
+            next_slot: Instant::now(),
+            hold_offs: 0,
+        })
+    }
 }
 
 impl Pacer {
@@ -29,7 +47,7 @@ impl Pacer {
     pub fn unlimited() -> Self {
         Self {
             interval: None,
-            next_slot: Mutex::new(Instant::now()),
+            state: State::new(),
         }
     }
 
@@ -37,33 +55,46 @@ impl Pacer {
     pub fn with_rate(rps: NonZeroU32) -> Self {
         Self {
             interval: Some(Duration::from_secs(1) / rps.get()),
-            next_slot: Mutex::new(Instant::now()),
+            state: State::new(),
         }
     }
 
     /// Wait for the next request slot.
     ///
     /// Slots are reserved in call order, so concurrent callers are served first come, first
-    /// served. Dropping the future gives up the wait but not the reserved slot, which only
-    /// delays later callers by one interval.
+    /// served. A caller whose wait was overtaken by a [`hold_off`](Self::hold_off) reserves again
+    /// behind it, so callers already queued are paused too and then leave at the paced rate
+    /// rather than all at once. Dropping the future gives up the wait but not the reserved slot,
+    /// which only delays later callers by one interval.
     pub async fn acquire(&self) {
-        let slot = {
-            let mut next_slot = self.next_slot.lock().unwrap_or_else(|e| e.into_inner());
-            let slot = (*next_slot).max(Instant::now());
-            *next_slot = slot + self.interval.unwrap_or_default();
-            slot
-        };
-        if slot > Instant::now() {
-            tokio::time::sleep_until(slot).await;
+        loop {
+            let (slot, hold_offs) = {
+                let mut state = self.lock();
+                let slot = state.next_slot.max(Instant::now());
+                state.next_slot = slot + self.interval.unwrap_or_default();
+                (slot, state.hold_offs)
+            };
+            if slot > Instant::now() {
+                tokio::time::sleep_until(slot).await;
+            }
+            if self.lock().hold_offs == hold_offs {
+                return;
+            }
         }
     }
 
-    /// Push every slot back until at least `delay` from now. Used when a provider reports that
-    /// we are rate limited: requests already in flight still land, but nothing new goes out until
-    /// the hold-off has passed.
+    /// Hold every request back until at least `delay` from now. Used when a provider reports
+    /// that we are rate limited: requests already sent still land, but nothing else goes out
+    /// until the hold-off has passed, including callers already waiting in
+    /// [`acquire`](Self::acquire).
     pub fn hold_off(&self, delay: Duration) {
-        let mut next_slot = self.next_slot.lock().unwrap_or_else(|e| e.into_inner());
-        *next_slot = (*next_slot).max(Instant::now() + delay);
+        let mut state = self.lock();
+        state.next_slot = state.next_slot.max(Instant::now() + delay);
+        state.hold_offs += 1;
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -117,6 +148,31 @@ mod tests {
         let start = Instant::now();
         pacer.acquire().await;
         assert!(start.elapsed() >= Duration::from_millis(90));
+    }
+
+    #[tokio::test]
+    async fn hold_off_pauses_callers_already_waiting() {
+        // 10 rps: the third caller's reserved slot is 200 ms out. A 500 ms hold-off issued once
+        // the first two have gone must move it to after the hold-off, not let it go at 200 ms.
+        let pacer = std::sync::Arc::new(Pacer::with_rate(NonZeroU32::new(10).unwrap()));
+        let start = Instant::now();
+        pacer.acquire().await;
+        pacer.acquire().await;
+        let queued = {
+            let pacer = pacer.clone();
+            tokio::spawn(async move {
+                pacer.acquire().await;
+                Instant::now()
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        pacer.hold_off(Duration::from_millis(500));
+        let served = queued.await.unwrap();
+        assert!(
+            served - start >= Duration::from_millis(600),
+            "{:?}",
+            served - start
+        );
     }
 
     #[tokio::test]
