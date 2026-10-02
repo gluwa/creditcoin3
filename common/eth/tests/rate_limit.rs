@@ -32,6 +32,17 @@ fn empty_block(number: u64) -> Value {
     })
 }
 
+/// Write an HTTP response, ignoring failures: once a block call is refused the client drops the
+/// paired receipts call, so its connection may already be closed when the answer is written.
+fn respond(stream: &mut std::net::TcpStream, status: &str, body: &[u8]) {
+    let _ = write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    let _ = stream.write_all(body);
+}
+
 struct Mock {
     url: String,
     /// Arrival time of every request other than `eth_chainId`.
@@ -94,8 +105,7 @@ impl Mock {
                     && refused.fetch_add(1, Ordering::SeqCst) < rate_limited
                 {
                     let out = b"{\"error\":\"rate limited\"}";
-                    write!(stream, "HTTP/1.1 429 Too Many Requests\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", out.len()).unwrap();
-                    stream.write_all(out).unwrap();
+                    respond(&mut stream, "429 Too Many Requests", out);
                     continue;
                 }
                 let result = match method {
@@ -115,8 +125,7 @@ impl Mock {
                     &json!({"jsonrpc":"2.0","id":request["id"],"result":result}),
                 )
                 .unwrap();
-                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", out.len()).unwrap();
-                stream.write_all(&out).unwrap();
+                respond(&mut stream, "200 OK", &out);
             }
         });
         Self {
@@ -200,7 +209,7 @@ async fn rate_limited_block_fetch_holds_off_and_succeeds() {
     let block = client
         .get_block(42, EncodingVersion::V1)
         .await
-        .unwrap_or_else(|_| panic!("block fetch failed"));
+        .unwrap_or_else(|e| panic!("block fetch failed: {e}"));
     let elapsed = start.elapsed();
 
     assert_eq!(block.number(), 42);
