@@ -1,0 +1,43 @@
+{
+  "network": "asc-devnet",
+  "sudo": "5DvkDUXfs72eg3ehvDSMrMBjxqTdguqJ4qVMGxBEZJR2tc6o",
+  "source": {},
+  "chains": {
+    "1": {
+      "chainKey": 1,
+      "destChainId": 11155111,
+      "destChainName": "Ethereum Sepolia",
+      "attestorSigners": [
+        "0x566ff6e4DB15a7A179148937Ee3C2A651716bf97",
+        "0x85f28D5631b189a5065c12E916A6d341e4831d49",
+        "0x38d5937bD81e0712c6F8CF1d6c3717c13d486f11",
+        "0x835B045c4CB1a28ef0DFB0005A56FE7d6C48021c",
+        "0xFE51Ee5A39cFc4b0CceEf43D65e753dd5dFB717A",
+        "0x69e5E71de37F055002cac384A23430a5F164690F",
+        "0x53405713A9C7bC498d3981b58dCE43d163C0A4a8",
+        "0xec3a90E2d25fFb293d054A54Cb1a7C955124EB95",
+        "0x9a38E6F5CcaC1c9a71B5B644512bC99e96cfd5eF"
+      ],
+      "attestorSignersDerivedAt": "2026-10-02",
+      "attestorSignersSource": "cc3-asc-dev{,-kc,-we}-sepolia-attestor-secrets secret-0..2 via derive-attestor-evm.mjs"
+    },
+    "2": {
+      "chainKey": 2,
+      "destChainId": 84532,
+      "destChainName": "Base Sepolia",
+      "attestorSigners": [
+        "0x7be9836748b91ab25CCA6C2F640Bc3242Fb65c79",
+        "0xf98d492e84Bfcf348Fa8a177697CdD7226476B07",
+        "0xb079D2F4cbaDAf48763F7142f103Ea451ff7179A",
+        "0x2F179b7A4f30A7507AE5402ad2daE936395b250E",
+        "0x2f3b36ee8412F2993490f1e13113cE8874A1862A",
+        "0xfaa151058Fd21A7eC7b950a78c2e6B876E8696Ac",
+        "0x5e3250E3Ec819b314Fd77d981Ebb1DCFbf12c5fB",
+        "0xB72Ca0482B108F32c1c235de1f83E900D6764763",
+        "0xb20DBeF3Fb5ccf0670203D5008a64bBE2df8dc1c"
+      ],
+      "attestorSignersDerivedAt": "2026-10-02",
+      "attestorSignersSource": "cc3-asc-dev{,-kc,-we}-base-sepolia-attestor-secrets secret-0..2 via derive-attestor-evm.mjs"
+    }
+  }
+}

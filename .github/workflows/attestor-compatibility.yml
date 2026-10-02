@@ -289,7 +289,7 @@ jobs:
           echo "${HISTORICAL_COUNT}" > "${LOG_DIR}/historical-count.txt"
 
       - name: Install Foundry (for Anvil)
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned to match ci.yml: v1.6.x changed the anvil --dump-state
           # JSON format, which matters if a future run uses --load-state.

@@ -7,8 +7,8 @@
 //! it must *not* reject: receipts that omit the optional `blockHash`, and the empty-block path
 //! that skips the header-root check entirely.
 
-use alloy::rpc::types::{Block, TransactionReceipt};
-use eth::{Error, OrderedBlock};
+use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
+use eth::{ChainFamily, Error, OrderedBlock};
 use serde_json::{json, Value};
 use usc_abi_encoding::common::EncodingVersion;
 
@@ -56,11 +56,11 @@ fn receipt_json(block_hash: Option<&str>, number: u64) -> Value {
     receipt
 }
 
-fn block(hash: &str, number: u64, with_tx: bool) -> Block {
+fn block(hash: &str, number: u64, with_tx: bool) -> AnyRpcBlock {
     serde_json::from_value(block_json(hash, number, with_tx)).expect("block fixture")
 }
 
-fn receipts(block_hash: Option<&str>, number: u64) -> Vec<TransactionReceipt> {
+fn receipts(block_hash: Option<&str>, number: u64) -> Vec<AnyTransactionReceipt> {
     vec![serde_json::from_value(receipt_json(block_hash, number)).expect("receipt fixture")]
 }
 
@@ -68,6 +68,7 @@ fn receipts(block_hash: Option<&str>, number: u64) -> Vec<TransactionReceipt> {
 fn receipts_from_another_block_are_rejected() {
     let err = OrderedBlock::try_from_fetched_block(
         1,
+        ChainFamily::Ethereum,
         block(BLOCK_HASH, 7, true),
         receipts(Some(OTHER_HASH), 7),
         7,
@@ -113,6 +114,7 @@ fn matching_receipts_pass_the_hash_check() {
     // by it.
     let err = OrderedBlock::try_from_fetched_block(
         1,
+        ChainFamily::Ethereum,
         block(BLOCK_HASH, 7, true),
         receipts(Some(BLOCK_HASH), 7),
         7,
@@ -131,6 +133,7 @@ fn receipts_without_a_block_hash_are_not_rejected() {
     // to the header-root check exactly as they did before, not be treated as a mismatch.
     let err = OrderedBlock::try_from_fetched_block(
         1,
+        ChainFamily::Ethereum,
         block(BLOCK_HASH, 7, true),
         receipts(None, 7),
         7,
@@ -149,6 +152,7 @@ fn empty_blocks_still_skip_the_root_check() {
     // no receipts to compare, so the new check must leave it untouched.
     let ordered = OrderedBlock::try_from_fetched_block(
         1,
+        ChainFamily::Ethereum,
         block(BLOCK_HASH, 7, false),
         vec![],
         7,
