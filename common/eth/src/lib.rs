@@ -53,6 +53,7 @@ pub mod op_stack;
 
 pub use chain_family::ChainFamily;
 pub use op_stack::DepositTransaction;
+pub mod pacer;
 
 pub use maturity::{BlockTag, Maturity};
 
@@ -166,6 +167,30 @@ impl Error {
         )
     }
 
+    /// True when the provider refused the request because we are over its rate limit or credit
+    /// budget: HTTP 429, or a JSON-RPC error carrying one of the known provider limit codes /
+    /// messages (QuickNode, Infura, Alchemy). Retrying immediately only digs the hole deeper, so
+    /// callers should back off instead.
+    ///
+    /// alloy's own classifier also treats Infura's `header not found` as retryable; that is a
+    /// load-balancer lag, not a rate limit, so it is excluded here.
+    pub fn is_rate_limited(&self) -> bool {
+        use alloy::transports::RpcError;
+        match self {
+            Error::EthError(RpcError::Transport(kind)) => match kind {
+                TransportErrorKind::HttpError(http) => http.is_rate_limit_err(),
+                TransportErrorKind::Custom(err) => {
+                    err.to_string().contains("429 Too Many Requests")
+                }
+                _ => false,
+            },
+            Error::EthError(RpcError::ErrorResp(payload)) => {
+                payload.is_retry_err() && payload.message != "header not found"
+            }
+            _ => false,
+        }
+    }
+
     /// Block number associated with [`Error::inconsistent_block_payload_for_fallback`] errors, if any.
     pub fn inconsistent_block_number_hint(&self) -> Option<u64> {
         match self {
@@ -177,6 +202,19 @@ impl Error {
             _ => None,
         }
     }
+}
+
+/// Rate-limited block-fetch sweeps allowed before the fetch gives up.
+const RATE_LIMIT_MAX_SWEEPS: u32 = 8;
+
+/// How long to hold off after the `sweep`-th consecutive rate-limited sweep of one block fetch
+/// (counting from 0): 1 s doubling up to 60 s, about three minutes over all
+/// [`RATE_LIMIT_MAX_SWEEPS`]. `None` once that budget is spent, so the fetch fails as it did
+/// before rate limits were told apart, roughly as long after the first refusal as five ordinary
+/// failed attempts take.
+fn rate_limit_hold_off(sweep: u32) -> Option<std::time::Duration> {
+    (sweep < RATE_LIMIT_MAX_SWEEPS)
+        .then(|| std::time::Duration::from_secs((1u64 << sweep.min(6)).min(60)))
 }
 
 /// True when any cause in the [`anyhow::Error`] chain is an [`Error`] that
@@ -785,6 +823,11 @@ pub struct Client {
     /// [`Client::reconnect`] re-dials from this list, so a backup that was down at startup is
     /// picked up on the next repair instead of being forgotten for the life of the process.
     fallback_urls: Vec<String>,
+    /// Spaces out the provider calls made by block fetches, tag lookups and head polls. Shared by
+    /// every clone, so the streams that clone one client draw from a single budget. Unlimited
+    /// unless set with [`Client::with_rate_limit`]; a rate-limited answer from a provider holds
+    /// it off either way. See [`pacer::Pacer`].
+    pacer: std::sync::Arc<pacer::Pacer>,
 }
 
 /// Default for the tag lookup's per-call timeout: a healthy provider answers a header read in
@@ -864,6 +907,7 @@ impl Client {
             mem_cache: None,
             call_timeout: DEFAULT_CALL_TIMEOUT,
             fallback_urls: Vec::new(),
+            pacer: std::sync::Arc::new(pacer::Pacer::unlimited()),
         })
     }
 
@@ -951,6 +995,7 @@ impl Client {
             mem_cache: None,
             call_timeout: DEFAULT_CALL_TIMEOUT,
             fallback_urls: fallback_urls.to_vec(),
+            pacer: std::sync::Arc::new(pacer::Pacer::unlimited()),
         })
     }
 
@@ -1142,6 +1187,15 @@ impl Client {
         self
     }
 
+    /// Admit at most `rps` provider calls per second across this client and all its clones.
+    /// Applies to block fetches, tag lookups and `eth_blockNumber` polls; subscriptions are not
+    /// paced. Call before cloning the client, or the clones keep the previous budget.
+    #[must_use]
+    pub fn with_rate_limit(mut self, rps: std::num::NonZeroU32) -> Self {
+        self.pacer = std::sync::Arc::new(pacer::Pacer::with_rate(rps));
+        self
+    }
+
     fn providers_with_labels(&self) -> Vec<(String, &AlloyProvider)> {
         let mut out: Vec<(String, &AlloyProvider)> =
             Vec::with_capacity(1 + self.fallback_providers.len());
@@ -1215,12 +1269,21 @@ impl Client {
         // a transient mismatch (e.g. reorg between `eth_getBlockByNumber` and
         // `eth_getBlockReceipts` on the same peer) is only resolvable by re-fetching, so we
         // back off and retry the whole sweep instead of bailing on the first pass.
+        //
+        // A sweep that failed only because every provider said we are over its rate limit does
+        // not use up an attempt: giving up after a short burst of 429s would make the stream
+        // reset and fetch the whole range again, which is the opposite of backing off. Such
+        // sweeps hold off the shared pacer, so every fetch on this client pauses with this one,
+        // and wait longer each time, but only within [`rate_limit_hold_off`]'s budget. A limit
+        // that outlasts it (an exhausted quota, say) fails the fetch like any other error, so
+        // the stream resets and health reporting sees it instead of the fetch waiting forever.
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
 
         let mut attempt: usize = 0;
         let mut delay = DELAY_BASE;
+        let mut rate_limited_sweeps: u32 = 0;
 
         loop {
             attempt += 1;
@@ -1232,7 +1295,10 @@ impl Client {
             let mut payload_inconsistent_errs: Vec<(String, Error)> = Vec::new();
 
             for (label, provider) in self.providers_with_labels() {
-                match Self::fetch_block_and_receipts_from_provider(provider, number).await {
+                match self
+                    .fetch_block_and_receipts_from_provider(provider, number)
+                    .await
+                {
                     Ok((block, receipts)) => {
                         match OrderedBlock::try_from_fetched_block(
                             self.chain_id,
@@ -1298,6 +1364,39 @@ impl Client {
                 }
             }
 
+            let rate_limited = payload_inconsistent_errs.is_empty()
+                && !transport_errs.is_empty()
+                && transport_errs.iter().all(|(_, e)| e.is_rate_limited());
+            if rate_limited {
+                let Some(hold_off) = rate_limit_hold_off(rate_limited_sweeps) else {
+                    let err = transport_errs
+                        .pop()
+                        .map(|(_, e)| e)
+                        .unwrap_or(Error::FailedToGetBlock(number));
+                    tracing::error!(
+                        block_number = number,
+                        sweeps = rate_limited_sweeps,
+                        error = %err,
+                        "⛔ RPC provider still rate limiting after backing off; giving up on this block"
+                    );
+                    return Err(Interrupt::Cont(err));
+                };
+                rate_limited_sweeps += 1;
+                attempt -= 1;
+                self.pacer.hold_off(hold_off);
+                tracing::warn!(
+                    block_number = number,
+                    ?hold_off,
+                    error = %transport_errs.last().map(|(_, e)| e.to_string()).unwrap_or_default(),
+                    "RPC provider rate limit hit; holding off all requests before retrying"
+                );
+                tokio::select! {
+                    _ = tokio::time::sleep(hold_off) => {},
+                    _ = tokio::signal::ctrl_c() => return Err(Interrupt::Stop)
+                }
+                continue;
+            }
+
             // Sweep failed end-to-end. Prefer the payload-inconsistency cause for the
             // propagated error — it carries the block-number hint and a non-retriable
             // classification at the API layer — falling back to the last transport error and
@@ -1345,11 +1444,13 @@ impl Client {
     /// [`OrderedBlock::try_from_fetched_block`] and the caller will fall through to the next
     /// endpoint (or retry the whole sweep).
     async fn fetch_block_and_receipts_from_provider(
+        &self,
         provider: &AlloyProvider,
         number: u64,
     ) -> Result<(AnyRpcBlock, Vec<AnyTransactionReceipt>), Error> {
         let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
         let block_fut = async {
+            self.pacer.acquire().await;
             provider
                 .get_block(block_id)
                 .full()
@@ -1357,6 +1458,7 @@ impl Client {
                 .ok_or(Error::FailedToGetBlock(number))
         };
         let receipts_fut = async {
+            self.pacer.acquire().await;
             provider
                 .get_block_receipts(block_id)
                 .await?
@@ -1401,6 +1503,7 @@ impl Client {
         let mut errors: Vec<(String, Error)> = Vec::new();
 
         for (label, provider) in providers {
+            self.pacer.acquire().await;
             match provider
                 .get_block(BlockId::Number(BlockNumberOrTag::Number(number)))
                 .full()
@@ -1484,6 +1587,7 @@ impl Client {
     pub async fn get_last_block(&self) -> Result<u64, Error> {
         let mut failures: Vec<(String, Error)> = Vec::new();
         for (label, provider) in self.providers_with_labels() {
+            self.pacer.acquire().await;
             match timed(self.call_timeout, provider.get_block_number()).await {
                 Ok(number) => {
                     for (failed, err) in &failures {
@@ -1537,7 +1641,9 @@ impl Client {
 
         let providers = self.providers_with_labels();
         let timeout = self.call_timeout;
+        let pacer = &self.pacer;
         let answers = join_all(providers.iter().map(|(label, provider)| async move {
+            pacer.acquire().await;
             let answer = timed(
                 timeout,
                 std::future::IntoFuture::into_future(
@@ -1606,6 +1712,7 @@ impl Client {
                         // of honest fallbacks must not escape the hash check on that account.
                         // Ask for the block and let the hash decide; only a provider with no block
                         // at that height gets to abstain.
+                        pacer.acquire().await;
                         let read = timed(
                             timeout,
                             std::future::IntoFuture::into_future(provider.get_block(
@@ -2565,6 +2672,53 @@ mod error_classification_tests {
         // A stringified error loses the type and must not be classified as permanent.
         let stringified = anyhow::anyhow!("Failed to get the `safe` block: FailedToGetBlockByTag");
         assert!(!anyhow_chain_is_unsupported_block_tag(&stringified));
+    }
+
+    /// A JSON-RPC error response. Built by deserializing, because the payload type is only
+    /// re-exported by `alloy` behind a feature this crate does not enable.
+    fn rpc_error(code: i64, message: &'static str) -> Error {
+        let payload =
+            serde_json::from_value(serde_json::json!({ "code": code, "message": message }))
+                .expect("error payload");
+        Error::EthError(alloy::transports::RpcError::ErrorResp(payload))
+    }
+
+    #[test]
+    fn rate_limit_responses_are_recognised() {
+        assert!(
+            Error::EthError(TransportErrorKind::http_error(429, String::new())).is_rate_limited()
+        );
+        assert!(rpc_error(
+            -32007,
+            "15/second request limit reached - reduce calls per second or upgrade your account at quicknode.com"
+        )
+        .is_rate_limited());
+        assert!(rpc_error(-32005, "project ID request rate exceeded").is_rate_limited());
+        assert!(rpc_error(429, "Too Many Requests").is_rate_limited());
+    }
+
+    #[test]
+    fn rate_limit_hold_off_doubles_then_gives_up() {
+        let schedule: Vec<u64> = (0..)
+            .map_while(rate_limit_hold_off)
+            .map(|d| d.as_secs())
+            .collect();
+        assert_eq!(schedule, [1, 2, 4, 8, 16, 32, 60, 60]);
+        assert_eq!(rate_limit_hold_off(RATE_LIMIT_MAX_SWEEPS), None);
+        assert_eq!(rate_limit_hold_off(u32::MAX), None);
+    }
+
+    #[test]
+    fn other_failures_are_not_rate_limits() {
+        assert!(
+            !Error::EthError(TransportErrorKind::http_error(500, String::new())).is_rate_limited()
+        );
+        assert!(
+            !Error::EthError(TransportErrorKind::http_error(503, String::new())).is_rate_limited()
+        );
+        assert!(!rpc_error(-32000, "header not found").is_rate_limited());
+        assert!(!rpc_error(-32602, "invalid argument").is_rate_limited());
+        assert!(!Error::FailedToGetBlock(7).is_rate_limited());
     }
 }
 

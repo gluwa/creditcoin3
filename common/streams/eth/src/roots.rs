@@ -470,7 +470,7 @@ async fn stream_rpc(
                 .boxed()
         }
     };
-    let mut stream_n = heights_to_fetch(config.start_height, bounds).boxed();
+    let mut stream_n = fetch_heights(config.start_height, bounds).boxed();
 
     let mut blocks = tokio::task::JoinSet::new();
 
@@ -553,6 +553,19 @@ async fn stream_rpc(
     .boxed()
 }
 
+/// [`heights_to_fetch`], fused, as the fetch loop consumes it.
+///
+/// The loop reads it from a `tokio::select!` branch. When the heads end while block fetches are
+/// still in flight, `select!` disables that branch for one iteration only and polls it again on
+/// the next; without the fuse that poll travels down to whatever ended the heads (#1441).
+fn fetch_heights<B>(start: u64, bounds: B) -> impl futures::stream::FusedStream<Item = u64>
+where
+    B: futures::Stream<Item = Option<u64>>,
+{
+    use futures::StreamExt as _;
+    heights_to_fetch(start, bounds).fuse()
+}
+
 /// The heights to fetch, in order, as candidate upper `bounds` arrive.
 ///
 /// A bound of `None` (nothing resolvable yet) or one that does not advance past what has already
@@ -622,28 +635,58 @@ pub(crate) fn end_on_silence(
     client: eth::Client,
     timeout: std::time::Duration,
     baseline: Option<u64>,
-) -> impl futures::Stream<Item = u64> {
+) -> impl futures::stream::FusedStream<Item = u64> {
+    end_on_silence_with(
+        heads,
+        move || {
+            let client = client.clone();
+            async move {
+                match tokio::time::timeout(timeout, client.get_last_block()).await {
+                    Ok(Ok(head)) => Ok(head),
+                    Ok(Err(err)) => Err(err.to_string()),
+                    Err(_) => Err("head probe timed out".to_owned()),
+                }
+            }
+        },
+        timeout,
+        baseline,
+    )
+}
+
+/// [`end_on_silence`] with the "what is the node's head?" probe as a parameter, so the watchdog
+/// can be exercised without a live client.
+///
+/// The result is fused: once it ends, further polls return `None`. Consumers do poll it again
+/// (the fetch loop's `tokio::select!` re-polls a branch it disabled on the next iteration, and
+/// `Chain`/`Then`/`Flatten` pass that poll straight through), and a bare `unfold` panics on a poll
+/// after `Ready(None)` (#1441).
+fn end_on_silence_with<P, F>(
+    heads: stream_util::BoxedStream<u64>,
+    probe: P,
+    timeout: std::time::Duration,
+    baseline: Option<u64>,
+) -> impl futures::stream::FusedStream<Item = u64>
+where
+    P: Fn() -> F + Send + 'static,
+    F: std::future::Future<Output = Result<u64, String>> + Send,
+{
     use futures::StreamExt as _;
     futures::stream::unfold(
-        (heads, client, baseline),
-        move |(mut heads, client, mut baseline)| async move {
+        (heads, probe, baseline),
+        move |(mut heads, probe, mut baseline)| async move {
             loop {
                 match tokio::time::timeout(timeout, heads.next()).await {
-                    Ok(Some(head)) => return Some((head, (heads, client, Some(head)))),
+                    Ok(Some(head)) => return Some((head, (heads, probe, Some(head)))),
                     Ok(None) => return None,
                     Err(_) => {
-                        let probe =
-                            match tokio::time::timeout(timeout, client.get_last_block()).await {
-                                Ok(Ok(head)) => Ok(head),
-                                Ok(Err(err)) => Err(err.to_string()),
-                                Err(_) => Err("head probe timed out".to_owned()),
-                            };
-                        let (verdict, next_baseline) = judge_silence(baseline, probe.clone());
+                        let probe_result = probe().await;
+                        let (verdict, next_baseline) =
+                            judge_silence(baseline, probe_result.clone());
                         match verdict {
                             Silence::QuietChain => {
                                 tracing::debug!(
                                     ?baseline,
-                                    ?probe,
+                                    probe = ?probe_result,
                                     silent_for = ?timeout,
                                     "no new heads, and the node agrees the chain is quiet"
                                 );
@@ -652,7 +695,7 @@ pub(crate) fn end_on_silence(
                             Silence::DeadSubscription => {
                                 tracing::warn!(
                                     ?baseline,
-                                    ?probe,
+                                    probe = ?probe_result,
                                     silent_for = ?timeout,
                                     "newHeads subscription went silent while the chain moved on; \
                                      ending the stream so it reconnects"
@@ -665,6 +708,7 @@ pub(crate) fn end_on_silence(
             }
         },
     )
+    .fuse()
 }
 
 /// The current value of a watch channel, then every subsequent change, until the sender is gone.
@@ -700,6 +744,62 @@ where
 mod tests {
     use super::*;
     use futures::StreamExt as _;
+
+    /// Head numbers that stay silent after `heads`, so the watchdog's timeout fires.
+    fn then_silent(heads: Vec<u64>) -> stream_util::BoxedStream<u64> {
+        futures::stream::iter(heads)
+            .chain(futures::stream::pending())
+            .boxed()
+    }
+
+    /// A probe reporting the chain at `head`: the node has moved on, so silence means a dead
+    /// subscription and the watchdog ends the stream.
+    fn chain_at(head: u64) -> impl Fn() -> futures::future::Ready<Result<u64, String>> + Send {
+        move || futures::future::ready(Ok(head))
+    }
+
+    // Regression (3.138.0-devnet, #1441): after the watchdog ended the stream, the fetch loop's
+    // `tokio::select!` polled it again while block fetches were still in flight. The unfold
+    // underneath panicked with "Unfold must not be polled after it returned `Poll::Ready(None)`"
+    // and took the attestor down on every ETH RPC disconnect.
+    #[tokio::test]
+    async fn the_silence_watchdog_can_be_polled_again_after_it_ends() {
+        let mut heads = end_on_silence_with(
+            then_silent(vec![10, 11]),
+            chain_at(20),
+            std::time::Duration::from_millis(20),
+            None,
+        )
+        .boxed();
+        assert_eq!(heads.next().await, Some(10));
+        assert_eq!(heads.next().await, Some(11));
+        assert_eq!(heads.next().await, None, "silence + a moving chain ends it");
+        assert_eq!(heads.next().await, None, "polling again must not panic");
+        assert_eq!(heads.next().await, None);
+    }
+
+    // The same, through the exact pipeline the source-maturity path builds: the seed head
+    // chained before the watchdog, a per-head bound resolution, then `heights_to_fetch`.
+    #[tokio::test]
+    async fn the_fetch_heights_can_be_polled_again_after_the_heads_end() {
+        let heads =
+            futures::stream::once(futures::future::ready(10u64)).chain(end_on_silence_with(
+                then_silent(vec![11, 12]),
+                chain_at(20),
+                std::time::Duration::from_millis(20),
+                Some(10),
+            ));
+        let bounds = heads.then(|head| async move { Some(head) }).boxed();
+        let mut stream_n = fetch_heights(10, bounds).boxed();
+        let mut got = Vec::new();
+        while let Some(n) = stream_n.next().await {
+            got.push(n);
+        }
+        assert_eq!(got, vec![10, 11, 12]);
+        // `tokio::select!` re-polls a disabled branch on the next loop iteration.
+        assert_eq!(stream_n.next().await, None);
+        assert_eq!(stream_n.next().await, None);
+    }
 
     #[tokio::test]
     async fn heights_to_fetch_releases_each_height_once_and_ignores_non_advancing_bounds() {

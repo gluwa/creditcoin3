@@ -10,6 +10,12 @@ pub struct Config {
     pub(crate) secret: AttestorSecret,
     /// Optional source-chain family. `None` defaults to Ethereum for every chain ID.
     pub(crate) eth_chain_family: Option<eth::ChainFamily>,
+    /// Cap on source-chain RPC requests per second. `None` leaves requests unpaced.
+    #[default(None)]
+    pub(crate) eth_rps: Option<std::num::NonZeroU32>,
+    /// Source-chain blocks fetched concurrently while catching up.
+    #[default(common::constants::MAX_CONCURRENT_RPC_CALLS)]
+    pub(crate) eth_max_concurrency: std::num::NonZeroUsize,
 }
 
 /// Secret used for the attestor identity: BIP39 mnemonic or raw 32-byte seed as hex.
