@@ -82,10 +82,8 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             maxChainAttestationInterval: u64 & AugmentedConst<ApiType>;
             /**
-             * Maximum length of a chain's [`CheckpointingQueues`] entry. A commit that would push
-             * the queue past this is rejected. `CommitAttestationWeight::weigh_data` charges queue
-             * processing per stored entry, so this bounds `commit_attestation`'s weight; it must sit
-             * above the `2 * checkpoint_interval + 1` entries the queue holds in normal operation.
+             * Maximum length of a chain's [`CheckpointingQueues`] entry. Must be greater than
+             * `2 * MaxAttestationCheckpointInterval + 1`.
              **/
             maxCheckpointingQueueLen: u32 & AugmentedConst<ApiType>;
             maxCheckpointsImportedPerCall: u32 & AugmentedConst<ApiType>;
