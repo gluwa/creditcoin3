@@ -1,9 +1,12 @@
-// usc-dev source-stack deploy (Creditcoin devnet EVM, chain id 42) against CURRENT usc-contracts
+// LEGACY usc-devnet source-stack deploy (one Sepolia route incl. the on-chain quoter + TWAP). For a
+// fresh network use deploy-shared-devnet.mts + deploy-dest-chain-devnet.mts + deploy-source-chain-devnet.mts.
+// Written against CURRENT usc-contracts
 // main (post-#23 redesign: RelayerContract owns verifier/decoder, RelayerFeeVault is a dumb vault,
 // AcknowledgmentValidator takes proofVerifier+attestToken, AttestorVault needs an AttestorRegistry).
 // Env: CC_RPC (default devnet), DEPLOYER_KEY, optional QUOTER_EOA (defaults to deployer).
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
 function ascContractsDir(): string {
   // ASC_CONTRACTS_DIR since the repo was renamed usc-contracts -> asc-contracts; the old name is
@@ -23,18 +26,18 @@ const UC = ascContractsDir();
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 
-const OUT = process.env.DEPLOY_OUT ?? "/tmp/usc-dev-deploy.json";
+const NET = network();
+const OUT = deployPath(NET);
 const DEAD = "0x000000000000000000000000000000000000dEaD";
-const CHAIN_KEY = 8;
-const DEST_CHAIN_ID = 11155111; // Sepolia
-const CC_CHAIN_ID = 42;
+const CHAIN_KEY = Number(process.env.CHAIN_KEY ?? 8);
+const DEST_CHAIN_ID = Number(process.env.DEST_CHAIN_ID ?? 11155111); // Sepolia
+const CC_CHAIN_ID = NET.evmChainId;
 
-const rpc = process.env.CC_RPC ?? "https://rpc.usc-devnet.creditcoin.network";
+const rpc = ccRpc(NET);
 const key = process.env.DEPLOYER_KEY!;
 if (!key) throw new Error("need DEPLOYER_KEY");
 
-const provider = new ethers.JsonRpcProvider(rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const { provider } = await ccProvider(NET, rpc);
 const wallet = new ethers.Wallet(key, provider);
 const QUOTER_EOA = process.env.QUOTER_EOA ?? wallet.address;
 

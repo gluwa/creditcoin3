@@ -12,13 +12,16 @@
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ethers } from "ethers";
 import { readFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
 const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
 if (!UC) throw new Error("set ASC_CONTRACTS_DIR to a compiled asc-contracts checkout (main c83b3372+)");
 const ART = (p: string, n: string) => JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const NET = network();
+const OUT = deployPath(NET);
 const need = (k: string): string => { const v = process.env[k]; if (!v) throw new Error(`missing ${k}`); return v; };
-const CHAIN_KEY = Number(process.env.CHAIN_KEY ?? 8);
+const CHAIN_KEY = Number(process.env.CHAIN_KEY ?? (NET.name === "usc-devnet" ? 8 : NaN));
+if (!Number.isInteger(CHAIN_KEY) || CHAIN_KEY <= 0) throw new Error("missing CHAIN_KEY");
 const MESSAGE_ID = ethers.hexlify(need("MESSAGE_ID"));
 const DELIVERY_TX = ethers.hexlify(need("DELIVERY_TX"));
 const PROOF_GEN = process.env.PROOF_GEN_URL ?? "http://127.0.0.1:3101";
@@ -26,10 +29,10 @@ const KEY = process.env.CLAIMANT_KEY ?? need("DEPLOYER_KEY");
 const DRY_RUN = (process.env.DRY_RUN ?? "false") === "true";
 
 const addrs = JSON.parse(readFileSync(OUT, "utf8"));
-const src = CHAIN_KEY === 8 ? addrs.source : addrs.chains?.[String(CHAIN_KEY)]?.source;
+const legacyRoute = Number(addrs.source?.chainKey) === CHAIN_KEY && !addrs.chains?.[String(CHAIN_KEY)];
+const src = legacyRoute ? addrs.source : addrs.chains?.[String(CHAIN_KEY)]?.source;
 if (!src?.relayerContract) throw new Error(`no source.relayerContract for chain key ${CHAIN_KEY} in ${OUT}`);
-const provider = new ethers.JsonRpcProvider(process.env.CC_RPC ?? addrs.source.rpc, 42, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const { provider } = await ccProvider(NET, addrs.source.rpc);
 const claimant = new ethers.Wallet(KEY, provider);
 const rc = new ethers.Contract(src.relayerContract, ART("write-ability/RelayerContractLite.sol", "RelayerContractLite").abi, claimant);
 console.log(`route ${CHAIN_KEY}: Lite ${src.relayerContract} decoder ${await rc.deliveryDecoder()} claimant ${claimant.address}`);

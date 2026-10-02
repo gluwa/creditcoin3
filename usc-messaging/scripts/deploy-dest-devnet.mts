@@ -13,6 +13,7 @@
 // $ASC_CONTRACTS_DIR (main a9791c37+ build). DEVNET-ONLY keys.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { network, deployPath } from "./network.mjs";
 import { deployRouterStackWithInbox, ensureDestinationTrusts } from "./dispatcher-stack.mjs";
 
 function ascContractsDir(): string {
@@ -33,9 +34,10 @@ const UC = ascContractsDir();
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 
-const OUT = process.env.DEPLOY_OUT ?? "./usc-dev-deploy.json";
-const CHAIN_KEY = 8;
-const CREDITCOIN_CHAIN_ID = 42;
+const NET = network();
+const OUT = deployPath(NET);
+const CHAIN_KEY = Number(process.env.CHAIN_KEY ?? 8);
+const CREDITCOIN_CHAIN_ID = NET.evmChainId;
 const SEPOLIA_CHAIN_ID = 11155111;
 // EOAValidator to reuse: env VALIDATOR, else the deploy JSON's dest.voteValidator (the live one).
 const VALIDATOR_ENV = process.env.VALIDATOR;

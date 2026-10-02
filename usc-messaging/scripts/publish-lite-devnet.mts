@@ -14,17 +14,23 @@
 // Env: DEPLOYER_KEY, QUOTER_TEST_KEY, optional MEMO, REQUIRES_ACK=false, DEPLOY_OUT.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath } from "./network.mjs";
 import { memoEnvelope } from "./evm-envelope.mjs";
 
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const NET = network();
+const OUT = deployPath(NET);
 const deployJson = JSON.parse(readFileSync(OUT, "utf8"));
-// CHAIN_KEY selects a secondary destination registered by register-chain-devnet / deploy-*-chain-devnet
-// (e.g. 9 = Base Sepolia): its per-chain source stack (Outbox, Lite, vault) overlays the shared
-// `source` fields (rpc, chainId, attest, …). Unset = the original Sepolia route (chain key 8).
-const CHAIN_KEY_SEL = process.env.CHAIN_KEY ? Number(process.env.CHAIN_KEY) : undefined;
-const chainEntry = CHAIN_KEY_SEL !== undefined && CHAIN_KEY_SEL !== Number(deployJson.source.chainKey)
-  ? deployJson.chains?.[String(CHAIN_KEY_SEL)] : undefined;
-if (CHAIN_KEY_SEL !== undefined && CHAIN_KEY_SEL !== Number(deployJson.source.chainKey) && !chainEntry?.source) {
+// CHAIN_KEY selects the route: its per-chain source stack under chains.<K> (Outbox, Lite, vault)
+// overlays the shared `source` fields (rpc, chainId, attest, …). Only usc-devnet's record has a
+// legacy root route (source.chainKey = 8, Sepolia) that is used when CHAIN_KEY is unset; a record
+// without one (asc-devnet) requires CHAIN_KEY.
+const legacyKey: number | undefined = deployJson.source?.chainKey !== undefined ? Number(deployJson.source.chainKey) : undefined;
+const CHAIN_KEY_SEL = process.env.CHAIN_KEY ? Number(process.env.CHAIN_KEY) : legacyKey;
+if (CHAIN_KEY_SEL === undefined || !Number.isInteger(CHAIN_KEY_SEL) || CHAIN_KEY_SEL <= 0) {
+  throw new Error(`missing CHAIN_KEY — ${OUT} has no legacy root route; set CHAIN_KEY to one of chains.{${Object.keys(deployJson.chains ?? {}).join(",")}}`);
+}
+const chainEntry = CHAIN_KEY_SEL !== legacyKey ? deployJson.chains?.[String(CHAIN_KEY_SEL)] : undefined;
+if (CHAIN_KEY_SEL !== legacyKey && !chainEntry?.source) {
   throw new Error(`no chains.${CHAIN_KEY_SEL}.source in the deploy JSON — run deploy-source-chain-devnet first`);
 }
 const s = chainEntry ? { ...deployJson.source, ...chainEntry.source, chainKey: CHAIN_KEY_SEL } : deployJson.source;

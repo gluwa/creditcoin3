@@ -1,8 +1,8 @@
-// usc-dev: deploy the CREDITCOIN-side per-chain write-ability stack for a newly registered chain
+// devnet: deploy the CREDITCOIN-side per-chain write-ability stack for a newly registered chain
 // key (Outbox, AttestorVault, RelayerFeeVault, RelayerContractLite, AcknowledgmentValidator) and
 // wire it into the SHARED contracts already recorded under `source.*` of usc-dev-deploy.json.
 //
-// Step 3 of 3 when adding a destination chain to usc-devnet (Creditcoin EVM chain id 42):
+// Step 3 of 3 when adding a destination chain to the selected devnet (NETWORK=asc-devnet|usc-devnet, see network.mjs):
 //   1. register-chain-devnet.mjs        — pallet side, assigns CHAIN_KEY
 //   2. deploy-dest-chain-devnet.mts     — destination chain: AttestorRegistry, EOAValidator, Inbox
 //   3. deploy-source-chain-devnet.mts   (this)
@@ -39,13 +39,15 @@
 //   DEST_RPC           destination-chain JSON-RPC URL                              (required)
 //   DEST_ADMIN_KEY     owner of the destination Inbox (chains.<CHAIN_KEY>.dest.admin) (required)
 //   QUOTER_EOA         optional; unset = no quoter authorised on the new Lite
-//   CC_RPC             default source.rpc / https://rpc.usc-devnet.creditcoin.network
+//   NETWORK            asc-devnet (default) | usc-devnet — chain id, RPC, deploy record (network.mjs)
+//   CC_RPC             default source.rpc / the NETWORK default
 //   ASC_CONTRACTS_DIR  compiled asc-contracts checkout (main c83b3372+)
 //   DEPLOY_OUT         default ../usc-dev-deploy.json
 //
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
 function ascContractsDir(): string {
   const dir = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
@@ -54,9 +56,10 @@ function ascContractsDir(): string {
 }
 const UC = ascContractsDir();
 const ART = (p: string, n: string) => JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const NET = network();
+const OUT = deployPath(NET);
 const DEAD = "0x000000000000000000000000000000000000dEaD";
-const CC_CHAIN_ID = 42;
+const CC_CHAIN_ID = NET.evmChainId;
 const RATE = 0n; // Outbox defaultRateLimit (uint128)
 
 const need = (k: string): string => {
@@ -74,7 +77,7 @@ const QUOTER_EOA = process.env.QUOTER_EOA ? ethers.getAddress(process.env.QUOTER
 const deployJson = JSON.parse(readFileSync(OUT, "utf8"));
 const s = deployJson.source ?? {};
 for (const k of ["attest", "proofVerifier", "deliveryDecoder", "factory", "feeRegistry", "attestorRegistry", "chainRegistry", "outboxDiscovery"]) {
-  if (!s[k]) throw new Error(`source.${k} missing in ${OUT} — the shared stack must be deployed first (deploy-source-devnet / deploy-discovery-devnet)`);
+  if (!s[k]) throw new Error(`source.${k} missing in ${OUT} — the shared stack must be deployed first (deploy-shared-devnet.mts)`);
 }
 deployJson.chains ??= {};
 const entry = deployJson.chains[String(CHAIN_KEY)];
@@ -87,9 +90,7 @@ if (entry.dest.chainId !== undefined && Number(entry.dest.chainId) !== DEST_CHAI
 }
 const existing = entry.source ?? null;
 
-const rpc = process.env.CC_RPC ?? s.rpc ?? "https://rpc.usc-devnet.creditcoin.network";
-const provider = new ethers.JsonRpcProvider(rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const { provider, rpc } = await ccProvider(NET, s.rpc);
 const wallet = new ethers.Wallet(DEPLOYER_KEY, provider);
 const owner = wallet.address;
 const lc = (a: string) => a.toLowerCase();

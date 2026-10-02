@@ -1,19 +1,23 @@
-// usc-dev write-ability pallet config (sudo): register the new OutboxFactory, set the
-// WriteAbilityConfig, (optionally) the core fee, and — once the #1292 runtime is live — the
-// OutboxDiscovery registry address for chain_key 8.
-// Env: SUDO_URI (seed/uri of the devnet sudo account), optional CORE_FEE_WEI (default: skip),
+// devnet write-ability pallet config (sudo) for ONE chain key: set the OutboxFactory, the
+// WriteAbilityConfig, (optionally) the core fee and the OutboxDiscovery registry address.
+// Env: NETWORK (asc-devnet default | usc-devnet), CHAIN_KEY (required on asc-devnet; 8 on usc-devnet),
+//      SUDO_URI (seed/uri of the devnet sudo account, checked against sudo.key()), optional CORE_FEE_WEI,
 //      optional ONLY_DISCOVERY=true to run just the set_outbox_discovery_addr step.
 // Reads the factory / discovery addresses from the committed usc-dev-deploy.json (or DEPLOY_OUT),
 // written by deploy-source-devnet / deploy-discovery-devnet.
 import { ApiPromise, WsProvider, Keyring } from "@polkadot/api";
 import { cryptoWaitReady } from "@polkadot/util-crypto";
 import { readFileSync } from "node:fs";
+import { network, deployPath, substrateWs, assertSudo } from "./network.mjs";
 
-const CHAIN_KEY = 8n;
-const WS = process.env.CREDITCOIN_SUBSTRATE_WS_URL || "wss://rpc.usc-devnet.creditcoin.network";
+const NET = network();
+const CHAIN_KEY_RAW = process.env.CHAIN_KEY ?? (NET.name === "usc-devnet" ? "8" : undefined);
+if (!CHAIN_KEY_RAW || !/^\d+$/.test(CHAIN_KEY_RAW)) throw new Error("need CHAIN_KEY (supportedChains key of the destination chain)");
+const CHAIN_KEY = BigInt(CHAIN_KEY_RAW);
+const WS = substrateWs(NET);
 // Same file deploy-discovery-devnet.mts / publish-lite-devnet.mts use: the committed
 // usc-dev-deploy.json next to this scripts dir (DEPLOY_OUT overrides, e.g. /tmp for a fresh deploy).
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
+const OUT = deployPath(NET);
 const source = JSON.parse(readFileSync(OUT, "utf8")).source ?? {};
 const factory = source.factory;
 const discovery = process.env.DISCOVERY_ADDR ?? source.outboxDiscovery;
@@ -29,6 +33,8 @@ await api.isReady;
 await cryptoWaitReady();
 const sudo = new Keyring({ type: "sr25519" }).addFromUri(process.env.SUDO_URI);
 console.log("sudo account:", sudo.address);
+await assertSudo(api, sudo, NET);
+console.log(`network ${NET.name}: runtime ${api.runtimeVersion.specName}/${api.runtimeVersion.specVersion} at ${WS}, chain key ${CHAIN_KEY}`);
 
 const submit = (label, call) =>
   new Promise((resolve, reject) => {
@@ -73,7 +79,7 @@ if (process.env.CORE_FEE_WEI) {
   await submit(`setCoreFee(${CHAIN_KEY}, ${process.env.CORE_FEE_WEI})`,
     api.tx.supportedChains.setCoreFee(CHAIN_KEY, process.env.CORE_FEE_WEI));
 } else {
-  console.log("(core fee left unset — get_core_fee(8) stays 0; set later with CORE_FEE_WEI)");
+  console.log(`(core fee left unset — get_core_fee(${CHAIN_KEY}) stays 0; set later with CORE_FEE_WEI)`);
 }
 
 await setDiscovery();

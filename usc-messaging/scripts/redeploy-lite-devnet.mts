@@ -21,31 +21,34 @@
 // Keys used here are DEVNET-ONLY. Never point this at testnet/mainnet.
 import { ethers } from "ethers";
 import { readFileSync, writeFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
 const UC = process.env.ASC_CONTRACTS_DIR ?? process.env.USC_CONTRACTS_DIR;
 if (!UC) throw new Error("set ASC_CONTRACTS_DIR to a compiled asc-contracts checkout (main c83b3372+)");
 const ART = (p: string, n: string) => JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
-const OUT = process.env.DEPLOY_OUT ?? new URL("../usc-dev-deploy.json", import.meta.url).pathname;
-const CC_CHAIN_ID = 42;
+const NET = network();
+const OUT = deployPath(NET);
+const CC_CHAIN_ID = NET.evmChainId;
 const need = (k: string): string => { const v = process.env[k]; if (!v) throw new Error(`missing ${k}`); return v; };
-const CHAIN_KEY = Number(process.env.CHAIN_KEY ?? 8);
+// usc-devnet kept its first route (Sepolia, key 8) in source/dest; everything else is under chains.<K>.
+const CHAIN_KEY = Number(process.env.CHAIN_KEY ?? (NET.name === "usc-devnet" ? 8 : NaN));
+if (!Number.isInteger(CHAIN_KEY) || CHAIN_KEY <= 0) throw new Error("missing CHAIN_KEY");
 const DEPLOYER_KEY = need("DEPLOYER_KEY");
 const QUOTER_EOA = ethers.getAddress(need("QUOTER_EOA"));
 const DRY_RUN = (process.env.DRY_RUN ?? "false") === "true";
 
 const deployJson = JSON.parse(readFileSync(OUT, "utf8"));
-// Chain key 8 lives in source/dest; other chains under chains.<K>.
-const src = CHAIN_KEY === 8 ? deployJson.source : deployJson.chains?.[String(CHAIN_KEY)]?.source;
-const dst = CHAIN_KEY === 8 ? deployJson.dest : deployJson.chains?.[String(CHAIN_KEY)]?.dest;
+const legacyRoute = Number(deployJson.source?.chainKey) === CHAIN_KEY && !deployJson.chains?.[String(CHAIN_KEY)];
+const src = legacyRoute ? deployJson.source : deployJson.chains?.[String(CHAIN_KEY)]?.source;
+const dst = legacyRoute ? deployJson.dest : deployJson.chains?.[String(CHAIN_KEY)]?.dest;
 if (!src?.outbox || !dst?.inbox) throw new Error(`no source.outbox / dest.inbox recorded for chain key ${CHAIN_KEY} in ${OUT}`);
-const DEST_CHAIN_ID = Number(process.env.DEST_CHAIN_ID ?? dst.chainId ?? (CHAIN_KEY === 8 ? 11155111 : undefined));
+const DEST_CHAIN_ID = Number(process.env.DEST_CHAIN_ID ?? dst.chainId ?? (legacyRoute ? 11155111 : undefined));
 if (!Number.isInteger(DEST_CHAIN_ID) || DEST_CHAIN_ID <= 0) throw new Error("DEST_CHAIN_ID unknown");
 const shared = deployJson.source;
 for (const k of ["attest", "proofVerifier", "deliveryDecoder"]) if (!shared[k]) throw new Error(`source.${k} missing`);
 if (QUOTER_EOA.toLowerCase() === new ethers.Wallet(DEPLOYER_KEY).address.toLowerCase()) throw new Error("QUOTER_EOA must not be the deployer");
 
-const provider = new ethers.JsonRpcProvider(process.env.CC_RPC ?? shared.rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const { provider } = await ccProvider(NET, shared.rpc);
 const wallet = new ethers.Wallet(DEPLOYER_KEY, provider);
 const owner = wallet.address;
 const lc = (a: string) => a.toLowerCase();

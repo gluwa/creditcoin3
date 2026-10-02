@@ -4,6 +4,7 @@
 // Usage: QUOTER_EOA=0x... DEPLOYER_KEY=0x... npx tsx scripts/add-quoter.mts
 import { ethers } from "ethers";
 import { readFileSync } from "node:fs";
+import { network, deployPath, ccRpc, ccProvider } from "./network.mjs";
 
 function ascContractsDir(): string {
   // ASC_CONTRACTS_DIR since the repo was renamed usc-contracts -> asc-contracts; the old name is
@@ -23,17 +24,17 @@ const UC = ascContractsDir();
 const ART = (p: string, n: string) =>
   JSON.parse(readFileSync(`${UC}/artifacts/contracts/${p}/${n}.json`, "utf8"));
 
-const OUT = process.env.DEPLOY_OUT ?? "usc-dev-deploy.json";
-const CC_CHAIN_ID = 42;
+const NET = network();
+const OUT = deployPath(NET);
+const CC_CHAIN_ID = NET.evmChainId;
 
-const rpc = process.env.CC_RPC ?? "https://rpc.usc-devnet.creditcoin.network";
+const rpc = ccRpc(NET);
 const key = process.env.DEPLOYER_KEY!;
 if (!key) throw new Error("need DEPLOYER_KEY (the quoter contract owner)");
 const quoterEOA = process.env.QUOTER_EOA!;
 if (!ethers.isAddress(quoterEOA)) throw new Error("need QUOTER_EOA (address to authorize)");
 
-const provider = new ethers.JsonRpcProvider(rpc, CC_CHAIN_ID, { staticNetwork: true, polling: true });
-provider.pollingInterval = 1000;
+const { provider } = await ccProvider(NET, rpc);
 const wallet = new ethers.Wallet(key, provider);
 
 async function main() {
