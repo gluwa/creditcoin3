@@ -5,7 +5,7 @@
 #   check.sh "fix(archiver): keep the watchdog above the retry budget"
 #   check.sh --pr-title "feat(eth): raw-RLP block fetch mode"
 #   check.sh --pr-title --ticket CSUB-2054 "fix(attestation): harden proof of possession (CSUB-2054)"
-#   git log --format=%s origin/usc-dev..HEAD | check.sh --stdin
+#   git log --format=%s origin/dev..HEAD | check.sh --stdin
 #
 # Flags: --pr-title (92-char limit, since GitHub appends " (#1234)" on squash), --stdin (one header
 # per line), --quiet (no output, exit status only), --ticket KEY (repeatable: the header must end with
