@@ -58,8 +58,8 @@
         "validator": "13.15.22"
     },
     "dependencies": {
-        "@polkadot/api": "16.5.2",
-        "@polkadot/types-augment": "16.5.2",
+        "@polkadot/api": "17.0.1",
+        "@polkadot/types-augment": "17.0.1",
         "bls-signatures-bindings": "^0.2.0",
         "cli-table3": "^0.6.3",
         "commander": "^14.0.0",
