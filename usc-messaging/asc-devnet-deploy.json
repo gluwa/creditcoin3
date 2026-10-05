@@ -1,7 +1,32 @@
 {
   "network": "asc-devnet",
   "sudo": "5DvkDUXfs72eg3ehvDSMrMBjxqTdguqJ4qVMGxBEZJR2tc6o",
-  "source": {},
+  "source": {
+    "chainId": 102037,
+    "rpc": "https://rpc.asc-devnet.creditcoin.network",
+    "deployer": "0x30Ab12D7254ee06bc856b30a0524D3e77c89F4C8",
+    "deployerNote": "shared gluwa-admin; owner of every contract below",
+    "attest": "0xC9DB4E548e5BAC10a05B6c658287fa3F559dbD3d",
+    "attestKind": "MockERC20",
+    "proofVerifier": "0x482D1212d32A2638c4dAe521F7BE02b830D57F63",
+    "deliveryDecoder": "0xD4e281D5BD0c8E3417eB06D6BB9F3fc04D491BaF",
+    "deliveryDecoderSelector": "0x230ceea8",
+    "attestorRegistry": "0xcB9fc50b3D1b61CFe8555487795e8B4C8c8De15e",
+    "factory": "0x66507a13D11DC3bCc150D5821C6760863C50D4F1",
+    "factoryVersion": "1.2",
+    "feeRegistry": "0x6f8D259D1C0d201ED56128DE9F318050C56A5BDa",
+    "coreFeeProvider": "0x0000000000000000000000000000000000000FD3",
+    "chainRegistry": "0xc89604B0DdF819E82DC571C77D59fAc73b046623",
+    "outboxDeployer": "0x014bB98500aaEbEBc590342f25686384977bF128",
+    "outboxDeployerImpl": "0x6aCe03613f89666259d661336AA12c2d2c21c1DA",
+    "outboxDiscovery": "0xa2809418f6b8D2B6d792CA7e786199971816980a",
+    "outboxDiscoveryImpl": "0x625DA2eE2B3c1f12E9d12E61ee3AAaa88a4cFADe",
+    "coreFee": "0",
+    "quoterEOA": null,
+    "ascContractsCommit": "3f9259e",
+    "sharedDeployedAt": "2026-10-02",
+    "verifiedAt": "2026-10-05"
+  },
   "chains": {
     "1": {
       "chainKey": 1,
@@ -19,7 +44,28 @@
         "0x9a38E6F5CcaC1c9a71B5B644512bC99e96cfd5eF"
       ],
       "attestorSignersDerivedAt": "2026-10-02",
-      "attestorSignersSource": "cc3-asc-dev{,-kc,-we}-sepolia-attestor-secrets secret-0..2 via derive-attestor-evm.mjs"
+      "attestorSignersSource": "cc3-asc-dev{,-kc,-we}-sepolia-attestor-secrets secret-0..2 via derive-attestor-evm.mjs",
+      "dest": {
+        "chainId": 11155111,
+        "rpc": "https://ethereum-sepolia-rpc.publicnode.com",
+        "inbox": "0xdaC2C2d87e53c9de6900D7e90977059a0821A955",
+        "dispatcherRouter": "0x969B60b8f5699afd536347c11cd29b0d667e7146",
+        "defaultDispatcher": "0x52541081C4DB1749eCB2B2eC58657E7667C4A7e9",
+        "voteValidator": "0xb6D4029aDFFa9DCf82F57BFF16F7Ca357d5314f8",
+        "attestorRegistry": "0xCb313626F1FcF3b430e235bA494a154D63870Ab4",
+        "admin": "0x30Ab12D7254ee06bc856b30a0524D3e77c89F4C8",
+        "deployedAt": "2026-10-02"
+      },
+      "source": {
+        "outbox": "0x583DE34F9C5e5c67a78D7F8551B2f5ae39658Dfc",
+        "relayerContract": "0x3f1446506A1f95Ad741a50108AcdEBaB77eF24d0",
+        "relayerContractKind": "RelayerContractLite",
+        "attestorVault": "0x3C4a8db8A97B2518fc094F847C508dbD45e975b7",
+        "relayerFeeVault": "0xc29D7ED113b99F3DA9F895d0401CeF41fc94926F",
+        "ackValidator": "0xf62eB23d6864200C8edE4b8BC34a79e3F0ef70FE",
+        "registeredVia": "OutboxDeployer",
+        "deployedAt": "2026-10-02"
+      }
     },
     "2": {
       "chainKey": 2,
@@ -37,7 +83,49 @@
         "0xb20DBeF3Fb5ccf0670203D5008a64bBE2df8dc1c"
       ],
       "attestorSignersDerivedAt": "2026-10-02",
-      "attestorSignersSource": "cc3-asc-dev{,-kc,-we}-base-sepolia-attestor-secrets secret-0..2 via derive-attestor-evm.mjs"
+      "attestorSignersSource": "cc3-asc-dev{,-kc,-we}-base-sepolia-attestor-secrets secret-0..2 via derive-attestor-evm.mjs",
+      "dest": {
+        "chainId": 84532,
+        "rpc": "https://sepolia.base.org",
+        "inbox": "0x3D966043cEe7aa83EDaF816211b101bd041Ccd40",
+        "dispatcherRouter": "0x6eF52C8bf581cFa8Cf5f9F322E6B6615785Cf999",
+        "defaultDispatcher": "0x3Fb022D940ba1b1153e230Efc9104147826b8993",
+        "voteValidator": "0x9244Df0d38C1dab16A0a6a74E72B869bd523C60c",
+        "attestorRegistry": "0x86EB3EE587f6e280454F2E8aCD88fc33e3e14afA",
+        "admin": "0x30Ab12D7254ee06bc856b30a0524D3e77c89F4C8",
+        "deployedAt": "2026-10-02"
+      },
+      "source": {
+        "outbox": "0xa7f962Cd4A550Fc37801b4dF18456a8A9C506438",
+        "relayerContract": "0xa7Acf1a8D68bb4cA9E08EfeC0242E8d476A96563",
+        "relayerContractKind": "RelayerContractLite",
+        "attestorVault": "0x355Fe4176CcAf3A2976129772F6b02007D4F736C",
+        "relayerFeeVault": "0xC308A428438eB7F8dd8a40688a66c75069c5897f",
+        "ackValidator": "0xD85d98784C0aB9e54A342bD8754475D61DCEdbc2",
+        "registeredVia": "OutboxDeployer",
+        "deployedAt": "2026-10-02"
+      }
     }
-  }
+  },
+  "superseded": {
+    "note": "first 2 Oct deploy (factory-direct) \u2014 both Inboxes reject these Outboxes; do not use",
+    "creditcoin": {
+      "outboxDiscovery": "0x44D61789\u202653A1",
+      "chainRegistry": "0x036bede4\u2026A1C2",
+      "outbox1": "0xae7621e2\u2026Bb51",
+      "outbox2": "0x527AA49b\u20262bC3"
+    },
+    "baseSepolia": {
+      "leftoverAttestorRegistries": [
+        "0x3216EfbB\u2026A965",
+        "0x8829272A\u202613Db"
+      ]
+    }
+  },
+  "open": [
+    "pallet config keys 1 and 2 (sudo)",
+    "relayer routes 1 and 2 -> new Outboxes/Lites",
+    "quoter: add-quoter.mts on both Lites once the signer is confirmed (never the owner)",
+    "emitters: Outbox.approveForwarder(lite, true) before first publish"
+  ]
 }
