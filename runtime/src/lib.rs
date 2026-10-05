@@ -1014,7 +1014,7 @@ parameter_types! {
     pub const DefaultMaxCatchup: u32 = 500;
     /// Per-chain ceiling on the attestor set (`MaxAttestationNodes`).
     ///
-    /// We choose the value 50 for this cap, because under the proposed Attestcoin tokenomic 
+    /// We choose the value 50 for this cap, because under the proposed Attestcoin tokenomic
     /// model 50 attestors would bond one half of the total 10 Milion ATC supply. Since bonds will
     /// be distributed across supported chains, it is highly unlikely that any one supported
     /// chain would reach this cap.
