@@ -132,7 +132,32 @@
         "ackValidator": "0xD85d98784C0aB9e54A342bD8754475D61DCEdbc2",
         "registeredVia": "OutboxDeployer",
         "deployedAt": "2026-10-02"
-      }
+      },
+      "messages": [
+        {
+          "messageId": "0x9ca75704fd190be93e92c6b910e998220939d8b31dd86b6f68a4620dc75b5702",
+          "sequence": 1,
+          "emitter": "0xf24ff3a9cf04c71dbc94d0b566f7a27b94566cac000000000000000000000000",
+          "canAck": true,
+          "destination": "0xdD78a0eb836B699fC7F39C04EBe2379Ce74cB43C",
+          "memo": "asc-devnet message 2 (direct, Base Sepolia route) 13:58Z",
+          "txHash": "0x0cc4089491e5dabec678bc156382a404879b80be4db1e6a2b5781ec268809d07",
+          "block": 69280,
+          "publishedAt": "2026-10-05T13:58:36.202Z",
+          "path": "direct",
+          "deliveryTx": "0x33070e60082df711f26f85f636ff77fa2c7cc99b62c015154b7a2e9d69153ccc",
+          "deliveredBlockBase": 47720220,
+          "deliveredAt": "2026-10-05T13:59:15Z",
+          "executed": true,
+          "relayer": "0x97c2cdaB56E1ee6EafC2a8d32e8A8358905b8162",
+          "acknowledged": true,
+          "ackTx": "0x548ed64513c70a154a3c08f0f99ca0be1fd57bc99dccdd36ce83ddb8c6f89339",
+          "ackBlock": 69323,
+          "acknowledgedAt": "2026-10-05T14:02:20Z",
+          "ackSubmitter": "0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac",
+          "note": "second asc-devnet message, first on Base: publish 13:58Z, delivered ~1 min, acknowledged 14:02Z (4 min end to end; Base archiver stores every block)"
+        }
+      ]
     }
   },
   "superseded": {
@@ -151,7 +176,6 @@
     }
   },
   "open": [
-    "chain key 2 (Base Sepolia) not yet exercised end to end",
     "relayer routes 1 and 2 -> new Outboxes/Lites",
     "quoter: add-quoter.mts on both Lites once the signer is confirmed (never the owner)",
     "emitters: Outbox.approveForwarder(lite, true) before first publish"
