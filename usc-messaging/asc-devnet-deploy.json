@@ -54,7 +54,8 @@
         "voteValidator": "0xb6D4029aDFFa9DCf82F57BFF16F7Ca357d5314f8",
         "attestorRegistry": "0xCb313626F1FcF3b430e235bA494a154D63870Ab4",
         "admin": "0x30Ab12D7254ee06bc856b30a0524D3e77c89F4C8",
-        "deployedAt": "2026-10-02"
+        "deployedAt": "2026-10-02",
+        "dapp": "0xAf80F8df996A1f9E09A87827A702FF8E0D0FeE72"
       },
       "source": {
         "outbox": "0x583DE34F9C5e5c67a78D7F8551B2f5ae39658Dfc",
@@ -65,7 +66,33 @@
         "ackValidator": "0xf62eB23d6864200C8edE4b8BC34a79e3F0ef70FE",
         "registeredVia": "OutboxDeployer",
         "deployedAt": "2026-10-02"
-      }
+      },
+      "messages": [
+        {
+          "messageId": "0x04a283e2c6ac2103f50d016c1a5f44416ad0491a2f9ec8a9a83c8b58b7b71f85",
+          "sequence": 1,
+          "emitter": "0xf24ff3a9cf04c71dbc94d0b566f7a27b94566cac000000000000000000000000",
+          "canAck": true,
+          "destination": "0xAf80F8df996A1f9E09A87827A702FF8E0D0FeE72",
+          "memo": "asc-devnet message 1 (direct, Sepolia route) 12:53Z",
+          "txHash": "0xd1633bbb69bfc1411fd71ac5e1b3ab03069d520b14d83e46490f5a4107e93b45",
+          "block": 68511,
+          "publishedAt": "2026-10-05T12:53:55.998Z",
+          "path": "direct",
+          "deliveryTx": "0x84d48dfefada2df43073f03ef27a98fe1ac7fe3ddbb5fd739250e0b2576df967",
+          "deliveredBlockSepolia": 11848938,
+          "deliveredAt": "2026-10-05T12:54:18Z",
+          "signerCount": 10,
+          "executed": true,
+          "relayer": "0x66C27cfd8E89288d7E830703067476c9Cb34Ff00",
+          "acknowledged": true,
+          "ackTx": "0x4306ec4007852f619d152c11f4b2c69a4002c21e51c3bd685b6c60d2315489f6",
+          "ackBlock": 68730,
+          "acknowledgedAt": "2026-10-05T13:12:05Z",
+          "ackSubmitter": "0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac",
+          "note": "first asc-devnet message: publish 12:53Z, delivered 12:54:18Z (85 s), acknowledged 13:12:05Z (ack waited for the Sepolia archiver to store roots 11848921-11848940)"
+        }
+      ]
     },
     "2": {
       "chainKey": 2,
@@ -93,7 +120,8 @@
         "voteValidator": "0x9244Df0d38C1dab16A0a6a74E72B869bd523C60c",
         "attestorRegistry": "0x86EB3EE587f6e280454F2E8aCD88fc33e3e14afA",
         "admin": "0x30Ab12D7254ee06bc856b30a0524D3e77c89F4C8",
-        "deployedAt": "2026-10-02"
+        "deployedAt": "2026-10-02",
+        "dapp": "0xdD78a0eb836B699fC7F39C04EBe2379Ce74cB43C"
       },
       "source": {
         "outbox": "0xa7f962Cd4A550Fc37801b4dF18456a8A9C506438",
@@ -123,7 +151,7 @@
     }
   },
   "open": [
-    "pallet config keys 1 and 2 (sudo)",
+    "chain key 2 (Base Sepolia) not yet exercised end to end",
     "relayer routes 1 and 2 -> new Outboxes/Lites",
     "quoter: add-quoter.mts on both Lites once the signer is confirmed (never the owner)",
     "emitters: Outbox.approveForwarder(lite, true) before first publish"
