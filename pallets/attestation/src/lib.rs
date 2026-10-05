@@ -393,22 +393,28 @@ pub mod pallet {
     pub type PendingTargetSampleSize<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
 
-    /// Per-chain **cap** on the voting committee, not the committee itself.
+    /// Reserved for future committee sortition. **Does not affect quorum.**
     ///
-    /// The quorum `validate_attestation` enforces is `2/3+1` of
-    /// `min(|ActiveAttestors|, TargetSampleSize)` (see
-    /// [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). While fewer
-    /// attestors are active than this value, the whole active set is the committee and the cap is
-    /// inert; it only binds once the active set grows past it.
+    /// `validate_attestation` derives its threshold from `|ActiveAttestors|` alone (see
+    /// [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). Setting this
+    /// value changes nothing today; it is kept so RFC-0174 has its parameter when sortition is
+    /// built, and its default records the population at which that becomes worth doing.
     ///
-    /// Two consequences operators need to know:
+    /// RFC-0174 selects a stake-weighted committee per attestation, and puts the smallest safe
+    /// committee at **~120 attestors** — the size at which an adversary holding under `1/3` of
+    /// stake has below `2^-40` probability of taking `2/3` of the committee. Sampling below that
+    /// is worse than not sampling: drawing 9 of 100 against an adversary at `1/3` gives roughly a
+    /// 1-in-180 capture chance per draw, where using the whole active set makes capture
+    /// arithmetically impossible.
     ///
-    /// - Setting this **above** the active-attestor count is safe and is the recommended posture.
-    ///   Quorum intersection — the property that two conflicting quorums cannot both exist at one
-    ///   height — holds only while the cap does not bind, because nothing selects which attestors
-    ///   vote (sortition is unbuilt: see `do_start_election`'s unused `_randomness`, RFC-0174).
-    /// - While the cap **does** bind, any self-selected `2/3+1` of the cap is a valid quorum, and
-    ///   two disjoint such groups can exist within a larger active set (USCP2-004).
+    /// Reaching 120 on one chain is an economic question, not a scheduling one. Under the
+    /// proposed Attestcoin model — 10,000,000 ATC total supply, 100,000 ATC per bond — the
+    /// network supports at most 100 bonded registrations in total, and a bond is taken per
+    /// `(stash, chain)` registration rather than once per operator. One chain could therefore
+    /// reach 120 attestors only if the bond fell to roughly 1/3 of its proposed value *and*
+    /// essentially the whole supply were staked on that single chain. Until the bond or the
+    /// supply changes by that order, `MaxAttestationNodes` stays below the sortition floor and
+    /// this value is inert.
     #[pallet::storage]
     #[pallet::getter(fn target_sample_size)]
     pub type TargetSampleSize<T: Config> =
@@ -830,9 +836,10 @@ pub mod pallet {
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
         /// Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
-        /// ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
-        /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
-        /// would either overflow those bounds or undercharge weight.
+        /// ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
+        /// bound is measured against, so a per-chain value above it would undercharge weight.
+        /// (`ActiveAttestors` is an unbounded `Vec`, so lowering the ceiling cannot invalidate
+        /// stored state; the weight path clamps a stale per-chain value with `.min()`.)
         InvalidMaxAttestors,
         /// A `commit_attestation` payload carried more attestor accounts than the per-chain
         /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight

@@ -855,16 +855,13 @@ impl<T: Config> Pallet<T> {
         ActiveAttestors::<T>::get(chain_key).len() as u32
     }
 
-    /// The quorum `commit_attestation` enforces for `chain_key`: `2/3+1` of
-    /// `min(|ActiveAttestors|, TargetSampleSize)`.
+    /// The quorum `commit_attestation` enforces for `chain_key`: `2/3+1` of the active-attestor
+    /// count.
     ///
     /// Exposed so off-chain consumers can read the authoritative number rather than re-deriving
-    /// it from two storage reads and risking a mismatch with `validate_attestation`.
+    /// it and risking a mismatch with `validate_attestation`.
     pub fn quorum_threshold(chain_key: ChainKey) -> u32 {
-        calculate_quorum(
-            Self::working_set_size(chain_key),
-            Self::target_sample_size(chain_key),
-        )
+        calculate_quorum(Self::working_set_size(chain_key))
     }
 
     pub fn is_attestor(chain_key: ChainKey, address: &T::AccountId) -> bool {
@@ -1052,8 +1049,7 @@ impl<T: Config> Pallet<T> {
         //
         // `active_attestors` is the deduplicated live set gathered above, so this is the same
         // denominator the eligibility filter was applied against.
-        let target_sample_size = Self::target_sample_size(chain_key);
-        let threshold = calculate_quorum(active_attestors.len() as u32, target_sample_size);
+        let threshold = calculate_quorum(active_attestors.len() as u32);
         ensure!(
             eligible_attestors.len() as u32 >= threshold,
             Error::<T>::MajorityNotReached

@@ -132,7 +132,7 @@ mod benchmarks {
     use super::*;
 
     pub const MAX_SPAN: u32 = 500; // continuity blocks: 10–500 for realistic weight scaling
-    const MAX_ATTESTORS: u32 = 100;
+    const MAX_ATTESTORS: u32 = 50;
     // Upper bound for the `commit_attestation` `m` parameter. The registration loop is
     // inclusive (`0..=m`), so it registers `m + 1` attestors; bounding `m` at
     // `MAX_ATTESTORS - 1` keeps the worst case at exactly `MAX_ATTESTORS`, which is the

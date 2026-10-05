@@ -1002,13 +1002,26 @@ parameter_types! {
     /// Ceiling for the per-chain attestation interval; keeps `max_roots` in continuity-proof
     /// validation from being inflated past what `OversizedContinuityProof` is meant to catch.
     pub const MaxChainAttestationInterval: u64 = 10_000;
-    pub const DefaultTargetSampleSize: u32 = 3;
+    /// Set at RFC-0174's security floor rather than at any committee size we run. The knob does
+    /// not affect quorum (see `TargetSampleSize`'s storage docs); this value currently records the
+    /// active-attestor count per chain at which committee sortition would start being worth
+    /// building.
+    pub const DefaultTargetSampleSize: u32 = 120;
     /// The default maximum catchup bound, expressed in **blocks**.
     /// During catchup (e.g. bootstrap or recovery from a stall),
     /// each attestation's continuity proof spans at most this many
     /// blocks, bounding proof size to protect runtime validation.
     pub const DefaultMaxCatchup: u32 = 500;
-    pub const MaxAttestors: u32 = 100;
+    /// Per-chain ceiling on the attestor set (`MaxAttestationNodes`).
+    ///
+    /// We choose the value 50 for this cap, because under the proposed Attestcoin tokenomic 
+    /// model 50 attestors would bond one half of the total 10 Milion ATC supply. Since bonds will
+    /// be distributed across supported chains, it is highly unlikely that any one supported
+    /// chain would reach this cap.
+    ///
+    /// 50 also bounds the worst case of `commit_attestation`'s per-attestor term (~1.54 ms each),
+    /// which the txpool prevalidation now pays as well as dispatch.
+    pub const MaxAttestors: u32 = 50;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxAttestationsPerBlock: u32 = 10;

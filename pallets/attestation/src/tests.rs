@@ -9784,8 +9784,10 @@ mod prevalidate_attestation_commit_extension {
                 SUPPORTED_CHAIN_KEY
             ));
 
+            // Both signers: quorum is `2/3+1` of the *active* set, so two active attestors need
+            // two signatures. This test is about duplicate rejection, not the threshold.
             let attestation = create_signed_attestation(
-                vec![attestor_1.clone()],
+                vec![attestor_1.clone(), attestor_2.clone()],
                 SUPPORTED_CHAIN_KEY,
                 0,
                 None,

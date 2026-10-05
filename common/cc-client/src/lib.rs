@@ -674,11 +674,6 @@ impl Client {
     pub async fn quorum(&self, chain_key: u64) -> Result<u32, Error> {
         let storage = self.api().storage().at_latest().await?;
 
-        let target_sample_size = storage
-            .fetch(&cc3::storage().attestation().target_sample_size(chain_key))
-            .await?
-            .ok_or(Error::FailedToGetComitteSetSize)?;
-
         let active_attestors = storage
             .fetch(&cc3::storage().attestation().active_attestors(chain_key))
             .await?
@@ -690,10 +685,7 @@ impl Client {
         // make it submit under-quorum and burn fees on `MajorityNotReached`.
         let active_attestors = u32::try_from(active_attestors).unwrap_or(u32::MAX);
 
-        Ok(attestor_primitives::calculate_quorum(
-            active_attestors,
-            target_sample_size,
-        ))
+        Ok(attestor_primitives::calculate_quorum(active_attestors))
     }
 
     /// On-chain `MaxCatchup` (block-count bound per continuity proof) for a chain. The storage

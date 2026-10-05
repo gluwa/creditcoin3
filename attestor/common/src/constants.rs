@@ -61,7 +61,7 @@ pub const MAX_CONCURRENT_RPC_CALLS: std::num::NonZeroUsize = std::num::NonZero::
 /// it can hold one early (pre-local-data) vote per possible attestor and never drop one that is
 /// later needed to reach quorum — a dropped vote is `Ignore`d under gossipsub Strict validation,
 /// which marks it seen and never redelivers it. Keep in sync with the runtime constant.
-pub const MAX_ATTESTORS: usize = 100;
+pub const MAX_ATTESTORS: usize = 50;
 
 /// Minimum balance required for an attestor to operate.
 /// This is equivalent to 1 CTC.
