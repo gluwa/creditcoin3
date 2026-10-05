@@ -433,18 +433,19 @@ impl AttestationCheckpoint {
     }
 }
 
-/// Function to calculate the threshold for a committee set size to reach majority vote.
+/// `2/3 + 1` of `active_attestors` — the bare arithmetic behind [`calculate_quorum`].
 ///
-/// `sample_size` is the *effective* committee — see [`effective_sample_size`]. Callers that hold
-/// a raw `TargetSampleSize` must not pass it here directly; use [`calculate_quorum`], which
-/// applies the active-set cap first.
+/// Prefer [`calculate_quorum`]; this is split out only so the formula can be asserted directly.
+/// Whatever is passed here *is* the set the threshold is measured against, so passing anything
+/// smaller than the live active-attestor count hands a minority of that set a passing quorum.
 ///
-/// The multiply saturates. `TargetSampleSize` is only bounded by `> 0` at the setter, so a
-/// governance value above `u32::MAX / 2` would otherwise wrap in a release build (the workspace
-/// release profile does not enable `overflow-checks`) and collapse the threshold to a handful of
-/// signers. Saturating keeps an absurd configuration unreachable-high instead of dangerously low.
-pub fn calculate_threshold(sample_size: u32) -> u32 {
-    sample_size.saturating_mul(2) / 3 + 1
+/// The multiply saturates. In-tree callers pass a count bounded by `MaxAttestationNodes`, far
+/// below the wrapping point, but this is `pub`: an input above `u32::MAX / 2` would otherwise wrap
+/// in a release build (the workspace release profile does not enable `overflow-checks`) and
+/// collapse the threshold to a handful of signers. Saturating keeps an absurd input
+/// unreachable-high instead of dangerously low.
+pub fn calculate_threshold(active_attestors: u32) -> u32 {
+    active_attestors.saturating_mul(2) / 3 + 1
 }
 
 /// Quorum threshold for a chain: `2/3 + 1` of the live active-attestor count.
@@ -496,29 +497,29 @@ mod test {
 
     #[test]
     fn test_calculate_threshold_3() {
-        let target_sample_size = 3;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 3;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 3);
     }
 
     #[test]
     fn test_calculate_threshold_4() {
-        let target_sample_size = 4;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 4;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 3);
     }
 
     #[test]
     fn test_calculate_threshold_5() {
-        let target_sample_size = 5;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 5;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 4);
     }
 
     #[test]
     fn test_calculate_threshold_10() {
-        let target_sample_size = 10;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 10;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 7);
     }
 
