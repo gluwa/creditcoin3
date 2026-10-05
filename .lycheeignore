@@ -3,6 +3,9 @@ http://localhost(.*)
 ws|wss://(.*)
 bzz-raw://(.*)
 rpc\.(.*)\.creditcoin\.network/
+# JSON-RPC endpoints answer GET with 405; recorded in usc-messaging/*-deploy.json
+https://sepolia.base.org(.*)
+https://ethereum-sepolia-rpc.publicnode.com(.*)
 https://rpc/
 staticsitellvmhtml.z13.web.core.windows.net
 thedoctor0/zip-release@(.*)
