@@ -1,10 +1,9 @@
 //! Inbound connection admission that keeps capacity for known committee peers.
 //!
-//! [`connection_limits`] applies one incoming cap to every peer, so peers with no role in the
-//! committee could take every slot and leave elected attestors unable to (re)connect. This
-//! behaviour splits inbound capacity: *reserved* peers (configured boot peers and peers bound to
-//! a BLS-verified attestor vote) are always admitted, while every other peer shares a bounded
-//! pool of [`MAX_UNRESERVED_INCOMING`] connections.
+//! Inbound capacity is split: *reserved* peers (configured boot peers and peers bound to a
+//! BLS-verified attestor vote) are always admitted, while every other peer shares a pool of
+//! [`MAX_UNRESERVED_INCOMING`] connections. This complements [`connection_limits`], which applies
+//! one cap to every peer.
 //!
 //! [`connection_limits`]: libp2p::connection_limits
 

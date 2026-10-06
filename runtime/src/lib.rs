@@ -696,15 +696,8 @@ impl pallet_staking::Config for Runtime {
     type BenchmarkingConfig = StakingBenchmarkingConfig;
     type WeightInfo = ();
     type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
-    // Nomination pools must observe staking, or their accounting silently diverges from it.
-    //
-    // `SubPoolsStorage` records a fixed balance per unbonding era at `unbond` time. Staking is
-    // what actually holds the funds, and a slash reduces the unlocking chunks behind that
-    // record. `NominationPools::on_slash` is the only thing that writes the reduction back into
-    // `SubPoolsStorage`; `on_withdraw` is the only thing that decrements `TotalValueLocked`.
-    // With no listener registered, both stay at their pre-slash values: `withdraw_unbonded`
-    // then pays out against an overstated balance, capped by what the pool account really has,
-    // so whoever withdraws first is made whole and later members absorb the whole shortfall.
+    // Nomination pools track staking events (`on_slash`, `on_withdraw`) to keep their
+    // sub-pool balances and `TotalValueLocked` in sync with staking.
     type EventListeners = NominationPools;
     type MaxExposurePageSize = MaxExposurePageSize;
     type MaxControllersInDeprecationBatch = MaxControllersInDeprecationBatch;
@@ -1233,10 +1226,8 @@ type Migrations = (
         pallet_session::migrations::v1::InitOffenceSeverity<Runtime>,
     >,
     pallet_staking::migrations::v16::MigrateV15ToV16<Runtime>,
-    // Re-derives `TotalValueLocked` from the staking ledgers of all bonded pools. Needed
-    // because the counter has only ever been incremented: `on_withdraw` was never called
-    // while `EventListeners` was `()`, so every withdrawal since pools launched inflated it.
-    // Unversioned and idempotent by design, so it stays in the tuple as a standing check.
+    // Re-derives `TotalValueLocked` from the staking ledgers of all bonded pools.
+    // Unversioned and idempotent, so it can stay in the tuple.
     pallet_nomination_pools::migration::unversioned::TotalValueLockedSync<Runtime>,
 );
 
@@ -2121,14 +2112,9 @@ mod tests {
         );
     }
 
-    /// Nomination pools only learn about slashes and withdrawals through
-    /// `pallet_staking::Config::EventListeners`. If this is ever reset to `()`, staking keeps
-    /// taking the funds while `SubPoolsStorage` keeps its pre-slash balances, and
-    /// `withdraw_unbonded` pays the first withdrawer out of everyone else's share.
-    ///
-    /// The behavioural coverage lives in `pallet_nomination_pools`' own slashing tests; those
-    /// only exercise this runtime if the listener is actually wired up, which is what this
-    /// asserts.
+    /// Nomination pools receive staking events through `pallet_staking::Config::EventListeners`.
+    /// Behavioural coverage lives in `pallet_nomination_pools`' own tests; this checks the
+    /// runtime wires the listener up.
     #[test]
     fn nomination_pools_are_registered_as_staking_event_listeners() {
         use core::any::TypeId;
@@ -2136,8 +2122,7 @@ mod tests {
         assert_eq!(
             TypeId::of::<<Runtime as pallet_staking::Config>::EventListeners>(),
             TypeId::of::<NominationPools>(),
-            "pallet_staking::Config::EventListeners must be NominationPools; with `()` the \
-             pools' unbonding accounting silently diverges from staking on every slash",
+            "pallet_staking::Config::EventListeners must be NominationPools",
         );
     }
 

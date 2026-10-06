@@ -12,8 +12,8 @@ pub(crate) struct P2PBehavior {
     /// [`Limits`]: libp2p::connection_limits
     pub limits: libp2p::connection_limits::Behaviour,
 
-    /// Keeps inbound capacity for configured boot peers and known attestor peers, so other
-    /// peers cannot occupy every slot (see [`super::admission`]).
+    /// Keeps inbound capacity for configured boot peers and known attestor peers
+    /// (see [`super::admission`]).
     pub admission: super::admission::Behaviour,
 
     /// [`Identify`] is used for identification between peers. This is required as other protocols
@@ -47,8 +47,7 @@ pub(crate) struct P2PBehavior {
         libp2p::gossipsub::Behaviour<libp2p::gossipsub::IdentityTransform, SubscriptionFilter>,
 }
 
-/// Only the attestation topic is accepted from peers, so peers cannot make us track arbitrary
-/// topic state; the count caps bound what a single peer may hold or send per request.
+/// Only the attestation topic is accepted from peers, with per-peer and per-message caps.
 pub(crate) type SubscriptionFilter =
     libp2p::gossipsub::MaxCountSubscriptionFilter<libp2p::gossipsub::WhitelistSubscriptionFilter>;
 
