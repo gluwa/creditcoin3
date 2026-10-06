@@ -1014,14 +1014,16 @@ parameter_types! {
     pub const DefaultMaxCatchup: u32 = 500;
     /// Per-chain ceiling on the attestor set (`MaxAttestationNodes`).
     ///
-    /// We choose the value 50 for this cap, because under the proposed Attestcoin tokenomic
-    /// model 50 attestors would bond one half of the total 10 Milion ATC supply. Since bonds will
-    /// be distributed across supported chains, it is highly unlikely that any one supported
-    /// chain would reach this cap.
+    /// Sits below RFC-0174's ~120 committee-sortition floor, which is what lets quorum be
+    /// `2/3+1` of the whole active set: a committee large enough to need sampling cannot form
+    /// under this ceiling. Raising it past ~120 is the trigger to revisit RFC-0174 — the tripwire
+    /// is this constant, not a date.
     ///
-    /// 50 also bounds the worst case of `commit_attestation`'s per-attestor term (~1.54 ms each),
-    /// which the txpool prevalidation now pays as well as dispatch.
-    pub const MaxAttestors: u32 = 50;
+    /// The ceiling is not expected to come into play. Under the proposed Attestcoin model (10,000,000 ATC
+    /// supply, 100,000 ATC per bond) the network supports at most 100 bonded registrations in
+    /// total, a bond is taken per `(stash, chain)` registration, and those are spread across
+    /// every supported chain.
+    pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxAttestationsPerBlock: u32 = 10;
