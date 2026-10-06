@@ -30,9 +30,9 @@ const ACTIVE_ATTESTOR_FILLER_BASE: AccountId = 1_000;
 
 /// Pad `ActiveAttestors` for `chain_key` up to `size` with accounts that never sign.
 ///
-/// The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so a test that needs an
-/// *unmet* threshold must have more active attestors than signers — raising `TargetSampleSize`
-/// alone no longer does it, because the target is only a cap. Padding is enough for that: the
+/// The quorum is `2/3+1` of `|ActiveAttestors|`, so a test that needs an *unmet* threshold must
+/// have more active attestors than signers — `TargetSampleSize` cannot do it, being inert.
+/// Padding is enough for that: the
 /// filler ids are never listed in an attestation, so they move the denominator only and need no
 /// BLS key, `Attestors` row, stash, or balance.
 ///
@@ -3337,8 +3337,8 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
         progress_to_block(5);
 
         // The active set must be larger than the signer set for the threshold to be unmet: the
-        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so with a lone active
-        // attestor it would be 1 and the duplicate listing would never be tested. Two active
+        // quorum is `2/3+1` of `|ActiveAttestors|`, so with a lone active attestor it would be 1
+        // and the duplicate listing would never be tested. Two active
         // attestors put the quorum at 2, which the deduplicated single signer cannot reach.
         pad_active_attestors(SUPPORTED_CHAIN_KEY, 2);
 
@@ -3390,7 +3390,7 @@ fn validate_attestation_should_error_when_majority_not_reached() {
 
 /// A `TargetSampleSize` above the active-attestor count must not block attestation.
 ///
-/// This is the liveness bug the `min(|ActiveAttestors|, TargetSampleSize)` quorum fixes. When the
+/// This is the liveness bug that deriving the quorum from `|ActiveAttestors|` fixes. When the
 /// threshold was derived from the target alone, any chain whose target exceeded its active count
 /// had an unreachable quorum: every `commit_attestation` failed `MajorityNotReached` and
 /// attestation for that chain stopped permanently, with no way back short of governance lowering
@@ -4981,7 +4981,7 @@ fn validate_attestation_rejects_when_co_signer_is_retired() {
         assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
 
         // `attestor_a`'s retirement leaves `attestor_b` as the only active attestor, and the
-        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)` — a one-member set
+        // quorum is `2/3+1` of `|ActiveAttestors|` — a one-member set
         // would put it at 1 and `attestor_b` would satisfy it alone, masking the regression this
         // test guards. Pad the active set back to 2 (post-election, so the election cannot
         // overwrite it) to keep the quorum at 2.
@@ -5060,7 +5060,7 @@ fn commit_attestation_rejects_when_co_signer_is_retired() {
         ));
 
         // `attestor_a`'s retirement leaves `attestor_b` as the only active attestor, and the
-        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)` — a one-member set
+        // quorum is `2/3+1` of `|ActiveAttestors|` — a one-member set
         // would put it at 1 and `attestor_b` would satisfy it alone, masking the regression this
         // test guards. Pad the active set back to 2 (post-election, so the election cannot
         // overwrite it) to keep the quorum at 2.

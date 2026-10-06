@@ -1041,11 +1041,10 @@ impl<T: Config> Pallet<T> {
 
         // Threshold validation.
         //
-        // The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, not of
-        // `TargetSampleSize` alone. The target is a *cap* on how large the voting committee has to
-        // get, so it only binds once the active set grows past it; below that the whole active set
-        // is the committee. Deriving from the target alone made a target above the active-attestor
-        // count unsatisfiable, which halted attestation for the chain permanently.
+        // The quorum is `2/3+1` of `|ActiveAttestors|`. The committee *is* the active set —
+        // nothing samples a subset — so measuring the threshold against anything smaller would
+        // let a self-selected minority of that set clear it, and two disjoint such groups could
+        // attest conflicting roots at one height.
         //
         // `active_attestors` is the deduplicated live set gathered above, so this is the same
         // denominator the eligibility filter was applied against.

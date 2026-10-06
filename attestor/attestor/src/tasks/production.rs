@@ -400,9 +400,8 @@ fn apply_eligibility(shared: &Arc<Shared>, eligible: bool) {
 
 /// Recompute the quorum from live chain state and push it to the pool and the health gauge.
 ///
-/// The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so it now moves with
-/// *membership* as well as with the target. Every seam that changes either input has to call
-/// this: election, chill, kick, and an operator retuning the target. Missing one leaves the node
+/// The quorum is `2/3+1` of `|ActiveAttestors|`, so it moves with *membership*. Every seam that
+/// changes the active set has to call this: election, chill and kick. Missing one leaves the node
 /// enforcing a stale threshold — too high and it stops submitting entirely, too low and it burns
 /// fees on `MajorityNotReached`.
 ///
@@ -482,9 +481,9 @@ async fn handle_one(
             shared.pool_send.note_attestation_interval_change(interval);
         }
 
-        // 3] new target sample size (a *cap* on the committee, not the committee itself — the
-        // quorum is `2/3+1` of `min(|ActiveAttestors|, target)`, so the new threshold depends on
-        // the live active set too and cannot be derived from `target` alone).
+        // 3] new target sample size. Inert today: the quorum is `2/3+1` of `|ActiveAttestors|`
+        // and does not read this value (it is reserved for RFC-0174 sortition). Refreshing the
+        // quorum here is harmless and keeps the seam wired for when it does matter.
         CcEvent::TargetSampleSizeChanged(_, target) => {
             tracing::info!(target, "📏 new target sample size");
             refresh_quorum(shared).await?;
