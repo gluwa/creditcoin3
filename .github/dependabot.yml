@@ -125,6 +125,13 @@ updates:
       - "/scripts"
       - "/scripts/changelog-warnings"
     groups:
+      # The @polkadot/* packages must move in lockstep: bumping only some of them installs two
+      # copies of @polkadot/types and the cli stops type-checking. Listed first so it takes
+      # these packages before the prod/dev groups below.
+      polkadot:
+        patterns:
+          - "@polkadot/*"
+        applies-to: version-updates
       prod-dependencies:
         dependency-type: "production"
         applies-to: version-updates
