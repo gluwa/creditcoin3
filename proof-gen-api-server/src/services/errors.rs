@@ -172,6 +172,22 @@ pub enum ServiceError {
     /// problem an operator needs to see, not a caller mistake to be filed away at `WARN`.
     #[error("archiver has not yet indexed every root for range {from}..{to}: {detail}")]
     ArchiverDataUnavailable { from: u64, to: u64, detail: String },
+
+    /// The range is attested, but the archiver is still storing the newest attested blocks: its
+    /// latest height is just below the end of the range.
+    ///
+    /// Following the attested height, the archiver fetches a range only once the attestation that
+    /// releases it is published, so this is the normal few-second window after each attestation
+    /// (see `continuity::archiver::ARCHIVER_TIP_LAG_TOLERANCE`). Like [`Self::BlockNotReady`] it
+    /// is a retriable 422 ("not ready yet"), logged at WARN, so a proof requested right after an
+    /// attestation no longer pages anyone. A hole or a larger lag stays
+    /// [`Self::ArchiverDataUnavailable`].
+    #[error("block range {from}..{to} is attested but the archiver has only stored up to {latest_archived} so far; retry shortly")]
+    ArchiverCatchingUp {
+        from: u64,
+        to: u64,
+        latest_archived: u64,
+    },
 }
 
 impl ServiceError {
@@ -184,6 +200,7 @@ impl ServiceError {
                 // The range is valid and the archiver will hold it once it catches up, so the
                 // identical request is worth retrying — unlike ArchiverRangeRejected.
                 | ServiceError::ArchiverDataUnavailable { .. }
+                | ServiceError::ArchiverCatchingUp { .. }
         )
     }
     pub fn code(&self) -> &'static str {
@@ -211,6 +228,7 @@ impl ServiceError {
             ServiceError::BatchSpanTooLarge { .. } => "BatchSpanTooLarge",
             ServiceError::ArchiverRangeRejected { .. } => "ArchiverRangeRejected",
             ServiceError::ArchiverDataUnavailable { .. } => "ArchiverDataUnavailable",
+            ServiceError::ArchiverCatchingUp { .. } => "ArchiverCatchingUp",
         }
     }
 
@@ -243,8 +261,11 @@ impl ServiceError {
             // Same semantics as BlockNotReady: request may be valid but payload cannot be processed.
             // EmptyBlockTxProof joins this group: the request is well-formed and the block
             // exists, but no transaction proof can ever be produced for an empty block.
+            // ArchiverCatchingUp joins this group: the block is attested, but its roots are
+            // still being stored, which is "not ready yet" from the caller's side.
             Self::UnsupportedBlockFormat { .. }
             | Self::BlockNotReady { .. }
+            | Self::ArchiverCatchingUp { .. }
             | Self::EmptyBlockTxProof { .. } => StatusCode::UNPROCESSABLE_ENTITY,
             Self::MerkleError { .. } | Self::Internal { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -372,6 +393,7 @@ impl GetErrorType for ServiceError {
             ServiceError::BatchSpanTooLarge { .. } => ErrorType::BatchSpanTooLarge,
             ServiceError::ArchiverRangeRejected { .. } => ErrorType::ArchiverRangeRejected,
             ServiceError::ArchiverDataUnavailable { .. } => ErrorType::ArchiverDataUnavailable,
+            ServiceError::ArchiverCatchingUp { .. } => ErrorType::ArchiverCatchingUp,
         }
     }
 }
