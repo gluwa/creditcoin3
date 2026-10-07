@@ -1,3 +1,4 @@
+use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::{ChainFamily, Client};
 use serde_json::{json, Value};
 use std::{
@@ -10,7 +11,6 @@ use std::{
     thread,
     time::Duration,
 };
-use usc_abi_encoding::common::EncodingVersion;
 
 struct RpcMock {
     url: String,

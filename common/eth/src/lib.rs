@@ -32,13 +32,13 @@ use alloy::rpc::client::RpcClient as AlloyRpcClient;
 use alloy::transports::http::{reqwest, Http};
 use alloy::transports::utils::guess_local_url;
 use anyhow::{Context, Result};
+use attestcoin_abi_encoding::common::EncodingVersion;
 use hex::FromHexError;
 use sp_core::H256;
 use std::num::NonZeroUsize;
 use std::str::FromStr;
 use thiserror::Error;
 use tracing::{error, info, trace};
-use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
 use utils::block_item_traits::BlockItem;
 
@@ -368,7 +368,7 @@ impl BlockItem for TxRx {
     fn payload_bytes(&self) -> Vec<u8> {
         match self {
             Self::Ethereum { tx, rx, encoding } => {
-                usc_abi_encoding::abi::abi_encode((**tx).clone(), (**rx).clone(), *encoding)
+                attestcoin_abi_encoding::abi::abi_encode((**tx).clone(), (**rx).clone(), *encoding)
                     .expect("Transaction and receipt should be encodable.")
                     .abi()
                     .to_vec()

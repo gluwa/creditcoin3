@@ -1,6 +1,6 @@
 //! Optional, read-only source RPC smoke test. See docs/op-stack-e2e.md.
+use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::{ChainFamily, Client};
-use usc_abi_encoding::common::EncodingVersion;
 use utils::block_item_traits::BlockItem;
 
 #[tokio::test]

@@ -12,6 +12,7 @@ alloy = { workspace = true, features = ["full"] }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }
+attestcoin-abi-encoding = { workspace = true }
 futures = "0.3.30"
 futures-util = { workspace = true }
 hex = { workspace = true }
@@ -21,7 +22,6 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["signal", "time", "macros"] }
 tracing = { workspace = true }
 url = { workspace = true }
-usc-abi-encoding = { workspace = true }
 
 # Local dependencies
 attestor-primitives = { workspace = true, features = ["std"] }

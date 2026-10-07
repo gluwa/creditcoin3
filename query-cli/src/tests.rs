@@ -1,6 +1,6 @@
 use super::Network;
 use crate::query_builder::BlockscoutAbiProvider;
-use usc_query_builder::abi::query_builder::AbiProvider;
+use attestcoin_query_builder::abi::query_builder::AbiProvider;
 
 #[test]
 fn source_family_flag_is_available_for_every_query_mode() {

@@ -6,8 +6,8 @@
 //! chain cannot be resolved we fall back to V1 (the only encoding in existence
 //! today) and warn, rather than failing the query outright.
 
+use attestcoin_abi_encoding::common::EncodingVersion;
 use cc_client::Client as CcClient;
-use usc_abi_encoding::common::EncodingVersion;
 
 /// Fetch the configured block encoding for `chain_key` from CC3, defaulting to
 /// [`EncodingVersion::V1`] when the lookup fails or the chain is unknown.

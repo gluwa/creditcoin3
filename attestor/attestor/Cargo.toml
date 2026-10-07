@@ -21,6 +21,7 @@ common = { path = "../common" }
 metrics = { path = "../metrics" }
 
 # Substrate / CC
+attestcoin-abi-encoding = { workspace = true }
 attestor-primitives = { workspace = true }
 bip39 = { version = "2.2.0", features = ["rand", "serde", "zeroize"] }
 bls-signatures = { workspace = true }
@@ -31,7 +32,6 @@ sp-core = { workspace = true }
 stream = { workspace = true }
 subxt = { workspace = true }
 supported-chains-primitives = { workspace = true }
-usc-abi-encoding = { workspace = true }
 
 # Ethereum
 alloy = { workspace = true, features = ["full"] }

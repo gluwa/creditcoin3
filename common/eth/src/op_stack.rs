@@ -17,7 +17,7 @@
 //! - [`encode_deposit_receipt_2718`]: the receipt encoding used for `receiptsRoot`, including the
 //!   post-Canyon `depositNonce` / `depositReceiptVersion` tail.
 //! - [`abi_encode_deposit_leaf`]: the Merkle leaf for a (deposit tx, receipt) pair, in the same
-//!   `abi.encode(uint8 txType, bytes[] chunks)` envelope the `usc-abi-encoding` crate produces
+//!   `abi.encode(uint8 txType, bytes[] chunks)` envelope the `attestcoin-abi-encoding` crate produces
 //!   for types `0x0`–`0x4`, with `txType = 126`.
 //!
 //! # Specification references
@@ -53,7 +53,7 @@
 //! deposits; from Regolith onward it records actual gas usage, independently of Canyon's
 //! change to nonce commitments.
 //!
-//! This layout is the source of truth until it is upstreamed into `usc-abi-encoding`; keep the
+//! This layout is the source of truth until it is upstreamed into `attestcoin-abi-encoding`; keep the
 //! two in sync when that happens.
 
 use alloy::{
@@ -422,7 +422,7 @@ pub const DEPOSIT_LEAF_TX_TYPE: u8 = DEPOSIT_TX_TYPE;
 
 /// ABI-encode the Merkle leaf for a (deposit tx, receipt) pair. See the [module docs](self) for
 /// the layout. Returns `None` only if `alloy`'s dynamic ABI encoder refuses a value, which cannot
-/// happen for the fixed shapes built here; the `Option` keeps parity with `usc-abi-encoding`.
+/// happen for the fixed shapes built here; the `Option` keeps parity with `attestcoin-abi-encoding`.
 /// `rx.gas_used` must first be derived from the ordered, root-verified cumulative receipts,
 /// as done by [`crate::OrderedBlock::try_from_fetched_block`]. A standalone RPC receipt does
 /// not authenticate this field.

@@ -35,7 +35,7 @@ pub struct Shared {
     /// (root stream, genesis bootstrap) must use this — hardcoding a version would silently
     /// produce wrong roots/digests the moment the runtime registers a chain with a different
     /// encoding.
-    pub encoding: usc_abi_encoding::common::EncodingVersion,
+    pub encoding: attestcoin_abi_encoding::common::EncodingVersion,
     pub account_id: cc_client::AccountId32,
     pub attestor_id: attestor_primitives::AttestorId,
 
