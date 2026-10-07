@@ -614,6 +614,25 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             for chain_configuration in self.attestation_chain_configurations.iter() {
+                // Same bounds as chain registration and the setters, which a hand-written chain
+                // spec would otherwise bypass.
+                assert!(
+                    chain_configuration.target_sample_size > 0,
+                    "target_sample_size must be non-zero"
+                );
+                assert!(
+                    chain_configuration.attestation_interval > 0
+                        && chain_configuration.attestation_interval
+                            <= T::MaxChainAttestationInterval::get(),
+                    "attestation_interval must be non-zero and within MaxChainAttestationInterval"
+                );
+                assert!(
+                    chain_configuration.attestations_per_checkpoint > 0
+                        && chain_configuration.attestations_per_checkpoint
+                            <= T::MaxAttestationCheckpointInterval::get(),
+                    "attestations_per_checkpoint must be non-zero and within MaxAttestationCheckpointInterval"
+                );
+
                 // Set the committee set size for the chain
                 TargetSampleSize::<T>::insert(
                     chain_configuration.chain_key,
@@ -1709,7 +1728,7 @@ pub mod pallet {
             // --- Checkpoint creation writes ---
             // Each checkpoint boundary hit during proof processing incurs 3 storage writes
             // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus an event deposit.
-            let estimated_checkpoints = proof_len / checkpoint_width;
+            let estimated_checkpoints = proof_len.checked_div(checkpoint_width).unwrap_or(0);
             // The benchmark assumed checkpoint_width=100, so it measured:
             let benchmark_checkpoint_width: u64 = 100;
             let benchmark_checkpoints = proof_len / benchmark_checkpoint_width;
