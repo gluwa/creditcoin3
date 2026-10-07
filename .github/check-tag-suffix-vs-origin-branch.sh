@@ -11,6 +11,10 @@
 # "which branch is this commit on?". Once branches are promoted by fast-forward
 # a release commit is reachable from many branches at once, so asking which
 # branch it is "on" has no single answer.
+#
+# Devnet hotfixes are the exception: a devnet release may be cut from any branch,
+# as long as it builds on the highest devnet release so far. Devnet then never
+# loses code it already runs, while dev commits that are not ready stay out.
 
 set -euo pipefail
 
@@ -53,6 +57,22 @@ echo "INFO: tagged commit: '$TAGGED_COMMIT'"
 if git merge-base --is-ancestor "$TAGGED_COMMIT" "refs/remotes/origin/$EXPECTED_BRANCH"; then
     echo "PASS: $GIT_TAG is contained in origin/$EXPECTED_BRANCH"
     exit 0
+fi
+
+if [ "$SUFFIX_FROM_GIT_TAG" = "devnet" ]; then
+    git fetch --quiet --tags origin 2>/dev/null || true
+    LATEST_DEVNET_TAG=$(git tag -l '*-devnet' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+-devnet$' | grep -vxF "$GIT_TAG" | sort -V | tail -n1 || true)
+    echo "INFO: '$GIT_TAG' is not on $EXPECTED_BRANCH, checking it builds on the latest devnet release '$LATEST_DEVNET_TAG'"
+
+    if [ -n "$LATEST_DEVNET_TAG" ] && git merge-base --is-ancestor "refs/tags/$LATEST_DEVNET_TAG" "$TAGGED_COMMIT"; then
+        echo "PASS: $GIT_TAG is a hotfix on top of $LATEST_DEVNET_TAG"
+        exit 0
+    fi
+
+    echo "FAIL: devnet hotfix $GIT_TAG does not build on $LATEST_DEVNET_TAG"
+    echo "      Releasing it would drop changes devnet already runs."
+    echo "      Branch the hotfix from $LATEST_DEVNET_TAG, or release from $EXPECTED_BRANCH."
+    exit 1
 fi
 
 echo "FAIL: $GIT_TAG is not contained in origin/$EXPECTED_BRANCH"
