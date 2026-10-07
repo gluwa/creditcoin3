@@ -922,6 +922,13 @@ impl Client {
         self.chain_id
     }
 
+    /// Whether the primary endpoint can carry `eth_subscribe`. Only WebSocket transports can;
+    /// over HTTP(S) (a plain node URL or a proxy such as eRPC) the streams follow the head by
+    /// polling `eth_blockNumber` instead of subscribing to `newHeads`.
+    pub fn supports_subscriptions(&self) -> bool {
+        scheme_supports_subscriptions(self.url.scheme())
+    }
+
     pub fn get_url(&self) -> Result<ConnectionTransport> {
         let scheme = self.url.scheme();
 
@@ -1776,6 +1783,11 @@ fn merge_provider_lookup(
 /// `ethereum-sepolia`, etc.) stay intact because they either contain a
 /// hyphen-separated word or are too short / not mixed-case to trip the
 /// secret heuristic.
+/// `true` for the URL schemes alloy can open a pubsub (`eth_subscribe`) transport on.
+pub fn scheme_supports_subscriptions(scheme: &str) -> bool {
+    matches!(scheme, "ws" | "wss")
+}
+
 pub fn redact_url_query(url: &str) -> String {
     // Split off the query string first so we never accidentally redact
     // inside it (and to keep behavior identical to the previous helper for

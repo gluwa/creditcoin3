@@ -213,7 +213,9 @@ impl Config {
                     .help("Eth RPC url")
                     .long_help(
                         "Eth RPC url. \
-                        Used to pull source chain data and generate continuity proofs",
+                        Used to pull source chain data and generate continuity proofs. \
+                        ws(s):// subscribes to newHeads; http(s):// (a node or an HTTP-only \
+                        proxy such as eRPC) follows the head by polling eth_blockNumber",
                     )
                     .env("ATTESTOR_ETH_URL")
                     .required(config_file.eth.url.is_none())

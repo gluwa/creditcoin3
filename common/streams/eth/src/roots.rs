@@ -331,9 +331,17 @@ async fn stream_rpc(
     let mut delays = tokio_retry::strategy::ExponentialBackoff::from_millis(100)
         .max_delay(std::time::Duration::from_millis(5_000))
         .map(tokio_retry::strategy::jitter);
+    // Over HTTP there is no subscription to open: the head poll below is the only head source
+    // (`Client::supports_subscriptions`). Everything downstream is the same stream of head
+    // numbers, so an attestor or archiver behind an HTTP-only proxy runs this exact pipeline.
+    let subscriptions = config.client.supports_subscriptions();
     let (stream_headers, head) = loop {
         let attempt = async {
-            let headers = config.client.subscribe().await.map_err(Error::Client)?;
+            let headers = if subscriptions {
+                Some(config.client.subscribe().await.map_err(Error::Client)?)
+            } else {
+                None
+            };
             let head = config
                 .client
                 .get_last_block()
@@ -365,38 +373,18 @@ async fn stream_rpc(
 
     // Head numbers from the subscription, merged with a periodic `eth_blockNumber` poll. The
     // merged stream ends when the subscription ends (that is how a dead socket surfaces and
-    // triggers reconnection); poll results only ever advance the bound.
-    let subscribed = stream_headers.map(|header| Some(header.number));
-    let poll_client = config.client.clone();
-    let poll_timeout = config.rpc_call_timeout;
-    // `Delay` rather than tokio's default `Burst`: this stream is not polled while
-    // `heights_to_fetch` drains the seeded `start..=head` range, and after a long catch-up the
-    // missed ticks would otherwise fire back-to-back as a flood of `eth_blockNumber` calls on
-    // the same socket that carries block fetches and `newHeads`.
-    let mut ticker = tokio::time::interval(config.head_poll_interval);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-    let polled = futures::stream::unfold(ticker, |mut ticker| async move {
-        ticker.tick().await;
-        Some(((), ticker))
-    })
-    .skip(1) // the first tick fires immediately; the seed above already covered it
-    .then(move |_| {
-        let client = poll_client.clone();
-        async move {
-            match tokio::time::timeout(poll_timeout, client.get_last_block()).await {
-                Ok(Ok(n)) => Some(n),
-                Ok(Err(err)) => {
-                    tracing::debug!(%err, "head poll failed; relying on subscription");
-                    None
-                }
-                Err(_) => {
-                    tracing::debug!("head poll timed out; relying on subscription");
-                    None
-                }
-            }
-        }
-    })
-    .filter_map(futures::future::ready);
+    // triggers reconnection); poll results only ever advance the bound. Without a subscription
+    // (HTTP transport) the subscribed side never yields and never ends: the poll carries the
+    // heads, and a dead endpoint surfaces through the silence watchdog's failing probe instead.
+    let subscribed: stream_util::BoxedStream<Option<u64>> = match stream_headers {
+        Some(headers) => headers.map(|header| Some(header.number)).boxed(),
+        None => futures::stream::pending().boxed(),
+    };
+    let polled = polled_heads(
+        config.client.clone(),
+        config.head_poll_interval,
+        config.rpc_call_timeout,
+    );
 
     // Bound pipeline. Every source head — the first one above and each one the subscription
     // delivers — becomes a candidate upper bound through `config.bound`, and the block numbers
@@ -724,6 +712,45 @@ fn watch_values<T: Copy + Send + Sync + 'static>(
     })
 }
 
+/// Head numbers read by polling `eth_blockNumber` every `interval`. Alongside a subscription it
+/// is the liveness floor; over HTTP it is the only head source. Failed or timed-out polls yield
+/// nothing and the next tick tries again.
+pub(crate) fn polled_heads(
+    client: eth::Client,
+    interval: std::time::Duration,
+    timeout: std::time::Duration,
+) -> impl futures::Stream<Item = u64> {
+    use futures::StreamExt as _;
+    // `Delay` rather than tokio's default `Burst`: the consumer may not poll this stream while
+    // it drains a seeded `start..=head` range, and after a long catch-up the missed ticks would
+    // otherwise fire back-to-back as a flood of `eth_blockNumber` calls on the same connection
+    // that carries block fetches.
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    futures::stream::unfold(ticker, |mut ticker| async move {
+        ticker.tick().await;
+        Some(((), ticker))
+    })
+    .skip(1) // the first tick fires immediately; callers seed the first head themselves
+    .then(move |_| {
+        let client = client.clone();
+        async move {
+            match tokio::time::timeout(timeout, client.get_last_block()).await {
+                Ok(Ok(n)) => Some(n),
+                Ok(Err(err)) => {
+                    tracing::debug!(%err, "head poll failed; waiting for the next tick");
+                    None
+                }
+                Err(_) => {
+                    tracing::debug!("head poll timed out; waiting for the next tick");
+                    None
+                }
+            }
+        }
+    })
+    .filter_map(futures::future::ready)
+}
+
 /// Merge subscription head numbers with polled head numbers. `subscribed` yields `Some(n)` per
 /// header and must be followed by a `None` sentinel when the subscription ends; the merged
 /// stream ends there, so a dead socket still surfaces as "stream ended" to the caller. Polled
@@ -926,6 +953,16 @@ mod tests {
         let polls = futures::stream::iter(vec![Some(4u64), Some(6)]);
         let got: Vec<u64> = merge_heads(silent, polls).take(2).collect().await;
         assert_eq!(got, vec![4, 6]);
+    }
+
+    #[tokio::test]
+    async fn merged_heads_flow_from_polls_alone_when_there_is_no_subscription() {
+        // HTTP transport: the subscribed side is `pending()` — never yields, never ends — and
+        // the polls are the only head source.
+        let polled = futures::stream::iter(vec![Some(7), Some(8), Some(9)]);
+        let merged = merge_heads(futures::stream::pending(), polled);
+        let heads: Vec<u64> = merged.take(3).collect().await;
+        assert_eq!(heads, vec![7, 8, 9]);
     }
 
     #[tokio::test]
