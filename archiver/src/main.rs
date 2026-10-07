@@ -123,8 +123,20 @@ async fn main() -> Result<()> {
     // this archiver's chain key. Both are fatal: archiving the wrong chain under a
     // given archive name silently corrupts every proof later built from it.
     let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
-    let ws_client = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout).await?;
-    let http_client = dial(cfg.rpc_http.as_str(), &cfg.rpc_fallback_urls, rpc_timeout).await?;
+    let ws_client = dial(
+        cfg.rpc_ws.as_str(),
+        &cfg.rpc_fallback_urls,
+        rpc_timeout,
+        cfg.eth_rps,
+    )
+    .await?;
+    let http_client = dial(
+        cfg.rpc_http.as_str(),
+        &cfg.rpc_fallback_urls,
+        rpc_timeout,
+        cfg.eth_rps,
+    )
+    .await?;
     if ws_client.chain_id() != http_client.chain_id() {
         return Err(anyhow!(
             "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -390,7 +402,7 @@ async fn main() -> Result<()> {
                         tracing::info!("backfill interrupted by shutdown before dialing");
                         return Ok(());
                     }
-                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c?,
+                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout, cfg.eth_rps) => c?,
                 };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
@@ -518,6 +530,7 @@ async fn main() -> Result<()> {
         head = current_head,
         boundary = %boundary,
         fetch_tasks = ?cfg.max_fetch_tasks,
+        eth_rps = cfg.eth_rps.map(|rps| rps.get()),
         api = %cfg.api_bind,
         "starting archiver"
     );
@@ -613,7 +626,7 @@ async fn main() -> Result<()> {
 
                     let connect = tokio::select! {
                         _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
-                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout) => c,
+                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout, cfg.eth_rps) => c,
                     };
                     match connect {
                         // The endpoint must still be the chain this archive is pinned to. A
@@ -816,7 +829,26 @@ fn should_request_flush(
 ///
 /// Every dial runs under `deadline`: alloy transports have no default timeout, so without one a
 /// black-holed fallback (or primary) would hang the handshake or a reconnect attempt forever.
-async fn dial(url: &str, fallback_urls: &[String], deadline: Duration) -> Result<eth::Client> {
+async fn dial(
+    url: &str,
+    fallback_urls: &[String],
+    deadline: Duration,
+    rps: Option<std::num::NonZeroU32>,
+) -> Result<eth::Client> {
+    let client = dial_unpaced(url, fallback_urls, deadline).await?;
+    // Pace before anything clones the client: clones share the pacer they were made from.
+    Ok(match rps {
+        Some(rps) => client.with_rate_limit(rps),
+        None => client,
+    })
+}
+
+/// Dial without a request budget; [`dial`] applies the budget on top.
+async fn dial_unpaced(
+    url: &str,
+    fallback_urls: &[String],
+    deadline: Duration,
+) -> Result<eth::Client> {
     let primary_only = || async {
         tokio::time::timeout(deadline, eth::Client::new(url, None))
             .await

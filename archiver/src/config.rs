@@ -1,7 +1,7 @@
 //! Archiver configuration via CLI flags and environment variables.
 
 use std::net::SocketAddr;
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -52,6 +52,15 @@ pub struct Config {
     /// Maximum concurrent block fetch tasks (IO-bound).
     #[arg(long, env = "MAX_FETCH_TASKS", default_value = "8")]
     pub max_fetch_tasks: NonZeroUsize,
+
+    /// Maximum source-chain RPC requests per second for block fetches, head polls and
+    /// maturity-tag lookups. Requests are spaced evenly, so a catch-up drains at this rate instead
+    /// of in bursts of `--max-fetch-tasks × 2` calls. The budget is per connection and the
+    /// archiver keeps two (WebSocket for blocks, HTTP for the head), so the provider sees at most
+    /// twice this rate. Set it below the provider plan's limit divided by the clients sharing the
+    /// key. Unlimited if not set.
+    #[arg(long, env = "ETH_RPS")]
+    pub eth_rps: Option<NonZeroU32>,
 
     /// Maximum block range that can be queried via the /roots API endpoint.
     /// Default is slightly above one checkpoint interval (attestation_interval × checkpoint_interval)
@@ -140,4 +149,45 @@ pub struct Config {
     /// the bound keeps a misbehaving RPC from wiping the archive.
     #[arg(long, env = "REANCHOR_MAX_DEPTH", default_value = "0")]
     pub reanchor_max_depth: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(extra: &[&str]) -> Config {
+        let mut args = vec![
+            "archiver",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--rpc-ws",
+            "ws://localhost:8546",
+        ];
+        args.extend_from_slice(extra);
+        Config::try_parse_from(args).expect("config parses")
+    }
+
+    #[test]
+    fn eth_rps_is_unlimited_unless_set() {
+        assert_eq!(parse(&[]).eth_rps, None);
+    }
+
+    #[test]
+    fn eth_rps_parses_from_the_flag() {
+        assert_eq!(parse(&["--eth-rps", "2"]).eth_rps, NonZeroU32::new(2));
+    }
+
+    #[test]
+    fn eth_rps_rejects_zero() {
+        let args = [
+            "archiver",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--rpc-ws",
+            "ws://localhost:8546",
+            "--eth-rps",
+            "0",
+        ];
+        assert!(Config::try_parse_from(args).is_err());
+    }
 }
