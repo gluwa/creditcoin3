@@ -51,6 +51,7 @@ pub async fn run(
         .with_max_concurrency(shared.eth_max_concurrency)
         .with_max_parallelism(max_parallelism)
         .with_encoding(shared.encoding)
+        .with_head_poll_interval(shared.eth_head_poll_interval)
         .build();
     let stream_roots = stream::eth::StreamRoots::new(roots_cfg).await;
 
@@ -58,6 +59,7 @@ pub async fn run(
         .with_client(shared.eth.clone())
         .with_maturity(shared.maturity)
         .with_start_height(start_height)
+        .with_head_poll_interval(shared.eth_head_poll_interval)
         .build();
     let stream_tip = stream::eth::StreamTip::new(tip_cfg).await;
 
