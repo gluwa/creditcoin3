@@ -659,25 +659,13 @@ impl Client {
         Ok(result)
     }
 
-    /// The quorum the runtime enforces for `chain_key`: `2/3+1` of
-    /// `min(|ActiveAttestors|, TargetSampleSize)`.
+    /// The quorum the runtime enforces for `chain_key`: `2/3+1` of `|ActiveAttestors|`.
     ///
-    /// Both inputs are read from a *single* storage snapshot. Reading them through two
-    /// `at_latest()` handles can straddle a block and mix an active-set size from one block with
-    /// a target from another, which is exactly the mismatch that makes an attestor compute a
-    /// threshold the runtime does not enforce.
-    ///
-    /// Callers must never derive a quorum from `target_sample_size` alone. The target is a cap,
-    /// so on a chain whose target sits above the active-attestor count (the recommended posture,
-    /// since quorum intersection only holds while the cap does not bind) the uncapped threshold is
-    /// unreachable and the node would silently stop submitting.
+    /// `TargetSampleSize` is deliberately not an input — it is inert, reserved for RFC-0174
+    /// sortition. Deriving a threshold from it instead would hand a minority of the active set a
+    /// passing quorum, which is the mismatch this formula exists to close.
     pub async fn quorum(&self, chain_key: u64) -> Result<u32, Error> {
         let storage = self.api().storage().at_latest().await?;
-
-        let target_sample_size = storage
-            .fetch(&cc3::storage().attestation().target_sample_size(chain_key))
-            .await?
-            .ok_or(Error::FailedToGetComitteSetSize)?;
 
         let active_attestors = storage
             .fetch(&cc3::storage().attestation().active_attestors(chain_key))
@@ -690,10 +678,7 @@ impl Client {
         // make it submit under-quorum and burn fees on `MajorityNotReached`.
         let active_attestors = u32::try_from(active_attestors).unwrap_or(u32::MAX);
 
-        Ok(attestor_primitives::calculate_quorum(
-            active_attestors,
-            target_sample_size,
-        ))
+        Ok(attestor_primitives::calculate_quorum(active_attestors))
     }
 
     /// On-chain `MaxCatchup` (block-count bound per continuity proof) for a chain. The storage

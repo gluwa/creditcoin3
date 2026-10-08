@@ -1002,12 +1002,27 @@ parameter_types! {
     /// Ceiling for the per-chain attestation interval; keeps `max_roots` in continuity-proof
     /// validation from being inflated past what `OversizedContinuityProof` is meant to catch.
     pub const MaxChainAttestationInterval: u64 = 10_000;
-    pub const DefaultTargetSampleSize: u32 = 3;
+    /// Set at RFC-0174's security floor rather than at any committee size we run. The knob does
+    /// not affect quorum (see `TargetSampleSize`'s storage docs); this value currently records the
+    /// active-attestor count per chain at which committee sortition would start being worth
+    /// building.
+    pub const DefaultTargetSampleSize: u32 = 120;
     /// The default maximum catchup bound, expressed in **blocks**.
     /// During catchup (e.g. bootstrap or recovery from a stall),
     /// each attestation's continuity proof spans at most this many
     /// blocks, bounding proof size to protect runtime validation.
     pub const DefaultMaxCatchup: u32 = 500;
+    /// Per-chain ceiling on the attestor set (`MaxAttestationNodes`).
+    ///
+    /// Sits below RFC-0174's ~120 committee-sortition floor, which is what lets quorum be
+    /// `2/3+1` of the whole active set: a committee large enough to need sampling cannot form
+    /// under this ceiling. Raising it past ~120 is the trigger to revisit RFC-0174 — the tripwire
+    /// is this constant, not a date.
+    ///
+    /// The ceiling is not expected to come into play. Under the proposed Attestcoin model (10,000,000 ATC
+    /// supply, 100,000 ATC per bond) the network supports at most 100 bonded registrations in
+    /// total, a bond is taken per `(stash, chain)` registration, and those are spread across
+    /// every supported chain.
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units

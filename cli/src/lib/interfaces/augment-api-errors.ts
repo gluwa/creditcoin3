@@ -119,9 +119,10 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidBlsSignature: AugmentedError<ApiType>;
             /**
              * Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
-             * ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
-             * `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
-             * would either overflow those bounds or undercharge weight.
+             * ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
+             * bound is measured against, so a per-chain value above it would undercharge weight.
+             * (`ActiveAttestors` is an unbounded `Vec`, so lowering the ceiling cannot invalidate
+             * stored state; the weight path clamps a stale per-chain value with `.min()`.)
              **/
             InvalidMaxAttestors: AugmentedError<ApiType>;
             InvalidMaxCatchup: AugmentedError<ApiType>;

@@ -385,9 +385,8 @@ async fn handle_submission_result(
 ///
 /// 1. Drop votes whose signer left the active attestor set (the runtime filters `attestors` to
 ///    `ActiveAttestors`; a stale signer in the aggregate yields `InvalidBlsSignature`).
-/// 2. Re-fetch the live quorum (`2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`) and
-///    require the surviving vote count to still satisfy it (otherwise the runtime rejects with
-///    `MajorityNotReached`).
+/// 2. Re-fetch the live quorum (`2/3+1` of `|ActiveAttestors|`) and require the surviving vote
+///    count to still satisfy it (otherwise the runtime rejects with `MajorityNotReached`).
 ///
 /// If signers were dropped but the quorum still stands, the BLS aggregate and attestor list are
 /// rebuilt from the surviving votes. Returns `None` when the quorum no longer satisfies the live
@@ -568,9 +567,8 @@ async fn aggregate_and_validate(
     }
 
     // Threshold gate: refresh the live quorum from the chain and refuse to submit if we are now
-    // under it. The pool's quorum count is captured at startup; if the quorum grew since — the
-    // active set gained members (election), or an operator raised `TargetSampleSize` while it
-    // caps the set — an under-threshold submission would be rejected at runtime level
+    // under it. The pool's quorum count is captured at startup; if the active set gained members
+    // since (an election), an under-threshold submission would be rejected at runtime level
     // (`MajorityNotReached`). Catch it here instead — fees are saved and the pool collects more
     // votes from gossip before the next emission.
     let threshold = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {

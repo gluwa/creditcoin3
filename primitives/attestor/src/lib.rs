@@ -433,46 +433,44 @@ impl AttestationCheckpoint {
     }
 }
 
-/// Function to calculate the threshold for a committee set size to reach majority vote.
+/// `2/3 + 1` of `active_attestors` — the bare arithmetic behind [`calculate_quorum`].
 ///
-/// `sample_size` is the *effective* committee — see [`effective_sample_size`]. Callers that hold
-/// a raw `TargetSampleSize` must not pass it here directly; use [`calculate_quorum`], which
-/// applies the active-set cap first.
+/// Prefer [`calculate_quorum`]; this is split out only so the formula can be asserted directly.
+/// Whatever is passed here *is* the set the threshold is measured against, so passing anything
+/// smaller than the live active-attestor count hands a minority of that set a passing quorum.
 ///
-/// The multiply saturates. `TargetSampleSize` is only bounded by `> 0` at the setter, so a
-/// governance value above `u32::MAX / 2` would otherwise wrap in a release build (the workspace
-/// release profile does not enable `overflow-checks`) and collapse the threshold to a handful of
-/// signers. Saturating keeps an absurd configuration unreachable-high instead of dangerously low.
-pub fn calculate_threshold(sample_size: u32) -> u32 {
-    sample_size.saturating_mul(2) / 3 + 1
+/// The multiply saturates. In-tree callers pass a count bounded by `MaxAttestationNodes`, far
+/// below the wrapping point, but this is `pub`: an input above `u32::MAX / 2` would otherwise wrap
+/// in a release build (the workspace release profile does not enable `overflow-checks`) and
+/// collapse the threshold to a handful of signers. Saturating keeps an absurd input
+/// unreachable-high instead of dangerously low.
+pub fn calculate_threshold(active_attestors: u32) -> u32 {
+    active_attestors.saturating_mul(2) / 3 + 1
 }
 
-/// The effective committee a quorum is measured against: `min(active_attestors, target_sample_size)`.
+/// Quorum threshold for a chain: `2/3 + 1` of the live active-attestor count.
 ///
-/// `TargetSampleSize` is a *cap*, not a fixed committee size. When fewer attestors are active than
-/// the cap, the whole active set is the committee; the cap only binds once the set grows past it.
+/// The committee **is** `ActiveAttestors`: `elect_attestors_for_chain` selects every eligible
+/// attestor and nothing samples a subset. Deriving the threshold from anything smaller would let
+/// a self-selected minority of that set clear it — with 30 active and a cap of 9 the threshold
+/// was 7, so two disjoint groups of seven could each produce a conflicting quorum for the same
+/// height. Measuring against the set the signers are actually drawn from is what makes quorum
+/// intersection hold: an adversary below `1/3` of the active set can never reach `2/3+1` of it.
 ///
-/// This fixes a hard liveness bug in the previous `threshold = f(target_sample_size)` model: a
-/// target above the active-attestor count made the threshold unreachable, so `commit_attestation`
-/// failed `MajorityNotReached` forever and attestation for the chain stopped permanently.
-///
-/// Note what the cap does *not* do. Nothing selects a committee — `validate_attestation` accepts
-/// any subset of `ActiveAttestors` that clears the threshold, and the per-epoch entropy that would
-/// drive sortition is still unused (`do_start_election`'s `_randomness`, RFC-0174). So while the
-/// cap binds (active > target) any self-selected `2/3+1` of the *cap* is a valid quorum, and two
-/// disjoint such groups can exist. Quorum intersection only holds while the cap does not bind, so
-/// operators who need it must keep `TargetSampleSize` above the active-attestor count.
-pub fn effective_sample_size(active_attestors: u32, target_sample_size: u32) -> u32 {
-    active_attestors.min(target_sample_size)
-}
-
-/// Quorum threshold for a chain: `2/3 + 1` of [`effective_sample_size`].
+/// `TargetSampleSize` deliberately plays no part here. It is reserved for the committee sortition
+/// in RFC-0174, which is out of scope at the current `MaxAttestationNodes` ceiling; see its
+/// storage docs in `pallet-attestation`.
 ///
 /// This is the single definition shared by the runtime (`validate_attestation`) and the attestor
 /// node. Both sides must agree: an attestor computing a threshold the runtime does not enforce
 /// either burns fees on `MajorityNotReached` (too low) or never submits at all (too high).
-pub fn calculate_quorum(active_attestors: u32, target_sample_size: u32) -> u32 {
-    calculate_threshold(effective_sample_size(active_attestors, target_sample_size))
+///
+/// Reachable at every set size, including the small ones. An earlier model derived the threshold
+/// from `TargetSampleSize` alone, so a target above the active-attestor count was unsatisfiable
+/// and attestation for that chain halted permanently. Deriving it from the live count cannot
+/// reproduce that: the threshold is always at most the number of attestors able to sign.
+pub fn calculate_quorum(active_attestors: u32) -> u32 {
+    calculate_threshold(active_attestors)
 }
 
 /// Computes the digest for a block given its number, root, and optional previous digest.
@@ -499,99 +497,81 @@ mod test {
 
     #[test]
     fn test_calculate_threshold_3() {
-        let target_sample_size = 3;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 3;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 3);
     }
 
     #[test]
     fn test_calculate_threshold_4() {
-        let target_sample_size = 4;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 4;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 3);
     }
 
     #[test]
     fn test_calculate_threshold_5() {
-        let target_sample_size = 5;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 5;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 4);
     }
 
     #[test]
     fn test_calculate_threshold_10() {
-        let target_sample_size = 10;
-        let threshold = calculate_threshold(target_sample_size);
+        let active_attestors = 10;
+        let threshold = calculate_threshold(active_attestors);
         assert_eq!(threshold, 7);
     }
 
+    /// The property the whole design rests on: quorum is a strict majority of the set the signers
+    /// are drawn from, so any two quorums must share at least one member. Previously, capping the
+    /// threshold at a smaller `TargetSampleSize` broke this once the cap bound — two disjoint
+    /// groups could each clear it and attest conflicting roots at the same height.
     #[test]
-    fn effective_sample_size_uses_active_set_when_below_target() {
-        assert_eq!(effective_sample_size(10, 20), 10);
-    }
-
-    #[test]
-    fn effective_sample_size_uses_target_when_active_set_is_larger() {
-        assert_eq!(effective_sample_size(100, 20), 20);
-    }
-
-    #[test]
-    fn effective_sample_size_is_the_common_value_when_equal() {
-        assert_eq!(effective_sample_size(9, 9), 9);
-    }
-
-    /// Regression for the liveness bug this change fixes: a target above the active-attestor
-    /// count used to yield a threshold no quorum could ever reach, halting the chain. The local
-    /// testnet spec ships `target_sample_size: 9`, which needed 7 active attestors.
-    #[test]
-    fn quorum_is_reachable_when_target_exceeds_active_set() {
-        let active = 3;
-        assert_eq!(calculate_threshold(9), 7, "old model needed 7 of 3");
-        let quorum = calculate_quorum(active, 9);
-        assert_eq!(quorum, 3);
-        assert!(
-            quorum <= active,
-            "quorum must be reachable by the active set"
-        );
-    }
-
-    /// Quorum must never exceed the active set for *any* target, or attestation cannot progress.
-    #[test]
-    fn quorum_never_exceeds_the_active_set() {
-        for active in 1u32..64 {
-            for target in [1u32, 3, 9, 20, 100, 20_000, u32::MAX] {
-                let quorum = calculate_quorum(active, target);
-                assert!(
-                    quorum <= active,
-                    "quorum {quorum} > active {active} (target {target})"
-                );
-                assert!(quorum >= 1, "quorum must be positive");
-            }
+    fn two_quorums_always_intersect() {
+        for active in 1u32..256 {
+            let quorum = calculate_quorum(active);
+            assert!(
+                2 * quorum > active,
+                "two disjoint quorums fit in {active} active (quorum {quorum})"
+            );
         }
     }
 
-    /// While the cap binds, quorum intersection is lost — this is the documented consequence of
-    /// capping without sortition, asserted so the tradeoff cannot regress silently.
+    /// An adversary below one third of the active set can never reach the threshold. This is what
+    /// deriving the threshold from the live count buys, and what any reintroduced sampling would
+    /// have to re-establish on the sampled committee instead.
     #[test]
-    fn quorum_intersects_only_while_the_cap_does_not_bind() {
-        // Cap does not bind: quorum is a strict majority of the active set, so any two quorums
-        // must share a member.
-        let active = 100;
-        let uncapped = calculate_quorum(active, u32::MAX);
-        assert!(2 * uncapped > active, "uncapped quorum must intersect");
-
-        // Cap binds: two disjoint quorums fit inside the active set.
-        let capped = calculate_quorum(active, 20);
-        assert_eq!(capped, 14);
-        assert!(2 * capped <= active, "capped quorum does not intersect");
+    fn a_minority_under_one_third_can_never_reach_quorum() {
+        for active in 3u32..256 {
+            let adversary = (active - 1) / 3; // strictly under 1/3
+            assert!(
+                adversary < calculate_quorum(active),
+                "{adversary} of {active} reached quorum {}",
+                calculate_quorum(active)
+            );
+        }
     }
 
-    /// A governance target above `u32::MAX / 2` must not wrap the `* 2` and collapse the
-    /// threshold. The setter only rejects zero, so this input is reachable.
+    /// Regression for the liveness bug `4603d0fa8` fixed: deriving the threshold from a target
+    /// above the active count made it unreachable and halted the chain permanently. Deriving it
+    /// from the live count cannot reproduce that at any set size.
+    #[test]
+    fn quorum_never_exceeds_the_active_set() {
+        assert_eq!(calculate_threshold(9), 7, "old model needed 7 of 3");
+        for active in 1u32..256 {
+            let quorum = calculate_quorum(active);
+            assert!(quorum <= active, "quorum {quorum} > active {active}");
+            assert!(quorum >= 1, "quorum must be positive");
+        }
+    }
+
+    /// `TargetSampleSize` is no longer an input, so no governance value can collapse the
+    /// threshold. The saturating multiply still guards an absurd active count.
     #[test]
     fn calculate_threshold_saturates_instead_of_wrapping() {
         assert_eq!(calculate_threshold(u32::MAX), u32::MAX / 3 + 1);
-        assert_eq!(calculate_quorum(10, u32::MAX), 7);
+        assert_eq!(calculate_quorum(u32::MAX), u32::MAX / 3 + 1);
     }
 }
 

@@ -447,10 +447,10 @@ impl Sender {
 
     /// Install `threshold` as the pool's quorum target.
     ///
-    /// Takes an already-computed threshold rather than a `TargetSampleSize`. The quorum is
-    /// `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so the target alone no longer
-    /// determines it, and a caller passing one here would install a threshold the runtime does
-    /// not enforce. Callers get the authoritative number from `Client::quorum`.
+    /// Takes an already-computed threshold rather than an attestor count. The quorum is
+    /// `2/3+1` of `|ActiveAttestors|`, and a caller passing a raw count here would install a
+    /// threshold the runtime does not enforce. Callers get the authoritative number from
+    /// `Client::quorum`.
     pub fn note_quorum_change(&self, threshold: u32) {
         let Some(quorum_new) = NonZero::new(threshold as usize) else {
             return;
@@ -473,8 +473,8 @@ impl Sender {
     }
 
     /// The runtime rejected our submission at `height` with `MajorityNotReached` — meaning the
-    /// live quorum on chain (`2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`) is higher
-    /// than the one we enforced, so our vote count was insufficient.
+    /// live quorum on chain (`2/3+1` of `|ActiveAttestors|`) is higher than the one we enforced,
+    /// so our vote count was insufficient.
     /// Clear the local validation lock for this height so subsequent votes get admitted under
     /// the new threshold (production / production-on-other-attestors will gossipsub-retransmit).
     pub fn note_majority_not_reached(&self, height: Height) {
@@ -799,13 +799,11 @@ impl Forks {
     /// ≥ `target` votes that is strictly larger than every other quorum-qualified fork at the
     /// same height.
     ///
-    /// While `TargetSampleSize` caps the committee below the active set (see USCP2-004), the
-    /// threshold can sit at or below half the committee, so two conflicting digests at one height
-    /// can *both* reach the target with disjoint signer sets. Deriving the quorum from
-    /// `min(|ActiveAttestors|, TargetSampleSize)` removes that whenever the cap does not bind: the
-    /// threshold is then a strict majority of the active set and any two quorums must intersect.
-    /// The cap is still permitted to bind, and nothing selects a committee when it does
-    /// (sortition is unbuilt, RFC-0174), so the fail-closed handling below stays.
+    /// The quorum is `2/3+1` of `|ActiveAttestors|`, a strict majority of the set the signers
+    /// are drawn from, so two quorum-qualified forks at one height must share a signer and
+    /// cannot both be honest. The fail-closed handling below is kept anyway: equivocation and a
+    /// lagging view of the active set can still surface a tie here, and the cost of waiting is a
+    /// round where the cost of guessing is committing to a side.
     /// Selecting one by index ordering would arbitrarily commit this node to a side of the
     /// split; instead the height is treated as ambiguous (fail closed) until one fork pulls
     /// strictly ahead, and lower heights remain eligible meanwhile.
