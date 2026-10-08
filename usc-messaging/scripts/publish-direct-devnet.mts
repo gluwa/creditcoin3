@@ -35,8 +35,20 @@ const outbox = new ethers.Contract(entry.source.outbox, [
   "event MessagePublished(bytes32 indexed messageId, bytes32 indexed emitterAddress, uint64 sequence, bool canAck, bytes payload)",
 ], wallet);
 const fee: bigint = await outbox.coreFee();
-console.log(`network ${NET.name} chain key ${CHAIN_KEY}: Outbox ${entry.source.outbox}, coreFee ${fee}, publisher ${wallet.address} (${ethers.formatEther(await provider.getBalance(wallet.address))} CTC)`);
-if (fee !== 0n) throw new Error(`coreFee is ${fee}: the direct path would need ATTEST approval; use publish-lite-devnet.mts or set CORE_FEE_WEI=0`);
+console.log(`network ${NET.name} chain key ${CHAIN_KEY}: Outbox ${entry.source.outbox}, coreFee ${ethers.formatEther(fee)} ATTEST, publisher ${wallet.address} (${ethers.formatEther(await provider.getBalance(wallet.address))} CTC)`);
+if (fee !== 0n) {
+  // The Outbox deposits `fee` ATTEST from msg.sender into the AttestorVault, so the publisher needs
+  // the balance and an allowance to the Outbox. On devnet the ATTEST is a MockERC20 with an open mint.
+  const attest = new ethers.Contract(deployJson.source.attest, ["function balanceOf(address) view returns (uint256)", "function allowance(address,address) view returns (uint256)", "function approve(address,uint256) returns (bool)", "function mint(address,uint256)"], wallet);
+  const bal: bigint = await attest.balanceOf(wallet.address);
+  if (bal < fee) {
+    if (deployJson.source.attestKind !== "MockERC20") throw new Error(`publisher holds ${ethers.formatEther(bal)} ATTEST, needs ${ethers.formatEther(fee)}; ATTEST is not a mock here, fund it`);
+    await (await attest.mint(wallet.address, fee * 10n)).wait();
+    console.log(`  minted ${ethers.formatEther(fee * 10n)} mock ATTEST to the publisher`);
+  }
+  const allowance: bigint = await attest.allowance(wallet.address, entry.source.outbox);
+  if (allowance < fee) { await (await attest.approve(entry.source.outbox, fee * 10n)).wait(); console.log(`  approved ${ethers.formatEther(fee * 10n)} ATTEST to the Outbox`); }
+}
 const payload = memoEnvelope(destination, MEMO);
 console.log(`publishing canAck=${CAN_ACK} destination=${destination} memo="${MEMO}" envelope=${payload.length / 2 - 1} bytes`);
 const tx = await outbox.publishMessage(CAN_ACK, payload);

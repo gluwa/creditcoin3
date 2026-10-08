@@ -21,11 +21,12 @@
     "outboxDeployerImpl": "0x6aCe03613f89666259d661336AA12c2d2c21c1DA",
     "outboxDiscovery": "0xa2809418f6b8D2B6d792CA7e786199971816980a",
     "outboxDiscoveryImpl": "0x625DA2eE2B3c1f12E9d12E61ee3AAaa88a4cFADe",
-    "coreFee": "0",
+    "coreFee": "1000000000000000000",
     "quoterEOA": null,
     "ascContractsCommit": "3f9259e",
     "sharedDeployedAt": "2026-10-02",
-    "verifiedAt": "2026-10-05"
+    "verifiedAt": "2026-10-05",
+    "coreFeeNote": "1 ATC (mock ATTEST, 18 decimals) on chain keys 1 and 2 since 2026-10-06 15:12Z via sudo supportedChains.setCoreFee; was 0 before"
   },
   "chains": {
     "1": {
@@ -91,8 +92,35 @@
           "acknowledgedAt": "2026-10-05T13:12:05Z",
           "ackSubmitter": "0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac",
           "note": "first asc-devnet message: publish 12:53Z, delivered 12:54:18Z (85 s), acknowledged 13:12:05Z (ack waited for the Sepolia archiver to store roots 11848921-11848940)"
+        },
+        {
+          "messageId": "0x11ace42c4c2ef0078b3f1ec5d9e8eab7a36795a6e402ad0c35d3bf3af25ea186",
+          "sequence": 2,
+          "emitter": "0xf24ff3a9cf04c71dbc94d0b566f7a27b94566cac000000000000000000000000",
+          "canAck": true,
+          "destination": "0xAf80F8df996A1f9E09A87827A702FF8E0D0FeE72",
+          "memo": "asc-devnet message 2 on key 1 14:22:05Z",
+          "txHash": "0x78ae597d639acef20dd9e577496e004ad112c3950d21257655f0a586882de92c",
+          "block": 69563,
+          "publishedAt": "2026-10-05T14:22:10.760Z",
+          "path": "direct"
+        },
+        {
+          "messageId": "0x32ced07a3e4c245f74fd07f33563fdb8e0764c4947b684493b6f18434c91de9f",
+          "sequence": 3,
+          "emitter": "0xf24ff3a9cf04c71dbc94d0b566f7a27b94566cac000000000000000000000000",
+          "canAck": true,
+          "destination": "0xAf80F8df996A1f9E09A87827A702FF8E0D0FeE72",
+          "memo": "asc-devnet message 3 on key 1, first with coreFee 1 ATC 15:16:28Z",
+          "txHash": "0x8c7fd6c4338613ae21df0018cde93745b9f9f639d5ff4f849a1fbbb815b16d0e",
+          "block": 87490,
+          "publishedAt": "2026-10-06T15:16:45.773Z",
+          "path": "direct",
+          "coreFeePaid": "1000000000000000000",
+          "note": "first fee-paying message: 1 ATTEST moved publisher -> AttestorVault 0x3C4a8db8A97B2518fc094F847C508dbD45e975b7 (vault 0 -> 1.0)"
         }
-      ]
+      ],
+      "coreFee": "1000000000000000000"
     },
     "2": {
       "chainKey": 2,
@@ -156,8 +184,21 @@
           "acknowledgedAt": "2026-10-05T14:02:20Z",
           "ackSubmitter": "0xf24FF3a9CF04c71Dbc94D0b566f7A27B94566cac",
           "note": "second asc-devnet message, first on Base: publish 13:58Z, delivered ~1 min, acknowledged 14:02Z (4 min end to end; Base archiver stores every block)"
+        },
+        {
+          "messageId": "0xaf4bf2ba0d73127cbc0a788d08b5ee38f75987bb371875b4895f7ea0ec4d2c9f",
+          "sequence": 2,
+          "emitter": "0xf24ff3a9cf04c71dbc94d0b566f7a27b94566cac000000000000000000000000",
+          "canAck": true,
+          "destination": "0xdD78a0eb836B699fC7F39C04EBe2379Ce74cB43C",
+          "memo": "asc-devnet message 2 on key 2 14:22:10Z",
+          "txHash": "0xaf757a1695c003c1e8d8c521f8525dd2fb57a32eef8c576eeb3e516f7923f9c2",
+          "block": 69564,
+          "publishedAt": "2026-10-05T14:22:15.502Z",
+          "path": "direct"
         }
-      ]
+      ],
+      "coreFee": "1000000000000000000"
     }
   },
   "superseded": {
