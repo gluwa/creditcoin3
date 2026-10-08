@@ -1780,12 +1780,36 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
 
 [[package]]
+name = "attestcoin-abi-encoding"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "abda4949912e6a0e6ff864909198ba6307b528c7414b7f7105d4b7160bf72093"
+dependencies = [
+ "alloy",
+ "serde",
+]
+
+[[package]]
+name = "attestcoin-query-builder"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b8c95cc1a0b37d3d448ef74f8395aa5d255f3a532457d1abe14390862e187f7f"
+dependencies = [
+ "alloy",
+ "alloy-json-abi",
+ "async-trait",
+ "attestcoin-abi-encoding",
+ "hex",
+]
+
+[[package]]
 name = "attestor"
 version = "3.142.0"
 dependencies = [
  "alloy",
  "alloy-node-bindings",
  "anyhow",
+ "attestcoin-abi-encoding",
  "attestor-primitives",
  "attestor_pool",
  "axum",
@@ -1817,7 +1841,6 @@ dependencies = [
  "tracing-appender",
  "tracing-subscriber",
  "url",
- "usc-abi-encoding",
  "write-ability",
  "zeroize",
 ]
@@ -1826,6 +1849,7 @@ dependencies = [
 name = "attestor-primitives"
 version = "3.142.0"
 dependencies = [
+ "attestcoin-abi-encoding",
  "bls-signatures",
  "parity-scale-codec",
  "precompile-utils",
@@ -1838,7 +1862,6 @@ dependencies = [
  "sp-core",
  "sp-runtime",
  "sp-std",
- "usc-abi-encoding",
 ]
 
 [[package]]
@@ -2492,6 +2515,7 @@ version = "3.142.0"
 dependencies = [
  "anyhow",
  "arc-swap",
+ "attestcoin-abi-encoding",
  "attestor-primitives",
  "futures 0.3.32",
  "hex",
@@ -2505,7 +2529,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite 0.26.2",
  "tracing",
- "usc-abi-encoding",
  "user",
 ]
 
@@ -2881,6 +2904,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "attestcoin-abi-encoding",
  "attestor-primitives",
  "cc-client",
  "eth",
@@ -2893,7 +2917,6 @@ dependencies = [
  "tokio",
  "tokio-retry",
  "tracing",
- "usc-abi-encoding",
  "user",
  "utils",
 ]
@@ -4452,6 +4475,7 @@ dependencies = [
  "alloy",
  "anyhow",
  "async-trait",
+ "attestcoin-abi-encoding",
  "attestor-primitives",
  "futures 0.3.32",
  "futures-util",
@@ -4464,7 +4488,6 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
- "usc-abi-encoding",
  "user",
  "utils",
 ]
@@ -11121,6 +11144,7 @@ dependencies = [
  "alloy-node-bindings",
  "anyhow",
  "async-trait",
+ "attestcoin-abi-encoding",
  "attestor-primitives",
  "axum",
  "cc-client",
@@ -11148,7 +11172,6 @@ dependencies = [
  "tower-http 0.6.8",
  "tracing",
  "tracing-subscriber",
- "usc-abi-encoding",
  "utoipa",
  "utoipa-swagger-ui",
  "uuid",
@@ -11345,6 +11368,8 @@ dependencies = [
  "alloy",
  "anyhow",
  "async-trait",
+ "attestcoin-abi-encoding",
+ "attestcoin-query-builder",
  "attestor-primitives",
  "cc-client",
  "clap",
@@ -11360,8 +11385,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "usc-abi-encoding",
- "usc-query-builder",
  "user",
  "utils",
 ]
@@ -15381,6 +15404,7 @@ dependencies = [
 name = "stream_attestation"
 version = "3.142.0"
 dependencies = [
+ "attestcoin-abi-encoding",
  "attestor-primitives",
  "bip39",
  "bls-signatures",
@@ -15399,7 +15423,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "usc-abi-encoding",
 ]
 
 [[package]]
@@ -15422,6 +15445,7 @@ name = "stream_eth"
 version = "3.142.0"
 dependencies = [
  "async-stream",
+ "attestcoin-abi-encoding",
  "attestor-primitives",
  "builder",
  "clap",
@@ -15435,7 +15459,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "usc-abi-encoding",
  "user",
 ]
 
@@ -17030,29 +17053,6 @@ dependencies = [
  "percent-encoding",
  "serde",
  "serde_derive",
-]
-
-[[package]]
-name = "usc-abi-encoding"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "918f59ac7ef6eb70c2e608d2488894c88e55e00eeabc3c663c476f9510dbaf6d"
-dependencies = [
- "alloy",
- "serde",
-]
-
-[[package]]
-name = "usc-query-builder"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12fd598cd55a21e6c8565e2ed45f2151fb6520c130e9826f738f7e5480379217"
-dependencies = [
- "alloy",
- "alloy-json-abi",
- "async-trait",
- "hex",
- "usc-abi-encoding",
 ]
 
 [[package]]

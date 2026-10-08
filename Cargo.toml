@@ -290,8 +290,8 @@ pallet-randomness = { path = "pallets/randomness", default-features = false }
 pallet-supported-chains = { path = "pallets/supported-chains", default-features = false }
 
 # Encoding
-usc-abi-encoding = { version = "0.6.0" }
-usc-query-builder = { version = "0.8.0" }
+attestcoin-abi-encoding = { version = "0.7.0" }
+attestcoin-query-builder = { version = "0.9.0" }
 
 # Precompiles
 ethabi = { version = "18.0.0", default-features = false }

@@ -8,9 +8,9 @@
 //! that skips the header-root check entirely.
 
 use alloy::network::{AnyRpcBlock, AnyTransactionReceipt};
+use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::{ChainFamily, Error, OrderedBlock};
 use serde_json::{json, Value};
-use usc_abi_encoding::common::EncodingVersion;
 
 const ZERO32: &str = "0x0000000000000000000000000000000000000000000000000000000000000000";
 const BLOCK_HASH: &str = "0x1111111111111111111111111111111111111111111111111111111111111111";

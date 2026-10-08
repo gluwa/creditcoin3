@@ -3,12 +3,12 @@ use alloy::{
     network::{AnyRpcBlock, AnyTransactionReceipt},
     primitives::{keccak256, B256},
 };
+use attestcoin_abi_encoding::common::EncodingVersion;
 use eth::{
     op_stack::{encode_deposit_receipt_2718, DepositError, DepositReceiptFields},
     ChainFamily, DepositTransaction, Error, OrderedBlock, TxRx,
 };
 use serde_json::{json, Value};
-use usc_abi_encoding::common::EncodingVersion;
 use utils::block_item_traits::BlockItem;
 
 fn fixture(historical: bool) -> (Value, Value) {

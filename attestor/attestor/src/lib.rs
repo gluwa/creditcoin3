@@ -227,7 +227,7 @@ impl Attestor {
             .ok_or(Error::UnsupportedMaturityStrategy(strategy))?;
         tracing::info!(chain_key, %maturity, "⏳ block maturity resolved from on-chain strategy");
         let encoding =
-            usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
+            attestcoin_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
 
         // ----------------------------------* balance check *---------------------------------- //
 

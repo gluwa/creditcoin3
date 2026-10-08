@@ -90,7 +90,7 @@ fn main() {
         let block = client_eth
             .get_block(
                 args.start_height,
-                usc_abi_encoding::common::EncodingVersion::V1,
+                attestcoin_abi_encoding::common::EncodingVersion::V1,
             )
             .await
             .expect("Failed to retrieve genesis block");

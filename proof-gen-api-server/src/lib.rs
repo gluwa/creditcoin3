@@ -150,7 +150,7 @@ impl Server {
 
         // Source-chain block encoding from CC3 metadata, rather than assuming V1.
         let chain_encoding =
-            usc_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
+            attestcoin_abi_encoding::common::EncodingVersion::from(supported_chain.chain_encoding);
 
         let eth_fallback_urls: &[String] = &chain.eth_rpc_fallback_urls;
 
