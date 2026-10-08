@@ -29,7 +29,7 @@ All flags can also be set via environment variables (see below).
 | Flag | Env | Default | Description |
 |------|-----|---------|-------------|
 | `--rpc-http` | `RPC_HTTP` | *(required)* | HTTP RPC endpoint for chain-head tracking and the canonical-anchor check |
-| `--rpc-ws` | `RPC_WS` | *(required)* | WebSocket RPC endpoint for the new-head subscription and block fetching |
+| `--rpc-ws` | `RPC_WS` | *(none)* | WebSocket RPC endpoint for the `newHeads` subscription and block fetching. Optional: without it the root stream runs over `--rpc-http` and follows the head by polling `eth_blockNumber` every `HEAD_POLL_INTERVAL_SECS` (default 12 s; set it near the block time on fast chains). Use this behind an HTTP-only proxy such as eRPC |
 | `--rpc-fallback-urls` | `RPC_FALLBACK_URLS` | *(none)* | Comma-separated extra RPCs tried in order when the primary returns "not found" or a transport error for a block fetch; must serve the same chain id; if any is unreachable at dial time the archiver warns and continues with the primary alone |
 | `--eth-chain-family` | `ETH_CHAIN_FAMILY` | `ethereum` | `ethereum` or `op-stack`; applied to HTTP, WS, backfill, and reconnect clients |
 | `--cc3-rpc_url` | `CC3_RPC_URL` | `ws://localhost:9944` | Url for connecting to CC3 chain |
@@ -37,6 +37,7 @@ All flags can also be set via environment variables (see below).
 | `--start-height` | `START_HEIGHT` | `0` | Block height to start from (ignored if DB has progress) |
 | `--end-height` | `END_HEIGHT` | *(none)* | Stop after this block (inclusive). Omit to follow the tip |
 | `--max-fetch-tasks` | `MAX_FETCH_TASKS` | `8` | Max concurrent block fetch tasks (IO-bound) |
+| `--eth-rps` | `ETH_RPS` | *(unlimited)* | Max source-chain RPC requests per second per connection (WS block fetches, HTTP head polls); spreads catch-up bursts so a shared provider key is not rate-limited. Pick `plan limit ÷ (2 × clients on the key)` |
 | `--max-api-range` | `MAX_API_RANGE` | `1000` | Max block range per `/roots` API request |
 | `--stream-timeout-secs` | `STREAM_TIMEOUT_SECS` | `180` | Seconds without a new root before the stream is rebuilt; keep it above the eth client's 130 s block-fetch retry budget so fallbacks get a chance to serve |
 | `--sled-db-path` | `SLED_DB_PATH` | `./data/roots.sled` | Path to the sled database directory |
