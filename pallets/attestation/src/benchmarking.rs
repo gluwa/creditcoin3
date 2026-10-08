@@ -9,7 +9,7 @@ use frame_support::traits::{Get, OriginTrait};
 use parity_scale_codec::Encode as _;
 use sp_core::H256;
 use sp_runtime::traits::Bounded;
-use sp_std::{ops::RangeInclusive, vec::Vec};
+use sp_std::{collections::vec_deque::VecDeque, ops::RangeInclusive, vec::Vec};
 
 use attestor_primitives::{
     AttestationCheckpoint, AttestationData as AttestationPrimitive, BlsPublicKey, BlsSignature,
@@ -132,6 +132,11 @@ mod benchmarks {
     use super::*;
 
     pub const MAX_SPAN: u32 = 500; // continuity blocks: 10–500 for realistic weight scaling
+    /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
+    /// checkpoint width of 100 (`2 * width`). Catch-up is the path whose cost grows with the
+    /// queue (it decodes and removes every queued attestation), and keeping every sample on it
+    /// stops the step between the two paths from being fitted as a per-root slope.
+    const CATCH_UP_SPAN: u32 = 200;
     const MAX_ATTESTORS: u32 = 100;
     // Upper bound for the `commit_attestation` `m` parameter. The registration loop is
     // inclusive (`0..=m`), so it registers `m + 1` attestors; bounding `m` at
@@ -330,8 +335,9 @@ mod benchmarks {
 
     #[benchmark]
     fn commit_attestation(
-        s: Linear<10, MAX_SPAN>, // continuity length (#headers), 10–500 blocks
-        m: Linear<1, MAX_ATTESTORS_PARAM>, // number of attestors (registers m+1; see const)
+        s: Linear<CATCH_UP_SPAN, MAX_SPAN>, // continuity length (#headers), 200–500 blocks
+        m: Linear<1, MAX_ATTESTORS_PARAM>,  // number of attestors (registers m+1; see const)
+        q: Linear<0, { T::MaxCheckpointingQueueLen::get() - 1 }>, // queued attestations
     ) {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
@@ -405,9 +411,35 @@ mod benchmarks {
             attestation_prev.clone(),
         ));
 
-        // Round s down to nearest 10 to reduce benchmark iterations (10, 20, 30, ... 500).
+        // Move to the next block so the measured commit is not held back by
+        // `MaxAttestationsPerBlock`.
+        frame_system::Pallet::<T>::set_block_number(
+            frame_system::Pallet::<T>::block_number() + 1u32.into(),
+        );
+
+        // Fill the checkpointing queue with `q` stored attestations, each carrying the full
+        // attestor set and an attestation interval's worth of roots. The catch-up path decodes
+        // every one of them and walks its proof; their signatures are never re-checked.
+        let attestation_interval = ChainAttestationInterval::<T>::get(DEV_CHAIN_KEY);
+        let mut queue = VecDeque::new();
+        for i in 0..q as u64 {
+            let header_number = (i + 1) * attestation_interval;
+            let mut queued = attestation_prev.clone();
+            queued.attestation.header_number = header_number;
+            queued.attestation.root = H256::from_low_u64_be(i + 1);
+            queued.continuity_proof = construct_fragment(
+                Some(attestation_prev.digest()),
+                RangeInclusive::new(i * attestation_interval + 1, header_number - 1),
+            );
+            let digest = queued.digest();
+            Attestations::<T>::insert(DEV_CHAIN_KEY, digest, queued);
+            queue.push_back(digest);
+        }
+        CheckpointingQueues::<T>::insert(DEV_CHAIN_KEY, queue);
+
+        // Round s down to nearest 10 to reduce benchmark iterations (200, 210, ... 500).
         // Continuity proof has att_header - 1 blocks.
-        let s_rounded = (s / 10 * 10).max(10) as u64;
+        let s_rounded = (s / 10 * 10).max(CATCH_UP_SPAN) as u64;
         let start_header = 1;
         let att_header = s_rounded + 1;
 
@@ -434,7 +466,10 @@ mod benchmarks {
         _(
             attestor_origin as <T as frame_system::Config>::RuntimeOrigin,
             attestation,
-        )
+        );
+
+        // Catch-up consumed the whole queue; the legacy path would have left this commit in it.
+        assert!(CheckpointingQueues::<T>::get(DEV_CHAIN_KEY).is_empty());
     }
 
     #[benchmark]

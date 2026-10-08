@@ -1012,6 +1012,7 @@ parameter_types! {
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxAttestationsPerBlock: u32 = 10;
+    pub const MaxCheckpointingQueueLen: u32 = 2048;
     // Attestation retention duration should result in attestations being retained
     // for a period >= proof submission latency.
     // Proof submission latency means the time it takes for the Oracle user to request
@@ -1054,6 +1055,7 @@ impl pallet_attestation::Config for Runtime {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
+    type MaxCheckpointingQueueLen = MaxCheckpointingQueueLen;
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;
