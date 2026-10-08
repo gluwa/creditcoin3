@@ -177,6 +177,17 @@ impl Attestor {
                 result.map_err(Error::Init)?
             }
         };
+        let eth = match self.config.stream.eth_rps {
+            Some(rps) => eth.with_rate_limit(rps),
+            None => eth,
+        };
+        tracing::info!(
+            eth_rps = self.config.stream.eth_rps.map(|rps| rps.get()),
+            eth_max_concurrency = self.config.stream.eth_max_concurrency.get(),
+            eth_head_poll_secs = self.config.stream.eth_head_poll_interval.as_secs(),
+            subscriptions = eth.supports_subscriptions(),
+            "🚦 source-chain RPC pacing"
+        );
 
         // ----------------------------------* chain config *----------------------------------- //
 
@@ -380,6 +391,8 @@ impl Attestor {
 
             cc3: cc3.clone(),
             eth,
+            eth_max_concurrency: self.config.stream.eth_max_concurrency,
+            eth_head_poll_interval: self.config.stream.eth_head_poll_interval,
 
             bls_store,
             metrics,

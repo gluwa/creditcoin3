@@ -7,6 +7,56 @@ pub struct Config {
     /// See [`crate::roots::Config::head_silence_timeout`]; same watchdog, same default.
     #[default(std::time::Duration::from_secs(120))]
     pub head_silence_timeout: std::time::Duration,
+    /// How often to poll `eth_blockNumber` when the client has no subscription transport
+    /// (HTTP), and how often a block-tag maturity is resolved regardless of transport. See
+    /// [`crate::roots::Config::head_poll_interval`]; same default.
+    #[default(crate::roots::DEFAULT_HEAD_POLL_INTERVAL)]
+    pub head_poll_interval: std::time::Duration,
+}
+
+/// The stream of head numbers this tip follows: `newHeads` over a WebSocket client, a periodic
+/// `eth_blockNumber` poll over HTTP (`Client::supports_subscriptions`). Both are wrapped in the
+/// silence watchdog so a dead endpoint ends the stream and the caller reconnects.
+async fn head_numbers(
+    client: &eth::Client,
+    start_height: attestor_primitives::Height,
+    silence: std::time::Duration,
+    poll_interval: std::time::Duration,
+    pace_lookups: bool,
+) -> Result<stream_util::BoxedStream<u64>, eth::Error> {
+    use futures::StreamExt as _;
+    let heads: stream_util::BoxedStream<u64> = if client.supports_subscriptions() {
+        client
+            .subscribe()
+            .await?
+            .skip_while(move |header| futures::future::ready(header.number < start_height))
+            .map(|header| header.number)
+            .boxed()
+    } else {
+        // Seed with the current head so the first mature tip is resolved immediately rather
+        // than one poll interval from now.
+        let head = client.get_last_block().await?;
+        futures::stream::once(futures::future::ready(head))
+            .chain(crate::roots::polled_heads(
+                client.clone(),
+                poll_interval,
+                crate::roots::DEFAULT_RPC_CALL_TIMEOUT,
+            ))
+            .skip_while(move |head| futures::future::ready(*head < start_height))
+            .boxed()
+    };
+    let watched = crate::roots::end_on_silence(heads, client.clone(), silence, None).boxed();
+    // Block-tag lookups are paced to the head-poll interval (see `roots::throttle_heads`): a
+    // tag cannot move faster than the chain finalizes, and on a sub-second chain one lookup per
+    // head is wasted budget. The newest head of a burst is held and released when the interval
+    // elapses, so a chain that goes quiet still gets its last head resolved. The watchdog above
+    // sees the raw heads, so pacing never looks like silence. A fixed lag is arithmetic and
+    // is not paced.
+    Ok(if pace_lookups {
+        crate::roots::throttle_heads(watched, poll_interval).boxed()
+    } else {
+        watched
+    })
 }
 
 /// Follows the latest Eth chain tip, backed by [`eth::Client`] under the hood.
@@ -34,22 +84,19 @@ impl StreamTip {
             .map(tokio_retry::strategy::jitter);
         let start_height = config.start_height;
         let silence = config.head_silence_timeout;
+        let poll_interval = config.head_poll_interval;
+        let pace_lookups = config.maturity.needs_rpc();
         let mut stream_headers = loop {
-            match config.client.subscribe().await {
-                Ok(stream) => {
-                    break crate::roots::end_on_silence(
-                        stream
-                            .skip_while(move |header| {
-                                futures::future::ready(header.number < start_height)
-                            })
-                            .map(|header| header.number)
-                            .boxed(),
-                        config.client.clone(),
-                        silence,
-                        None,
-                    )
-                    .boxed()
-                }
+            match head_numbers(
+                &config.client,
+                start_height,
+                silence,
+                poll_interval,
+                pace_lookups,
+            )
+            .await
+            {
+                Ok(stream) => break stream,
                 Err(err) => {
                     tracing::warn!(?err, "Eth subscribe failed — repairing client and retrying");
                     if let Err(err) = config.client.reconnect().await {
@@ -109,22 +156,14 @@ impl StreamTip {
                             let start_height = config.start_height;
                             async move {
                                 client.reconnect().await?;
-
-                                let stream = crate::roots::end_on_silence(
-                                    client
-                                        .subscribe()
-                                        .await?
-                                        .skip_while(move |header| {
-                                            futures::future::ready(header.number < start_height)
-                                        })
-                                        .map(|header| header.number)
-                                        .boxed(),
-                                    client.clone(),
+                                let stream = head_numbers(
+                                    &client,
+                                    start_height,
                                     silence,
-                                    None,
+                                    poll_interval,
+                                    pace_lookups,
                                 )
-                                .boxed();
-
+                                .await?;
                                 Ok::<_, eth::Error>((client, stream))
                             }
                         };
