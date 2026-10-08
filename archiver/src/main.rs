@@ -129,14 +129,16 @@ async fn main() -> Result<()> {
         rpc_timeout,
         cfg.eth_rps,
     )
-    .await?;
+    .await?
+    .with_chain_family_override(cfg.eth_chain_family);
     let http_client = dial(
         cfg.rpc_http.as_str(),
         &cfg.rpc_fallback_urls,
         rpc_timeout,
         cfg.eth_rps,
     )
-    .await?;
+    .await?
+    .with_chain_family_override(cfg.eth_chain_family);
     if ws_client.chain_id() != http_client.chain_id() {
         return Err(anyhow!(
             "chain_id's from ws vs http don't match! ws_chain_id: {}, http_chain_id: {}",
@@ -404,6 +406,7 @@ async fn main() -> Result<()> {
                     }
                     c = dial(cfg.stream_rpc_url().as_str(), &cfg.rpc_fallback_urls, rpc_timeout, cfg.eth_rps) => c?,
                 };
+                let ws_client = ws_client.with_chain_family_override(cfg.eth_chain_family);
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
                 // fires for heights that already exist, so gaps have no second line of
@@ -640,6 +643,7 @@ async fn main() -> Result<()> {
                             );
                         }
                         Ok(new_ws) => {
+                            let new_ws = new_ws.with_chain_family_override(cfg.eth_chain_family);
                             // The chain may have reorged past our tail while we were away.
                             // Same rule as startup: verify the anchor, fail closed unless
                             // bounded re-anchoring is allowed. An RPC error here is just a

@@ -12,7 +12,7 @@
 //! recent blocks hot.
 //!
 //! NOTE: keyed by block number only. This is correct as long as a given client fetches a single
-//! [`EncodingVersion`](usc_abi_encoding::common::EncodingVersion) (the prover is V1-only). Mixing
+//! [`EncodingVersion`](attestcoin_abi_encoding::common::EncodingVersion) (the prover is V1-only). Mixing
 //! encodings on one client would require an encoding-aware key.
 
 use std::collections::BTreeMap;
@@ -35,6 +35,14 @@ impl MemBlockCache {
         Self {
             capacity: capacity.get(),
             inner: Mutex::new(BTreeMap::new()),
+        }
+    }
+
+    /// Detach cached blocks when the client changes source chain or family.
+    pub(crate) fn empty_with_same_capacity(&self) -> Self {
+        Self {
+            capacity: self.capacity,
+            inner: Mutex::default(),
         }
     }
 

@@ -24,6 +24,10 @@ pub struct Config {
     #[arg(long, env = "RPC_WS")]
     pub rpc_ws: Option<Url>,
 
+    /// Source execution family. Optional; defaults to `ethereum` for every chain ID.
+    #[arg(long, env = "ETH_CHAIN_FAMILY")]
+    pub eth_chain_family: Option<eth::ChainFamily>,
+
     /// Additional RPC endpoints (comma-separated) tried in order when the primary returns
     /// "not found" or a transport error for a block fetch. Every fallback must serve the same
     /// chain id as the primary. If any fallback is unreachable (or on another chain) at dial
@@ -203,5 +207,25 @@ mod tests {
     fn the_root_stream_prefers_the_websocket_when_given() {
         let cfg = parse(&["--rpc-ws", "ws://localhost:8546"]);
         assert_eq!(cfg.stream_rpc_url().as_str(), "ws://localhost:8546/");
+    }
+
+    #[test]
+    fn parses_explicit_source_family_and_rejects_unknown_family() {
+        let args = [
+            "archiver",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--rpc-ws",
+            "ws://localhost:8545",
+            "--eth-chain-family",
+            "op-stack",
+        ];
+        let omitted = Config::try_parse_from(&args[..5]).unwrap();
+        assert_eq!(omitted.eth_chain_family, None);
+        let config = Config::try_parse_from(args).unwrap();
+        assert_eq!(config.eth_chain_family, Some(eth::ChainFamily::OpStack));
+        let mut invalid = args;
+        invalid[6] = "unsupported";
+        assert!(Config::try_parse_from(invalid).is_err());
     }
 }

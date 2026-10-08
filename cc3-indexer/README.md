@@ -80,7 +80,51 @@ The indexer tracks query verification events from the Native Query Verifier prec
 
 These events are handled in `src/mappings/evmHandlers.ts` and stored in the `TransactionVerified` entity.
 
+### Write-ability Outbox authorization
+
+OutboxFactory deployment is permissionless. Factory events identify candidates; only the
+Discovery registry configured in `supportedChains.OutboxDiscoveries` authorizes an Outbox.
+The indexer reads that governance entry and calls `isActiveOutbox` at each publication's
+historical block using SubQuery's height-scoped API. An archive endpoint must support historical
+`eth_call`; errors stop the block for retry instead of admitting or silently losing messages.
+Scheduled removal, cancellation and registry rotation follow the contract's getter semantics.
+Authorization uses the state at the end of the publication's block, matching the attestor.
+An unknown emitter is checked against configured registries directly, so same-block handler
+ordering and counterfeit candidate announcements cannot hide an authorized publication.
+
+Authenticated `OutboxRegistered` events admit members directly, and governance registry
+registration (plus genesis initialization) snapshots existing members. Neither path depends
+on permissionless factory candidates fitting in the bounded pending list. Publications made
+before authorization are not backfilled later. Historical Outbox rows and their legitimate
+messages remain available after removal; acknowledgements still require the original emitter.
+
+When upgrading from factory-only admission, **reindex from before the first write-ability
+deployment** to remove previously admitted unauthorized Outboxes/messages. The new per-message
+check prevents further unauthorized publications but does not rewrite existing history.
+
+#### Rollout and historical data loss
+
+On **usc-devnet**, the required reindex excludes every write-ability publication from before
+the **10 September 2026 Discovery upgrade**: those Outboxes were not authorized in Discovery
+at the publication height. Those messages disappear from the rebuilt dashboard. This loss of
+indexed history is an accepted devnet tradeoff; their on-chain events remain, but neither a
+later Discovery registration nor factory/quarantine backfill can restore them under this
+admission policy. There is no quarantine or later admission of pre-authorization messages.
+
+Before deploying this policy to another network, make an explicit migration or historical
+cutoff decision and assess the affected dashboard history. Do not assume the devnet acceptance
+of that loss applies to other deployments.
+
+Every endpoint used for indexing and recovery must provide archive state for the entire scan
+range, including historical `eth_call` and the governance storage reads at each indexed
+height. Verify that history is available before starting the mandatory reindex. An endpoint
+that retains recent state only will repeatedly fail on older blocks and prevent indexing
+from advancing; changing providers or retrying cannot restore state that they have pruned.
+
 ## Testing
+
+Run `yarn test:outbox-authorization` for the focused admission, historical authorization and
+RPC-failure regression tests, using the actual handlers with an isolated store and RPC fixture.
 
 The primary CI job for cc3-indexer is `cc3-indexer-testing:` inside `.github/workflows/ci.yml`.
 It simulates ingestion of source chain(s) and performs various on-chain actions then

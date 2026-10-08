@@ -29,7 +29,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -147,7 +147,7 @@ jobs:
             --base-path ./alice-data >/var/tmp/exercise-scripts/creditcoin3-node-alice.log 2>&1 &
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -379,8 +379,11 @@ jobs:
       - build-everything
     runs-on: ubuntu-26.04
     steps:
+      # The local install-foundry action needs the repo checked out first.
+      - uses: actions/checkout@v7
+
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@v1
+        uses: ./.github/actions/install-foundry
         with:
           # Pinned: v1.6.x changed the anvil --dump-state JSON format,
           # which breaks --load-state on the existing anvil10k_blocks.json
@@ -392,8 +395,6 @@ jobs:
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 &
-
-      - uses: actions/checkout@v7
 
       - name: Install Node.js
         uses: actions/setup-node@v7

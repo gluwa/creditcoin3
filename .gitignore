@@ -57,6 +57,10 @@ attestor/scripts/checkpoints.json
 **/ignition/deployments/
 docs/smart-contract-development/with-hardhat/artifacts/*
 
+# USC Messaging PoC
+usc-messaging/deployments.json
+usc-messaging/messages.json
+
 # Bridge usage example
 bridge-usage-example/out/*
 bridge-usage-example/lib/*
@@ -76,3 +80,6 @@ prover/artifacts/*
 # committed; everything else in .claude (settings.local.json, per-user state) stays local.
 .claude/*
 !.claude/skills/
+
+# Local write-ability scan cursor (attestor state_dir; see attestor/config.yaml)
+.attestor-state/

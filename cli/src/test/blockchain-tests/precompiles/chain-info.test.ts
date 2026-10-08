@@ -10,6 +10,7 @@ import {
     encoding_version_1,
 } from '../pallets/supported-chains/consts';
 import { chainInfoAddress } from './consts';
+import { forElapsedBlocks } from '../../utils';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import contractABIJSON = require('../artifacts/chain_info.json');
@@ -109,6 +110,95 @@ describe('Precompile: ChainInfo', (): void => {
         // We expect the chain to not exist
         expect(unknownChain.exists).toEqual(false);
     });
+
+    test('get_outbox_factory_address should return correct factory address', async () => {
+        const outboxFactoryAddr = '0x1111111111111111111111111111111111111111';
+
+        // Setup: store factory address through the pallet call first.
+        const nonce = await api.rpc.system.accountNextIndex((global as any).CREDITCOIN_CREATE_SIGNER('sudo').address);
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setOutboxFactoryAddr(supportedChainKey, outboxFactoryAddr))
+            .signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        // Check with supported chain key
+        const result = await contract.get_outbox_factory_address(supportedChainKey, { gasPrice, gasLimit });
+
+        expect(result).toBeDefined();
+        expect(Array.isArray(result)).toBe(true);
+        expect(result.length).toBe(2);
+
+        expect(typeof result[0]).toBe('string'); // factoryAddr
+        expect(ethers.getAddress(result[0])).toEqual(ethers.getAddress(outboxFactoryAddr));
+
+        expect(typeof result[1]).toBe('boolean'); // exists
+        expect(result[1]).toEqual(true);
+
+        // Check with unsupported / unset chain key
+        const unknownResult = await contract.get_outbox_factory_address(unknownChainKey, { gasPrice, gasLimit });
+
+        expect(unknownResult).toBeDefined();
+        expect(Array.isArray(unknownResult)).toBe(true);
+        expect(unknownResult.length).toBe(2);
+
+        expect(ethers.getAddress(unknownResult[0])).toEqual(ethers.ZeroAddress);
+        expect(unknownResult[1]).toEqual(false);
+    }, 30_000);
+
+    test('get_core_fee should return the fee configured through the pallet', async () => {
+        const root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        // Always attestcoin wei: the Outbox pulls the core fee with transferFrom on its configured
+        // ATTEST token and has no native-currency path, so the ABI carries no token field.
+        const amount = '1000000000000000000';
+        const raisedAmount = '2500000000000000000';
+
+        let nonce = await api.rpc.system.accountNextIndex(root.address);
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setCoreFee(supportedChainKey, amount))
+            .signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        // The precompile returns a bare uint256, matching ICoreFeeProvider in usc-contracts.
+        const fee = await contract.get_core_fee(supportedChainKey, { gasPrice, gasLimit });
+
+        expect(typeof fee).toBe('bigint');
+        expect(fee).toEqual(BigInt(amount));
+
+        // A governance fee change is visible on the next read, with no contract redeploy - the
+        // reason the Outbox reads this live instead of holding its own copy.
+        nonce = await api.rpc.system.accountNextIndex(root.address);
+
+        await api.tx.sudo
+            .sudo(api.tx.supportedChains.setCoreFee(supportedChainKey, raisedAmount))
+            .signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        expect(await contract.get_core_fee(supportedChainKey, { gasPrice, gasLimit })).toEqual(BigInt(raisedAmount));
+
+        // Leave the chain fee-free for the rest of the suite: a zero amount disables the fee.
+        nonce = await api.rpc.system.accountNextIndex(root.address);
+
+        await api.tx.sudo.sudo(api.tx.supportedChains.setCoreFee(supportedChainKey, 0)).signAndSend(root, { nonce });
+
+        await forElapsedBlocks(api);
+
+        expect(await contract.get_core_fee(supportedChainKey, { gasPrice, gasLimit })).toEqual(0n);
+    }, 120_000);
+
+    test('get_core_fee should return zero for an unconfigured chain key', async () => {
+        // An unconfigured chain is deliberately indistinguishable from an explicit zero fee: both
+        // mean "charge nothing", so there is no `exists` flag and no revert to distinguish them.
+        const unsupportedChainKey = 42_732;
+
+        expect(await contract.get_core_fee(unsupportedChainKey, { gasPrice, gasLimit })).toEqual(0n);
+    }, 30_000);
 
     test('get_latest_attestation_height_and_hash should return data', async () => {
         const latestAttestationResult = await contract.get_latest_attestation_height_and_hash(supportedChainKey, {
