@@ -13,15 +13,16 @@ use url::Url;
     about = "Source chain archiver — fetches blocks, computes merkle roots, serves data over HTTP"
 )]
 pub struct Config {
-    /// HTTP RPC endpoint, used for chain-head tracking and the canonical-anchor check (blocks
-    /// themselves are fetched over the WebSocket client that also carries the subscription).
+    /// HTTP RPC endpoint, used for chain-head tracking and the canonical-anchor check. Without
+    /// `--rpc-ws` it also carries the root stream, which then follows the head by polling
+    /// `eth_blockNumber` (the mode to use behind an HTTP-only proxy such as eRPC).
     #[arg(long, env = "RPC_HTTP", alias = "rpc-url", required = true)]
     pub rpc_http: Url,
 
-    /// WebSocket RPC endpoint for the new-head subscription and block fetching.
-    /// Required for the root stream to follow the chain tip.
-    #[arg(long, env = "RPC_WS", required = true)]
-    pub rpc_ws: Url,
+    /// WebSocket RPC endpoint for the `newHeads` subscription and block fetching. Optional: when
+    /// unset the root stream runs over `--rpc-http` in polling mode.
+    #[arg(long, env = "RPC_WS")]
+    pub rpc_ws: Option<Url>,
 
     /// Additional RPC endpoints (comma-separated) tried in order when the primary returns
     /// "not found" or a transport error for a block fetch. Every fallback must serve the same
@@ -151,18 +152,20 @@ pub struct Config {
     pub reanchor_max_depth: u64,
 }
 
+impl Config {
+    /// The RPC URL the root stream (subscription or poll, plus block fetches) is dialled on:
+    /// `--rpc-ws` when given, else `--rpc-http` in head-polling mode.
+    pub fn stream_rpc_url(&self) -> &Url {
+        self.rpc_ws.as_ref().unwrap_or(&self.rpc_http)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn parse(extra: &[&str]) -> Config {
-        let mut args = vec![
-            "archiver",
-            "--rpc-http",
-            "http://localhost:8545",
-            "--rpc-ws",
-            "ws://localhost:8546",
-        ];
+        let mut args = vec!["archiver", "--rpc-http", "http://localhost:8545"];
         args.extend_from_slice(extra);
         Config::try_parse_from(args).expect("config parses")
     }
@@ -183,11 +186,22 @@ mod tests {
             "archiver",
             "--rpc-http",
             "http://localhost:8545",
-            "--rpc-ws",
-            "ws://localhost:8546",
             "--eth-rps",
             "0",
         ];
         assert!(Config::try_parse_from(args).is_err());
+    }
+
+    #[test]
+    fn the_root_stream_runs_over_http_when_no_websocket_is_given() {
+        let cfg = parse(&[]);
+        assert!(cfg.rpc_ws.is_none());
+        assert_eq!(cfg.stream_rpc_url().as_str(), "http://localhost:8545/");
+    }
+
+    #[test]
+    fn the_root_stream_prefers_the_websocket_when_given() {
+        let cfg = parse(&["--rpc-ws", "ws://localhost:8546"]);
+        assert_eq!(cfg.stream_rpc_url().as_str(), "ws://localhost:8546/");
     }
 }

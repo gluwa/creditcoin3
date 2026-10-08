@@ -124,7 +124,7 @@ async fn main() -> Result<()> {
     // given archive name silently corrupts every proof later built from it.
     let rpc_timeout = Duration::from_secs(cfg.rpc_timeout_secs.get());
     let ws_client = dial(
-        cfg.rpc_ws.as_str(),
+        cfg.stream_rpc_url().as_str(),
         &cfg.rpc_fallback_urls,
         rpc_timeout,
         cfg.eth_rps,
@@ -402,7 +402,7 @@ async fn main() -> Result<()> {
                         tracing::info!("backfill interrupted by shutdown before dialing");
                         return Ok(());
                     }
-                    c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout, cfg.eth_rps) => c?,
+                    c = dial(cfg.stream_rpc_url().as_str(), &cfg.rpc_fallback_urls, rpc_timeout, cfg.eth_rps) => c?,
                 };
                 // Same identity rule as startup and reconnect: a fresh dial that lands on
                 // another chain must not fill gaps with foreign roots (the reorg guard only
@@ -499,7 +499,7 @@ async fn main() -> Result<()> {
     // HTTP for chain head tracking.
     tracing::info!(
         chain_id = source_chain_id,
-        ws = %eth::redact_url_query(cfg.rpc_ws.as_str()),
+        ws = %eth::redact_url_query(cfg.stream_rpc_url().as_str()),
         http = %eth::redact_url_query(cfg.rpc_http.as_str()),
         "connected to chain"
     );
@@ -626,7 +626,7 @@ async fn main() -> Result<()> {
 
                     let connect = tokio::select! {
                         _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
-                        c = dial(cfg.rpc_ws.as_str(), &cfg.rpc_fallback_urls, rpc_timeout, cfg.eth_rps) => c,
+                        c = dial(cfg.stream_rpc_url().as_str(), &cfg.rpc_fallback_urls, rpc_timeout, cfg.eth_rps) => c,
                     };
                     match connect {
                         // The endpoint must still be the chain this archive is pinned to. A

@@ -19,6 +19,7 @@ struct Config {
     eth_url: attestor::secret::RpcSecret,
     eth_rps: Option<std::num::NonZeroU32>,
     eth_max_concurrency: Option<std::num::NonZeroUsize>,
+    eth_head_poll_secs: Option<std::num::NonZeroU64>,
     cc3_url: attestor::secret::RpcSecret,
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
@@ -74,6 +75,7 @@ struct ConfigFileEth {
     url: Option<url::Url>,
     rps: Option<std::num::NonZeroU32>,
     max_concurrency: Option<std::num::NonZeroUsize>,
+    head_poll_secs: Option<std::num::NonZeroU64>,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -213,7 +215,9 @@ impl Config {
                     .help("Eth RPC url")
                     .long_help(
                         "Eth RPC url. \
-                        Used to pull source chain data and generate continuity proofs",
+                        Used to pull source chain data and generate continuity proofs. \
+                        ws(s):// subscribes to newHeads; http(s):// (a node or an HTTP-only \
+                        proxy such as eRPC) follows the head by polling eth_blockNumber",
                     )
                     .env("ATTESTOR_ETH_URL")
                     .required(config_file.eth.url.is_none())
@@ -242,6 +246,22 @@ impl Config {
                     .env("ATTESTOR_ETH_MAX_CONCURRENCY")
                     .required(false)
                     .value_parser(clap::value_parser!(std::num::NonZeroUsize)),
+            )
+            .arg(
+                clap::arg!(--"eth-head-poll-secs" <SECS>)
+                    .help("Seconds between eth_blockNumber head polls")
+                    .long_help(
+                        "Seconds between eth_blockNumber polls of the source-chain head, and the \
+                        minimum spacing of safe/finalized tag lookups under a block-tag maturity. \
+                        Next to a WebSocket subscription the poll is only a liveness floor; over \
+                        an HTTP eth-url (a node or an HTTP-only proxy such as eRPC) it is the only \
+                        head source, so it bounds how late a new block is noticed. Lower it toward \
+                        the block time on fast chains if attestation latency matters more than \
+                        RPC volume. Defaults to 12",
+                    )
+                    .env("ATTESTOR_ETH_HEAD_POLL_SECS")
+                    .required(false)
+                    .value_parser(clap::value_parser!(std::num::NonZeroU64)),
             )
             .arg(
                 clap::arg!(--"cc3-url" <URL>)
@@ -400,6 +420,10 @@ impl Config {
             .get_one::<std::num::NonZeroUsize>("eth-max-concurrency")
             .copied()
             .or(config_file.eth.max_concurrency);
+        let eth_head_poll_secs = matches
+            .get_one::<std::num::NonZeroU64>("eth-head-poll-secs")
+            .copied()
+            .or(config_file.eth.head_poll_secs);
 
         let cc3_url = match matches.get_one::<url::Url>("cc3-url") {
             Some(url) => url.clone(),
@@ -438,6 +462,7 @@ impl Config {
             eth_url,
             eth_rps,
             eth_max_concurrency,
+            eth_head_poll_secs,
             cc3_url,
             start_height,
             attestation_interval,
@@ -581,6 +606,11 @@ async fn main() -> anyhow::Result<()> {
                 .with_eth_max_concurrency(
                     args.eth_max_concurrency
                         .unwrap_or(common::constants::MAX_CONCURRENT_RPC_CALLS),
+                )
+                .with_eth_head_poll_interval(
+                    args.eth_head_poll_secs
+                        .map(|s| std::time::Duration::from_secs(s.get()))
+                        .unwrap_or(stream::eth::roots::DEFAULT_HEAD_POLL_INTERVAL),
                 )
                 .build(),
         )

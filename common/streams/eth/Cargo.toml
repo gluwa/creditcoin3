@@ -40,5 +40,8 @@ user = { workspace = true }
 clap = { workspace = true, features = ["cargo"] }
 url = { workspace = true, features = ["serde"] }
 
+# Paused-clock tests for the head throttle
+tokio = { workspace = true, features = ["full", "test-util"] }
+
 # Logging
 tracing-subscriber = { workspace = true, features = ["json"] }
