@@ -710,6 +710,7 @@ pub mod labels {
         BatchSpanTooLarge,
         ArchiverRangeRejected,
         ArchiverDataUnavailable,
+        ArchiverCatchingUp,
         Internal,
     }
 
