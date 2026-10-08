@@ -20,8 +20,11 @@ use cc_client::{AccountId32, Client};
 use crate::error::Error;
 use crate::secret::RpcSecret;
 
-/// Loop until both RPCs accept a WebSocket connection. Returns once both are reachable, or
+/// Loop until both RPCs are reachable. Returns once both answer, or
 /// [`Error::ShutdownDuringStartup`] if cancellation fires while we wait.
+///
+/// The CC3 RPC is always a WebSocket. The Eth RPC may be an HTTP-only proxy (eRPC), which the
+/// streams then follow by polling (see `stream::eth::roots`), so its probe is scheme-aware.
 pub async fn wait_for_endpoints(
     token: &CancellationToken,
     url_eth: &RpcSecret,
@@ -29,12 +32,12 @@ pub async fn wait_for_endpoints(
 ) -> Result<(), Error> {
     use common::constants::RETRY_DELAY;
 
-    async fn poke(label: &str, url: &RpcSecret) {
+    async fn poke(label: &str, url: &RpcSecret, probe: fn(&RpcSecret) -> ProbeFuture<'_>) {
         loop {
-            match tokio_tungstenite::connect_async(url.as_ref()).await {
-                Ok(_) => return,
+            match probe(url).await {
+                Ok(()) => return,
                 Err(err) => {
-                    tracing::info!(%url, %err, "🛜 waiting for {label} ws...");
+                    tracing::info!(%url, %err, "🛜 waiting for {label} rpc...");
                     tokio::time::sleep(RETRY_DELAY).await;
                 }
             }
@@ -44,9 +47,34 @@ pub async fn wait_for_endpoints(
     tokio::select! {
         _ = token.cancelled() => Err(Error::ShutdownDuringStartup),
         () = async {
-            poke("Eth", url_eth).await;
-            poke("CC3", url_cc3).await;
+            poke("Eth", url_eth, |url| Box::pin(probe_eth(url))).await;
+            poke("CC3", url_cc3, |url| Box::pin(probe_ws(url))).await;
         } => Ok(()),
+    }
+}
+
+type ProbeFuture<'a> =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>;
+
+/// One WebSocket handshake.
+async fn probe_ws(url: &RpcSecret) -> Result<(), String> {
+    tokio_tungstenite::connect_async(url.as_ref())
+        .await
+        .map(|_| ())
+        .map_err(|err| err.to_string())
+}
+
+/// Reachability of the Eth RPC: a ws(s) URL must complete a WebSocket handshake; an http(s) URL
+/// must answer `eth_chainId`, which is what building an [`eth::Client`] does. Until 3.141 this
+/// was the handshake alone, and an http URL looped here forever ("URL scheme not supported").
+async fn probe_eth(url: &RpcSecret) -> Result<(), String> {
+    if eth::scheme_supports_subscriptions(url.scheme()) {
+        probe_ws(url).await
+    } else {
+        eth::Client::new(url.as_ref().as_str(), None)
+            .await
+            .map(|_| ())
+            .map_err(|err| err.to_string())
     }
 }
 
@@ -280,4 +308,54 @@ pub async fn reconcile_metadata(cc3: &Arc<Client>) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal JSON-RPC server that answers every POST with chain id 1.
+    async fn http_rpc() -> String {
+        use axum::{routing::post, Router};
+        let app = Router::new().route(
+            "/",
+            post(|| async {
+                (
+                    [("content-type", "application/json")],
+                    r#"{"jsonrpc":"2.0","id":1,"result":"0x1"}"#,
+                )
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        format!("http://{addr}/")
+    }
+
+    fn secret(url: &str) -> RpcSecret {
+        RpcSecret::new_exposed(url::Url::parse(url).unwrap())
+    }
+
+    #[tokio::test]
+    async fn an_http_eth_endpoint_that_answers_eth_chain_id_is_reachable() {
+        let url = http_rpc().await;
+        assert_eq!(probe_eth(&secret(&url)).await, Ok(()));
+    }
+
+    #[tokio::test]
+    async fn a_closed_http_port_is_not_reachable() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        drop(listener);
+        assert!(probe_eth(&secret(&format!("http://{addr}/")))
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn a_ws_url_on_an_http_only_server_is_not_reachable() {
+        // The handshake path is still used for ws(s) schemes: a plain JSON-RPC server rejects it.
+        let url = http_rpc().await.replace("http://", "ws://");
+        assert!(probe_eth(&secret(&url)).await.is_err());
+    }
 }
