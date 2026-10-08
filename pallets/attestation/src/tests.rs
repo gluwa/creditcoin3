@@ -10953,3 +10953,96 @@ mod audit_attestation_bounds {
         })
     }
 }
+
+fn build_chain_genesis(configuration: attestor_primitives::AttestationChainConfiguration) {
+    use sp_runtime::BuildStorage;
+    let mut storage = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+    crate::pallet::GenesisConfig::<Test> {
+        invulnerables: vec![],
+        attestation_chain_configurations: vec![configuration],
+    }
+    .assimilate_storage(&mut storage)
+    .unwrap();
+}
+
+fn chain_genesis_configuration() -> attestor_primitives::AttestationChainConfiguration {
+    attestor_primitives::AttestationChainConfiguration {
+        chain_key: SUPPORTED_CHAIN_KEY,
+        attestation_interval: 10,
+        attestations_per_checkpoint: 10,
+        target_sample_size: 3,
+        checkpoints: vec![],
+    }
+}
+
+#[test]
+fn genesis_accepts_valid_chain_configuration() {
+    build_chain_genesis(chain_genesis_configuration());
+}
+
+#[test]
+#[should_panic(expected = "attestations_per_checkpoint must be non-zero")]
+fn genesis_rejects_zero_attestations_per_checkpoint() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestations_per_checkpoint: 0,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "attestations_per_checkpoint must be non-zero")]
+fn genesis_rejects_attestations_per_checkpoint_above_ceiling() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestations_per_checkpoint: <Test as Config>::MaxAttestationCheckpointInterval::get() + 1,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "attestation_interval must be non-zero")]
+fn genesis_rejects_zero_attestation_interval() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestation_interval: 0,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "attestation_interval must be non-zero")]
+fn genesis_rejects_attestation_interval_above_ceiling() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestation_interval: <Test as Config>::MaxChainAttestationInterval::get() + 1,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "target_sample_size must be non-zero")]
+fn genesis_rejects_zero_target_sample_size() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        target_sample_size: 0,
+        ..chain_genesis_configuration()
+    });
+}
+
+/// The commit weight must stay computable even if a chain's stored intervals are zero.
+#[test]
+fn commit_attestation_weight_with_zero_checkpoint_width() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 0);
+        let _ = Call::<Test>::commit_attestation {
+            attestation: attestation.clone(),
+        }
+        .get_dispatch_info();
+
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 10);
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 0);
+        let _ = Call::<Test>::commit_attestation { attestation }.get_dispatch_info();
+    })
+}
