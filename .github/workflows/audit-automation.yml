@@ -18,6 +18,8 @@ jobs:
         include:
           - config: devnet
             slack_channel_id: C0AR9BM30UU
+          - config: asc-devnet
+            slack_channel_id: C0AR9BM30UU
           - config: testnet
             slack_channel_id: C09BX3KSL3C
           - config: mainnet

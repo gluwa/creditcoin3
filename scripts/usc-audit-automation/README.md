@@ -103,6 +103,7 @@ it is not configured.
 ## Pre-configured Files
 
 - `config-devnet.json` - Creditcoin3 Devnet
+- `config-asc-devnet.json` - Creditcoin3 ASC Devnet
 - `config-testnet.json` - Creditcoin USC Testnet
 - `config-mainnet.json` - Creditcoin3 Mainnet
 
