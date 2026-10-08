@@ -8,7 +8,8 @@ pub struct Config {
     #[default(std::time::Duration::from_secs(120))]
     pub head_silence_timeout: std::time::Duration,
     /// How often to poll `eth_blockNumber` when the client has no subscription transport
-    /// (HTTP). See [`crate::roots::Config::head_poll_interval`]; same default.
+    /// (HTTP), and how often a block-tag maturity is resolved regardless of transport. See
+    /// [`crate::roots::Config::head_poll_interval`]; same default.
     #[default(crate::roots::DEFAULT_HEAD_POLL_INTERVAL)]
     pub head_poll_interval: std::time::Duration,
 }
@@ -94,10 +95,22 @@ impl StreamTip {
 
         let stream = async_stream::stream! {
             let mut tip = None;
+            // Block-tag lookups are paced to the head-poll interval (see
+            // `roots::throttle_heads`): a tag cannot move faster than the chain finalizes, and
+            // on a sub-second chain one lookup per head is wasted budget. A fixed lag stays
+            // per head.
+            let mut last_lookup: Option<std::time::Instant> = None;
 
             loop {
                 match stream_headers.next().await {
                     Some(head) => {
+                        if config.maturity.needs_rpc() {
+                            let now = std::time::Instant::now();
+                            if last_lookup.is_some_and(|last| now.saturating_duration_since(last) < poll_interval) {
+                                continue;
+                            }
+                            last_lookup = Some(now);
+                        }
                         // Resolve the mature height for this head. A fixed lag is arithmetic; a
                         // block tag is one RPC round-trip on the same client. A failed lookup is
                         // logged and skipped — the next head retries, and the tip only ever moves

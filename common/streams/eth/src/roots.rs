@@ -35,7 +35,9 @@ pub struct Config {
     /// How often to poll `eth_blockNumber` alongside the `newHeads` subscription. The poll is
     /// the liveness floor: a subscription that acknowledges but stops delivering headers (seen
     /// through proxies and load balancers) no longer stalls the stream, and no work waits on
-    /// a future header before it can start.
+    /// a future header before it can start. Over an HTTP client it is the only head source,
+    /// and with a block-tag maturity it is also how often the tag is resolved (see
+    /// [`throttle_heads`]).
     #[default(DEFAULT_HEAD_POLL_INTERVAL)]
     pub head_poll_interval: std::time::Duration,
 
@@ -406,6 +408,16 @@ async fn stream_rpc(
     let bounds: stream_util::BoxedStream<Option<u64>> = match config.bound.clone() {
         Boundary::Source(maturity) => {
             let client = config.client.clone();
+            // A block tag (`safe`, `finalized`) costs one RPC call per head and cannot move
+            // faster than the chain's finality cadence, so on a sub-second chain resolving it
+            // per head is wasted budget. Resolve at most once per head-poll interval; the heads
+            // in between carry no information the next lookup will not. A fixed lag is
+            // arithmetic and keeps per-head granularity.
+            let heads: stream_util::BoxedStream<u64> = if maturity.needs_rpc() {
+                throttle_heads(heads, config.head_poll_interval).boxed()
+            } else {
+                heads.boxed()
+            };
             heads
                 .then(move |head| {
                     let client = client.clone();
@@ -712,6 +724,46 @@ fn watch_values<T: Copy + Send + Sync + 'static>(
     })
 }
 
+/// Let a head through only when at least `interval` has passed since the last one let through
+/// (the first always passes; a zero interval passes everything). Heads in between are dropped,
+/// not deferred: the next head after the interval carries the newer height anyway, and the
+/// head poll guarantees one arrives within `interval` even when the subscription is quiet.
+/// Ends when `heads` ends, so a dead subscription still surfaces to the caller.
+pub(crate) fn throttle_heads<S>(
+    heads: S,
+    interval: std::time::Duration,
+) -> impl futures::Stream<Item = u64>
+where
+    S: futures::Stream<Item = u64>,
+{
+    throttle_heads_with(heads, interval, std::time::Instant::now)
+}
+
+/// [`throttle_heads`] with the clock as a parameter, so the pacing can be tested without
+/// waiting.
+fn throttle_heads_with<S, C>(
+    heads: S,
+    interval: std::time::Duration,
+    mut now: C,
+) -> impl futures::Stream<Item = u64>
+where
+    S: futures::Stream<Item = u64>,
+    C: FnMut() -> std::time::Instant,
+{
+    use futures::StreamExt as _;
+    heads
+        .scan(None::<std::time::Instant>, move |last, head| {
+            let now = now();
+            let due = interval.is_zero()
+                || last.is_none_or(|l| now.saturating_duration_since(l) >= interval);
+            if due {
+                *last = Some(now);
+            }
+            futures::future::ready(Some(if due { Some(head) } else { None }))
+        })
+        .filter_map(futures::future::ready)
+}
+
 /// Head numbers read by polling `eth_blockNumber` every `interval`. Alongside a subscription it
 /// is the liveness floor; over HTTP it is the only head source. Failed or timed-out polls yield
 /// nothing and the next tick tries again.
@@ -953,6 +1005,58 @@ mod tests {
         let polls = futures::stream::iter(vec![Some(4u64), Some(6)]);
         let got: Vec<u64> = merge_heads(silent, polls).take(2).collect().await;
         assert_eq!(got, vec![4, 6]);
+    }
+
+    /// A clock that returns `base + step * calls_so_far`.
+    fn ticking_clock(step: std::time::Duration) -> impl FnMut() -> std::time::Instant {
+        let base = std::time::Instant::now();
+        let mut calls: u32 = 0;
+        move || {
+            let now = base + step * calls;
+            calls += 1;
+            now
+        }
+    }
+
+    #[tokio::test]
+    async fn throttled_heads_let_one_through_per_interval() {
+        // Three heads one second apart under a 12 s interval: only the first is due.
+        let heads = futures::stream::iter(vec![1u64, 2, 3]);
+        let passed: Vec<u64> = throttle_heads_with(
+            heads,
+            std::time::Duration::from_secs(12),
+            ticking_clock(std::time::Duration::from_secs(1)),
+        )
+        .collect()
+        .await;
+        assert_eq!(passed, vec![1]);
+    }
+
+    #[tokio::test]
+    async fn throttled_heads_pass_again_once_the_interval_has_elapsed() {
+        // Thirteen seconds between heads: every one is due.
+        let heads = futures::stream::iter(vec![1u64, 2, 3]);
+        let passed: Vec<u64> = throttle_heads_with(
+            heads,
+            std::time::Duration::from_secs(12),
+            ticking_clock(std::time::Duration::from_secs(13)),
+        )
+        .collect()
+        .await;
+        assert_eq!(passed, vec![1, 2, 3]);
+    }
+
+    #[tokio::test]
+    async fn a_zero_interval_throttles_nothing() {
+        let heads = futures::stream::iter(vec![5u64, 6, 7]);
+        let passed: Vec<u64> = throttle_heads_with(
+            heads,
+            std::time::Duration::ZERO,
+            ticking_clock(std::time::Duration::ZERO),
+        )
+        .collect()
+        .await;
+        assert_eq!(passed, vec![5, 6, 7]);
     }
 
     #[tokio::test]

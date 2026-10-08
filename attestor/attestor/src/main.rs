@@ -251,11 +251,13 @@ impl Config {
                 clap::arg!(--"eth-head-poll-secs" <SECS>)
                     .help("Seconds between eth_blockNumber head polls")
                     .long_help(
-                        "Seconds between eth_blockNumber polls of the source-chain head. Next to a \
-                        WebSocket subscription the poll is only a liveness floor; over an HTTP \
-                        eth-url (a node or an HTTP-only proxy such as eRPC) it is the only head \
-                        source, so it bounds how late a new block is noticed. Set it near the \
-                        chain's block time on fast chains. Defaults to 12",
+                        "Seconds between eth_blockNumber polls of the source-chain head, and the \
+                        minimum spacing of safe/finalized tag lookups under a block-tag maturity. \
+                        Next to a WebSocket subscription the poll is only a liveness floor; over \
+                        an HTTP eth-url (a node or an HTTP-only proxy such as eRPC) it is the only \
+                        head source, so it bounds how late a new block is noticed. Lower it toward \
+                        the block time on fast chains if attestation latency matters more than \
+                        RPC volume. Defaults to 12",
                     )
                     .env("ATTESTOR_ETH_HEAD_POLL_SECS")
                     .required(false)
