@@ -42,7 +42,9 @@ All flags can also be set via environment variables (see below).
 | `--api-bind` | `API_BIND` | `0.0.0.0:8080` | HTTP API bind address |
 | `--flush-every` | `FLUSH_EVERY` | `10000` | Catch-up batch size: write roots (and request a flush) every N blocks |
 | `--tip-window` | `TIP_WINDOW` | `256` | Within N blocks of the head, write every root immediately; durability flushes throttled to ~1/s |
-| `--backfill` | — | `false` | Scan for gaps and fill them before resuming |
+| `--backfill` | — | `false` | Scan for gaps and fill them before resuming. With `--end-height`, fills and verifies `--start-height..=--end-height` then exits without following the tip |
+| `--verify-only` | — | `false` | With `--backfill` and `--end-height`: report gaps in the range without fetching; exits non-zero if incomplete |
+| `--serve-only` | — | `false` | Serve the existing database over the HTTP API without fetching or writing, until Ctrl+C |
 | `--head-poll-interval-secs` | `HEAD_POLL_INTERVAL_SECS` | `12` | `eth_blockNumber` poll alongside the `newHeads` subscription; bounds how long a silent subscription can stall archiving |
 | `--rpc-timeout-secs` | `RPC_TIMEOUT_SECS` | `30` | Deadline per RPC call while (re)establishing the block stream |
 | `--ready-lag-blocks` | `READY_LAG_BLOCKS` | `1000` | `/ready` is 503 when more than this many blocks behind the mature target |
@@ -134,7 +136,7 @@ Chain (WS) ──► StreamRoots ──► Merkle root computation ──► Sle
 2. Blocks are merkleized in parallel using `spawn_blocking` to avoid blocking the async runtime
 3. Roots are batched and written to sled in height order
 4. On restart, the archiver reads the latest stored height and resumes from there
-5. The `--backfill` flag scans for any gaps and fills them before continuing
+5. The `--backfill` flag scans for any gaps and fills them before continuing (or, with `--end-height`, verifies the range is complete and exits)
 
 ## Canonical anchor
 
