@@ -132,6 +132,11 @@ mod benchmarks {
     use super::*;
 
     pub const MAX_SPAN: u32 = 500; // continuity blocks: 10–500 for realistic weight scaling
+    /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
+    /// checkpoint width of 100 (`2 * width`). Catch-up is the path whose cost grows with the
+    /// queue (it decodes and removes every queued attestation), and keeping every sample on it
+    /// stops the step between the two paths from being fitted as a per-root slope.
+    const CATCH_UP_SPAN: u32 = 200;
     const MAX_ATTESTORS: u32 = 100;
     // Upper bound for the `commit_attestation` `m` parameter. The registration loop is
     // inclusive (`0..=m`), so it registers `m + 1` attestors; bounding `m` at
@@ -330,8 +335,8 @@ mod benchmarks {
 
     #[benchmark]
     fn commit_attestation(
-        s: Linear<10, MAX_SPAN>, // continuity length (#headers), 10–500 blocks
-        m: Linear<1, MAX_ATTESTORS_PARAM>, // number of attestors (registers m+1; see const)
+        s: Linear<CATCH_UP_SPAN, MAX_SPAN>, // continuity length (#headers), 200–500 blocks
+        m: Linear<1, MAX_ATTESTORS_PARAM>,  // number of attestors (registers m+1; see const)
         q: Linear<0, { T::MaxCheckpointingQueueLen::get() - 1 }>, // queued attestations
     ) {
         // Setup
@@ -432,9 +437,9 @@ mod benchmarks {
         }
         CheckpointingQueues::<T>::insert(DEV_CHAIN_KEY, queue);
 
-        // Round s down to nearest 10 to reduce benchmark iterations (10, 20, 30, ... 500).
+        // Round s down to nearest 10 to reduce benchmark iterations (200, 210, ... 500).
         // Continuity proof has att_header - 1 blocks.
-        let s_rounded = (s / 10 * 10).max(10) as u64;
+        let s_rounded = (s / 10 * 10).max(CATCH_UP_SPAN) as u64;
         let start_header = 1;
         let att_header = s_rounded + 1;
 
@@ -461,7 +466,10 @@ mod benchmarks {
         _(
             attestor_origin as <T as frame_system::Config>::RuntimeOrigin,
             attestation,
-        )
+        );
+
+        // Catch-up consumed the whole queue; the legacy path would have left this commit in it.
+        assert!(CheckpointingQueues::<T>::get(DEV_CHAIN_KEY).is_empty());
     }
 
     #[benchmark]
