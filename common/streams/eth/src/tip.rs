@@ -22,6 +22,7 @@ async fn head_numbers(
     start_height: attestor_primitives::Height,
     silence: std::time::Duration,
     poll_interval: std::time::Duration,
+    pace_lookups: bool,
 ) -> Result<stream_util::BoxedStream<u64>, eth::Error> {
     use futures::StreamExt as _;
     let heads: stream_util::BoxedStream<u64> = if client.supports_subscriptions() {
@@ -44,7 +45,18 @@ async fn head_numbers(
             .skip_while(move |head| futures::future::ready(*head < start_height))
             .boxed()
     };
-    Ok(crate::roots::end_on_silence(heads, client.clone(), silence, None).boxed())
+    let watched = crate::roots::end_on_silence(heads, client.clone(), silence, None).boxed();
+    // Block-tag lookups are paced to the head-poll interval (see `roots::throttle_heads`): a
+    // tag cannot move faster than the chain finalizes, and on a sub-second chain one lookup per
+    // head is wasted budget. The newest head of a burst is held and released when the interval
+    // elapses, so a chain that goes quiet still gets its last head resolved. The watchdog above
+    // sees the raw heads, so pacing never looks like silence. A fixed lag is arithmetic and
+    // is not paced.
+    Ok(if pace_lookups {
+        crate::roots::throttle_heads(watched, poll_interval).boxed()
+    } else {
+        watched
+    })
 }
 
 /// Follows the latest Eth chain tip, backed by [`eth::Client`] under the hood.
@@ -73,8 +85,17 @@ impl StreamTip {
         let start_height = config.start_height;
         let silence = config.head_silence_timeout;
         let poll_interval = config.head_poll_interval;
+        let pace_lookups = config.maturity.needs_rpc();
         let mut stream_headers = loop {
-            match head_numbers(&config.client, start_height, silence, poll_interval).await {
+            match head_numbers(
+                &config.client,
+                start_height,
+                silence,
+                poll_interval,
+                pace_lookups,
+            )
+            .await
+            {
                 Ok(stream) => break stream,
                 Err(err) => {
                     tracing::warn!(?err, "Eth subscribe failed — repairing client and retrying");
@@ -95,22 +116,10 @@ impl StreamTip {
 
         let stream = async_stream::stream! {
             let mut tip = None;
-            // Block-tag lookups are paced to the head-poll interval (see
-            // `roots::throttle_heads`): a tag cannot move faster than the chain finalizes, and
-            // on a sub-second chain one lookup per head is wasted budget. A fixed lag stays
-            // per head.
-            let mut last_lookup: Option<std::time::Instant> = None;
 
             loop {
                 match stream_headers.next().await {
                     Some(head) => {
-                        if config.maturity.needs_rpc() {
-                            let now = std::time::Instant::now();
-                            if last_lookup.is_some_and(|last| now.saturating_duration_since(last) < poll_interval) {
-                                continue;
-                            }
-                            last_lookup = Some(now);
-                        }
                         // Resolve the mature height for this head. A fixed lag is arithmetic; a
                         // block tag is one RPC round-trip on the same client. A failed lookup is
                         // logged and skipped — the next head retries, and the tip only ever moves
@@ -147,9 +156,14 @@ impl StreamTip {
                             let start_height = config.start_height;
                             async move {
                                 client.reconnect().await?;
-                                let stream =
-                                    head_numbers(&client, start_height, silence, poll_interval)
-                                        .await?;
+                                let stream = head_numbers(
+                                    &client,
+                                    start_height,
+                                    silence,
+                                    poll_interval,
+                                    pace_lookups,
+                                )
+                                .await?;
                                 Ok::<_, eth::Error>((client, stream))
                             }
                         };

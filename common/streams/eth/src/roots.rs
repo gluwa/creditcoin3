@@ -724,44 +724,60 @@ fn watch_values<T: Copy + Send + Sync + 'static>(
     })
 }
 
-/// Let a head through only when at least `interval` has passed since the last one let through
-/// (the first always passes; a zero interval passes everything). Heads in between are dropped,
-/// not deferred: the next head after the interval carries the newer height anyway, and the
-/// head poll guarantees one arrives within `interval` even when the subscription is quiet.
-/// Ends when `heads` ends, so a dead subscription still surfaces to the caller.
+/// Pace heads to at most one per `interval`: the first passes immediately, a head arriving
+/// inside the interval is held (the newest replaces an older held one) and released when the
+/// interval elapses, and a head arriving after the interval passes at once. Nothing is lost:
+/// a burst followed by silence still releases its last head, so a consumer that resolves a
+/// block tag per head sees the newest height within one interval. A zero interval passes
+/// everything. Ends when `heads` ends (flushing a held head first), so a dead subscription
+/// still surfaces to the caller.
 pub(crate) fn throttle_heads<S>(
     heads: S,
     interval: std::time::Duration,
 ) -> impl futures::Stream<Item = u64>
 where
-    S: futures::Stream<Item = u64>,
-{
-    throttle_heads_with(heads, interval, std::time::Instant::now)
-}
-
-/// [`throttle_heads`] with the clock as a parameter, so the pacing can be tested without
-/// waiting.
-fn throttle_heads_with<S, C>(
-    heads: S,
-    interval: std::time::Duration,
-    mut now: C,
-) -> impl futures::Stream<Item = u64>
-where
-    S: futures::Stream<Item = u64>,
-    C: FnMut() -> std::time::Instant,
+    S: futures::Stream<Item = u64> + Send + 'static,
 {
     use futures::StreamExt as _;
-    heads
-        .scan(None::<std::time::Instant>, move |last, head| {
-            let now = now();
-            let due = interval.is_zero()
-                || last.is_none_or(|l| now.saturating_duration_since(l) >= interval);
-            if due {
-                *last = Some(now);
+    async_stream::stream! {
+        let mut heads = heads.boxed();
+        let mut last_release: Option<tokio::time::Instant> = None;
+        let mut held: Option<u64> = None;
+        loop {
+            let release_at = match (held, last_release) {
+                (Some(_), Some(last)) => Some(last + interval),
+                _ => None,
+            };
+            tokio::select! {
+                head = heads.next() => match head {
+                    Some(head) => {
+                        let now = tokio::time::Instant::now();
+                        let due = interval.is_zero()
+                            || last_release.is_none_or(|last| now.saturating_duration_since(last) >= interval);
+                        if due {
+                            last_release = Some(now);
+                            held = None;
+                            yield head;
+                        } else {
+                            held = Some(head);
+                        }
+                    }
+                    None => {
+                        if let Some(head) = held.take() {
+                            yield head;
+                        }
+                        break;
+                    }
+                },
+                _ = async { tokio::time::sleep_until(release_at.expect("guarded")).await }, if release_at.is_some() => {
+                    if let Some(head) = held.take() {
+                        last_release = Some(tokio::time::Instant::now());
+                        yield head;
+                    }
+                }
             }
-            futures::future::ready(Some(if due { Some(head) } else { None }))
-        })
-        .filter_map(futures::future::ready)
+        }
+    }
 }
 
 /// Head numbers read by polling `eth_blockNumber` every `interval`. Alongside a subscription it
@@ -1007,55 +1023,50 @@ mod tests {
         assert_eq!(got, vec![4, 6]);
     }
 
-    /// A clock that returns `base + step * calls_so_far`.
-    fn ticking_clock(step: std::time::Duration) -> impl FnMut() -> std::time::Instant {
-        let base = std::time::Instant::now();
-        let mut calls: u32 = 0;
-        move || {
-            let now = base + step * calls;
-            calls += 1;
-            now
-        }
+    #[tokio::test(start_paused = true)]
+    async fn throttled_heads_release_the_first_at_once_and_the_newest_after_the_interval() {
+        // A burst of three heads: 1 passes immediately, 2 is superseded by 3 while held, and 3
+        // is released when the interval elapses (the paused clock auto-advances to the timer).
+        let heads = futures::stream::iter(vec![1u64, 2, 3]).chain(futures::stream::pending());
+        let passed: Vec<u64> = throttle_heads(heads, std::time::Duration::from_secs(12))
+            .take(2)
+            .collect()
+            .await;
+        assert_eq!(passed, vec![1, 3]);
     }
 
-    #[tokio::test]
-    async fn throttled_heads_let_one_through_per_interval() {
-        // Three heads one second apart under a 12 s interval: only the first is due.
-        let heads = futures::stream::iter(vec![1u64, 2, 3]);
-        let passed: Vec<u64> = throttle_heads_with(
-            heads,
-            std::time::Duration::from_secs(12),
-            ticking_clock(std::time::Duration::from_secs(1)),
-        )
-        .collect()
-        .await;
-        assert_eq!(passed, vec![1]);
-    }
-
-    #[tokio::test]
-    async fn throttled_heads_pass_again_once_the_interval_has_elapsed() {
-        // Thirteen seconds between heads: every one is due.
-        let heads = futures::stream::iter(vec![1u64, 2, 3]);
-        let passed: Vec<u64> = throttle_heads_with(
-            heads,
-            std::time::Duration::from_secs(12),
-            ticking_clock(std::time::Duration::from_secs(13)),
-        )
-        .collect()
-        .await;
+    #[tokio::test(start_paused = true)]
+    async fn throttled_heads_pass_spaced_heads_through_untouched() {
+        let heads = futures::stream::unfold(0u64, |n| async move {
+            if n == 3 {
+                return None;
+            }
+            if n > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(13)).await;
+            }
+            Some((n + 1, n + 1))
+        });
+        let passed: Vec<u64> = throttle_heads(heads, std::time::Duration::from_secs(12))
+            .collect()
+            .await;
         assert_eq!(passed, vec![1, 2, 3]);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn throttled_heads_flush_a_held_head_when_the_source_ends() {
+        let heads = futures::stream::iter(vec![1u64, 2]);
+        let passed: Vec<u64> = throttle_heads(heads, std::time::Duration::from_secs(12))
+            .collect()
+            .await;
+        assert_eq!(passed, vec![1, 2]);
     }
 
     #[tokio::test]
     async fn a_zero_interval_throttles_nothing() {
         let heads = futures::stream::iter(vec![5u64, 6, 7]);
-        let passed: Vec<u64> = throttle_heads_with(
-            heads,
-            std::time::Duration::ZERO,
-            ticking_clock(std::time::Duration::ZERO),
-        )
-        .collect()
-        .await;
+        let passed: Vec<u64> = throttle_heads(heads, std::time::Duration::ZERO)
+            .collect()
+            .await;
         assert_eq!(passed, vec![5, 6, 7]);
     }
 
