@@ -1765,6 +1765,11 @@ fn merge_provider_lookup(
     }
 }
 
+/// `true` for the URL schemes alloy can open a pubsub (`eth_subscribe`) transport on.
+pub fn scheme_supports_subscriptions(scheme: &str) -> bool {
+    matches!(scheme, "ws" | "wss")
+}
+
 /// Redact the query-string **and** any secret-looking path segments of a URL
 /// for logs.
 ///
@@ -1783,11 +1788,6 @@ fn merge_provider_lookup(
 /// `ethereum-sepolia`, etc.) stay intact because they either contain a
 /// hyphen-separated word or are too short / not mixed-case to trip the
 /// secret heuristic.
-/// `true` for the URL schemes alloy can open a pubsub (`eth_subscribe`) transport on.
-pub fn scheme_supports_subscriptions(scheme: &str) -> bool {
-    matches!(scheme, "ws" | "wss")
-}
-
 pub fn redact_url_query(url: &str) -> String {
     // Split off the query string first so we never accidentally redact
     // inside it (and to keep behavior identical to the previous helper for

@@ -182,7 +182,13 @@ mod tests {
 
     #[test]
     fn eth_rps_rejects_zero() {
-        let args = ["archiver", "--rpc-http", "http://localhost:8545", "--eth-rps", "0"];
+        let args = [
+            "archiver",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--eth-rps",
+            "0",
+        ];
         assert!(Config::try_parse_from(args).is_err());
     }
 
