@@ -189,4 +189,6 @@ jobs:
           status: ${{ job.status }}
           inputs: ${{ toJson(inputs) }}
           channel: "#noti-creditcoin-snapshots"
-          message: "Checking ${{ inputs.target-chain }} snapshot complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
+          # github.workflow resolves to the calling workflow, so the three snapshot checks are
+          # also distinguishable from each other.
+          message: "[${{ github.workflow }}] Checking ${{ inputs.target-chain }} snapshot complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
