@@ -181,6 +181,29 @@ jobs:
           .github/bench.sh -p randomness -b
           .github/bench.sh -p supported_chains -b
 
+      # pallet_ethereum lives in Frontier, so it has no weights.rs here and isn't run via bench.sh.
+      # Its output goes to an artifact, outside the tree, so the weights bot doesn't commit it.
+      # The five-component full-block benchmark gets fewer steps, or it would run for hours.
+      - name: Benchmark pallet_ethereum on_finalize
+        run: |
+          OUT="$RUNNER_TEMP/pallet-ethereum-weights"
+          mkdir -p "$OUT"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=50 --repeat=20 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_transactions,on_finalize_logs,on_finalize_topics,on_finalize_log_data,on_finalize_transaction_size,on_finalize_state_root \
+            --output "$OUT/single_component.rs"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=10 --repeat=5 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_full_block \
+            --output "$OUT/full_block.rs"
+          cat "$OUT"/*.rs
+
+      - name: Upload pallet_ethereum weights
+        uses: actions/upload-artifact@v7
+        with:
+          name: pallet-ethereum-weights
+          path: ${{ runner.temp }}/pallet-ethereum-weights/
+
       - name: git diff
         run: |
           sudo apt-get install colordiff
