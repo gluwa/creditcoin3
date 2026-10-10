@@ -59,41 +59,17 @@ jobs:
               echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-  deploy-runner-build-creditcoin-for-testing-benchmarks:
+  build-creditcoin-node-for-testing-benchmarks:
     needs:
       - should-run
     if: ${{ needs.should-run.outputs.skip != 'true' }}
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "build-creditcoin-node-for-testing-benchmarks"
-    secrets: inherit
-
-  build-creditcoin-node-for-testing-benchmarks:
-    needs:
-      - deploy-runner-build-creditcoin-for-testing-benchmarks
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=runtime-benchmarks"
       git-lfs-checkout: false
       version-string: testing-benchmarks
       cache-key-name: build-creditcoin-node
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-benchmarks']"
-    secrets: inherit
-
-  rm-gh-runner-build-creditcoin-node-for-testing-benchmarks:
-    needs:
-      - should-run
-      - build-creditcoin-node-for-testing-benchmarks
-    # always() so a failed build still gets its runner removed — but not when the whole
-    # workflow was skipped as the bot's own commit (no VM was ever deployed).
-    if: ${{ always() && needs.should-run.outputs.skip != 'true' }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "build-creditcoin-node-for-testing-benchmarks"
+      runs-on: "['ubuntu-26.04']"
     secrets: inherit
 
   deploy-runner-benchmark:
@@ -205,7 +181,8 @@ jobs:
     needs:
       - should-run
       - exercise-benchmarks
-    # See rm-gh-runner-build-...: cleanup must survive a failed run, not a skipped one.
+    # always() so a failed run still gets its runner removed — but not when the whole
+    # workflow was skipped as the bot's own commit (no VM was ever deployed).
     if: ${{ always() && needs.should-run.outputs.skip != 'true' }}
     uses: ./.github/workflows/remove-runner.yml
     with:
