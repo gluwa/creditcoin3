@@ -146,29 +146,12 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Provision a large self-hosted Linode runner for the compatibility job.
-  # ---------------------------------------------------------------------------
-  deploy-runner:
-    needs:
-      - discover-versions
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      # Shared CPU, Linode 64 GB, 16 vCPU -- same class as validator-compatibility.
-      LINODE_VM_SIZE: "g6-standard-16"
-      proxy_type: "attestor-compatibility"
-    secrets: inherit
-
-  # ---------------------------------------------------------------------------
   # Run the attestor compatibility network.
   # ---------------------------------------------------------------------------
   attestor-compatibility:
     needs:
       - discover-versions
-      - deploy-runner
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "type-attestor-compatibility"]
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
     env:
       VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
@@ -196,9 +179,11 @@ jobs:
           # of the local network from the self-hosted VM. They must never fail the
           # job: on Ubuntu 26.04 the firefox deb is a snap shim whose preinst talks
           # to api.snapcraft.io, and a timeout there wedges dpkg.
-          sudo apt-get install -y firefox tigervnc-standalone-server mutter openbox \
-            || echo "WARNING: optional visual-debugging tools not installed"
-          sudo dpkg --configure -a || true
+          if [ "${RUNNER_ENVIRONMENT}" = "self-hosted" ]; then
+            sudo apt-get install -y firefox tigervnc-standalone-server mutter openbox \
+              || echo "WARNING: optional visual-debugging tools not installed"
+            sudo dpkg --configure -a || true
+          fi
           mkdir -p "${LOG_DIR}" "${DATA_DIR}"
 
       - name: Start resource monitor
@@ -687,17 +672,3 @@ jobs:
         continue-on-error: true
         run: |
           killall -9 creditcoin3-node attestor_zombienet attestor anvil || true
-
-  # ---------------------------------------------------------------------------
-  # Tear down the self-hosted runner.
-  # ---------------------------------------------------------------------------
-  remove-runner:
-    needs:
-      - deploy-runner
-      - attestor-compatibility
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "attestor-compatibility"
-    secrets: inherit
