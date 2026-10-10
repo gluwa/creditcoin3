@@ -56,6 +56,10 @@ jobs:
         with:
           lfs: true
 
+      - name: Start resource monitor
+        run: |
+          .github/resource-monitor.sh start docker-build
+
       - name: Build ${{ github.repository }} docker image
         if: ${{ inputs.build-node-image }}
         run: |
@@ -201,6 +205,12 @@ jobs:
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/${{ github.repository }}.tar
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report docker-build
 
       - name: Push docker images
         # executes only when credentials are specified in the caller workflow.
