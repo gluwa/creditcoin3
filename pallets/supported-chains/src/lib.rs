@@ -293,10 +293,7 @@ pub mod pallet {
         // The listener bounds its work per call and defers the rest to `on_initialize`, so it
         // reports a fixed worst case. That can overlap the benchmark's empty-state listener cost;
         // we remove chains rarely, so over-charging is fine.
-        #[pallet::weight(
-            T::WeightInfo::remove_chain()
-                .saturating_add(T::EventListeners::on_supported_chain_removed_weight())
-        )]
+        #[pallet::weight(T::WeightInfo::remove_chain().saturating_add(T::EventListeners::on_supported_chain_removed_weight()))]
         pub fn remove_chain(
             origin: OriginFor<T>,
             chain_key: ChainId,
