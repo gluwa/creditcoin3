@@ -759,3 +759,233 @@ fn set_maturity_strategy_is_scoped_to_one_chain() {
         );
     });
 }
+
+// ---------------------------------- [ set_chain_name ] ------------------------------------- //
+
+#[test]
+fn set_chain_name_replaces_the_stored_name_moves_the_lookup_and_emits() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        let old_name = "Ethereum".as_bytes().to_vec();
+        let new_name = "Ethereum Mainnet".as_bytes().to_vec();
+
+        assert_ok!(SupportedChain::set_chain_name(
+            RuntimeOrigin::root(),
+            TEST_CHAIN_KEY,
+            "Ethereum Mainnet".to_string(),
+        ));
+
+        let stored = SupportedChains::<Test>::get(TEST_CHAIN_KEY).expect("chain is registered");
+        assert_eq!(stored.chain_name, new_name);
+        // Nothing else about the registration may move.
+        assert_eq!(stored.chain_id, TEST_CHAIN_ID);
+        assert_eq!(stored.chain_encoding, ChainEncodingVersion::V1);
+        assert_eq!(stored.maturity_strategy, MATURITY_FIXED_DELAY_10);
+
+        // The (chain_id, name) lookup follows the rename: the old name no longer resolves and
+        // the new one resolves to the same key.
+        assert_eq!(
+            pallet::ChainIdAndNameToUniqKey::<Test>::get(TEST_CHAIN_ID, &old_name),
+            None
+        );
+        assert_eq!(
+            pallet::ChainIdAndNameToUniqKey::<Test>::get(TEST_CHAIN_ID, &new_name),
+            Some(TEST_CHAIN_KEY)
+        );
+
+        System::assert_last_event(
+            crate::Event::ChainNameSet {
+                chain_key: TEST_CHAIN_KEY,
+                chain_id: TEST_CHAIN_ID,
+                old_chain_name: old_name,
+                chain_name: new_name,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_chain_name_frees_the_old_name_for_a_new_registration() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(SupportedChain::set_chain_name(
+            RuntimeOrigin::root(),
+            TEST_CHAIN_KEY,
+            "Ethereum Mainnet".to_string(),
+        ));
+
+        // The vacated (chain_id, "Ethereum") pair can be registered again as a fresh chain.
+        assert_ok!(SupportedChain::register_chain(
+            RuntimeOrigin::root(),
+            TEST_CHAIN_ID,
+            "Ethereum".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        ));
+        assert_eq!(
+            pallet::ChainIdAndNameToUniqKey::<Test>::get(TEST_CHAIN_ID, "Ethereum".as_bytes()),
+            Some(TEST_CHAIN_KEY + 1)
+        );
+    });
+}
+
+#[test]
+fn set_chain_name_works_for_an_operator() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(SupportedChain::set_chain_name(
+            RuntimeOrigin::signed(ALICE),
+            TEST_CHAIN_KEY,
+            "Ethereum Mainnet".to_string(),
+        ));
+        assert_eq!(
+            SupportedChains::<Test>::get(TEST_CHAIN_KEY)
+                .expect("chain is registered")
+                .chain_name,
+            "Ethereum Mainnet".as_bytes().to_vec()
+        );
+    });
+}
+
+#[rstest]
+#[case(RuntimeOrigin::none())]
+#[case(RuntimeOrigin::signed(4))]
+fn set_chain_name_rejects_an_unprivileged_origin(#[case] origin: RuntimeOrigin) {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            SupportedChain::set_chain_name(origin, TEST_CHAIN_KEY, "Ethereum Mainnet".to_string()),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_chain_name_rejects_an_unregistered_chain() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            SupportedChain::set_chain_name(
+                RuntimeOrigin::root(),
+                TEST_CHAIN_KEY + 41,
+                "Ethereum Mainnet".to_string(),
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+    });
+}
+
+#[test]
+fn set_chain_name_rejects_the_current_name() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            SupportedChain::set_chain_name(
+                RuntimeOrigin::root(),
+                TEST_CHAIN_KEY,
+                "Ethereum".to_string()
+            ),
+            Error::<Test>::ChainNameUnchanged
+        );
+    });
+}
+
+#[test]
+fn set_chain_name_rejects_a_name_already_used_for_the_same_chain_id() {
+    // Two chains share chain id 200 under different names; renaming one onto the other's
+    // name would make the (chain_id, name) lookup ambiguous.
+    ExtBuilder.build_and_execute_with_duplicate_chains(
+        vec![
+            (
+                TEST_CHAIN_ID,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            ),
+            (
+                TEST_CHAIN_ID,
+                "Ethereum Mainnet".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            ),
+        ],
+        || {
+            System::set_block_number(1);
+
+            assert_noop!(
+                SupportedChain::set_chain_name(
+                    RuntimeOrigin::root(),
+                    TEST_CHAIN_KEY,
+                    "Ethereum Mainnet".to_string(),
+                ),
+                Error::<Test>::ChainAlreadyRegistered
+            );
+            // Both registrations are untouched.
+            assert_eq!(
+                pallet::ChainIdAndNameToUniqKey::<Test>::get(TEST_CHAIN_ID, "Ethereum".as_bytes()),
+                Some(TEST_CHAIN_KEY)
+            );
+            assert_eq!(
+                pallet::ChainIdAndNameToUniqKey::<Test>::get(
+                    TEST_CHAIN_ID,
+                    "Ethereum Mainnet".as_bytes()
+                ),
+                Some(TEST_CHAIN_KEY + 1)
+            );
+        },
+    );
+}
+
+#[test]
+fn set_chain_name_allows_a_name_used_under_another_chain_id() {
+    // Names only need to be unique per chain id, same as on registration.
+    ExtBuilder.build_and_execute_with_duplicate_chains(
+        vec![
+            (
+                TEST_CHAIN_ID,
+                "Ethereum".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            ),
+            (
+                TEST_CHAIN_ID + 1,
+                "Sepolia".as_bytes().to_vec(),
+                ChainEncodingVersion::V1,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            ),
+        ],
+        || {
+            System::set_block_number(1);
+
+            assert_ok!(SupportedChain::set_chain_name(
+                RuntimeOrigin::root(),
+                TEST_CHAIN_KEY,
+                "Sepolia".to_string(),
+            ));
+            assert_eq!(
+                pallet::ChainIdAndNameToUniqKey::<Test>::get(TEST_CHAIN_ID, "Sepolia".as_bytes()),
+                Some(TEST_CHAIN_KEY)
+            );
+            assert_eq!(
+                pallet::ChainIdAndNameToUniqKey::<Test>::get(
+                    TEST_CHAIN_ID + 1,
+                    "Sepolia".as_bytes()
+                ),
+                Some(TEST_CHAIN_KEY + 1)
+            );
+        },
+    );
+}

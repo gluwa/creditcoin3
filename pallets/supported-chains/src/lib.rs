@@ -74,6 +74,7 @@ pub mod pallet {
         fn register_chain() -> Weight;
         fn remove_chain() -> Weight;
         fn set_maturity_strategy() -> Weight;
+        fn set_chain_name() -> Weight;
     }
 
     #[pallet::storage]
@@ -168,6 +169,16 @@ pub mod pallet {
             chain_id: ChainId,
             maturity_strategy: String,
         },
+
+        /// The display name of a registered chain has been changed. The name is informational
+        /// only (nothing attested or hashed depends on it), so this is a record for indexers and
+        /// operators; no node acts on it.
+        ChainNameSet {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            old_chain_name: Vec<u8>,
+            chain_name: Vec<u8>,
+        },
     }
 
     #[pallet::error]
@@ -189,6 +200,10 @@ pub mod pallet {
         /// event is the operator-facing record that a restart of the chain's attestors and
         /// archivers is due, and a no-op write would call for a restart that is not needed.
         MaturityStrategyUnchanged,
+
+        /// The chain already carries the requested name. Rejected rather than applied as a
+        /// no-op so that every `ChainNameSet` event stands for a real change.
+        ChainNameUnchanged,
     }
 
     #[pallet::call]
@@ -370,6 +385,52 @@ pub mod pallet {
                 chain_key,
                 chain_id,
                 maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        /// Renames an already-registered chain.
+        ///
+        /// The name is a label: it is exposed by the chain-info precompile and logged by the
+        /// archiver, but no attestation, digest or checkpoint depends on it, so a rename has no
+        /// effect on running attestors or archivers and needs no restart. The only thing keyed
+        /// on the name is the `(chain_id, chain_name)` lookup, which is moved to the new name
+        /// atomically. The new name must be unique for the chain's `chain_id`, exactly as on
+        /// registration.
+        ///
+        /// Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::WeightInfo::set_chain_name())]
+        pub fn set_chain_name(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            chain_name: String,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            let mut chain =
+                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+
+            let new_name = chain_name.as_bytes().to_vec();
+            ensure!(chain.chain_name != new_name, Error::<T>::ChainNameUnchanged);
+            ensure!(
+                !ChainIdAndNameToUniqKey::<T>::contains_key(chain.chain_id, &new_name),
+                Error::<T>::ChainAlreadyRegistered
+            );
+
+            let chain_id = chain.chain_id;
+            let old_chain_name = core::mem::replace(&mut chain.chain_name, new_name.clone());
+
+            ChainIdAndNameToUniqKey::<T>::remove(chain_id, &old_chain_name);
+            ChainIdAndNameToUniqKey::<T>::insert(chain_id, &new_name, chain_key);
+            SupportedChains::<T>::insert(chain_key, chain);
+
+            Self::deposit_event(Event::ChainNameSet {
+                chain_key,
+                chain_id,
+                old_chain_name,
+                chain_name: new_name,
             });
 
             Ok(())
