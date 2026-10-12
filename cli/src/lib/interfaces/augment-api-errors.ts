@@ -980,6 +980,11 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             ChainAlreadyRegistered: AugmentedError<ApiType>;
             /**
+             * The chain already carries the requested name. Rejected rather than applied as a
+             * no-op so that every `ChainNameSet` event stands for a real change.
+             **/
+            ChainNameUnchanged: AugmentedError<ApiType>;
+            /**
              * The chain is not supported
              **/
             ChainNotSupported: AugmentedError<ApiType>;

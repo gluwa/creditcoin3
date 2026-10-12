@@ -1175,6 +1175,12 @@ export default {
                 chainId: 'u64',
                 maturityStrategy: 'Text',
             },
+            ChainNameSet: {
+                chainKey: 'u64',
+                chainId: 'u64',
+                oldChainName: 'Bytes',
+                chainName: 'Bytes',
+            },
         },
     },
     /**
@@ -3003,6 +3009,10 @@ export default {
                 chainKey: 'u64',
                 maturityStrategy: 'Text',
             },
+            set_chain_name: {
+                chainKey: 'u64',
+                chainName: 'Text',
+            },
         },
     },
     /**
@@ -3595,6 +3605,7 @@ export default {
             'Arithmetic',
             'InvalidMaturityStrategy',
             'MaturityStrategyUnchanged',
+            'ChainNameUnchanged',
         ],
     },
     /**

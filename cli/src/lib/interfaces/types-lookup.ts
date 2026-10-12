@@ -1521,7 +1521,14 @@ declare module '@polkadot/types/lookup' {
             readonly chainId: u64;
             readonly maturityStrategy: Text;
         } & Struct;
-        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'MaturityStrategySet';
+        readonly isChainNameSet: boolean;
+        readonly asChainNameSet: {
+            readonly chainKey: u64;
+            readonly chainId: u64;
+            readonly oldChainName: Bytes;
+            readonly chainName: Bytes;
+        } & Struct;
+        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'MaturityStrategySet' | 'ChainNameSet';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (109) */
@@ -3558,7 +3565,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly maturityStrategy: Text;
         } & Struct;
-        readonly type: 'RegisterChain' | 'RemoveChain' | 'SetMaturityStrategy';
+        readonly isSetChainName: boolean;
+        readonly asSetChainName: {
+            readonly chainKey: u64;
+            readonly chainName: Text;
+        } & Struct;
+        readonly type: 'RegisterChain' | 'RemoveChain' | 'SetMaturityStrategy' | 'SetChainName';
     }
 
     /** @name PalletRandomnessCall (352) */
@@ -4280,12 +4292,14 @@ declare module '@polkadot/types/lookup' {
         readonly isArithmetic: boolean;
         readonly isInvalidMaturityStrategy: boolean;
         readonly isMaturityStrategyUnchanged: boolean;
+        readonly isChainNameUnchanged: boolean;
         readonly type:
             | 'ChainAlreadyRegistered'
             | 'ChainNotSupported'
             | 'Arithmetic'
             | 'InvalidMaturityStrategy'
-            | 'MaturityStrategyUnchanged';
+            | 'MaturityStrategyUnchanged'
+            | 'ChainNameUnchanged';
     }
 
     /** @name PalletRandomnessError (456) */
