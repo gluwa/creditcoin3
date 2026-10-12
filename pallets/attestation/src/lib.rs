@@ -32,7 +32,7 @@ pub use extensions::PrevalidateAttestationCommit;
 pub mod pallet {
     use core::marker::PhantomData;
 
-    use crate::clear_or_revert::CheckpointPruningState;
+    use crate::clear_or_revert::{CheckpointPruningState, RemovedChainCleanupPhase};
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
@@ -522,6 +522,12 @@ pub mod pallet {
     pub type AttestationClearingCursors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
 
+    /// Where the attestor-side cleanup of a removed chain stands. Drained a bounded batch per
+    /// block by `on_init_cleanup_removed_chains`; the entry is removed once nothing is left.
+    #[pallet::storage]
+    pub type RemovedChainCleanup<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, RemovedChainCleanupPhase, OptionQuery>;
+
     /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
     /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
     #[pallet::storage]
@@ -951,12 +957,14 @@ pub mod pallet {
             let checkpoint_clear_weight = Self::on_init_clear_checkpoints();
             let bucket_clear_weight = Self::on_init_clear_buckets();
             let attestation_clear_weight = Self::on_init_clear_attestations();
+            let removed_chain_weight = Self::on_init_cleanup_removed_chains();
 
             // Return combined weight from helpers this is a more practical
             prune_weight
                 .saturating_add(checkpoint_clear_weight)
                 .saturating_add(bucket_clear_weight)
                 .saturating_add(attestation_clear_weight)
+                .saturating_add(removed_chain_weight)
         }
     }
 

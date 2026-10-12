@@ -30,7 +30,7 @@ pub mod pallet {
     use scale_info::prelude::string::String;
     use sp_std::vec::Vec;
     use supported_chains_primitives::{
-        chain_removal_listener::ChainRemovalListener,
+        chain_removal_listener::{ChainRemovalListener, ChainRemovalListenerWeight},
         provider::{OnRegisterChainProvider as OnChainRegisteredProvider, SupportedChainsProvider},
         SupportedChain,
     };
@@ -50,7 +50,7 @@ pub mod pallet {
         /// A type representing the weights required by the dispatchables of this pallet.
         type WeightInfo: WeightInfo;
         /// Informs other pallets if a supported chain is removed
-        type EventListeners: ChainRemovalListener;
+        type EventListeners: ChainRemovalListener + ChainRemovalListenerWeight;
         type ChainRegistrationHandler: OnChainRegisteredProvider;
         /// Determines which maturity strategy attestors will use when fetching source chain
         /// blocks and building attestations. Strict strategies such as EvmFinalized delay
@@ -290,11 +290,13 @@ pub mod pallet {
 
         /// Removes a supported chain by its chain key. Only accounts in the Operators membership can call this extrinsic.
         #[pallet::call_index(1)]
-        // We artificially add 200 writes to our assessed weight here since the `remove_chain` benchmark doesn't
-        // account for modifications to storage made in pallet attestation poc. Actually capturing these writes
-        // precisely requires dependence on about 10 additional pallets and 100's of added code lines. And we can afford
-        // to charge more than necessary since we remove chains very rarely.
-        #[pallet::weight(T::WeightInfo::remove_chain().saturating_add(T::DbWeight::get().writes(200)))]
+        // The listener bounds its work per call and defers the rest to `on_initialize`, so it
+        // reports a fixed worst case. That can overlap the benchmark's empty-state listener cost;
+        // we remove chains rarely, so over-charging is fine.
+        #[pallet::weight(
+            T::WeightInfo::remove_chain()
+                .saturating_add(T::EventListeners::on_supported_chain_removed_weight())
+        )]
         pub fn remove_chain(
             origin: OriginFor<T>,
             chain_key: ChainId,

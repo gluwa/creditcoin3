@@ -19,12 +19,14 @@ precompile-utils = { workspace = true, default-features = false }
 scale-info = { workspace = true, default-features = false }
 sp-api = { workspace = true, default-features = false }
 sp-std = { workspace = true, default-features = false }
+sp-weights = { workspace = true, default-features = false }
 
 [features]
 default = ["std"]
 std = [
     "sp-std/std",
     "sp-api/std",
+    "sp-weights/std",
     "attestor-primitives/std",
     "parity-scale-codec/std",
     "precompile-utils/std",
