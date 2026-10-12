@@ -1,0 +1,92 @@
+---
+# Topics for the release notes, in the order they appear.
+#
+# Each change lands in exactly one topic. A dependency bump goes to `dependencies`.
+# Otherwise the first topic, in this order, that lists the title's scope wins (e.g.
+# `fix(attestor): ...`), then the first topic with a path glob matching a changed file.
+# Specific components come before the shared code they also touch, so an attestor
+# change that also edits `common/` stays under Attestor.
+topics:
+  - id: runtime
+    label: 'Runtime, pallets and precompiles'
+    scopes: [runtime, pallet, pallets, attestation, precompiles, supported-chains, staking, evm]
+    include:
+      - 'runtime/**'
+      - 'pallets/**'
+      - 'precompiles/**'
+      - 'primitives/**'
+      - 'chainspecs/**'
+
+  - id: node
+    label: 'Node'
+    scopes: [node, rpc, txpool]
+    include:
+      - 'node/**'
+
+  - id: attestor
+    label: 'Attestor'
+    scopes: [attestor]
+    include:
+      - 'attestor/**'
+
+  - id: archiver
+    label: 'Archiver'
+    scopes: [archiver]
+    include:
+      - 'archiver/**'
+
+  - id: proof-gen
+    label: 'Proof generation and checkpoints'
+    scopes: [proof-gen, prover, checkpoint, checkpoint-builder, checkpoint-verifier]
+    include:
+      - 'proof-gen-api-server/**'
+      - 'checkpoint-builder/**'
+      - 'checkpoint-verifier/**'
+
+  - id: common
+    label: 'Shared libraries'
+    scopes: [streams, stream_eth, stream_cc3, stream_attestation, eth, continuity, merkle, cc-client, common]
+    include:
+      - 'common/**'
+      - 'tracing/**'
+
+  - id: indexer
+    label: 'Indexer'
+    scopes: [indexer]
+    include:
+      - 'cc3-indexer/**'
+
+  - id: tooling
+    label: 'CLI and scripts'
+    scopes: [cli, query-cli, scripts]
+    include:
+      - 'cli/**'
+      - 'query-cli/**'
+      - 'scripts/**'
+
+  - id: ci
+    label: 'CI and repository'
+    scopes: [ci, release, git, claude]
+    types: [ci]
+    include:
+      - '.github/**'
+      - '.claude/**'
+      - '*'
+
+  - id: docs
+    label: 'Documentation'
+    scopes: [docs]
+    types: [docs]
+    include:
+      - 'docs/**'
+
+# Dependency bumps are folded into one collapsed list at the end.
+dependencies:
+  label: 'Dependencies'
+  types: [build]
+  scopes: [deps, deps-dev]
+  authors: ['dependabot[bot]', 'dependabot']
+
+# Commits that are release bookkeeping, not changes.
+skip:
+  - '^(chore\(release\): )?bump version to '

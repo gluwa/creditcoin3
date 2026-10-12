@@ -1,6 +1,37 @@
-# Changelog Operator Warnings
+# Release notes and operator warnings
 
-A TypeScript script that analyzes git diffs between two release tags and appends operator warnings to generated changelogs. It detects changes in specific areas of the codebase and alerts node, attestor, and indexer operators when action may be required.
+Two TypeScript scripts used by the release pipeline:
+
+- `src/notes.ts` writes the release notes: every change between the previous release tag and `HEAD`, grouped by topic.
+- `src/index.ts` analyzes the git diff between the same two points and appends operator warnings to those notes.
+
+## Release notes
+
+1. Runs `git log --first-parent <previous-tag>..HEAD`, so the notes list exactly what is in the release, also for a hotfix cut from a side branch. When the previous release is not an ancestor (it came from a hotfix branch), changes it already shipped are left out by PR number.
+2. Reads the PR number and the conventional-commit header (`type(scope): subject (#123)`) from each subject. With `GITHUB_TOKEN` set, it takes the current PR title and the author's GitHub login from the API instead.
+3. Puts each change under one topic from [`release-topics.yaml`](./release-topics.yaml): dependency bumps first, then the title's scope, then its type, then the paths it changed. Release version bumps are skipped.
+
+```bash
+# Print the notes for a past release
+npx tsx src/notes.ts --previous-tag 3.138.2-devnet --head 3.138.4-devnet --tag 3.138.4-devnet
+
+# Write them to a file, as CI does (HEAD = the tagged commit)
+npx tsx src/notes.ts --previous-tag <tag> --tag <new-tag> --output /var/tmp/changelog.md
+```
+
+| Argument | Required | Description |
+|---|---|---|
+| `--previous-tag <tag>` | Yes | Last release to compare against |
+| `--tag <tag>` | No | Heading for the notes (defaults to `Unreleased`) |
+| `--head <ref>` | No | Last commit of the release (defaults to `HEAD`) |
+| `--output <path>` | No | File to write; prints to stdout when omitted |
+| `--topics <path>` | No | Custom topics file (defaults to `release-topics.yaml`) |
+
+To add or reorder topics, edit `release-topics.yaml`; no code changes are needed.
+
+## Operator warnings
+
+The warnings script analyzes git diffs between two release tags and appends operator warnings to the release notes. It detects changes in specific areas of the codebase and alerts node, attestor, and indexer operators when action may be required.
 
 ## How it works
 
@@ -76,7 +107,7 @@ npx tsx src/index.ts --previous-tag <tag> --dry-run --rules ./custom-rules.yaml
 
 ## CI integration
 
-This script runs automatically as part of the release pipeline in `.github/workflows/release.yml`, inside the `create-release` job. It appends warnings to the generated changelog before the GitHub release is created.
+Both scripts run in the release pipeline: `.github/workflows/generate-changelog.yml` writes the notes, and the `create-release` job in `.github/workflows/release.yml` appends the warnings before the GitHub release is created.
 
 ## Sample run
 
