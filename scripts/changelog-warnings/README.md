@@ -7,7 +7,7 @@ Two TypeScript scripts used by the release pipeline:
 
 ## Release notes
 
-1. Runs `git log --first-parent <previous-tag>..HEAD`, so the notes list exactly what is in the release, also for a hotfix cut from a side branch. When the previous release is not an ancestor (it came from a hotfix branch), changes it already shipped are left out by PR number.
+1. Runs `git log --first-parent <previous-tag>..HEAD`, so the notes list exactly what is in the release, also for a hotfix cut from a side branch. A merge commit (a promotion or a reconcile) is replaced by the PRs on the line it merged. When the previous release is not an ancestor (it came from a hotfix branch), changes it already shipped are left out by PR number.
 2. Reads the PR number and the conventional-commit header (`type(scope): subject (#123)`) from each subject. With `GITHUB_TOKEN` set, it takes the current PR title and the author's GitHub login from the API instead.
 3. Puts each change under one topic from [`release-topics.yaml`](./release-topics.yaml): dependency bumps first, then the title's scope, then its type, then the paths it changed. Release version bumps are skipped.
 

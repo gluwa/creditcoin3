@@ -52,7 +52,7 @@ topics:
 
   - id: indexer
     label: 'Indexer'
-    scopes: [indexer]
+    scopes: [indexer, cc3-indexer]
     include:
       - 'cc3-indexer/**'
 
