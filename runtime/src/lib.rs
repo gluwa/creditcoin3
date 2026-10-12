@@ -2134,7 +2134,7 @@ mod tests {
         const INITIAL: u128 = 10 * 1_000_000_000_000_000_000;
         const TRANSFER_GAS: u64 = 21_000;
 
-        fn sender() -> H160 {
+        pub(super) fn sender() -> H160 {
             H160::repeat_byte(0xAA)
         }
 
@@ -2156,12 +2156,12 @@ mod tests {
             H160::from_slice(&AsRef::<[u8; 32]>::as_ref(&stash())[0..20])
         }
 
-        fn base_fee() -> u128 {
+        pub(super) fn base_fee() -> u128 {
             pallet_base_fee::BaseFeePerGas::<Runtime>::get().as_u128()
         }
 
         /// One validator (`stash`) with BABE key `babe_key(7)`, authoring block 1 as index 0.
-        fn new_test_ext() -> sp_io::TestExternalities {
+        pub(super) fn new_test_ext() -> sp_io::TestExternalities {
             let mut storage = frame_system::GenesisConfig::<Runtime>::default()
                 .build_storage()
                 .unwrap();
@@ -2315,6 +2315,96 @@ mod tests {
                     EVM::withdraw(RuntimeOrigin::signed(other), stash_evm_address(), tips).is_err()
                 );
                 assert_eq!(coinbase_balance(), tips);
+            });
+        }
+    }
+
+    mod substrate_transfer_storage_growth {
+        use super::super::{Runtime, System};
+        use super::evm_priority_fee::{base_fee, new_test_ext, sender};
+        use frame_support::storage::unhashed;
+        use pallet_evm::{CallInfo, GasWeightMapping, Runner as _};
+        use pallet_evm_precompile_substrate_transfer::{
+            SubstrateTransferPrecompile, SubstrateTransferPrecompileCall,
+        };
+        use sp_core::{H160, H256, U256};
+        use sp_runtime::AccountId32;
+
+        const PRECOMPILE: u64 = 4049;
+        const GAS_LIMIT: u64 = 1_000_000;
+        const AMOUNT: u128 = 1_000;
+
+        fn destination() -> AccountId32 {
+            AccountId32::new([0x42; 32])
+        }
+
+        /// Sends `amount` to `destination` through the production runner and storage meter.
+        fn transfer(destination: &AccountId32, amount: u128) -> CallInfo {
+            let call = SubstrateTransferPrecompileCall::<Runtime, ()>::transfer_substrate {
+                destination: H256::from(*AsRef::<[u8; 32]>::as_ref(destination)),
+                amount: amount.into(),
+            };
+            <Runtime as pallet_evm::Config>::Runner::call(
+                sender(),
+                H160::from_low_u64_be(PRECOMPILE),
+                call.into(),
+                U256::zero(),
+                GAS_LIMIT,
+                Some(U256::from(base_fee())),
+                Some(U256::zero()),
+                None,
+                vec![],
+                vec![],
+                true,
+                false,
+                Some(
+                    <Runtime as pallet_evm::Config>::GasWeightMapping::gas_to_weight(
+                        GAS_LIMIT, true,
+                    ),
+                ),
+                Some(0),
+                <Runtime as pallet_evm::Config>::config(),
+            )
+            .expect("the runner accepts the call")
+        }
+
+        #[test]
+        fn new_account_allowance_covers_the_stored_account_entry() {
+            new_test_ext().execute_with(|| {
+                assert!(transfer(&destination(), AMOUNT).exit_reason.is_succeed());
+
+                let key = frame_system::Account::<Runtime>::hashed_key_for(destination());
+                let value = unhashed::get_raw(&key).expect("account is stored");
+                let allowance =
+                    SubstrateTransferPrecompile::<Runtime, ()>::new_account_storage_growth();
+                assert!(allowance >= (key.len() + value.len()) as u64);
+            });
+        }
+
+        #[test]
+        fn transfer_creates_the_destination_and_then_tops_it_up() {
+            new_test_ext().execute_with(|| {
+                assert!(!System::account_exists(&destination()));
+
+                assert!(transfer(&destination(), AMOUNT).exit_reason.is_succeed());
+                assert_eq!(
+                    pallet_balances::Pallet::<Runtime>::free_balance(destination()),
+                    AMOUNT
+                );
+
+                assert!(transfer(&destination(), AMOUNT).exit_reason.is_succeed());
+                assert_eq!(
+                    pallet_balances::Pallet::<Runtime>::free_balance(destination()),
+                    2 * AMOUNT
+                );
+            });
+        }
+
+        #[test]
+        fn failed_transfer_to_fresh_destination_leaves_no_account_behind() {
+            new_test_ext().execute_with(|| {
+                assert!(transfer(&destination(), u128::MAX).exit_reason.is_revert());
+                assert!(!System::account_exists(&destination()));
             });
         }
     }

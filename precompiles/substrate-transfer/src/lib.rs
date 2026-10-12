@@ -5,7 +5,9 @@ use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     sp_runtime::traits::{Dispatchable, StaticLookup},
 };
+use frame_system::AccountInfo;
 use pallet_evm::AddressMapping;
+use parity_scale_codec::MaxEncodedLen;
 use precompile_utils::prelude::*;
 use sp_core::{H256, U256};
 use sp_std::{
@@ -20,6 +22,11 @@ mod tests;
 
 /// Solidity selector of the Transfer log, which is the Keccak of the Log signature.
 pub const SELECTOR_LOG_TRANSFER: [u8; 32] = keccak256!("Transfer(address,bytes32,uint256)");
+
+/// Length of the two `twox_128` hashes (pallet and item) that prefix every storage key.
+const STORAGE_PREFIX_LEN: usize = 32;
+/// Length of the `Blake2_128Concat` hash ahead of the account id in a `System::Account` key.
+const ACCOUNT_KEY_HASH_LEN: usize = 16;
 
 /// Alias for the Balance type for the provided Runtime and Instance.
 pub type BalanceOf<Runtime, Instance = ()> =
@@ -60,6 +67,13 @@ where
 
             let amount = Self::u256_to_amount(amount).in_field("value")?;
 
+            // Only a transfer to a fresh destination adds persistent state.
+            let storage_growth = if frame_system::Pallet::<Runtime>::account_exists(&to) {
+                0
+            } else {
+                Self::new_account_storage_growth()
+            };
+
             // Dispatch call (if enough gas).
             RuntimeHelper::<Runtime>::try_dispatch(
                 handle,
@@ -68,7 +82,7 @@ where
                     dest: Runtime::Lookup::unlookup(to),
                     value: amount,
                 },
-                0,
+                storage_growth,
             )?;
         }
 
@@ -82,6 +96,16 @@ where
         .record(handle)?;
 
         Ok(true)
+    }
+
+    /// Bytes a transfer adds to storage by creating the destination's `System::Account` entry:
+    /// the full storage key plus the largest encoded `AccountInfo`.
+    pub fn new_account_storage_growth() -> u64 {
+        let key = STORAGE_PREFIX_LEN
+            + ACCOUNT_KEY_HASH_LEN
+            + <Runtime::AccountId as MaxEncodedLen>::max_encoded_len();
+        let value = AccountInfo::<Runtime::Nonce, Runtime::AccountData>::max_encoded_len();
+        (key + value) as u64
     }
 
     fn u256_to_amount(value: U256) -> MayRevert<BalanceOf<Runtime, Instance>> {
