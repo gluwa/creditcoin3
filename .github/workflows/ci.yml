@@ -1961,54 +1961,57 @@ jobs:
       proxy: "rebuild-new-metadata"
     secrets: inherit
 
+  # The four example workflows below run gluwa/attestcoin-protocol-examples. They are pinned
+  # to one commit, the same SHA in `uses:` and `checkout_ref`, so a push to the examples repo
+  # can't turn every open PR here red. Bump both together when the examples change.
   hello-bridge:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/hello-bridge.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/hello-bridge.yml@4fdcc242f283b9b7a8089815c4f93f2303972261 # main, 2026-10-08
     with:
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "4fdcc242f283b9b7a8089815c4f93f2303972261"
 
   custom-contracts-bridging:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/custom-contracts-bridging.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/custom-contracts-bridging.yml@4fdcc242f283b9b7a8089815c4f93f2303972261 # main, 2026-10-08
     with:
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "4fdcc242f283b9b7a8089815c4f93f2303972261"
 
   bridge-offchain-worker:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/bridge-offchain-worker.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/bridge-offchain-worker.yml@4fdcc242f283b9b7a8089815c4f93f2303972261 # main, 2026-10-08
     with:
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "4fdcc242f283b9b7a8089815c4f93f2303972261"
 
   loan-flow:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/loan-flow.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/loan-flow.yml@4fdcc242f283b9b7a8089815c4f93f2303972261 # main, 2026-10-08
     with:
       runs-on: "['ubuntu-26.04']"
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "4fdcc242f283b9b7a8089815c4f93f2303972261"
 
   # Both compatibility suites used to live in their own pull_request workflows, each
   # building its own SUT. That was the same `--release --features=fast-runtime` compile
