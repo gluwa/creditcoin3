@@ -36,6 +36,7 @@ import {
     ForcedElection,
     RevertedAttestationChainTo,
     MaturityStrategySet,
+    ChainNameSet,
 } from '../types';
 import { Balance } from '@polkadot/types/interfaces';
 import { getChainData, fetchAttestationParams, chainDataId } from './initStore';
@@ -241,6 +242,51 @@ export async function handleMaturityStrategySet(event: SubstrateEvent): Promise<
     logger.info(`Maturity strategy for chain ${chainKeyStr} set to ${maturityStrategyStr} at block ${blockNumber}`);
 
     await maturityStrategySet.save();
+}
+
+export async function handleChainNameSet(event: SubstrateEvent): Promise<void> {
+    const {
+        event: {
+            data: [chainKey, chainId, oldChainName, chainName],
+        },
+    } = event;
+
+    const from = event.extrinsic?.extrinsic.signer;
+    assert(from, 'Signer is missing');
+
+    const blockNumber = event.block.block.header.number.toBigInt();
+
+    const chainKeyStr = chainKey.toString();
+    const chainKeyNumber = BigInt(chainKeyStr);
+    // Names are `Vec<u8>` on chain; decode them the same way `handleSupportedChainRegistered` does.
+    const oldChainNameStr = Buffer.from(oldChainName.toString().slice(2), 'hex').toString('utf8');
+    const chainNameStr = Buffer.from(chainName.toString().slice(2), 'hex').toString('utf8');
+
+    const chainNameSet = ChainNameSet.create({
+        id: `${blockNumber}-${event.idx}`,
+        at: blockNumber,
+        chainKey: chainKeyNumber,
+        chainId: BigInt(chainId.toString()),
+        oldChainName: oldChainNameStr,
+        chainName: chainNameStr,
+        whoId: from.toString(),
+    });
+
+    // Same in-place update of the registration row as `handleMaturityStrategySet`.
+    const supportedChain = await SupportedChain.get(chainDataId(chainKeyNumber));
+    if (supportedChain) {
+        supportedChain.chainName = chainNameStr;
+        supportedChain.at = blockNumber;
+        await supportedChain.save();
+    } else {
+        logger.error(
+            `Supported Chains : ${chainKeyStr} not found in db for block number event: ${blockNumber}. ChainNameSet recorded without updating the registration.`,
+        );
+    }
+
+    logger.info(`Chain ${chainKeyStr} renamed from ${oldChainNameStr} to ${chainNameStr} at block ${blockNumber}`);
+
+    await chainNameSet.save();
 }
 
 export async function handleSupportedChainRemoved(event: SubstrateEvent): Promise<void> {

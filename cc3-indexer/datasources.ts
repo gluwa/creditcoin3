@@ -226,6 +226,14 @@ export const attestationDatasources: SubstrateRuntimeDatasource = {
             },
             {
                 kind: SubstrateHandlerKind.Event,
+                handler: 'handleChainNameSet',
+                filter: {
+                    module: 'supportedChains',
+                    method: 'ChainNameSet',
+                },
+            },
+            {
+                kind: SubstrateHandlerKind.Event,
                 handler: 'handleSupportedChainRemoved',
                 filter: {
                     module: 'supportedChains',

@@ -3475,6 +3475,22 @@ declare module '@polkadot/api-base/types/submittable' {
                 [u64, bool]
             >;
             /**
+             * Renames an already-registered chain.
+             *
+             * The name is a label: it is exposed by the chain-info precompile and logged by the
+             * archiver, but no attestation, digest or checkpoint depends on it, so a rename has no
+             * effect on running attestors or archivers and needs no restart. The only thing keyed
+             * on the name is the `(chain_id, chain_name)` lookup, which is moved to the new name
+             * atomically. The new name must be unique for the chain's `chain_id`, exactly as on
+             * registration.
+             *
+             * Only accounts in the Operators membership can call this extrinsic.
+             **/
+            setChainName: AugmentedSubmittable<
+                (chainKey: u64 | AnyNumber | Uint8Array, chainName: Text | string) => SubmittableExtrinsic<ApiType>,
+                [u64, Text]
+            >;
+            /**
              * Replaces the maturity strategy of an already-registered chain.
              *
              * **This is a rare, coordinated operation, not a runtime knob.** Attestors and

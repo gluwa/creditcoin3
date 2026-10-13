@@ -72,6 +72,41 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_chain_name() {
+        // Setup
+        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+        let chain_id: ChainId = 2;
+        let chain_name: String = String::from("Ethereum");
+        let chain_encoding = ChainEncodingVersion::V1;
+
+        assert_ok!(SupportedChains::<T>::register_chain(
+            root_origin.clone(),
+            chain_id,
+            chain_name.clone(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            chain_encoding,
+            None,
+        ));
+
+        let chain_key = ChainIdAndNameToUniqKey::<T>::get(chain_id, chain_name.as_bytes().to_vec())
+            .expect("chain was just registered");
+
+        // A name that differs from the registered one: the same name is rejected with
+        // `ChainNameUnchanged`, so the benchmark would measure a failing call.
+        #[extrinsic_call]
+        _(
+            root_origin as <T as frame_system::Config>::RuntimeOrigin,
+            chain_key,
+            String::from("Ethereum Mainnet"),
+        )
+    }
+
+    #[benchmark]
     fn remove_chain() {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
