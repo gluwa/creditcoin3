@@ -46,6 +46,8 @@ env:
 jobs:
   build-creditcoin-node:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # A cold build on a hosted runner is the slow case; well above it, far below the 6 h default.
+    timeout-minutes: 120
     steps:
       - name: Checkout code regularly
         if: ${{ ! inputs.use-new-metadata }}
