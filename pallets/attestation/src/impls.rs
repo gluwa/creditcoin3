@@ -1047,6 +1047,15 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::AttestationExists.into());
         }
 
+        // Attestors only produce the genesis attestation and heights on a multiple of the
+        // attestation interval, so queued attestations are at least an interval apart.
+        let header_number = attestation.header_number();
+        ensure!(
+            header_number == AttestationChainGenesisBlockNumber::<T>::get(chain_key)
+                || header_number % Self::chain_attestation_interval(chain_key).max(1) == 0,
+            Error::<T>::InvalidAttestationBlockNumber
+        );
+
         // Attestor eligibility validation
         let active_attestors = ActiveAttestors::<T>::get(chain_key)
             .into_iter()

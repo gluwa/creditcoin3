@@ -425,9 +425,12 @@ mod benchmarks {
         let (attestors, attestation_prev) = setup_commit::<T>(m);
 
         // Round s down to nearest 10 to reduce benchmark iterations (200, 210, ... 500).
-        // Continuity proof has att_header - 1 blocks.
+        // Continuity proof has att_header - 1 blocks. The head sits on a multiple of the
+        // attestation interval, at least one interval past `CATCH_UP_SPAN` so the proof stays
+        // on the catch-up path, and at most `MAX_SPAN` so it stays within `MaxCatchup`.
         let s_rounded = (s / 10 * 10).max(CATCH_UP_SPAN) as u64;
-        let att_header = s_rounded + 1;
+        let att_header =
+            s_rounded.max(CATCH_UP_SPAN as u64 + ChainAttestationInterval::<T>::get(DEV_CHAIN_KEY));
         let attestation = create_signed_attestation::<T>(
             attestors.clone(),
             DEV_CHAIN_KEY,
@@ -445,7 +448,7 @@ mod benchmarks {
         // Catch-up checkpointed straight from the proof.
         assert_eq!(
             LastCheckpoint::<T>::get(DEV_CHAIN_KEY).map(|c| c.block_number),
-            Some(s_rounded / 100 * 100)
+            Some(att_header / 100 * 100)
         );
     }
 
@@ -485,7 +488,7 @@ mod benchmarks {
             attestors.clone(),
             DEV_CHAIN_KEY,
             1,
-            CATCH_UP_SPAN as u64 + 1,
+            CATCH_UP_SPAN as u64 + attestation_interval,
             Some(attestation_prev.digest()),
         );
 

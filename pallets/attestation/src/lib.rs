@@ -983,7 +983,8 @@ pub mod pallet {
         fn integrity_test() {
             assert!(T::MaxAttestationsPerBlock::get() > 0);
             // Room for the queue a chain holds between checkpoints at the largest allowed
-            // checkpoint interval.
+            // checkpoint interval. Queued attestations are at least an attestation interval
+            // apart (see `validate_attestation`), so a full queue always spans a checkpoint.
             assert!(
                 T::MaxCheckpointingQueueLen::get()
                     > T::MaxAttestationCheckpointInterval::get()

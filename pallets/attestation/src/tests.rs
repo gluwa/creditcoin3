@@ -2343,6 +2343,8 @@ fn commit_attestation_interval_10_works() {
 fn commit_attestation_interval_1_works() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // Attestation interval 1: consecutive heights are all aligned.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
         assert_eq!(
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
             0
@@ -2419,6 +2421,8 @@ fn commit_attestation_interval_1_works() {
 fn commit_attestation_interval_1_fails_with_wrong_prev_digest() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // Attestation interval 1: consecutive heights are all aligned.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
         assert_eq!(
             Attestation::checkpointing_queues(SUPPORTED_CHAIN_KEY).len(),
             0
@@ -2952,7 +2956,7 @@ fn commit_attestation_should_reject_continuity_proof_tail_at_block_zero() {
         // Craft a proof with roots.len() == header_number, so
         // start_block_number = header_number - roots.len() = 0. The tail links to the genesis
         // attestation, so validation reaches the `tail_block_number - 1` site with tail == 0.
-        let header_number = 5u64;
+        let header_number = 10u64;
         let continuity_proof = construct_fragment(
             Some(attestation_1.digest()),
             RangeInclusive::new(1, header_number),
@@ -3306,7 +3310,7 @@ fn commit_attestation_should_error_when_submitting_duplicate_attestation() {
 fn validate_attestation_should_error_when_it_cannot_validate_the_attestation() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        let attestation = create_signed_attestation(vec![attestor], 1, 1, None, None);
+        let attestation = create_signed_attestation(vec![attestor], 1, 10, None, None);
 
         // note: not calling register_attestor() will cause the validation to fail
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
@@ -3370,7 +3374,7 @@ fn validate_attestation_should_error_when_majority_not_reached() {
         // Three active attestors put the quorum at 3; only one of them signs below.
         pad_active_attestors(SUPPORTED_CHAIN_KEY, 3);
 
-        let attestation = create_signed_attestation(vec![attestor], 1, 1, None, None);
+        let attestation = create_signed_attestation(vec![attestor], 1, 10, None, None);
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
         assert_err!(result, Error::<Test>::MajorityNotReached);
@@ -3547,7 +3551,7 @@ fn submitting_attestation_chain_works() {
         let attestation_2 = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            11,
+            10,
             Some(digest),
             None,
         );
@@ -3722,6 +3726,10 @@ fn creating_checkpoint_works_at_expected_intervals() {
         assert_eq!(att_interval, 10);
         let att_per_check = Attestation::attestation_checkpoint_interval(SUPPORTED_CHAIN_KEY);
         assert_eq!(att_per_check, 10);
+        // The unaligned heights below (13, 23, ...) need an attestation interval of 1; keep the
+        // checkpoint width at the default 10 * 10 = 100 that the assertions rely on.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 100);
 
         assert_ok!(Attestation::register_attestor(
             attestor.stash.clone(),
@@ -3868,6 +3876,9 @@ fn create_checkpoints_from_continuity_proof_with_500_blocks() {
         assert_eq!(att_interval, 10);
         assert_eq!(att_per_check, 10);
         assert_eq!(checkpoint_width, 100);
+        // Header 501 is off the default interval of 10; use interval 1 with the same width of 100.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 100);
 
         assert_ok!(Attestation::register_attestor(
             attestor.stash.clone(),
@@ -3968,12 +3979,12 @@ fn create_checkpoints_from_continuity_proof_clears_checkpointing_queues() {
         // Commit a small attestation that goes through the legacy path and populates CheckpointingQueues
         let fragment_small = construct_fragment(
             Some(genesis_attestation.digest()),
-            RangeInclusive::new(1, 10),
+            RangeInclusive::new(1, 9),
         );
         let small_attestation = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            11,
+            10,
             Some(genesis_attestation.digest()),
             Some(fragment_small),
         );
@@ -3992,12 +4003,12 @@ fn create_checkpoints_from_continuity_proof_clears_checkpointing_queues() {
         // Now commit a large attestation that triggers the catch-up path (2+ checkpoint widths)
         let fragment_big = construct_fragment(
             Some(small_attestation.digest()),
-            RangeInclusive::new(12, 500),
+            RangeInclusive::new(11, 499),
         );
         let big_attestation = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            501,
+            500,
             Some(small_attestation.digest()),
             Some(fragment_big),
         );
@@ -4049,12 +4060,12 @@ fn create_checkpoints_from_continuity_proof_below_threshold_uses_legacy_path() {
         // This should use the legacy path and add to CheckpointingQueues
         let fragment = construct_fragment(
             Some(genesis_attestation.digest()),
-            RangeInclusive::new(1, 150),
+            RangeInclusive::new(1, 149),
         );
         let attestation = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            151,
+            150,
             Some(genesis_attestation.digest()),
             Some(fragment),
         );
@@ -4299,12 +4310,12 @@ fn create_checkpoints_from_continuity_proof_adds_to_removal_queue() {
         // Large attestation triggering catch-up
         let fragment = construct_fragment(
             Some(genesis_attestation.digest()),
-            RangeInclusive::new(1, 500),
+            RangeInclusive::new(1, 499),
         );
         let attestation_500 = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            501,
+            500,
             Some(genesis_attestation.digest()),
             Some(fragment),
         );
@@ -4968,7 +4979,7 @@ fn chilled_attestor_cannot_commit_attestation() {
         let target_sample_size = Attestation::target_sample_size(SUPPORTED_CHAIN_KEY);
         assert!(target_sample_size > 0);
 
-        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 1, None, None);
+        let attestation = create_signed_attestation(vec![attestor.clone()], 1, 10, None, None);
 
         let result = Attestation::validate_attestation(attestation.chain_key(), &attestation);
         assert_err!(result, Error::<Test>::MajorityNotReached);
@@ -6084,7 +6095,7 @@ fn commit_attestation_blocked_while_attestation_cursor_draining() {
         let attestation_2 = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            11,
+            10,
             Some(attestation_1.digest()),
             None,
         );
@@ -11596,6 +11607,9 @@ fn direct_link_attestation(
 fn commit_attestation_is_limited_per_block() {
     ExtBuilder.build_and_execute(|| {
         let (attestor, genesis) = setup_attesting_chain();
+        // Consecutive heights need interval 1; keep the default checkpoint width of 100.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 100);
         let limit = <<Test as Config>::MaxAttestationsPerBlock as Get<u32>>::get() as u64;
 
         // The genesis commit counts towards this block's limit.
@@ -11639,6 +11653,9 @@ fn commit_attestation_is_limited_per_block() {
 fn failed_commit_does_not_count_towards_block_limit() {
     ExtBuilder.build_and_execute(|| {
         let (attestor, genesis) = setup_attesting_chain();
+        // Consecutive heights need interval 1; keep the default checkpoint width of 100.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 100);
         System::set_block_number(System::block_number() + 1);
         let now = System::block_number();
         let limit = <<Test as Config>::MaxAttestationsPerBlock as Get<u32>>::get();
@@ -11685,6 +11702,9 @@ fn failed_commit_does_not_count_towards_block_limit() {
 fn commit_attestation_respects_queue_len_limit() {
     ExtBuilder.build_and_execute(|| {
         let (attestor, genesis) = setup_attesting_chain();
+        // Consecutive heights need interval 1; keep the default checkpoint width of 100.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 100);
         System::set_block_number(System::block_number() + 1);
 
         let cap = <<Test as Config>::MaxCheckpointingQueueLen as Get<u32>>::get() as usize;
@@ -11840,6 +11860,8 @@ fn integrity_holds_at_max_checkpoint_interval() {
         assert!(steady_state_len < queue_len_limit());
 
         let (attestor, genesis) = setup_attesting_chain();
+        // Height 1 needs interval 1: the queue then holds 2 * width + 1 single-block entries.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
         System::set_block_number(System::block_number() + 1);
         AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, max_interval);
         let queue: VecDeque<Digest> = (0..steady_state_len).map(|_| H256::random()).collect();
@@ -11869,11 +11891,11 @@ fn catch_up_commit_with_queued_attestations() {
         let small = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            11,
+            10,
             Some(genesis.digest()),
             Some(construct_fragment(
                 Some(genesis.digest()),
-                RangeInclusive::new(1, 10),
+                RangeInclusive::new(1, 9),
             )),
         );
         assert_ok!(Attestation::commit_attestation(
@@ -11889,11 +11911,11 @@ fn catch_up_commit_with_queued_attestations() {
         let big = create_signed_attestation(
             vec![attestor.clone()],
             SUPPORTED_CHAIN_KEY,
-            501,
+            500,
             Some(small.digest()),
             Some(construct_fragment(
                 Some(small.digest()),
-                RangeInclusive::new(12, 500),
+                RangeInclusive::new(11, 499),
             )),
         );
 
@@ -12041,6 +12063,53 @@ fn commit_at_queue_len_limit_condenses_queue_when_checkpoint_drains_nothing() {
         assert_eq!(
             AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY).back(),
             Some(&second.digest())
+        );
+    })
+}
+
+#[test]
+fn commit_attestation_rejects_height_off_interval() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis) = setup_attesting_chain();
+        System::set_block_number(System::block_number() + 1);
+        assert_eq!(
+            Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY),
+            10
+        );
+
+        // Height 15 is neither the genesis height nor a multiple of the interval.
+        let unaligned = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            15,
+            Some(genesis.digest()),
+            Some(construct_fragment(
+                Some(genesis.digest()),
+                RangeInclusive::new(1, 14),
+            )),
+        );
+        assert_noop!(
+            Attestation::commit_attestation(attestor.attestor_origin.clone(), unaligned),
+            Error::<Test>::InvalidAttestationBlockNumber
+        );
+
+        let aligned = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            20,
+            Some(genesis.digest()),
+            Some(construct_fragment(
+                Some(genesis.digest()),
+                RangeInclusive::new(1, 19),
+            )),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            aligned.clone()
+        ));
+        assert_eq!(
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, aligned.digest()),
+            Some(aligned)
         );
     })
 }
