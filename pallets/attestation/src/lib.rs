@@ -219,7 +219,8 @@ pub mod pallet {
         fn register_invulnerable() -> Weight;
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
-        fn commit_attestation(a: u32, b: u32, q: u32) -> Weight;
+        fn commit_attestation(a: u32, b: u32) -> Weight;
+        fn commit_attestation_queued(q: u32) -> Weight;
         fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
@@ -989,20 +990,24 @@ pub mod pallet {
                         .saturating_mul(2)
                         .saturating_add(1)
             );
-            // A catch-up commit against a full queue, with the largest attestor set and the span
-            // such a queue covers at the default attestation interval, must still fit in a single
-            // normal extrinsic. Mirrors `weigh_data`: the gap since the last checkpoint, plus the
-            // attestation's own proof and one more proof's worth of roots.
+            // A commit that condenses a full queue, with the largest attestor set and the span
+            // such a queue covers at the default intervals, must still fit in a single normal
+            // extrinsic. Mirrors `weigh_data`: the gap since the last checkpoint, the
+            // attestation's own proof and the queued proof that straddles the last checkpoint.
             let max_queue = T::MaxCheckpointingQueueLen::get();
             let interval = T::DefaultAttestationInterval::get();
-            let max_roots = interval.max(T::DefaultMaxCatchup::get() as u64);
+            let straddle = interval
+                .saturating_mul(T::DefaultAttestationsPerCheckpoint::get() as u64)
+                .saturating_mul(2);
+            let own_proof = straddle.max(T::DefaultMaxCatchup::get() as u64);
             let gap = (max_queue as u64)
                 .saturating_add(1)
                 .saturating_mul(interval);
             let span = gap
-                .saturating_add(max_roots.saturating_mul(2))
+                .saturating_add(own_proof)
+                .saturating_add(straddle)
                 .min(u32::MAX as u64) as u32;
-            let worst = <T as Config>::WeightInfo::commit_attestation(
+            let worst = CommitAttestationWeight::<T>::weight_for(
                 span,
                 T::MaxAttestationNodes::get(),
                 max_queue,
@@ -1783,32 +1788,32 @@ pub mod pallet {
                 .map(|c| c.block_number)
                 .unwrap_or(header_number);
 
-            // Continuity-proof roots walked beyond the attestation's own proof. The catch-up path
-            // (`create_checkpoints_from_continuity_proof`) also expands every queued attestation's
-            // proof, which covers at most the blocks between the last checkpoint and the last
-            // attested height plus one proof's worth before the checkpoint. The legacy path walks
-            // one queued proof to locate the checkpoint target.
-            let max_roots = (MaxCatchup::<T>::get(chain_key) as u64).max(attestation_interval);
-            let catching_up = proof_len >= checkpoint_width.saturating_mul(2);
+            // Charged from the stored queue length, read from its length prefix.
+            let q = Pallet::<T>::checkpointing_queue_len(chain_key);
+
+            // Continuity-proof roots walked beyond the attestation's own proof. Condensing the
+            // queue (the catch-up path, or the fallback once the queue is over
+            // `MaxCheckpointingQueueLen`) expands every queued attestation's proof, which covers
+            // the blocks between the last checkpoint and the last attested height plus the
+            // queued proof that straddles the checkpoint. A queued proof is shorter than
+            // `2 * checkpoint_width`, since a longer one takes the catch-up path instead. The
+            // legacy path walks one queued proof to locate the checkpoint target.
+            let straddle = checkpoint_width.saturating_mul(2);
+            let catching_up = proof_len >= straddle || q >= T::MaxCheckpointingQueueLen::get();
             let extra_roots = if catching_up {
                 let last_height = LastDigest::<T>::get(chain_key)
                     .map(|(h, _)| h)
                     .unwrap_or(last_checkpoint);
                 last_height
                     .saturating_sub(last_checkpoint)
-                    .saturating_add(max_roots)
+                    .saturating_add(straddle)
             } else {
-                max_roots
+                straddle
             };
             let s_eff = proof_len.saturating_add(extra_roots).min(u32::MAX as u64) as u32;
 
-            // Charged from the stored queue length, which `do_commit_attestation` keeps at or
-            // below `MaxCheckpointingQueueLen`.
-            let q = Pallet::<T>::checkpointing_queue_len(chain_key)
-                .min(T::MaxCheckpointingQueueLen::get());
-
             // Base weight from benchmarks, measured with checkpoint_width = 10 * 10 = 100.
-            let weight = <T as Config>::WeightInfo::commit_attestation(s_eff, m, q);
+            let weight = CommitAttestationWeight::<T>::weight_for(s_eff, m, q);
 
             // --- Checkpoint creation writes ---
             // The legacy path creates at most one checkpoint per commit; the catch-up path
@@ -1824,6 +1829,17 @@ pub mod pallet {
             let benchmark_checkpoints = proof_len / 100;
             let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
             weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)))
+        }
+    }
+
+    impl<T: Config> CommitAttestationWeight<T> {
+        /// Commit weight for `s` continuity-proof roots and `m` attestors, plus the marginal
+        /// cost of a checkpointing queue of `q` entries. Each queued entry is read, decoded and
+        /// removed; the roots its proof carries are charged through `s`.
+        pub(crate) fn weight_for(s: u32, m: u32, q: u32) -> Weight {
+            let queued = <T as Config>::WeightInfo::commit_attestation_queued(q)
+                .saturating_sub(<T as Config>::WeightInfo::commit_attestation_queued(0));
+            <T as Config>::WeightInfo::commit_attestation(s, m).saturating_add(queued)
         }
     }
 

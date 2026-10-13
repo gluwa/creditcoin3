@@ -336,8 +336,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `s` is `[10, 500]`.
 	/// The range of component `m` is `[1, 99]`.
-	/// The range of component `q` is `[0, 2047]`.
-	fn commit_attestation(s: u32, m: u32, q: u32, ) -> Weight {
+	/// The range of component `s` is `[10, 500]`.
+	/// The range of component `m` is `[1, 99]`.
+	fn commit_attestation(s: u32, m: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2011 + m * (202 ±0)`
 		//  Estimated: `7951 + m * (2678 ±0) + s * (11 ±0)`
@@ -351,10 +352,21 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().writes(5))
 			.saturating_add(Weight::from_parts(0, 2678).saturating_mul(m.into()))
 			.saturating_add(Weight::from_parts(0, 11).saturating_mul(s.into()))
-			.saturating_add(Weight::from_parts(50_000_000, 0).saturating_mul(q.into()))
-			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(q.into())))
+	}
+	/// The range of component `q` is `[0, 2047]`.
+	fn commit_attestation_queued(q: u32, ) -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0 + q * (3788 ±0)`
+		//  Estimated: `270865 + q * (5426 ±236)`
+		Weight::from_parts(101_682_963_000, 0)
+			.saturating_add(Weight::from_parts(0, 270865))
+			// Standard Error: 4_337_465
+			.saturating_add(Weight::from_parts(28_043_329, 0).saturating_mul(q.into()))
+			.saturating_add(T::DbWeight::get().reads(25))
+			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(q.into())))
+			.saturating_add(T::DbWeight::get().writes(8))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(q.into())))
-			.saturating_add(Weight::from_parts(0, 2600).saturating_mul(q.into()))
+			.saturating_add(Weight::from_parts(0, 5426).saturating_mul(q.into()))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)

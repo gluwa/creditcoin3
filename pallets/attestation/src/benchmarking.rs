@@ -127,15 +127,96 @@ fn create_signed_attestation<T: frame_system::Config>(
     attestation
 }
 
+type BenchAttestation<T> =
+    SignedAttestation<<T as frame_system::Config>::Hash, <T as frame_system::Config>::AccountId>;
+
+/// Registers `m + 1` attestors on [`DEV_CHAIN_KEY`] with a checkpoint width of 100, commits the
+/// chain's genesis attestation and moves to the next block. Returns the attestors and the
+/// genesis attestation.
+fn setup_commit<T: Config>(m: u32) -> (Vec<Attestor<T>>, BenchAttestation<T>) {
+    let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
+
+    // Ensure pallet limits allow `m` attestors. `set_max_attestors` rejects values above
+    // the runtime ceiling `MaxAttestationNodes`, and the benchmark `m` parameter already
+    // ranges in `1..=MAX_ATTESTORS` which matches the ceiling, so the per-chain cap is set
+    // to exactly the runtime maximum here. (Pre-existing mock attestors are no longer a
+    // concern because the prior `MAX_ATTESTORS + 5` slop now exceeds the runtime ceiling
+    // and would trip the new `InvalidMaxAttestors` guard.)
+    assert_ok!(Attestation::<T>::set_max_attestors(
+        root_origin.clone(),
+        DEV_CHAIN_KEY,
+        T::MaxAttestationNodes::get()
+    ));
+
+    // Set checkpoint interval to 10 (production-realistic: checkpoint every 100 blocks
+    // with attestation_interval=10). With s=500, this creates ~5 checkpoints.
+    // This ensures the benchmark reflects realistic checkpoint creation weight.
+    assert_ok!(Attestation::<T>::set_attestations_per_checkpoint(
+        root_origin.clone(),
+        DEV_CHAIN_KEY,
+        10,
+    ));
+
+    // Set target sample to one
+    TargetSampleSize::<T>::set(DEV_CHAIN_KEY, 1);
+
+    // Creating attestor to attest. The loop is inclusive (`0..=m`) so it registers
+    // `m + 1` attestors. `m` ranges `1..=MAX_ATTESTORS - 1` (see the benchmark signature),
+    // so the worst case registers exactly `MAX_ATTESTORS` attestors — matching the
+    // `set_max_attestors(MaxAttestationNodes)` cap set above. (Before the cap was enforced
+    // the loop went up to `MAX_ATTESTORS + 1` and relied on a `+5` slack in the old
+    // `set_max_attestors` call; that slack now exceeds the runtime ceiling and is
+    // rejected, so the upper bound moved onto `m` instead.)
+    let mut attestors: Vec<Attestor<T>> = Vec::new();
+    for j in 0..=m {
+        let stash_id = create_funded_user_with_balance::<T>("stash", j);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
+        let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), j);
+
+        assert_ok!(Attestation::<T>::register_attestor(
+            attestor.stash_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor_id,
+        ));
+
+        assert_ok!(Attestation::<T>::attest(
+            attestor.attestor_origin.clone(),
+            DEV_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+
+        attestors.push(attestor);
+    }
+
+    // Creating previous attestation
+    let attestation_prev: BenchAttestation<T> =
+        create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, 0, None);
+
+    Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
+    assert_ok!(Attestation::<T>::commit_attestation(
+        attestors[0].attestor_origin.clone(),
+        attestation_prev.clone(),
+    ));
+
+    // Move to the next block so the measured commit is not held back by
+    // `MaxAttestationsPerBlock`.
+    frame_system::Pallet::<T>::set_block_number(
+        frame_system::Pallet::<T>::block_number() + 1u32.into(),
+    );
+
+    (attestors, attestation_prev)
+}
+
 #[benchmarks]
 mod benchmarks {
     use super::*;
 
     pub const MAX_SPAN: u32 = 500; // continuity blocks: 10–500 for realistic weight scaling
     /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
-    /// checkpoint width of 100 (`2 * width`). Catch-up is the path whose cost grows with the
-    /// queue (it decodes and removes every queued attestation), and keeping every sample on it
-    /// stops the step between the two paths from being fitted as a per-root slope.
+    /// checkpoint width of 100 (`2 * width`). Sampling `s` only on that path keeps the step from
+    /// the queue-based path out of the per-root slope; the queue-based path does strictly less
+    /// work per root, so extrapolating the line below this span over-charges it.
     const CATCH_UP_SPAN: u32 = 200;
     const MAX_ATTESTORS: u32 = 100;
     // Upper bound for the `commit_attestation` `m` parameter. The registration loop is
@@ -333,93 +414,55 @@ mod benchmarks {
         )
     }
 
+    /// `commit_attestation` on the catch-up path against an empty checkpointing queue; the
+    /// queue's cost is measured by [`commit_attestation_queued`].
     #[benchmark]
     fn commit_attestation(
         s: Linear<CATCH_UP_SPAN, MAX_SPAN>, // continuity length (#headers), 200–500 blocks
         m: Linear<1, MAX_ATTESTORS_PARAM>,  // number of attestors (registers m+1; see const)
-        q: Linear<0, { T::MaxCheckpointingQueueLen::get() - 1 }>, // queued attestations
     ) {
-        // Setup
-        let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
-
         log::info!("Benchmark parameters: s = {s}, m = {m}");
+        let (attestors, attestation_prev) = setup_commit::<T>(m);
 
-        // Ensure pallet limits allow `m` attestors. `set_max_attestors` rejects values above
-        // the runtime ceiling `MaxAttestationNodes`, and the benchmark `m` parameter already
-        // ranges in `1..=MAX_ATTESTORS` which matches the ceiling, so the per-chain cap is set
-        // to exactly the runtime maximum here. (Pre-existing mock attestors are no longer a
-        // concern because the prior `MAX_ATTESTORS + 5` slop now exceeds the runtime ceiling
-        // and would trip the new `InvalidMaxAttestors` guard.)
-        assert_ok!(Attestation::<T>::set_max_attestors(
-            root_origin.clone(),
+        // Round s down to nearest 10 to reduce benchmark iterations (200, 210, ... 500).
+        // Continuity proof has att_header - 1 blocks.
+        let s_rounded = (s / 10 * 10).max(CATCH_UP_SPAN) as u64;
+        let att_header = s_rounded + 1;
+        let attestation = create_signed_attestation::<T>(
+            attestors.clone(),
             DEV_CHAIN_KEY,
-            T::MaxAttestationNodes::get()
-        ));
-
-        // Set checkpoint interval to 10 (production-realistic: checkpoint every 100 blocks
-        // with attestation_interval=10). With s=500, this creates ~5 checkpoints.
-        // This ensures the benchmark reflects realistic checkpoint creation weight.
-        assert_ok!(Attestation::<T>::set_attestations_per_checkpoint(
-            root_origin.clone(),
-            DEV_CHAIN_KEY,
-            10,
-        ));
-
-        // Set target sample to one
-        TargetSampleSize::<T>::set(DEV_CHAIN_KEY, 1);
-
-        // Creating attestor to attest. The loop is inclusive (`0..=m`) so it registers
-        // `m + 1` attestors. `m` ranges `1..=MAX_ATTESTORS - 1` (see the benchmark signature),
-        // so the worst case registers exactly `MAX_ATTESTORS` attestors — matching the
-        // `set_max_attestors(MaxAttestationNodes)` cap set above. (Before the cap was enforced
-        // the loop went up to `MAX_ATTESTORS + 1` and relied on a `+5` slack in the old
-        // `set_max_attestors` call; that slack now exceeds the runtime ceiling and is
-        // rejected, so the upper bound moved onto `m` instead.)
-        let mut attestors: Vec<Attestor<T>> = Vec::new();
-        for j in 0..=m {
-            let stash_id = create_funded_user_with_balance::<T>("stash", j);
-            let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", j + j);
-            let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), j);
-
-            assert_ok!(Attestation::<T>::register_attestor(
-                attestor.stash_origin.clone(),
-                DEV_CHAIN_KEY,
-                attestor_id,
-            ));
-
-            assert_ok!(Attestation::<T>::attest(
-                attestor.attestor_origin.clone(),
-                DEV_CHAIN_KEY,
-                attestor.public_key,
-                attestor.signature,
-            ));
-
-            attestors.push(attestor);
-        }
-
-        // Creating previous attestation
-        let attestation_prev: SignedAttestation<
-            <T as frame_system::Config>::Hash,
-            <T as frame_system::Config>::AccountId,
-        > = create_signed_attestation::<T>(attestors.clone(), DEV_CHAIN_KEY, 1, 0, None);
-
-        let attestor_origin = attestors[0].attestor_origin.clone();
-
-        Attestation::<T>::do_start_election(2, [0; 32]).unwrap();
-        assert_ok!(Attestation::<T>::commit_attestation(
-            attestor_origin.clone(),
-            attestation_prev.clone(),
-        ));
-
-        // Move to the next block so the measured commit is not held back by
-        // `MaxAttestationsPerBlock`.
-        frame_system::Pallet::<T>::set_block_number(
-            frame_system::Pallet::<T>::block_number() + 1u32.into(),
+            1,
+            att_header,
+            Some(attestation_prev.digest()),
         );
 
-        // Fill the checkpointing queue with `q` stored attestations, each carrying the full
-        // attestor set and an attestation interval's worth of roots. The catch-up path decodes
-        // every one of them and walks its proof; their signatures are never re-checked.
+        #[extrinsic_call]
+        _(
+            attestors[0].attestor_origin.clone() as <T as frame_system::Config>::RuntimeOrigin,
+            attestation,
+        );
+
+        // Catch-up checkpointed straight from the proof.
+        assert_eq!(
+            LastCheckpoint::<T>::get(DEV_CHAIN_KEY).map(|c| c.block_number),
+            Some(s_rounded / 100 * 100)
+        );
+    }
+
+    /// `commit_attestation` on the catch-up path against a checkpointing queue of `q` entries,
+    /// each carrying the largest attestor set and an attestation interval's worth of roots.
+    /// Catch-up reads, decodes and removes every queued attestation. Only the marginal cost of
+    /// `q` is charged on top of [`commit_attestation`]; the roots in queued proofs are charged
+    /// through its `s`.
+    #[benchmark]
+    fn commit_attestation_queued(q: Linear<0, { T::MaxCheckpointingQueueLen::get() - 1 }>) {
+        let (attestors, attestation_prev) = setup_commit::<T>(1);
+
+        // Queued entries are only decoded, never re-verified, so their attestors need not be
+        // registered.
+        let queued_attestors: Vec<T::AccountId> = (0..T::MaxAttestationNodes::get())
+            .map(|j| account("queued", j, SEED))
+            .collect();
         let attestation_interval = ChainAttestationInterval::<T>::get(DEV_CHAIN_KEY);
         let mut queue = VecDeque::new();
         for i in 0..q as u64 {
@@ -427,6 +470,7 @@ mod benchmarks {
             let mut queued = attestation_prev.clone();
             queued.attestation.header_number = header_number;
             queued.attestation.root = H256::from_low_u64_be(i + 1);
+            queued.attestors = queued_attestors.clone();
             queued.continuity_proof = construct_fragment(
                 Some(attestation_prev.digest()),
                 RangeInclusive::new(i * attestation_interval + 1, header_number - 1),
@@ -437,34 +481,17 @@ mod benchmarks {
         }
         CheckpointingQueues::<T>::insert(DEV_CHAIN_KEY, queue);
 
-        // Round s down to nearest 10 to reduce benchmark iterations (200, 210, ... 500).
-        // Continuity proof has att_header - 1 blocks.
-        let s_rounded = (s / 10 * 10).max(CATCH_UP_SPAN) as u64;
-        let start_header = 1;
-        let att_header = s_rounded + 1;
-
-        log::info!(
-            "Creating attestation for header {att_header}  with {} attestors",
-            attestors.len()
-        );
-
         let attestation = create_signed_attestation::<T>(
             attestors.clone(),
             DEV_CHAIN_KEY,
-            start_header,
-            att_header,
+            1,
+            CATCH_UP_SPAN as u64 + 1,
             Some(attestation_prev.digest()),
         );
 
-        log::info!(
-            "Created attestation for header {att_header} with digest {:?} and continuity len {}",
-            attestation.digest(),
-            attestation.continuity_proof.len()
-        );
-
         #[extrinsic_call]
-        _(
-            attestor_origin as <T as frame_system::Config>::RuntimeOrigin,
+        commit_attestation(
+            attestors[0].attestor_origin.clone() as <T as frame_system::Config>::RuntimeOrigin,
             attestation,
         );
 

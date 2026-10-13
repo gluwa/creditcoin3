@@ -11916,3 +11916,131 @@ fn catch_up_commit_with_queued_attestations() {
         );
     })
 }
+
+#[test]
+fn commit_over_queue_len_limit_condenses_queue_after_checkpoint_error() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis) = setup_attesting_chain();
+        System::set_block_number(System::block_number() + 1);
+        // Checkpoint width 1: a commit at height 3 is due to checkpoint height 1.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+
+        let first = direct_link_attestation(&attestor, 1, genesis.digest());
+        let second = direct_link_attestation(&attestor, 2, first.digest());
+        for attestation in [&first, &second] {
+            assert_ok!(Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation.clone()
+            ));
+        }
+        // A front entry with no stored attestation fails every queue-based checkpoint.
+        CheckpointingQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |queue| {
+            queue.push_front(H256::random());
+            queue.resize_with(queue_len_limit(), H256::random);
+        });
+
+        let third = direct_link_attestation(&attestor, 3, second.digest());
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            third.clone()
+        ));
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(AttestationCheckpoint {
+                block_number: 3,
+                digest: third.digest(),
+            })
+        );
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 1),
+            Some(first.digest())
+        );
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 2),
+            Some(second.digest())
+        );
+        assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
+
+        // The chain keeps attesting on the queue-based path.
+        let fourth = direct_link_attestation(&attestor, 4, third.digest());
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            fourth.clone()
+        ));
+        assert_eq!(
+            CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY),
+            VecDeque::from([fourth.digest()])
+        );
+    })
+}
+
+#[test]
+fn commit_at_queue_len_limit_condenses_queue_when_checkpoint_drains_nothing() {
+    ExtBuilder.build_and_execute(|| {
+        let (attestor, genesis) = setup_attesting_chain();
+        System::set_block_number(System::block_number() + 1);
+        // Checkpoint width 10.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 10);
+
+        let first = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            15,
+            Some(genesis.digest()),
+            Some(construct_fragment(
+                Some(genesis.digest()),
+                RangeInclusive::new(1, 14),
+            )),
+        );
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            first.clone()
+        ));
+        CheckpointingQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |queue| {
+            assert_eq!(queue.len(), 1);
+            queue.resize_with(queue_len_limit(), H256::random);
+        });
+
+        // Checkpoints height 10 from inside `first`'s proof, which puts `first` back at the
+        // front of the queue: the queue doesn't shrink.
+        let second = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            21,
+            Some(first.digest()),
+            Some(construct_fragment(
+                Some(first.digest()),
+                RangeInclusive::new(16, 20),
+            )),
+        );
+        // Charged as a commit that walks the whole queued span, not just one more entry.
+        let at_limit = commit_weight(&second);
+        CheckpointingQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |queue| queue.pop_back());
+        let below_limit = commit_weight(&second);
+        CheckpointingQueues::<Test>::mutate(SUPPORTED_CHAIN_KEY, |queue| {
+            queue.push_back(H256::random())
+        });
+        let queued = <Test as Config>::WeightInfo::commit_attestation_queued;
+        let limit = queue_len_limit() as u32;
+        let one_entry = queued(limit).saturating_sub(queued(limit - 1));
+        assert!(at_limit.ref_time() - below_limit.ref_time() > one_entry.ref_time());
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            second.clone()
+        ));
+        let checkpoint_10 = Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 10);
+        assert!(checkpoint_10.is_some());
+        assert_eq!(
+            LastCheckpoint::<Test>::get(SUPPORTED_CHAIN_KEY).map(|c| c.block_number),
+            Some(20)
+        );
+        assert!(CheckpointingQueues::<Test>::get(SUPPORTED_CHAIN_KEY).is_empty());
+        assert_eq!(
+            AttestationRemovalQueues::<Test>::get(SUPPORTED_CHAIN_KEY).back(),
+            Some(&second.digest())
+        );
+    })
+}
