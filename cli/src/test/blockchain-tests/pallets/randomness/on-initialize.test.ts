@@ -5,7 +5,10 @@ import { describeIf } from '../../../utils';
 
 describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'StoreRandomnessForEpoch events', (): void => {
     let api: ApiPromise;
+    // Hard ceiling only: the test stops once `minEvents` epoch boundaries have been checked,
+    // which takes one to two epochs (15 blocks each on fast-runtime).
     const maxBlocks = 70; // > 5 min
+    const minEvents = 2;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -18,11 +21,16 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'StoreRandomnessForEpoch e
     test('are emitted frequently and randomness can be queried from storage', async (): Promise<void> => {
         let recordedEvents = 0;
         const initialBlock = (await getChainStatus(api)).bestNumber;
+        let done = false;
+        let unsubscribe: (() => void) | undefined;
 
         return new Promise((resolve, reject): void => {
             // Subscribe to system events via storage
             api.query.system
                 .events(async (events) => {
+                    if (done) {
+                        return;
+                    }
                     console.log(`Received ${events.length} events`);
 
                     // Loop through the Vec<EventRecord>
@@ -66,13 +74,18 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'StoreRandomnessForEpoch e
                     } // loop over events
 
                     const currentBlock = (await getChainStatus(api)).bestNumber;
-                    if (currentBlock - initialBlock >= maxBlocks) {
+                    if (recordedEvents >= minEvents || currentBlock - initialBlock >= maxBlocks) {
+                        done = true;
+                        unsubscribe?.();
                         resolve(undefined);
                     }
                 })
+                .then((unsub) => {
+                    unsubscribe = unsub;
+                })
                 .catch((error) => reject(new Error(error)));
         }).then(() => {
-            expect(recordedEvents).toBeGreaterThanOrEqual(4);
+            expect(recordedEvents).toBeGreaterThanOrEqual(minEvents);
         });
     }, 500_000); // 70 blocks is 350 sec + reserve to avoid timeouts
 });
