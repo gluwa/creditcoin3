@@ -889,27 +889,38 @@ jobs:
   integration-test-cli:
     strategy:
       fail-fast: false
+      # The full validator suite runs once without a proxy. The proxy variants only run the
+      # files that sign extrinsics, since that is the only path a proxy changes: the error
+      # variants need just the core signing files, the valid-proxy variants add the wizard,
+      # and only Staking also runs the slow era-wait files (payouts, withdraw-unbonded),
+      # which are the staking calls that proxy type exists for. `files` empty = whole suite.
       matrix:
         include:
           - proxy: "no"
+            files: ""
 
           - proxy: "yes"
             secret: no-funds
+            files: "bond send validate chill set-keys unbond validatorCycle"
 
           - proxy: "yes"
             secret: not-a-proxy
+            files: "bond send validate chill set-keys unbond validatorCycle"
 
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: Staking
+            files: "bond send validate chill set-keys unbond validatorCycle wizard distribute-rewards withdraw-unbonded"
 
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: NonTransfer
+            files: "bond send validate chill set-keys unbond validatorCycle wizard"
 
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
+            files: "bond send validate chill set-keys unbond validatorCycle wizard"
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
     # Gated directly rather than through a separate no-op `trigger-` job, which burned a
@@ -1004,8 +1015,18 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          yarn test:validator-cli
+          if [ -z "$TEST_FILES" ]; then
+            yarn test:validator-cli
+          else
+            read -ra NAMES <<< "$TEST_FILES"
+            PATHS=()
+            for name in "${NAMES[@]}"; do
+              PATHS+=("src/test/integration-tests/validator/${name}.test.ts")
+            done
+            yarn test:validator-cli:files "${PATHS[@]}"
+          fi
         env:
+          TEST_FILES: ${{ matrix.files }}
           RUST_LOG: debug
           PROXY_ENABLED: ${{ matrix.proxy }}
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
