@@ -33,6 +33,11 @@ name: cache-warm
       - "rust-toolchain.toml"
       - ".github/workflows/build-native.yml"
       - ".github/workflows/cache-warm.yml"
+  # Hosted runners mix the image's preinstalled Rust into the cache key, so an image bump
+  # invalidates the entry without any manifest change. A daily run re-warms it; scheduled
+  # runs only fire on the default branch.
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -43,8 +48,6 @@ permissions: read-all
 
 jobs:
   # Warms the hosted-runner family, which every PR build-native.yml caller uses.
-  # build-native.yml keys runner families separately (see "Identify runner family"), so
-  # the Linode-only callers (rebuild-new-metadata, runtime-upgrade, release) are not warmed.
   warm-build-creditcoin-node:
     uses: ./.github/workflows/build-native.yml
     with:
@@ -57,12 +60,48 @@ jobs:
       upload-artifacts: false
     secrets: inherit
 
+  # build-native.yml keys runner families separately (see "Identify runner family"), and
+  # rebuild-new-metadata, runtime-upgrade and release still build on Linode. This leg keeps
+  # their self-hosted family warm. It costs one VM per manifest change or daily run, not per PR.
+  deploy-runner:
+    uses: ./.github/workflows/deploy-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      LINODE_REGION: "nl-ams"
+      LINODE_VM_SIZE: "g6-standard-6"
+      proxy: cache-warm
+    secrets: inherit
+
+  warm-build-creditcoin-node-linode:
+    needs: deploy-runner
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
+      version-string: cache-warm-linode
+      cache-key-name: build-creditcoin-node
+      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-cache-warm']"
+      upload-artifacts: false
+    secrets: inherit
+
+  # always() so a failed or cancelled build still releases the VM.
+  remove-runner:
+    needs: [deploy-runner, warm-build-creditcoin-node-linode]
+    if: ${{ always() }}
+    uses: ./.github/workflows/remove-runner.yml
+    with:
+      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
+      proxy: cache-warm
+    secrets: inherit
+
   # This workflow is the only producer of the default-branch cache entry PRs restore
   # from; a PR-scoped cache is not readable by other PRs. When it fails, every PR
   # builds cold and still goes green, so nothing else surfaces it.
   report-cache-producer-failure:
     needs:
       - warm-build-creditcoin-node
+      - deploy-runner
+      - warm-build-creditcoin-node-linode
     if: ${{ failure() }}
     runs-on: ubuntu-26.04
     timeout-minutes: 5
@@ -77,7 +116,9 @@ jobs:
             Native build cache warmer failed on `${{ github.ref_name }}`. PRs that build
             the node (ci.yml, proof-gen-api-server, chainspec, benchmarks) will compile
             from cold until this is green again.
-            warm-build: ${{ needs.warm-build-creditcoin-node.result }}
+            warm-build (hosted): ${{ needs.warm-build-creditcoin-node.result }} |
+            deploy-runner: ${{ needs.deploy-runner.result }} |
+            warm-build (Linode): ${{ needs.warm-build-creditcoin-node-linode.result }}
             Once the cause is fixed, re-run to repopulate the cache:
             `gh workflow run cache-warm.yml --ref ${{ github.ref_name }}`
             cc <!subteam^S028FDV6CCV>
