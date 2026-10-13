@@ -151,10 +151,13 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
 
   generate-changelog:
-    needs: setup
+    needs:
+      - sanity-check
+      - setup
     uses: ./.github/workflows/generate-changelog.yml
     with:
       previous-release: "${{ needs.setup.outputs.previous_release }}"
+      release-tag: "${{ needs.sanity-check.outputs.TAG_NAME }}"
     secrets: inherit
 
   deploy-github-runner:
