@@ -111,6 +111,17 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
+             * Progress markers for removing [`Attestations`] entries left over after a chain removal
+             * or a `revert_to` reversion. Drained by `on_init_clear_attestations`, mirroring
+             * [`CheckpointClearingCursors`].
+             **/
+            attestationClearingCursors: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<Bytes>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
              * A queue containing the digests of attestations to be removed from storage. When the queue fills beyond
              * AttestationRetentionDuration, we remove attestations from the queue and from the Attestations storage
              * map.

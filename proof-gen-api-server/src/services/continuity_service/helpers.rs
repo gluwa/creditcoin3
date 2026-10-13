@@ -34,7 +34,10 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
 /// - `400` (`range too large (max N blocks)`, `"to" must be >= "from"`) → `ArchiverRangeRejected`,
 ///   a non-retriable 400. Without this the status becomes an opaque 5xx, which is both wrong for
 ///   the caller and the reason a boundary-crossing batch pages an operator.
-/// - `404` (`incomplete data: expected N roots ... found M`) → `ArchiverDataUnavailable`, a
+/// - `404` (`incomplete data: expected N roots ... found M`) while the archiver is only still
+///   storing the newest attested blocks (its latest height just below the range end) →
+///   `ArchiverCatchingUp`, a retriable 422 logged at WARN: the normal window after an attestation.
+/// - Any other `404` → `ArchiverDataUnavailable`, a
 ///   retriable 503. The range is valid; the archiver is behind or has a gap. Folding this in with
 ///   the 400 case would tell the caller its range was bad, mark a recoverable state non-retriable,
 ///   and drop the log below the level an operator is paged on.
@@ -42,6 +45,16 @@ fn classify_eth_rpc_anyhow_as_inconsistent(
 ///   are real faults and keep their existing behaviour.
 fn classify_archiver_client_rejection(err: &AnyhowError) -> Option<ServiceError> {
     let status_err = archiver::anyhow_chain_archiver_status(err)?;
+
+    if status_err.is_catching_up_at_tip() {
+        return Some(ServiceError::ArchiverCatchingUp {
+            from: status_err.from,
+            to: status_err.to,
+            latest_archived: status_err
+                .latest_archived
+                .expect("is_catching_up_at_tip implies a known latest height"),
+        });
+    }
 
     if status_err.is_data_unavailable() {
         return Some(ServiceError::ArchiverDataUnavailable {
@@ -1491,13 +1504,109 @@ mod tests {
     /// Build an anyhow chain shaped like the one `ArchiverClient::get_roots` produces, so the
     /// classifier is exercised through `anyhow_chain_archiver_status` rather than a bare value.
     fn archiver_err(status: u16, body: &str, from: u64, to: u64) -> AnyhowError {
+        archiver_err_with_latest(status, body, from, to, None)
+    }
+
+    fn archiver_err_with_latest(
+        status: u16,
+        body: &str,
+        from: u64,
+        to: u64,
+        latest_archived: Option<u64>,
+    ) -> AnyhowError {
         AnyhowError::new(archiver::ArchiverStatusError {
             status: reqwest::StatusCode::from_u16(status).expect("valid status"),
             body: body.to_string(),
             from,
             to,
+            latest_archived,
         })
         .context("failed to get roots from archiver")
+    }
+
+    #[test]
+    fn archiver_404_while_storing_the_newest_attested_blocks_is_a_retriable_422() {
+        // The cc3-devnet case: an attestation released 11801731..=11801760, a proof was requested
+        // a few seconds later, and the archiver had stored up to 11801750 so far.
+        let err = archiver_err_with_latest(
+            404,
+            "incomplete data: expected 30 roots for range 11801731..=11801760, found 20",
+            11_801_731,
+            11_801_760,
+            Some(11_801_750),
+        );
+        let mapped = classify_archiver_client_rejection(&err).expect("404 must classify");
+
+        assert!(
+            matches!(
+                mapped,
+                ServiceError::ArchiverCatchingUp {
+                    from: 11_801_731,
+                    to: 11_801_760,
+                    latest_archived: 11_801_750,
+                }
+            ),
+            "expected ArchiverCatchingUp, got {mapped:?}"
+        );
+        assert_eq!(mapped.status_code(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(mapped.retriable());
+        assert_eq!(mapped.code(), "ArchiverCatchingUp");
+        // A 4xx: `into_response` logs it at WARN, so the window after every attestation no
+        // longer fires the error-log alert.
+        assert!(!mapped.status_code().is_server_error());
+    }
+
+    #[test]
+    fn archiver_404_still_pages_when_it_is_a_hole_or_an_outage() {
+        let body = "incomplete data: expected 30 roots for range 1001..=1030, found 20";
+        for (latest, why) in [
+            (
+                Some(1_030),
+                "archiver holds the range end: the missing roots are a hole",
+            ),
+            (Some(2_000), "archiver is past the range: a hole"),
+            (
+                Some(400),
+                "trails by more than one attestation's worth: an outage",
+            ),
+            (None, "latest height unknown: stay conservative"),
+        ] {
+            let err = archiver_err_with_latest(404, body, 1_001, 1_030, latest);
+            let mapped = classify_archiver_client_rejection(&err).expect("404 must classify");
+            assert!(
+                matches!(mapped, ServiceError::ArchiverDataUnavailable { .. }),
+                "{why}: expected ArchiverDataUnavailable, got {mapped:?}"
+            );
+            assert!(mapped.status_code().is_server_error(), "{why}");
+        }
+    }
+
+    #[test]
+    fn archiver_tip_lag_tolerance_is_inclusive() {
+        let body = "incomplete data";
+        let to = 10_000;
+        let at_limit = archiver_err_with_latest(
+            404,
+            body,
+            9_001,
+            to,
+            Some(to - archiver::ARCHIVER_TIP_LAG_TOLERANCE),
+        );
+        assert!(matches!(
+            classify_archiver_client_rejection(&at_limit),
+            Some(ServiceError::ArchiverCatchingUp { .. })
+        ));
+        let past_limit = archiver_err_with_latest(
+            404,
+            body,
+            9_001,
+            to,
+            Some(to - archiver::ARCHIVER_TIP_LAG_TOLERANCE - 1),
+        );
+        assert!(matches!(
+            classify_archiver_client_rejection(&past_limit),
+            Some(ServiceError::ArchiverDataUnavailable { .. })
+        ));
     }
 
     #[test]

@@ -1,0 +1,17 @@
+{
+  "uscWsUrl": "wss://rpc.asc-devnet.creditcoin.network",
+  "uscNetworkName": "Creditcoin3 ASC Devnet",
+  "graphqlUrl": "https://attestations-graphql.asc-devnet.creditcoin.network",
+  "ethRpc": [
+    {
+      "chainId": 11155111,
+      "chainKey": 1,
+      "url": ""
+    },
+    {
+      "chainId": 84532,
+      "chainKey": 2,
+      "url": "https://base-sepolia-rpc.publicnode.com"
+    }
+  ]
+}

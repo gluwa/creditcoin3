@@ -315,9 +315,23 @@ pub enum SourceCommand {
 
 #[derive(Args, Debug)]
 pub struct SledArgs {
-    /// Path to the Sled database containing block roots
-    #[arg(long, env = "SLED_DB_PATH")]
-    pub sled_db_path: PathBuf,
+    /// Path(s) to the Sled database(s) containing block roots.
+    ///
+    /// Provide multiple times (`--sled-db-path a --sled-db-path b`) or comma-separate the
+    /// `SLED_DB_PATH` env var to chain multiple databases together. Databases are ordered by
+    /// their starting block height; overlapping ranges are resolved in favor of the
+    /// earlier-starting database (see `--fail-on-overlap`).
+    #[arg(
+        long = "sled-db-path",
+        env = "SLED_DB_PATH",
+        value_delimiter = ',',
+        required = true
+    )]
+    pub sled_db_paths: Vec<PathBuf>,
+
+    /// Fail instead of warning when the provided Sled databases have overlapping block ranges.
+    #[arg(long, env = "FAIL_ON_OVERLAP", default_value_t = false)]
+    pub fail_on_overlap: bool,
 
     #[command(flatten)]
     pub common: CommonArgs,
@@ -846,5 +860,57 @@ mod tests {
 
         assert_eq!(genesis1, genesis2);
         assert_ne!(genesis1, genesis3);
+    }
+
+    fn parse_sled_args(extra: &[&str]) -> SledArgs {
+        let mut argv = vec![
+            "checkpoint-builder",
+            "sled",
+            "--checkpoint-ranges",
+            "0,10,1",
+        ];
+        argv.extend_from_slice(extra);
+
+        match Cli::try_parse_from(argv).unwrap().command {
+            SourceCommand::Sled(args) => args,
+            SourceCommand::Archiver(_) => panic!("expected sled subcommand"),
+        }
+    }
+
+    #[test]
+    fn test_sled_args_single_path_still_works() {
+        let args = parse_sled_args(&["--sled-db-path", "only"]);
+        assert_eq!(args.sled_db_paths, vec![PathBuf::from("only")]);
+        assert!(!args.fail_on_overlap);
+    }
+
+    #[test]
+    fn test_sled_args_multiple_paths_repeated_flag() {
+        let args = parse_sled_args(&["--sled-db-path", "a", "--sled-db-path", "b"]);
+        assert_eq!(
+            args.sled_db_paths,
+            vec![PathBuf::from("a"), PathBuf::from("b")]
+        );
+    }
+
+    #[test]
+    fn test_sled_args_comma_delimited_paths() {
+        let args = parse_sled_args(&["--sled-db-path", "a,b,c"]);
+        assert_eq!(
+            args.sled_db_paths,
+            vec![PathBuf::from("a"), PathBuf::from("b"), PathBuf::from("c")]
+        );
+    }
+
+    #[test]
+    fn test_sled_args_fail_on_overlap_flag() {
+        let args = parse_sled_args(&["--sled-db-path", "a", "--fail-on-overlap"]);
+        assert!(args.fail_on_overlap);
+    }
+
+    #[test]
+    fn test_sled_args_fail_on_overlap_defaults_false() {
+        let args = parse_sled_args(&["--sled-db-path", "a"]);
+        assert!(!args.fail_on_overlap);
     }
 }

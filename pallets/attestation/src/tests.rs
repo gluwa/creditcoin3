@@ -1,5 +1,7 @@
 use super::*;
-use crate::clear_or_revert::{CheckpointPruningState, MAX_CHECKPOINTS_CLEARED_PER_BLOCK};
+use crate::clear_or_revert::{
+    CheckpointPruningState, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, MAX_CHECKPOINTS_CLEARED_PER_BLOCK,
+};
 use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
 use crate::Call;
@@ -15,6 +17,7 @@ use frame_support::{
     dispatch::{GetDispatchInfo, Pays},
     BoundedVec,
 };
+use parity_scale_codec::Encode as _;
 use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
@@ -63,10 +66,11 @@ impl Attestor {
     pub fn new(stash_id: u64, attestor_id: u64) -> Self {
         let rng = sp_core::H256::random().0;
         let private_key = PrivateKey::new(rng);
-        let public_key = private_key.public_key().as_bytes()[..].try_into().unwrap();
-        let signature = private_key.sign(public_key).as_bytes()[..]
-            .try_into()
-            .unwrap();
+        let public_key: BlsPublicKey = private_key.public_key().as_bytes()[..].try_into().unwrap();
+        // The proof of possession is bound to `(chain_key, attestor_id)`, so it can only be
+        // minted for a specific claimant on a specific chain. Pre-built for the chain nearly
+        // every test uses; `pop_for` covers the rest and the negative cases.
+        let signature = Self::sign_pop(&private_key, SUPPORTED_CHAIN_KEY, attestor_id, &public_key);
 
         let stash = RuntimeOrigin::signed(stash_id);
 
@@ -79,6 +83,28 @@ impl Attestor {
             public_key,
             signature,
         }
+    }
+
+    /// Mint a proof of possession for an arbitrary `(chain_key, attestor_id)` pair.
+    ///
+    /// Passing a pair other than this attestor's own is how the replay tests build the proof an
+    /// attacker would have copied off the wire.
+    pub fn pop_for(&self, chain_key: ChainKey, attestor_id: mock::AccountId) -> BlsSignature {
+        Self::sign_pop(&self.private_key, chain_key, attestor_id, &self.public_key)
+    }
+
+    fn sign_pop(
+        private_key: &PrivateKey,
+        chain_key: ChainKey,
+        attestor_id: mock::AccountId,
+        public_key: &BlsPublicKey,
+    ) -> BlsSignature {
+        let message = attestor_primitives::proof_of_possession_message(
+            chain_key,
+            attestor_id.encode().as_slice(),
+            public_key,
+        );
+        private_key.sign(message).as_bytes()[..].try_into().unwrap()
     }
 
     pub fn sign(&self, message: &[u8]) -> BlsSignature {
@@ -1948,6 +1974,27 @@ fn set_chain_attestation_interval_should_error_with_interval_0() {
 }
 
 #[test]
+fn set_chain_attestation_interval_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+        assert_noop!(
+            Attestation::set_chain_attestation_interval(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidAttestationInterval
+        );
+
+        assert_ok!(Attestation::set_chain_attestation_interval(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
+    })
+}
+
+#[test]
 fn set_chain_attestation_interval_should_error_for_unsupported_chain() {
     ExtBuilder.build_and_execute(|| {
         let chain_key = 2;
@@ -2160,6 +2207,30 @@ fn set_attestations_per_checkpoint_should_error_with_invalid_interval_value() {
             ),
             Error::<Test>::InvalidAttestationsPerCheckpoint
         );
+    })
+}
+
+#[test]
+fn set_attestations_per_checkpoint_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        // Mock runtime ceiling is `MaxAttestationCheckpointInterval = 1_000`. Anything above it
+        // must be rejected: `commit_attestation`'s dispatch weight scales linearly with this
+        // interval, so accepting a higher value would let it exceed the `Normal` block budget.
+        let ceiling = <Test as crate::Config>::MaxAttestationCheckpointInterval::get();
+        assert_noop!(
+            Attestation::set_attestations_per_checkpoint(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidAttestationsPerCheckpoint
+        );
+
+        assert_ok!(Attestation::set_attestations_per_checkpoint(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
     })
 }
 
@@ -4584,6 +4655,218 @@ fn unregistering_non_existant_attestor_fails() {
     });
 }
 
+fn current_era() -> u32 {
+    pallet_staking::CurrentEra::<Test>::get().unwrap_or(0)
+}
+
+/// Replace the stash's unlocking queue with `(value, era)` chunks, keeping `total_staked` and the
+/// bond lock consistent with them.
+fn set_unlocking_chunks(stash: AccountId, chunks: Vec<(u128, u32)>) {
+    let mut ledger = Ledger::<Test>::get(stash).expect("stash has a ledger");
+    ledger.total_staked = ledger.active + chunks.iter().map(|(value, _)| value).sum::<u128>();
+    ledger.unlocking = BoundedVec::try_from(
+        chunks
+            .into_iter()
+            .map(|(value, era)| crate::ledger::UnlockChunk { value, era })
+            .collect::<Vec<_>>(),
+    )
+    .expect("within MaxUnlockingChunks");
+    ledger.update().expect("ledger update");
+}
+
+/// A stash whose unlocking queue is at `MaxUnlockingChunks`, at an era late enough for chunks to
+/// have matured. `pending` is how many chunks at the back are still locked (eras below the
+/// `BondingDuration` horizon of a new unbond, so they never merge with it); the rest have matured.
+/// Returns the current era.
+fn stash_with_full_unlocking_queue(stash: AccountId, pending: usize) -> u32 {
+    progress_to_block(120);
+    let era = current_era();
+    let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+    assert!(era > max as u32, "need enough eras for matured chunks");
+
+    let unit = u128::from(ONE_TENTH_CTC);
+    let matured = max - pending;
+    let chunks = (0..max)
+        .map(|i| {
+            if i < matured {
+                (unit, era - (matured - i) as u32)
+            } else {
+                (unit, era + 1 + (i - matured) as u32 % 2)
+            }
+        })
+        .collect();
+    set_unlocking_chunks(stash, chunks);
+    assert_eq!(
+        Ledger::<Test>::get(stash).unwrap().unlocking.len(),
+        max,
+        "queue is full"
+    );
+    era
+}
+
+#[test]
+fn unregistering_attestor_releases_matured_chunks_when_unlocking_is_full() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        // The last two chunks are still locked; the other eight have matured.
+        let era = stash_with_full_unlocking_queue(STASH_1, 2);
+        let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+        let released = (max - 2) as u128 * u128::from(ONE_TENTH_CTC);
+
+        assert_ok!(Attestation::unregister_attestor(
+            attestor.stash,
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        // Only the matured chunks left the queue; the new unbond was appended behind the two
+        // that are still locked.
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        let pending = u128::from(ONE_TENTH_CTC);
+        assert_eq!(
+            ledger
+                .unlocking
+                .iter()
+                .map(|chunk| (chunk.value, chunk.era))
+                .collect::<Vec<_>>(),
+            vec![
+                (pending, era + 1),
+                (pending, era + 2),
+                (bond, era + <Test as Config>::BondingDuration::get()),
+            ]
+        );
+        assert_eq!(ledger.active, 0);
+        // What is still locked matches what the ledger accounts for.
+        assert_eq!(ledger.total_staked, 2 * pending + bond);
+        assert_eq!(
+            Attestation::get_locked_balance(&STASH_1),
+            ledger.total_staked
+        );
+
+        System::assert_has_event(
+            crate::Event::Withdrawn {
+                stash: STASH_1,
+                amount: released,
+            }
+            .into(),
+        );
+        System::assert_has_event(
+            crate::Event::Unbonded {
+                stash: STASH_1,
+                amount: bond,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn unregistering_attestor_fails_when_unlocking_is_full_and_nothing_has_matured() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+        stash_with_full_unlocking_queue(STASH_1, max);
+
+        // `assert_noop!` also proves nothing was persisted on the way to the error.
+        assert_noop!(
+            Attestation::unregister_attestor(
+                attestor.stash,
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ),
+            Error::<Test>::NoMoreChunks
+        );
+    });
+}
+
+#[test]
+fn unregistering_attestor_merges_into_the_last_chunk_when_unlocking_is_full() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        // Full queue, nothing matured, but the last chunk already sits at the era this unbond
+        // would get: it needs no extra slot.
+        let max = <Test as Config>::MaxUnlockingChunks::get() as usize;
+        let era = stash_with_full_unlocking_queue(STASH_1, max);
+        let same_era = era + <Test as Config>::BondingDuration::get();
+        let mut ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        ledger.unlocking.last_mut().unwrap().era = same_era;
+        let last_before = ledger.unlocking.last().unwrap().value;
+        ledger.update().unwrap();
+
+        assert_ok!(Attestation::unregister_attestor(
+            attestor.stash,
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(ledger.unlocking.len(), max);
+        let last = ledger.unlocking.last().unwrap();
+        assert_eq!((last.value, last.era), (last_before + bond, same_era));
+    });
+}
+
+// The devnet incident: kicking several attestors of one stash in a row, with a queue full of
+// chunks nobody withdrew. The first kick releases the matured chunks; the rest share its era.
+#[test]
+fn kicking_several_attestors_of_a_stash_with_a_full_unlocking_queue_succeeds() {
+    ExtBuilder.build_and_execute(|| {
+        let first = Attestor::new(STASH_1, ATTESTOR_1);
+        let second = Attestor::new(STASH_1, ATTESTOR_2);
+        for attestor in [&first, &second] {
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+        }
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        let era = stash_with_full_unlocking_queue(STASH_1, 0);
+
+        for attestor in [&first, &second] {
+            assert_ok!(Attestation::kick_active_attestor(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+                true
+            ));
+            assert!(Attestation::attestors(SUPPORTED_CHAIN_KEY, attestor.attestor_id).is_none());
+        }
+
+        // Every matured chunk is gone; both unbonds share one chunk.
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(
+            ledger
+                .unlocking
+                .iter()
+                .map(|chunk| (chunk.value, chunk.era))
+                .collect::<Vec<_>>(),
+            vec![(2 * bond, era + <Test as Config>::BondingDuration::get())]
+        );
+    });
+}
+
 #[test]
 fn chilled_attestor_cannot_commit_attestation() {
     ExtBuilder.build_and_execute(|| {
@@ -5411,6 +5694,201 @@ fn on_supported_chain_removed_cleans_up_checkpoints() {
 
             System::assert_last_event(crate::Event::CheckpointsCleared(SUPPORTED_CHAIN_KEY).into());
         })
+}
+
+/// Regression test: `on_supported_chain_removed` used to discard the leftover `clear_prefix`
+/// cursor outright, stranding rows under the removed chain key. It now persists a cursor and
+/// drains it via `on_init_clear_attestations`, like `Checkpoints`/`CheckpointBuckets` above.
+#[test]
+fn on_supported_chain_removed_defers_excess_attestations_to_a_cursor() {
+    let attestation_count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+    let mut test_ext = ExtBuilder.build();
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    test_ext
+        .then_run(|| {
+            for i in 0..attestation_count as u64 {
+                let a = create_signed_attestation(
+                    Vec::from([attestor.clone()]),
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10,
+                    None,
+                    None,
+                );
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+            }
+            System::set_block_number(1);
+            Timestamp::set_timestamp(1);
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                attestation_count as usize
+            );
+        })
+        .then_run(|| {
+            assert_ok!(SupportedChains::remove_chain(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false
+            ));
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                attestation_count as usize - MAX_ATTESTATIONS_CLEARED_PER_BLOCK as usize
+            );
+            assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+        })
+        .then_run(|| {
+            progress_to_block(2);
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                10
+            );
+            assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+        })
+        .run(|| {
+            progress_to_block(3);
+
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                0
+            );
+            assert_eq!(
+                AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                None
+            );
+        })
+}
+
+/// Regression test: a draining cursor clears `Attestations` in unpredictable (hash) order, so a
+/// new row accepted mid-drain could be collaterally deleted. `commit_attestation` must reject
+/// while a cursor is active and resume once it's gone.
+#[test]
+fn commit_attestation_blocked_while_attestation_cursor_draining() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        progress_to_block(5);
+
+        let attestation_1 =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_1.clone()
+        ));
+
+        let attestation_2 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            11,
+            Some(attestation_1.digest()),
+            None,
+        );
+
+        // Simulate a cursor left draining by a `revert_to` or chain removal.
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
+
+        assert_noop!(
+            Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation_2.clone()
+            ),
+            Error::<Test>::AttestationCleanupInProgress
+        );
+
+        AttestationClearingCursors::<Test>::remove(SUPPORTED_CHAIN_KEY);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_2
+        ));
+    })
+}
+
+/// Regression test: `get`/`contains_digest` used to trust whatever a draining cursor hadn't
+/// reached yet, even though it's pre-revert garbage on its way out.
+#[test]
+fn get_and_contains_digest_treat_leftover_attestations_as_stale_while_cursor_draining() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+        let digest = attestation.digest();
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, digest, attestation.clone());
+
+        assert_eq!(
+            Attestation::get(SUPPORTED_CHAIN_KEY, digest),
+            Some(attestation)
+        );
+        assert!(Attestation::contains_digest(SUPPORTED_CHAIN_KEY, digest, 0));
+
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
+
+        // Still physically present, but no longer trusted while cleanup is draining.
+        assert!(Attestations::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY,
+            digest
+        ));
+        assert_eq!(Attestation::get(SUPPORTED_CHAIN_KEY, digest), None);
+        assert!(!Attestation::contains_digest(
+            SUPPORTED_CHAIN_KEY,
+            digest,
+            0
+        ));
+    })
+}
+
+/// Regression test: chain keys are never reused (they come from a monotonic counter), so an
+/// attestation-cleanup cursor draining for one chain must not affect registering — or
+/// immediately committing on — an unrelated one.
+#[test]
+fn register_chain_unaffected_by_unrelated_chain_attestation_cursor() {
+    ExtBuilder.build_and_execute(|| {
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
+
+        assert_ok!(SupportedChains::register_chain(
+            RuntimeOrigin::root(),
+            SOURCE_CHAIN_ID + 1,
+            "Other".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        ));
+        let new_chain_key =
+            <<Test as Config>::SupportedChains as SupportedChainsProvider>::supported_chains()
+                .into_iter()
+                .find(|k| *k != SUPPORTED_CHAIN_KEY)
+                .expect("second chain registered");
+
+        assert!(AttestationClearingCursors::<Test>::get(new_chain_key).is_none());
+        assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        register_and_attest(new_chain_key, &attestor);
+        progress_to_block(5);
+
+        let attestation =
+            create_signed_attestation(vec![attestor.clone()], new_chain_key, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation
+        ));
+    })
 }
 
 #[test]
@@ -6760,46 +7238,102 @@ mod revert_to {
         })
     }
 
+    /// Regression test: a leftover `clear_prefix` cursor used to abort the whole
+    /// `#[transactional]` revert with `TooManyAttestations`, permanently blocking emergency
+    /// reorg recovery on retry. The checkpoint anchor update now always succeeds and any
+    /// leftover attestation rows drain over the following blocks instead.
     #[test]
-    fn revert_to_should_fail_if_more_than_expected_attestation_count() {
-        let mut ext = ExtBuilder.build();
-        // Add attestations first
-        ext.execute_with(|| {
-            let checkpoint_interval =
-                AttestationCheckpointInterval::<Test>::get(SUPPORTED_CHAIN_KEY);
-            let retention_duration = AttestationRetentionDuration::<Test>::get(SUPPORTED_CHAIN_KEY);
+    fn revert_to_defers_excess_attestations_to_an_on_initialize_cursor() {
+        let attestation_count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+        let mut test_ext = ExtBuilder.build();
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let revert_height: u64 = 1_500;
 
-            let excessive_attestation_count =
-                ((checkpoint_interval + retention_duration) * 10) as u64;
+        test_ext
+            .then_run(|| {
+                for i in 0..attestation_count as u64 {
+                    let a = create_signed_attestation(
+                        Vec::from([attestor.clone()]),
+                        SUPPORTED_CHAIN_KEY,
+                        i * 10, // We don't need attestations to be at realistic heights
+                        None,
+                        None,
+                    );
+                    Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+                }
+                System::set_block_number(1);
+                Timestamp::set_timestamp(1);
 
-            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-
-            for i in 0..excessive_attestation_count {
-                let a = create_signed_attestation(
-                    Vec::from([attestor.clone()]),
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    attestation_count as usize
+                );
+            })
+            .then_run(|| {
+                // Revert target checkpoint + a LastCheckpoint so pruning state can be established.
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
                     SUPPORTED_CHAIN_KEY,
-                    i * 10, // We don't need attestations to be at realistic heights
-                    None,
-                    None,
+                    revert_height,
+                    revert_digest,
+                );
+                let last_height = revert_height + CHECKPOINT_BUCKET_SIZE;
+                let last_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&last_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    last_height,
+                    last_digest,
+                );
+                LastCheckpoint::<Test>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    AttestationCheckpoint {
+                        block_number: last_height,
+                        digest: last_digest,
+                    },
                 );
 
-                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
-            }
-        });
+                let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_ok!(Attestation::revert_to(
+                    root_origin,
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ));
 
-        // Commit attestations to `DB` layer rather than leaving them in overlay.
-        // This prevents unexpected behavior from iter_prefix.
-        ext.commit_all().expect("commit should work");
+                // Only the first fixed batch cleared synchronously ...
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    attestation_count as usize - MAX_ATTESTATIONS_CLEARED_PER_BLOCK as usize
+                );
+                // ... and the anchor updated regardless of the leftover attestations.
+                assert_eq!(
+                    LastDigest::<Test>::get(SUPPORTED_CHAIN_KEY),
+                    Some((revert_height, revert_digest))
+                );
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+            })
+            .then_run(|| {
+                progress_to_block(2);
 
-        ext.execute_with(|| {
-            let revert_height: u64 = 1_500;
-            let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    10
+                );
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+            })
+            .run(|| {
+                progress_to_block(3);
 
-            assert_noop!(
-                Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
-                Error::<Test>::TooManyAttestations
-            );
-        })
+                assert_eq!(
+                    Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                    0
+                );
+                assert_eq!(
+                    AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                    None
+                );
+            })
     }
 
     #[test]
@@ -6848,6 +7382,79 @@ mod revert_to {
                 Error::<Test>::TriedToRevertDuringOngoingReversion
             );
         });
+    }
+
+    /// `CheckpointPruningStates` and `AttestationClearingCursors` drain independently, so a
+    /// second `revert_to` must stay blocked as long as *either* is still active — not just
+    /// `CheckpointPruningStates`.
+    #[test]
+    fn revert_to_should_fail_if_attestation_cursor_still_draining_even_after_checkpoint_pruning_finished(
+    ) {
+        // Two rounds of clearing (the synchronous batch plus one `on_initialize` batch) still
+        // leaves a cursor, since a backlog that fits in two batches would finish after one.
+        let attestation_count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+        let mut test_ext = ExtBuilder.build();
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // Revert straight to the last checkpoint: nothing sits above it, so bucket pruning has
+        // no work to do and `CheckpointPruningStates` clears on the very next block.
+        let revert_height: u64 = 1_500;
+
+        test_ext
+            .then_run(|| {
+                for i in 0..attestation_count as u64 {
+                    let a = create_signed_attestation(
+                        Vec::from([attestor.clone()]),
+                        SUPPORTED_CHAIN_KEY,
+                        i * 10,
+                        None,
+                        None,
+                    );
+                    Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a.clone());
+                }
+
+                let revert_digest =
+                    H256::from(&sp_io::hashing::blake2_256(&revert_height.to_be_bytes()));
+                insert_checkpoint_and_bucket_entry::<Test>(
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height,
+                    revert_digest,
+                );
+                LastCheckpoint::<Test>::insert(
+                    SUPPORTED_CHAIN_KEY,
+                    AttestationCheckpoint {
+                        block_number: revert_height,
+                        digest: revert_digest,
+                    },
+                );
+                System::set_block_number(1);
+                Timestamp::set_timestamp(1);
+            })
+            .then_run(|| {
+                let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_ok!(Attestation::revert_to(
+                    root_origin,
+                    SUPPORTED_CHAIN_KEY,
+                    revert_height
+                ));
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+            })
+            .run(|| {
+                progress_to_block(2);
+
+                // Checkpoint pruning had nothing above the revert height to do, so it's done ...
+                assert_eq!(
+                    CheckpointPruningStates::<Test>::get(SUPPORTED_CHAIN_KEY),
+                    None
+                );
+                // ... but the attestation backlog needed a second batch and is still draining.
+                assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+
+                let root_origin = <Test as frame_system::Config>::RuntimeOrigin::root();
+                assert_noop!(
+                    Attestation::revert_to(root_origin, SUPPORTED_CHAIN_KEY, revert_height),
+                    Error::<Test>::TriedToRevertDuringOngoingReversion
+                );
+            })
     }
 
     #[test]
@@ -7521,6 +8128,28 @@ fn forward_patch_checkpoints_blocked_during_pruning() {
 }
 
 #[test]
+fn forward_patch_checkpoints_blocked_while_attestation_cursor_draining() {
+    ExtBuilder.build_and_execute(|| {
+        // Simulates a `revert_to`/removal whose `Attestations` clear is still draining.
+        AttestationClearingCursors::<Test>::insert(SUPPORTED_CHAIN_KEY, Vec::from([0u8; 4]));
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 50,
+            digest: H256::from([4u8; 32]),
+        }];
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ),
+            Error::<Test>::CheckpointMaintenanceInProgress,
+        );
+    });
+}
+
+#[test]
 fn forward_patch_clears_attestations_queues_and_last_digest() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
@@ -8172,7 +8801,9 @@ fn register_and_attest(chain_key: ChainKey, attestor: &Attestor) {
         RuntimeOrigin::signed(attestor.attestor_id),
         chain_key,
         attestor.public_key,
-        attestor.signature,
+        // Minted for this chain: the pre-built `signature` is bound to `SUPPORTED_CHAIN_KEY`,
+        // and this helper is also used to register on other chains.
+        attestor.pop_for(chain_key, attestor.attestor_id),
     ));
 }
 
@@ -8881,7 +9512,7 @@ mod prevalidate_attestation_commit_extension {
     use crate::extensions::PrevalidateAttestationCommit;
     use sp_runtime::traits::{TransactionExtension, TxBaseImplication};
     use sp_runtime::transaction_validity::{
-        InvalidTransaction, TransactionSource, TransactionValidityError,
+        InvalidTransaction, TransactionSource, TransactionValidityError, ValidTransaction,
     };
 
     #[test]
@@ -8942,6 +9573,78 @@ mod prevalidate_attestation_commit_extension {
             );
 
             assert!(res.is_ok());
+        })
+    }
+
+    /// Mirrors `validate_attestation`'s `AttestationCleanupInProgress` check: a doomed commit
+    /// must be rejected at admission, before fees are charged, regardless of signer identity.
+    #[test]
+    fn prevalidate_rejects_commit_while_attestation_cursor_draining() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature,
+            ));
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            let chain_key = attestation.chain_key();
+            AttestationClearingCursors::<Test>::insert(chain_key, Vec::from([0u8; 4]));
+
+            let call = RuntimeCall::Attestation(crate::Call::commit_attestation { attestation });
+            let info = call.get_dispatch_info();
+
+            // Rejected for the active attestor ...
+            let active = PrevalidateAttestationCommit::<Test>::new().validate(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                &call,
+                &info,
+                0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
+            );
+            assert_eq!(
+                active.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Custom(
+                    crate::extensions::ATTESTATION_CLEANUP_IN_PROGRESS_CODE
+                ))
+            );
+
+            // ... and for a signer that isn't even an active attestor, unlike the other checks
+            // below that only reject active signers.
+            let inactive = PrevalidateAttestationCommit::<Test>::new().validate(
+                RuntimeOrigin::signed(ATTESTOR_2),
+                &call,
+                &info,
+                0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
+            );
+            assert_eq!(
+                inactive.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Custom(
+                    crate::extensions::ATTESTATION_CLEANUP_IN_PROGRESS_CODE
+                ))
+            );
         })
     }
 
@@ -9215,6 +9918,209 @@ mod prevalidate_attestation_commit_extension {
             );
         })
     }
+
+    /// Build the two submissions the slot-squatting scenario needs: a valid quorum attestation,
+    /// and an invalid variant carrying the *same* digest.
+    ///
+    /// `digest()` covers only `(header_number, root, prev_digest)`, so corrupting the aggregate
+    /// signature leaves the digest — and therefore the `provides` tag the old code derived from
+    /// it — completely unchanged. That is the whole basis of the attack.
+    fn valid_and_same_digest_forgery(
+        attestors: Vec<Attestor>,
+    ) -> (
+        SignedAttestation<H256, mock::AccountId>,
+        SignedAttestation<H256, mock::AccountId>,
+    ) {
+        let valid = create_signed_attestation(attestors, SUPPORTED_CHAIN_KEY, 0, None, None);
+        let mut forged = valid.clone();
+        // Any non-verifying aggregate works; zeroes are the clearest statement of intent.
+        forged.signature = [0u8; 96];
+        assert_eq!(
+            valid.digest(),
+            forged.digest(),
+            "precondition: the forgery must address the same pool slot as the honest submission"
+        );
+        (valid, forged)
+    }
+
+    fn prevalidate(
+        signer: mock::AccountId,
+        attestation: &SignedAttestation<H256, mock::AccountId>,
+    ) -> ValidTransaction {
+        let call = RuntimeCall::Attestation(crate::Call::commit_attestation {
+            attestation: attestation.clone(),
+        });
+        let info = call.get_dispatch_info();
+        PrevalidateAttestationCommit::<Test>::new()
+            .validate(
+                RuntimeOrigin::signed(signer),
+                &call,
+                &info,
+                0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
+            )
+            .expect("prevalidation admits the transaction")
+            .0
+    }
+
+    fn activate(attestor: &Attestor) {
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature,
+        ));
+    }
+
+    /// An active attestor submitting an attestation whose aggregate signature does not verify is
+    /// still admitted — it pays its fee in dispatch — but must not receive the `provides` tag.
+    #[test]
+    fn prevalidate_withholds_the_tag_from_an_unverifiable_signature() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            activate(&attestor);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let (valid, forged) = valid_and_same_digest_forgery(vec![attestor.clone()]);
+
+            assert!(
+                prevalidate(attestor.attestor_id, &forged)
+                    .provides
+                    .is_empty(),
+                "an attestation whose signature does not verify must not claim the slot"
+            );
+            assert!(
+                !prevalidate(attestor.attestor_id, &valid)
+                    .provides
+                    .is_empty(),
+                "control: the same attestor's valid submission still claims the slot"
+            );
+        })
+    }
+
+    /// The fix, stated as the property that matters: an invalid submission must not be able to
+    /// occupy the pool slot the honest quorum submission needs. Both name the same digest, so
+    /// before full prevalidation both received the same exclusive tag and conflicted — the
+    /// attacker's arriving first was enough to keep the real attestation out.
+    #[test]
+    fn prevalidate_forgery_cannot_squat_the_honest_attestations_slot() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            activate(&attestor);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let (valid, forged) = valid_and_same_digest_forgery(vec![attestor.clone()]);
+
+            let squatter = prevalidate(attestor.attestor_id, &forged);
+            let honest = prevalidate(attestor.attestor_id, &valid);
+
+            assert!(
+                !honest.provides.is_empty(),
+                "the honest quorum submission must claim the slot"
+            );
+            assert!(
+                honest
+                    .provides
+                    .iter()
+                    .all(|tag| !squatter.provides.contains(tag)),
+                "an invalid submission must not conflict with the honest attestation's slot"
+            );
+        })
+    }
+
+    /// Quorum is enforced at admission too, not just in dispatch: an aggregate that verifies but
+    /// carries fewer signers than the threshold cannot reserve the slot either.
+    #[test]
+    fn prevalidate_withholds_the_tag_below_quorum() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor_1 = Attestor::new(STASH_1, ATTESTOR_1);
+            let attestor_2 = Attestor::new(STASH_2, ATTESTOR_2);
+            activate(&attestor_1);
+            activate(&attestor_2);
+
+            // Written straight to storage: `set_target_sample_size` defers to the next epoch
+            // (`PendingTargetSampleSize`), so the extrinsic would leave the mock's default of 1
+            // in force and a single signer would legitimately be a quorum. With two active
+            // attestors and a target of two the threshold is `2 * 2 / 3 + 1 == 2`.
+            TargetSampleSize::<Test>::insert(SUPPORTED_CHAIN_KEY, 2u32);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+            assert_eq!(
+                ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).len(),
+                2,
+                "precondition: both attestors must be active for the threshold to be 2"
+            );
+
+            // Signed by one of two: a genuine aggregate, just not a quorum.
+            let under_quorum = create_signed_attestation(
+                vec![attestor_1.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+
+            assert!(
+                prevalidate(attestor_1.attestor_id, &under_quorum)
+                    .provides
+                    .is_empty(),
+                "a sub-quorum attestation must not claim the slot"
+            );
+        })
+    }
+
+    /// The full check set is pool-only. During block execution the tag is meaningless and dispatch
+    /// re-validates anyway, so the expensive path is skipped — an `InBlock` submission is admitted
+    /// without the aggregate signature check being run a second time.
+    #[test]
+    fn prevalidate_skips_the_full_check_set_in_block() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            activate(&attestor);
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let (_, forged) = valid_and_same_digest_forgery(vec![attestor.clone()]);
+            let call = RuntimeCall::Attestation(crate::Call::commit_attestation {
+                attestation: forged,
+            });
+            let info = call.get_dispatch_info();
+
+            let in_block = PrevalidateAttestationCommit::<Test>::new()
+                .validate(
+                    RuntimeOrigin::signed(attestor.attestor_id),
+                    &call,
+                    &info,
+                    0,
+                    (),
+                    &TxBaseImplication(call.clone()),
+                    TransactionSource::InBlock,
+                )
+                .expect("in-block submissions are admitted");
+
+            assert!(
+                !in_block.0.provides.is_empty(),
+                "block execution keeps the cheap path: dispatch is what rejects this"
+            );
+        })
+    }
 }
 
 #[cfg(test)]
@@ -9287,12 +10193,18 @@ mod bls_key_uniqueness {
                 Some(att1.attestor_id)
             );
 
+            // The uniqueness gate is what stops this, and it is still needed after the proof of
+            // possession became identity-bound: binding stops someone *copying* a proof, not the
+            // holder of a key minting a correctly-bound proof for a second account they control.
+            // So mint a genuinely valid proof for att2 over att1's key — the case binding cannot
+            // catch — and require `BlsKeyAlreadyRegistered` to catch it.
+            let minted_for_att2 = att1.pop_for(SUPPORTED_CHAIN_KEY, att2.attestor_id);
             assert_noop!(
                 Attestation::attest(
                     RuntimeOrigin::signed(att2.attestor_id),
                     SUPPORTED_CHAIN_KEY,
                     att1.public_key,
-                    att1.signature,
+                    minted_for_att2,
                 ),
                 Error::<Test>::BlsKeyAlreadyRegistered
             );
@@ -9313,6 +10225,104 @@ mod bls_key_uniqueness {
                     .bls_public_key,
                 None
             );
+        })
+    }
+
+    /// The attack the identity binding exists to stop.
+    ///
+    /// The proof of possession travels in the clear as an argument of the public `attest`
+    /// extrinsic. Before it was bound to a claimant, anyone who had seen a victim's registration
+    /// could replay that proof under their own controller account and take `BlsKeyOwner` for a key
+    /// they do not hold — front-running the victim, who is then locked out with
+    /// `BlsKeyAlreadyRegistered` forever.
+    ///
+    /// Note the ordering: the attacker registers *first*. The pre-existing uniqueness test has the
+    /// victim claim the key first, so `BlsKeyAlreadyRegistered` masked this path.
+    #[test]
+    fn a_copied_proof_of_possession_cannot_claim_another_controllers_key() {
+        ExtBuilder.build_and_execute(|| {
+            let victim = Attestor::new(STASH_1, ATTESTOR_1);
+            let attacker = Attestor::new(STASH_2, ATTESTOR_2);
+
+            for att in [&victim, &attacker] {
+                assert_ok!(Attestation::register_attestor(
+                    att.stash.clone(),
+                    SUPPORTED_CHAIN_KEY,
+                    att.attestor_id,
+                ));
+            }
+
+            // Lifted verbatim off the wire: the victim's key and the victim's proof.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(attacker.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    victim.public_key,
+                    victim.signature,
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, victim.public_key),
+                None,
+                "the squatter must not own a key it cannot sign with"
+            );
+
+            // And the victim is not locked out: their own registration still succeeds.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(victim.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                victim.public_key,
+                victim.signature,
+            ));
+            assert_eq!(
+                BlsKeyOwner::<Test>::get(SUPPORTED_CHAIN_KEY, victim.public_key),
+                Some(victim.attestor_id)
+            );
+        })
+    }
+
+    /// A proof is bound to one claimant on one chain. Neither coordinate may be varied.
+    #[test]
+    fn a_proof_of_possession_does_not_transfer_across_identity_or_chain() {
+        ExtBuilder.build_and_execute(|| {
+            let att = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                att.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                att.attestor_id,
+            ));
+
+            // Right key, right chain, wrong claimant.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(att.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    att.public_key,
+                    att.pop_for(SUPPORTED_CHAIN_KEY, ATTESTOR_2),
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+
+            // Right key, right claimant, wrong chain.
+            assert_noop!(
+                Attestation::attest(
+                    RuntimeOrigin::signed(att.attestor_id),
+                    SUPPORTED_CHAIN_KEY,
+                    att.public_key,
+                    att.pop_for(SUPPORTED_CHAIN_KEY + 1, att.attestor_id),
+                ),
+                Error::<Test>::InvalidProofOfPossession
+            );
+
+            // The correctly-bound proof still works, so the rejections above are the binding
+            // doing its job and not the whole path being broken.
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(att.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                att.public_key,
+                att.pop_for(SUPPORTED_CHAIN_KEY, att.attestor_id),
+            ));
         })
     }
 
@@ -9658,6 +10668,8 @@ mod on_register_chain_rejects_zero {
         target_sample_size: Option<u32>,
         chain_attestation_interval: Option<u64>,
         attestation_checkpoint_interval: Option<u32>,
+        max_attestors: Option<u32>,
+        max_invulnerables: Option<u32>,
     ) -> sp_runtime::DispatchResult {
         // Distinct (chain_id, chain_name) per call so each test starts from a clean slot.
         SupportedChains::register_chain(
@@ -9667,8 +10679,8 @@ mod on_register_chain_rejects_zero {
             target_sample_size,
             chain_attestation_interval,
             attestation_checkpoint_interval,
-            None,
-            None,
+            max_attestors,
+            max_invulnerables,
             None,
             ChainEncodingVersion::V1,
             None,
@@ -9679,7 +10691,7 @@ mod on_register_chain_rejects_zero {
     fn target_sample_size_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(Some(0), None, None),
+                register(Some(0), None, None, None, None),
                 DispatchError::Other("InvalidTargetSampleSize")
             );
         })
@@ -9689,7 +10701,18 @@ mod on_register_chain_rejects_zero {
     fn chain_attestation_interval_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(None, Some(0), None),
+                register(None, Some(0), None, None, None),
+                DispatchError::Other("InvalidAttestationInterval")
+            );
+        })
+    }
+
+    #[test]
+    fn chain_attestation_interval_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let ceiling = <Test as crate::Config>::MaxChainAttestationInterval::get();
+            assert_noop!(
+                register(None, Some(ceiling + 1), None, None, None),
                 DispatchError::Other("InvalidAttestationInterval")
             );
         })
@@ -9699,7 +10722,60 @@ mod on_register_chain_rejects_zero {
     fn attestation_checkpoint_interval_zero_is_rejected() {
         ExtBuilder.build_and_execute(|| {
             assert_noop!(
-                register(None, None, Some(0)),
+                register(None, None, Some(0), None, None),
+                DispatchError::Other("InvalidAttestationsPerCheckpoint")
+            );
+        })
+    }
+
+    #[test]
+    fn max_attestors_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, None, Some(0), None),
+                DispatchError::Other("InvalidMaxAttestors")
+            );
+        })
+    }
+
+    #[test]
+    fn max_attestors_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let over_ceiling = <Test as crate::Config>::MaxAttestationNodes::get() + 1;
+            assert_noop!(
+                register(None, None, None, Some(over_ceiling), None),
+                DispatchError::Other("InvalidMaxAttestors")
+            );
+        })
+    }
+
+    #[test]
+    fn max_invulnerables_zero_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            assert_noop!(
+                register(None, None, None, None, Some(0)),
+                DispatchError::Other("InvalidMaxInvulnerables")
+            );
+        })
+    }
+
+    #[test]
+    fn max_invulnerables_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let over_ceiling = <Test as crate::Config>::MaxAttestationNodes::get() + 1;
+            assert_noop!(
+                register(None, None, None, None, Some(over_ceiling)),
+                DispatchError::Other("InvalidMaxInvulnerables")
+            );
+        })
+    }
+
+    #[test]
+    fn attestation_checkpoint_interval_above_ceiling_is_rejected() {
+        ExtBuilder.build_and_execute(|| {
+            let ceiling = <Test as crate::Config>::MaxAttestationCheckpointInterval::get();
+            assert_noop!(
+                register(None, None, Some(ceiling + 1), None, None),
                 DispatchError::Other("InvalidAttestationsPerCheckpoint")
             );
         })
@@ -9708,7 +10784,7 @@ mod on_register_chain_rejects_zero {
     #[test]
     fn all_none_is_accepted_uses_defaults() {
         ExtBuilder.build_and_execute(|| {
-            assert!(register(None, None, None).is_ok());
+            assert!(register(None, None, None, None, None).is_ok());
 
             // `on_register_chain` writes the per-chain config directly (not via `Pending*` maps —
             // those only carry operator updates between epoch boundaries). When every param is
@@ -9748,18 +10824,21 @@ mod on_register_chain_rejects_zero {
         const TARGET_SAMPLE_SIZE: u32 = 3;
         const CHAIN_ATTESTATION_INTERVAL: u64 = 10;
         const ATTESTATION_CHECKPOINT_INTERVAL: u32 = 5;
+        const MAX_ATTESTORS: u32 = 7;
+        const MAX_INVULNERABLES: u32 = 9;
 
         ExtBuilder.build_and_execute(|| {
             assert!(register(
                 Some(TARGET_SAMPLE_SIZE),
                 Some(CHAIN_ATTESTATION_INTERVAL),
-                Some(ATTESTATION_CHECKPOINT_INTERVAL)
+                Some(ATTESTATION_CHECKPOINT_INTERVAL),
+                Some(MAX_ATTESTORS),
+                Some(MAX_INVULNERABLES),
             )
             .is_ok());
 
-            // Explicit `Some(_)` values land in storage verbatim for the three
-            // attestation-config params; the others are `None` here, so they should still pick
-            // up the runtime-config defaults.
+            // Explicit `Some(_)` values land in storage verbatim for every param now that
+            // `max_attestors`/`max_invulnerables` are validated the same way as the rest.
             assert_eq!(TargetSampleSize::<Test>::get(CHAIN_KEY), TARGET_SAMPLE_SIZE);
             assert_eq!(
                 ChainAttestationInterval::<Test>::get(CHAIN_KEY),
@@ -9769,14 +10848,8 @@ mod on_register_chain_rejects_zero {
                 AttestationCheckpointInterval::<Test>::get(CHAIN_KEY),
                 ATTESTATION_CHECKPOINT_INTERVAL
             );
-            assert_eq!(
-                MaxAttestors::<Test>::get(CHAIN_KEY),
-                <Test as crate::Config>::MaxAttestationNodes::get()
-            );
-            assert_eq!(
-                MaxInvulnerables::<Test>::get(CHAIN_KEY),
-                <Test as crate::Config>::MaxAttestationNodes::get()
-            );
+            assert_eq!(MaxAttestors::<Test>::get(CHAIN_KEY), MAX_ATTESTORS);
+            assert_eq!(MaxInvulnerables::<Test>::get(CHAIN_KEY), MAX_INVULNERABLES);
             assert_eq!(
                 AttestationChainGenesisBlockNumber::<Test>::get(CHAIN_KEY),
                 <Test as crate::Config>::DefaultAttestationChainGenesisBlockNumber::get()
@@ -9879,4 +10952,97 @@ mod audit_attestation_bounds {
             )));
         })
     }
+}
+
+fn build_chain_genesis(configuration: attestor_primitives::AttestationChainConfiguration) {
+    use sp_runtime::BuildStorage;
+    let mut storage = frame_system::GenesisConfig::<Test>::default()
+        .build_storage()
+        .unwrap();
+    crate::pallet::GenesisConfig::<Test> {
+        invulnerables: vec![],
+        attestation_chain_configurations: vec![configuration],
+    }
+    .assimilate_storage(&mut storage)
+    .unwrap();
+}
+
+fn chain_genesis_configuration() -> attestor_primitives::AttestationChainConfiguration {
+    attestor_primitives::AttestationChainConfiguration {
+        chain_key: SUPPORTED_CHAIN_KEY,
+        attestation_interval: 10,
+        attestations_per_checkpoint: 10,
+        target_sample_size: 3,
+        checkpoints: vec![],
+    }
+}
+
+#[test]
+fn genesis_accepts_valid_chain_configuration() {
+    build_chain_genesis(chain_genesis_configuration());
+}
+
+#[test]
+#[should_panic(expected = "attestations_per_checkpoint must be non-zero")]
+fn genesis_rejects_zero_attestations_per_checkpoint() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestations_per_checkpoint: 0,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "attestations_per_checkpoint must be non-zero")]
+fn genesis_rejects_attestations_per_checkpoint_above_ceiling() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestations_per_checkpoint: <Test as Config>::MaxAttestationCheckpointInterval::get() + 1,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "attestation_interval must be non-zero")]
+fn genesis_rejects_zero_attestation_interval() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestation_interval: 0,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "attestation_interval must be non-zero")]
+fn genesis_rejects_attestation_interval_above_ceiling() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        attestation_interval: <Test as Config>::MaxChainAttestationInterval::get() + 1,
+        ..chain_genesis_configuration()
+    });
+}
+
+#[test]
+#[should_panic(expected = "target_sample_size must be non-zero")]
+fn genesis_rejects_zero_target_sample_size() {
+    build_chain_genesis(attestor_primitives::AttestationChainConfiguration {
+        target_sample_size: 0,
+        ..chain_genesis_configuration()
+    });
+}
+
+/// The commit weight must stay computable even if a chain's stored intervals are zero.
+#[test]
+fn commit_attestation_weight_with_zero_checkpoint_width() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 0);
+        let _ = Call::<Test>::commit_attestation {
+            attestation: attestation.clone(),
+        }
+        .get_dispatch_info();
+
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 10);
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 0);
+        let _ = Call::<Test>::commit_attestation { attestation }.get_dispatch_info();
+    })
 }

@@ -48,6 +48,21 @@ export async function getBlockNumber(rpcUrl: string): Promise<number> {
   }
 }
 
+/** Block number of the node's `safe` / `finalized` block. */
+export async function getBlockNumberByTag(
+  rpcUrl: string,
+  tag: "safe" | "finalized",
+): Promise<number> {
+  const provider = getProvider(rpcUrl);
+  try {
+    const block = await withTimeout(provider.getBlock(tag), RPC_TIMEOUT_MS);
+    if (block?.number == null) throw new Error(`no ${tag} block returned`);
+    return Number(block.number);
+  } finally {
+    destroyProvider(provider);
+  }
+}
+
 export async function getBlockNumberByHash(
   rpcUrl: string,
   blockHash: string,

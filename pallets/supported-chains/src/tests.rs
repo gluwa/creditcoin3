@@ -554,3 +554,208 @@ fn register_chain_rejects_invalid_maturity_strategy(#[case] strategy: String) {
         assert!(chain_key.is_none());
     });
 }
+
+// ------------------------------- [ set_maturity_strategy ] ---------------------------------- //
+//
+// The genesis chain from `ExtBuilder` is chain key 1 (chain id 200, "Ethereum") registered with
+// `MATURITY_FIXED_DELAY_10`.
+
+const TEST_CHAIN_KEY: u64 = 1;
+const TEST_CHAIN_ID: u64 = 200;
+
+#[rstest]
+#[case(MATURITY_EVM_FINALIZED.to_string())]
+#[case(MATURITY_EVM_SAFE.to_string())]
+#[case(MATURITY_EVM_LATEST.to_string())]
+#[case(MATURITY_RPC_SAFE.to_string())]
+#[case(MATURITY_RPC_FINALIZED.to_string())]
+#[case(format!("{MATURITY_FIXED_DELAY}25"))]
+#[case(format!("{MATURITY_FIXED_DELAY} 25"))]
+fn set_maturity_strategy_replaces_the_stored_strategy_and_emits(#[case] strategy: String) {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(SupportedChain::set_maturity_strategy(
+            RuntimeOrigin::root(),
+            TEST_CHAIN_KEY,
+            strategy.clone(),
+        ));
+
+        let stored = SupportedChains::<Test>::get(TEST_CHAIN_KEY).expect("chain is registered");
+        assert_eq!(stored.maturity_strategy, strategy);
+        // Nothing else about the registration may move.
+        assert_eq!(stored.chain_id, TEST_CHAIN_ID);
+        assert_eq!(stored.chain_name, "Ethereum".as_bytes().to_vec());
+        assert_eq!(stored.chain_encoding, ChainEncodingVersion::V1);
+
+        System::assert_last_event(
+            crate::Event::MaturityStrategySet {
+                chain_key: TEST_CHAIN_KEY,
+                chain_id: TEST_CHAIN_ID,
+                maturity_strategy: strategy,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_maturity_strategy_works_for_an_operator() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(SupportedChain::set_maturity_strategy(
+            RuntimeOrigin::signed(ALICE),
+            TEST_CHAIN_KEY,
+            MATURITY_EVM_FINALIZED.to_string(),
+        ));
+        assert_eq!(
+            SupportedChains::<Test>::get(TEST_CHAIN_KEY)
+                .expect("chain is registered")
+                .maturity_strategy,
+            MATURITY_EVM_FINALIZED
+        );
+    });
+}
+
+#[rstest]
+#[case(RuntimeOrigin::none())]
+#[case(RuntimeOrigin::signed(4))]
+fn set_maturity_strategy_rejects_an_unprivileged_origin(#[case] origin: RuntimeOrigin) {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            SupportedChain::set_maturity_strategy(
+                origin,
+                TEST_CHAIN_KEY,
+                MATURITY_EVM_FINALIZED.to_string(),
+            ),
+            BadOrigin
+        );
+    });
+}
+
+#[test]
+fn set_maturity_strategy_rejects_an_unregistered_chain() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            SupportedChain::set_maturity_strategy(
+                RuntimeOrigin::root(),
+                TEST_CHAIN_KEY + 41,
+                MATURITY_EVM_FINALIZED.to_string(),
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+    });
+}
+
+#[rstest]
+#[case("".to_string())]
+#[case("invalid".to_string())]
+#[case(format!("{MATURITY_FIXED_DELAY}"))]
+#[case(format!("{MATURITY_FIXED_DELAY}abc"))]
+#[case("rpcsafe".to_string())]
+#[case("RpcLatest".to_string())]
+#[case(format!("{MATURITY_FIXED_DELAY}{MATURITY_FIXED_DELAY}10"))]
+fn set_maturity_strategy_rejects_an_invalid_strategy(#[case] strategy: String) {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            SupportedChain::set_maturity_strategy(RuntimeOrigin::root(), TEST_CHAIN_KEY, strategy,),
+            Error::<Test>::InvalidMaturityStrategy
+        );
+        // The registration is untouched.
+        assert_eq!(
+            SupportedChains::<Test>::get(TEST_CHAIN_KEY)
+                .expect("chain is registered")
+                .maturity_strategy,
+            MATURITY_FIXED_DELAY_10
+        );
+    });
+}
+
+/// Re-submitting the strategy the chain already has is rejected rather than applied, so that
+/// every `MaturityStrategySet` event stands for a real change: the event is what tells operators
+/// the chain's attestors and archivers are due a restart.
+#[test]
+fn set_maturity_strategy_rejects_the_current_strategy() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_noop!(
+            SupportedChain::set_maturity_strategy(
+                RuntimeOrigin::root(),
+                TEST_CHAIN_KEY,
+                MATURITY_FIXED_DELAY_10.to_string(),
+            ),
+            Error::<Test>::MaturityStrategyUnchanged
+        );
+    });
+}
+
+/// `FixedDelay: 10` and `FixedDelay:10` parse to the same strategy but are different strings.
+/// The unchanged-check is on the stored string, so the spelling change is accepted — harmless,
+/// and cheaper than teaching the pallet to parse for an equality test it does not otherwise need.
+#[test]
+fn set_maturity_strategy_treats_a_respelled_fixed_delay_as_a_change() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+        let respelled = format!("{MATURITY_FIXED_DELAY}10");
+        assert_ne!(respelled, MATURITY_FIXED_DELAY_10);
+
+        assert_ok!(SupportedChain::set_maturity_strategy(
+            RuntimeOrigin::root(),
+            TEST_CHAIN_KEY,
+            respelled.clone(),
+        ));
+        assert_eq!(
+            SupportedChains::<Test>::get(TEST_CHAIN_KEY)
+                .expect("chain is registered")
+                .maturity_strategy,
+            respelled
+        );
+    });
+}
+
+/// A removed chain cannot have its strategy set, and setting it on a live chain does not disturb
+/// its sibling registrations.
+#[test]
+fn set_maturity_strategy_is_scoped_to_one_chain() {
+    ExtBuilder.build_and_execute(|| {
+        System::set_block_number(1);
+
+        assert_ok!(SupportedChain::register_chain(
+            RuntimeOrigin::root(),
+            201,
+            "Sepolia".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            Some(MATURITY_EVM_SAFE.to_string()),
+        ));
+        let other_key =
+            SupportedChain::chain_key_by_chain_id_and_name(201, "Sepolia".as_bytes().to_vec())
+                .expect("just registered");
+
+        assert_ok!(SupportedChain::set_maturity_strategy(
+            RuntimeOrigin::root(),
+            TEST_CHAIN_KEY,
+            MATURITY_RPC_FINALIZED.to_string(),
+        ));
+
+        assert_eq!(
+            SupportedChains::<Test>::get(other_key)
+                .expect("chain is registered")
+                .maturity_strategy,
+            MATURITY_EVM_SAFE
+        );
+    });
+}

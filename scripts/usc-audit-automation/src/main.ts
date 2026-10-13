@@ -7,14 +7,12 @@
 import { loadConfig } from "./config.ts";
 import {
   connect,
-  DEFAULT_MATURITY_STRATEGY,
   disconnect,
   getAttestationByDigest,
   getAttestationInterval,
   getCheckpointInterval,
   getLastCheckpoint,
   getLastDigest,
-  getMaturityDelay,
   getSupportedChains,
   setVerbose,
 } from "./usc.ts";
@@ -22,7 +20,15 @@ import {
   checkRpcHealthy,
   getBlockNumber,
   getBlockNumberByHash,
+  getBlockNumberByTag,
 } from "./eth.ts";
+import {
+  getMaxBlockDiff,
+  parseMaturity,
+  resolveMaturity,
+  TAG_FALLBACK_STRATEGY,
+} from "./maturity.ts";
+import type { ResolvedMaturity } from "./maturity.ts";
 import { queryAttestation } from "./graphql.ts";
 import {
   BuiltReport,
@@ -32,23 +38,8 @@ import {
 } from "./slack.ts";
 import { runBalanceChecks } from "./balances.ts";
 
-const BSC_MAX_BLOCK_DIFF = 499;
-const ATTESTATION_LAG_BUFFER_INTERVALS = 3;
-
 function formatNum(n: number): string {
   return n.toLocaleString("en-US");
-}
-
-function getMaxBlockDiff(
-  chainName: string,
-  maturityStrategy: string,
-  attestationInterval: number,
-): number {
-  const formulaMax = getMaturityDelay(maturityStrategy) +
-    attestationInterval * ATTESTATION_LAG_BUFFER_INTERVALS;
-  return chainName.includes("BSC")
-    ? Math.max(formulaMax, BSC_MAX_BLOCK_DIFF)
-    : formulaMax;
 }
 
 function buildReport(
@@ -172,7 +163,7 @@ async function runChecksForChain(
   chainKey: number,
   chainName: string,
   ethRpcUrl: string,
-  maturityStrategy: string,
+  resolvedMaturity: ResolvedMaturity,
 ): Promise<BuiltReport> {
   const chainLabel = `${chainName}`;
   const title = `🚦 Attestation chain liveness: ${chainLabel} - ${chainId}`;
@@ -221,10 +212,24 @@ async function runChecksForChain(
   const checkpointInterval = await getCheckpointInterval(chainKey);
   const attestationInterval = await getAttestationInterval(chainKey);
   const checkpointWidth = checkpointInterval * attestationInterval;
+
+  let { maturity, label: maturityLabel } = resolvedMaturity;
+  let tagLag: number | undefined;
+  if (maturity.kind === "rpcTag") {
+    try {
+      tagLag = ethBlock - await getBlockNumberByTag(ethRpcUrl, maturity.tag);
+    } catch (e) {
+      console.warn(
+        `⚠️  [${chainLabel}] could not fetch ${maturity.tag} block (${e}), falling back to ${TAG_FALLBACK_STRATEGY}`,
+      );
+      maturity = parseMaturity(TAG_FALLBACK_STRATEGY)!;
+      maturityLabel = `${TAG_FALLBACK_STRATEGY} (fallback)`;
+    }
+  }
   const maxAttBlockDiff = getMaxBlockDiff(
-    chainName,
-    maturityStrategy,
+    maturity,
     attestationInterval,
+    tagLag,
   );
   // maxCheckpointBlockDiff = maxAttBlockDiff + (lag bettween attestation creation and checkpoint creation)
   // Checkpoints are created when total_width_of_stored_attestations >= (checkpoint_width * 2) + 1
@@ -253,7 +258,7 @@ async function runChecksForChain(
     chainLabel,
     chainId,
     chainKey,
-    maturityStrategy,
+    maturityLabel,
     ethBlock,
     attBlock,
     maxAttBlockDiff,
@@ -335,16 +340,20 @@ async function main(): Promise<void> {
       continue;
     }
 
-    const chainName = ethRpc.chainName ?? getChainName(ethRpc.chainId);
-    const maturityStrategy = discovered?.maturityStrategy ??
-      DEFAULT_MATURITY_STRATEGY;
+    const chainName = ethRpc.chainName ??
+      (discovered?.chainId ? discovered.chainName : undefined) ??
+      getChainName(ethRpc.chainId);
+    const resolvedMaturity = resolveMaturity(discovered?.maturityStrategy);
+    if (resolvedMaturity.warning) {
+      console.warn(`⚠️  [${chainName}] ${resolvedMaturity.warning}`);
+    }
     const report = await runChecksForChain(
       config,
       ethRpc.chainId,
       chainKey,
       chainName,
       ethRpc.url,
-      maturityStrategy,
+      resolvedMaturity,
     );
     reports.push(report);
   }

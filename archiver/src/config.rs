@@ -1,7 +1,7 @@
 //! Archiver configuration via CLI flags and environment variables.
 
 use std::net::SocketAddr;
-use std::num::{NonZeroU64, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -13,14 +13,24 @@ use url::Url;
     about = "Source chain archiver — fetches blocks, computes merkle roots, serves data over HTTP"
 )]
 pub struct Config {
-    /// HTTP RPC endpoint for block fetching.
+    /// HTTP RPC endpoint, used for chain-head tracking and the canonical-anchor check. Without
+    /// `--rpc-ws` it also carries the root stream, which then follows the head by polling
+    /// `eth_blockNumber` (the mode to use behind an HTTP-only proxy such as eRPC).
     #[arg(long, env = "RPC_HTTP", alias = "rpc-url", required = true)]
     pub rpc_http: Url,
 
-    /// WebSocket RPC endpoint for new-head subscriptions.
-    /// Required for the root stream to follow the chain tip.
-    #[arg(long, env = "RPC_WS", required = true)]
-    pub rpc_ws: Url,
+    /// WebSocket RPC endpoint for the `newHeads` subscription and block fetching. Optional: when
+    /// unset the root stream runs over `--rpc-http` in polling mode.
+    #[arg(long, env = "RPC_WS")]
+    pub rpc_ws: Option<Url>,
+
+    /// Additional RPC endpoints (comma-separated) tried in order when the primary returns
+    /// "not found" or a transport error for a block fetch. Every fallback must serve the same
+    /// chain id as the primary. If any fallback is unreachable (or on another chain) at dial
+    /// time, the archiver logs a warning and continues with the primary alone rather than
+    /// letting a backup endpoint block startup or reconnection.
+    #[arg(long, env = "RPC_FALLBACK_URLS", value_delimiter = ',', num_args = 0..)]
+    pub rpc_fallback_urls: Vec<String>,
 
     /// Creditcoin3 RPC (WebSocket). `CC3_RPC_URL` or `--cc3-rpc-url` (CLI overrides env; not in YAML).
     #[arg(long, default_value = "ws://localhost:9944", env = "CC3_RPC_URL")]
@@ -44,15 +54,29 @@ pub struct Config {
     #[arg(long, env = "MAX_FETCH_TASKS", default_value = "8")]
     pub max_fetch_tasks: NonZeroUsize,
 
+    /// Maximum source-chain RPC requests per second for block fetches, head polls and
+    /// maturity-tag lookups. Requests are spaced evenly, so a catch-up drains at this rate instead
+    /// of in bursts of `--max-fetch-tasks × 2` calls. The budget is per connection and the
+    /// archiver keeps two (WebSocket for blocks, HTTP for the head), so the provider sees at most
+    /// twice this rate. Set it below the provider plan's limit divided by the clients sharing the
+    /// key. Unlimited if not set.
+    #[arg(long, env = "ETH_RPS")]
+    pub eth_rps: Option<NonZeroU32>,
+
     /// Maximum block range that can be queried via the /roots API endpoint.
     /// Default is slightly above one checkpoint interval (attestation_interval × checkpoint_interval)
     /// to allow a full checkpoint span plus headroom.
     #[arg(long, env = "MAX_API_RANGE", default_value = "1000")]
     pub max_api_range: u64,
 
-    /// Timeout in seconds for the stream before treating it as stalled.
-    #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "120")]
-    pub stream_timeout_secs: u64,
+    /// Seconds without a new root before the stream is declared stalled and rebuilt
+    /// (reconnect + anchor check). This is the outer watchdog; it must be longer than the
+    /// block-fetch retry budget inside the eth client (5 sweeps over `[primary, fallbacks]`
+    /// with 10/20/40/60 s back-off, i.e. 130 s of waiting) or the watchdog tears the stream
+    /// down while the client is still walking its fallbacks, and a block that only a fallback
+    /// can serve never gets served.
+    #[arg(long, env = "STREAM_TIMEOUT_SECS", default_value = "180")]
+    pub stream_timeout_secs: NonZeroU64,
 
     /// Path to the sled database directory for root storage.
     #[arg(long, env = "SLED_DB_PATH", default_value = "./data/roots.sled")]
@@ -62,11 +86,18 @@ pub struct Config {
     #[arg(long, env = "API_BIND", default_value = "0.0.0.0:8080")]
     pub api_bind: SocketAddr,
 
-    /// How often to write and flush roots while catching up (every N blocks). Once the archiver
-    /// is within N blocks of the chain head it writes and flushes every block automatically, so
-    /// this only needs tuning for backfill throughput; tip-following never needs `1`.
+    /// Batch size while catching up: roots are written (and a durability flush requested)
+    /// every N blocks. Only affects backfill throughput; tip-following is governed by
+    /// `--tip-window` and never needs `1`.
     #[arg(long, env = "FLUSH_EVERY", default_value = "10000")]
     pub flush_every: NonZeroU64,
+
+    /// Blocks from the target (chain head or `--end-height`) within which every root is
+    /// written as soon as it is computed, so the API can serve mature roots immediately.
+    /// Must comfortably exceed the finalization lag plus head-poll latency (12 s). Durability
+    /// flushes at the tip are throttled to about one per second regardless.
+    #[arg(long, env = "TIP_WINDOW", default_value = "256")]
+    pub tip_window: NonZeroU64,
 
     /// Fixed number of blocks behind the source tip to treat as mature, overriding the on-chain
     /// maturity strategy. Only consulted where the archiver resolves maturity itself: explicit
@@ -84,4 +115,93 @@ pub struct Config {
     /// Scan the database for gaps and fill them before resuming normal operation.
     #[arg(long, default_value_t = false)]
     pub backfill: bool,
+
+    /// Seconds between `eth_blockNumber` polls that run alongside the `newHeads` subscription.
+    /// The poll is the liveness floor: a subscription that acknowledges but stops delivering
+    /// headers cannot stall archiving for longer than this. The HTTP head sample behind
+    /// `/status` and `/ready` runs on the same cadence, so keep `--stale-after-secs` above it.
+    #[arg(long, env = "HEAD_POLL_INTERVAL_SECS", default_value = "12")]
+    pub head_poll_interval_secs: NonZeroU64,
+
+    /// Deadline in seconds for each RPC call made while (re)establishing the block stream
+    /// (subscribe, initial head read, head polls). alloy transports have no default timeout.
+    #[arg(long, env = "RPC_TIMEOUT_SECS", default_value = "30")]
+    pub rpc_timeout_secs: NonZeroU64,
+
+    /// `/ready` reports 503 when the archive is more than this many blocks behind the mature
+    /// target (the attested height clamped to the source head, or the source-resolved mature
+    /// height). Size it to the chain's block rate: it is the catch-up debt you are willing to
+    /// serve proofs from.
+    #[arg(long, env = "READY_LAG_BLOCKS", default_value = "1000")]
+    pub ready_lag_blocks: u64,
+
+    /// `/ready` reports 503 when the source head has not been sampled successfully for this
+    /// many seconds. Distinguishes "the chain is idle" (fresh sample, no new blocks: ready)
+    /// from "we lost sight of the chain" (not ready). Must exceed `--head-poll-interval-secs`
+    /// plus `--rpc-timeout-secs` (the gap between two successful samples can be both), or a
+    /// live source reads as stale between samples.
+    #[arg(long, env = "STALE_AFTER_SECS", default_value = "60")]
+    pub stale_after_secs: NonZeroU64,
+
+    /// On start and on every reconnect the stored tip is re-fetched from the source and its
+    /// hash compared with the stored one. A mismatch means the archive tail sits on an
+    /// abandoned fork. `0` (default) fails closed. `N > 0` lets the archiver walk back at most
+    /// `N` stored blocks to the last canonical one, drop everything above it and recompute;
+    /// the bound keeps a misbehaving RPC from wiping the archive.
+    #[arg(long, env = "REANCHOR_MAX_DEPTH", default_value = "0")]
+    pub reanchor_max_depth: u64,
+}
+
+impl Config {
+    /// The RPC URL the root stream (subscription or poll, plus block fetches) is dialled on:
+    /// `--rpc-ws` when given, else `--rpc-http` in head-polling mode.
+    pub fn stream_rpc_url(&self) -> &Url {
+        self.rpc_ws.as_ref().unwrap_or(&self.rpc_http)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(extra: &[&str]) -> Config {
+        let mut args = vec!["archiver", "--rpc-http", "http://localhost:8545"];
+        args.extend_from_slice(extra);
+        Config::try_parse_from(args).expect("config parses")
+    }
+
+    #[test]
+    fn eth_rps_is_unlimited_unless_set() {
+        assert_eq!(parse(&[]).eth_rps, None);
+    }
+
+    #[test]
+    fn eth_rps_parses_from_the_flag() {
+        assert_eq!(parse(&["--eth-rps", "2"]).eth_rps, NonZeroU32::new(2));
+    }
+
+    #[test]
+    fn eth_rps_rejects_zero() {
+        let args = [
+            "archiver",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--eth-rps",
+            "0",
+        ];
+        assert!(Config::try_parse_from(args).is_err());
+    }
+
+    #[test]
+    fn the_root_stream_runs_over_http_when_no_websocket_is_given() {
+        let cfg = parse(&[]);
+        assert!(cfg.rpc_ws.is_none());
+        assert_eq!(cfg.stream_rpc_url().as_str(), "http://localhost:8545/");
+    }
+
+    #[test]
+    fn the_root_stream_prefers_the_websocket_when_given() {
+        let cfg = parse(&["--rpc-ws", "ws://localhost:8546"]);
+        assert_eq!(cfg.stream_rpc_url().as_str(), "ws://localhost:8546/");
+    }
 }

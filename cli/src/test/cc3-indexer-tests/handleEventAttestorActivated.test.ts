@@ -5,6 +5,7 @@ import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
+import { proofOfPossessionMessage } from '../../lib/attestor/proof-of-possession';
 import { graphQLQuery } from './common';
 
 describe('handleEventAttestorActivated()', () => {
@@ -69,7 +70,9 @@ describe('handleEventAttestorActivated()', () => {
 
             const blsSecretKey = WasmPrivateKey.generate(attestor.secret);
             const blsPublicKey = blsSecretKey.public_key().as_bytes();
-            const proofOfPossession = blsSecretKey.sign(blsPublicKey);
+            const proofOfPossession = blsSecretKey.sign(
+                proofOfPossessionMessage(chain_Anvil2_Key, attestor.address, blsPublicKey),
+            );
 
             startingBlock = BigInt((await getChainStatus(api)).bestNumber);
             expect(startingBlock).toBeGreaterThan(0n);
