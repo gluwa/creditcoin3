@@ -460,10 +460,11 @@ impl<T: Config> Pallet<T> {
             // The queue can't grow any further. Condense it in one go from every queued proof,
             // as a catch-up commit does.
             queue.retain(|queued| *queued != digest);
-            ensure!(
-                Self::create_checkpoints_from_queue(chain_key, &attestation, digest, queue)?,
-                Error::<T>::CheckpointingQueueFull
-            );
+            let condensed =
+                Self::create_checkpoints_from_queue(chain_key, &attestation, digest, queue)
+                    .inspect_err(|e| log::error!("Error: {e:?}"))
+                    .unwrap_or(false);
+            ensure!(condensed, Error::<T>::CheckpointingQueueFull);
             return Ok(());
         }
         CheckpointingQueues::<T>::insert(chain_key, queue);
@@ -1047,14 +1048,15 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::AttestationExists.into());
         }
 
-        // Attestors only produce the genesis attestation and heights on a multiple of the
-        // attestation interval, so queued attestations are at least an interval apart.
-        let header_number = attestation.header_number();
-        ensure!(
-            header_number == AttestationChainGenesisBlockNumber::<T>::get(chain_key)
-                || header_number % Self::chain_attestation_interval(chain_key).max(1) == 0,
-            Error::<T>::InvalidAttestationBlockNumber
-        );
+        // Each attestation is at least an attestation interval past the last one, so queued
+        // attestations are at least an interval apart.
+        if let Some((last_height, _)) = LastDigest::<T>::get(chain_key) {
+            ensure!(
+                attestation.header_number()
+                    >= last_height.saturating_add(Self::chain_attestation_interval(chain_key)),
+                Error::<T>::InvalidAttestationBlockNumber
+            );
+        }
 
         // Attestor eligibility validation
         let active_attestors = ActiveAttestors::<T>::get(chain_key)
@@ -1387,12 +1389,9 @@ impl<T: Config> Pallet<T> {
         let mut attestation_removal_queue: VecDeque<Digest> =
             AttestationRemovalQueues::<T>::get(chain_key);
 
-        // Create checkpoints for each boundary block in the continuity proof.
+        // Create a checkpoint at every boundary up to and including the attestation head.
         // Target calculation mirrors the legacy path: round down to nearest global
         // multiple of checkpoint_width to keep checkpoint placement consistent.
-        //
-        // Also match `try_make_checkpoint`: only advance when the attestation head is at least
-        // `2 * checkpoint_width + 1` blocks past the last checkpoint (same span rule).
         loop {
             let next = last_checkpoint_block.saturating_add(checkpoint_width);
             let target_block = next.saturating_sub(next % checkpoint_width);

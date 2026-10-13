@@ -12068,7 +12068,7 @@ fn commit_at_queue_len_limit_condenses_queue_when_checkpoint_drains_nothing() {
 }
 
 #[test]
-fn commit_attestation_rejects_height_off_interval() {
+fn commit_attestation_requires_an_interval_past_the_last_height() {
     ExtBuilder.build_and_execute(|| {
         let (attestor, genesis) = setup_attesting_chain();
         System::set_block_number(System::block_number() + 1);
@@ -12076,40 +12076,51 @@ fn commit_attestation_rejects_height_off_interval() {
             Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY),
             10
         );
+        let attestation = |header: u64, prev: &SignedAttestation<H256, u64>| {
+            create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                header,
+                Some(prev.digest()),
+                Some(construct_fragment(
+                    Some(prev.digest()),
+                    RangeInclusive::new(prev.header_number() + 1, header - 1),
+                )),
+            )
+        };
 
-        // Height 15 is neither the genesis height nor a multiple of the interval.
-        let unaligned = create_signed_attestation(
-            vec![attestor.clone()],
-            SUPPORTED_CHAIN_KEY,
-            15,
-            Some(genesis.digest()),
-            Some(construct_fragment(
-                Some(genesis.digest()),
-                RangeInclusive::new(1, 14),
-            )),
-        );
+        // Less than an interval past the genesis height.
         assert_noop!(
-            Attestation::commit_attestation(attestor.attestor_origin.clone(), unaligned),
+            Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation(5, &genesis)
+            ),
             Error::<Test>::InvalidAttestationBlockNumber
         );
 
-        let aligned = create_signed_attestation(
-            vec![attestor.clone()],
-            SUPPORTED_CHAIN_KEY,
-            20,
-            Some(genesis.digest()),
-            Some(construct_fragment(
-                Some(genesis.digest()),
-                RangeInclusive::new(1, 19),
-            )),
-        );
+        // Heights need not be on a multiple of the interval, as when catching up from an
+        // off-grid height.
+        let first = attestation(15, &genesis);
         assert_ok!(Attestation::commit_attestation(
             attestor.attestor_origin.clone(),
-            aligned.clone()
+            first.clone()
+        ));
+
+        assert_noop!(
+            Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation(20, &first)
+            ),
+            Error::<Test>::InvalidAttestationBlockNumber
+        );
+        let second = attestation(25, &first);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            second.clone()
         ));
         assert_eq!(
-            Attestation::attestations(SUPPORTED_CHAIN_KEY, aligned.digest()),
-            Some(aligned)
+            Attestation::attestations(SUPPORTED_CHAIN_KEY, second.digest()),
+            Some(second)
         );
     })
 }

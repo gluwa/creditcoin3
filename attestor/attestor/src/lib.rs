@@ -253,14 +253,24 @@ impl Attestor {
 
         // ----------------------------------* attestation params *----------------------------- //
 
+        let interval_on_chain = cc3
+            .chain_attestation_interval(chain_key)
+            .await?
+            .and_then(NonZero::new);
         let interval_attestation =
             if let Some(forced) = self.config.attestation.attestation_interval {
+                // The runtime only accepts an attestation at least the on-chain interval past
+                // the last one, so a shorter forced interval gets most attestations rejected.
+                if let Some(on_chain) = interval_on_chain.filter(|on_chain| forced < *on_chain) {
+                    tracing::warn!(
+                        "⚠️ forced attestation interval {forced} is below the on-chain interval \
+                         {on_chain}; attestations closer than {on_chain} blocks to the last one \
+                         are rejected"
+                    );
+                }
                 forced
             } else {
-                cc3.chain_attestation_interval(chain_key)
-                    .await?
-                    .and_then(NonZero::new)
-                    .ok_or(Error::MissingAttestationInterval(chain_key))?
+                interval_on_chain.ok_or(Error::MissingAttestationInterval(chain_key))?
             };
 
         let (genesis_height, start_attestation) =
