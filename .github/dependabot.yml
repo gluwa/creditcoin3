@@ -125,6 +125,13 @@ updates:
       - "/scripts"
       - "/scripts/changelog-warnings"
     groups:
+      # The @polkadot/* packages must move in lockstep: bumping only some of them installs two
+      # copies of @polkadot/types and the cli stops type-checking. Listed first so it takes
+      # these packages before the prod/dev groups below.
+      polkadot:
+        patterns:
+          - "@polkadot/*"
+        applies-to: version-updates
       prod-dependencies:
         dependency-type: "production"
         applies-to: version-updates
@@ -139,6 +146,11 @@ updates:
       # execa >=6 is ESM-only, but cli/ is compiled to CommonJS and requires it
       # from CJS test helpers, so major bumps break the TypeScript build
       - dependency-name: "execa"
+        update-types: ["version-update:semver-major"]
+      # @polkadot 17 makes the cli's unbonding countdown read inconsistent derive values at era
+      # boundaries and fails the withdraw-unbonded integration test (#1473). Hold majors until
+      # validatorStatus reads that state at a single block.
+      - dependency-name: "@polkadot/*"
         update-types: ["version-update:semver-major"]
 
   # Python dependencies for Linode
