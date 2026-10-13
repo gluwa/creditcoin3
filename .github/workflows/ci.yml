@@ -1684,6 +1684,17 @@ jobs:
       - should-run
       - regenerate-metadata
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
+    # Two shards with their own nodes, split by measured file duration (~15 and ~17 min)
+    # instead of jest's hash-based --shard, which can put the slow files on one side.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: 1
+            files: "chill register show-stash-balance"
+          - shard: 2
+            files: "withdraw-unbonded unregister show-status"
+    name: attestor-cli-testing / shard ${{ matrix.shard }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
@@ -1784,15 +1795,33 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          yarn test:attestor-cli
+          # every attestor test file must belong to a shard, or a new file would never run
+          ASSIGNED=$(echo "$ALL_SHARD_FILES" | tr ' ' '\n' | sort)
+          PRESENT=$(find src/test/integration-tests/attestor -name '*.test.ts' -exec basename {} .test.ts \; | sort)
+          if [ "$ASSIGNED" != "$PRESENT" ]; then
+            echo "attestor-cli shard lists don't match the test files:" >&2
+            diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
+            exit 1
+          fi
+
+          read -ra NAMES <<< "$TEST_FILES"
+          PATHS=()
+          for name in "${NAMES[@]}"; do
+            PATHS+=("src/test/integration-tests/attestor/${name}.test.ts")
+          done
+          yarn jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --forceExit \
+            --runTestsByPath "${PATHS[@]}"
         env:
           RUST_LOG: debug
+          TEST_FILES: ${{ matrix.files }}
+          # keep in sync with the matrix above
+          ALL_SHARD_FILES: "chill register show-stash-balance withdraw-unbonded unregister show-status"
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-attestor-cli
+          name: junit-attestor-cli-shard-${{ matrix.shard }}
           path: cli/reports/junit/
           if-no-files-found: ignore
 
@@ -1809,7 +1838,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: logs-for-attestor-cli
+          name: logs-for-attestor-cli-shard-${{ matrix.shard }}
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
