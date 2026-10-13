@@ -123,7 +123,17 @@ pub enum Error {
     SenderRecovery(u64, usize, String),
     #[error("Unknown block fetch mode {0:?}; expected one of: json, raw-rlp")]
     UnknownFetchMode(String),
+    #[error("RPC endpoint {provider} cannot serve blocks in {mode} fetch mode: {cause}")]
+    FetchModeUnsupported {
+        provider: String,
+        mode: BlockFetchMode,
+        cause: Box<Error>,
+    },
 }
+
+/// JSON-RPC error code for a method the node does not implement or does not expose, such as
+/// `debug_getRawBlock` on a node without the `debug` namespace.
+const JSON_RPC_METHOD_NOT_FOUND: i64 = -32601;
 
 /// How [`Client::get_block`] pulls a block and its receipts from the RPC node.
 ///
@@ -209,6 +219,26 @@ impl Error {
             },
             Error::EthError(RpcError::ErrorResp(payload)) => {
                 payload.is_retry_err() && payload.message != "header not found"
+            }
+            _ => false,
+        }
+    }
+
+    /// True when fetching the same block from the same endpoint again cannot succeed: the node
+    /// does not implement the method (JSON-RPC `-32601`, e.g. raw-RLP mode against a node
+    /// without the `debug` namespace), or it served bytes this client cannot decode. A node
+    /// stores a block's bytes once, so a decode or sender-recovery failure repeats on every
+    /// attempt. A block fetch still tries the other endpoints, but stops once every endpoint
+    /// failed this way, and callers should fail rather than reconnect and fetch it again.
+    pub fn is_unrecoverable(&self) -> bool {
+        use alloy::transports::RpcError;
+        match self {
+            Error::RawBlockDecode(..)
+            | Error::RawReceiptDecode(..)
+            | Error::SenderRecovery(..)
+            | Error::FetchModeUnsupported { .. } => true,
+            Error::EthError(RpcError::ErrorResp(payload)) => {
+                payload.code == JSON_RPC_METHOD_NOT_FOUND
             }
             _ => false,
         }
@@ -883,6 +913,51 @@ impl Client {
         self.fetch_mode
     }
 
+    /// Fetch the head block from every endpoint in the configured [`BlockFetchMode`], so a node
+    /// that lacks the methods (raw-RLP needs the `debug` namespace) or serves blocks this client
+    /// cannot decode is reported at startup instead of on the first block fetch. Only an
+    /// [`Error::is_unrecoverable`] failure fails the check, as [`Error::FetchModeUnsupported`];
+    /// anything else (a timeout, a fallback that does not have the head yet) is logged and left
+    /// to the block fetch's own retries. Each endpoint gets `deadline`.
+    pub async fn check_fetch_mode(&self, deadline: std::time::Duration) -> Result<(), Error> {
+        for (label, provider) in self.providers_with_labels() {
+            let probe = async {
+                self.pacer.acquire().await;
+                let head = provider.get_block_number().await?;
+                self.fetch_pair_from_provider(provider, head).await?;
+                Ok::<_, Error>(head)
+            };
+            match tokio::time::timeout(deadline, probe).await {
+                Ok(Ok(head)) => tracing::debug!(
+                    provider = %label,
+                    block_number = head,
+                    mode = %self.fetch_mode,
+                    "endpoint serves blocks in this fetch mode"
+                ),
+                Ok(Err(e)) if e.is_unrecoverable() => {
+                    return Err(Error::FetchModeUnsupported {
+                        provider: label,
+                        mode: self.fetch_mode,
+                        cause: Box::new(e),
+                    })
+                }
+                Ok(Err(e)) => tracing::warn!(
+                    provider = %label,
+                    mode = %self.fetch_mode,
+                    error = %e,
+                    "could not confirm the endpoint serves this fetch mode; continuing"
+                ),
+                Err(_) => tracing::warn!(
+                    provider = %label,
+                    mode = %self.fetch_mode,
+                    ?deadline,
+                    "fetch mode check timed out; continuing"
+                ),
+            }
+        }
+        Ok(())
+    }
+
     /// Build a [`Client`] with ordered fallback RPC URLs.
     ///
     /// `url` is the primary URL: tried first for every operation, and the
@@ -1202,6 +1277,10 @@ impl Client {
         // and wait longer each time, but only within [`rate_limit_hold_off`]'s budget. A limit
         // that outlasts it (an exhausted quota, say) fails the fetch like any other error, so
         // the stream resets and health reporting sees it instead of the fetch waiting forever.
+        //
+        // A sweep in which every provider failed in a way no retry can fix
+        // ([`Error::is_unrecoverable`]: missing RPC method, undecodable payload) fails at once
+        // instead of backing off for the full retry budget.
         const MAX_ATTEMPTS: usize = 5;
         const DELAY_BASE: u64 = 10;
         const DELAY_MAX: u64 = 60;
@@ -1218,6 +1297,7 @@ impl Client {
             // overwrite it). Mirrors the old `get_receipts` walker's `Vec`-of-errors behavior.
             let mut transport_errs: Vec<(String, Error)> = Vec::new();
             let mut payload_inconsistent_errs: Vec<(String, Error)> = Vec::new();
+            let mut unrecoverable_errs: Vec<(String, Error)> = Vec::new();
 
             for (label, provider) in self.providers_with_labels() {
                 match self.fetch_pair_from_provider(provider, number).await {
@@ -1253,6 +1333,15 @@ impl Client {
                                             "block+receipts fetch: provider returned inconsistent payload but another succeeded"
                                         );
                                     }
+                                    for (err_label, err) in unrecoverable_errs.drain(..) {
+                                        tracing::warn!(
+                                            provider = %err_label,
+                                            served_by = %label,
+                                            block_number = number,
+                                            error = %err,
+                                            "block+receipts fetch: provider cannot serve this block but another succeeded"
+                                        );
+                                    }
                                 }
                                 return Ok(ob);
                             }
@@ -1273,6 +1362,15 @@ impl Client {
                             }
                         }
                     }
+                    Err(e) if e.is_unrecoverable() => {
+                        tracing::warn!(
+                            provider = %label,
+                            block_number = number,
+                            error = %e,
+                            "provider cannot serve this block (unsupported method or undecodable payload); trying next endpoint"
+                        );
+                        unrecoverable_errs.push((label, e));
+                    }
                     Err(e) => {
                         tracing::debug!(
                             provider = %label,
@@ -1282,6 +1380,17 @@ impl Client {
                         );
                         transport_errs.push((label, e));
                     }
+                }
+            }
+
+            if transport_errs.is_empty() && payload_inconsistent_errs.is_empty() {
+                if let Some((_, err)) = unrecoverable_errs.pop() {
+                    tracing::error!(
+                        block_number = number,
+                        error = %err,
+                        "⛔ no RPC endpoint can serve this block, and retrying will not change that"
+                    );
+                    return Err(Interrupt::Cont(err));
                 }
             }
 
@@ -2417,6 +2526,28 @@ mod error_classification_tests {
         assert!(!rpc_error(-32000, "header not found").is_rate_limited());
         assert!(!rpc_error(-32602, "invalid argument").is_rate_limited());
         assert!(!Error::FailedToGetBlock(7).is_rate_limited());
+    }
+
+    #[test]
+    fn missing_methods_and_undecodable_blocks_are_unrecoverable() {
+        assert!(
+            rpc_error(-32601, "the method debug_getRawBlock does not exist").is_unrecoverable()
+        );
+        assert!(Error::RawBlockDecode(7, "unexpected end".into()).is_unrecoverable());
+        assert!(Error::RawReceiptDecode(7, 0, "unexpected end".into()).is_unrecoverable());
+        assert!(Error::SenderRecovery(7, 0, "bad signature".into()).is_unrecoverable());
+    }
+
+    #[test]
+    fn transient_failures_are_not_unrecoverable() {
+        assert!(
+            !Error::EthError(TransportErrorKind::http_error(503, String::new())).is_unrecoverable()
+        );
+        assert!(!Error::EthError(TransportErrorKind::backend_gone()).is_unrecoverable());
+        assert!(!rpc_error(-32000, "header not found").is_unrecoverable());
+        assert!(!rpc_error(429, "Too Many Requests").is_unrecoverable());
+        assert!(!Error::FailedToGetBlock(7).is_unrecoverable());
+        assert!(!Error::BlockHeaderRootsMismatch(7).is_unrecoverable());
     }
 }
 
