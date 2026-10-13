@@ -900,11 +900,19 @@ jobs:
       # files that sign extrinsics, since that is the only path a proxy changes: the error
       # variants need just the core signing files, the valid-proxy variants add the wizard,
       # and only Staking also runs the slow era-wait files (payouts, withdraw-unbonded),
-      # which are the staking calls that proxy type exists for. `files` empty = whole suite.
+      # which are the staking calls that proxy type exists for.
+      #
+      # The full suite is split over two shards with their own nodes, by measured file
+      # duration (~15 min each), instead of jest's hash-based --shard.
       matrix:
         include:
           - proxy: "no"
-            files: ""
+            shard: "shard-1"
+            files: "withdraw-unbonded bond validate unbond balance convertAddress status showAddress"
+
+          - proxy: "no"
+            shard: "shard-2"
+            files: "distribute-rewards proxy wizard evm chill set-keys send validatorCycle"
 
           - proxy: "yes"
             secret: no-funds
@@ -929,7 +937,7 @@ jobs:
             proxy_type: All
             files: "bond send validate chill set-keys unbond validatorCycle wizard"
 
-    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}
     # Gated directly rather than through a separate no-op `trigger-` job, which burned a
     # runner on a bare checkout and, because it also waited on the node build, could only
     # report its skip decision after that build had finished.
@@ -1022,18 +1030,28 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          if [ -z "$TEST_FILES" ]; then
-            yarn test:validator-cli
-          else
-            read -ra NAMES <<< "$TEST_FILES"
-            PATHS=()
-            for name in "${NAMES[@]}"; do
-              PATHS+=("src/test/integration-tests/validator/${name}.test.ts")
-            done
-            yarn test:validator-cli:files "${PATHS[@]}"
+          # The proxy=no shards together must run every file, so a new test file can't
+          # silently drop out of CI.
+          if [ "$PROXY_ENABLED" = "no" ]; then
+            ASSIGNED=$(echo "$ALL_SHARD_FILES" | tr ' ' '\n' | sort)
+            PRESENT=$(find src/test/integration-tests/validator -name '*.test.ts' -exec basename {} .test.ts \; | sort)
+            if [ "$ASSIGNED" != "$PRESENT" ]; then
+              echo "validator-cli shard lists don't match the test files:" >&2
+              diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
+              exit 1
+            fi
           fi
+
+          read -ra NAMES <<< "$TEST_FILES"
+          PATHS=()
+          for name in "${NAMES[@]}"; do
+            PATHS+=("src/test/integration-tests/validator/${name}.test.ts")
+          done
+          yarn test:validator-cli:files "${PATHS[@]}"
         env:
           TEST_FILES: ${{ matrix.files }}
+          # keep in sync with the proxy=no shards above
+          ALL_SHARD_FILES: "withdraw-unbonded bond validate unbond balance convertAddress status showAddress distribute-rewards proxy wizard evm chill set-keys send validatorCycle"
           RUST_LOG: debug
           PROXY_ENABLED: ${{ matrix.proxy }}
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
@@ -1044,7 +1062,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
           path: cli/reports/junit/
           if-no-files-found: ignore
 
@@ -1061,7 +1079,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
           path: /tmp/creditcoin3-node-*.std*
 
   integration-test-blockchain:
