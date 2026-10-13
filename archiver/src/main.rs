@@ -182,6 +182,20 @@ async fn main() -> Result<()> {
         ));
     }
     let source_chain_id = ws_client.chain_id();
+    // An endpoint that cannot serve blocks in the configured mode (raw-RLP against a node without
+    // the `debug` namespace, or a block this build cannot decode) fails here rather than having
+    // the stream fail on its first block.
+    ws_client
+        .clone()
+        .with_fetch_mode(cfg.fetch_mode)
+        .check_fetch_mode(rpc_timeout)
+        .await
+        .with_context(|| {
+            format!(
+                "FETCH_MODE={} is not usable on the source RPC",
+                cfg.fetch_mode
+            )
+        })?;
 
     // ── Registered chain (Creditcoin) ───────────────────────────────────
     // Previously this lookup only ran when FINALIZATION_LAG was unset, so every
@@ -463,6 +477,7 @@ async fn main() -> Result<()> {
                     .with_max_parallelism(compute_parallelism(&cfg))
                     .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
                     .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
+                    .with_stop_on_unrecoverable(true)
                     .build();
 
                 let mut gap_stream = tokio::select! {
@@ -518,6 +533,9 @@ async fn main() -> Result<()> {
                     batch_buf.clear();
                 }
                 store.flush().await?;
+                if let Some(err) = gap_stream.take_unrecoverable_error() {
+                    return Err(unrecoverable_fetch(err));
+                }
                 if *backfill_cancel.borrow() {
                     tracing::info!(from = gap_start, filled, "backfill: stopped by shutdown");
                     return backfill_shutdown(&store, cfg.start_height, range_end);
@@ -562,6 +580,7 @@ async fn main() -> Result<()> {
         .with_max_parallelism(compute_parallelism(&cfg))
         .with_head_poll_interval(Duration::from_secs(cfg.head_poll_interval_secs.get()))
         .with_rpc_call_timeout(Duration::from_secs(cfg.rpc_timeout_secs.get()))
+        .with_stop_on_unrecoverable(true)
         .build();
 
     // The initial subscribe retries without bound while the source is down; let SIGTERM win.
@@ -620,6 +639,15 @@ async fn main() -> Result<()> {
         let info = match next_item {
             Ok(Some(info)) => info,
             reason => {
+                // The next block cannot be fetched at all; reconnecting would only fail on it
+                // again. Keep what was archived and exit.
+                if let Some(err) = root_stream.take_unrecoverable_error() {
+                    if !batch_buf.is_empty() {
+                        store.put_roots(&batch_buf)?;
+                    }
+                    store.flush().await?;
+                    return Err(unrecoverable_fetch(err));
+                }
                 // Under an attested boundary a quiet stream is the normal state between
                 // attestations, not a stall: there is simply nothing released to fetch. Only
                 // treat the timeout as a dead stream when the boundary has moved past what we
@@ -735,6 +763,7 @@ async fn main() -> Result<()> {
                                 .with_rpc_call_timeout(Duration::from_secs(
                                     cfg.rpc_timeout_secs.get(),
                                 ))
+                                .with_stop_on_unrecoverable(true)
                                 .build();
                             let built = tokio::select! {
                                 _ = cancelled(&mut cancel_rx) => { shutting_down = true; break; }
@@ -845,6 +874,15 @@ async fn main() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// The error the archiver exits with when the root stream ended on a block that no retry can
+/// fetch ([`eth::Error::is_unrecoverable`]).
+fn unrecoverable_fetch(err: stream_eth::Error) -> anyhow::Error {
+    anyhow::Error::new(err).context(
+        "the source RPC cannot serve the next block and retrying will not change that; check \
+         FETCH_MODE and that every RPC endpoint exposes the methods it needs",
+    )
 }
 
 /// True when the archiver is close enough to the chain head that batching would delay the
