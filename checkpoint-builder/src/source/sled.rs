@@ -31,6 +31,25 @@ impl SledSource {
 
         Ok(Self { db })
     }
+
+    /// Verify there are no gaps between `first` and `last` (inclusive) in this database.
+    ///
+    /// Compares the database's total entry count against the span rather than scanning and
+    /// parsing every value (as `get_range` would): since keys are unique big-endian heights and
+    /// `first`/`last` are the true min/max keys, `count == span` is sufficient to prove
+    /// contiguity, without paying to materialize a `RootInfo` for every entry in a large
+    /// database.
+    pub(super) fn assert_gapless(&self, first: u64, last: u64) -> Result<()> {
+        let expected = last - first + 1;
+        let actual = self.db.len() as u64;
+        if actual != expected {
+            anyhow::bail!(
+                "Sled database has {actual} entries but spans heights [{first}, {last}] \
+                 (expected {expected}); it has internal gaps or unexpected keys"
+            );
+        }
+        Ok(())
+    }
 }
 
 impl RootSource for SledSource {
@@ -243,6 +262,45 @@ mod tests {
             source.get_range(0, 5).is_err(),
             "expected error for range with gap"
         );
+    }
+
+    #[test]
+    fn test_assert_gapless_ok() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_db");
+
+        {
+            let db = sled::open(&db_path).unwrap();
+            for height in 0u64..10 {
+                let key = height.to_be_bytes();
+                let digest = [0u8; 32];
+                db.insert(key, &digest[..]).unwrap();
+            }
+            db.flush().unwrap();
+        }
+
+        let source = open_after_close(&db_path);
+        assert!(source.assert_gapless(0, 9).is_ok());
+    }
+
+    #[test]
+    fn test_assert_gapless_detects_gap() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("test_db");
+
+        {
+            let db = sled::open(&db_path).unwrap();
+            // heights 0..5 and 7..10, missing 5 and 6
+            for height in [0u64, 1, 2, 3, 4, 7, 8, 9] {
+                let key = height.to_be_bytes();
+                let digest = [0u8; 32];
+                db.insert(key, &digest[..]).unwrap();
+            }
+            db.flush().unwrap();
+        }
+
+        let source = open_after_close(&db_path);
+        assert!(source.assert_gapless(0, 9).is_err());
     }
 
     #[test]

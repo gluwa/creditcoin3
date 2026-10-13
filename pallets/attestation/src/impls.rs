@@ -292,15 +292,26 @@ impl<T: Config> Pallet<T> {
         // Value is the minimum of the bond and the active amount
         let mut value = bond.min(ledger.active);
 
-        ensure!(
-            ledger.unlocking.len() < T::MaxUnlockingChunks::get() as usize,
-            Error::<T>::NoMoreChunks,
-        );
-
         // Aligns with the unlock chunk era used below (unbond completes at or after this era).
         let purge_at_era = Self::current_era().defensive_saturating_add(T::BondingDuration::get());
 
         if !value.is_zero() {
+            // Like `pallet_staking::unbond`: when the queue is full, first release the chunks
+            // that already matured, so a stash that never calls `withdraw_unbonded` cannot get
+            // stuck. Done on the in-memory ledger only (persisted by `update` below), so this
+            // adds no storage access; retired BLS keys are still purged by `withdraw_unbonded`.
+            if ledger.unlocking.len() >= T::MaxUnlockingChunks::get() as usize {
+                let total_before = ledger.total_staked;
+                ledger = ledger.consolidate_unlocked(Self::current_era());
+                let released = total_before.saturating_sub(ledger.total_staked);
+                if !released.is_zero() {
+                    Self::deposit_event(Event::<T>::Withdrawn {
+                        stash: stash.clone(),
+                        amount: released,
+                    });
+                }
+            }
+
             // Decrease the active amount
             ledger.active -= value;
 
@@ -475,10 +486,19 @@ impl<T: Config> Pallet<T> {
         let signature = Signature::from_bytes(&proof_of_possession[..])
             .map_err(|_| Error::<T>::InvalidBlsSignature)?;
 
+        // The proof must be bound to *this* claimant on *this* chain, not merely to the key.
+        // See `proof_of_possession_message` for why an unbound proof is replayable by anyone who
+        // watched the victim's `attest` transaction, and what the squatter gains by replaying it.
+        let pop_message = attestor_primitives::proof_of_possession_message(
+            chain_key,
+            attestor_id.encode().as_slice(),
+            &bls_public_key,
+        );
+
         ensure!(
             bls_signatures::verify(
                 &signature,
-                &[bls_signatures::hash(bls_public_key[..].into())],
+                &[bls_signatures::hash(pop_message.as_slice().into())],
                 &[public_key]
             ),
             Error::<T>::InvalidProofOfPossession
@@ -871,7 +891,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn contains_digest(chain_key: ChainKey, digest: Digest, block_number: u64) -> bool {
-        Attestations::<T>::contains_key(chain_key, digest)
+        Self::get(chain_key, digest).is_some()
             || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
     }
 
@@ -927,10 +947,21 @@ impl<T: Config> Pallet<T> {
         AttestorsCount::<T>::get(chain_key) < MaxAttestors::<T>::get(chain_key)
     }
 
+    /// Whether this chain's `Attestations` are safe to read right now. Unlike
+    /// [`checkpoint_if_stable`](Self::checkpoint_if_stable)'s per-pivot gate, this is
+    /// all-or-nothing per chain: a draining cursor clears the whole `Attestations` prefix in
+    /// unpredictable (hash) order, so there's no way to know a given entry is unreached.
+    pub fn attestations_stable(chain_key: ChainKey) -> bool {
+        AttestationClearingCursors::<T>::get(chain_key).is_none()
+    }
+
     pub fn get(
         chain_key: ChainKey,
         digest: Digest,
     ) -> Option<SignedAttestation<T::Hash, T::AccountId>> {
+        if !Self::attestations_stable(chain_key) {
+            return None;
+        }
         Attestations::<T>::get(chain_key, digest)
     }
 
@@ -975,6 +1006,14 @@ impl<T: Config> Pallet<T> {
         ensure!(
             T::SupportedChains::is_chain_supported(chain_key),
             Error::<T>::ChainNotSupported
+        );
+
+        // A draining cursor clears this chain's whole `Attestations` prefix in unpredictable
+        // (hash) order, so a new row accepted now could still get swept up by it. Block commits
+        // until it's done rather than risk that.
+        ensure!(
+            AttestationClearingCursors::<T>::get(chain_key).is_none(),
+            Error::<T>::AttestationCleanupInProgress
         );
 
         // Reject over-long attestor lists before the expensive BLS aggregation/verification.
@@ -1492,7 +1531,9 @@ impl<T: Config> Pallet<T> {
         ensure!(
             CheckpointPruningStates::<T>::get(chain_key).is_none()
                 && CheckpointClearingCursors::<T>::get(chain_key).is_none()
-                && BucketClearingCursors::<T>::get(chain_key).is_none(),
+                && BucketClearingCursors::<T>::get(chain_key).is_none()
+                // Can outlive `CheckpointPruningStates` (seeded together, drained independently).
+                && AttestationClearingCursors::<T>::get(chain_key).is_none(),
             Error::<T>::CheckpointMaintenanceInProgress
         );
         ensure!(!checkpoints.is_empty(), Error::<T>::EmptyCheckpointPatch);

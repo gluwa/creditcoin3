@@ -1515,7 +1515,13 @@ declare module '@polkadot/types/lookup' {
             readonly chainEncoding: AttestorPrimitivesChainEncodingVersion;
             readonly maturityStrategy: Text;
         } & Struct;
-        readonly type: 'ChainRegistered' | 'ChainRemoved';
+        readonly isMaturityStrategySet: boolean;
+        readonly asMaturityStrategySet: {
+            readonly chainKey: u64;
+            readonly chainId: u64;
+            readonly maturityStrategy: Text;
+        } & Struct;
+        readonly type: 'ChainRegistered' | 'ChainRemoved' | 'MaturityStrategySet';
     }
 
     /** @name AttestorPrimitivesChainEncodingVersion (109) */
@@ -3547,7 +3553,12 @@ declare module '@polkadot/types/lookup' {
             readonly chainKey: u64;
             readonly removeCheckpoints: bool;
         } & Struct;
-        readonly type: 'RegisterChain' | 'RemoveChain';
+        readonly isSetMaturityStrategy: boolean;
+        readonly asSetMaturityStrategy: {
+            readonly chainKey: u64;
+            readonly maturityStrategy: Text;
+        } & Struct;
+        readonly type: 'RegisterChain' | 'RemoveChain' | 'SetMaturityStrategy';
     }
 
     /** @name PalletRandomnessCall (352) */
@@ -4183,6 +4194,7 @@ declare module '@polkadot/types/lookup' {
         readonly isCheckpointSuffixWipeTooLarge: boolean;
         readonly isTooManyAttestationsForForwardPatchClear: boolean;
         readonly isOversizedContinuityProof: boolean;
+        readonly isAttestationCleanupInProgress: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -4249,7 +4261,8 @@ declare module '@polkadot/types/lookup' {
             | 'EmptyCheckpointPatch'
             | 'CheckpointSuffixWipeTooLarge'
             | 'TooManyAttestationsForForwardPatchClear'
-            | 'OversizedContinuityProof';
+            | 'OversizedContinuityProof'
+            | 'AttestationCleanupInProgress';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (449) */
@@ -4266,7 +4279,13 @@ declare module '@polkadot/types/lookup' {
         readonly isChainNotSupported: boolean;
         readonly isArithmetic: boolean;
         readonly isInvalidMaturityStrategy: boolean;
-        readonly type: 'ChainAlreadyRegistered' | 'ChainNotSupported' | 'Arithmetic' | 'InvalidMaturityStrategy';
+        readonly isMaturityStrategyUnchanged: boolean;
+        readonly type:
+            | 'ChainAlreadyRegistered'
+            | 'ChainNotSupported'
+            | 'Arithmetic'
+            | 'InvalidMaturityStrategy'
+            | 'MaturityStrategyUnchanged';
     }
 
     /** @name PalletRandomnessError (456) */

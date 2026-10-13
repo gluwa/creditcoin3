@@ -575,6 +575,17 @@ impl Metrics {
             .inc();
     }
 
+    /// Count a peer that connected without negotiating gossipsub on the connection. Surfaced so
+    /// the dead-substream case can be alerted on rather than only grepped out of the log.
+    pub fn increase_gossipsub_unsupported_peer_count(&self) {
+        self.0
+            .metrics_error
+            .get_or_create(&labels::LabelFailedState {
+                failed_state: labels::FailedState::GossipsubUnsupportedPeer,
+            })
+            .inc();
+    }
+
     pub fn increase_connection_failure_count(&self) {
         self.0
             .metrics_error
@@ -684,6 +695,10 @@ mod labels {
         Equivocations,
         GossipsubMessages,
         ConnectionFailures,
+        /// A peer connected without ever negotiating the gossipsub protocol on the connection,
+        /// so it can never subscribe to a topic or deliver a vote. Alertable, unlike a
+        /// `tracing` line.
+        GossipsubUnsupportedPeer,
     }
 
     #[derive(Clone, Debug, Hash, PartialEq, Eq, prometheus_client::encoding::EncodeLabelSet)]

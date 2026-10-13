@@ -1262,6 +1262,17 @@ declare module '@polkadot/api-base/types/events' {
                 }
             >;
             /**
+             * The maturity strategy of a registered chain has been changed. Off-chain consumers
+             * (attestors, archivers) read the strategy once at startup and do not react to this
+             * event, so it is a record of the change for indexers and operators rather than a
+             * signal any node acts on. See `set_maturity_strategy` for what operators must do.
+             **/
+            MaturityStrategySet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, maturityStrategy: Text],
+                { chainKey: u64; chainId: u64; maturityStrategy: Text }
+            >;
+            /**
              * Generic event
              **/
             [key: string]: AugmentedEvent<ApiType>;

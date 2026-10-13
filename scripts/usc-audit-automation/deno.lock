@@ -1,13 +1,24 @@
 {
   "version": "5",
   "specifiers": {
+    "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/cli@1": "1.0.27",
+    "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@polkadot/api@^16.5.2": "16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
     "npm:ethers@^6.16.0": "6.16.0"
   },
   "jsr": {
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
     "@std/cli@1.0.27": {
       "integrity": "eba97edd0891871a7410e835dd94b3c260c709cca5983df2689c25a71fbe04de"
+    },
+    "@std/internal@1.0.14": {
+      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
     }
   },
   "npm": {
@@ -79,8 +90,8 @@
       "dependencies": [
         "@polkadot/api-base",
         "@polkadot/rpc-augment",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
-        "@polkadot/types-augment@16.5.4",
+        "@polkadot/types",
+        "@polkadot/types-augment",
         "@polkadot/types-codec",
         "@polkadot/util",
         "tslib@2.8.1"
@@ -90,7 +101,7 @@
       "integrity": "sha512-V69v3ieg5+91yRUCG1vFRSLr7V7MvHPvo/QrzleIUu8tPXWldJ0kyXbWKHVNZEpVBA9LpjGvII+MHUW7EaKMNg==",
       "dependencies": [
         "@polkadot/rpc-core",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/types",
         "@polkadot/util",
         "rxjs",
         "tslib@2.8.1"
@@ -103,10 +114,10 @@
         "@polkadot/api-augment",
         "@polkadot/api-base",
         "@polkadot/rpc-core",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/types",
         "@polkadot/types-codec",
         "@polkadot/util",
-        "@polkadot/util-crypto@14.0.1_@polkadot+util@14.0.1_@polkadot+x-randomvalues@14.0.1__@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1_@polkadot+wasm-util@7.5.4__@polkadot+util@14.0.1",
+        "@polkadot/util-crypto",
         "rxjs",
         "tslib@2.8.1"
       ]
@@ -117,30 +128,27 @@
         "@polkadot/api-augment",
         "@polkadot/api-base",
         "@polkadot/api-derive",
-        "@polkadot/keyring@14.0.1_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/keyring",
         "@polkadot/rpc-augment",
         "@polkadot/rpc-core",
         "@polkadot/rpc-provider",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
-        "@polkadot/types-augment@16.5.4",
+        "@polkadot/types",
+        "@polkadot/types-augment",
         "@polkadot/types-codec",
         "@polkadot/types-create",
         "@polkadot/types-known",
         "@polkadot/util",
-        "@polkadot/util-crypto@14.0.1_@polkadot+util@14.0.1_@polkadot+x-randomvalues@14.0.1__@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1_@polkadot+wasm-util@7.5.4__@polkadot+util@14.0.1",
+        "@polkadot/util-crypto",
         "eventemitter3",
         "rxjs",
         "tslib@2.8.1"
       ]
     },
-    "@polkadot/keyring@14.0.1": {
-      "integrity": "sha512-kHydQPCeTvJrMC9VQO8LPhAhTUxzxfNF1HEknhZDBPPsxP/XpkYsEy/Ln1QzJmQqD5VsgwzLDE6cExbJ2CT9CA=="
-    },
     "@polkadot/keyring@14.0.1_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1": {
       "integrity": "sha512-kHydQPCeTvJrMC9VQO8LPhAhTUxzxfNF1HEknhZDBPPsxP/XpkYsEy/Ln1QzJmQqD5VsgwzLDE6cExbJ2CT9CA==",
       "dependencies": [
         "@polkadot/util",
-        "@polkadot/util-crypto@14.0.1_@polkadot+util@14.0.1_@polkadot+x-randomvalues@14.0.1__@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1_@polkadot+wasm-util@7.5.4__@polkadot+util@14.0.1",
+        "@polkadot/util-crypto",
         "tslib@2.8.1"
       ]
     },
@@ -156,7 +164,7 @@
       "integrity": "sha512-j9v3Ttqv/EYGezHtVksGJAFZhE/4F7LUWooOazh/53ATowMby3lZUdwInrK6bpYmG2whmYMw/Fo283fwDroBtQ==",
       "dependencies": [
         "@polkadot/rpc-core",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/types",
         "@polkadot/types-codec",
         "@polkadot/util",
         "tslib@2.8.1"
@@ -167,7 +175,7 @@
       "dependencies": [
         "@polkadot/rpc-augment",
         "@polkadot/rpc-provider",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/types",
         "@polkadot/util",
         "rxjs",
         "tslib@2.8.1"
@@ -176,11 +184,11 @@
     "@polkadot/rpc-provider@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1": {
       "integrity": "sha512-mNAIBRA3jMvpnHsuqAX4InHSIqBdgxFD6ayVUFFAzOX8Fh6Xpd4RdI1dqr6a1pCzjnPSby4nbg+VuadWwauVtg==",
       "dependencies": [
-        "@polkadot/keyring@14.0.1_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/keyring",
+        "@polkadot/types",
         "@polkadot/types-support",
         "@polkadot/util",
-        "@polkadot/util-crypto@14.0.1_@polkadot+util@14.0.1_@polkadot+x-randomvalues@14.0.1__@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1_@polkadot+wasm-util@7.5.4__@polkadot+util@14.0.1",
+        "@polkadot/util-crypto",
         "@polkadot/x-fetch",
         "@polkadot/x-global",
         "@polkadot/x-ws",
@@ -193,19 +201,10 @@
         "@substrate/connect"
       ]
     },
-    "@polkadot/types-augment@16.5.4": {
-      "integrity": "sha512-AGjXR+Q9O9UtVkGw/HuOXlbRqVpvG6H8nr+taXP71wuC6RD9gznFBFBqoNkfWHD2w89esNVQLTvXHVxlLpTXqA==",
-      "dependencies": [
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
-        "@polkadot/types-codec",
-        "@polkadot/util",
-        "tslib@2.8.1"
-      ]
-    },
     "@polkadot/types-augment@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1": {
       "integrity": "sha512-AGjXR+Q9O9UtVkGw/HuOXlbRqVpvG6H8nr+taXP71wuC6RD9gznFBFBqoNkfWHD2w89esNVQLTvXHVxlLpTXqA==",
       "dependencies": [
-        "@polkadot/types@16.5.4",
+        "@polkadot/types",
         "@polkadot/types-codec",
         "@polkadot/util",
         "tslib@2.8.1"
@@ -231,7 +230,7 @@
       "integrity": "sha512-Dd59y4e3AFCrH9xiqMU4xlG5+Zy0OTy7GQvqJVYXZFyAH+4HYDlxXjJGcSidGAmJcclSYfS3wyEkfw+j1EOVEw==",
       "dependencies": [
         "@polkadot/networks",
-        "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/types",
         "@polkadot/types-codec",
         "@polkadot/types-create",
         "@polkadot/util",
@@ -245,35 +244,17 @@
         "tslib@2.8.1"
       ]
     },
-    "@polkadot/types@16.5.4": {
-      "integrity": "sha512-8Oo1QWaL0DkIc/n2wKBIozPWug/0b2dPVhL+XrXHxJX7rIqS0x8sXDRbM9r166sI0nTqJiUho7pRIkt2PR/DMQ==",
-      "dependencies": [
-        "@polkadot/keyring@14.0.1",
-        "@polkadot/types-augment@16.5.4",
-        "@polkadot/types-codec",
-        "@polkadot/types-create",
-        "@polkadot/util",
-        "@polkadot/util-crypto@14.0.1",
-        "rxjs"
-      ]
-    },
     "@polkadot/types@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1": {
       "integrity": "sha512-8Oo1QWaL0DkIc/n2wKBIozPWug/0b2dPVhL+XrXHxJX7rIqS0x8sXDRbM9r166sI0nTqJiUho7pRIkt2PR/DMQ==",
       "dependencies": [
-        "@polkadot/keyring@14.0.1_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
-        "@polkadot/types-augment@16.5.4_@polkadot+util@14.0.1_@polkadot+util-crypto@14.0.1__@polkadot+util@14.0.1__@polkadot+x-randomvalues@14.0.1___@polkadot+util@14.0.1___@polkadot+wasm-util@7.5.4____@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1",
+        "@polkadot/keyring",
+        "@polkadot/types-augment",
         "@polkadot/types-codec",
         "@polkadot/types-create",
         "@polkadot/util",
-        "@polkadot/util-crypto@14.0.1_@polkadot+util@14.0.1_@polkadot+x-randomvalues@14.0.1__@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1_@polkadot+wasm-util@7.5.4__@polkadot+util@14.0.1",
+        "@polkadot/util-crypto",
         "rxjs",
         "tslib@2.8.1"
-      ]
-    },
-    "@polkadot/util-crypto@14.0.1": {
-      "integrity": "sha512-Cu7AKUzBTsUkbOtyuNzXcTpDjR9QW0fVR56o3gBmzfUCmvO1vlsuGzmmPzqpHymQQ3rrfqV78CPs62EGhw0R+A==",
-      "dependencies": [
-        "@polkadot/networks"
       ]
     },
     "@polkadot/util-crypto@14.0.1_@polkadot+util@14.0.1_@polkadot+x-randomvalues@14.0.1__@polkadot+util@14.0.1__@polkadot+wasm-util@7.5.4___@polkadot+util@14.0.1_@polkadot+wasm-util@7.5.4__@polkadot+util@14.0.1": {
@@ -577,6 +558,7 @@
   },
   "workspace": {
     "dependencies": [
+      "jsr:@std/assert@1",
       "jsr:@std/cli@1",
       "npm:@polkadot/api@^16.5.2",
       "npm:ethers@^6.16.0"

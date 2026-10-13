@@ -3,7 +3,7 @@ name: Linode Cleaner
 
 "on":
   push:
-    branches: [usc-dev]
+    branches: [usc-dev, dev]
   workflow_dispatch:
   schedule:
     - cron: "0 * * * *" # every hour

@@ -33,6 +33,18 @@ struct LatestResponse {
     latest_block: Option<u64>,
 }
 
+/// The subset of `GET /status` this crate acts on. Every field is optional so an archiver
+/// that predates the freshness fields still parses: `ready: None` means "unknown".
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ArchiverStatus {
+    pub latest_archived_block: Option<u64>,
+    pub ready: Option<bool>,
+    pub lag_blocks: Option<u64>,
+    pub source_head_age_ms: Option<u64>,
+    #[serde(default)]
+    pub not_ready_reasons: Vec<String>,
+}
+
 /// A non-2xx response from the archiver's HTTP API.
 ///
 /// Kept as a typed error rather than collapsing straight into `anyhow!` so callers can tell three
@@ -58,7 +70,22 @@ pub struct ArchiverStatusError {
     pub body: String,
     pub from: u64,
     pub to: u64,
+    /// The archiver's latest stored height (`GET /roots/latest`), read only when the range came
+    /// back incomplete (`404`), so [`Self::is_catching_up_at_tip`] can tell "still fetching the
+    /// newest attested blocks" from "has a hole". `None` when not a `404`, when the archive is
+    /// empty, or when that lookup itself failed.
+    pub latest_archived: Option<u64>,
 }
+
+/// How far the archiver may trail the end of a requested range and still count as catching up at
+/// the attested tip rather than being down or stalled.
+///
+/// Following the attested height, the archiver only fetches a range once the attestation that
+/// releases it is published, so right after every attestation there is a window in which the
+/// range is attested but not yet stored. One attestation releases at most the chain's
+/// `MaxCatchup` blocks (500 on every network today), so a lag within that is explained by a single
+/// attestation not yet fetched. A larger lag is an outage and must stay a paging 5xx.
+pub const ARCHIVER_TIP_LAG_TOLERANCE: u64 = 500;
 
 impl ArchiverStatusError {
     /// True when the archiver refused the request itself and always will — a 4xx that is not a
@@ -74,6 +101,21 @@ impl ArchiverStatusError {
     /// request can succeed once the archiver has caught up, so this is retriable.
     pub fn is_data_unavailable(&self) -> bool {
         self.status == reqwest::StatusCode::NOT_FOUND
+    }
+
+    /// True when the range is incomplete only because the archiver has not stored its newest
+    /// blocks yet: its latest height is below the end of the range and within
+    /// [`ARCHIVER_TIP_LAG_TOLERANCE`] of it. That is the normal few-second window after an
+    /// attestation (a "not ready yet, retry" for the caller), not a fault.
+    ///
+    /// False when the archiver already holds heights at or beyond the end of the range (the
+    /// missing roots are a hole, a real archiver problem), when it trails by more than one
+    /// attestation's worth of blocks, or when its latest height is unknown.
+    pub fn is_catching_up_at_tip(&self) -> bool {
+        self.is_data_unavailable()
+            && self.latest_archived.is_some_and(|latest| {
+                latest < self.to && self.to - latest <= ARCHIVER_TIP_LAG_TOLERANCE
+            })
     }
 }
 
@@ -137,11 +179,20 @@ impl ArchiverClient {
                 detail = %body,
                 "📡 ❌ archiver GET /roots non-success status"
             );
+            // An incomplete range is either the archiver still fetching the newest attested blocks
+            // or a hole; its latest height tells the two apart. Best effort: a failed lookup
+            // leaves it unknown, which keeps the conservative "unavailable" classification.
+            let latest_archived = if status == reqwest::StatusCode::NOT_FOUND {
+                self.get_latest_block().await.ok().flatten()
+            } else {
+                None
+            };
             return Err(ArchiverStatusError {
                 status,
                 body,
                 from,
                 to,
+                latest_archived,
             }
             .into());
         }
@@ -173,6 +224,25 @@ impl ArchiverClient {
     }
 
     /// Get the latest archived block number.
+    /// `GET /status`: liveness plus freshness. Unlike `/roots/latest`, this tells us whether
+    /// the archive is *current*, not merely whether the process answers.
+    pub async fn status(&self) -> Result<ArchiverStatus> {
+        let url = format!("{}/status", self.base_url);
+        debug!(archiver_url = %self.base_url, "📡 ➡️  archiver GET /status");
+        let response = self
+            .http
+            .get(&url)
+            .send()
+            .await
+            .context("archiver request failed")?
+            .error_for_status()
+            .context("archiver returned error status")?;
+        response
+            .json::<ArchiverStatus>()
+            .await
+            .context("failed to parse archiver status")
+    }
+
     pub async fn get_latest_block(&self) -> Result<Option<u64>> {
         let url = format!("{}/roots/latest", self.base_url);
         debug!(
@@ -319,13 +389,28 @@ impl EthRpcProvider for ArchiverEthProvider {
     }
 
     async fn is_healthy(&self) -> Result<bool> {
-        // Check both the archiver and the fallback RPC for health.
-        let archiver_healthy = self
-            .archiver
-            .get_latest_block()
-            .await
-            .map(|_| true)
-            .unwrap_or(false);
+        // The archiver must be reachable *and* current. `/status` carries a `ready` verdict
+        // (recent source-head sample, within the allowed lag, last flush succeeded); an
+        // archiver too old to report it counts as healthy when reachable, as before, so a
+        // rollout of proof-gen ahead of the archiver does not flip health.
+        let archiver_healthy = match self.archiver.status().await {
+            Ok(status) => {
+                if status.ready == Some(false) {
+                    warn!(
+                        archiver_url = %self.archiver.base_url,
+                        lag_blocks = ?status.lag_blocks,
+                        source_head_age_ms = ?status.source_head_age_ms,
+                        reasons = ?status.not_ready_reasons,
+                        "archiver reachable but not ready"
+                    );
+                }
+                status.ready.unwrap_or(true)
+            }
+            Err(err) => {
+                warn!(archiver_url = %self.archiver.base_url, %err, "archiver status unavailable");
+                false
+            }
+        };
 
         let eth_healthy = self.eth_fallback.is_healthy().await.unwrap_or(false);
 
@@ -338,4 +423,104 @@ fn parse_h256(s: &str) -> Result<H256> {
     let bytes = hex::decode(s).with_context(|| format!("invalid hex: {s}"))?;
     anyhow::ensure!(bytes.len() == 32, "expected 32 bytes, got {}", bytes.len());
     Ok(H256::from_slice(&bytes))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A one-route-per-path HTTP/1.1 server: `/roots?…` answers `roots_status` with `roots_body`,
+    /// `/roots/latest` answers `{"latest_block": latest}` and counts how often it was asked.
+    async fn fake_archiver(
+        roots_status: u16,
+        roots_body: &'static str,
+        latest: Option<u64>,
+    ) -> (String, Arc<AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let latest_hits = Arc::new(AtomicUsize::new(0));
+        let hits = latest_hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                let hits = hits.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = stream.read(&mut buf).await.unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    let path = request.split_whitespace().nth(1).unwrap_or("");
+                    let (status, body) = if path.starts_with("/roots/latest") {
+                        hits.fetch_add(1, Ordering::SeqCst);
+                        let latest = latest.map_or("null".to_owned(), |h| h.to_string());
+                        (200, format!("{{\"latest_block\":{latest}}}"))
+                    } else {
+                        (roots_status, roots_body.to_owned())
+                    };
+                    let response = format!(
+                        "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+        (url, latest_hits)
+    }
+
+    fn status_error(err: &anyhow::Error) -> &ArchiverStatusError {
+        anyhow_chain_archiver_status(err).expect("an ArchiverStatusError in the chain")
+    }
+
+    #[tokio::test]
+    async fn an_incomplete_range_at_the_tip_records_the_latest_height_and_counts_as_catching_up() {
+        let (url, latest_hits) = fake_archiver(
+            404,
+            "incomplete data: expected 30 roots for range 1731..=1760, found 20",
+            Some(1_750),
+        )
+        .await;
+        let err = ArchiverClient::new(url)
+            .get_roots(1_731, 1_760)
+            .await
+            .expect_err("a 404 is an error");
+
+        let status = status_error(&err);
+        assert_eq!(status.latest_archived, Some(1_750));
+        assert!(status.is_catching_up_at_tip());
+        assert_eq!(latest_hits.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn an_incomplete_range_below_the_archived_height_is_a_hole_not_catching_up() {
+        let (url, _) = fake_archiver(404, "incomplete data", Some(5_000)).await;
+        let err = ArchiverClient::new(url)
+            .get_roots(1_731, 1_760)
+            .await
+            .expect_err("a 404 is an error");
+
+        let status = status_error(&err);
+        assert_eq!(status.latest_archived, Some(5_000));
+        assert!(status.is_data_unavailable());
+        assert!(!status.is_catching_up_at_tip());
+    }
+
+    #[tokio::test]
+    async fn a_range_rejection_does_not_look_up_the_latest_height() {
+        let (url, latest_hits) =
+            fake_archiver(400, "range too large (max 1000 blocks)", Some(1_750)).await;
+        let err = ArchiverClient::new(url)
+            .get_roots(1, 5_000)
+            .await
+            .expect_err("a 400 is an error");
+
+        let status = status_error(&err);
+        assert!(status.is_range_rejection());
+        assert_eq!(status.latest_archived, None);
+        assert_eq!(latest_hits.load(Ordering::SeqCst), 0);
+    }
 }

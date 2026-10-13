@@ -21,6 +21,8 @@ use super::routes::{continuity, health};
     ),
     paths(
         health::health_check,
+        health::livez,
+        health::readyz,
         continuity::get_proof_with_tx,
         continuity::get_proof_by_tx_hash,
         continuity::get_proof_batch,
@@ -35,6 +37,7 @@ use super::routes::{continuity, health};
         ErrorResponse,
         ProofQuery,
         health::HealthCheckResponse,
+        health::ReadinessResponse,
         attested_height::AttestedHeightResponse,
     ))
 )]

@@ -116,8 +116,25 @@ pub mod pallet {
             + MaxEncodedLen;
         #[pallet::constant]
         type DefaultAttestationsPerCheckpoint: Get<u32>;
+        /// Runtime-safe ceiling for the per-chain checkpoint interval (see
+        /// [`Pallet::set_attestations_per_checkpoint`]). `CommitAttestationWeight::weigh_data`
+        /// charges `commit_attestation`'s declared dispatch weight with reads/writes that scale
+        /// linearly with this interval, so an unbounded value would let a privileged caller
+        /// inflate `commit_attestation`'s weight past the `Normal` block budget, after which no
+        /// attestor's commit could be included in a block. This must stay low enough that the
+        /// interval-driven weight leaves comfortable headroom under the smallest `Normal`
+        /// extrinsic weight limit configured across build profiles.
+        #[pallet::constant]
+        type MaxAttestationCheckpointInterval: Get<u32>;
         #[pallet::constant]
         type DefaultAttestationInterval: Get<ChainAttestationIntervalType>;
+        /// Runtime-safe ceiling for the per-chain attestation interval (see
+        /// [`Pallet::set_chain_attestation_interval`]). Bounds `max_roots` (`max(MaxCatchup,
+        /// interval)`) in continuity-proof validation, so an unbounded value would neuter the
+        /// `OversizedContinuityProof` guard the same way an unbounded checkpoint interval
+        /// neuters the `commit_attestation` weight bound.
+        #[pallet::constant]
+        type MaxChainAttestationInterval: Get<ChainAttestationIntervalType>;
         /// Default committee **cap** for chains registered without an explicit one.
         ///
         /// This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
@@ -497,6 +514,14 @@ pub mod pallet {
     pub type BucketClearingCursors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
 
+    /// Progress markers for removing [`Attestations`] entries left over after a chain removal
+    /// or a `revert_to` reversion. Drained by `on_init_clear_attestations`, mirroring
+    /// [`CheckpointClearingCursors`].
+    #[pallet::storage]
+    #[pallet::getter(fn attestation_clearing_cursors)]
+    pub type AttestationClearingCursors<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
+
     /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
     /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
     #[pallet::storage]
@@ -589,6 +614,25 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             for chain_configuration in self.attestation_chain_configurations.iter() {
+                // Same bounds as chain registration and the setters, which a hand-written chain
+                // spec would otherwise bypass.
+                assert!(
+                    chain_configuration.target_sample_size > 0,
+                    "target_sample_size must be non-zero"
+                );
+                assert!(
+                    chain_configuration.attestation_interval > 0
+                        && chain_configuration.attestation_interval
+                            <= T::MaxChainAttestationInterval::get(),
+                    "attestation_interval must be non-zero and within MaxChainAttestationInterval"
+                );
+                assert!(
+                    chain_configuration.attestations_per_checkpoint > 0
+                        && chain_configuration.attestations_per_checkpoint
+                            <= T::MaxAttestationCheckpointInterval::get(),
+                    "attestations_per_checkpoint must be non-zero and within MaxAttestationCheckpointInterval"
+                );
+
                 // Set the committee set size for the chain
                 TargetSampleSize::<T>::insert(
                     chain_configuration.chain_key,
@@ -795,9 +839,11 @@ pub mod pallet {
         AttestorNotIdle,
         // No supported chains
         NoSupportedChains,
-        // Tried to set attestation interval to an invalid value.
+        /// Tried to set attestation interval to zero, or above `MaxChainAttestationInterval`.
         InvalidAttestationInterval,
-        // Tried to set attestations per checkpoint to an invalid value.
+        /// Tried to set attestations per checkpoint to zero, or above the runtime-level
+        /// `MaxAttestationCheckpointInterval` ceiling. That ceiling keeps the interval-driven
+        /// part of `commit_attestation`'s dispatch weight within the `Normal` block budget.
         InvalidAttestationsPerCheckpoint,
         InvalidMaxCatchup,
         // Tried to set committee set size to an invalid value.
@@ -865,7 +911,8 @@ pub mod pallet {
         InvalidAttestationContinuityProofBlockGenesis,
         // Attestation previous digest is invalid
         InvalidAttestationPrevDigest,
-        // More attestations in storage than there should have been during `revert_to`
+        /// No longer constructed — `do_revert_to` now defers leftover rows to a cursor instead
+        /// of failing. Kept so this doesn't shift the SCALE index of variants below it.
         TooManyAttestations,
         // Tried to revert to a height at which there is no checkpoint
         NoSuchCheckpoint,
@@ -891,6 +938,9 @@ pub mod pallet {
         // NOTE: appended at the end of the enum on purpose — inserting mid-list would shift the
         // SCALE index of every following variant relative to the last released runtime.
         OversizedContinuityProof,
+        /// A `revert_to`/removal attestation cleanup cursor is still draining for this chain;
+        /// commits are rejected so cleanup can't collaterally delete a new attestation.
+        AttestationCleanupInProgress,
     }
 
     #[pallet::hooks]
@@ -900,11 +950,13 @@ pub mod pallet {
             let prune_weight = Self::on_init_prune_checkpoints();
             let checkpoint_clear_weight = Self::on_init_clear_checkpoints();
             let bucket_clear_weight = Self::on_init_clear_buckets();
+            let attestation_clear_weight = Self::on_init_clear_attestations();
 
             // Return combined weight from helpers this is a more practical
             prune_weight
                 .saturating_add(checkpoint_clear_weight)
                 .saturating_add(bucket_clear_weight)
+                .saturating_add(attestation_clear_weight)
         }
     }
 
@@ -931,6 +983,13 @@ pub mod pallet {
                 chain_attestation_interval > 0,
                 Error::<T>::InvalidAttestationInterval
             };
+
+            // An unbounded interval would inflate `max_roots` in continuity-proof validation,
+            // neutering the `OversizedContinuityProof` guard (see `MaxChainAttestationInterval`).
+            ensure!(
+                chain_attestation_interval <= T::MaxChainAttestationInterval::get(),
+                Error::<T>::InvalidAttestationInterval
+            );
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1141,6 +1200,15 @@ pub mod pallet {
                 attestations_per_checkpoint > 0,
                 Error::<T>::InvalidAttestationsPerCheckpoint
             };
+
+            // Bound by the runtime-level ceiling: `weigh_data` charges `commit_attestation`'s
+            // weight with reads/writes that scale linearly with this interval, so accepting an
+            // unbounded value here would let a privileged caller inflate that weight past the
+            // `Normal` block budget and lock every attestor out of `commit_attestation`.
+            ensure!(
+                attestations_per_checkpoint <= T::MaxAttestationCheckpointInterval::get(),
+                Error::<T>::InvalidAttestationsPerCheckpoint
+            );
 
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
@@ -1459,8 +1527,11 @@ pub mod pallet {
                 Error::<T>::ChainNotSupported
             );
 
+            // Both cursors are seeded together but drain independently, so either can still be
+            // mid-flight after the other finishes.
             ensure! {
-                CheckpointPruningStates::<T>::get(chain_key).is_none(),
+                CheckpointPruningStates::<T>::get(chain_key).is_none()
+                    && AttestationClearingCursors::<T>::get(chain_key).is_none(),
                 Error::<T>::TriedToRevertDuringOngoingReversion
             };
 
@@ -1515,28 +1586,39 @@ pub mod pallet {
             attestation_chain_genesis_block_number: Option<u64>,
             _encoding: ChainEncodingVersion,
         ) -> Result<(), &'static str> {
-            // Reject zero attestation parameters before any storage write — `Some(0)` would
-            // otherwise bypass the per-setter `ensure! ... > 0` checks (those only fire when an
-            // operator updates the value later, not at registration). A live `Some(0)` for
-            // `chain_attestation_interval` or `attestation_checkpoint_interval` panics the
-            // `commit_attestation` weight calc (`proof_len / checkpoint_width` where
-            // `checkpoint_width = attestation_interval * checkpoint_interval`), bricking the
-            // chain's attestation submission until storage is repaired. The extrinsic in
-            // `pallet-supported-chains::register_chain` is transactional, so returning Err here
-            // rolls back the chain insert too.
+            // Registration must mirror each setter's zero/ceiling checks — those only run when
+            // an operator updates the value later, so `Some(_)` here could otherwise plant a
+            // value that bricks submission or defeats a weight/proof-size guard. This handler is
+            // transactional, so an `Err` here rolls back the chain insert too.
             if let Some(v) = target_sample_size {
                 if v == 0 {
                     return Err("InvalidTargetSampleSize");
                 }
             }
             if let Some(v) = chain_attestation_interval {
-                if v == 0 {
+                if v == 0 || v > T::MaxChainAttestationInterval::get() {
                     return Err("InvalidAttestationInterval");
                 }
             }
             if let Some(v) = attestation_checkpoint_interval {
-                if v == 0 {
+                if v == 0 || v > T::MaxAttestationCheckpointInterval::get() {
                     return Err("InvalidAttestationsPerCheckpoint");
+                }
+            }
+            // Same rationale, extended to the roster-capacity params: `set_max_attestors`
+            // enforces `0 < new_max <= MaxAttestationNodes` (the ceiling backing the
+            // `BoundedVec` capacities and the `commit_attestation` weight bound), but that
+            // check only runs when an operator updates the value later — registration must
+            // enforce it too, or a chain can be stored with a roster limit the rest of the
+            // pallet never expects.
+            if let Some(v) = max_attestors {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxAttestors");
+                }
+            }
+            if let Some(v) = max_invulnerables {
+                if v == 0 || v > T::MaxAttestationNodes::get() {
+                    return Err("InvalidMaxInvulnerables");
                 }
             }
 
@@ -1646,7 +1728,7 @@ pub mod pallet {
             // --- Checkpoint creation writes ---
             // Each checkpoint boundary hit during proof processing incurs 3 storage writes
             // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus an event deposit.
-            let estimated_checkpoints = proof_len / checkpoint_width;
+            let estimated_checkpoints = proof_len.checked_div(checkpoint_width).unwrap_or(0);
             // The benchmark assumed checkpoint_width=100, so it measured:
             let benchmark_checkpoint_width: u64 = 100;
             let benchmark_checkpoints = proof_len / benchmark_checkpoint_width;

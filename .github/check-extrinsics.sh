@@ -17,21 +17,31 @@ runtimes=(
 )
 
 # First we fetch the latest released binary
-latest_release_tag() {
-  # WARNING: $GITHUB_TOKEN must be defined in the calling environment because this is a private repository
-  curl --silent --header "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$1/releases/latest" | jq -r '.tag_name'
-}
-
-latest_release_url() {
-  # WARNING: $GITHUB_TOKEN must be defined in the calling environment because this is a private repository
-  curl --silent --header "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$1/releases/latest" | jq -r '.url'
+# Map the PR's target branch to the network whose releases it feeds. The check must compare
+# against that network's latest release, not GitHub's "latest" release overall: that one can
+# belong to another network built from another branch (an asc-devnet tag cut from asc-dev,
+# say) whose runtime carries calls this branch does not have, and every PR then fails on
+# index shifts that are not its own.
+network_for_base_ref() {
+  case "$1" in
+    main) echo "mainnet" ;;
+    usc-testnet) echo "testnet" ;;
+    asc-dev) echo "asc-devnet" ;;
+    *) echo "devnet" ;;
+  esac
 }
 
 OWNER_REPO_SLUG="${OWNER_REPO_SLUG:-gluwa/creditcoin3}"
-latest_tag=$(latest_release_tag "$OWNER_REPO_SLUG")
-latest_url=$(latest_release_url "$OWNER_REPO_SLUG")
+network=$(network_for_base_ref "${GITHUB_BASE_REF:-dev}")
+# RELEASE_TAG can be set by the caller to pin the comparison to one release.
+latest_tag="${RELEASE_TAG:-$(GITHUB_REPOSITORY="$OWNER_REPO_SLUG" ./.github/extract-release-tag.sh "$network")}"
+if [ -z "$latest_tag" ]; then
+  echo "[!] No ${network} release found for ${OWNER_REPO_SLUG}"
+  exit 1
+fi
+latest_url="https://api.github.com/repos/$OWNER_REPO_SLUG/releases/tags/$latest_tag"
 RELEASE_BIN="./creditcoin3-node"
-echo "[+] Fetching binary for Creditcoin version $latest_tag"
+echo "[+] Fetching binary for Creditcoin version $latest_tag (latest ${network} release)"
 # WARNING: $GITHUB_TOKEN must be defined in the calling environment because this is a private repository
 asset_url=$(curl --silent --header "Authorization: Bearer $GITHUB_TOKEN" \
     "${latest_url}" | jq -r ".assets[] | select(.name==\"creditcoin-${latest_tag}-x86_64-unknown-linux-gnu.zip\") | .url"

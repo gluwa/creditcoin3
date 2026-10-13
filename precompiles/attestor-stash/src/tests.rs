@@ -3,12 +3,13 @@ use crate::{
         Account::{Alice, Bob, Precompile},
         *,
     },
-    AttestorInfo, LedgerInfo, SELECTOR_LOG_ATTESTOR_CHILLED, SELECTOR_LOG_ATTESTOR_REGISTERED,
-    SELECTOR_LOG_ATTESTOR_UNREGISTERED, SELECTOR_LOG_UNBONDED_WITHDRAWN,
+    AttestorInfo, AttestorStashPrecompile, LedgerInfo, SELECTOR_LOG_ATTESTOR_CHILLED,
+    SELECTOR_LOG_ATTESTOR_REGISTERED, SELECTOR_LOG_ATTESTOR_UNREGISTERED,
+    SELECTOR_LOG_UNBONDED_WITHDRAWN,
 };
 
 use precompile_utils::{evm::logs::log2, evm::logs::log4, testing::*};
-use sp_core::{H160, H256};
+use sp_core::{H160, H256, U256};
 use std::str::from_utf8;
 
 fn precompiles() -> Precompiles<Runtime> {
@@ -536,6 +537,70 @@ fn get_ledger_after_register_returns_staked_amount() {
                     unlocking_chunks: 0,
                     withdrawable: 0,
                 });
+        });
+}
+
+#[test]
+fn get_ledger_for_existing_ledger_meters_current_era_read() {
+    use precompile_utils::prelude::RuntimeHelper;
+
+    let alice: H160 = Alice.into();
+    let alice_h256: H256 = Alice.into();
+    let read_cost = RuntimeHelper::<Runtime>::db_read_gas_cost();
+    // Non-zero in the mock runtime so a missing read collapses two different costs into one
+    // instead of both reading as zero.
+    assert!(read_cost > 0);
+
+    // Call `get_ledger_for_account` directly on a fresh `MockHandle`, bypassing the
+    // `PrecompileSet` dispatch machinery (which records its own, unrelated read for account
+    // codes metadata). This isolates exactly the metering this function is responsible for.
+    let mut handle = MockHandle::new(
+        Precompile.into(),
+        fp_evm::Context {
+            address: Precompile.into(),
+            caller: alice,
+            apparent_value: U256::zero(),
+        },
+    );
+
+    ExtBuilder::default()
+        .with_balances(vec![(Alice, 10 * MIN_BOND)])
+        .build()
+        .execute_with(|| {
+            precompiles()
+                .prepare_test(
+                    alice,
+                    Precompile,
+                    PCall::register_attestor {
+                        chain_key: TEST_CHAIN_KEY,
+                        attestor_id: attestor_id(),
+                    },
+                )
+                .execute_returns(true);
+
+            let ledger = AttestorStashPrecompile::<Runtime>::get_ledger_for_account(
+                &mut handle,
+                AccountId::from(alice_h256.0),
+            )
+            .expect("existing ledger lookup should succeed");
+
+            assert_eq!(
+                ledger,
+                LedgerInfo {
+                    exists: true,
+                    stash: alice_h256,
+                    total_staked: MIN_BOND,
+                    active: MIN_BOND,
+                    unlocking_chunks: 0,
+                    withdrawable: 0,
+                }
+            );
+
+            // Once a ledger exists, `withdrawable` is derived from `Staking::current_era()`,
+            // which reads `pallet_staking`'s `CurrentEra` storage. That read must be metered
+            // in addition to the `Ledger` read, or the `CurrentEra` proof-size and encoded-size
+            // costs go unaccounted for.
+            assert_eq!(handle.gas_used, 2 * read_cost);
         });
 }
 

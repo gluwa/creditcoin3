@@ -44,6 +44,10 @@ pub struct Shared {
 
     pub cc3: Arc<cc_client::Client>,
     pub eth: eth::Client,
+    /// Source-chain blocks the root stream fetches concurrently.
+    pub eth_max_concurrency: std::num::NonZeroUsize,
+    /// Interval of the streams' `eth_blockNumber` head poll.
+    pub eth_head_poll_interval: std::time::Duration,
 
     pub bls_store: Arc<BlsStore>,
     pub metrics: metrics::Metrics,

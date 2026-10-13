@@ -21,3 +21,35 @@ export interface TriggeredWarning {
     rule: WarningRule;
     matchedFiles: string[];
 }
+
+export interface ReleaseTopic {
+    id: string;
+    label: string;
+    scopes?: string[];
+    types?: string[];
+    include?: string[];
+}
+
+export interface DependencyTopic {
+    label: string;
+    types?: string[];
+    scopes?: string[];
+    authors?: string[];
+}
+
+export interface ReleaseTopicsConfig {
+    topics: ReleaseTopic[];
+    dependencies: DependencyTopic;
+    skip?: string[];
+}
+
+export interface ReleaseChange {
+    sha: string;
+    title: string;
+    author: string;
+    login?: string;
+    pr?: number;
+    type?: string;
+    scopes: string[];
+    files: string[];
+}

@@ -12,6 +12,11 @@
       "chainId": 1,
       "chainKey": 3,
       "url": ""
+    },
+    {
+      "chainId": 97,
+      "chainKey": 4,
+      "url": "https://bsc-testnet-rpc.publicnode.com"
     }
   ],
   "balanceChecks": [
