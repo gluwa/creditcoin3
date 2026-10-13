@@ -97,7 +97,7 @@ jobs:
         id: scout-compare
         if: ${{ inputs.build-node-image }}
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: compare
           image: local://${{ github.repository }}:${{ inputs.version-string }}
@@ -117,7 +117,7 @@ jobs:
       - name: Docker Scout - comment on the PR about the vulnerability change
         if: ${{ inputs.build-node-image && steps.scout-compare.outcome == 'failure' && github.event_name == 'pull_request' }}
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: compare
           image: local://${{ github.repository }}:${{ inputs.version-string }}
@@ -170,7 +170,7 @@ jobs:
       # the job summary and in the weekly Scout report.
       - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: cves
           image: local://${{ github.repository }}:indexer-for-${{ inputs.version-string }}
@@ -186,7 +186,7 @@ jobs:
       # the job summary and in the weekly Scout report.
       - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: cves
           image: local://${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}

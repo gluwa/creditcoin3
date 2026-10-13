@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0
 
       - name: "Examine which files have been modified by this PR"
-        uses: dorny/paths-filter@v4.0.2
+        uses: dorny/paths-filter@v4.0.3
         id: filter
         with:
           filters: |
