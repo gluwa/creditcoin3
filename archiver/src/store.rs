@@ -149,7 +149,9 @@ impl RootStore {
     /// Idempotent re-insertion of the same root **and** same hash is allowed (covers
     /// backfill replays). Legacy entries (32-byte, hash unknown) only conflict on the
     /// root: a matching root with a previously-unknown hash is accepted and upgraded to
-    /// the 64-byte layout.
+    /// the 64-byte layout. The same holds the other way round: an incoming unknown (zero)
+    /// hash only conflicts on the root, and never overwrites a known stored hash (e.g.
+    /// `merge-shards` copying a legacy shard over an overlapping 64-byte one).
     /// Pin the source chain id this archive belongs to.
     ///
     /// The first call records `live`; every later call must pass the same value or fails
@@ -190,17 +192,21 @@ impl RootStore {
         // Reorg / inconsistency guard. Scan first; this is a cheap point-read per entry
         // and means we never run the batch insert with a mixed-conflict payload.
         let mut new_entries = 0_usize;
+        let mut batch = sled::Batch::default();
         for (height, incoming_root, incoming_hash) in roots {
+            let mut block_hash = *incoming_hash;
             match self.db.get(height.to_be_bytes())? {
                 Some(existing) => {
                     let existing = parse_stored(&existing)?;
                     // Root mismatch is always a hard failure (as before).
                     // Same root but a different *known* block hash is a canonical
                     // replacement at the same height — also a reorg.
-                    // A legacy entry (block_hash unknown == zero) never fails on the
-                    // hash alone; we accept and upgrade it in place.
-                    let hash_conflict =
-                        !existing.block_hash.is_zero() && existing.block_hash != *incoming_hash;
+                    // An unknown hash (zero) on either side never fails on the hash
+                    // alone: a legacy stored entry is upgraded in place, and an unknown
+                    // incoming hash keeps the known stored one.
+                    let hash_conflict = !existing.block_hash.is_zero()
+                        && !incoming_hash.is_zero()
+                        && existing.block_hash != *incoming_hash;
                     anyhow::ensure!(
                         existing.root == *incoming_root && !hash_conflict,
                         StoreError::ReorgDetected {
@@ -213,18 +219,18 @@ impl RootStore {
                     );
                     // Same root (and compatible hash) — idempotent replay or a legacy
                     // upgrade. Either way it's not a new entry, so don't count it.
+                    if incoming_hash.is_zero() {
+                        block_hash = existing.block_hash;
+                    }
                 }
                 None => new_entries += 1,
             }
-        }
-
-        let mut batch = sled::Batch::default();
-        for (height, root, block_hash) in roots {
             batch.insert(
                 &height.to_be_bytes(),
-                encode_value(*root, *block_hash).as_slice(),
+                encode_value(*incoming_root, block_hash).as_slice(),
             );
         }
+
         self.db
             .apply_batch(batch)
             .context("failed to apply batch insert")?;
@@ -795,6 +801,36 @@ mod tests {
         let err = store
             .put_roots(&[(200, root, hash)])
             .expect_err("legacy root mismatch must still be rejected");
+        assert!(err.downcast_ref::<StoreError>().is_some());
+    }
+
+    #[test]
+    fn put_roots_unknown_incoming_hash_keeps_the_stored_one() {
+        // Copying a legacy entry (hash unknown) over a known one must neither reorg-fail on
+        // the hash nor erase the known hash; a different root still fails.
+        let dir = tempfile::tempdir().unwrap();
+        let store = RootStore::open(dir.path().join("test.sled")).unwrap();
+
+        let root = H256::from_slice(&[0xcd; 32]);
+        let hash = H256::from_slice(&[0x33; 32]);
+        store.put_roots(&[(100, root, hash)]).unwrap();
+
+        store.put_roots(&[(100, root, H256::zero())]).unwrap();
+        assert_eq!(
+            store.get_range(100, 100).unwrap(),
+            vec![(
+                100,
+                StoredRoot {
+                    root,
+                    block_hash: hash
+                }
+            )]
+        );
+        assert_eq!(store.count(), 1);
+
+        let err = store
+            .put_roots(&[(100, H256::from_slice(&[0xee; 32]), H256::zero())])
+            .expect_err("root mismatch must still be rejected");
         assert!(err.downcast_ref::<StoreError>().is_some());
     }
 

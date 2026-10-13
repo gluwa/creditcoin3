@@ -13,8 +13,11 @@
 //! - every shard pins the same source chain id (or `--chain-id`, when given);
 //! - every shard is gap-free across its own `[first, last]`;
 //! - the shards leave no gap between each other;
+//! - together they cover exactly `--start-height..=--end-height` (a shard's own span comes
+//!   from the blocks it holds, so this is what catches one cut short at either outer end);
 //! - where shards overlap, the overlapping heights hold identical root and block hash
-//!   (enforced by the store's reorg guard as they are written);
+//!   (enforced by the store's reorg guard as they are written; an entry without a block
+//!   hash matches on the root alone and never replaces a known hash);
 //! - re-reading every shard afterwards, the output holds the same root, and the same block
 //!   hash wherever the shard has one, at every height;
 //! - the output is gap-free over the whole span and its entry count matches.
@@ -50,6 +53,14 @@ struct Config {
     /// Output database directory. Must not exist yet.
     #[arg(long)]
     output: PathBuf,
+
+    /// First height the merged output must start at (the lowest shard's intended start).
+    #[arg(long)]
+    start_height: u64,
+
+    /// Last height the merged output must end at (the highest shard's intended end).
+    #[arg(long)]
+    end_height: u64,
 
     /// Expected source chain id. Required only if some input was never pinned; otherwise
     /// every pinned input must match it.
@@ -126,6 +137,20 @@ fn joins(sorted: &[Span]) -> Joins {
     out
 }
 
+/// Check that the shards' combined span is exactly the range the caller asked for.
+fn check_covers(total: Span, expected: Span) -> Result<()> {
+    ensure!(
+        total == expected,
+        "the shards hold {}..={} but --start-height/--end-height ask for {}..={}; a shard is \
+         cut short at an outer end, missing, or reaches past the range",
+        total.first,
+        total.last,
+        expected.first,
+        expected.last
+    );
+    Ok(())
+}
+
 /// The chain id the output is pinned to: `expected` if given, else the one all inputs share.
 fn resolve_chain_id(pins: &[(PathBuf, Option<u64>)], expected: Option<u64>) -> Result<u64> {
     let mut resolved = expected;
@@ -170,7 +195,8 @@ fn open_shard(path: PathBuf) -> Result<(Shard, Option<u64>)> {
 }
 
 /// Copy every entry of `shard` into `out`, returning how many carried no block hash
-/// (legacy 32-byte values; written back in the 64-byte layout with an unknown hash).
+/// (legacy 32-byte values; written in the 64-byte layout with an unknown hash, unless an
+/// overlapping shard already wrote that height with a known one, which is kept).
 fn copy_shard(
     shard: &Shard,
     out: &RootStore,
@@ -257,6 +283,12 @@ async fn main() -> Result<()> {
 
     let cfg = Config::parse();
     ensure!(
+        cfg.start_height <= cfg.end_height,
+        "--start-height {} is above --end-height {}",
+        cfg.start_height,
+        cfg.end_height
+    );
+    ensure!(
         cfg.dry_run || !cfg.output.exists(),
         "output {} already exists; refusing to merge into an existing database \
          (if it is left over from an interrupted merge, delete it and re-run)",
@@ -285,6 +317,24 @@ async fn main() -> Result<()> {
     let chain_id = resolve_chain_id(&pins, cfg.chain_id)?;
 
     shards.sort_by_key(|s| s.span.first);
+    let spans: Vec<Span> = shards.iter().map(|s| s.span).collect();
+    let total = Span {
+        first: spans[0].first,
+        last: spans
+            .iter()
+            .map(|s| s.last)
+            .max()
+            .expect("at least one shard"),
+    };
+    // Cheap, so before the per-shard gap scans that read every block.
+    check_covers(
+        total,
+        Span {
+            first: cfg.start_height,
+            last: cfg.end_height,
+        },
+    )?;
+
     for shard in &shards {
         let gaps = shard
             .store
@@ -305,7 +355,6 @@ async fn main() -> Result<()> {
         );
     }
 
-    let spans: Vec<Span> = shards.iter().map(|s| s.span).collect();
     let Joins { gaps, overlaps } = joins(&spans);
     ensure!(gaps.is_empty(), "no shard covers these heights: {gaps:?}");
     for overlap in &overlaps {
@@ -315,14 +364,6 @@ async fn main() -> Result<()> {
             "shards overlap; the overlapping heights must match exactly"
         );
     }
-    let total = Span {
-        first: spans[0].first,
-        last: spans
-            .iter()
-            .map(|s| s.last)
-            .max()
-            .expect("at least one shard"),
-    };
     tracing::info!(
         chain_id,
         first = total.first,
@@ -370,7 +411,8 @@ async fn main() -> Result<()> {
     if legacy > 0 {
         tracing::warn!(
             legacy,
-            "entries without a stored block hash were copied with an unknown (zero) hash"
+            "shard entries had no block hash; the output keeps an unknown (zero) hash wherever \
+             no overlapping shard supplied one"
         );
     }
     tracing::info!(
@@ -422,6 +464,16 @@ mod tests {
                 overlaps: vec![span(10, 20)],
             }
         );
+    }
+
+    #[test]
+    fn the_merged_span_must_match_the_expected_range() {
+        check_covers(span(0, 100), span(0, 100)).unwrap();
+        // Lowest shard cut short at its start, highest cut short at its end.
+        assert!(check_covers(span(5, 100), span(0, 100)).is_err());
+        assert!(check_covers(span(0, 95), span(0, 100)).is_err());
+        // Shards reaching past the requested range.
+        assert!(check_covers(span(0, 105), span(0, 100)).is_err());
     }
 
     #[test]
@@ -484,17 +536,29 @@ mod tests {
         name: &str,
         heights: std::ops::RangeInclusive<u64>,
     ) -> Shard {
+        shard_with_hashes(dir, name, heights, |h| H256::from_low_u64_be(h + 1_000))
+    }
+
+    /// A shard in the legacy layout: the same roots as [`shard_at`], no block hashes.
+    fn legacy_shard_at(
+        dir: &std::path::Path,
+        name: &str,
+        heights: std::ops::RangeInclusive<u64>,
+    ) -> Shard {
+        shard_with_hashes(dir, name, heights, |_| H256::zero())
+    }
+
+    fn shard_with_hashes(
+        dir: &std::path::Path,
+        name: &str,
+        heights: std::ops::RangeInclusive<u64>,
+        block_hash: impl Fn(u64) -> H256,
+    ) -> Shard {
         let path = dir.join(name);
         let store = RootStore::open(&path).unwrap();
         store.pin_chain_id(56).unwrap();
         let entries: Vec<_> = heights
-            .map(|h| {
-                (
-                    h,
-                    H256::from_low_u64_be(h),
-                    H256::from_low_u64_be(h + 1_000),
-                )
-            })
+            .map(|h| (h, H256::from_low_u64_be(h), block_hash(h)))
             .collect();
         store.put_roots(&entries).unwrap();
         let span = Span {
@@ -532,6 +596,34 @@ mod tests {
                 .into_iter()
                 .chain(b.store.get_range(25, 40).unwrap())
                 .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_legacy_shard_merges_over_an_overlapping_hashed_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = shard_at(dir.path(), "a", 0..=24);
+        // Agrees with `a` on every root over the overlap, but has no block hashes.
+        let b = legacy_shard_at(dir.path(), "b", 20..=40);
+        let out = RootStore::open(dir.path().join("out")).unwrap();
+
+        let mut copied = 0;
+        assert_eq!(
+            copy_shard(&a, &out, batch(7), &mut copied, Instant::now()).unwrap(),
+            0
+        );
+        assert_eq!(
+            copy_shard(&b, &out, batch(7), &mut copied, Instant::now()).unwrap(),
+            21
+        );
+        for shard in [&a, &b] {
+            verify_shard(shard, &out, batch(7)).unwrap();
+        }
+        assert_eq!(out.count(), 41);
+        // The overlap keeps `a`'s known hashes.
+        assert_eq!(
+            out.get_range(0, 24).unwrap(),
+            a.store.get_range(0, 24).unwrap()
         );
     }
 
