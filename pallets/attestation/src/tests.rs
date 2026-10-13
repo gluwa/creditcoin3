@@ -3356,14 +3356,6 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
 #[test]
 fn validate_attestation_should_error_when_majority_not_reached() {
     ExtBuilder.build_and_execute(|| {
-        // Raise the cap clear of the active set so it never binds; the quorum is then a straight
-        // `2/3+1` of the active-attestor count.
-        assert_ok!(Attestation::set_target_sample_size(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
-            44
-        ));
-
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             RuntimeOrigin::signed(STASH_1),
@@ -3400,8 +3392,8 @@ fn validate_attestation_should_error_when_majority_not_reached() {
 /// attestors, so this was reachable in a shipped configuration.
 ///
 /// Same setup as [`validate_attestation_should_error_when_majority_not_reached`] above, minus the
-/// padding: one active attestor, a target of 44, and the lone attestor's own attestation is now
-/// a valid quorum.
+/// padding and with a target of 44: one active attestor, and its own attestation is a valid
+/// quorum despite the target sitting far above the active set.
 #[test]
 fn target_sample_size_above_active_set_does_not_block_attestation() {
     ExtBuilder.build_and_execute(|| {
@@ -3443,6 +3435,55 @@ fn target_sample_size_above_active_set_does_not_block_attestation() {
             attestation.chain_key(),
             &attestation
         ));
+    })
+}
+
+/// A `TargetSampleSize` **below** the active-attestor count must not lower the quorum.
+///
+/// The mirror of [`target_sample_size_above_active_set_does_not_block_attestation`], and the
+/// regression for the committee/threshold mismatch: when the quorum was `2/3+1` of
+/// `min(|ActiveAttestors|, TargetSampleSize)`, a target of 1 against 2 active attestors put the
+/// threshold at 1, so a single signer — a minority of the set signers are drawn from — was a
+/// valid quorum. Two disjoint such groups could then attest conflicting roots at one height.
+#[test]
+fn target_sample_size_below_active_set_does_not_lower_the_quorum() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            RuntimeOrigin::signed(STASH_1),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        progress_to_block(5);
+
+        // Two active attestors, but a target of 1.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 2);
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            1
+        ));
+
+        assert_eq!(
+            Attestation::quorum_threshold(SUPPORTED_CHAIN_KEY),
+            2,
+            "the threshold must track the active set, not the lower target"
+        );
+
+        // Genesis height (0) so the continuity check accepts an empty proof — this isolates the
+        // threshold path. One signer would have cleared the old target-derived threshold.
+        let attestation =
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_err!(
+            Attestation::validate_attestation(attestation.chain_key(), &attestation),
+            Error::<Test>::MajorityNotReached
+        );
     })
 }
 

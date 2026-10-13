@@ -435,40 +435,31 @@ impl AttestationCheckpoint {
 
 /// `2/3 + 1` of `active_attestors` — the bare arithmetic behind [`calculate_quorum`].
 ///
-/// Prefer [`calculate_quorum`]; this is split out only so the formula can be asserted directly.
-/// Whatever is passed here *is* the set the threshold is measured against, so passing anything
-/// smaller than the live active-attestor count hands a minority of that set a passing quorum.
+/// Prefer [`calculate_quorum`]. Whatever is passed here *is* the set the threshold is measured
+/// against, so a smaller count hands a minority of the active set a passing quorum.
 ///
-/// The multiply saturates. In-tree callers pass a count bounded by `MaxAttestationNodes`, far
-/// below the wrapping point, but this is `pub`: an input above `u32::MAX / 2` would otherwise wrap
+/// The multiply saturates: this is `pub`, and an input above `u32::MAX / 2` would otherwise wrap
 /// in a release build (the workspace release profile does not enable `overflow-checks`) and
-/// collapse the threshold to a handful of signers. Saturating keeps an absurd input
-/// unreachable-high instead of dangerously low.
+/// collapse the threshold.
 pub fn calculate_threshold(active_attestors: u32) -> u32 {
     active_attestors.saturating_mul(2) / 3 + 1
 }
 
 /// Quorum threshold for a chain: `2/3 + 1` of the live active-attestor count.
 ///
-/// The committee **is** `ActiveAttestors`: `elect_attestors_for_chain` selects every eligible
-/// attestor and nothing samples a subset. Deriving the threshold from anything smaller would let
-/// a self-selected minority of that set clear it — with 30 active and a cap of 9 the threshold
-/// was 7, so two disjoint groups of seven could each produce a conflicting quorum for the same
-/// height. Measuring against the set the signers are actually drawn from is what makes quorum
-/// intersection hold: an adversary below `1/3` of the active set can never reach `2/3+1` of it.
+/// The committee **is** `ActiveAttestors` — `elect_attestors_for_chain` selects every eligible
+/// attestor and nothing samples a subset — so the threshold is measured against that same set.
+/// A threshold derived from anything smaller would let a self-selected minority clear it.
 ///
-/// `TargetSampleSize` deliberately plays no part here. It is reserved for the committee sortition
-/// in RFC-0174, which is out of scope at the current `MaxAttestationNodes` ceiling; see its
-/// storage docs in `pallet-attestation`.
+/// `TargetSampleSize` plays no part here; it is reserved for RFC-0174 committee sortition. See
+/// its storage docs in `pallet-attestation`.
 ///
 /// This is the single definition shared by the runtime (`validate_attestation`) and the attestor
-/// node. Both sides must agree: an attestor computing a threshold the runtime does not enforce
-/// either burns fees on `MajorityNotReached` (too low) or never submits at all (too high).
+/// node. Both sides must agree: a node computing a threshold the runtime does not enforce either
+/// burns fees on `MajorityNotReached` (too low) or never submits at all (too high).
 ///
-/// Reachable at every set size, including the small ones. An earlier model derived the threshold
-/// from `TargetSampleSize` alone, so a target above the active-attestor count was unsatisfiable
-/// and attestation for that chain halted permanently. Deriving it from the live count cannot
-/// reproduce that: the threshold is always at most the number of attestors able to sign.
+/// Reachable at every set size: the threshold is always at most the number of attestors able to
+/// sign, so it cannot reproduce the permanent halt an earlier target-derived model could.
 pub fn calculate_quorum(active_attestors: u32) -> u32 {
     calculate_threshold(active_attestors)
 }

@@ -661,9 +661,7 @@ impl Client {
 
     /// The quorum the runtime enforces for `chain_key`: `2/3+1` of `|ActiveAttestors|`.
     ///
-    /// `TargetSampleSize` is deliberately not an input — it is inert, reserved for RFC-0174
-    /// sortition. Deriving a threshold from it instead would hand a minority of the active set a
-    /// passing quorum, which is the mismatch this formula exists to close.
+    /// `TargetSampleSize` is not an input: it is inert, reserved for RFC-0174 sortition.
     pub async fn quorum(&self, chain_key: u64) -> Result<u32, Error> {
         let storage = self.api().storage().at_latest().await?;
 

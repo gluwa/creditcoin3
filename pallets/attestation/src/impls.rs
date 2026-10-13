@@ -1031,9 +1031,8 @@ impl<T: Config> Pallet<T> {
         // Threshold validation.
         //
         // The quorum is `2/3+1` of `|ActiveAttestors|`. The committee *is* the active set —
-        // nothing samples a subset — so measuring the threshold against anything smaller would
-        // let a self-selected minority of that set clear it, and two disjoint such groups could
-        // attest conflicting roots at one height.
+        // nothing samples a subset — so a threshold measured against anything smaller would let
+        // a self-selected minority clear it.
         //
         // `active_attestors` is the deduplicated live set gathered above, so this is the same
         // denominator the eligibility filter was applied against.

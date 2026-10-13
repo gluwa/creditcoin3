@@ -382,25 +382,12 @@ declare module '@polkadot/api-base/types/storage' {
              * Reserved for future committee sortition. **Does not affect quorum.**
              *
              * `validate_attestation` derives its threshold from `|ActiveAttestors|` alone (see
-             * [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). Setting this
-             * value changes nothing today; it is kept so RFC-0174 has its parameter when sortition is
-             * built, and its default records the population at which that becomes worth doing.
+             * [`attestor_primitives::calculate_quorum`]). Setting this value changes nothing today; it
+             * is kept so RFC-0174 has its parameter when sortition is built.
              *
-             * RFC-0174 selects a stake-weighted committee per attestation, and puts the smallest safe
-             * committee at **~120 attestors** — the size at which an adversary holding under `1/3` of
-             * stake has below `2^-40` probability of taking `2/3` of the committee. Sampling below that
-             * is worse than not sampling: drawing 9 of 100 against an adversary at `1/3` gives roughly a
-             * 1-in-180 capture chance per draw, where using the whole active set makes capture
-             * arithmetically impossible.
-             *
-             * Reaching 120 on one chain is an economic question, not a scheduling one. Under the
-             * proposed Attestcoin model — 10,000,000 ATC total supply, 100,000 ATC per bond — the
-             * network supports at most 100 bonded registrations in total, and a bond is taken per
-             * `(stash, chain)` registration rather than once per operator. One chain could therefore
-             * reach 120 attestors only if the bond fell to roughly 1/3 of its proposed value *and*
-             * essentially the whole supply were staked on that single chain. Until the bond or the
-             * supply changes by that order, `MaxAttestationNodes` stays below the sortition floor and
-             * this value is inert.
+             * Its default is RFC-0174's ~120 committee floor — the population at which sampling would
+             * start being worth building. `MaxAttestationNodes` sits below that, so the ceiling would
+             * have to be raised before this value could matter.
              **/
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;
