@@ -502,6 +502,25 @@ mod benchmarks {
         assert!(CheckpointingQueues::<T>::get(DEV_CHAIN_KEY).is_empty());
     }
 
+    /// Per-root cost of expanding continuity proofs into the boundary-digest map, as a commit
+    /// that condenses the queue does for its own proof and every queued one. A single proof is
+    /// capped at `MaxCatchup` roots, too few for `commit_attestation`'s `s` to resolve it.
+    #[benchmark]
+    fn continuity_roots(r: Linear<0, 20_000>) {
+        let proof =
+            construct_fragment(Some(H256::repeat_byte(1)), RangeInclusive::new(1, r as u64));
+        let mut block_digests = sp_std::collections::btree_map::BTreeMap::new();
+
+        #[block]
+        {
+            for (block_number, digest) in proof.block_digests(1) {
+                block_digests.entry(block_number).or_insert(digest);
+            }
+        }
+
+        assert_eq!(block_digests.len(), r as usize);
+    }
+
     #[benchmark]
     fn set_min_bond_requirement() {
         // Setup

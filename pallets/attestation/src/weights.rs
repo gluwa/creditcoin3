@@ -417,6 +417,14 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(q.into())))
 			.saturating_add(Weight::from_parts(0, 6263).saturating_mul(q.into()))
 	}
+	/// The range of component `r` is `[0, 20000]`.
+	fn continuity_roots(r: u32, ) -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `0`
+		//  Estimated: `0`
+		Weight::from_parts(1_000_000, 0)
+			.saturating_add(Weight::from_parts(2_000_000, 0).saturating_mul(r.into()))
+	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)

@@ -221,6 +221,7 @@ pub mod pallet {
         fn set_max_invulnerables() -> Weight;
         fn commit_attestation(a: u32, b: u32) -> Weight;
         fn commit_attestation_queued(q: u32) -> Weight;
+        fn continuity_roots(r: u32) -> Weight;
         fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
@@ -1836,11 +1837,16 @@ pub mod pallet {
     impl<T: Config> CommitAttestationWeight<T> {
         /// Commit weight for `s` continuity-proof roots and `m` attestors, plus the marginal
         /// cost of a checkpointing queue of `q` entries. Each queued entry is read, decoded and
-        /// removed; the roots its proof carries are charged through `s`.
+        /// removed; every root walked, including those in queued proofs, is charged through
+        /// `continuity_roots`, which is benchmarked over a range wide enough to resolve it.
         pub(crate) fn weight_for(s: u32, m: u32, q: u32) -> Weight {
-            let queued = <T as Config>::WeightInfo::commit_attestation_queued(q)
-                .saturating_sub(<T as Config>::WeightInfo::commit_attestation_queued(0));
-            <T as Config>::WeightInfo::commit_attestation(s, m).saturating_add(queued)
+            let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
+            <T as Config>::WeightInfo::commit_attestation(s, m)
+                .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, s))
+                .saturating_add(marginal(
+                    <T as Config>::WeightInfo::commit_attestation_queued,
+                    q,
+                ))
         }
     }
 
