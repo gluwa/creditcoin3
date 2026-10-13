@@ -906,13 +906,12 @@ jobs:
       # duration (~15 min each), instead of jest's hash-based --shard.
       matrix:
         include:
+          # files come from VALIDATOR_SHARDS in the run step
           - proxy: "no"
             shard: "shard-1"
-            files: "withdraw-unbonded bond validate unbond balance convertAddress status showAddress"
 
           - proxy: "no"
             shard: "shard-2"
-            files: "distribute-rewards proxy wizard evm chill set-keys send validatorCycle"
 
           - proxy: "yes"
             secret: no-funds
@@ -1030,19 +1029,30 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          # The proxy=no shards together must run every file, so a new test file can't
-          # silently drop out of CI.
+          # The proxy=no shards take their files from VALIDATOR_SHARDS, the one list that
+          # says which shard runs which file. It must cover every test file exactly once, so
+          # a new file can't silently drop out of CI.
           if [ "$PROXY_ENABLED" = "no" ]; then
-            ASSIGNED=$(echo "$ALL_SHARD_FILES" | tr ' ' '\n' | sort)
+            ASSIGNED=$(echo "$VALIDATOR_SHARDS" | tr ' ' '\n' | cut -d: -f2 | sort)
             PRESENT=$(find src/test/integration-tests/validator -name '*.test.ts' -exec basename {} .test.ts \; | sort)
             if [ "$ASSIGNED" != "$PRESENT" ]; then
               echo "validator-cli shard lists don't match the test files:" >&2
               diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
               exit 1
             fi
+            UNKNOWN=$(echo "$VALIDATOR_SHARDS" | tr ' ' '\n' | grep -vE '^shard-[12]:' || true)
+            if [ -n "$UNKNOWN" ]; then
+              echo "VALIDATOR_SHARDS entries for a shard the matrix doesn't run: $UNKNOWN" >&2
+              exit 1
+            fi
+            TEST_FILES=$(echo "$VALIDATOR_SHARDS" | tr ' ' '\n' | sed -n "s/^${SHARD}://p" | tr '\n' ' ')
           fi
 
           read -ra NAMES <<< "$TEST_FILES"
+          if [ "${#NAMES[@]}" -eq 0 ]; then
+            echo "no test files for this leg" >&2
+            exit 1
+          fi
           PATHS=()
           for name in "${NAMES[@]}"; do
             PATHS+=("src/test/integration-tests/validator/${name}.test.ts")
@@ -1050,8 +1060,25 @@ jobs:
           yarn test:validator-cli:files "${PATHS[@]}"
         env:
           TEST_FILES: ${{ matrix.files }}
-          # keep in sync with the proxy=no shards above
-          ALL_SHARD_FILES: "withdraw-unbonded bond validate unbond balance convertAddress status showAddress distribute-rewards proxy wizard evm chill set-keys send validatorCycle"
+          SHARD: ${{ matrix.shard }}
+          # <shard>:<file> for the proxy=no legs, split by measured file duration
+          VALIDATOR_SHARDS: >-
+            shard-1:withdraw-unbonded
+            shard-1:bond
+            shard-1:validate
+            shard-1:unbond
+            shard-1:balance
+            shard-1:convertAddress
+            shard-1:status
+            shard-1:showAddress
+            shard-2:distribute-rewards
+            shard-2:proxy
+            shard-2:wizard
+            shard-2:evm
+            shard-2:chill
+            shard-2:set-keys
+            shard-2:send
+            shard-2:validatorCycle
           RUST_LOG: debug
           PROXY_ENABLED: ${{ matrix.proxy }}
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
