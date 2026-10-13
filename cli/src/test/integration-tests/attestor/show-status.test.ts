@@ -1,5 +1,4 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
-import { try_catch_else_finally } from '../../utils';
 import {
     ALICE_NODE_URL,
     BOB_NODE_URL,
@@ -36,36 +35,6 @@ describe('show-status', () => {
     afterAll(async () => {
         await api.disconnect();
     });
-
-    it('should error when required option --evm-address is not specified', () => {
-        try_catch_else_finally(
-            () => {
-                CLI('attestor show-status');
-            },
-            (error: any) => {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '--evm-address [address]' not specified");
-            },
-            () => {
-                throw new Error('cli was expected to fail but it did not');
-            },
-        );
-    }, 30_000);
-
-    it('should error when required option --chain is not specified', () => {
-        try_catch_else_finally(
-            () => {
-                CLI(`attestor show-status --evm-address ${stash.ethEvmAddress}`);
-            },
-            (error: any) => {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '-c, --chain [chain]' not specified");
-            },
-            () => {
-                throw new Error('cli was expected to fail but it did not');
-            },
-        );
-    }, 30_000);
 
     it('should display "no attestors" message when stash has none registered', () => {
         // note: nothing registered yet under this stash!

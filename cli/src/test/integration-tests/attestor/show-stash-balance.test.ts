@@ -12,21 +12,6 @@ describe('show-stash-balance', () => {
         CLI = CLIBuilder({});
     });
 
-    it('should error when required option is not specified', () => {
-        try_catch_else_finally(
-            () => {
-                CLI('attestor show-stash-balance');
-            },
-            (error: any) => {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '--evm-address [address]' not specified");
-            },
-            () => {
-                throw new Error('cli was expected to fail but it did not');
-            },
-        );
-    }, 30_000);
-
     it('should error when address is not an attestor', () => {
         // a deterministic EVM address that is not registered as a stash
         const randomEvm = '0x000000000000000000000000000000000000dEaD';

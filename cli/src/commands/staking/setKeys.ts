@@ -16,19 +16,22 @@ export function makeSetKeysCommand() {
 }
 
 async function setKeysAction(options: OptionValues) {
-    const { api } = await newApi(options.url as string);
-
-    // Build account
-    const keyring = await initKeyring(options);
-
-    let keys;
+    // Validate the flags before connecting, so a usage error fails fast
     if (!options.keys && !options.rotate) {
         console.log('Must specify keys to set or generate new ones using the --rotate flag');
         process.exit(1);
     } else if (options.keys && options.rotate) {
         console.error('Must either specify keys or rotate to generate new ones, can not do both');
         process.exit(1);
-    } else if (options.rotate) {
+    }
+
+    const { api } = await newApi(options.url as string);
+
+    // Build account
+    const keyring = await initKeyring(options);
+
+    let keys;
+    if (options.rotate) {
         keys = (await api.rpc.author.rotateKeys()).toString();
     } else {
         keys = parseHexStringOrExit(options.keys);
