@@ -358,8 +358,16 @@ jobs:
 
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
-          # Wait for first zombienet to finish registering attestors to avoid nonce conflicts
-          sleep 60
+          # Wait for first zombienet to finish registering attestors to avoid nonce conflicts:
+          # it only starts the attestor processes once funding and registration are on chain.
+          for _ in $(seq 1 180); do
+            [ "$(grep -c 'Starting attestor' /var/tmp/integration-test-attestor-network/zombienet-alice.log)" -ge 3 ] && break
+            sleep 1
+          done
+          if [ "$(grep -c 'Starting attestor' /var/tmp/integration-test-attestor-network/zombienet-alice.log)" -lt 3 ]; then
+            echo "First zombienet did not start its 3 attestors within 180s" >&2
+            exit 1
+          fi
 
           ./target/release/attestor_zombienet \
                 -n 3 \
@@ -378,7 +386,7 @@ jobs:
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
           # also wait for Anvil_2 attestors (chain 4)
-          .github/wait-for-attestors.sh 'http://127.0.0.1:9955'
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9955' 4
 
       - name: Start creditcoin3-node - Charlie
         env:
@@ -416,7 +424,6 @@ jobs:
       - name: Run attestation tests
         working-directory: ./cli
         run: |
-          sleep 100 # wait for attestors to register
           yarn install --immutable
           yarn test:attestation
 
@@ -840,7 +847,11 @@ jobs:
           killall -TERM attestor
           killall -TERM archiver
           killall -TERM creditcoin3-node
-          sleep 60
+          # give them up to 60s to exit cleanly; [t] keeps pgrep from matching this shell
+          for _ in $(seq 1 60); do
+            pgrep -f '[t]arget/release/(creditcoin3-node|attestor|archiver)' >/dev/null || break
+            sleep 1
+          done
 
       - name: KILL binaries
         if: always()
@@ -1527,7 +1538,20 @@ jobs:
 
           docker compose pull
           docker compose up -d
-          sleep 30
+
+          # wait until the SubQuery GraphQL endpoint answers with a processed height
+          for _ in $(seq 1 120); do
+            HEIGHT=$(curl --silent -H 'Content-Type: application/json' \
+              -d '{"query":"{ _metadata { lastProcessedHeight } }"}' \
+              http://127.0.0.1:3000 | jq -r '.data._metadata.lastProcessedHeight // empty' 2>/dev/null || true)
+            [ -n "$HEIGHT" ] && break
+            sleep 1
+          done
+          if [ -z "$HEIGHT" ]; then
+            echo "cc3-indexer did not start processing blocks within 120s" >&2
+            exit 1
+          fi
+          echo "cc3-indexer processed up to block $HEIGHT"
 
       - name: Run integration tests for cc3-indexer
         working-directory: ./cli
