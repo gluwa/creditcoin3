@@ -1690,10 +1690,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # files come from ATTESTOR_SHARDS in the run step
           - shard: 1
-            files: "chill register show-stash-balance"
           - shard: 2
-            files: "withdraw-unbonded unregister show-status"
     name: attestor-cli-testing / shard ${{ matrix.shard }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90
@@ -1836,9 +1835,15 @@ jobs:
             --runTestsByPath "${PATHS[@]}"
         env:
           RUST_LOG: debug
-          TEST_FILES: ${{ matrix.files }}
-          # keep in sync with the matrix above
-          ALL_SHARD_FILES: "chill register show-stash-balance withdraw-unbonded unregister show-status"
+          SHARD: ${{ matrix.shard }}
+          # <shard>:<file>, split by measured file duration
+          ATTESTOR_SHARDS: >-
+            1:chill
+            1:register
+            1:show-stash-balance
+            2:withdraw-unbonded
+            2:unregister
+            2:show-status
 
       - name: Upload test results
         if: always()
