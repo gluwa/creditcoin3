@@ -173,7 +173,7 @@ jobs:
           args: subxt-cli@0.44.3 --locked
 
       - name: Upload subxt binary
-        if: ${{ inputs.build-subxt }}
+        if: ${{ inputs.build-subxt && inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: subxt

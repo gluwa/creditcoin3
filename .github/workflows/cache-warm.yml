@@ -73,6 +73,9 @@ jobs:
       cache-key-name: build-release
       runs-on: "['ubuntu-26.04']"
       upload-artifacts: false
+      # Like the Rust cache, a subxt binary cached by a tag is readable by that tag alone,
+      # so the default-branch entry releases restore has to come from here.
+      build-subxt: true
     secrets: inherit
 
   # build-native.yml keys runner families separately (see "Identify runner family"), and
