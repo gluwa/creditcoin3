@@ -135,7 +135,7 @@ pub enum BlockFetchMode {
     /// provider; the node builds JSON objects for every transaction and receipt.
     #[default]
     Json,
-    /// `debug_getRawBlock(n)` + `debug_getRawReceipts(n)`: the node hands back the RLP it stores
+    /// `debug_getRawBlock(n)` + `debug_getRawReceipts(hash)`: the node hands back the RLP it stores
     /// and this client decodes it. Roughly 3 to 5× smaller payloads and no JSON marshalling on the
     /// node, at the cost of recovering transaction senders locally. Needs the `debug` namespace,
     /// which public providers generally do not expose; meant for a node we operate ourselves.
@@ -1411,24 +1411,30 @@ impl Client {
     /// and re-shapes them into the rpc types the JSON path yields, so the downstream header
     /// root checks and leaf encoding are shared. Decoding and sender recovery are CPU-bound
     /// (one ECDSA recovery per transaction) and run on the blocking pool.
+    ///
+    /// The receipts are requested by the hash of the block that came back, not by height, so the
+    /// pair cannot straddle a reorg even when the provider URL is a load balancer. Raw receipts
+    /// carry no block hash, so [`Error::ReceiptsBlockMismatch`] cannot catch a cross-fork pair
+    /// here, and the receipt-root check is skipped for pre-Byzantium mainnet. A node that does
+    /// not know the hash answers with an empty list, which fails the transaction/receipt count
+    /// check for any non-empty block. The cost is one serial round trip per block instead of two
+    /// concurrent requests.
     async fn fetch_raw_block_and_receipts_from_provider(
         &self,
         provider: &AlloyProvider,
         number: u64,
     ) -> Result<(Block, Vec<TransactionReceipt>), Error> {
-        let block_id = BlockId::Number(BlockNumberOrTag::Number(number));
-        let block_fut = async {
-            self.pacer.acquire().await;
-            provider.debug_get_raw_block(block_id).await
-        };
-        let receipts_fut = async {
-            self.pacer.acquire().await;
-            provider.debug_get_raw_receipts(block_id).await
-        };
-        let (raw_block, raw_receipts) = tokio::try_join!(block_fut, receipts_fut)?;
+        self.pacer.acquire().await;
+        let raw_block = provider
+            .debug_get_raw_block(BlockId::Number(BlockNumberOrTag::Number(number)))
+            .await?;
         if raw_block.is_empty() {
             return Err(Error::FailedToGetBlock(number));
         }
+        let hash = header_hash_from_raw_block(&raw_block)
+            .map_err(|e| Error::RawBlockDecode(number, e.to_string()))?;
+        self.pacer.acquire().await;
+        let raw_receipts = provider.debug_get_raw_receipts(BlockId::hash(hash)).await?;
         tokio::task::spawn_blocking(move || rpc_block_from_raw(number, &raw_block, &raw_receipts))
             .await
             .map_err(|e| Error::ClientError(anyhow::anyhow!("raw block decode task failed: {e}")))?
