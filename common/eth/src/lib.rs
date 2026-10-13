@@ -813,9 +813,19 @@ pub const DEFAULT_PRIMARY_DIAL_TIMEOUT: std::time::Duration = std::time::Duratio
 /// best-effort there; a slow one must not hold a repaired primary hostage.
 pub const FALLBACK_DIAL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Largest single websocket frame accepted. tungstenite's 16 MiB default drops raw-RLP block
+/// replies of ~19 MiB.
+const WS_MAX_FRAME_SIZE: usize = 32 * 1024 * 1024;
+/// Largest reassembled websocket message accepted. Doubles tungstenite's 64 MiB default so
+/// growing blocks keep headroom over the frame cap.
+const WS_MAX_MESSAGE_SIZE: usize = 128 * 1024 * 1024;
+
 fn ws_connect(url: impl Into<String>) -> WsConnect {
-    WsConnect::new(url)
-        .with_config(WebSocketConfig::default().max_frame_size(Some(32 * 1024 * 1024)))
+    WsConnect::new(url).with_config(
+        WebSocketConfig::default()
+            .max_frame_size(Some(WS_MAX_FRAME_SIZE))
+            .max_message_size(Some(WS_MAX_MESSAGE_SIZE)),
+    )
 }
 
 impl Client {
