@@ -20,9 +20,6 @@ name: Reusable workflow to build a native client
       runs-on:
         required: true
         type: string
-      build-subkey:
-        required: false
-        type: boolean
       build-subxt:
         required: false
         type: boolean
@@ -100,6 +97,10 @@ jobs:
           # The default keeps callers that omit `cache-key-name` (proof-gen-api-server) in the
           # same namespace as the warmer, since they build the same configuration.
           shared-key: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
+          # A cache saved under a tag ref is readable by that tag alone, so a release would
+          # only spend minutes uploading an entry nothing restores. Releases read the entry
+          # cache-warm.yml keeps on the default branch instead.
+          save-if: ${{ github.ref_type != 'tag' }}
 
       # Copied in rather than `git apply`-ed, see the producer in ci.yml's
       # regenerate-metadata. This job is the one that *must* sit on the PR branch
@@ -151,22 +152,18 @@ jobs:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
 
-      - name: Install subkey
-        if: ${{ inputs.build-subkey }}
-        uses: gluwa/cargo@dev
+      # subxt-cli is pinned below, so its binary only changes when the pin or the toolchain
+      # does. Restore it instead of compiling it again on every release.
+      - name: Restore subxt binary
+        id: subxt-cache
+        if: ${{ inputs.build-subxt }}
+        uses: actions/cache@v4
         with:
-          command: install
-          args: --locked --git https://github.com/paritytech/polkadot-sdk --rev 7304295 subkey
-
-      - name: Upload subkey binary
-        if: ${{ inputs.build-subkey }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: subkey
-          path: ~/.cargo/bin/subkey
+          path: ~/.cargo/bin/subxt
+          key: subxt-cli-0.44.3-${{ runner.os }}-${{ runner.arch }}-${{ env.RUSTC_VERSION }}
 
       - name: Install subxt
-        if: ${{ inputs.build-subxt }}
+        if: ${{ inputs.build-subxt && steps.subxt-cache.outputs.cache-hit != 'true' }}
         uses: gluwa/cargo@dev
         with:
           command: install
@@ -193,9 +190,9 @@ jobs:
           github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
       - name: Report resource usage
-        # Last step on purpose: Install subkey / Install subxt are full cargo
-        # compiles on the release path and would otherwise land outside the
-        # sampling window.
+        # Last step on purpose: Install subxt is a full cargo
+        # compile on the release path when its cache misses, and would otherwise
+        # land outside the sampling window.
         if: always() && hashFiles('.github/resource-monitor.sh') != ''
         continue-on-error: true
         run: |

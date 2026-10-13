@@ -1705,22 +1705,9 @@ jobs:
           name: binary-for-testing-ci
           path: target/release
 
-      - name: Download subkey from release ${{ needs.should-run.outputs.devnet_release_tag }}
-        uses: i3h/download-release-asset@v1
-        with:
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          tag: ${{ needs.should-run.outputs.devnet_release_tag }}
-          file: subkey
-          path: /usr/local/bin
-          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
-
       - name: Start creditcoin3-node
         run: |
           chmod a+x ./target/release/attestor
-
-          sudo chmod a+x /usr/local/bin/subkey
-          subkey --version
 
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
