@@ -148,6 +148,29 @@ async function hasStakingLock(api, stash) {
     return accountLocks.some((l) => l.id.toHex() === STAKING_LOCK_ID);
 }
 
+/**
+ * Wait until none of the signer's transactions are left in the pool. A call that timed out (in this
+ * run or an earlier one) may still land; sending a stash again before it does would pay for an
+ * `AlreadyMigrated`. Once the on-chain nonce catches up, the best-block lock check sees its effect.
+ */
+async function waitForIdle(api, address, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    for (let logged = false; ; logged = true) {
+        const [next, account] = await Promise.all([
+            api.rpc.system.accountNextIndex(address),
+            api.query.system.account(address),
+        ]);
+        const pending = next.toNumber() - account.nonce.toNumber();
+        if (pending <= 0) return true;
+        if (Date.now() >= deadline) {
+            console.log(`Signer still has ${pending} pending transactions after ${timeoutMs / 1000}s`);
+            return false;
+        }
+        if (!logged) console.log(`Waiting for ${pending} pending signer transactions to land`);
+        await new Promise((r) => setTimeout(r, 3000));
+    }
+}
+
 function decodeError(api, dispatchError) {
     if (dispatchError.isModule) {
         const meta = api.registry.findMetaError(dispatchError.asModule);
@@ -253,7 +276,8 @@ async function main() {
         return 0;
     }
 
-    const keyring = new Keyring({ type: options.ecdsa ? 'ethereum' : 'sr25519' });
+    // AccountId32 + MultiSignature: an ECDSA signer is `ecdsa`, not the 20-byte `ethereum` type.
+    const keyring = new Keyring({ type: options.ecdsa ? 'ecdsa' : 'sr25519' });
     const signer = keyring.addFromUri(suri);
     const { free } = (await api.query.system.account(signer.address)).data;
     // The fee is taken up front and refunded on success, so a wave needs that much float.
@@ -270,6 +294,10 @@ async function main() {
     const started = Date.now();
     let aborted = false;
     for (let i = 0; i < selected.length && !aborted; i += options.wave) {
+        if (!(await waitForIdle(api, signer.address, options.timeoutSecs * 1000))) {
+            aborted = true;
+            break;
+        }
         // Candidates come from finalized state, but a stash migrated in a block that is not final yet
         // would fail with AlreadyMigrated and cost the fee. Re-check each lock against the best block.
         const chunk = [];
@@ -292,7 +320,8 @@ async function main() {
         for (const r of results.filter((x) => x.status !== 'migrated')) {
             console.log(`  ${r.status} ${r.stash} ${r.error || ''}`);
         }
-        // A rejected or stuck tx leaves later nonces waiting in the pool; stop and let a re-run resume.
+        // A rejected or stuck tx leaves later nonces waiting in the pool; stop and let a re-run resume
+        // (it waits for those to clear before sending anything).
         aborted = results.some((r) => r.status === 'rejected' || r.status === 'timeout');
     }
 
@@ -309,7 +338,7 @@ async function main() {
     };
     save();
     console.log(`Done: ${JSON.stringify(report.summary)}. Report: ${out}`);
-    if (aborted) console.log('Stopped early on a rejected or timed-out transaction; re-run to continue.');
+    if (aborted) console.log('Stopped early on a rejected, timed-out or pending transaction; re-run to continue.');
 
     await api.disconnect();
     return left === 0 && !aborted ? 0 : 1;
