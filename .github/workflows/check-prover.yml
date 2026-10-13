@@ -88,6 +88,8 @@ jobs:
         env:
           GO_BACK_BLOCKS: '360'
           SLEEP_TIME: '500'
+          # CK1 is Sepolia, CK3/CK4 are Ethereum Mainnet. Same mapping audit-automation.yml uses.
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -100,6 +102,7 @@ jobs:
           GO_BACK_BLOCKS: '400'
           STEP_THROUGH_BLOCKS: '7'
           SLEEP_TIME: '500'
+          SOURCE_CHAIN_RPC_URL: ${{ matrix.chainKey == 1 && secrets.SEPOLIA_RPC_URL || secrets.USC_SANITY_ETHEREUM_RPC_URL }}
         run: |
           node dist/scripts/prover-check.js \
             ${{ matrix.creditcoinUrl }} ${{ matrix.chainKey }} ${{ matrix.proverUrl }} \
@@ -112,15 +115,16 @@ jobs:
           name: proofs-for-${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
           path: /var/tmp/${{ steps.test-env.outputs.chain-name }}-ck-${{ matrix.chainKey }}
 
+      # Failures only. On always() this job alone posted 4 messages per run, twice a day.
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
           inputs: ${{ toJson(matrix) }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
+          channel: "#protocol-internal"
+          message: "[${{ github.workflow }}] Checking CK(${{ matrix.chainKey }})@${{ matrix.proverUrl}} FAILED! cc <!subteam^S028FDV6CCV>"
 
   submit-verify-and-emit:
     needs:
@@ -282,13 +286,13 @@ jobs:
           git diff --quiet --diff-filter=M
 
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Sepolia complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
+          channel: "#protocol-internal"
+          message: "[${{ github.workflow }}] Proofs diff for Sepolia FAILED! cc <!subteam^S028FDV6CCV>"
 
   compare-proofs-ethereum:
     needs:
@@ -340,10 +344,10 @@ jobs:
           git diff --quiet --diff-filter=M
 
       - name: Report result to Slack
-        if: always()
+        if: failure()
         uses: act10ns/slack@v2
         with:
           webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
           status: ${{ job.status }}
-          channel: "#noti-creditcoin-snapshots"
-          message: "Proofs diff for Ethereum complete! ${{ job.status == 'failure' && 'cc <!subteam^S028FDV6CCV>' || '' }}"
+          channel: "#protocol-internal"
+          message: "[${{ github.workflow }}] Proofs diff for Ethereum FAILED! cc <!subteam^S028FDV6CCV>"
