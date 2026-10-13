@@ -1207,13 +1207,7 @@ jobs:
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-devnet.creditcoin.network 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
-          DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.devnet /var/tmp/pallet_storage.local | colordiff)
-
-          if [ -n "$DIFF_OUTPUT" ]; then
-              echo "FAIL: difference in pallet storage versions detected"
-              echo "$DIFF_OUTPUT"
-              exit 1
-          fi
+          ../.github/compare-pallet-storage-versions.sh devnet "${{ github.base_ref }}"
 
       - name: Compare to pallet storage versions from Testnet
         timeout-minutes: 15
@@ -1221,13 +1215,7 @@ jobs:
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
-          DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.testnet /var/tmp/pallet_storage.local | colordiff)
-
-          if [ -n "$DIFF_OUTPUT" ]; then
-              echo "FAIL: difference in pallet storage versions detected"
-              echo "$DIFF_OUTPUT"
-              exit 1
-          fi
+          ../.github/compare-pallet-storage-versions.sh testnet "${{ github.base_ref }}"
 
       - name: Upload logs
         if: always()
