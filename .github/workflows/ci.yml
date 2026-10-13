@@ -420,6 +420,14 @@ jobs:
           yarn install --immutable
           yarn test:attestation
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-attestor-network
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
       - name: Start creditcoin3-node - Dave - stand alone chain
         if: always()
         env:
@@ -993,6 +1001,14 @@ jobs:
           PROXY_TYPE: ${{ matrix.proxy_type }}
           EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO: ${{ steps.for-dev-prs.outputs.validator_cycle || steps.non-dev-prs.outputs.validator_cycle }}
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
       - name: Kill nodes
         if: always()
         continue-on-error: true
@@ -1129,6 +1145,14 @@ jobs:
           ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
         run: |
           yarn test:blockchain
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-blockchain
+          path: cli/reports/junit/
+          if-no-files-found: ignore
 
       - name: Collect pallet storage versions from Local chain
         if: always()
@@ -1537,6 +1561,14 @@ jobs:
           yarn install
           yarn test:cc3-indexer
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-cc3-indexer
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
       - name: Collect logs
         if: always()
         working-directory: ./cc3-indexer
@@ -1703,6 +1735,14 @@ jobs:
           yarn test:attestor-cli
         env:
           RUST_LOG: debug
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-attestor-cli
+          path: cli/reports/junit/
+          if-no-files-found: ignore
 
       - name: Kill nodes
         if: always()
@@ -2095,6 +2135,14 @@ jobs:
           yarn install
 
           yarn test:archiver
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-archiver
+          path: cli/reports/junit/
+          if-no-files-found: ignore
 
       - name: Check archiver logs for errors
         if: always()
