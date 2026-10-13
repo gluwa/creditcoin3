@@ -51,10 +51,14 @@ async fn raw_rlp_and_json_modes_agree() {
             "merkle root differs at block {number}"
         );
         for (x, y) in a.items().iter().zip(b.items()) {
-            assert_eq!(x.tx().from, y.tx().from, "sender differs at block {number}");
             assert_eq!(
-                x.rx().gas_used,
-                y.rx().gas_used,
+                x.eth_tx().unwrap().from,
+                y.eth_tx().unwrap().from,
+                "sender differs at block {number}"
+            );
+            assert_eq!(
+                x.eth_rx().unwrap().gas_used,
+                y.eth_rx().unwrap().gas_used,
                 "gas_used differs at block {number}"
             );
         }
