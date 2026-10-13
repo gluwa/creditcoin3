@@ -452,6 +452,13 @@ impl<T: Config> Pallet<T> {
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> DispatchResult {
+        // A removed chain's cleanup may already be past the `BlsKeyOwner` phase, so a row written
+        // now would never be cleaned up.
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
+
         let mut attestor =
             Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
@@ -543,7 +550,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Immediately set an attestor to idle, remove them from the active set, and emit
-    /// [`Event::AttestorChilled`]. Used for operator kicks, chain cleanup, and chilling from
+    /// [`Event::AttestorChilled`]. Used for operator kicks and chilling from
     /// [`AttestorStatus::Waiting`] (cancel pending activation).
     pub(crate) fn do_chill_attestor_immediate(chain_key: ChainKey, attestor_id: T::AccountId) {
         Attestors::<T>::mutate(chain_key, &attestor_id, |maybe_attestor| {
@@ -954,6 +961,11 @@ impl<T: Config> Pallet<T> {
         chain_key: ChainKey,
         address: &T::AccountId,
     ) -> DispatchResult {
+        // Same reason as `start_attesting`: cleanup may already have passed the invulnerables phase.
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
         ensure!(
             Self::vulnerable_list_has_space(chain_key),
             Error::<T>::InvulnerableListFull

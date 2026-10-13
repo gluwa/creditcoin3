@@ -5949,6 +5949,43 @@ fn remove_chain_weight_covers_the_chain_removal_listener() {
     });
 }
 
+/// A removed chain's cleanup may already be past a phase, so `attest` and `register_invulnerable`
+/// must not write fresh rows for it.
+#[test]
+fn attest_and_register_invulnerable_are_rejected_for_a_removed_chain() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false
+        ));
+
+        assert_noop!(
+            Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+        assert_noop!(
+            Attestation::register_invulnerable(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_2
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+    });
+}
+
 /// Regression test: a draining cursor clears `Attestations` in unpredictable (hash) order, so a
 /// new row accepted mid-drain could be collaterally deleted. `commit_attestation` must reject
 /// while a cursor is active and resume once it's gone.
