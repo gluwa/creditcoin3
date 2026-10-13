@@ -2549,6 +2549,13 @@ mod grandpa_equivocation_tests {
         }
     }
 
+    fn advance_eras(eras: u32) {
+        let target = Staking::active_era().unwrap().index + eras;
+        while Staking::active_era().unwrap().index < target {
+            start_session();
+        }
+    }
+
     fn equivocation_proof(
         set_id: u64,
         round: u64,
@@ -2710,14 +2717,35 @@ mod grandpa_equivocation_tests {
             let set_id = Grandpa::current_set_id();
             let key_owner_proof = ownership_proof(&offender);
 
-            // Report after the chain has moved on by a few sets.
-            advance_sets(set_id + 3);
+            // Report as late as possible: staking keeps the historical session roots that key
+            // ownership proofs are checked against for `BondingDuration` eras.
+            advance_eras(BondingDuration::get());
+            assert!(pallet_grandpa::SetIdSession::<Runtime>::get(set_id - 1).is_some());
 
             assert_ok!(report(
                 conflicting_proof(set_id, &offender),
                 key_owner_proof
             ));
             assert_eq!(grandpa_offences(), 1);
+        });
+    }
+
+    #[test]
+    fn report_for_a_pruned_set_is_rejected() {
+        new_test_ext().execute_with(|| {
+            advance_sets(3);
+            let offender = grandpa_pair(VALIDATORS[2]);
+            let set_id = Grandpa::current_set_id();
+            let key_owner_proof = ownership_proof(&offender);
+
+            // One era later than above, the session the proof was made for has been pruned.
+            advance_eras(BondingDuration::get() + 1);
+
+            assert_err!(
+                report(conflicting_proof(set_id, &offender), key_owner_proof).map_err(|e| e.error),
+                pallet_grandpa::Error::<Runtime>::InvalidKeyOwnershipProof
+            );
+            assert_eq!(grandpa_offences(), 0);
         });
     }
 
