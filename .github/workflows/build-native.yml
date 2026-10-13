@@ -83,14 +83,10 @@ jobs:
           targets: wasm32v1-none
           components: rust-src
 
-      # Hosted and self-hosted runners compute the *same* Swatinem key today: same arch, same
-      # rustc, same manifests, and build-native.yml sets no CXXFLAGS on either side, so the
-      # env hash matches too (`...-6cf672bd-...` on both). Their Cargo home and checkout root
-      # differ though, and `target/` fingerprints and `.d` files record absolute paths, so an
-      # archive restored across families fails every fingerprint check and rebuilds anyway
-      # after paying for the download. Give each family its own namespace, otherwise the
-      # hosted warmer below wins the entry the Linode build needs and the Linode warmer can
-      # never save.
+      # Hosted and self-hosted runners differ in Cargo home and checkout root, and `target/`
+      # fingerprints record absolute paths, so an archive restored across families rebuilds
+      # anyway. Give each family its own namespace so cache-warm.yml's hosted and Linode
+      # warmers don't overwrite each other's entry.
       - name: Identify runner family
         id: runner-family
         env:

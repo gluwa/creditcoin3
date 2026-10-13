@@ -14,12 +14,9 @@ name: cache-warm
 # keys. This workflow covers the separate key used by build-native.yml callers.
 #
 # IMPORTANT, on why this calls build-native.yml instead of running cargo directly:
-# Swatinem/rust-cache mixes the Rust environment into the cache key, including env vars
-# beginning with CXX. build-native.yml sets no CXXFLAGS while rust.yml sets
-# `CXXFLAGS: -include cstdint`, so the two compute *different* keys even when both pass
-# the same `shared-key`. Warming therefore has to reproduce the consumer's environment
-# exactly, and the only reliable way to do that is to invoke the very same reusable
-# workflow. Do not reimplement the build here.
+# Swatinem/rust-cache mixes the Rust environment (rustc, CXX* env vars) into the cache
+# key, so warming has to reproduce the consumer's environment exactly. Invoke the same
+# reusable workflow; do not reimplement the build here.
 "on":
   # Only manifest changes. The cache key is derived from the Cargo manifests and the
   # toolchain, and the cache holds dependencies rather than workspace crates, so an
@@ -33,6 +30,7 @@ name: cache-warm
       - "rust-toolchain.toml"
       - ".github/workflows/build-native.yml"
       - ".github/workflows/cache-warm.yml"
+      - ".github/workflows/deploy-runner.yml"
   # Hosted runners mix the image's preinstalled Rust into the cache key, so an image bump
   # invalidates the entry without any manifest change. A daily run re-warms it; scheduled
   # runs only fire on the default branch.
@@ -47,7 +45,7 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # Warms the hosted-runner family, which every PR build-native.yml caller uses.
+  # Warms the hosted-runner family used by ci.yml, chainspec and proof-gen-api-server.
   warm-build-creditcoin-node:
     uses: ./.github/workflows/build-native.yml
     with:
@@ -61,8 +59,9 @@ jobs:
     secrets: inherit
 
   # build-native.yml keys runner families separately (see "Identify runner family"), and
-  # rebuild-new-metadata, runtime-upgrade and release still build on Linode. This leg keeps
-  # their self-hosted family warm. It costs one VM per manifest change or daily run, not per PR.
+  # rebuild-new-metadata, benchmarks, runtime-upgrade and release still build on Linode. This
+  # leg keeps their self-hosted family warm. It costs one VM per manifest change or daily
+  # run, not per PR.
   deploy-runner:
     uses: ./.github/workflows/deploy-runner.yml
     with:
