@@ -38,6 +38,14 @@ impl MemBlockCache {
         }
     }
 
+    /// Detach cached blocks when the client changes source chain or family.
+    pub(crate) fn empty_with_same_capacity(&self) -> Self {
+        Self {
+            capacity: self.capacity,
+            inner: Mutex::default(),
+        }
+    }
+
     /// Return a cached block, if present. Clones the entry so the lock is released immediately.
     pub fn get(&self, number: u64) -> Option<OrderedBlock> {
         self.lock().get(&number).cloned()
