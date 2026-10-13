@@ -292,6 +292,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestationClearingCursors` (r:1 w:0)
 	/// Proof: `Attestation::AttestationClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::CheckpointPruningStates` (r:1 w:0)
+	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::MaxAttestors` (r:1 w:0)
 	/// Proof: `Attestation::MaxAttestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Attestations` (r:2 w:1)
@@ -347,7 +349,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(1_732_236, 0).saturating_mul(s.into()))
 			// Standard Error: 8_469_071
 			.saturating_add(Weight::from_parts(1_600_283_072, 0).saturating_mul(m.into()))
-			.saturating_add(T::DbWeight::get().reads(22))
+			.saturating_add(T::DbWeight::get().reads(23))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(m.into())))
 			.saturating_add(T::DbWeight::get().writes(5))
 			.saturating_add(Weight::from_parts(0, 2678).saturating_mul(m.into()))

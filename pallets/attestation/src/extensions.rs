@@ -25,7 +25,7 @@ use sp_runtime::{
     },
 };
 
-use crate::pallet::{AttestationClearingCursors, Call, Config, MaxCatchup, Pallet};
+use crate::pallet::{Call, Config, MaxCatchup, Pallet};
 
 /// `TransactionExtension` that pre-validates `commit_attestation` calls in the transaction pool,
 /// rejecting:
@@ -108,9 +108,9 @@ where
                 let chain_key = attestation.chain_key();
 
                 // Mirrors `validate_attestation`'s `AttestationCleanupInProgress` check: every
-                // commit for this chain fails while its cleanup cursor drains, regardless of
-                // signer, so reject here before fees are charged.
-                if AttestationClearingCursors::<T>::get(chain_key).is_some() {
+                // commit for this chain fails while its cleanup drains, regardless of signer,
+                // so reject here before fees are charged.
+                if Pallet::<T>::commit_blocked_by_cleanup(chain_key) {
                     return Err(TransactionValidityError::Invalid(
                         InvalidTransaction::Custom(ATTESTATION_CLEANUP_IN_PROGRESS_CODE),
                     ));
@@ -226,6 +226,7 @@ where
 /// race-loser duplicates.
 pub const OVERSIZED_PROOF_CODE: u8 = 1;
 
-/// `InvalidTransaction::Custom` code returned while a chain's `AttestationClearingCursors` entry
-/// is still draining, so downstream tooling can disambiguate from other rejection reasons.
+/// `InvalidTransaction::Custom` code returned while a chain's `AttestationClearingCursors` or
+/// `CheckpointPruningStates` entry is still draining, so downstream tooling can disambiguate from
+/// other rejection reasons.
 pub const ATTESTATION_CLEANUP_IN_PROGRESS_CODE: u8 = 2;

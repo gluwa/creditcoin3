@@ -6104,6 +6104,67 @@ fn commit_attestation_blocked_while_attestation_cursor_draining() {
     })
 }
 
+/// Regression test: checkpoint buckets have no generation tag, so pruning still pending for a
+/// bucket would delete a checkpoint created there after the revert. `commit_attestation` must
+/// reject while `CheckpointPruningStates` is set and resume once it's gone.
+#[test]
+fn commit_attestation_blocked_while_checkpoint_pruning_pending() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(Attestation::attest(
+            RuntimeOrigin::signed(attestor.attestor_id),
+            SUPPORTED_CHAIN_KEY,
+            attestor.public_key,
+            attestor.signature
+        ));
+        progress_to_block(5);
+
+        let attestation_1 =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_1.clone()
+        ));
+
+        let attestation_2 = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            11,
+            Some(attestation_1.digest()),
+            None,
+        );
+
+        // Simulate buckets left to prune by a `revert_to`.
+        CheckpointPruningStates::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            CheckpointPruningState {
+                stop_height: 5 * CHECKPOINT_BUCKET_SIZE,
+                next_pivot: CHECKPOINT_BUCKET_SIZE,
+            },
+        );
+
+        assert_noop!(
+            Attestation::commit_attestation(
+                attestor.attestor_origin.clone(),
+                attestation_2.clone()
+            ),
+            Error::<Test>::AttestationCleanupInProgress
+        );
+
+        CheckpointPruningStates::<Test>::remove(SUPPORTED_CHAIN_KEY);
+
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            attestation_2
+        ));
+    })
+}
+
 /// Regression test: `get`/`contains_digest` used to trust whatever a draining cursor hadn't
 /// reached yet, even though it's pre-revert garbage on its way out.
 #[test]
@@ -9930,6 +9991,63 @@ mod prevalidate_attestation_commit_extension {
             );
             assert_eq!(
                 inactive.unwrap_err(),
+                TransactionValidityError::Invalid(InvalidTransaction::Custom(
+                    crate::extensions::ATTESTATION_CLEANUP_IN_PROGRESS_CODE
+                ))
+            );
+        })
+    }
+
+    /// Same admission-time rejection while `CheckpointPruningStates` is still pending.
+    #[test]
+    fn prevalidate_rejects_commit_while_checkpoint_pruning_pending() {
+        ExtBuilder.build_and_execute(|| {
+            let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature,
+            ));
+            assert_ok!(Attestation::force_election(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY
+            ));
+
+            let attestation = create_signed_attestation(
+                vec![attestor.clone()],
+                SUPPORTED_CHAIN_KEY,
+                0,
+                None,
+                None,
+            );
+            CheckpointPruningStates::<Test>::insert(
+                attestation.chain_key(),
+                CheckpointPruningState {
+                    stop_height: 5 * CHECKPOINT_BUCKET_SIZE,
+                    next_pivot: CHECKPOINT_BUCKET_SIZE,
+                },
+            );
+
+            let call = RuntimeCall::Attestation(crate::Call::commit_attestation { attestation });
+            let info = call.get_dispatch_info();
+
+            let res = PrevalidateAttestationCommit::<Test>::new().validate(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                &call,
+                &info,
+                0,
+                (),
+                &TxBaseImplication(call.clone()),
+                TransactionSource::External,
+            );
+            assert_eq!(
+                res.unwrap_err(),
                 TransactionValidityError::Invalid(InvalidTransaction::Custom(
                     crate::extensions::ATTESTATION_CLEANUP_IN_PROGRESS_CODE
                 ))
