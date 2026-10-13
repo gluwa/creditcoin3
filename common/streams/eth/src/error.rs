@@ -14,6 +14,12 @@ impl Error {
     pub fn is_shutdown(&self) -> bool {
         matches!(self, Self::Shutdown)
     }
+
+    /// True when the block fetch failed in a way no reconnect can fix; see
+    /// [`eth::Error::is_unrecoverable`].
+    pub fn is_unrecoverable(&self) -> bool {
+        matches!(self, Self::Client(err) if err.is_unrecoverable())
+    }
 }
 
 impl std::fmt::Display for Error {
