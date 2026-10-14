@@ -1,0 +1,63 @@
+---
+name: trunk-drift
+
+# Reports once a day when dev and usc-testnet have drifted apart: when merging dev into
+# usc-testnet would conflict, or when usc-testnet carries commits (hotfixes, release bumps)
+# that were never merged back into dev. git.yml's merge-check only fails a PR for conflicts
+# it adds itself, so this is where pre-existing drift shows up. The fix is a reconcile PR
+# merging usc-testnet into dev with a merge commit (e.g. #1520), not a squash.
+"on":
+  schedule:
+    - cron: "0 6 * * 1-5"
+  workflow_dispatch:
+
+permissions: read-all
+
+jobs:
+  check:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Compare dev with usc-testnet
+        id: drift
+        run: |
+          CONFLICTS=$(git merge-tree --write-tree --name-only --no-messages origin/usc-testnet origin/dev | tail -n +2 | sort -u)
+          MISSING=$(git log --oneline origin/dev..origin/usc-testnet)
+
+          echo "INFO: files a dev -> usc-testnet merge conflicts on: $(echo -n "$CONFLICTS" | grep -c .)"
+          echo "$CONFLICTS"
+          echo "INFO: usc-testnet commits not merged back into dev: $(echo -n "$MISSING" | grep -c .)"
+          echo "$MISSING"
+
+          {
+            echo "conflicts<<EOF"
+            echo "$CONFLICTS" | head -n 20
+            echo "EOF"
+            echo "missing<<EOF"
+            echo "$MISSING" | head -n 20
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          if [ -n "$CONFLICTS" ] || [ -n "$MISSING" ]; then
+            exit 1
+          fi
+
+      - name: Report drift to Slack
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            dev and usc-testnet have drifted apart. Merge usc-testnet back into dev with a
+            merge commit (not a squash) before the next promotion.
+            Conflicting files:
+            ${{ steps.drift.outputs.conflicts }}
+            usc-testnet commits missing from dev:
+            ${{ steps.drift.outputs.missing }}
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

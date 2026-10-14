@@ -100,106 +100,46 @@ jobs:
         run: |
           .github/check-for-broken-symlinks.sh
 
-  rebase-check:
-    runs-on: ubuntu-26.04
-    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          lfs: true
-          fetch-depth: 0
-
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff
-          echo "BRANCH_NAME=rebase-dev+pr-${{ github.event.pull_request.number }}-onto-usc-testnet" >> "$GITHUB_ENV"
-
-      - name: Rebase current PR against `usc-testnet` branch
-        run: |
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
-
-          git checkout -b "${{ env.BRANCH_NAME }}"
-          git branch
-          git rebase "origin/usc-testnet"
-
-      - name: TODO
-        if: always()
-        run: |
-          # note: GitHub appears to display these in reverse order
-          echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
-          echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
-          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'usc-testnet' branch and/or merge default into 'usc-testnet'."
-
-      - name: DEBUG
-        if: always()
-        continue-on-error: true
-        run: |
-          cat .git/rebase-merge/git-rebase-todo.backup || echo
-          git status
-          git branch
-          git diff --diff-filter=U | colordiff
-
-          echo "Most Recent Common Ancestor"
-          git merge-base "${{ env.BRANCH_NAME }}" origin/usc-testnet --all
-
+  # Warns when a PR into dev would make the next dev -> usc-testnet promotion conflict.
+  #
+  # Only conflicts this PR adds count. The trunks are reconciled by merge, so whatever
+  # dev on its own already conflicts on is trunk drift, not this PR's doing: failing every
+  # open PR for it taught everyone to ignore the check. trunk-drift.yml reports that drift
+  # once a day instead. (A rebase onto usc-testnet used to be checked too; it can't pass
+  # once a fix reaches both trunks as separate squash commits, and nobody rebases trunks.)
   merge-check:
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
     steps:
       - uses: actions/checkout@v7
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
-          lfs: true
           fetch-depth: 0
 
-      - name: Setup
-        run: |
-          sudo apt-get install colordiff
-
-      - name: Merge current PR into `usc-testnet` branch
+      - name: Check the PR adds no conflicts with usc-testnet
         env:
-          BRANCH_NAME: merge+pr-${{ github.event.pull_request.number }}-into-usc-testnet
+          BASE: origin/${{ github.base_ref }}
+          TARGET: origin/usc-testnet
         run: |
-          git config --global user.email "creditcoin@gluwa.com"
-          git config --global user.name "gluwa-bot"
+          # Files a merge into usc-testnet would conflict on, without touching the worktree.
+          conflicts() {
+            git merge-tree --write-tree --name-only --no-messages "$TARGET" "$1" | tail -n +2 | sort -u
+          }
+          BEFORE=$(conflicts "$BASE")
+          AFTER=$(conflicts HEAD)
+          NEW=$(comm -13 <(echo "$BEFORE") <(echo "$AFTER") | sed '/^$/d')
 
-          # make a branch first b/c we need it
-          git checkout -b "${{ env.BRANCH_NAME }}"
-          git branch
-
-          # then switch to usc-testnet branch and merge the incoming changes
-          git checkout -b usc-testnet "origin/usc-testnet"
-          git merge "${{ env.BRANCH_NAME }}"
-
-      - name: TODO
-        if: always()
-        run: |
-          # note: GitHub appears to display these in reverse order
-          echo "::notice::May also require reverting gluwa-bot commits on the default branch too!"
-          echo "::notice::IMPORTANT:  Do this ASAP to prevent further branch divergence in the future."
-          echo "::notice::SUGGESTION: Revert conflicting commit(s) on 'usc-testnet' branch and/or merge default into 'usc-testnet'."
-
-      - name: DEBUG
-        if: always()
-        continue-on-error: true
-        run: |
-          echo "INFO: Number of conflicts found"
-          grep "<<< HEAD" ./* -R | wc -l
-
-          echo "INFO: git status"
-          git status
-          git branch
-          git diff --diff-filter=U | colordiff
-
-          echo "INFO: short list of commits that may be causing this conflict"
-          git log --merge | grep "^commit "
-
-          echo "INFO: long list of commits that may be causing this conflict"
-          git log --merge
+          if [ -n "$BEFORE" ]; then
+            echo "::notice::${BASE} already conflicts with ${TARGET} (trunk drift, not this PR):"
+            echo "$BEFORE"
+          fi
+          if [ -n "$NEW" ]; then
+            echo "::error::This PR adds merge conflicts with ${TARGET} in:"
+            echo "$NEW"
+            echo "Resolve them here, or plan to resolve them in the next promotion PR." >&2
+            exit 1
+          fi
+          echo "INFO: no new conflicts with ${TARGET}"
 
   target-branch-check:
     runs-on: ubuntu-26.04
