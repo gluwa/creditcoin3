@@ -5,8 +5,20 @@ name: CI
 "on":
   pull_request:
 
-  # Allows you to run this workflow manually from the Actions tab
+  # Nightly soak: on the default branch, runs only the attestor-network suite, with
+  # sanity.test.ts over its full 250-block window instead of stopping as soon as its
+  # conditions are met (see ATTESTATION_SOAK below). Posts to Slack when it fails.
+  schedule:
+    - cron: "0 1 * * *"
+
+  # Allows you to run this workflow manually from the Actions tab. `soak` runs the nightly
+  # soak on the chosen branch, e.g. to try a change to it before it reaches dev.
   workflow_dispatch:
+    inputs:
+      soak:
+        description: Run the nightly attestor-network soak instead of the PR suites
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -21,22 +33,24 @@ jobs:
     timeout-minutes: 10
     outputs:
       changes: ${{ steps.filter.outputs.changes }}
-      archiver: ${{ steps.filter.outputs.archiver }}
-      attestor_cli_testing: ${{ steps.filter.outputs.attestor_cli_testing }}
-      attestor_network_testing: ${{ steps.filter.outputs.attestor_network_testing }}
-      cc3_indexer: ${{ steps.filter.outputs.cc3_indexer }}
-      docs_smart_contract: ${{ steps.filter.outputs.docs_smart_contract }}
-      integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
-      integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
-      regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
-      attestor_compatibility: ${{ steps.filter.outputs.attestor_compatibility }}
-      validator_compatibility: ${{ steps.filter.outputs.validator_compatibility }}
-      proof_gen: ${{ steps.filter.outputs.proof_gen }}
+      archiver: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.archiver || 'false' }}
+      attestor_cli_testing: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.attestor_cli_testing || 'false' }}
+      attestor_network_testing: ${{ (github.event_name == 'schedule' || inputs.soak) && 'true' || steps.filter.outputs.attestor_network_testing }}
+      cc3_indexer: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.cc3_indexer || 'false' }}
+      docs_smart_contract: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.docs_smart_contract || 'false' }}
+      integration_test_blockchain: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.integration_test_blockchain || 'false' }}
+      integration_test_cli: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.integration_test_cli || 'false' }}
+      regenerate_metadata: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.regenerate_metadata || 'false' }}
+      attestor_compatibility: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.attestor_compatibility || 'false' }}
+      validator_compatibility: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.validator_compatibility || 'false' }}
+      proof_gen: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.proof_gen || 'false' }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
 
+      # The nightly soak has no diff to filter; should-run's outputs pick its suite instead.
       - name: "Examine which files have been modified by this PR"
+        if: ${{ !(github.event_name == 'schedule' || inputs.soak) }}
         uses: dorny/paths-filter@v4.0.2
         id: filter
         with:
@@ -183,7 +197,7 @@ jobs:
     needs:
       - should-run
     # extrinsics check below needs the build unconditionally on usc-dev, regardless of path filters
-    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) || (github.event_name == 'schedule' || inputs.soak) }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -406,6 +420,9 @@ jobs:
           ./abi-creator.sh
 
       - name: Run attestation tests
+        env:
+          # Nightly: run sanity.test.ts over its whole block window.
+          ATTESTATION_SOAK: ${{ (github.event_name == 'schedule' || inputs.soak) && '1' || '' }}
         working-directory: ./cli
         run: |
           yarn install --immutable
@@ -2285,3 +2302,25 @@ jobs:
           name: archiver-testing
           path: /var/tmp/archiver-testing/
           include-hidden-files: true
+
+  # The nightly soak has nobody watching the run, so a failure has to reach people. A manual
+  # soak run (workflow_dispatch with `soak`) is watched by whoever started it.
+  report-nightly-soak-failure:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - integration-test-attestator-network
+    if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Nightly attestor-network soak failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            build: ${{ needs.build-creditcoin-node-for-testing-ci.result }} |
+            attestor-network: ${{ needs.integration-test-attestator-network.result }}
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
