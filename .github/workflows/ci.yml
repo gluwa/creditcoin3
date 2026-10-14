@@ -888,10 +888,20 @@ jobs:
             secret: not-a-proxy
             files: "bond send validate chill set-keys unbond validatorCycle"
 
+          # Staking runs the two era-wait files on top of the rest, ~34 min in one leg, so
+          # it is split in two by measured file duration (~17 min each). Together the two
+          # parts must keep covering the full Staking list.
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: Staking
-            files: "bond send validate chill set-keys unbond validatorCycle wizard distribute-rewards withdraw-unbonded"
+            part: "part-1"
+            files: "withdraw-unbonded bond unbond set-keys send"
+
+          - proxy: "yes"
+            secret: valid-proxy
+            proxy_type: Staking
+            part: "part-2"
+            files: "distribute-rewards validate wizard chill validatorCycle"
 
           - proxy: "yes"
             secret: valid-proxy
@@ -903,7 +913,7 @@ jobs:
             proxy_type: All
             files: "bond send validate chill set-keys unbond validatorCycle wizard"
 
-    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}${{ matrix.part && format(' / {0}', matrix.part) || '' }}
     # Gated directly rather than through a separate no-op `trigger-` job, which burned a
     # runner on a bare checkout and, because it also waited on the node build, could only
     # report its skip decision after that build had finished.
@@ -1056,7 +1066,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
+          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}${{ matrix.part && format('-{0}', matrix.part) || '' }}
           path: cli/reports/junit/
           if-no-files-found: ignore
 
@@ -1073,7 +1083,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
+          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}${{ matrix.part && format('-{0}', matrix.part) || '' }}
           path: /tmp/creditcoin3-node-*.std*
 
   integration-test-blockchain:
