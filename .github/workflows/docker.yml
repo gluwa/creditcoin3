@@ -68,7 +68,6 @@ jobs:
   docker-build:
     needs:
       - gate
-      - deploy-runner-docker-build
     if: ${{ needs.gate.outputs.build == 'true' }}
     uses: ./.github/workflows/build-docker.yml
     # DO-2336/DO-2338: explicit named pass-through, NOT `secrets: inherit` — this job
@@ -84,7 +83,7 @@ jobs:
     with:
       build-options: "BUILD_ARGS="
       version-string: "latest"
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-docker-build']"
+      runs-on: "['ubuntu-26.04']"
       build-node-image: true
 
   docker-test:
@@ -189,39 +188,12 @@ jobs:
           name: docker-logs
           path: docker-*.log
 
-  # The Linode runner is only worth deploying when something will be built on it.
-  deploy-runner-docker-build:
-    needs:
-      - gate
-    if: ${{ needs.gate.outputs.build == 'true' }}
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "docker-build"
-    secrets: inherit
-
-  rm-gh-runner-docker-build:
-    needs:
-      - gate
-      - docker-build
-    # `always()` so a failed build still releases its runner; the second clause keeps it from
-    # trying to remove a runner that was never deployed.
-    if: ${{ always() && needs.gate.outputs.build == 'true' }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "docker-build"
-    secrets: inherit
-
   # The nightly is the only regular signal that usc-dev still produces a working image, so a
   # red one has to reach people instead of waiting in the Actions tab. A cancelled run counts:
-  # it usually means the Linode runner never came up, which is just as much "no image".
+  # it usually means the runner never came up, which is just as much "no image".
   report-nightly-failure:
     needs:
       - gate
-      - deploy-runner-docker-build
       - docker-build
       - docker-test
     if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
@@ -236,5 +208,5 @@ jobs:
           channel: "#protocol-internal"
           message: |-
             Nightly Docker image build failed on `${{ github.ref_name }}` (${{ github.sha }}).
-            Runner: ${{ needs.deploy-runner-docker-build.result }}, build: ${{ needs.docker-build.result }}, image test: ${{ needs.docker-test.result }}.
+            Build: ${{ needs.docker-build.result }}, image test: ${{ needs.docker-test.result }}.
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
