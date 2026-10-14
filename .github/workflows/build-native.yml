@@ -33,12 +33,38 @@ name: Reusable workflow to build a native client
         required: false
         type: boolean
         default: true
+      # Reuse the binaries of an identical source tree instead of compiling them again, e.g. on
+      # a PR that only changes CLI tests, docs or workflows. Entries are saved from the
+      # default branch only (build-cache.yml keeps them current), keyed by every tracked file
+      # a crate can read plus the build options. Off by default.
+      reuse-binaries:
+        required: false
+        type: boolean
+        default: false
 
 # Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
 # <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
 # use uint64_t without including it, so force-include cstdint when compiling C/C++.
 env:
   CXXFLAGS: "-include cstdint"
+  NATIVE_BINARIES: |
+    target/release/archiver
+    target/release/attestor
+    target/release/attestor_zombienet
+    target/release/checkpoint-builder
+    target/release/creditcoin3-node
+    target/release/proof-gen-api-server
+    target/release/query-cli
+  # The binaries plus the runtime WASM: everything a reused build has to hand on.
+  NATIVE_OUTPUTS: |
+    target/release/archiver
+    target/release/attestor
+    target/release/attestor_zombienet
+    target/release/checkpoint-builder
+    target/release/creditcoin3-node
+    target/release/proof-gen-api-server
+    target/release/query-cli
+    target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
 
 jobs:
   build-creditcoin-node:
@@ -60,12 +86,39 @@ jobs:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
 
+      - name: Key the binaries by the files they're built from
+        id: bin-key
+        if: ${{ inputs.reuse-binaries && ! inputs.use-new-metadata }}
+        env:
+          BUILD_OPTIONS: ${{ inputs.build-options }}
+        run: |
+          set -euo pipefail
+          # Blob ids of every tracked file except those no crate reads: the CLI and indexer
+          # (TypeScript), docs, scripts, workflows and Markdown. Crates also read
+          # chainspecs/ and common/cc-client/artifacts/ through include_bytes!, which stay in.
+          SOURCES=$(git ls-files -s -- . ':!cli' ':!cc3-indexer' ':!docs' ':!scripts' \
+            ':!.github' ':!.claude' ':!.cursor' ':!*.md' | sha256sum | cut -c1-40)
+          # This workflow sets the build environment (CXXFLAGS, toolchain setup).
+          SELF=$(git ls-files -s -- .github/workflows/build-native.yml | sha256sum | cut -c1-12)
+          OPTS=$(printf '%s' "$BUILD_OPTIONS" | sha256sum | cut -c1-12)
+          echo "key=native-bins-v1-${RUNNER_OS}-${RUNNER_ARCH}-${OPTS}-${SELF}-${SOURCES}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore binaries built from the same sources
+        id: bin-cache
+        if: ${{ steps.bin-key.outputs.key != '' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.NATIVE_OUTPUTS }}
+          key: ${{ steps.bin-key.outputs.key }}
+
       - name: Install protobuf
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install libclang
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
 
       - name: Configure rustc version
@@ -74,6 +127,7 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
@@ -85,6 +139,7 @@ jobs:
       # anyway. Give each family its own namespace so cache-warm.yml's hosted and Linode
       # warmers don't overwrite each other's entry.
       - name: Identify runner family
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         id: runner-family
         env:
           RUNNER_FAMILY: ${{ runner.environment }}
@@ -93,6 +148,7 @@ jobs:
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
       - uses: Swatinem/rust-cache@v2
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         with:
           # The default keeps callers that omit `cache-key-name` (proof-gen-api-server) in the
           # same namespace as the warmer, since they build the same configuration.
@@ -122,29 +178,30 @@ jobs:
         # The use-new-metadata path checks out the PR *head branch*, which for
         # any PR opened before this landed does not contain the script. Guard
         # so rebuild-new-metadata cannot fail on a missing file.
-        if: hashFiles('.github/resource-monitor.sh') != ''
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && hashFiles('.github/resource-monitor.sh') != '' }}
         run: |
           .github/resource-monitor.sh start build-native
 
       - name: Build SUT
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: gluwa/cargo@dev
         with:
           command: build
           args: ${{ inputs.build-options }}
+
+      - name: Save the binaries for identical source trees
+        if: ${{ inputs.reuse-binaries && steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.NATIVE_OUTPUTS }}
+          key: ${{ steps.bin-key.outputs.key }}
 
       - name: Upload binaries
         if: ${{ inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: binary-for-${{ inputs.version-string }}
-          path: |
-            target/release/archiver
-            target/release/attestor
-            target/release/attestor_zombienet
-            target/release/checkpoint-builder
-            target/release/creditcoin3-node
-            target/release/proof-gen-api-server
-            target/release/query-cli
+          path: ${{ env.NATIVE_BINARIES }}
 
       - name: Upload WASM runtime
         if: ${{ inputs.upload-artifacts }}
@@ -194,7 +251,7 @@ jobs:
         # Last step on purpose: Install subxt is a full cargo
         # compile on the release path when its cache misses, and would otherwise
         # land outside the sampling window.
-        if: always() && hashFiles('.github/resource-monitor.sh') != ''
+        if: always() && steps.bin-cache.outputs.cache-hit != 'true' && hashFiles('.github/resource-monitor.sh') != ''
         continue-on-error: true
         run: |
           .github/resource-monitor.sh report build-native

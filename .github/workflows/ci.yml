@@ -205,6 +205,9 @@ jobs:
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
       runs-on: "['ubuntu-26.04']"
+      # A PR that changes no file a crate reads (CLI tests, docs, workflows) reuses the
+      # binaries build-cache.yml made from the same sources on dev.
+      reuse-binaries: true
     secrets: inherit
 
   integration-test-check-extrinsics:
