@@ -2306,7 +2306,10 @@ jobs:
   # The nightly soak has nobody watching the run, so a failure has to reach people. A manual
   # soak run (workflow_dispatch with `soak`) is watched by whoever started it.
   report-nightly-soak-failure:
+    # should-run is listed too: if it fails, the two jobs after it are skipped rather than
+    # failed, and the night would otherwise pass without a word.
     needs:
+      - should-run
       - build-creditcoin-node-for-testing-ci
       - integration-test-attestator-network
     if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
@@ -2321,6 +2324,7 @@ jobs:
           channel: "#protocol-internal"
           message: |-
             Nightly attestor-network soak failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            should-run: ${{ needs.should-run.result }} |
             build: ${{ needs.build-creditcoin-node-for-testing-ci.result }} |
             attestor-network: ${{ needs.integration-test-attestator-network.result }}
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
