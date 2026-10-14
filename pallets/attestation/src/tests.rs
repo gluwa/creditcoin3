@@ -3330,12 +3330,6 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
             attestor.signature
         ));
 
-        assert_ok!(Attestation::set_target_sample_size(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
-            2
-        ));
-
         progress_to_block(5);
 
         // The active set must be larger than the signer set for the threshold to be unmet: the
@@ -3442,44 +3436,72 @@ fn target_sample_size_above_active_set_does_not_block_attestation() {
 ///
 /// The mirror of [`target_sample_size_above_active_set_does_not_block_attestation`], and the
 /// regression for the committee/threshold mismatch: when the quorum was `2/3+1` of
-/// `min(|ActiveAttestors|, TargetSampleSize)`, a target of 1 against 2 active attestors put the
-/// threshold at 1, so a single signer — a minority of the set signers are drawn from — was a
-/// valid quorum. Two disjoint such groups could then attest conflicting roots at one height.
+/// `min(|ActiveAttestors|, TargetSampleSize)`, a target below the active count pulled the
+/// threshold down with it, so a minority of the set signers are drawn from was a valid quorum.
+/// Two disjoint such groups could then attest conflicting roots at one height.
+///
+/// The target is set to 2 against 4 active attestors, which separates the two formulas: the old
+/// one put the threshold at `2/3*2+1 = 2`, the current one puts it at `2/3*4+1 = 3`. The two
+/// signers below therefore passed before the fix and must fail now — the mock's default target
+/// of 1 would not have told these apart.
 #[test]
 fn target_sample_size_below_active_set_does_not_lower_the_quorum() {
     ExtBuilder.build_and_execute(|| {
-        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
-        assert_ok!(Attestation::register_attestor(
-            RuntimeOrigin::signed(STASH_1),
-            SUPPORTED_CHAIN_KEY,
-            ATTESTOR_1
-        ));
-        assert_ok!(Attestation::attest(
-            RuntimeOrigin::signed(attestor.attestor_id),
-            SUPPORTED_CHAIN_KEY,
-            attestor.public_key,
-            attestor.signature
-        ));
-        progress_to_block(5);
+        let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
 
-        // Two active attestors, but a target of 1.
-        pad_active_attestors(SUPPORTED_CHAIN_KEY, 2);
+        // Before the progression: `set_target_sample_size` only stages `PendingTargetSampleSize`,
+        // and the epoch hook is what writes it through to `TargetSampleSize`.
         assert_ok!(Attestation::set_target_sample_size(
             RuntimeOrigin::root(),
             SUPPORTED_CHAIN_KEY,
-            1
+            2
         ));
 
+        for attestor in [&attestor_a, &attestor_b] {
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+        }
+
+        progress_to_block(5);
+
+        // Four active attestors against a target of 2.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 4);
+
+        assert_eq!(
+            Attestation::target_sample_size(SUPPORTED_CHAIN_KEY),
+            2,
+            "precondition: the staged target must have been applied by the epoch hook"
+        );
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).len(),
+            4,
+            "precondition: the target (2) must sit below the active set"
+        );
         assert_eq!(
             Attestation::quorum_threshold(SUPPORTED_CHAIN_KEY),
-            2,
+            3,
             "the threshold must track the active set, not the lower target"
         );
 
         // Genesis height (0) so the continuity check accepts an empty proof — this isolates the
-        // threshold path. One signer would have cleared the old target-derived threshold.
-        let attestation =
-            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+        // threshold path. These two signers cleared the old target-derived threshold of 2.
+        let attestation = create_signed_attestation(
+            vec![attestor_a, attestor_b],
+            SUPPORTED_CHAIN_KEY,
+            0,
+            None,
+            None,
+        );
         assert_err!(
             Attestation::validate_attestation(attestation.chain_key(), &attestation),
             Error::<Test>::MajorityNotReached
