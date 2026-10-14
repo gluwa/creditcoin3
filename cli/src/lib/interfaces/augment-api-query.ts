@@ -30,6 +30,7 @@ import type {
     FrameSystemPhase,
     PalletAttestationAttestorElectionPolicy,
     PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationClearOrRevertRemovedChainCleanupPhase,
     PalletAttestationLedgerAttestorLedger,
     PalletAttestationRetiredAttestorBlsKeyEntry,
     PalletBagsListListBag,
@@ -338,6 +339,18 @@ declare module '@polkadot/api-base/types/storage' {
             pendingTargetSampleSize: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<u32>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Where the attestor-side cleanup of a removed chain stands. Drained a bounded batch per
+             * block by `on_init_cleanup_removed_chains`; the entry is removed once nothing is left.
+             **/
+            removedChainCleanup: AugmentedQuery<
+                ApiType,
+                (
+                    arg: u64 | AnyNumber | Uint8Array,
+                ) => Observable<Option<PalletAttestationClearOrRevertRemovedChainCleanupPhase>>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;

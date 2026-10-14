@@ -83,44 +83,24 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    fn remove_stash_retired_index_pair(
+    pub(crate) fn remove_stash_retired_index_pair(
         stash: &T::AccountId,
         chain_key: ChainKey,
         attestor_id: &T::AccountId,
     ) {
-        RetiredAttestorKeysByStash::<T>::mutate(stash, |vec| {
-            if let Some(pos) = vec
+        RetiredAttestorKeysByStash::<T>::mutate_exists(stash, |slot| {
+            let Some(pairs) = slot else { return };
+            if let Some(pos) = pairs
                 .iter()
                 .position(|(ck, id)| *ck == chain_key && id == attestor_id)
             {
-                vec.swap_remove(pos);
+                pairs.swap_remove(pos);
+            }
+            // A stored empty vec would still be visited by anything iterating the map.
+            if pairs.is_empty() {
+                *slot = None;
             }
         });
-    }
-
-    /// After [`RetiredAttestorBlsKeys`] for `chain_key` is cleared (e.g. chain removal), drop
-    /// `(chain_key, _)` pairs from [`RetiredAttestorKeysByStash`] so stashes do not retain stale
-    /// index entries that could fill the bounded vec.
-    pub(crate) fn purge_retired_keys_by_stash_for_removed_chain(chain_key: ChainKey) {
-        for stash in RetiredAttestorKeysByStash::<T>::iter().map(|(stash, _)| stash) {
-            let pairs = RetiredAttestorKeysByStash::<T>::get(&stash);
-            let len_before = pairs.len();
-            let filtered: Vec<(ChainKey, T::AccountId)> = pairs
-                .into_iter()
-                .filter(|(ck, _)| *ck != chain_key)
-                .collect();
-            if filtered.len() == len_before {
-                continue;
-            }
-            if filtered.is_empty() {
-                RetiredAttestorKeysByStash::<T>::remove(&stash);
-            } else {
-                let kept: BoundedVec<(ChainKey, T::AccountId), ConstU32<64>> = filtered
-                    .try_into()
-                    .expect("subset of prior bounded vec; qed");
-                RetiredAttestorKeysByStash::<T>::insert(&stash, kept);
-            }
-        }
     }
 
     fn purge_retired_bls_keys_for_stash(stash: &T::AccountId, current_era: u32) {
@@ -160,7 +140,11 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        RetiredAttestorKeysByStash::<T>::insert(stash, kept);
+        if kept.is_empty() {
+            RetiredAttestorKeysByStash::<T>::remove(stash);
+        } else {
+            RetiredAttestorKeysByStash::<T>::insert(stash, kept);
+        }
     }
 
     /// Inserts an attestor and sets the default status to Idle
@@ -468,6 +452,13 @@ impl<T: Config> Pallet<T> {
         bls_public_key: BlsPublicKey,
         proof_of_possession: BlsSignature,
     ) -> DispatchResult {
+        // A removed chain's cleanup may already be past the `BlsKeyOwner` phase, so a row written
+        // now would never be cleaned up.
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
+
         let mut attestor =
             Attestors::<T>::get(chain_key, &attestor_id).ok_or(Error::<T>::AddressNotAttestor)?;
 
@@ -559,7 +550,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Immediately set an attestor to idle, remove them from the active set, and emit
-    /// [`Event::AttestorChilled`]. Used for operator kicks, chain cleanup, and chilling from
+    /// [`Event::AttestorChilled`]. Used for operator kicks and chilling from
     /// [`AttestorStatus::Waiting`] (cancel pending activation).
     pub(crate) fn do_chill_attestor_immediate(chain_key: ChainKey, attestor_id: T::AccountId) {
         Attestors::<T>::mutate(chain_key, &attestor_id, |maybe_attestor| {
@@ -829,13 +820,6 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    pub(crate) fn chill_all_attestors_for_chain(chain_key: ChainKey) {
-        let attestor_ids = Attestors::<T>::iter_key_prefix(chain_key);
-        for attestor_id in attestor_ids {
-            Self::do_chill_attestor_immediate(chain_key, attestor_id);
-        }
-    }
-
     // Remove address as invulnerable and attestor
     pub(crate) fn remove_invulnerable_and_emit_event(
         chain_key: ChainKey,
@@ -977,6 +961,11 @@ impl<T: Config> Pallet<T> {
         chain_key: ChainKey,
         address: &T::AccountId,
     ) -> DispatchResult {
+        // Same reason as `start_attesting`: cleanup may already have passed the invulnerables phase.
+        ensure!(
+            T::SupportedChains::is_chain_supported(chain_key),
+            Error::<T>::ChainNotSupported
+        );
         ensure!(
             Self::vulnerable_list_has_space(chain_key),
             Error::<T>::InvulnerableListFull

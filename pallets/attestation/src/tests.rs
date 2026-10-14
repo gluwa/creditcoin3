@@ -1,6 +1,7 @@
 use super::*;
 use crate::clear_or_revert::{
-    CheckpointPruningState, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, MAX_CHECKPOINTS_CLEARED_PER_BLOCK,
+    CheckpointPruningState, RemovedChainCleanupPhase, MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
+    MAX_CHECKPOINTS_CLEARED_PER_BLOCK, MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK,
 };
 use crate::impls::ONE_TENTH_CTC;
 use crate::mock::*;
@@ -22,6 +23,7 @@ use sp_core::{Get, H256};
 use sp_io::TestExternalities;
 use sp_runtime::traits::BadOrigin;
 use sp_std::ops::RangeInclusive;
+use supported_chains_primitives::chain_removal_listener::ChainRemovalListenerWeight;
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
 /// First filler account id used by [`pad_active_attestors`]. Far above the `STASH_*` /
@@ -5159,7 +5161,9 @@ fn retired_bls_key_storage_cleared_after_full_unbond_withdraw() {
             SUPPORTED_CHAIN_KEY,
             ATTESTOR_1
         ));
-        assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1).is_empty());
+        assert!(!crate::RetiredAttestorKeysByStash::<Test>::contains_key(
+            STASH_1
+        ));
     });
 }
 
@@ -5217,7 +5221,9 @@ fn purge_retired_bls_does_not_remove_other_stash_bls_row_on_index_mismatch() {
             SUPPORTED_CHAIN_KEY,
             ATTESTOR_1
         ));
-        assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_2).is_empty());
+        assert!(!crate::RetiredAttestorKeysByStash::<Test>::contains_key(
+            STASH_2
+        ));
         assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1)
             .iter()
             .any(|(k, id)| *k == SUPPORTED_CHAIN_KEY && *id == ATTESTOR_1));
@@ -5408,7 +5414,9 @@ fn on_supported_chain_removed_clears_retired_attestor_keys_by_stash() {
             false
         ));
 
-        assert!(crate::RetiredAttestorKeysByStash::<Test>::get(STASH_1).is_empty());
+        assert!(!crate::RetiredAttestorKeysByStash::<Test>::contains_key(
+            STASH_1
+        ));
     });
 }
 
@@ -5758,6 +5766,224 @@ fn on_supported_chain_removed_defers_excess_attestations_to_a_cursor() {
                 None
             );
         })
+}
+
+/// Attestors, retired keys, BLS key owners and invulnerables scale with retained state, so a
+/// chain removal clears at most `MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK` of them per block, drains
+/// the rest from `on_initialize`, and leaves other chains' state alone.
+#[test]
+fn on_supported_chain_removed_bounds_attestor_state_cleanup_per_block() {
+    let count = MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK * 2 + 10;
+    let other_chain = SUPPORTED_CHAIN_KEY + 1;
+    let survivor = ACTIVE_ATTESTOR_FILLER_BASE;
+    let stash_of = |i: u64| ACTIVE_ATTESTOR_FILLER_BASE + 10_000 + i % 20;
+    let row = |stash| attestor_primitives::Attestor {
+        bls_public_key: None,
+        status: AttestorStatus::Active,
+        stash,
+    };
+
+    // Everything the cleanup still has to do for the removed chain.
+    let pending = || -> u32 {
+        let not_idle = Attestors::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY)
+            .filter(|(_, a)| a.status != AttestorStatus::Idle)
+            .count();
+        (not_idle
+            + crate::RetiredAttestorBlsKeys::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
+            + BlsKeyOwner::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
+            + Invulnerables::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()) as u32
+    };
+    let chilled_events = || {
+        System::events()
+            .iter()
+            .filter(|r| {
+                matches!(
+                    &r.event,
+                    RuntimeEvent::Attestation(crate::Event::AttestorChilled(ck, _))
+                        if *ck == SUPPORTED_CHAIN_KEY
+                )
+            })
+            .count() as u32
+    };
+
+    // `run` commits between steps, as a block boundary would: `clear_prefix` only bounds the
+    // keys it deletes from the backend, so rows still sitting in the overlay would skew it.
+    let mut ext = ExtBuilder.build();
+    ext.run(|| {
+        System::set_block_number(1);
+        Timestamp::set_timestamp(1);
+
+        for i in 0..u64::from(count) {
+            let id = ACTIVE_ATTESTOR_FILLER_BASE + i;
+            let stash = stash_of(i);
+            let bls_public_key = [i as u8; 48];
+            Attestors::<Test>::insert(SUPPORTED_CHAIN_KEY, id, row(stash));
+            crate::RetiredAttestorBlsKeys::<Test>::insert(
+                SUPPORTED_CHAIN_KEY,
+                id,
+                crate::RetiredAttestorBlsKeyEntry {
+                    bls_public_key,
+                    purge_at_era: 100,
+                    stash,
+                },
+            );
+            crate::RetiredAttestorKeysByStash::<Test>::mutate(stash, |pairs| {
+                pairs.try_push((SUPPORTED_CHAIN_KEY, id)).unwrap();
+            });
+            BlsKeyOwner::<Test>::insert(SUPPORTED_CHAIN_KEY, bls_public_key, id);
+            Invulnerables::<Test>::insert(SUPPORTED_CHAIN_KEY, id, true);
+        }
+
+        // Same shapes under another chain, sharing a stash with the removed chain's rows.
+        Attestors::<Test>::insert(other_chain, survivor, row(stash_of(0)));
+        crate::RetiredAttestorBlsKeys::<Test>::insert(
+            other_chain,
+            survivor,
+            crate::RetiredAttestorBlsKeyEntry {
+                bls_public_key: [0xAA; 48],
+                purge_at_era: 100,
+                stash: stash_of(0),
+            },
+        );
+        crate::RetiredAttestorKeysByStash::<Test>::mutate(stash_of(0), |pairs| {
+            pairs.try_push((other_chain, survivor)).unwrap();
+        });
+        BlsKeyOwner::<Test>::insert(other_chain, [0xAA; 48], survivor);
+        Invulnerables::<Test>::insert(other_chain, survivor, true);
+    });
+
+    // Genesis already seeds some state for this chain.
+    let total = ext.run(pending);
+    assert!(total >= count * 4);
+    let attestor_rows =
+        ext.run(|| Attestors::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u32);
+
+    // The extrinsic only gets a single batch's worth of work.
+    let (mut chilled, mut remaining) = ext.run(|| {
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false
+        ));
+        assert!(matches!(
+            RemovedChainCleanup::<Test>::get(SUPPORTED_CHAIN_KEY),
+            Some(RemovedChainCleanupPhase::ChillAttestors(Some(_)))
+        ));
+        (chilled_events(), pending())
+    });
+    assert!(total - remaining <= MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK);
+
+    // 4 phases * `count` items at 40 per block, plus slack for phases that only learn they are
+    // done on the following block.
+    let mut block = 1;
+    while ext.run(|| RemovedChainCleanup::<Test>::contains_key(SUPPORTED_CHAIN_KEY)) {
+        block += 1;
+        assert!(block < 30, "cleanup did not converge");
+
+        let (now, events) = ext.run(|| {
+            progress_to_block(block);
+            (pending(), chilled_events())
+        });
+        assert!(remaining - now <= MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK);
+        remaining = now;
+        chilled += events;
+    }
+
+    assert_eq!(remaining, 0);
+    assert_eq!(chilled, attestor_rows);
+
+    ext.run(|| {
+        assert!(Attestors::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY)
+            .all(|(_, a)| a.status == AttestorStatus::Idle));
+
+        // No stash keeps an emptied index entry, and the other chain's pair is the only one left.
+        let leftovers: Vec<_> = crate::RetiredAttestorKeysByStash::<Test>::iter().collect();
+        assert_eq!(leftovers.len(), 1);
+        assert_eq!(leftovers[0].0, stash_of(0));
+        assert_eq!(leftovers[0].1.to_vec(), vec![(other_chain, survivor)]);
+
+        assert_eq!(
+            Attestors::<Test>::get(other_chain, survivor).map(|a| a.status),
+            Some(AttestorStatus::Active)
+        );
+        assert!(crate::RetiredAttestorBlsKeys::<Test>::contains_key(
+            other_chain,
+            survivor
+        ));
+        assert!(BlsKeyOwner::<Test>::contains_key(other_chain, [0xAA; 48]));
+        assert!(Invulnerables::<Test>::contains_key(other_chain, survivor));
+    });
+}
+
+/// With little retained state, the first batch finishes the whole cleanup and leaves no
+/// bookkeeping behind.
+#[test]
+fn on_supported_chain_removed_leaves_no_cleanup_state_when_nothing_is_retained() {
+    ExtBuilder.build_and_execute(|| {
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false
+        ));
+
+        assert!(!RemovedChainCleanup::<Test>::contains_key(
+            SUPPORTED_CHAIN_KEY
+        ));
+    });
+}
+
+/// `remove_chain` charges for the listener's capped work instead of a flat guess, so the
+/// declared weight must at least cover the listener's own worst case.
+#[test]
+fn remove_chain_weight_covers_the_chain_removal_listener() {
+    ExtBuilder.build_and_execute(|| {
+        let listener =
+            <Attestation as ChainRemovalListenerWeight>::on_supported_chain_removed_weight();
+        let call = pallet_supported_chains::Call::<Test>::remove_chain {
+            chain_key: SUPPORTED_CHAIN_KEY,
+            remove_checkpoints: true,
+        };
+
+        assert!(listener.ref_time() > 0);
+        assert!(call.get_dispatch_info().call_weight.all_gte(listener));
+    });
+}
+
+/// A removed chain's cleanup may already be past a phase, so `attest` and `register_invulnerable`
+/// must not write fresh rows for it.
+#[test]
+fn attest_and_register_invulnerable_are_rejected_for_a_removed_chain() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            attestor.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            attestor.attestor_id,
+        ));
+        assert_ok!(SupportedChains::remove_chain(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            false
+        ));
+
+        assert_noop!(
+            Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+        assert_noop!(
+            Attestation::register_invulnerable(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ATTESTOR_2
+            ),
+            Error::<Test>::ChainNotSupported
+        );
+    });
 }
 
 /// Regression test: a draining cursor clears `Attestations` in unpredictable (hash) order, so a

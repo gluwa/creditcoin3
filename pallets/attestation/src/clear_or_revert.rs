@@ -1,8 +1,10 @@
 use frame_support::pallet_prelude::*;
 
-use attestor_primitives::{AttestationCheckpoint, ChainKey, Digest};
+use attestor_primitives::{AttestationCheckpoint, AttestorStatus, ChainKey, Digest};
 use sp_std::vec::Vec;
-use supported_chains_primitives::chain_removal_listener::ChainRemovalListener;
+use supported_chains_primitives::chain_removal_listener::{
+    ChainRemovalListener, ChainRemovalListenerWeight,
+};
 
 use super::pallet::*;
 
@@ -16,6 +18,22 @@ pub const MAX_CHECKPOINTS_CLEARED_PER_BLOCK: u8 = 40;
 /// `on_supported_chain_removed`. Both are charged fixed weight, so the clear must stay fixed
 /// too; any remainder is drained later via [`AttestationClearingCursors`].
 pub const MAX_ATTESTATIONS_CLEARED_PER_BLOCK: u32 = 40;
+
+/// Per-call/per-block bound on the attestors, retired keys, BLS key owners and invulnerables
+/// cleared for a removed chain, shared across the phases of [`RemovedChainCleanupPhase`].
+pub const MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK: u32 = 40;
+
+/// The next piece of attestor-side state to clear for a removed chain.
+#[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo)]
+pub enum RemovedChainCleanupPhase {
+    /// Set attestors to `Idle`, resuming after the raw key of the last one handled.
+    ChillAttestors(Option<Vec<u8>>),
+    /// Drop `RetiredAttestorBlsKeys` rows and their `RetiredAttestorKeysByStash` index pairs.
+    /// Pairs and rows are written together, so walking the rows reaches every pair.
+    RetiredKeys,
+    BlsKeyOwners,
+    Invulnerables,
+}
 
 #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
 pub struct CheckpointPruningState {
@@ -175,6 +193,129 @@ impl<T: Config> Pallet<T> {
         w
     }
 
+    /// Worst case of one [`Self::run_removed_chain_cleanup`] batch: every item costs at most a
+    /// read for the iterator, one for the stash index, the row and index writes, and a chill
+    /// event; plus one lookahead read per phase and the phase read/write.
+    pub(crate) fn removal_cleanup_step_weight() -> Weight {
+        let items = u64::from(MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK);
+        T::DbWeight::get().reads_writes(
+            items.saturating_mul(3).saturating_add(6),
+            items.saturating_mul(3).saturating_add(1),
+        )
+    }
+
+    /// Drains [`RemovedChainCleanup`], continuing the cleanup that `on_supported_chain_removed`
+    /// could not finish within its bounded batch.
+    pub fn on_init_cleanup_removed_chains() -> Weight {
+        // Cost of the "is there work?" check
+        let mut w = T::DbWeight::get().reads(1);
+
+        if let Some((chain_key, phase)) = RemovedChainCleanup::<T>::iter().next() {
+            w = w.saturating_add(Self::removal_cleanup_step_weight());
+            Self::continue_removed_chain_cleanup(chain_key, phase);
+        }
+        w
+    }
+
+    /// Runs one bounded batch of `phase` and persists where the next one picks up.
+    pub(crate) fn continue_removed_chain_cleanup(
+        chain_key: ChainKey,
+        phase: RemovedChainCleanupPhase,
+    ) {
+        match Self::run_removed_chain_cleanup(chain_key, phase) {
+            Some(next) => RemovedChainCleanup::<T>::insert(chain_key, next),
+            None => RemovedChainCleanup::<T>::remove(chain_key),
+        }
+    }
+
+    /// Works through the phases from `phase` until the item budget runs out. Returns the phase
+    /// to resume at, or `None` once everything is cleared.
+    fn run_removed_chain_cleanup(
+        chain_key: ChainKey,
+        mut phase: RemovedChainCleanupPhase,
+    ) -> Option<RemovedChainCleanupPhase> {
+        let mut budget = MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK;
+        loop {
+            phase = match phase {
+                RemovedChainCleanupPhase::ChillAttestors(mut cursor) => {
+                    if !Self::chill_attestors_batch(chain_key, &mut cursor, &mut budget) {
+                        return Some(RemovedChainCleanupPhase::ChillAttestors(cursor));
+                    }
+                    RemovedChainCleanupPhase::RetiredKeys
+                }
+                RemovedChainCleanupPhase::RetiredKeys => {
+                    if !Self::clear_retired_keys_batch(chain_key, &mut budget) {
+                        return Some(RemovedChainCleanupPhase::RetiredKeys);
+                    }
+                    RemovedChainCleanupPhase::BlsKeyOwners
+                }
+                RemovedChainCleanupPhase::BlsKeyOwners => {
+                    // Deleted keys are gone by the next block, so no cursor is needed.
+                    let cleared = BlsKeyOwner::<T>::clear_prefix(chain_key, budget, None);
+                    budget = budget.saturating_sub(cleared.unique);
+                    if cleared.maybe_cursor.is_some() {
+                        return Some(RemovedChainCleanupPhase::BlsKeyOwners);
+                    }
+                    RemovedChainCleanupPhase::Invulnerables
+                }
+                RemovedChainCleanupPhase::Invulnerables => {
+                    let cleared = Invulnerables::<T>::clear_prefix(chain_key, budget, None);
+                    return cleared
+                        .maybe_cursor
+                        .map(|_| RemovedChainCleanupPhase::Invulnerables);
+                }
+            };
+        }
+    }
+
+    /// Sets up to `budget` attestors after `cursor` to `Idle`, advancing `cursor` past them.
+    /// Returns whether none are left.
+    fn chill_attestors_batch(
+        chain_key: ChainKey,
+        cursor: &mut Option<Vec<u8>>,
+        budget: &mut u32,
+    ) -> bool {
+        // Collect first: changing storage while iterating it gives undefined results.
+        let limit = (*budget as usize).saturating_add(1);
+        let ids: Vec<T::AccountId> = match cursor.clone() {
+            Some(cursor) => Attestors::<T>::iter_key_prefix_from(chain_key, cursor)
+                .take(limit)
+                .collect(),
+            None => Attestors::<T>::iter_key_prefix(chain_key)
+                .take(limit)
+                .collect(),
+        };
+        let finished = ids.len() <= *budget as usize;
+
+        for attestor_id in ids.into_iter().take(*budget as usize) {
+            Attestors::<T>::mutate(chain_key, &attestor_id, |maybe_attestor| {
+                if let Some(attestor) = maybe_attestor {
+                    attestor.status = AttestorStatus::Idle;
+                }
+            });
+            *cursor = Some(Attestors::<T>::hashed_key_for(chain_key, &attestor_id));
+            Self::deposit_event(Event::<T>::AttestorChilled(chain_key, attestor_id));
+            *budget = budget.saturating_sub(1);
+        }
+        finished
+    }
+
+    /// Removes up to `budget` retired BLS key rows of the chain along with their index pairs.
+    /// Returns whether none are left.
+    fn clear_retired_keys_batch(chain_key: ChainKey, budget: &mut u32) -> bool {
+        let rows: Vec<_> = RetiredAttestorBlsKeys::<T>::iter_prefix(chain_key)
+            .take((*budget as usize).saturating_add(1))
+            .collect();
+        let finished = rows.len() <= *budget as usize;
+
+        for (attestor_id, entry) in rows.into_iter().take(*budget as usize) {
+            RetiredAttestorBlsKeys::<T>::remove(chain_key, &attestor_id);
+            Self::remove_stash_retired_index_pair(&entry.stash, chain_key, &attestor_id);
+            *budget = budget.saturating_sub(1);
+        }
+        finished
+    }
+
     pub fn on_init_prune_checkpoints() -> Weight {
         // Cost of the "is there work?" check
         let w = T::DbWeight::get().reads(1);
@@ -249,23 +390,14 @@ impl<T: Config> Pallet<T> {
 
 impl<T: Config> ChainRemovalListener for Pallet<T> {
     fn on_supported_chain_removed(chain_key: ChainKey, remove_checkpoints: bool) {
-        Self::chill_all_attestors_for_chain(chain_key);
-
         ActiveAttestors::<T>::remove(chain_key);
 
-        _ = RetiredAttestorBlsKeys::<T>::clear_prefix(chain_key, u32::MAX, None);
-
-        // BLS uniqueness mapping is keyed by `(chain_key, bls_pubkey)`; drop the whole
-        // prefix since the chain no longer exists.
-        _ = BlsKeyOwner::<T>::clear_prefix(chain_key, u32::MAX, None);
-
-        Self::purge_retired_keys_by_stash_for_removed_chain(chain_key);
-
-        // Can dispense with result, since limit is equal to maximum storage size
-        _ = Invulnerables::<T>::clear_prefix(
+        // Chilling, retired keys, BLS key owners (keyed by `(chain_key, bls_pubkey)`) and
+        // invulnerables scale with retained state, so they run in bounded batches: the first
+        // here, the rest from `on_initialize`.
+        Self::continue_removed_chain_cleanup(
             chain_key,
-            MaxInvulnerables::<T>::get(chain_key),
-            None,
+            RemovedChainCleanupPhase::ChillAttestors(None),
         );
 
         MaxAttestors::<T>::remove(chain_key);
@@ -338,5 +470,20 @@ impl<T: Config> ChainRemovalListener for Pallet<T> {
         CheckpointPruningStates::<T>::remove(chain_key);
 
         Self::deposit_event(Event::<T>::ClearedStorageForRemovedChain(chain_key));
+    }
+}
+
+impl<T: Config> ChainRemovalListenerWeight for Pallet<T> {
+    /// Every clear in `on_supported_chain_removed` is capped per call, so this is a fixed sum of
+    /// the caps plus the single-key removals, cursors and events.
+    fn on_supported_chain_removed_weight() -> Weight {
+        let attestations = u64::from(MAX_ATTESTATIONS_CLEARED_PER_BLOCK);
+        // Checkpoints and their buckets are cleared in separate batches.
+        let checkpoints = u64::from(MAX_CHECKPOINTS_CLEARED_PER_BLOCK).saturating_mul(2);
+        let clears = attestations.saturating_add(checkpoints);
+
+        Pallet::<T>::removal_cleanup_step_weight()
+            .saturating_add(T::DbWeight::get().reads_writes(clears, clears))
+            .saturating_add(T::DbWeight::get().reads_writes(8, 30))
     }
 }
