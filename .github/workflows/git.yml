@@ -121,9 +121,23 @@ jobs:
           BASE: origin/${{ github.base_ref }}
           TARGET: origin/usc-testnet
         run: |
+          set -euo pipefail
           # Files a merge into usc-testnet would conflict on, without touching the worktree.
+          # merge-tree exits 1 when the merge conflicts, which is an answer here, but also for
+          # a ref it can't resolve. So check both refs first, and that the output starts with
+          # the merged tree's id, before reading its exit status as "conflicts".
           conflicts() {
-            git merge-tree --write-tree --name-only --no-messages "$TARGET" "$1" | tail -n +2 | sort -u
+            local ref out rc=0
+            for ref in "$TARGET" "$1"; do
+              git rev-parse --verify --quiet "${ref}^{commit}" >/dev/null \
+                || { echo "unknown ref: $ref" >&2; exit 2; }
+            done
+            out=$(git merge-tree --write-tree --name-only --no-messages "$TARGET" "$1") || rc=$?
+            if [ "$rc" -gt 1 ] || ! head -n 1 <<< "$out" | grep -qE '^[0-9a-f]{40,64}$'; then
+              echo "git merge-tree failed for $1 (exit $rc): $out" >&2
+              exit 2
+            fi
+            tail -n +2 <<< "$out" | sort -u
           }
           BEFORE=$(conflicts "$BASE")
           AFTER=$(conflicts HEAD)

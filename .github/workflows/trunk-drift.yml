@@ -25,12 +25,21 @@ jobs:
       - name: Compare dev with usc-testnet
         id: drift
         run: |
-          CONFLICTS=$(git merge-tree --write-tree --name-only --no-messages origin/usc-testnet origin/dev | tail -n +2 | sort -u)
+          set -euo pipefail
+          # merge-tree exits 1 on conflicts, which is the answer, but also on an unresolvable
+          # ref; the output must start with the merged tree's id to count as an answer.
+          rc=0
+          OUT=$(git merge-tree --write-tree --name-only --no-messages origin/usc-testnet origin/dev) || rc=$?
+          if [ "$rc" -gt 1 ] || ! head -n 1 <<< "$OUT" | grep -qE '^[0-9a-f]{40,64}$'; then
+            echo "git merge-tree failed (exit $rc): $OUT" >&2
+            exit 2
+          fi
+          CONFLICTS=$(echo "$OUT" | tail -n +2 | sort -u)
           MISSING=$(git log --oneline origin/dev..origin/usc-testnet)
 
-          echo "INFO: files a dev -> usc-testnet merge conflicts on: $(echo -n "$CONFLICTS" | grep -c .)"
+          echo "INFO: files a dev -> usc-testnet merge conflicts on: $(echo -n "$CONFLICTS" | grep -c . || true)"
           echo "$CONFLICTS"
-          echo "INFO: usc-testnet commits not merged back into dev: $(echo -n "$MISSING" | grep -c .)"
+          echo "INFO: usc-testnet commits not merged back into dev: $(echo -n "$MISSING" | grep -c . || true)"
           echo "$MISSING"
 
           {
