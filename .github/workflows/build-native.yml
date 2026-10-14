@@ -97,10 +97,11 @@ jobs:
           # The default keeps callers that omit `cache-key-name` (proof-gen-api-server) in the
           # same namespace as the warmer, since they build the same configuration.
           shared-key: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
-          # A cache saved under a tag ref is readable by that tag alone, so a release would
-          # only spend minutes uploading an entry nothing restores. Releases read the entry
-          # cache-warm.yml keeps on the default branch instead.
-          save-if: ${{ github.ref_type != 'tag' }}
+          # Only the default branch saves; cache-warm.yml produces every key used here. An
+          # entry saved under a PR or tag ref is readable by that ref alone, so it bought a
+          # re-run at most, while the ~2 GB per ref pushed the repository past its 50 GB cache
+          # limit and evicted the default-branch entries everyone restores from.
+          save-if: ${{ github.event_name != 'pull_request' && github.ref_type != 'tag' }}
 
       # Copied in rather than `git apply`-ed, see the producer in ci.yml's
       # regenerate-metadata. This job is the one that *must* sit on the PR branch
