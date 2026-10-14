@@ -410,10 +410,27 @@ async fn main() -> anyhow::Result<()> {
 
     // -------------------------------------* Start attestors *------------------------------------
 
+    // Every attestor gets the others as boot nodes. mDNS alone left an attestor without
+    // peers in CI (one of three never saw the other two on a runner with several network
+    // interfaces), and with a quorum of every attestor the chain then never attests.
+    let p2p_port = |index: usize| args.p2p_port_base + index as u16 + args.offset as u16;
+    let boot_nodes = attestor_info
+        .iter()
+        .enumerate()
+        .map(|(index, (name, secret, _))| {
+            let peer_id = p2p_peer_id(secret)
+                .with_context(|| format!("Failed to derive the p2p identity of {name}"))?;
+            anyhow::Ok(format!(
+                "/ip4/127.0.0.1/tcp/{}/p2p/{peer_id}",
+                p2p_port(index)
+            ))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
     let mut futures_attestors = tokio::task::JoinSet::new();
     for (index, (name, secret, account_id)) in attestor_info.iter().enumerate() {
         // Assign unique P2P port for each attestor
-        let port_p2p = args.p2p_port_base + index as u16 + args.offset as u16;
+        let port_p2p = p2p_port(index);
         let port_api = args.api_port_base + index as u16 + args.offset as u16;
 
         let mut attestor = tokio::process::Command::new(&args.bin);
@@ -427,6 +444,12 @@ async fn main() -> anyhow::Result<()> {
             .arg(format!("--cc3-url={}", args.cc3_url))
             .arg(format!("--p2p-port={port_p2p}"))
             .arg(format!("--api-port={port_api}"));
+
+        for (peer, boot_node) in boot_nodes.iter().enumerate() {
+            if peer != index {
+                attestor.arg(format!("--boot-nodes={boot_node}"));
+            }
+        }
 
         if args.expose_urls_in_logs {
             attestor.arg("--expose-urls-in-logs");
@@ -681,4 +704,43 @@ where
     }
 
     Ok(())
+}
+
+/// The libp2p peer id an attestor started with `--secret=<secret>` will have, derived the same
+/// way the attestor derives it.
+fn p2p_peer_id(secret: &str) -> anyhow::Result<libp2p::PeerId> {
+    use std::str::FromStr as _;
+
+    let secret = attestor::secret::AttestorSecret::from_str(secret)?;
+    let mut seed = secret.to_seed_bytes_32();
+    let keypair = libp2p::identity::Keypair::ed25519_from_bytes(&mut *seed)?;
+    Ok(libp2p::PeerId::from_public_key(&keypair.public()))
+}
+
+#[cfg(test)]
+mod tests {
+    use rand::SeedableRng as _;
+
+    /// zombie-0 of a default run (offset 0) gets the first mnemonic of the seed-42 RNG. CI run
+    /// 38560396834 logged that attestor's peer id, so the boot node zombienet hands the others
+    /// must name exactly it.
+    #[test]
+    fn boot_node_peer_id_matches_the_attestor() {
+        let mut rng = rand::rngs::StdRng::seed_from_u64(42);
+        let mnemonic =
+            bip39::Mnemonic::generate_in_with(&mut rng, bip39::Language::English, 12).unwrap();
+
+        assert_eq!(
+            super::p2p_peer_id(&mnemonic.to_string())
+                .unwrap()
+                .to_string(),
+            "12D3KooWB73epRUut7DSGzJRqTrBcph3PWVg8qqKdn9sT6KyieR3"
+        );
+    }
+
+    #[test]
+    fn boot_node_peer_id_accepts_raw_seeds() {
+        // --well-known-keys hands attestors raw hex seeds rather than mnemonics.
+        assert!(super::p2p_peer_id(super::WELL_KNOWN_SEEDS[0]).is_ok());
+    }
 }

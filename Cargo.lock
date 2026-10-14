@@ -1787,6 +1787,7 @@ name = "attestor_zombienet"
 version = "3.138.4"
 dependencies = [
  "anyhow",
+ "attestor",
  "attestor-primitives",
  "bip39",
  "cc-client",
@@ -1794,6 +1795,7 @@ dependencies = [
  "clap",
  "common",
  "eth",
+ "libp2p",
  "rand 0.8.5",
  "subxt 0.44.3",
  "subxt-signer 0.44.3",
