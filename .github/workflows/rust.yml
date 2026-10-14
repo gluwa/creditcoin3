@@ -32,6 +32,11 @@ name: rust
       - "**/Cargo.lock"
       - "rust-toolchain.toml"
       - ".github/workflows/rust.yml"
+  # Hosted runners mix the image's preinstalled Rust into the cache key, so an image bump
+  # orphans the default-branch entries without any manifest change, and every PR then
+  # compiles from cold until the next Cargo.lock change on dev. A daily run re-creates them.
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -153,9 +158,13 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
+      # Only the default branch saves. A PR's entry is readable by that PR alone, and at
+      # ~2 GB per key per PR they filled the repository's 50 GB cache limit, which evicted
+      # the default-branch entries every PR restores from.
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-check
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Check featalign
         run: |
@@ -209,6 +218,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-clippy
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Print clippy's version
         uses: gluwa/cargo@dev
@@ -288,6 +298,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-test
+          save-if: ${{ github.event_name != 'pull_request' }}
 
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2.85.4
