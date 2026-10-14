@@ -18,8 +18,10 @@ describe('BlockAttested events', (): void => {
     let provider_Anvil1: WebSocketProvider;
     // Hard ceiling only: the test stops as soon as every condition in `isDone()` holds,
     // which is usually ~8 mins. Running into the ceiling means something is stuck and the
-    // assertions below will say what.
+    // assertions below will say what. The nightly soak (ATTESTATION_SOAK=1) ignores
+    // `isDone()` and always runs the whole window.
     const maxBlocks = 250; // ~ 21 mins
+    const soak = process.env.ATTESTATION_SOAK === '1';
     const minEpochBoundaries = 3;
     const minIntervalChanges = 2;
     const minAttestedAfterIntervalChange = 2;
@@ -162,7 +164,7 @@ describe('BlockAttested events', (): void => {
                     } // loop over events
 
                     const currentBlock = (await getChainStatus(api)).bestNumber;
-                    if (isDone() || currentBlock - initialBlock >= maxBlocks) {
+                    if ((!soak && isDone()) || currentBlock - initialBlock >= maxBlocks) {
                         done = true;
                         console.log(
                             `Stopping after ${currentBlock - initialBlock} blocks, all conditions met: ${isDone()}`,
