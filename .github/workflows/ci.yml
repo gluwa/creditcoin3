@@ -1101,6 +1101,15 @@ jobs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    # Split over two runners, each with its own chain, by measured file duration (~10 min of
+    # tests each instead of ~19 in one job). The split follows directory boundaries, so the
+    # files that change attestation and supported-chains settings keep sharing one chain.
+    # Files come from BLOCKCHAIN_SHARDS in the run step.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: integration-test-blockchain / shard ${{ matrix.shard }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
@@ -1214,19 +1223,88 @@ jobs:
         working-directory: ./cli
         env:
           ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
+          SHARD: ${{ matrix.shard }}
+          # <shard>:<path under src/test/blockchain-tests>, split by measured file duration.
+          # Shard 1: the attestation and supported-chains pallets. Shard 2: everything else.
+          BLOCKCHAIN_SHARDS: >-
+            1:pallets/attestation/attest
+            1:pallets/attestation/authorize-attestor
+            1:pallets/attestation/chill
+            1:pallets/attestation/force-apply-updates
+            1:pallets/attestation/force-election
+            1:pallets/attestation/kick-active-attestor
+            1:pallets/attestation/register-attestor
+            1:pallets/attestation/register-invulnerable
+            1:pallets/attestation/remove-authorized-attestor
+            1:pallets/attestation/set-attestations-per-checkpoint
+            1:pallets/attestation/set-chain-attestation-interval
+            1:pallets/attestation/set-election-policy
+            1:pallets/attestation/set-max-attestors
+            1:pallets/attestation/set-max-catchup
+            1:pallets/attestation/set-max-invulnerables
+            1:pallets/attestation/set-min-bond-requirement
+            1:pallets/attestation/set-target-sample-size
+            1:pallets/attestation/unregister-attestor
+            1:pallets/attestation/unregister-invulnerable
+            1:pallets/attestation/withdraw-unbonded
+            1:pallets/supported-chains/register-chain
+            1:pallets/supported-chains/remove-chain
+            2:block-hash-block-param
+            2:danger-will-brick-the-blockchain
+            2:evm-priority-fee
+            2:evm-tracing
+            2:gas-estimation
+            2:pallets/identity/identityOf
+            2:pallets/operators/add-member
+            2:pallets/operators/change-key
+            2:pallets/operators/remove-member
+            2:pallets/operators/reset-members
+            2:pallets/operators/swap-member
+            2:pallets/randomness/on-initialize
+            2:precompiles/attestor-stash
+            2:precompiles/block-prover
+            2:precompiles/chain-info
+            2:precompiles/ed25519-verifier
+            2:precompiles/sr25519-verifier
+            2:precompiles/substrate-transfer
         run: |
-          yarn test:blockchain
+          # The list must cover every test file exactly once, so a new file can't silently
+          # drop out of CI.
+          DIR=src/test/blockchain-tests
+          ASSIGNED=$(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | cut -d: -f2 | sort)
+          PRESENT=$(cd "$DIR" && find . -name '*.test.ts' | sed -e 's|^\./||' -e 's|\.test\.ts$||' | sort)
+          if [ "$ASSIGNED" != "$PRESENT" ]; then
+            echo "blockchain shard list doesn't match the test files:" >&2
+            diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
+            exit 1
+          fi
+          UNKNOWN=$(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | grep -vE '^[12]:' || true)
+          if [ -n "$UNKNOWN" ]; then
+            echo "BLOCKCHAIN_SHARDS entries for a shard the matrix doesn't run: $UNKNOWN" >&2
+            exit 1
+          fi
+
+          PATHS=()
+          for name in $(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | sed -n "s/^${SHARD}://p"); do
+            PATHS+=("$DIR/${name}.test.ts")
+          done
+          if [ "${#PATHS[@]}" -eq 0 ]; then
+            echo "no test files for shard $SHARD" >&2
+            exit 1
+          fi
+          yarn test:blockchain:files "${PATHS[@]}"
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-blockchain
+          name: junit-blockchain-shard-${{ matrix.shard }}
           path: cli/reports/junit/
           if-no-files-found: ignore
 
+      # The storage-version comparison needs one chain, not both: shard 1 does it.
       - name: Collect pallet storage versions from Local chain
-        if: always()
+        if: ${{ always() && matrix.shard == 1 }}
         working-directory: ./cli
         run: |
           sudo apt-get install colordiff
@@ -1234,7 +1312,7 @@ jobs:
           node dist/scripts/queryPalletVersions.js ws://127.0.0.1:9944 2>/dev/null | sort > /var/tmp/pallet_storage.local
 
       - name: Compare to pallet storage versions from Devnet
-        if: always()
+        if: ${{ always() && matrix.shard == 1 }}
         timeout-minutes: 15
         working-directory: ./cli
         run: |
@@ -1243,7 +1321,7 @@ jobs:
 
       - name: Compare to pallet storage versions from Testnet
         timeout-minutes: 15
-        if: always()
+        if: ${{ always() && matrix.shard == 1 }}
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
@@ -1253,7 +1331,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: integration-test-blockchain
+          name: integration-test-blockchain-shard-${{ matrix.shard }}
           path: |
             /var/tmp/pallet_storage.*
             /var/tmp/integration-test-blockchain/
