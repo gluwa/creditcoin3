@@ -1,18 +1,24 @@
 ---
 name: proof-gen-api-server
 
+# Called from ci.yml, which passes the node build it already made for every other e2e
+# suite instead of this workflow compiling the same `--release --features=fast-runtime`
+# configuration a second time.
+#
+# The path filters that used to gate this workflow now live in ci.yml's should-run job,
+# under the `proof_gen` filter. Keep the two in sync.
+#
+# No `concurrency` here on purpose: it is inherited from the calling run, and declaring
+# a group keyed on github.workflow would collide with ci.yml's own group.
 "on":
-  pull_request:
-    paths:
-      - "proof-gen-api-server/**"
-      - "common/eth/**"
-      - "scripts/**"
-      - ".github/workflows/proof-gen-api-server.yml"
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      sut-artifact:
+        description: >-
+          Name of the artifact holding the binaries built from this commit, as uploaded
+          by build-native.yml. Must be a `--release --features=fast-runtime` build.
+        required: true
+        type: string
 
 permissions: read-all
 
@@ -92,18 +98,7 @@ jobs:
           name: coverage-report
           path: target/llvm-cov/html/
 
-  build-everything:
-    uses: ./.github/workflows/build-native.yml
-    with:
-      build-options: "--release --features=fast-runtime"
-      git-lfs-checkout: false
-      version-string: testing-proof-gen
-      runs-on: "['ubuntu-26.04']"
-    secrets: inherit
-
   exercise-scripts:
-    needs:
-      - build-everything
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -111,7 +106,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v8
         with:
-          name: binary-for-testing-proof-gen
+          name: ${{ inputs.sut-artifact }}
           path: target/release
 
       - name: Start creditcoin3-node - Alice
@@ -257,7 +252,7 @@ jobs:
             --config proof-gen-api-server/config.ci.yaml \
             >/var/tmp/exercise-scripts/proof-gen-api-server.log &
 
-          sleep 30
+          .github/wait-for-proof-gen.sh 'http://127.0.0.1:3100' /var/tmp/exercise-scripts/proof-gen-api-server.log
 
       - name: Exercise TransferWaitAndSubmit.js
         working-directory: scripts
@@ -354,8 +349,6 @@ jobs:
   # NOTE: not using a self-hosted runner here b/c this job is intended to run
   # in under 10 minutes, probably even 5
   stress-test-sanity:
-    needs:
-      - build-everything
     runs-on: ubuntu-26.04
     steps:
       - name: Install Foundry
@@ -395,7 +388,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v8
         with:
-          name: binary-for-testing-proof-gen
+          name: ${{ inputs.sut-artifact }}
           path: target/release
 
       - name: Start creditcoin3-node - Alice
@@ -454,7 +447,7 @@ jobs:
             --eth-rpc-url http://localhost:8141 \
             >/var/tmp/stress-test-sanity/proof-gen-api-server.log &
 
-          sleep 30
+          .github/wait-for-proof-gen.sh 'http://127.0.0.1:3100' /var/tmp/stress-test-sanity/proof-gen-api-server.log
 
       - name: Extract Deno version from Dockerfile
         id: deno_version

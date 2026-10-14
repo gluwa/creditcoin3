@@ -31,6 +31,7 @@ jobs:
       regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
       attestor_compatibility: ${{ steps.filter.outputs.attestor_compatibility }}
       validator_compatibility: ${{ steps.filter.outputs.validator_compatibility }}
+      proof_gen: ${{ steps.filter.outputs.proof_gen }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
       - uses: actions/checkout@v7
@@ -154,6 +155,15 @@ jobs:
               - "runtime/**"
               - "chainspecs/**"
               - ".github/workflows/validator-compatibility.yml"
+            # Carried over from proof-gen-api-server.yml's own pull_request trigger, plus
+            # ci.yml now that it calls that workflow.
+            proof_gen:
+              - "proof-gen-api-server/**"
+              - "common/eth/**"
+              - "scripts/**"
+              - ".github/wait-for-proof-gen.sh"
+              - ".github/workflows/proof-gen-api-server.yml"
+              - ".github/workflows/ci.yml"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
@@ -2104,6 +2114,16 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.validator_compatibility == 'true' }}
     uses: ./.github/workflows/validator-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
+
+  proof-gen-api-server:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.proof_gen == 'true' }}
+    uses: ./.github/workflows/proof-gen-api-server.yml
     with:
       sut-artifact: binary-for-testing-ci
     secrets: inherit
