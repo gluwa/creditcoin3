@@ -46,6 +46,14 @@ pub struct Config {
     /// endpoint could hang construction indefinitely.
     #[default(DEFAULT_RPC_CALL_TIMEOUT)]
     pub rpc_call_timeout: std::time::Duration,
+
+    /// End the stream instead of reconnecting when a block fetch fails in a way no retry can
+    /// fix ([`eth::Error::is_unrecoverable`]: the node lacks the RPC method, or serves a block
+    /// this client cannot decode). Reconnecting would fetch the same height and fail the same
+    /// way, forever. The error is then available from [`StreamRoots::take_unrecoverable_error`].
+    /// Off by default, so an attestor keeps retrying as before.
+    #[default(false)]
+    pub stop_on_unrecoverable: bool,
 }
 
 /// The upper bound of the heights this stream fetches, and where it comes from.
@@ -93,10 +101,12 @@ pub const DEFAULT_RPC_CALL_TIMEOUT: std::time::Duration = std::time::Duration::f
 /// threads greater than or equal to the max concurrency + 1 for optimal throughput.
 ///
 /// Implements capped exponential retry without unbounded attempts in order to handle RPC
-/// disconnections. This stream can be considered infinite and will never return [`None`].
+/// disconnections. This stream can be considered infinite and will never return [`None`],
+/// unless [`Config::stop_on_unrecoverable`] is set and a block cannot be fetched at all.
 pub struct StreamRoots {
     stream: sync_wrapper::SyncStream<stream_util::BoxedStream<stream_util::RootInfo>>,
     config: Config,
+    unrecoverable: std::sync::Arc<std::sync::Mutex<Option<Error>>>,
 }
 
 impl StreamRoots {
@@ -112,6 +122,9 @@ impl StreamRoots {
         let mut heap = std::collections::BinaryHeap::with_capacity(max_parallelism);
 
         let backup = config.clone();
+        let stop_on_unrecoverable = config.stop_on_unrecoverable;
+        let unrecoverable = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let unrecoverable_slot = unrecoverable.clone();
 
         let stream = async_stream::stream! {
             loop {
@@ -173,14 +186,17 @@ impl StreamRoots {
                                 // drain in-flight root computations and terminate the outer
                                 // stream cleanly instead of reconnecting.
                                 tracing::info!("Eth root stream shutting down on user interrupt");
-                                roots.abort_all();
-                                while !roots.is_empty() {
-                                    if let Some(Err(err)) = roots.join_next().await {
-                                        if err.is_panic() {
-                                            std::panic::resume_unwind(err.into_panic());
-                                        }
-                                    }
-                                }
+                                abort_roots(&mut roots).await;
+                                return;
+                            },
+                            Some(Err(err)) if stop_on_unrecoverable && err.is_unrecoverable() => {
+                                // Fetching this height again fails the same way: end the stream
+                                // and leave the error for the caller instead of reconnecting.
+                                tracing::error!(%err, "⛔ Eth block cannot be fetched; ending the root stream");
+                                abort_roots(&mut roots).await;
+                                *unrecoverable_slot
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(err);
                                 return;
                             },
                             Some(Err(err)) => {
@@ -189,15 +205,7 @@ impl StreamRoots {
                                 tracing::error!(%err, "Eth connection error");
                                 heap.clear();
 
-                                // Removes pending root calls
-                                roots.abort_all();
-                                while !roots.is_empty() {
-                                    if let Some(Err(err)) = roots.join_next().await {
-                                        if err.is_panic() {
-                                            std::panic::resume_unwind(err.into_panic());
-                                        }
-                                    }
-                                }
+                                abort_roots(&mut roots).await;
 
                                 let (client, stream) = Self::reconnect(&config, next).await;
 
@@ -210,15 +218,7 @@ impl StreamRoots {
                                 tracing::error!("Eth connection lost");
                                 heap.clear();
 
-                                // Removes pending root calls
-                                roots.abort_all();
-                                while !roots.is_empty() {
-                                    if let Some(Err(err)) = roots.join_next().await {
-                                        if err.is_panic() {
-                                            std::panic::resume_unwind(err.into_panic());
-                                        }
-                                    }
-                                }
+                                abort_roots(&mut roots).await;
 
                                 let (client, stream) = Self::reconnect(&config, next).await;
 
@@ -258,7 +258,17 @@ impl StreamRoots {
         Self {
             stream: sync_wrapper::SyncStream::new(stream),
             config: backup,
+            unrecoverable,
         }
+    }
+
+    /// The error that ended this stream under [`Config::stop_on_unrecoverable`], if any. Check it
+    /// once the stream returns [`None`]; `None` here means the stream ended for another reason.
+    pub fn take_unrecoverable_error(&self) -> Option<Error> {
+        self.unrecoverable
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
     }
 
     async fn reconnect(
@@ -309,6 +319,19 @@ impl stream_util::ChainData<stream_util::RootInfo> for StreamRoots {
         config.start_height = info.height;
 
         Self::new(config).await
+    }
+}
+
+/// Cancel every pending root computation and wait for the tasks to finish, re-raising a panic
+/// from any of them.
+async fn abort_roots(roots: &mut tokio::task::JoinSet<stream_util::RootInfo>) {
+    roots.abort_all();
+    while let Some(result) = roots.join_next().await {
+        if let Err(err) = result {
+            if err.is_panic() {
+                std::panic::resume_unwind(err.into_panic());
+            }
+        }
     }
 }
 
