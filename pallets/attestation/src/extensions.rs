@@ -24,11 +24,8 @@ use sp_runtime::{
         InvalidTransaction, TransactionSource, TransactionValidityError, ValidTransaction,
     },
 };
-use sp_std::collections::btree_set::BTreeSet;
 
-use crate::pallet::{
-    ActiveAttestors, AttestationClearingCursors, Call, Config, MaxCatchup, Pallet,
-};
+use crate::pallet::{AttestationClearingCursors, Call, Config, MaxCatchup, Pallet};
 
 /// `TransactionExtension` that pre-validates `commit_attestation` calls in the transaction pool,
 /// rejecting:
@@ -145,10 +142,9 @@ where
                     ));
                 }
 
-                let active_attestors = ActiveAttestors::<T>::get(chain_key)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>();
-                let is_active = active_attestors.contains(who);
+                // Linear scan over the bounded set: this runs for every signer, including inactive
+                // ones, and the extension is unmetered, so don't rebuild a `BTreeSet` here.
+                let is_active = Pallet::<T>::is_attestor(chain_key, who);
                 // `check_duplicate` now also enforces the strictly-monotonic per-chain height
                 // (via `LastDigest`), so a race loser resubmitting an already-attested height — or
                 // a quorum trying a competing digest for that height — is rejected here before fees.
