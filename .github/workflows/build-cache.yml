@@ -1,0 +1,46 @@
+---
+name: build-cache
+
+# Keeps build-native.yml's reusable binaries current for the default branch. A PR into dev
+# whose crates' sources match dev (it only changes CLI tests, docs or workflows) restores
+# these instead of compiling the node again; see `reuse-binaries` in build-native.yml.
+# A PR can only restore caches saved on its own ref or the default branch, so they have to
+# be produced here, on every push that changes something a crate reads.
+"on":
+  push:
+    branches: [dev]
+    # Mirrors the files build-native.yml leaves out of the key: nothing to rebuild for them.
+    paths:
+      - "**"
+      - "!cli/**"
+      - "!cc3-indexer/**"
+      - "!docs/**"
+      - "!scripts/**"
+      - "!.github/**"
+      - "!.claude/**"
+      - "!.cursor/**"
+      - "!**.md"
+      - ".github/workflows/build-native.yml"
+      - ".github/workflows/build-cache.yml"
+  workflow_dispatch:
+
+concurrency:
+  # Only the newest dev commit's binaries are worth keeping.
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  # Same inputs as ci.yml's build-creditcoin-node-for-testing-ci, so the key matches.
+  build-testing-ci:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      git-lfs-checkout: false
+      version-string: build-cache
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-26.04']"
+      upload-artifacts: false
+      reuse-binaries: true
+    secrets: inherit
