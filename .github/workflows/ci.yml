@@ -2270,23 +2270,14 @@ jobs:
             cli/src/lib/interfaces/
             common/cc-client/artifacts/metadata.scale
 
-  deploy-runner-rebuild-new-metadata:
-    needs:
-      - regenerate-metadata
-    if: ${{ needs.regenerate-metadata.outputs.git_diff == 'true' }}
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "rebuild-new-metadata"
-    secrets: inherit
-
+  # On a hosted runner, like the main testing build (#1489): no Linode VM to provision and
+  # remove around it.
   rebuild-new-metadata:
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
     permissions: write-all
     needs:
-      - deploy-runner-rebuild-new-metadata
+      - regenerate-metadata
+    if: ${{ needs.regenerate-metadata.outputs.git_diff == 'true' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release"
@@ -2294,17 +2285,7 @@ jobs:
       version-string: new-metadata
       cache-key-name: build-creditcoin-node
       use-new-metadata: true
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-rebuild-new-metadata']"
-    secrets: inherit
-
-  rm-runner-rebuild-new-metadata:
-    needs:
-      - rebuild-new-metadata
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "rebuild-new-metadata"
+      runs-on: "['ubuntu-26.04']"
     secrets: inherit
 
   # The four example workflows below run gluwa/attestcoin-protocol-examples. They are pinned
