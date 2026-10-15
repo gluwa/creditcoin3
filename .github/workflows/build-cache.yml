@@ -25,9 +25,12 @@ name: build-cache
   workflow_dispatch:
 
 concurrency:
-  # Only the newest dev commit's binaries are worth keeping.
+  # Let a running build finish and save: cancelling it for every new dev push meant that on a
+  # morning of merges nothing was saved at all (#1440's build was cancelled after 33 min).
+  # GitHub keeps at most one run waiting and replaces it with each newer push, so after the
+  # running build only the newest commit is built.
   group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: read-all
 

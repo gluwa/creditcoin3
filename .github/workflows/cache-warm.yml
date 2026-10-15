@@ -40,8 +40,10 @@ name: cache-warm
   workflow_dispatch:
 
 concurrency:
+  # Let a running warm finish and save; only the newest waiting run follows it (see
+  # build-cache.yml).
   group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: read-all
 
