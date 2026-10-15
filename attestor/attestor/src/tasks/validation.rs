@@ -400,9 +400,8 @@ async fn revalidate_stashed(shared: &Arc<Shared>, stashed: SignedQuorum) -> Opti
     // `InvalidAttestationContinuityProofTail` at runtime level — submitting it burns fees and
     // delays the failed height's clean retry. Only submit when the anchor is the digest the
     // chain actually finalized; otherwise drop (the caller unlocks the height and the quorum
-    // re-forms from gossip). This can conservatively drop a stash anchored on an *older*
-    // finalized attestation the runtime would still accept — a rare race that costs one
-    // re-formation round, never a fee.
+    // re-forms from gossip). A stash anchored on an *older* finalized attestation is dropped
+    // too: the runtime only accepts a proof that extends the latest finalized digest.
     if stashed.height != shared.genesis {
         let anchor = stashed
             .signed
