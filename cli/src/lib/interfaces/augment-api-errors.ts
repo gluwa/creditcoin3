@@ -65,10 +65,6 @@ declare module '@polkadot/api-base/types/errors' {
             CheckpointCreationError: AugmentedError<ApiType>;
             CheckpointingQueueDrained: AugmentedError<ApiType>;
             /**
-             * The chain's checkpointing queue is at [`Config::MaxCheckpointingQueueLen`].
-             **/
-            CheckpointingQueueFull: AugmentedError<ApiType>;
-            /**
              * Checkpoint pruning, checkpoint clearing, or bucket clearing is already in progress for this chain.
              **/
             CheckpointMaintenanceInProgress: AugmentedError<ApiType>;

@@ -4217,7 +4217,6 @@ declare module '@polkadot/types/lookup' {
         readonly isTooManyAttestationsForForwardPatchClear: boolean;
         readonly isOversizedContinuityProof: boolean;
         readonly isAttestationCleanupInProgress: boolean;
-        readonly isCheckpointingQueueFull: boolean;
         readonly isTooManyAttestationsInBlock: boolean;
         readonly type:
             | 'AlreadyAttestor'
@@ -4287,7 +4286,6 @@ declare module '@polkadot/types/lookup' {
             | 'TooManyAttestationsForForwardPatchClear'
             | 'OversizedContinuityProof'
             | 'AttestationCleanupInProgress'
-            | 'CheckpointingQueueFull'
             | 'TooManyAttestationsInBlock';
     }
 
