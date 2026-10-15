@@ -32,13 +32,20 @@ export function fundAddressesFromSudo(api: ApiPromise, addresses: string[], amou
 }
 
 export async function waitEras(eras: number, api: ApiPromise) {
+    // Under `--sealing` an era is only as far away as the blocks we seal, so seal them
+    // instead of waiting ~150 s per era for something else to produce them.
+    const sealing = await isManualSealing(api);
+    if (sealing) {
+        // Callers often submit a change that applies at the next era and call this without
+        // waiting for inclusion. Include it before counting: if the first block sealed here
+        // were the era boundary, the era would turn in on_initialize before the change was
+        // set, and the caller would wait one era too few.
+        await sealBlock(api);
+    }
     let eraInfo = await api.derive.session.info();
     let currentEra = eraInfo.currentEra.toNumber();
     const targetEra = currentEra + eras;
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
-    // Under `--sealing` an era is only as far away as the blocks we seal, so seal them
-    // instead of waiting ~150 s per era for something else to produce them.
-    const sealing = await isManualSealing(api);
     while (currentEra < targetEra) {
         console.log(`Waiting for era ${targetEra}, currently at ${currentEra}`);
         if (sealing) {
