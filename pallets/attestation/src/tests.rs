@@ -6286,6 +6286,67 @@ fn get_and_contains_digest_treat_leftover_attestations_as_stale_while_cursor_dra
     })
 }
 
+/// Regression test: `contains_digest`'s checkpoint fallback used to read `Checkpoints` raw, so
+/// a stale post-revert checkpoint in a pivot that pruning hadn't reached yet was reported as
+/// on-chain.
+#[test]
+fn contains_digest_treats_unpruned_checkpoints_as_stale_while_pruning_pending() {
+    ExtBuilder.build_and_execute(|| {
+        // Below `next_pivot`: already pruned (or the revert bucket itself), so trusted.
+        let stable_height = CHECKPOINT_BUCKET_SIZE / 2;
+        let stable_digest = H256::repeat_byte(1);
+        // At or above `next_pivot`: still waiting to be pruned.
+        let stale_height = 2 * CHECKPOINT_BUCKET_SIZE + 500;
+        let stale_digest = H256::repeat_byte(2);
+        Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, stable_height, stable_digest);
+        Checkpoints::<Test>::insert(SUPPORTED_CHAIN_KEY, stale_height, stale_digest);
+
+        assert!(Attestation::contains_digest(
+            SUPPORTED_CHAIN_KEY,
+            stable_digest,
+            stable_height
+        ));
+        assert!(Attestation::contains_digest(
+            SUPPORTED_CHAIN_KEY,
+            stale_digest,
+            stale_height
+        ));
+
+        // Simulate buckets left to prune by a `revert_to`.
+        CheckpointPruningStates::<Test>::insert(
+            SUPPORTED_CHAIN_KEY,
+            CheckpointPruningState {
+                stop_height: 5 * CHECKPOINT_BUCKET_SIZE,
+                next_pivot: CHECKPOINT_BUCKET_SIZE,
+            },
+        );
+
+        // Still physically present, but no longer trusted while pruning is pending.
+        assert_eq!(
+            Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, stale_height),
+            Some(stale_digest)
+        );
+        assert!(!Attestation::contains_digest(
+            SUPPORTED_CHAIN_KEY,
+            stale_digest,
+            stale_height
+        ));
+        assert!(Attestation::contains_digest(
+            SUPPORTED_CHAIN_KEY,
+            stable_digest,
+            stable_height
+        ));
+
+        CheckpointPruningStates::<Test>::remove(SUPPORTED_CHAIN_KEY);
+
+        assert!(Attestation::contains_digest(
+            SUPPORTED_CHAIN_KEY,
+            stale_digest,
+            stale_height
+        ));
+    })
+}
+
 /// Regression test: chain keys are never reused (they come from a monotonic counter), so an
 /// attestation-cleanup cursor draining for one chain must not affect registering — or
 /// immediately committing on — an unrelated one.

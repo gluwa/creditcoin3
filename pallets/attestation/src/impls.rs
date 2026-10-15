@@ -871,9 +871,12 @@ impl<T: Config> Pallet<T> {
             .or_else(|| LastCheckpoint::<T>::get(chain_key).map(|c| c.digest))
     }
 
+    /// Both lookups are gated: `get` ignores `Attestations` while a cleanup cursor drains, and
+    /// the checkpoint fallback ignores pivots that post-revert pruning hasn't reached yet, so a
+    /// stale digest from the reverted fork is never reported as on-chain.
     pub fn contains_digest(chain_key: ChainKey, digest: Digest, block_number: u64) -> bool {
         Self::get(chain_key, digest).is_some()
-            || Checkpoints::<T>::get(chain_key, block_number) == Some(digest)
+            || Self::checkpoint_if_stable(chain_key, block_number) == Some(digest)
     }
 
     /// Return the checkpoint digest at `(chain_key, block_number)` **only** when the
