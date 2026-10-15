@@ -84,6 +84,7 @@ async function fixture() {
                     assert.equal(height, state.height);
                     if (state.brokenRegistry && to === state.brokenRegistry) {
                         state.calls.push({ to, height, method: 'broken' });
+                        if (state.brokenRegistryError) throw state.brokenRegistryError;
                         return { toHex: () => '0x' };
                     }
                     assert.equal(to, state.registry);
@@ -334,4 +335,20 @@ test('a counterfeit pending row cannot route an authorized publication to the wr
     assert.equal(BigInt(admitted.chainKey), 8n);
     assert.equal(f.types.PendingOutbox.rows.size, 0);
     assert.equal(f.types.OutboxMessage.rows.size, 1);
+});
+
+test('an unrelated registry revert is isolated, but transport failures retry the block', async () => {
+    const f = await fixture();
+    f.state.active = (_height, address) => address === outbox;
+    f.state.brokenRegistry = replacement;
+    f.state.brokenRegistryError = new Error('execution reverted: unknown selector');
+    await f.publish();
+    assert.equal(f.types.OutboxMessage.rows.size, 1);
+    f.state.brokenRegistryError = Object.assign(new Error('contract reverted'), { code: 3 });
+    await f.publish(2, attacker);
+    assert.equal(f.types.OutboxMessage.rows.size, 1);
+    for (const message of ['archive RPC unavailable', 'request timed out', 'rate limit exceeded']) {
+        f.state.brokenRegistryError = new Error(message);
+        await assert.rejects(() => f.publish(3, attacker), new RegExp(message));
+    }
 });

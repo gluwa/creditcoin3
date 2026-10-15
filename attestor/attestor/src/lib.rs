@@ -415,7 +415,7 @@ impl Attestor {
                 }
                 None => (
                     None,
-                    mpsc::channel::<write_ability::envelope::MessageVote>(1).1,
+                    mpsc::channel::<tasks::write_ability::pending::PendingVote>(1).1,
                     mpsc::channel::<write_ability::envelope::ReobservationRequest>(1).1,
                     mpsc::channel::<write_ability::envelope::SetUpdateVote>(1).1,
                 ),

@@ -77,14 +77,26 @@ export async function authorizedOutboxChainKey(outbox: string, blockNumber: numb
             // must not stall first publications on every other chain forever: that registry
             // cannot authorize anything, so treat it as "not a member" and keep looking (bugbot).
             // A genuine RPC error still propagates so the block is retried, never skipped.
-            if (error instanceof MalformedRegistryResponse) {
-                logger.warn(`${error.message} — skipping this registry for ${outbox}`);
+            if (error instanceof MalformedRegistryResponse || isExecutionRevert(error)) {
+                logger.warn(`Discovery ${address} cannot authorize ${outbox} at ${blockNumber}: ${String(error)}`);
                 continue;
             }
             throw error;
         }
     }
     return undefined;
+}
+
+/** A deterministic EVM revert is specific to this historical registry. Never classify transport,
+ * timeout, rate-limit or unavailable-state failures as a negative authorization response. */
+function isExecutionRevert(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const rpc = error as { code?: unknown; message?: unknown };
+    return (
+        rpc.code === 3 ||
+        (typeof rpc.message === 'string' &&
+            /\bexecution reverted\b|\bVM Exception while processing transaction: revert\b/i.test(rpc.message))
+    );
 }
 
 /** Snapshot members when governance registers a registry that already contains Outboxes. */

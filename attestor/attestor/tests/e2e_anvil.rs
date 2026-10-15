@@ -179,6 +179,10 @@ async fn outbox_publish_indexed_signed_and_reaches_quorum() {
         aggregator: Mutex::new(VoteAggregator::new(1, 1000, Duration::from_secs(60))),
         active_set: parking_lot::RwLock::new(active_set),
         publish_tx: tokio::sync::mpsc::channel(8).0,
+        pending: attestor::tasks::write_ability::pending::Store::new(
+            &std::env::temp_dir(),
+            chain_key,
+        ),
         set_update_publish_tx: tokio::sync::mpsc::channel(8).0,
         reobs_tx: tokio::sync::mpsc::channel(8).0,
         destination_chain_key: parking_lot::RwLock::new(Some(ck_b32)),

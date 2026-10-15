@@ -212,6 +212,13 @@ fn setup_commit<T: Config>(m: u32) -> (Vec<Attestor<T>>, BenchAttestation<T>) {
 mod benchmarks {
     use super::*;
 
+    #[cfg(test)]
+    impl_benchmark_test_suite!(
+        Attestation,
+        crate::mock::ExtBuilder.build(),
+        crate::mock::Test
+    );
+
     pub const MAX_SPAN: u32 = COMMIT_BENCHMARK_MAX_SPAN; // continuity blocks, up to the default MaxCatchup
     /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
     /// checkpoint width of 100 (`2 * width`). Sampling `s` only on that path keeps the step from
@@ -351,13 +358,24 @@ mod benchmarks {
             seed = seed.wrapping_add(1);
         };
 
+        // Measure rotation, which additionally releases the old address's reverse entry.
+        let old = sp_core::H160::repeat_byte(0xfe);
+        assert_ne!(old, evm_address);
+        AttestorEvmAddress::<T>::insert(DEV_CHAIN_KEY, &attestor_id, old);
+        EvmAddressOwner::<T>::insert(DEV_CHAIN_KEY, old, &attestor_id);
+
         #[extrinsic_call]
         _(
             att.attestor_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
             evm_address,
             proof,
-        )
+        );
+        assert!(!EvmAddressOwner::<T>::contains_key(DEV_CHAIN_KEY, old));
+        assert_eq!(
+            AttestorEvmAddress::<T>::get(DEV_CHAIN_KEY, &attestor_id),
+            Some(evm_address)
+        );
     }
 
     #[benchmark]
@@ -382,6 +400,9 @@ mod benchmarks {
         .expect("attest() required so unregister stores a retired BLS key");
         Attestation::<T>::chill(att.stash_origin.clone(), DEV_CHAIN_KEY, attestor_id.clone())
             .expect("chill() required before unregister");
+        let address = sp_core::H160::repeat_byte(0xfe);
+        AttestorEvmAddress::<T>::insert(DEV_CHAIN_KEY, &attestor_id, address);
+        EvmAddressOwner::<T>::insert(DEV_CHAIN_KEY, address, &attestor_id);
         let signed_origin = att.stash_origin;
 
         #[extrinsic_call]

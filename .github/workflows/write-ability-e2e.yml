@@ -21,12 +21,13 @@ name: write-ability-e2e
 "on":
   workflow_dispatch:
   pull_request:
-    branches: [main, usc-dev, usc-testnet, attestor_v2, writeability-off-usc-dev]
+    branches: [main, dev, asc-dev, usc-dev, usc-testnet, attestor_v2, writeability-off-usc-dev]
     paths:
       - "attestor/**"
       - "common/**"
       - "usc-messaging/**"
       - "pallets/supported-chains/**"
+      - "pallets/attestation/**"
       - "precompiles/chain-info/**"
       - "primitives/supported-chains/**"
       - "runtime/**"

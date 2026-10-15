@@ -48,6 +48,7 @@ fn message(outbox: Address, block: u64, id: u8) -> Log {
 }
 
 struct Scenario {
+    head: u64,
     logs: Vec<Log>,
     fail_history: bool,
     fail_history_at: Option<u64>,
@@ -68,6 +69,7 @@ impl Drop for Rpc {
 impl Rpc {
     async fn new(logs: Vec<Log>) -> Self {
         let state = Arc::new(Mutex::new(Scenario {
+            head: 140,
             logs,
             fail_history: false,
             fail_history_at: None,
@@ -106,10 +108,10 @@ async fn handle(
     let p = &request["params"];
     let result = match request["method"].as_str().unwrap() {
         "eth_chainId" => json!("0x2a"),
-        "eth_blockNumber" => json!("0x8c"),
+        "eth_blockNumber" => json!(format!("0x{:x}", state.head)),
         "eth_getBlockByNumber" => {
             let number = if p[0] == "finalized" {
-                140
+                state.head
             } else {
                 height(&p[0])
             };
@@ -355,4 +357,120 @@ async fn split_scan_commits_drained_prefix_before_a_later_history_failure() {
         [2]
     );
     assert_eq!(cursor, 140);
+}
+
+#[tokio::test]
+async fn scanner_journals_unconsumed_messages_before_advancing_past_restart_window() {
+    use attestor::tasks::write_ability::{cursor::CursorStore, pending::Store};
+    let rpc = Rpc::new(vec![message(B, 110, 1)]).await;
+    rpc.state.lock().unwrap().head = 2000;
+    let dir = std::env::temp_dir().join(format!("outbox-scanner-journal-{}", std::process::id()));
+    let cursor = CursorStore::for_all_outboxes(&dir, 7, None);
+    let pending = Store::new(&dir, 7);
+    let (provider, _rx) =
+        tokio::sync::watch::channel(ProviderBuilder::new().connect_http(rpc.url.clone()));
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+    let token = tokio_util::sync::CancellationToken::new();
+    let child_token = token.clone();
+    let child_cursor = cursor.clone();
+    let child_pending = pending.clone();
+    let worker = tokio::spawn(async move {
+        listener::watch(
+            provider,
+            || async { Err(anyhow::anyhow!("unexpected reconnect")) },
+            route(),
+            3,
+            Some(100),
+            child_cursor,
+            child_pending,
+            tx,
+            child_token,
+        )
+        .await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if cursor.load_async().await.unwrap() == Some(2000) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(rx.len(), 1, "no consumer has signed the message yet");
+    token.cancel();
+    worker.await.unwrap().unwrap();
+    drop(rx); // The process's in-memory channel is lost.
+    let recovered = Store::new(&dir, 7)
+        .batch(route().destination_chain_key)
+        .await
+        .unwrap();
+    assert_eq!(recovered.len(), 1);
+    assert_eq!(recovered[0].message_id, B256::repeat_byte(1));
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn scanner_refuses_corrupt_cursor_instead_of_starting_at_tip() {
+    use attestor::tasks::write_ability::{cursor::CursorStore, pending::Store};
+    let rpc = Rpc::new(vec![message(B, 110, 1)]).await;
+    let dir = std::env::temp_dir().join(format!("outbox-scanner-corrupt-{}", std::process::id()));
+    let cursor = CursorStore::for_all_outboxes(&dir, 7, None);
+    cursor.save_async(99).await.unwrap();
+    std::fs::write(cursor.path(), b"{broken").unwrap();
+    let (provider, _rx) =
+        tokio::sync::watch::channel(ProviderBuilder::new().connect_http(rpc.url.clone()));
+    let (tx, _rx) = tokio::sync::mpsc::channel(100);
+    let result = listener::watch(
+        provider,
+        || async { Err(anyhow::anyhow!("unexpected reconnect")) },
+        route(),
+        3,
+        Some(2000),
+        cursor,
+        Store::new(&dir, 7),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await;
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("invalid Outbox cursor"));
+    assert!(rpc.state.lock().unwrap().calls.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn scanner_stops_before_cursor_advance_when_pending_storage_fails() {
+    use attestor::tasks::write_ability::{cursor::CursorStore, pending::Store};
+    let rpc = Rpc::new(vec![message(B, 110, 1)]).await;
+    let dir =
+        std::env::temp_dir().join(format!("outbox-scanner-disk-error-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("pending-messages-7"), b"not a directory").unwrap();
+    let cursor = CursorStore::for_all_outboxes(&dir, 7, None);
+    let (provider, _rx) =
+        tokio::sync::watch::channel(ProviderBuilder::new().connect_http(rpc.url.clone()));
+    let (tx, rx) = tokio::sync::mpsc::channel(100);
+    let result = listener::watch(
+        provider,
+        || async { Err(anyhow::anyhow!("must not reconnect on local disk failure")) },
+        route(),
+        3,
+        Some(100),
+        cursor.clone(),
+        Store::new(&dir, 7),
+        tx,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await;
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("persist pending message"));
+    assert_eq!(cursor.load_async().await.unwrap(), Some(99));
+    assert!(rx.is_empty());
+    std::fs::remove_dir_all(dir).unwrap();
 }

@@ -19,14 +19,14 @@ use tokio::sync::mpsc;
 
 use attestor_pool::Vote;
 use attestor_primitives::AttestorId;
-use write_ability::envelope::{MessageVote, ReobservationRequest, SetUpdateVote};
+use write_ability::envelope::{ReobservationRequest, SetUpdateVote};
 use write_ability::protocol::{
     attestor_set_update_topic, message_votes_topic, reobservation_topic,
 };
 
 use crate::error::Error;
 use crate::shared::Shared;
-use crate::tasks::write_ability::ingest;
+use crate::tasks::write_ability::{ingest, pending};
 use crate::vote::{verify_vote, VerifyResult};
 
 /// Consecutive failed pings on a single connection before we reap it.
@@ -74,7 +74,7 @@ pub async fn run(
     cfg: Config,
     mut gossip_rx: mpsc::UnboundedReceiver<Vote>,
     mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
-    mut mv_publish_rx: mpsc::Receiver<MessageVote>,
+    mut mv_publish_rx: mpsc::Receiver<pending::PendingVote>,
     mut set_update_publish_rx: mpsc::Receiver<SetUpdateVote>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
@@ -336,7 +336,7 @@ pub async fn run(
     // outbox; message votes keep publish-failure-retry semantics (not re-gossip-until-finalized):
     // they have no on-chain finalization to prune against, stale entries age out of the relayer's
     // aggregation window harmlessly, and the cap evicts the oldest first.
-    let mut mv_retry_queue: std::collections::VecDeque<MessageVote> =
+    let mut mv_retry_queue: std::collections::VecDeque<pending::PendingVote> =
         std::collections::VecDeque::new();
     let mut retry_tick = tokio::time::interval(RETRY_INTERVAL);
     retry_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -367,7 +367,7 @@ pub async fn run(
             _ = retry_tick.tick(), if !outbox.is_empty() || !mv_retry_queue.is_empty() => {
                 republish_outbox(&mut outbox, |vote| try_publish(&mut swarm, &topic, vote));
                 if let Some(mv_topic) = &mv_topic {
-                    flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue);
+                    flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue, shared.message_votes.as_ref().expect("message topic has state"));
                 }
             }
 
@@ -410,7 +410,7 @@ pub async fn run(
             // block-attestation votes: dropping it would silently cost the relayer our signature.
             Some(vote) = mv_publish_rx.recv(), if mv_topic.is_some() => {
                 if let Some(mv_topic) = &mv_topic {
-                    if !try_publish_message_vote(&mut swarm, mv_topic, &vote) {
+                    if !try_publish_message_vote(&mut swarm, mv_topic, &vote, shared.message_votes.as_ref().expect("message topic has state")) {
                         queue_message_vote_for_retry(&mut mv_retry_queue, vote);
                     }
                 }
@@ -469,7 +469,7 @@ pub async fn run(
                 }
                 if !could_broadcast_mv && can_broadcast_mv {
                     if let Some(mv_topic) = &mv_topic {
-                        flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue);
+                        flush_mv_retry_queue(&mut swarm, mv_topic, &mut mv_retry_queue, shared.message_votes.as_ref().expect("message topic has state"));
                     }
                 }
             }
@@ -951,7 +951,8 @@ fn try_publish(
 fn try_publish_message_vote(
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     topic: &libp2p::gossipsub::IdentTopic,
-    vote: &MessageVote,
+    vote: &pending::PendingVote,
+    state: &crate::tasks::write_ability::MessageVoteState,
 ) -> bool {
     match swarm
         .behaviour_mut()
@@ -959,10 +960,14 @@ fn try_publish_message_vote(
         .publish(topic.hash(), vote.encode_bytes())
     {
         Ok(_) => {
+            state.pending.acknowledge(vote.key.clone());
             tracing::info!(chain_key = vote.chain_key, "✉️ gossiped message vote");
             true
         }
-        Err(libp2p::gossipsub::PublishError::Duplicate) => true,
+        Err(libp2p::gossipsub::PublishError::Duplicate) => {
+            state.pending.acknowledge(vote.key.clone());
+            true
+        }
         Err(err) => {
             tracing::warn!(
                 chain_key = vote.chain_key,
@@ -1007,15 +1012,15 @@ fn try_publish_set_update_vote(
 /// Append a message vote to its bounded retry queue, dropping the oldest entry on overflow (the
 /// one whose aggregation window is closest to expiring anyway).
 fn queue_message_vote_for_retry(
-    mv_retry_queue: &mut std::collections::VecDeque<MessageVote>,
-    vote: MessageVote,
+    mv_retry_queue: &mut std::collections::VecDeque<pending::PendingVote>,
+    vote: pending::PendingVote,
 ) {
     if mv_retry_queue.len() >= MAX_OUTBOX {
         if let Some(dropped) = mv_retry_queue.pop_front() {
             tracing::warn!(
                 chain_key = dropped.chain_key,
                 cap = MAX_OUTBOX,
-                "🗑️ message-vote retry queue full — dropping oldest unpublished vote"
+                "📭 message-vote retry cache full — evicted entry remains available through durable replay"
             );
         }
     }
@@ -1027,11 +1032,12 @@ fn queue_message_vote_for_retry(
 fn flush_mv_retry_queue(
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     topic: &libp2p::gossipsub::IdentTopic,
-    mv_retry_queue: &mut std::collections::VecDeque<MessageVote>,
+    mv_retry_queue: &mut std::collections::VecDeque<pending::PendingVote>,
+    state: &crate::tasks::write_ability::MessageVoteState,
 ) {
     let backlog = mv_retry_queue.len();
     while let Some(vote) = mv_retry_queue.front() {
-        if try_publish_message_vote(swarm, topic, vote) {
+        if try_publish_message_vote(swarm, topic, vote, state) {
             mv_retry_queue.pop_front();
         } else {
             break;

@@ -31,6 +31,7 @@ use tokio_util::sync::CancellationToken;
 use write_ability::abi::IOutbox;
 
 use super::cursor::CursorStore;
+use super::pending;
 use super::resolver::{self, ResolvedRoute};
 
 /// Poll cadence for `eth_getLogs`.
@@ -62,12 +63,8 @@ const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 /// full budget.
 const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 10;
 
-/// Blocks to rewind a *persisted* cursor by on resume. The cursor is saved once a poll's range has
-/// been handed to the signing pipeline, not once each vote is durably gossiped (see [`super::cursor`]),
-/// so a crash between the save and the gossip would otherwise leave the resumed cursor *past* votes
-/// that never left the process. Rewinding by this margin re-scans that window on boot; re-signing is
-/// harmless (the aggregator dedups by signer, the relayer dedups votes). Sized to comfortably cover
-/// one poll's in-flight range plus finality lag, while keeping the restart re-scan cheap.
+/// Opportunistic restart replay for recent chain history. Pending messages are separately
+/// durable, so correctness does not depend on this window covering a scan chunk or an outage.
 const CURSOR_RESUME_LOOKBACK_BLOCKS: u64 = 256;
 
 /// Max block span per `eth_getLogs` request. The scan window can grow large — e.g. a long
@@ -142,7 +139,7 @@ fn pick_to_block(
 }
 
 /// A finalized `MessagePublished` the attestor should vote on.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct IndexedMessage {
     /// Outbox `messageId` — also the digest the attestor signs directly (asc-contracts #54:
     /// `Inbox.validateVotes` takes `messageId` itself, which is already cryptographically bound
@@ -194,6 +191,7 @@ pub async fn watch<P, R, Fut>(
     _block_confirmation_depth: u64,
     start_block: Option<u64>,
     cursor: CursorStore,
+    pending: pending::Store,
     tx: mpsc::Sender<IndexedMessage>,
     token: CancellationToken,
 ) -> Result<()>
@@ -216,7 +214,7 @@ where
     // Cursor precedence: a persisted position wins over `start_block`/head so a restart resumes
     // rather than skipping down-time messages (default config) or replaying the whole history from
     // `start_block`. To force a different start position, remove the cursor file.
-    let mut last_seen = if let Some(persisted) = cursor.load() {
+    let mut last_seen = if let Some(persisted) = cursor.load_async().await? {
         // Read the live head to sanity-clamp the persisted position. A cursor *ahead* of the current
         // head (chain rolled back / resynced to a shorter chain, or a file copied from another node)
         // would otherwise leave `from_block = last_seen + 1 > tip` and silently scan nothing forever
@@ -264,6 +262,8 @@ where
         head
     };
 
+    cursor.save_async(last_seen).await?;
+
     let mut tick = tokio::time::interval(Duration::from_secs(DEFAULT_POLL_INTERVAL_SECS));
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -304,8 +304,8 @@ where
                         tracing::info!("🛑 Outbox listener exiting on cancel (mid-poll)");
                         return Ok(());
                     }
-                    outcome = poll_once(
-                        &provider, &resolved, &policy, &mut finality, &mut last_seen, &tx,
+                    outcome = poll_once_inner(
+                        &provider, &resolved, &policy, &mut finality, &mut last_seen, &tx, Some(&pending),
                     ) => outcome,
                 };
 
@@ -315,18 +315,13 @@ where
                 // the failure budget below.
                 let made_progress = last_seen != prev_seen;
 
-                // Persist any forward progress this poll made — including a *partial* advance before
-                // an error mid-way through a chunked backfill. At-least-once by design: re-scanning
-                // the in-flight range after a crash is harmless (downstream dedups), so we save
-                // whenever `last_seen` moved rather than gating on `Ok`. A persistence failure is
-                // logged but never fails the poll — losing the volume shouldn't take signing down;
-                // the next advance retries the write.
+                // The durable pending store already owns every emitted message. A failed
+                // cursor write stops this listener; an async blocking worker keeps cancellation
+                // responsive and serializes in-flight saves across listener replacement.
                 if made_progress {
-                    if let Err(err) = cursor.save(last_seen) {
-                        tracing::warn!(
-                            %err, last_seen,
-                            "failed to persist Outbox cursor; will retry on next advance"
-                        );
+                    tokio::select! {
+                        () = token.cancelled() => return Ok(()),
+                        saved = cursor.save_async(last_seen) => saved?,
                     }
                 }
 
@@ -341,6 +336,9 @@ where
                     next_failure_count(consecutive_failures, outcome.is_ok(), made_progress);
                 match outcome {
                     Ok(()) => {}
+                    // Local persistence failures cannot be healed by reconnecting the RPC.
+                    // Stop before advancing past unjournaled work, as for a failed cursor save.
+                    Err(err) if err.is::<pending::PersistenceError>() => return Err(err),
                     // Errored but the scan advanced — a slow-but-progressing backfill, not a fault.
                     // Budget already reset above; keep going.
                     Err(err) if made_progress => {
@@ -411,6 +409,18 @@ pub async fn poll_once<P: Provider>(
     last_seen: &mut u64,
     tx: &mpsc::Sender<IndexedMessage>,
 ) -> Result<()> {
+    poll_once_inner(provider, resolved, policy, finality, last_seen, tx, None).await
+}
+
+async fn poll_once_inner<P: Provider>(
+    provider: &P,
+    resolved: &ResolvedRoute,
+    policy: &FinalityPolicy,
+    finality: &mut FinalityTracker,
+    last_seen: &mut u64,
+    tx: &mpsc::Sender<IndexedMessage>,
+    pending: Option<&pending::Store>,
+) -> Result<()> {
     // A failed/null finalized read is a failed poll, so the existing reconnect budget can heal a
     // broken provider. Neither the cursor nor the remembered finality boundary advances on failure.
     // The finalized policy does not even read the tip: it is not evidence of deterministic finality.
@@ -463,7 +473,7 @@ pub async fn poll_once<P: Provider>(
     let mut span = MAX_LOG_BLOCK_RANGE;
     while from_block <= to_block {
         let chunk_to = to_block.min(from_block.saturating_add(span - 1));
-        match scan_range(provider, resolved, from_block, chunk_to, tx).await {
+        match scan_range(provider, resolved, from_block, chunk_to, tx, pending).await {
             Ok(()) => {
                 *last_seen = chunk_to;
                 from_block = chunk_to + 1;
@@ -589,6 +599,7 @@ async fn scan_range<P: Provider>(
     from_block: u64,
     to_block: u64,
     tx: &mpsc::Sender<IndexedMessage>,
+    pending: Option<&pending::Store>,
 ) -> Result<()> {
     let logs = fetch_message_logs(provider, from_block, to_block, None).await?;
 
@@ -652,6 +663,9 @@ async fn scan_range<P: Provider>(
                     message_id = %indexed.message_id,
                     "📨 indexed finalized MessagePublished"
                 );
+                if let Some(pending) = pending {
+                    pending.save(indexed.clone()).await?;
+                }
                 if tx.send(indexed).await.is_err() {
                     anyhow::bail!("message channel closed — listener exiting");
                 }

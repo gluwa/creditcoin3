@@ -17,16 +17,24 @@ including because of unauthorized emitters, the listener retrieves that block's 
 receipts and filters their logs locally. RPC outages still fail the current chunk immediately.
 
 One durable cursor represents the fully scanned range across **all** Outboxes. It advances only
-once the entire range has been authenticated and handed to the signing pipeline. Each chunk caches
-Discovery/membership reads by block and emitting address. Failed or unavailable historical reads
+once the entire range has been authenticated, durably journaled, and handed to the signing pipeline.
+Pending messages live under `pending-messages-<chain_key>/<destination_key>/` in the same persistent
+state directory as the cursor. A bounded worker replays them until gossip accepts their votes;
+channel overflow and a process crash cannot discard them. Gossip acceptance is a network handoff,
+not confirmation of downstream delivery; relayers still use reobservation for missed deliveries.
+Cursor and journal I/O run on blocking workers. Corrupt or unreadable records stop recovery and
+require restoration of the full state directory, or removal after configuring a safe replay floor,
+rather than starting at the current head. Each chunk caches Discovery/membership reads by block
+and emitting address. Failed or unavailable historical reads
 leave the current chunk pending for retry. Reobservation uses the same historical authority and a
 single-block, message-ID-filtered query, so removal cannot strand messages awaiting quorum.
 
 The Creditcoin EVM RPC must retain historical state for the configured scan/recovery range and
 support historical `eth_call`, including the chain-info precompile. Pruned state causes signing to
-pause on the affected range; it never authorizes a message. On upgrade from the old single-Outbox
-cursor, the scanner replays from genesis once (or the explicit `start_block` floor), since the old
-cursor did not cover non-default instances. Set a known activation floor when older runtime states
+pause on the affected range; it never authorizes a message. On upgrade from a cursor written
+without the durable pending-message journal (including the old single-Outbox scanner), the scanner
+replays from genesis once, or from the explicit `start_block` floor. Older cursors cannot prove that
+all pending work was handed to gossip. Set a known activation floor when older runtime states
 do not expose the Discovery precompile; choosing a floor excludes earlier messages by operator policy. Already published votes may repeat and are deduplicated downstream. New deployments
 retain the configured `start_block` behavior. Backfill can be costly because all matching event
 emitters must be checked, including unauthorized deployments.
