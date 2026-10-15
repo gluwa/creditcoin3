@@ -212,7 +212,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		//  Measured:  `1576`
 		//  Estimated: `5041`
 		// Minimum execution time: 135_930_000 picoseconds.
-		Weight::from_parts(192_530_000, 0)
+		// Retain the higher measurement from the EVM-cleanup benchmark run on asc-dev.
+		Weight::from_parts(193_971_000, 0)
 			.saturating_add(Weight::from_parts(0, 13233))
 			.saturating_add(T::DbWeight::get().reads(15))
 			.saturating_add(T::DbWeight::get().writes(12))
@@ -829,12 +830,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().reads(549))
 			.saturating_add(T::DbWeight::get().writes(1046))
 	}
-
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Attestors` (r:1 w:0)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::EvmAddressOwner` (r:1 w:1)
+	/// Storage: `Attestation::EvmAddressOwner` (r:1 w:2)
 	/// Proof: `Attestation::EvmAddressOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestorEvmAddress` (r:1 w:1)
 	/// Proof: `Attestation::AttestorEvmAddress` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -846,14 +846,13 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	// Includes a conservative 4096-byte proof and one write for rotation of the old owner.
 	fn set_attestor_evm_address() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `703`
-		//  Estimated: `4168`
-		// Minimum execution time: 97_971_000 picoseconds.
-		Weight::from_parts(100_970_000, 0)
-			.saturating_add(Weight::from_parts(0, 8264))
+		//  Measured:  `914`
+		//  Estimated: `4379`
+		// Minimum execution time: 109_040_000 picoseconds.
+		Weight::from_parts(114_290_000, 0)
+			.saturating_add(Weight::from_parts(0, 4379))
 			.saturating_add(T::DbWeight::get().reads(8))
 			.saturating_add(T::DbWeight::get().writes(5))
 	}
