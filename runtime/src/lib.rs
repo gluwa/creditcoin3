@@ -1002,12 +1002,18 @@ parameter_types! {
     /// Ceiling for the per-chain attestation interval; keeps `max_roots` in continuity-proof
     /// validation from being inflated past what `OversizedContinuityProof` is meant to catch.
     pub const MaxChainAttestationInterval: u64 = 10_000;
-    pub const DefaultTargetSampleSize: u32 = 3;
+    /// Does not affect quorum — see `TargetSampleSize`'s storage docs. Set at RFC-0174's ~120
+    /// floor so the default records where committee sortition would start to matter.
+    pub const DefaultTargetSampleSize: u32 = 120;
     /// The default maximum catchup bound, expressed in **blocks**.
     /// During catchup (e.g. bootstrap or recovery from a stall),
     /// each attestation's continuity proof spans at most this many
     /// blocks, bounding proof size to protect runtime validation.
     pub const DefaultMaxCatchup: u32 = 500;
+    /// Per-chain ceiling on the attestor set (`MaxAttestationNodes`).
+    ///
+    /// Sits below RFC-0174's ~120 committee-sortition floor, so a committee large enough to need
+    /// sampling cannot form. Raising it past ~120 is the trigger to revisit RFC-0174.
     pub const MaxAttestors: u32 = 100;
     pub const CommittmentInterval: u64 = 1000;
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units

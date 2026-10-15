@@ -32,9 +32,9 @@ const ACTIVE_ATTESTOR_FILLER_BASE: AccountId = 1_000;
 
 /// Pad `ActiveAttestors` for `chain_key` up to `size` with accounts that never sign.
 ///
-/// The quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so a test that needs an
-/// *unmet* threshold must have more active attestors than signers — raising `TargetSampleSize`
-/// alone no longer does it, because the target is only a cap. Padding is enough for that: the
+/// The quorum is `2/3+1` of `|ActiveAttestors|`, so a test that needs an *unmet* threshold must
+/// have more active attestors than signers — `TargetSampleSize` cannot do it, being inert.
+/// Padding is enough for that: the
 /// filler ids are never listed in an attestation, so they move the denominator only and need no
 /// BLS key, `Attestors` row, stash, or balance.
 ///
@@ -3330,17 +3330,11 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
             attestor.signature
         ));
 
-        assert_ok!(Attestation::set_target_sample_size(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
-            2
-        ));
-
         progress_to_block(5);
 
         // The active set must be larger than the signer set for the threshold to be unmet: the
-        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`, so with a lone active
-        // attestor it would be 1 and the duplicate listing would never be tested. Two active
+        // quorum is `2/3+1` of `|ActiveAttestors|`, so with a lone active attestor it would be 1
+        // and the duplicate listing would never be tested. Two active
         // attestors put the quorum at 2, which the deduplicated single signer cannot reach.
         pad_active_attestors(SUPPORTED_CHAIN_KEY, 2);
 
@@ -3356,14 +3350,6 @@ fn validate_attestation_should_error_when_signed_by_more_attestors() {
 #[test]
 fn validate_attestation_should_error_when_majority_not_reached() {
     ExtBuilder.build_and_execute(|| {
-        // Raise the cap clear of the active set so it never binds; the quorum is then a straight
-        // `2/3+1` of the active-attestor count.
-        assert_ok!(Attestation::set_target_sample_size(
-            RuntimeOrigin::root(),
-            SUPPORTED_CHAIN_KEY,
-            44
-        ));
-
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         assert_ok!(Attestation::register_attestor(
             RuntimeOrigin::signed(STASH_1),
@@ -3392,7 +3378,7 @@ fn validate_attestation_should_error_when_majority_not_reached() {
 
 /// A `TargetSampleSize` above the active-attestor count must not block attestation.
 ///
-/// This is the liveness bug the `min(|ActiveAttestors|, TargetSampleSize)` quorum fixes. When the
+/// This is the liveness bug that deriving the quorum from `|ActiveAttestors|` fixes. When the
 /// threshold was derived from the target alone, any chain whose target exceeded its active count
 /// had an unreachable quorum: every `commit_attestation` failed `MajorityNotReached` and
 /// attestation for that chain stopped permanently, with no way back short of governance lowering
@@ -3400,8 +3386,8 @@ fn validate_attestation_should_error_when_majority_not_reached() {
 /// attestors, so this was reachable in a shipped configuration.
 ///
 /// Same setup as [`validate_attestation_should_error_when_majority_not_reached`] above, minus the
-/// padding: one active attestor, a target of 44, and the lone attestor's own attestation is now
-/// a valid quorum.
+/// padding and with a target of 44: one active attestor, and its own attestation is a valid
+/// quorum despite the target sitting far above the active set.
 #[test]
 fn target_sample_size_above_active_set_does_not_block_attestation() {
     ExtBuilder.build_and_execute(|| {
@@ -3443,6 +3429,83 @@ fn target_sample_size_above_active_set_does_not_block_attestation() {
             attestation.chain_key(),
             &attestation
         ));
+    })
+}
+
+/// A `TargetSampleSize` **below** the active-attestor count must not lower the quorum.
+///
+/// The mirror of [`target_sample_size_above_active_set_does_not_block_attestation`], and the
+/// regression for the committee/threshold mismatch: when the quorum was `2/3+1` of
+/// `min(|ActiveAttestors|, TargetSampleSize)`, a target below the active count pulled the
+/// threshold down with it, so a minority of the set signers are drawn from was a valid quorum.
+/// Two disjoint such groups could then attest conflicting roots at one height.
+///
+/// The target is set to 2 against 4 active attestors, which separates the two formulas: the old
+/// one put the threshold at `2/3*2+1 = 2`, the current one puts it at `2/3*4+1 = 3`. The two
+/// signers below therefore passed before the fix and must fail now — the mock's default target
+/// of 1 would not have told these apart.
+#[test]
+fn target_sample_size_below_active_set_does_not_lower_the_quorum() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor_a = Attestor::new(STASH_1, ATTESTOR_1);
+        let attestor_b = Attestor::new(STASH_2, ATTESTOR_2);
+
+        // Before the progression: `set_target_sample_size` only stages `PendingTargetSampleSize`,
+        // and the epoch hook is what writes it through to `TargetSampleSize`.
+        assert_ok!(Attestation::set_target_sample_size(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            2
+        ));
+
+        for attestor in [&attestor_a, &attestor_b] {
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+            assert_ok!(Attestation::attest(
+                RuntimeOrigin::signed(attestor.attestor_id),
+                SUPPORTED_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+        }
+
+        progress_to_block(5);
+
+        // Four active attestors against a target of 2.
+        pad_active_attestors(SUPPORTED_CHAIN_KEY, 4);
+
+        assert_eq!(
+            Attestation::target_sample_size(SUPPORTED_CHAIN_KEY),
+            2,
+            "precondition: the staged target must have been applied by the epoch hook"
+        );
+        assert_eq!(
+            ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).len(),
+            4,
+            "precondition: the target (2) must sit below the active set"
+        );
+        assert_eq!(
+            Attestation::quorum_threshold(SUPPORTED_CHAIN_KEY),
+            3,
+            "the threshold must track the active set, not the lower target"
+        );
+
+        // Genesis height (0) so the continuity check accepts an empty proof — this isolates the
+        // threshold path. These two signers cleared the old target-derived threshold of 2.
+        let attestation = create_signed_attestation(
+            vec![attestor_a, attestor_b],
+            SUPPORTED_CHAIN_KEY,
+            0,
+            None,
+            None,
+        );
+        assert_err!(
+            Attestation::validate_attestation(attestation.chain_key(), &attestation),
+            Error::<Test>::MajorityNotReached
+        );
     })
 }
 
@@ -4983,7 +5046,7 @@ fn validate_attestation_rejects_when_co_signer_is_retired() {
         assert!(!ActiveAttestors::<Test>::get(SUPPORTED_CHAIN_KEY).contains(&ATTESTOR_1));
 
         // `attestor_a`'s retirement leaves `attestor_b` as the only active attestor, and the
-        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)` — a one-member set
+        // quorum is `2/3+1` of `|ActiveAttestors|` — a one-member set
         // would put it at 1 and `attestor_b` would satisfy it alone, masking the regression this
         // test guards. Pad the active set back to 2 (post-election, so the election cannot
         // overwrite it) to keep the quorum at 2.
@@ -5062,7 +5125,7 @@ fn commit_attestation_rejects_when_co_signer_is_retired() {
         ));
 
         // `attestor_a`'s retirement leaves `attestor_b` as the only active attestor, and the
-        // quorum is `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)` — a one-member set
+        // quorum is `2/3+1` of `|ActiveAttestors|` — a one-member set
         // would put it at 1 and `attestor_b` would satisfy it alone, masking the regression this
         // test guards. Pad the active set back to 2 (post-election, so the election cannot
         // overwrite it) to keep the quorum at 2.
@@ -10010,8 +10073,10 @@ mod prevalidate_attestation_commit_extension {
                 SUPPORTED_CHAIN_KEY
             ));
 
+            // Both signers: quorum is `2/3+1` of the *active* set, so two active attestors need
+            // two signatures. This test is about duplicate rejection, not the threshold.
             let attestation = create_signed_attestation(
-                vec![attestor_1.clone()],
+                vec![attestor_1.clone(), attestor_2.clone()],
                 SUPPORTED_CHAIN_KEY,
                 0,
                 None,

@@ -135,12 +135,11 @@ pub mod pallet {
         /// neuters the `commit_attestation` weight bound.
         #[pallet::constant]
         type MaxChainAttestationInterval: Get<ChainAttestationIntervalType>;
-        /// Default committee **cap** for chains registered without an explicit one.
+        /// Default [`TargetSampleSize`] for chains registered without an explicit one.
         ///
-        /// This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
-        /// active-attestor count means the cap binds on every newly registered chain, which is
-        /// the regime where quorum intersection is lost, so it should sit comfortably above the
-        /// largest fleet a chain is expected to run.
+        /// Inert — it does not affect quorum. Set at RFC-0174's ~120 sortition floor so the
+        /// default records the population at which committee sampling would start being worth
+        /// building, rather than any committee size actually run.
         #[pallet::constant]
         type DefaultTargetSampleSize: Get<u32>;
         /// The default maximum catchup bound, expressed in **blocks**.
@@ -393,22 +392,15 @@ pub mod pallet {
     pub type PendingTargetSampleSize<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
 
-    /// Per-chain **cap** on the voting committee, not the committee itself.
+    /// Reserved for future committee sortition. **Does not affect quorum.**
     ///
-    /// The quorum `validate_attestation` enforces is `2/3+1` of
-    /// `min(|ActiveAttestors|, TargetSampleSize)` (see
-    /// [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). While fewer
-    /// attestors are active than this value, the whole active set is the committee and the cap is
-    /// inert; it only binds once the active set grows past it.
+    /// `validate_attestation` derives its threshold from `|ActiveAttestors|` alone (see
+    /// [`attestor_primitives::calculate_quorum`]). Setting this value changes nothing today; it
+    /// is kept so RFC-0174 has its parameter when sortition is built.
     ///
-    /// Two consequences operators need to know:
-    ///
-    /// - Setting this **above** the active-attestor count is safe and is the recommended posture.
-    ///   Quorum intersection — the property that two conflicting quorums cannot both exist at one
-    ///   height — holds only while the cap does not bind, because nothing selects which attestors
-    ///   vote (sortition is unbuilt: see `do_start_election`'s unused `_randomness`, RFC-0174).
-    /// - While the cap **does** bind, any self-selected `2/3+1` of the cap is a valid quorum, and
-    ///   two disjoint such groups can exist within a larger active set (USCP2-004).
+    /// Its default is RFC-0174's ~120 committee floor — the population at which sampling would
+    /// start being worth building. `MaxAttestationNodes` sits below that, so the ceiling would
+    /// have to be raised before this value could matter.
     #[pallet::storage]
     #[pallet::getter(fn target_sample_size)]
     pub type TargetSampleSize<T: Config> =
@@ -855,9 +847,10 @@ pub mod pallet {
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
         /// Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
-        /// ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
-        /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
-        /// would either overflow those bounds or undercharge weight.
+        /// ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
+        /// bound is measured against, so a per-chain value above it would undercharge weight.
+        /// (`ActiveAttestors` is an unbounded `Vec`, so lowering the ceiling cannot invalidate
+        /// stored state; the weight path clamps a stale per-chain value with `.min()`.)
         InvalidMaxAttestors,
         /// A `commit_attestation` payload carried more attestor accounts than the per-chain
         /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
@@ -1014,13 +1007,14 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Set the per-chain committee **cap** (see [`TargetSampleSize`]). Applies at the next
-        /// epoch via [`PendingTargetSampleSize`].
+        /// Set the per-chain [`TargetSampleSize`]. Applies at the next epoch via
+        /// [`PendingTargetSampleSize`].
         ///
-        /// This does not by itself set the quorum: the quorum is `2/3+1` of
-        /// `min(|ActiveAttestors|, TargetSampleSize)`. Raising this above the active-attestor
-        /// count makes the whole active set the committee, which is the posture that preserves
-        /// quorum intersection.
+        /// **This has no effect on anything today.** The quorum is `2/3+1` of
+        /// `|ActiveAttestors|` and does not read this value; the committee sortition that would
+        /// consume it (RFC-0174) is unbuilt and out of scope while `MaxAttestationNodes` sits
+        /// below its ~120 floor. The call is kept so the parameter survives for that work — see
+        /// [`TargetSampleSize`] for when it could start to matter.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::set_target_sample_size())]
         pub fn set_target_sample_size(
