@@ -131,6 +131,11 @@ jobs:
           targets: wasm32v1-none
           components: rust-src
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node

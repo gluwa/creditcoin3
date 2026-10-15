@@ -147,6 +147,12 @@ jobs:
           ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       - uses: Swatinem/rust-cache@v2
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         with:
