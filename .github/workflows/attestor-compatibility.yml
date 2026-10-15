@@ -155,29 +155,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Provision a large self-hosted Linode runner for the compatibility job.
-  # ---------------------------------------------------------------------------
-  deploy-runner:
-    needs:
-      - discover-versions
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      # Shared CPU, Linode 64 GB, 16 vCPU -- same class as validator-compatibility.
-      LINODE_VM_SIZE: "g6-standard-16"
-      proxy_type: "attestor-compatibility"
-    secrets: inherit
-
-  # ---------------------------------------------------------------------------
   # Run the attestor compatibility network.
   # ---------------------------------------------------------------------------
   attestor-compatibility:
     needs:
       - discover-versions
-      - deploy-runner
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "type-attestor-compatibility"]
+    # A standard hosted runner (4 vCPU, 16 GB): the job peaks at ~2.7 GB of memory and ~2.4 GB of disk
+    # (resource-monitor.sh), so the 64 GB Linode VM it used to provision was idle headroom.
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
     env:
       VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
@@ -734,17 +719,3 @@ jobs:
         continue-on-error: true
         run: |
           killall -9 creditcoin3-node attestor_zombienet attestor anvil || true
-
-  # ---------------------------------------------------------------------------
-  # Tear down the self-hosted runner.
-  # ---------------------------------------------------------------------------
-  remove-runner:
-    needs:
-      - deploy-runner
-      - attestor-compatibility
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "attestor-compatibility"
-    secrets: inherit
