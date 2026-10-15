@@ -128,15 +128,60 @@ function runNode(name: string, extraArgs: string) {
     const logPrefix = path.join(os.tmpdir(), `creditcoin3-node-${name}-${timeStamp}-log`);
 
     // warning: do NOT await, runs in background
+    // CREDITCOIN_SEALING=manual: blocks come from the ticker below instead of BABE slots
+    const sealing = process.env.CREDITCOIN_SEALING ? ` --sealing ${process.env.CREDITCOIN_SEALING}` : '';
     void execa(
         '../target/release/creditcoin3-node',
-        `--chain dev --validator --pruning archive ${extraArgs}`.split(' '),
+        `--chain dev --validator --pruning archive${sealing} ${extraArgs}`.split(' '),
         {
             detached: true,
             stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
             stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
         },
     );
+}
+
+const ALICE_RPC = 'http://127.0.0.1:9944';
+const BOB_RPC = 'http://127.0.0.1:9955';
+
+async function rpc(url: string, method: string, params: unknown[]): Promise<any> {
+    const response = await fetch(url, {
+        method: 'POST',
+        // eslint-disable-next-line @typescript-eslint/naming-convention
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+    });
+    const reply: any = await response.json();
+    if (reply.error) {
+        throw new Error(`${method}: ${JSON.stringify(reply.error)}`);
+    }
+    return reply.result;
+}
+
+let sealTicker: { stop: boolean } | undefined;
+
+// Under `--sealing manual` nothing produces blocks on its own and GRANDPA does not run, so
+// seal and finalize a block on Alice every CREDITCOIN_SEAL_INTERVAL_MS (default 1 s, a fifth
+// of a slot) and finalize the same block on Bob, which only imports it. Transactions then
+// finalize within about a second instead of the 10-15 s GRANDPA takes on 5 s slots. Chain
+// time still moves one slot per block, so it runs ahead of the wall clock.
+function startSealTicker() {
+    const interval = Number(process.env.CREDITCOIN_SEAL_INTERVAL_MS ?? 1000);
+    const ticker = { stop: false };
+    sealTicker = ticker;
+    void (async () => {
+        while (!ticker.stop) {
+            try {
+                const { hash } = await rpc(ALICE_RPC, 'engine_createBlock', [true, true, null]);
+                // Bob may not have imported it yet; the next tick finalizes a descendant,
+                // which finalizes this one with it.
+                await rpc(BOB_RPC, 'engine_finalizeBlock', [hash, null]).catch(() => undefined);
+            } catch {
+                // the nodes are still starting, or are being stopped
+            }
+            await sleep(interval);
+        }
+    })();
 }
 
 export async function startAliceAndBob() {
@@ -155,10 +200,19 @@ export async function startAliceAndBob() {
         '--bob --tmp --node-key d9cccabf274641a185bc94f9f8c3d791f50514277cb3ba8c2aa4d7d6757c661f --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au --port 30335 --rpc-port 9955',
     );
     await sleep(1000);
+
+    if (process.env.CREDITCOIN_SEALING) {
+        startSealTicker();
+    }
 }
 
 export function killCreditcoinNodes() {
     console.log('INFO: killing all creditcoin3-node processes');
+
+    if (sealTicker) {
+        sealTicker.stop = true;
+        sealTicker = undefined;
+    }
 
     commandSync(`killall -9 creditcoin3-node`);
 }
