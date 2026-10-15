@@ -26,6 +26,7 @@ pub mod config;
 pub mod cursor;
 pub mod ingest;
 pub mod listener;
+pub mod pending;
 pub mod reobservation;
 pub mod resolver;
 pub mod set_update;
@@ -96,7 +97,8 @@ pub struct MessageVoteState {
     /// dominate writes (rare set changes), hence `RwLock`.
     pub active_set: RwLock<HashSet<Address>>,
     /// Outgoing votes we produced, handed to the p2p task to publish on the message-vote topic.
-    pub publish_tx: mpsc::Sender<MessageVote>,
+    pub publish_tx: mpsc::Sender<pending::PendingVote>,
+    pub pending: pending::Store,
     /// Outgoing attestor-set-update votes (P2-8), handed to the p2p task to publish on the
     /// set-update topic. Set by [`build_state`]; drained by the p2p task.
     pub set_update_publish_tx: mpsc::Sender<SetUpdateVote>,
@@ -129,7 +131,7 @@ pub async fn build_state(
     cc3: &cc_client::Client,
 ) -> Option<(
     Arc<MessageVoteState>,
-    mpsc::Receiver<MessageVote>,
+    mpsc::Receiver<pending::PendingVote>,
     mpsc::Receiver<ReobservationRequest>,
     mpsc::Receiver<SetUpdateVote>,
 )> {
@@ -172,6 +174,7 @@ pub async fn build_state(
         aggregator: Mutex::new(aggregator),
         active_set: RwLock::new(active_set),
         publish_tx,
+        pending: pending::Store::new(&cfg.state_dir, cfg.write_ability_chain_key),
         set_update_publish_tx,
         reobs_tx,
         destination_chain_key: RwLock::new(None),
@@ -458,7 +461,10 @@ pub async fn run(
     // writable up front so a missing / read-only volume fails the boot loudly here, rather than
     // silently degrading to no cursor persistence (the restart-loses-messages footgun) once the
     // listener is running.
-    cursor::ensure_writable(&cfg.state_dir).map_err(Error::WriteAbility)?;
+    let state_dir = cfg.state_dir.clone();
+    tokio::task::spawn_blocking(move || cursor::ensure_writable(&state_dir))
+        .await?
+        .map_err(Error::WriteAbility)?;
 
     // On-chain attestor-set hot-reload watcher (only when the set is sourced from the validator).
     // Runs independently of Outbox resolution — the set is unrelated to the Outbox — so it keeps the
@@ -732,6 +738,8 @@ pub async fn run(
         let rpc = listener_rpc.clone();
         async move { connect_l1_provider(rpc.as_str()).await }
     };
+    let initial_cursor = cursor_store.clone();
+    let pending_messages = state.pending.clone();
     let listener = tokio::spawn(async move {
         listener::watch(
             listener_provider,
@@ -739,7 +747,8 @@ pub async fn run(
             resolved,
             confirmation_depth,
             scan_from,
-            cursor_store,
+            initial_cursor,
+            pending_messages,
             listener_tx,
             listener_token,
         )
@@ -784,6 +793,44 @@ pub async fn run(
         ))
     };
 
+    let pending_state = state.clone();
+    let pending_token = shared.token.clone();
+    let pending_tx = tx.clone();
+    let mut pending_worker = tokio::spawn(async move {
+        let acknowledgements = pending_state
+            .pending
+            .run_acknowledgements(pending_token.clone());
+        let replay = async {
+            let mut tick = tokio::time::interval(Duration::from_secs(6));
+            tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            loop {
+                tick.tick().await;
+                let domain = *pending_state.destination_chain_key.read();
+                let Some(domain) = domain else { continue };
+                for message in pending_state.pending.batch(domain).await? {
+                    pending_tx
+                        .send(message)
+                        .await
+                        .map_err(|_| anyhow!("pending replay channel closed"))?;
+                }
+            }
+            #[allow(unreachable_code)]
+            Ok::<(), anyhow::Error>(())
+        };
+        tokio::select! {
+            () = pending_token.cancelled() => Ok(()),
+            result = acknowledgements => result,
+            result = replay => result,
+        }
+    });
+    struct AbortPending(tokio::task::AbortHandle);
+    impl Drop for AbortPending {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let _pending_guard = AbortPending(pending_worker.abort_handle());
+
     let chain_key = shared.chain_key;
     loop {
         // Not `biased`: a biased select would always poll the listener channel before reobservation
@@ -793,6 +840,18 @@ pub async fn run(
         // still picked promptly (graceful shutdown tolerates finishing one in-flight item first).
         tokio::select! {
             () = shared.token.cancelled() => break,
+            joined = &mut pending_worker => {
+                if shared.token.is_cancelled() { break; }
+                if let Some(l) = &listener { l.abort(); }
+                outbox_monitor.abort(); reobs_worker.abort();
+                if let Some(w) = &set_watcher { w.abort(); }
+                if let Some(p) = &set_update_proposer { p.abort(); }
+                let err = match joined {
+                    Ok(Err(err)) => err.context("pending-message worker failed"),
+                    other => anyhow!("pending-message worker exited unexpectedly: {other:?}"),
+                };
+                return Err(Error::WriteAbility(err));
+            }
             joined = async { listener.as_mut().expect("branch guarded by listener.is_some()").await }, if listener.is_some() => {
                 // A clean `Ok(())` here during shutdown is the listener obeying the cancel token,
                 // not an early exit; the same applies to every sibling arm below.
@@ -917,7 +976,8 @@ pub async fn run(
                     // the previous listener rebuilt the connection, this one starts on the live one.
                     let listener_provider = l1_provider_tx.clone();
                     let listener_token = shared.token.clone();
-                    let cursor_store = cursor::CursorStore::for_all_outboxes(&cfg.state_dir, cfg.write_ability_chain_key, cfg.start_block);
+                    let cursor_store = cursor_store.clone();
+                    let pending_messages = state.pending.clone();
                     let listener_tx = tx.clone();
                     // Resume the same all-Outbox cursor after a signing-domain change. Any
                     // newly registered Outbox is discovered by the historical block scan itself.
@@ -935,6 +995,7 @@ pub async fn run(
                             confirmation_depth,
                             swap_start,
                             cursor_store,
+                            pending_messages,
                             listener_tx,
                             listener_token,
                         )
@@ -1270,14 +1331,17 @@ fn produce_vote(
     // did receive it, and the relayer's reobservation request re-drives `produce_vote` when a
     // message sits below quorum — by which point the channel has typically drained. Mirrors the
     // block-attestation broadcast in `production.rs`.
-    match state.publish_tx.try_send(vote) {
+    match state.publish_tx.try_send(pending::PendingVote {
+        vote,
+        key: (&indexed).into(),
+    }) {
         Ok(()) => tracing::info!(
             message_id = %indexed.message_id,
             "✉️ queued message vote for gossip"
         ),
         Err(mpsc::error::TrySendError::Full(_)) => tracing::warn!(
             message_id = %indexed.message_id,
-            "📭 message-vote channel full — dropping broadcast (recovered via gossip/reobservation)"
+            "📭 message-vote channel full — retry through the durable journal or reobservation"
         ),
         Err(mpsc::error::TrySendError::Closed(_)) => tracing::warn!(
             message_id = %indexed.message_id,
@@ -1457,7 +1521,7 @@ mod tests {
 
     fn test_state(
         signer: &signing::MessageSigner,
-    ) -> (MessageVoteState, mpsc::Receiver<MessageVote>) {
+    ) -> (MessageVoteState, mpsc::Receiver<pending::PendingVote>) {
         let (publish_tx, rx) = mpsc::channel(8);
         (
             MessageVoteState {
@@ -1468,6 +1532,7 @@ mod tests {
                 )),
                 active_set: RwLock::new(HashSet::from([signer.address()])),
                 publish_tx,
+                pending: pending::Store::new(&std::env::temp_dir(), 7),
                 set_update_publish_tx: mpsc::channel(8).0,
                 reobs_tx: mpsc::channel(8).0,
                 destination_chain_key: RwLock::new(None),

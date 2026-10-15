@@ -140,6 +140,7 @@ mod tests {
             )),
             active_set: RwLock::new(active_set),
             publish_tx: tx,
+            pending: super::super::pending::Store::new(&std::env::temp_dir(), CHAIN_KEY),
             set_update_publish_tx: tokio::sync::mpsc::channel(8).0,
             reobs_tx: tokio::sync::mpsc::channel(8).0,
             destination_chain_key: RwLock::new(Some(

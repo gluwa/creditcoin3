@@ -9,14 +9,13 @@
 //! bookkeeping belongs on-chain. For the guarantee to hold across pod restarts the file must live on
 //! a persistent volume — a deployment concern handled separately from this code.
 //!
-//! Semantics are **at-least-once**: the cursor is saved once a poll's scanned range has been handed
-//! to the signing pipeline, not once each vote is durably gossiped. A crash between the save and the
-//! gossip re-scans that range on the next boot, which is harmless — the aggregator dedups by signer
-//! and the relayer dedups votes (see [`super::listener::scan_range`]). We therefore never advance the
-//! persisted cursor *past* work that has not been scanned, but we may repeat a little already-scanned
-//! work; that is the safe direction for a signer.
+//! Scanned messages are durably journaled before this cursor can advance. The pending journal
+//! survives crashes independently of the bounded restart rewind and is replayed until gossip
+//! accepts a publish. Downstream delivery remains recoverable through reobservation.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 
 use alloy::primitives::Address;
 use anyhow::{Context, Result};
@@ -25,7 +24,7 @@ use serde::{Deserialize, Serialize};
 /// On-disk cursor record.
 ///
 /// `outbox` guards against resuming a stale cursor against a *different* Outbox (e.g. a
-/// re-registration): a mismatch discards the persisted position rather than risk silently skipping
+/// re-registration): a mismatch rejects the persisted position rather than risk silently skipping
 /// the new Outbox's early messages. `chain_key` is recorded for operator legibility and to
 /// cross-check the file's provenance.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +32,9 @@ struct CursorRecord {
     /// Version marker: false/absent is the legacy single-Outbox scanner.
     #[serde(default)]
     all_outboxes: bool,
+    /// Older scanners did not journal pending work; replay their configured history once.
+    #[serde(default)]
+    durable_pending: bool,
     /// Highest Creditcoin L1 block fully scanned for `MessagePublished` (inclusive).
     last_seen_block: u64,
     /// Outbox address the cursor was advanced against.
@@ -67,6 +69,7 @@ pub fn ensure_writable(dir: &Path) -> Result<()> {
 /// durable position and [`save`](Self::save) advances it.
 #[derive(Clone, Debug)]
 pub struct CursorStore {
+    io: Arc<Semaphore>,
     all_outboxes: bool,
     migration_floor: u64,
     path: PathBuf,
@@ -89,6 +92,7 @@ impl CursorStore {
     #[must_use]
     pub fn new(dir: &Path, chain_key: u64, outbox: Address) -> Self {
         Self {
+            io: Arc::new(Semaphore::new(1)),
             all_outboxes: false,
             migration_floor: 0,
             path: dir.join(format!("outbox-cursor-{chain_key}.json")),
@@ -119,58 +123,44 @@ impl CursorStore {
         &self.path
     }
 
-    /// Load the persisted `last_seen`, or `None` when there is no usable cursor yet:
-    ///   - file missing (first boot),
-    ///   - unreadable / corrupt (logged, then treated as absent so a bad file never wedges boot),
-    ///   - written against a *different* Outbox (stale — discarded to avoid skipping new messages).
-    ///
-    /// Returning `None` in every failure mode is deliberate: a missing or unusable cursor falls back
-    /// to the configured `start_block`/head path, which is always safe (at worst a re-scan), whereas
-    /// failing the boot on a bad cursor file would be a needless liveness hazard.
-    #[must_use]
-    pub fn load(&self) -> Option<u64> {
+    /// Only a genuinely missing file is a fresh start. Corruption, I/O errors and identity
+    /// mismatches fail closed so a restart cannot silently skip downtime history.
+    pub fn load(&self) -> Result<Option<u64>> {
         let raw = match std::fs::read(&self.path) {
             Ok(bytes) => bytes,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-            Err(e) => {
-                tracing::warn!(
-                    path = %self.path.display(), %e,
-                    "could not read Outbox cursor file; starting from configured start_block/head"
-                );
-                return None;
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(err) => {
+                return Err(err)
+                    .context("read Outbox cursor; restore it or configure a safe replay")
             }
         };
-        let record: CursorRecord = match serde_json::from_slice(&raw) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(
-                    path = %self.path.display(), %e,
-                    "Outbox cursor file is corrupt; ignoring it"
-                );
-                return None;
-            }
-        };
-        if record.chain_key != self.chain_key {
-            tracing::warn!(path = %self.path.display(), "persisted cursor belongs to another chain");
-            return None;
+        let record: CursorRecord = serde_json::from_slice(&raw).context("invalid Outbox cursor")?;
+        anyhow::ensure!(
+            record.chain_key == self.chain_key,
+            "cursor belongs to another chain"
+        );
+        if self.all_outboxes && (!record.all_outboxes || !record.durable_pending) {
+            return Ok(Some(self.migration_floor));
         }
-        if self.all_outboxes && !record.all_outboxes {
-            // The previous scanner skipped every non-default Outbox, so its progress does not
-            // certify that any historical range was completely scanned. Replay once on upgrade;
-            // never seed from the current head and silently discard downtime/rotation messages.
-            tracing::info!(path = %self.path.display(), "migrating single-Outbox cursor: replaying all authorized history");
-            return Some(self.migration_floor);
-        }
-        if record.all_outboxes != self.all_outboxes || record.outbox != self.outbox {
-            tracing::warn!(
-                path = %self.path.display(),
-                persisted = %record.outbox,
-                resolved = %self.outbox,
-                "persisted Outbox cursor is for a different Outbox; ignoring it"
-            );
-            return None;
-        }
-        Some(record.last_seen_block)
+        anyhow::ensure!(
+            record.all_outboxes == self.all_outboxes && record.outbox == self.outbox,
+            "cursor belongs to another Outbox/scanner"
+        );
+        Ok(Some(record.last_seen_block))
+    }
+
+    async fn disk<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(Self) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let store = self.clone();
+        blocking_io(store.io.clone(), move || work(store)).await
+    }
+    pub async fn load_async(&self) -> Result<Option<u64>> {
+        self.disk(|store| store.load()).await
+    }
+    pub async fn save_async(&self, last_seen: u64) -> Result<()> {
+        self.disk(move |store| store.save(last_seen)).await
     }
 
     /// Persist `last_seen` atomically: write to a temp file in the same directory, `fsync` it, then
@@ -179,35 +169,49 @@ impl CursorStore {
     pub fn save(&self, last_seen: u64) -> Result<()> {
         let record = CursorRecord {
             all_outboxes: self.all_outboxes,
+            durable_pending: self.all_outboxes,
             last_seen_block: last_seen,
             outbox: self.outbox,
             chain_key: self.chain_key,
         };
         let json = serde_json::to_vec_pretty(&record).context("serialize Outbox cursor")?;
 
-        let dir = self.path.parent().unwrap_or_else(|| Path::new("."));
-        std::fs::create_dir_all(dir)
-            .with_context(|| format!("create cursor dir {}", dir.display()))?;
-
-        // Temp file in the *same* dir so the final rename stays on one filesystem (cross-device
-        // rename is not atomic and would `EXDEV`). Unique per-pid suffix avoids two writers racing on
-        // a shared temp name.
-        let tmp = self
-            .path
-            .with_extension(format!("json.tmp.{}", std::process::id()));
-        {
-            use std::io::Write as _;
-            let mut f = std::fs::File::create(&tmp)
-                .with_context(|| format!("create temp cursor file {}", tmp.display()))?;
-            f.write_all(&json).context("write temp cursor file")?;
-            // fsync the file contents before the rename so a crash right after the rename can't
-            // surface a renamed-but-empty file (rename orders the dir entry, not the data).
-            f.sync_all().context("fsync temp cursor file")?;
-        }
-        std::fs::rename(&tmp, &self.path)
-            .with_context(|| format!("rename {} -> {}", tmp.display(), self.path.display()))?;
-        Ok(())
+        atomic_write(&self.path, &json)
     }
+}
+
+/// Acquire capacity asynchronously, then keep it inside the blocking closure. Cancelling the
+/// waiter cannot release serialization while disk work continues, or consume blocking threads
+/// waiting on another operation's lock.
+pub(super) async fn blocking_io<T: Send + 'static>(
+    io: Arc<Semaphore>,
+    work: impl FnOnce() -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let permit = io
+        .acquire_owned()
+        .await
+        .context("persistence worker closed")?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        work()
+    })
+    .await
+    .context("persistence disk worker failed")?
+}
+
+/// Persist data and its directory entry; readers see the complete old or new record.
+/// Callers serialize writes to a path, including across cancellation/rotation.
+pub(super) fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
+    let dir = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
+    let mut file = std::fs::File::create(&tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    std::fs::rename(tmp, path)?;
+    std::fs::File::open(dir)?.sync_all()?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -251,7 +255,7 @@ mod tests {
     fn missing_file_loads_none() {
         let dir = TmpDir::new("missing");
         let store = CursorStore::new(dir.path(), 7, outbox());
-        assert_eq!(store.load(), None);
+        assert_eq!(store.load().unwrap(), None);
     }
 
     #[test]
@@ -259,28 +263,28 @@ mod tests {
         let dir = TmpDir::new("roundtrip");
         let store = CursorStore::new(dir.path(), 7, outbox());
         store.save(12_345).unwrap();
-        assert_eq!(store.load(), Some(12_345));
+        assert_eq!(store.load().unwrap(), Some(12_345));
         // A later save overwrites in place (atomic replace), and the new value reads back.
         store.save(20_000).unwrap();
-        assert_eq!(store.load(), Some(20_000));
+        assert_eq!(store.load().unwrap(), Some(20_000));
     }
 
     #[test]
-    fn corrupt_file_loads_none() {
+    fn corrupt_file_fails_closed() {
         let dir = TmpDir::new("corrupt");
         let store = CursorStore::new(dir.path(), 7, outbox());
         std::fs::write(store.path(), b"not json {{{").unwrap();
-        assert_eq!(store.load(), None);
+        assert!(store.load().is_err());
     }
 
     #[test]
-    fn different_outbox_is_ignored() {
+    fn different_outbox_fails_closed() {
         let dir = TmpDir::new("outbox");
         // Written against `outbox()`...
         CursorStore::new(dir.path(), 7, outbox()).save(999).unwrap();
-        // ...read back by a store resolved to a *different* Outbox → treated as absent.
+        // ...read back by a store resolved to a different Outbox → fail closed.
         let store = CursorStore::new(dir.path(), 7, other());
-        assert_eq!(store.load(), None);
+        assert!(store.load().is_err());
     }
 
     #[test]
@@ -289,7 +293,7 @@ mod tests {
         let nested = dir.path().join("a").join("b");
         let store = CursorStore::new(&nested, 1, outbox());
         store.save(42).unwrap();
-        assert_eq!(store.load(), Some(42));
+        assert_eq!(store.load().unwrap(), Some(42));
     }
 
     #[test]
@@ -310,13 +314,15 @@ mod tests {
             .unwrap();
         let store = CursorStore::for_all_outboxes(dir.path(), 7, None);
         assert_eq!(
-            store.load(),
+            store.load().unwrap(),
             Some(0),
             "old progress did not cover other Outboxes"
         );
         store.save(2000).unwrap();
         assert_eq!(
-            CursorStore::for_all_outboxes(dir.path(), 7, None).load(),
+            CursorStore::for_all_outboxes(dir.path(), 7, None)
+                .load()
+                .unwrap(),
             Some(2000)
         );
     }
@@ -330,7 +336,7 @@ mod tests {
             serde_json::from_slice(&std::fs::read(store.path()).unwrap()).unwrap();
         record["chain_key"] = 8.into();
         std::fs::write(store.path(), serde_json::to_vec(&record).unwrap()).unwrap();
-        assert_eq!(store.load(), None);
+        assert!(store.load().is_err());
     }
     #[test]
     fn migration_honors_explicit_start_before_runtime_support() {
@@ -339,6 +345,50 @@ mod tests {
             .save(9000)
             .unwrap();
         let store = CursorStore::for_all_outboxes(dir.path(), 7, Some(4000));
-        assert_eq!(store.load(), Some(3999));
+        assert_eq!(store.load().unwrap(), Some(3999));
+    }
+    #[test]
+    fn cursor_without_pending_journal_marker_replays_from_configured_floor() {
+        let dir = TmpDir::new("migrate-pending");
+        let store = CursorStore::for_all_outboxes(dir.path(), 7, Some(100));
+        store.save(2000).unwrap();
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(store.path()).unwrap()).unwrap();
+        record.as_object_mut().unwrap().remove("durable_pending");
+        std::fs::write(store.path(), serde_json::to_vec(&record).unwrap()).unwrap();
+        assert_eq!(store.load().unwrap(), Some(99));
+    }
+
+    #[tokio::test]
+    async fn cancelling_disk_waiter_keeps_writes_serialized() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let io = Arc::new(Semaphore::new(1));
+        let finished = Arc::new(AtomicBool::new(false));
+        let first_finished = finished.clone();
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let first = tokio::spawn(blocking_io(io.clone(), move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            first_finished.store(true, Ordering::SeqCst);
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        first.abort();
+        assert!(first.await.unwrap_err().is_cancelled());
+        let mut second = tokio::spawn(blocking_io(io, move || {
+            anyhow::ensure!(
+                finished.load(Ordering::SeqCst),
+                "second write overtook cancelled first write"
+            );
+            Ok(())
+        }));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(20), &mut second)
+                .await
+                .is_err()
+        );
+        release_tx.send(()).unwrap();
+        second.await.unwrap().unwrap();
     }
 }

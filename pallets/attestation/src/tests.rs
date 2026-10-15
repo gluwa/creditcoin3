@@ -6006,7 +6006,9 @@ fn on_supported_chain_removed_bounds_attestor_state_cleanup_per_block() {
         (not_idle
             + crate::RetiredAttestorBlsKeys::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
             + BlsKeyOwner::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
-            + Invulnerables::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()) as u32
+            + Invulnerables::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
+            + AttestorEvmAddress::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()
+            + EvmAddressOwner::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count()) as u32
     };
     let chilled_events = || {
         System::events()
@@ -6047,6 +6049,9 @@ fn on_supported_chain_removed_bounds_attestor_state_cleanup_per_block() {
             });
             BlsKeyOwner::<Test>::insert(SUPPORTED_CHAIN_KEY, bls_public_key, id);
             Invulnerables::<Test>::insert(SUPPORTED_CHAIN_KEY, id, true);
+            let address = sp_core::H160::from_low_u64_be(id);
+            AttestorEvmAddress::<Test>::insert(SUPPORTED_CHAIN_KEY, id, address);
+            EvmAddressOwner::<Test>::insert(SUPPORTED_CHAIN_KEY, address, id);
         }
 
         // Same shapes under another chain, sharing a stash with the removed chain's rows.
@@ -6065,11 +6070,14 @@ fn on_supported_chain_removed_bounds_attestor_state_cleanup_per_block() {
         });
         BlsKeyOwner::<Test>::insert(other_chain, [0xAA; 48], survivor);
         Invulnerables::<Test>::insert(other_chain, survivor, true);
+        let address = sp_core::H160::from_low_u64_be(survivor);
+        AttestorEvmAddress::<Test>::insert(other_chain, survivor, address);
+        EvmAddressOwner::<Test>::insert(other_chain, address, survivor);
     });
 
     // Genesis already seeds some state for this chain.
     let total = ext.run(pending);
-    assert!(total >= count * 4);
+    assert!(total >= count * 6);
     let attestor_rows =
         ext.run(|| Attestors::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count() as u32);
 
@@ -6088,7 +6096,7 @@ fn on_supported_chain_removed_bounds_attestor_state_cleanup_per_block() {
     });
     assert!(total - remaining <= MAX_REMOVAL_CLEANUP_ITEMS_PER_BLOCK);
 
-    // 4 phases * `count` items at 40 per block, plus slack for phases that only learn they are
+    // 6 phases * `count` items at 40 per block, plus slack for phases that only learn they are
     // done on the following block.
     let mut block = 1;
     while ext.run(|| RemovedChainCleanup::<Test>::contains_key(SUPPORTED_CHAIN_KEY)) {
@@ -6127,6 +6135,14 @@ fn on_supported_chain_removed_bounds_attestor_state_cleanup_per_block() {
         ));
         assert!(BlsKeyOwner::<Test>::contains_key(other_chain, [0xAA; 48]));
         assert!(Invulnerables::<Test>::contains_key(other_chain, survivor));
+        assert!(AttestorEvmAddress::<Test>::contains_key(
+            other_chain,
+            survivor
+        ));
+        assert!(EvmAddressOwner::<Test>::contains_key(
+            other_chain,
+            sp_core::H160::from_low_u64_be(survivor)
+        ));
     });
 }
 
