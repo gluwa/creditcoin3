@@ -10,7 +10,7 @@ import { KeyringPair } from '../../lib';
 import { substrateAddressToEvmAddress, evmAddressToSubstrateAddress } from '../../lib/evm/address';
 import { HDNodeWallet } from 'ethers';
 import { setStakingConfig } from '../../lib/staking/bond';
-import { sleep } from '../utils';
+import { isManualSealing, sealBlock, sleep } from '../utils';
 
 export const ALICE_NODE_URL = 'ws://127.0.0.1:9944';
 export const BOB_NODE_URL = 'ws://127.0.0.1:9955';
@@ -36,9 +36,16 @@ export async function waitEras(eras: number, api: ApiPromise) {
     let currentEra = eraInfo.currentEra.toNumber();
     const targetEra = currentEra + eras;
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
+    // Under `--sealing` an era is only as far away as the blocks we seal, so seal them
+    // instead of waiting ~150 s per era for something else to produce them.
+    const sealing = await isManualSealing(api);
     while (currentEra < targetEra) {
         console.log(`Waiting for era ${targetEra}, currently at ${currentEra}`);
-        await sleep(blockTime);
+        if (sealing) {
+            await sealBlock(api);
+        } else {
+            await sleep(blockTime);
+        }
         eraInfo = await api.derive.session.info();
         currentEra = eraInfo.currentEra.toNumber();
     }

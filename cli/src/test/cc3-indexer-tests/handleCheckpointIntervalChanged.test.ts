@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks, randomIntBetween } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 describe('handleCheckpointIntervalChanged()', () => {
     let api: ApiPromise;
@@ -43,7 +43,7 @@ describe('handleCheckpointIntervalChanged()', () => {
                 // note: inspecting only last record
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
                 expect(node.interval).toEqual(newInterval);
             }

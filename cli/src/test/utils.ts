@@ -84,6 +84,26 @@ export const extractFee = async (
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const manualSealing = new WeakMap<ApiPromise, Promise<boolean>>();
+
+// true when the node runs with `--sealing`: it then exposes `engine_createBlock` and only
+// produces a block when asked to, so tests can seal blocks instead of waiting for them
+export const isManualSealing = (api: ApiPromise): Promise<boolean> => {
+    let sealing = manualSealing.get(api);
+    if (sealing === undefined) {
+        sealing = api.rpc.rpc
+            .methods()
+            .then(({ methods }) => methods.some((method) => method.toString() === 'engine_createBlock'));
+        manualSealing.set(api, sealing);
+    }
+    return sealing;
+};
+
+// seal and finalize one block on a `--sealing` node, including whatever is in the pool
+export const sealBlock = async (api: ApiPromise) => {
+    await api.rpc.engine.createBlock(true, true);
+};
+
 // wait until a certain amount of blocks have elapsed
 export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: number; maxRetries?: number }) => {
     const { maxRetries = 10, minBlocks = 2 } = opts ?? {};

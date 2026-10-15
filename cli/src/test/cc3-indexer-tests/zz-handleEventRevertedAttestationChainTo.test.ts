@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks, sleep } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 // Poll the indexer until the latest reversion for `chainKey` is fully applied
 // (status === 'complete'). Returns once settled or throws after the timeout so a
@@ -144,7 +144,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                 expect(node.id).toBeTruthy();
                 expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(blockBeforeRevert);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(node.chainKey).toEqual(chainKey.toString());
                 expect(BigInt(node.checkpointHeight)).toEqual(checkpointHeightToRevertTo);
                 expect(node.digest).toEqual(checkpointDigestToRevertTo);
