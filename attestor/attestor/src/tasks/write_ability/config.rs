@@ -64,12 +64,11 @@ pub struct Config {
     /// a restart resumes rather than replaying from `start_block`.
     pub start_block: Option<u64>,
 
-    /// Directory for durable write-ability state — currently the Outbox scan cursor (`last_seen`
-    /// block), persisted so a restart resumes exactly where it left off instead of skipping messages
-    /// published while down or re-signing the whole history. The boot verifies the directory is writable
-    /// (see [`super::cursor::ensure_writable`]) so a missing/read-only volume fails loudly rather
-    /// than silently degrading. Defaults to [`DEFAULT_STATE_DIR`]; must be a persistent volume for
-    /// the cursor to survive pod restarts.
+    /// Base directory for durable Outbox cursors and pending messages. Each public attestor account
+    /// gets its own subdirectory; different signers may safely share this base. An exclusive lock
+    /// rejects duplicate processes for the same account and chain. Startup verifies writable,
+    /// durable storage and migrates legacy shared state by replaying the configured history.
+    /// Defaults to [`DEFAULT_STATE_DIR`]; must be a persistent volume to survive pod restarts.
     pub state_dir: PathBuf,
 
     /// Hard cap on distinct tracked `message_id` entries (anti-abuse — confluence §5.4).
@@ -175,7 +174,7 @@ impl Config {
     }
 }
 
-/// Default directory for durable write-ability state (the Outbox scan cursor). Matches the
+/// Default base directory for durable write-ability state. Matches the
 /// persistent volume the attestor StatefulSet mounts (`/data`), so production needs no explicit
 /// `state_dir`; local/dev runs override it in config.
 pub const DEFAULT_STATE_DIR: &str = "/data";
