@@ -3137,6 +3137,7 @@ version = "3.138.4"
 dependencies = [
  "attestor-primitives",
  "ethereum",
+ "finality-grandpa",
  "fp-evm",
  "fp-rpc",
  "fp-self-contained",
