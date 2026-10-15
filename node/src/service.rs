@@ -556,23 +556,9 @@ where
             }
         };
 
-    // Under --sealing, block time advances one slot per sealed block, starting from the best
-    // block's slot, so the BABE slot and the timestamp always agree and epochs end after
-    // `EpochDuration` blocks however quickly they are sealed. Authorship advances it; the
-    // Ethereum RPC's pending block only reads it, since sealed time runs ahead of the wall
-    // clock and a wall-clock pending timestamp would fall behind its parent.
-    let manual_seal_clock = match sealing {
-        Some(_) => Some(Arc::new(
-            SlotTimestampProvider::new_babe(client.clone())
-                .map_err(|e| ServiceError::Other(format!("manual seal: block clock: {e}")))?,
-        )),
-        None => None,
-    };
-
     let rpc_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
-        let manual_seal_clock = manual_seal_clock.clone();
         let network = network.clone();
         let sync_service = sync_service.clone();
 
@@ -596,11 +582,27 @@ where
 
         let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
         let target_gas_price = eth_config.target_gas_price;
-        let pending_create_inherent_data_providers = move |_, ()| {
-            let manual_seal_clock = manual_seal_clock.clone();
+        let manual_seal = sealing.is_some();
+        let pending_client = client.clone();
+        let pending_create_inherent_data_providers = move |parent: Hash, ()| {
+            let client = pending_client.clone();
             async move {
-                let next_block_time = match manual_seal_clock {
-                    Some(clock) => clock.timestamp(),
+                // Under --sealing, block time advances one slot per sealed block and runs
+                // ahead of the wall clock, so the pending block follows its parent's slot
+                // instead. That holds on a node that only follows a sealed chain, too.
+                let parent_slot = if manual_seal {
+                    client
+                        .header(parent)?
+                        .and_then(|header| {
+                            sc_consensus_babe::find_pre_digest::<Block>(&header).ok()
+                        })
+                        .map(|pre_digest| *pre_digest.slot())
+                } else {
+                    None
+                };
+                let next_block_time: sp_timestamp::Timestamp = match parent_slot {
+                    Some(slot) => ((slot + 1) * slot_duration.as_millis()).into(),
+                    // Not sealing, or the parent is genesis: one slot from now.
                     None => {
                         let now = sp_timestamp::InherentDataProvider::from_system_time();
                         (now.timestamp().as_millis() + slot_duration.as_millis()).into()
@@ -732,7 +734,6 @@ where
                 client,
                 keystore_container.keystore(),
                 babe_link,
-                manual_seal_clock.expect("created whenever sealing is set; qed"),
                 transaction_pool,
                 select_chain,
                 block_import,
@@ -852,7 +853,6 @@ fn run_manual_seal_authorship<RuntimeApi>(
     client: Arc<FullClient<RuntimeApi>>,
     keystore: sp_keystore::KeystorePtr,
     babe_link: BabeLink<Block>,
-    clock: Arc<SlotTimestampProvider>,
     transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
     select_chain: FullSelectChain,
     block_import: BoxBlockImport,
@@ -873,6 +873,14 @@ where
         transaction_pool.clone(),
         prometheus_registry,
         telemetry.as_ref().map(|x| x.handle()),
+    );
+
+    // Block time advances one slot per sealed block, starting from the best block's slot, so
+    // the BABE slot and the timestamp always agree and epochs end after `EpochDuration`
+    // blocks however quickly they are sealed.
+    let clock = Arc::new(
+        SlotTimestampProvider::new_babe(client.clone())
+            .map_err(|e| ServiceError::Other(format!("manual seal: block clock: {e}")))?,
     );
 
     let target_gas_price = eth_config.target_gas_price;
