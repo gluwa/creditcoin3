@@ -4,12 +4,13 @@ name: BENCHMARKS
 "on":
   pull_request:
     branches: [main, usc-testnet, usc-dev, dev]
+    # Only the pallets' benchmarks and weights. A change to this workflow or its scripts is
+    # tested with workflow_dispatch, rather than a Linode VM and a full benchmark run on every
+    # CI-only PR that happens to touch them.
     paths:
-      - "**weights.rs"
-      - "**benchmarking.rs"
-      - ".github/**bench**"
-      - ".github/check-hardware.sh"
-      - ".github/workflows/benchmarks.yml"
+      - "pallets/**/weights.rs"
+      - "pallets/**/benchmarking.rs"
+      - "node/src/benchmarking.rs"
   workflow_dispatch:
 
 concurrency:
