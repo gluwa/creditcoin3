@@ -54,8 +54,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `511`
 		//  Estimated: `3976`
-		// Minimum execution time: 36_130_000 picoseconds.
-		Weight::from_parts(37_760_000, 0)
+		// Minimum execution time: 36_440_000 picoseconds.
+		Weight::from_parts(39_110_000, 0)
 			.saturating_add(Weight::from_parts(0, 3976))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -76,8 +76,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 26_880_000 picoseconds.
-		Weight::from_parts(28_090_000, 0)
+		// Minimum execution time: 27_040_000 picoseconds.
+		Weight::from_parts(28_450_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -102,8 +102,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `705`
 		//  Estimated: `4170`
-		// Minimum execution time: 39_860_000 picoseconds.
-		Weight::from_parts(69_810_000, 0)
+		// Minimum execution time: 39_240_000 picoseconds.
+		Weight::from_parts(42_230_000, 0)
 			.saturating_add(Weight::from_parts(0, 4170))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -124,8 +124,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 26_490_000 picoseconds.
-		Weight::from_parts(30_840_000, 0)
+		// Minimum execution time: 26_520_000 picoseconds.
+		Weight::from_parts(27_920_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -170,8 +170,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `2107`
 		//  Estimated: `6196`
-		// Minimum execution time: 251_130_000 picoseconds.
-		Weight::from_parts(294_500_000, 0)
+		// Minimum execution time: 241_629_000 picoseconds.
+		Weight::from_parts(247_289_000, 0)
 			.saturating_add(Weight::from_parts(0, 6196))
 			.saturating_add(T::DbWeight::get().reads(19))
 			.saturating_add(T::DbWeight::get().writes(11))
@@ -210,8 +210,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1576`
 		//  Estimated: `5041`
-		// Minimum execution time: 130_580_000 picoseconds.
-		Weight::from_parts(137_090_000, 0)
+		// Minimum execution time: 125_219_000 picoseconds.
+		Weight::from_parts(136_400_000, 0)
 			.saturating_add(Weight::from_parts(0, 5041))
 			.saturating_add(T::DbWeight::get().reads(14))
 			.saturating_add(T::DbWeight::get().writes(10))
@@ -232,8 +232,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 27_420_000 picoseconds.
-		Weight::from_parts(32_160_000, 0)
+		// Minimum execution time: 27_040_000 picoseconds.
+		Weight::from_parts(29_030_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -256,8 +256,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `657`
 		//  Estimated: `4122`
-		// Minimum execution time: 44_850_000 picoseconds.
-		Weight::from_parts(48_500_000, 0)
+		// Minimum execution time: 45_060_000 picoseconds.
+		Weight::from_parts(46_790_000, 0)
 			.saturating_add(Weight::from_parts(0, 4122))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -276,8 +276,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `249`
 		//  Estimated: `3714`
-		// Minimum execution time: 26_050_000 picoseconds.
-		Weight::from_parts(29_700_000, 0)
+		// Minimum execution time: 26_020_000 picoseconds.
+		Weight::from_parts(26_360_000, 0)
 			.saturating_add(Weight::from_parts(0, 3714))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -290,8 +290,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `288`
 		//  Estimated: `3753`
-		// Minimum execution time: 15_280_000 picoseconds.
-		Weight::from_parts(27_240_000, 0)
+		// Minimum execution time: 13_730_000 picoseconds.
+		Weight::from_parts(16_080_000, 0)
 			.saturating_add(Weight::from_parts(0, 3753))
 			.saturating_add(T::DbWeight::get().reads(1))
 			.saturating_add(T::DbWeight::get().writes(1))
@@ -346,15 +346,17 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// The range of component `m` is `[1, 99]`.
 	/// The range of component `s` is `[200, 500]`.
 	/// The range of component `m` is `[1, 99]`.
-	fn commit_attestation(_s: u32, m: u32, ) -> Weight {
+	fn commit_attestation(s: u32, m: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2110 + m * (202 ±0)`
 		//  Estimated: `8050 + m * (2678 ±0)`
-		// Minimum execution time: 32_537_246_000 picoseconds.
-		Weight::from_parts(34_659_861_535, 0)
+		// Minimum execution time: 33_175_338_000 picoseconds.
+		Weight::from_parts(28_248_951_210, 0)
 			.saturating_add(Weight::from_parts(0, 8050))
-			// Standard Error: 64_069_611
-			.saturating_add(Weight::from_parts(1_621_243_006, 0).saturating_mul(m.into()))
+			// Standard Error: 4_353_766
+			.saturating_add(Weight::from_parts(7_824_345, 0).saturating_mul(s.into()))
+			// Standard Error: 13_327_855
+			.saturating_add(Weight::from_parts(1_510_565_622, 0).saturating_mul(m.into()))
 			.saturating_add(T::DbWeight::get().reads(24))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(m.into())))
 			.saturating_add(T::DbWeight::get().writes(8))
@@ -412,11 +414,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `2359 + q * (3788 ±0)`
 		//  Estimated: `8299 + q * (6263 ±0)`
-		// Minimum execution time: 31_967_427_000 picoseconds.
-		Weight::from_parts(34_684_600_750, 0)
+		// Minimum execution time: 32_244_158_000 picoseconds.
+		Weight::from_parts(32_527_122_750, 0)
 			.saturating_add(Weight::from_parts(0, 8299))
-			// Standard Error: 1_085_574
-			.saturating_add(Weight::from_parts(35_663_977, 0).saturating_mul(q.into()))
+			// Standard Error: 232_761
+			.saturating_add(Weight::from_parts(35_641_330, 0).saturating_mul(q.into()))
 			.saturating_add(T::DbWeight::get().reads(26))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(q.into())))
 			.saturating_add(T::DbWeight::get().writes(12))
@@ -429,11 +431,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `0`
 		//  Estimated: `0`
-		// Minimum execution time: 380_000 picoseconds.
-		Weight::from_parts(634_999, 0)
+		// Minimum execution time: 400_000 picoseconds.
+		Weight::from_parts(434_999, 0)
 			.saturating_add(Weight::from_parts(0, 0))
-			// Standard Error: 65_881
-			.saturating_add(Weight::from_parts(1_409_116, 0).saturating_mul(r.into()))
+			// Standard Error: 12_228
+			.saturating_add(Weight::from_parts(1_327_755, 0).saturating_mul(r.into()))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -449,8 +451,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `20`
 		//  Estimated: `1505`
-		// Minimum execution time: 16_760_000 picoseconds.
-		Weight::from_parts(21_380_000, 0)
+		// Minimum execution time: 17_310_000 picoseconds.
+		Weight::from_parts(18_180_000, 0)
 			.saturating_add(Weight::from_parts(0, 1505))
 			.saturating_add(T::DbWeight::get().reads(4))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -473,8 +475,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `683`
 		//  Estimated: `4148`
-		// Minimum execution time: 29_267_654_000 picoseconds.
-		Weight::from_parts(29_654_326_000, 0)
+		// Minimum execution time: 29_619_541_000 picoseconds.
+		Weight::from_parts(29_809_401_000, 0)
 			.saturating_add(Weight::from_parts(0, 4148))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
@@ -495,8 +497,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `416`
 		//  Estimated: `3881`
-		// Minimum execution time: 38_650_000 picoseconds.
-		Weight::from_parts(44_930_000, 0)
+		// Minimum execution time: 38_180_000 picoseconds.
+		Weight::from_parts(41_750_000, 0)
 			.saturating_add(Weight::from_parts(0, 3881))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(4))
@@ -519,8 +521,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1607`
 		//  Estimated: `5072`
-		// Minimum execution time: 86_710_000 picoseconds.
-		Weight::from_parts(96_450_000, 0)
+		// Minimum execution time: 85_480_000 picoseconds.
+		Weight::from_parts(86_610_000, 0)
 			.saturating_add(Weight::from_parts(0, 5072))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
@@ -547,8 +549,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `657`
 		//  Estimated: `249147`
-		// Minimum execution time: 1_734_792_000 picoseconds.
-		Weight::from_parts(1_755_331_000, 0)
+		// Minimum execution time: 1_681_306_000 picoseconds.
+		Weight::from_parts(1_721_678_000, 0)
 			.saturating_add(Weight::from_parts(0, 249147))
 			.saturating_add(T::DbWeight::get().reads(107))
 			.saturating_add(T::DbWeight::get().writes(203))
@@ -587,8 +589,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `657`
 		//  Estimated: `4122`
-		// Minimum execution time: 1_498_141_000 picoseconds.
-		Weight::from_parts(1_730_240_000, 0)
+		// Minimum execution time: 1_438_847_000 picoseconds.
+		Weight::from_parts(1_464_039_000, 0)
 			.saturating_add(Weight::from_parts(0, 4122))
 			.saturating_add(T::DbWeight::get().reads(10))
 			.saturating_add(T::DbWeight::get().writes(206))
@@ -613,8 +615,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `830`
 		//  Estimated: `4295`
-		// Minimum execution time: 41_590_000 picoseconds.
-		Weight::from_parts(64_780_000, 0)
+		// Minimum execution time: 41_660_000 picoseconds.
+		Weight::from_parts(46_009_000, 0)
 			.saturating_add(Weight::from_parts(0, 4295))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -635,8 +637,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `369`
 		//  Estimated: `3834`
-		// Minimum execution time: 26_910_000 picoseconds.
-		Weight::from_parts(33_570_000, 0)
+		// Minimum execution time: 26_239_000 picoseconds.
+		Weight::from_parts(28_170_000, 0)
 			.saturating_add(Weight::from_parts(0, 3834))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -657,8 +659,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `657`
 		//  Estimated: `4122`
-		// Minimum execution time: 39_940_000 picoseconds.
-		Weight::from_parts(56_350_000, 0)
+		// Minimum execution time: 39_150_000 picoseconds.
+		Weight::from_parts(40_830_000, 0)
 			.saturating_add(Weight::from_parts(0, 4122))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -677,8 +679,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `305`
 		//  Estimated: `3770`
-		// Minimum execution time: 30_360_000 picoseconds.
-		Weight::from_parts(34_200_000, 0)
+		// Minimum execution time: 28_790_000 picoseconds.
+		Weight::from_parts(30_040_000, 0)
 			.saturating_add(Weight::from_parts(0, 3770))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -713,8 +715,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `1445`
 		//  Estimated: `4910`
-		// Minimum execution time: 125_280_000 picoseconds.
-		Weight::from_parts(129_360_000, 0)
+		// Minimum execution time: 122_929_000 picoseconds.
+		Weight::from_parts(124_459_000, 0)
 			.saturating_add(Weight::from_parts(0, 4910))
 			.saturating_add(T::DbWeight::get().reads(13))
 			.saturating_add(T::DbWeight::get().writes(8))
@@ -743,11 +745,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `851 + a * (138 ±0)`
 		//  Estimated: `4316 + a * (2614 ±0)`
-		// Minimum execution time: 75_210_000 picoseconds.
-		Weight::from_parts(74_983_997, 0)
+		// Minimum execution time: 72_680_000 picoseconds.
+		Weight::from_parts(74_001_788, 0)
 			.saturating_add(Weight::from_parts(0, 4316))
-			// Standard Error: 207_415
-			.saturating_add(Weight::from_parts(10_568_502, 0).saturating_mul(a.into()))
+			// Standard Error: 55_379
+			.saturating_add(Weight::from_parts(10_217_461, 0).saturating_mul(a.into()))
 			.saturating_add(T::DbWeight::get().reads(9))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(a.into())))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -778,8 +780,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `449`
 		//  Estimated: `6389`
-		// Minimum execution time: 64_310_000 picoseconds.
-		Weight::from_parts(82_140_000, 0)
+		// Minimum execution time: 63_320_000 picoseconds.
+		Weight::from_parts(65_560_000, 0)
 			.saturating_add(Weight::from_parts(0, 6389))
 			.saturating_add(T::DbWeight::get().reads(10))
 			.saturating_add(T::DbWeight::get().writes(8))
@@ -816,8 +818,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `19254`
 		//  Estimated: `1257744`
-		// Minimum execution time: 5_899_265_000 picoseconds.
-		Weight::from_parts(6_958_273_000, 0)
+		// Minimum execution time: 5_672_957_000 picoseconds.
+		Weight::from_parts(5_749_386_000, 0)
 			.saturating_add(Weight::from_parts(0, 1257744))
 			.saturating_add(T::DbWeight::get().reads(549))
 			.saturating_add(T::DbWeight::get().writes(1046))
