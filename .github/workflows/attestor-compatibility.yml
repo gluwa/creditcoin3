@@ -59,6 +59,15 @@ name: Attestor Compatibility
           by build-native.yml. Must be a `--release --features=fast-runtime` build.
         required: true
         type: string
+      informational:
+        description: >-
+          Report an incompatibility as a warning instead of failing the job. On dev PRs
+          the released attestors' pallet-hash guard refuses to start against any change
+          to pallet-attestation's metadata, so the check is red by construction there.
+          It stays blocking where it means something: promotion PRs.
+        required: false
+        type: boolean
+        default: false
 
 permissions: read-all
 
@@ -437,7 +446,12 @@ jobs:
             i=$(( i + 1 ))
           done < "${LOG_DIR}/historical-versions.txt"
 
+      # The checks from here on are the compatibility verdict. With `informational` a
+      # failure is reported by the last step instead of failing the job, and once one has
+      # failed the later ones are skipped: they could only fail the same way, slowly.
       - name: Wait for all attestors to register
+        id: register
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
 
@@ -530,6 +544,9 @@ jobs:
           fi
 
       - name: Set on-chain identity (display = version) for each historical attestor
+        id: identity
+        if: ${{ steps.register.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         working-directory: cli
         run: |
           # Signs identity.setIdentity({ display: <version> }) from each
@@ -542,6 +559,9 @@ jobs:
             --map "${LOG_DIR}/seeds/identity-map.tsv"
 
       - name: Soak – wait for an attestation checkpoint to finalize
+        id: soak
+        if: ${{ steps.register.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         working-directory: cli
         run: |
           set -euo pipefail
@@ -563,6 +583,9 @@ jobs:
             --timeout-min 60
 
       - name: Assert each historical attestor participated in at least one attestation round
+        id: participated
+        if: ${{ steps.register.outcome == 'success' && steps.soak.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
 
@@ -608,6 +631,9 @@ jobs:
           echo "DONE: all historical attestors confirmed active via logs"
 
       - name: Assert all attestors appear in on-chain attestation records
+        id: on-chain
+        if: ${{ steps.register.outcome == 'success' && steps.soak.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         working-directory: cli
         run: |
           # ----- Part 2: on-chain SignedAttestation.attestors check -----
@@ -638,7 +664,9 @@ jobs:
           done
 
       - name: Scan attestor logs for fatal / incompatibility errors
+        id: fatal-scan
         if: always()
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
 
@@ -668,6 +696,32 @@ jobs:
             echo "ERROR: one or more attestors hit a fatal/incompatibility error (see above)" >&2
             exit 1
           fi
+
+      - name: Report an incompatibility without failing
+        if: ${{ always() && inputs.informational }}
+        env:
+          OUTCOMES: >-
+            register=${{ steps.register.outcome }}
+            identity=${{ steps.identity.outcome }}
+            soak=${{ steps.soak.outcome }}
+            participated=${{ steps.participated.outcome }}
+            on-chain=${{ steps.on-chain.outcome }}
+            fatal-scan=${{ steps.fatal-scan.outcome }}
+        run: |
+          FAILED=$(tr ' ' '\n' <<< "${OUTCOMES}" | grep '=failure$' | cut -d= -f1 | paste -sd, - || true)
+          if [ -z "${FAILED}" ]; then
+            echo "Historical attestors are compatible with this build."
+            exit 0
+          fi
+          MSG="Historical attestors are NOT compatible with this build (failed: ${FAILED}). Informational on dev: a pallet-attestation metadata change makes released attestors refuse to start. It blocks on promotion PRs."
+          echo "::warning title=Attestor compatibility::${MSG}"
+          {
+            echo "### ⚠️ Attestor compatibility (informational)"
+            echo
+            echo "${MSG}"
+            echo
+            echo "See the failed steps above and the \`attestor-compatibility-logs\` artifact."
+          } >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Report resource usage
         if: always()
