@@ -24,11 +24,8 @@ use sp_runtime::{
         InvalidTransaction, TransactionSource, TransactionValidityError, ValidTransaction,
     },
 };
-use sp_std::collections::btree_set::BTreeSet;
 
-use crate::pallet::{
-    ActiveAttestors, AttestationClearingCursors, Call, Config, MaxCatchup, Pallet,
-};
+use crate::pallet::{Call, Config, MaxCatchup, Pallet};
 
 /// `TransactionExtension` that pre-validates `commit_attestation` calls in the transaction pool,
 /// rejecting:
@@ -111,9 +108,9 @@ where
                 let chain_key = attestation.chain_key();
 
                 // Mirrors `validate_attestation`'s `AttestationCleanupInProgress` check: every
-                // commit for this chain fails while its cleanup cursor drains, regardless of
-                // signer, so reject here before fees are charged.
-                if AttestationClearingCursors::<T>::get(chain_key).is_some() {
+                // commit for this chain fails while its cleanup drains, regardless of signer,
+                // so reject here before fees are charged.
+                if Pallet::<T>::commit_blocked_by_cleanup(chain_key) {
                     return Err(TransactionValidityError::Invalid(
                         InvalidTransaction::Custom(ATTESTATION_CLEANUP_IN_PROGRESS_CODE),
                     ));
@@ -145,10 +142,9 @@ where
                     ));
                 }
 
-                let active_attestors = ActiveAttestors::<T>::get(chain_key)
-                    .into_iter()
-                    .collect::<BTreeSet<_>>();
-                let is_active = active_attestors.contains(who);
+                // Linear scan over the bounded set: this runs for every signer, including inactive
+                // ones, and the extension is unmetered, so don't rebuild a `BTreeSet` here.
+                let is_active = Pallet::<T>::is_attestor(chain_key, who);
                 // `check_duplicate` now also enforces the strictly-monotonic per-chain height
                 // (via `LastDigest`), so a race loser resubmitting an already-attested height — or
                 // a quorum trying a competing digest for that height — is rejected here before fees.
@@ -230,6 +226,7 @@ where
 /// race-loser duplicates.
 pub const OVERSIZED_PROOF_CODE: u8 = 1;
 
-/// `InvalidTransaction::Custom` code returned while a chain's `AttestationClearingCursors` entry
-/// is still draining, so downstream tooling can disambiguate from other rejection reasons.
+/// `InvalidTransaction::Custom` code returned while a chain's `AttestationClearingCursors` or
+/// `CheckpointPruningStates` entry is still draining, so downstream tooling can disambiguate from
+/// other rejection reasons.
 pub const ATTESTATION_CLEANUP_IN_PROGRESS_CODE: u8 = 2;

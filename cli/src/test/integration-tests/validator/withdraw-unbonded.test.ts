@@ -1,4 +1,4 @@
-import { testIf, try_catch_else_finally, sleep } from '../../utils';
+import { testIf, try_catch_else_finally, sleep, isManualSealing, sealBlock } from '../../utils';
 import {
     initAliceKeyring,
     setUpProxy,
@@ -120,13 +120,34 @@ describe('withdraw-unbonded', () => {
 
             // begin unbonding era count-down
             const unbondingPeriod: number = api.consts.staking.bondingDuration.toNumber();
-            const erasCountdownPromise = waitEras(unbondingPeriod, api);
+            // Under `--sealing manual` waitEras seals ahead as fast as it can, so the countdown
+            // below is checked first, one sealed block at a time, and the eras run out after it.
+            const manualSealing = await isManualSealing(api);
+            const erasCountdownPromise = manualSealing ? undefined : waitEras(unbondingPeriod, api);
 
             // before the unbonding period has expired check that reported remaining time (in ms) is decreasing.
             // WARNING: ONLY execute without a proxy b/c we're using `caller.address` directly
             if (process.env.PROXY_ENABLED === undefined || process.env.PROXY_ENABLED === 'no') {
                 const blockTime = api.consts.babe.expectedBlockTime.toNumber();
                 let oldUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
+
+                if (manualSealing) {
+                    // Every block moves chain time by whole slots: one for ours, more if the
+                    // background ticker sealed one in between. The countdown is polkadot.js's
+                    // estimate from era progress, which can stand still for the block on an era
+                    // boundary, so a single step may be 0 but the three together must not be.
+                    const startUnbonding = oldUnbonding;
+                    for (let i = 0; i < 3; i++) {
+                        const errMsg = `Failed on sealed block #${i}`;
+                        await sealBlock(api);
+                        const newUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
+                        const difference = oldUnbonding - newUnbonding;
+                        expect(difference, errMsg).toBeGreaterThanOrEqual(0n);
+                        expect(difference % BigInt(blockTime), errMsg).toEqual(0n);
+                        oldUnbonding = newUnbonding;
+                    }
+                    expect(startUnbonding - oldUnbonding).toBeGreaterThanOrEqual(BigInt(2 * blockTime));
+                }
 
                 // This loop must finish *before* the unbonding period expires, because once
                 // the funds unlock there is no countdown left to watch decrease. It used to
@@ -140,7 +161,7 @@ describe('withdraw-unbonded', () => {
                 const blocksInUnbondingPeriod = epochBlocks * sessionsPerEra * unbondingPeriod;
 
                 // Same 10-block margin the old constant left (200 against 210).
-                const maxIterations = Math.max(1, blocksInUnbondingPeriod - 10);
+                const maxIterations = manualSealing ? 0 : Math.max(1, blocksInUnbondingPeriod - 10);
                 for (let i = 0; i < maxIterations; i++) {
                     const errMsg = `Failed on iteration #${i}/${maxIterations}`;
 
@@ -170,7 +191,7 @@ describe('withdraw-unbonded', () => {
             CLI = await setUpProxy(api, nonProxiedCliFullUnbond, callerFullUnbond, proxy, wrongProxy);
 
             // wait for funds to become unlocked
-            await erasCountdownPromise;
+            await (erasCountdownPromise ?? waitEras(unbondingPeriod, api));
         }, 1_500_000);
 
         afterAll(() => {

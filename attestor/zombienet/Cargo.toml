@@ -10,6 +10,7 @@ version.workspace = true
 
 [dependencies]
 # Attestor
+attestor = { path = "../attestor" }
 common = { path = "../common" }
 
 # Creditcoin
@@ -28,6 +29,9 @@ tokio = { workspace = true, features = [
     "macros",
 ] }
 tokio-tungstenite = { workspace = true, features = ["url"] }
+
+# P2P
+libp2p = { workspace = true, features = ["ed25519"] }
 
 # Parsing
 clap = { workspace = true, features = ["cargo"] }

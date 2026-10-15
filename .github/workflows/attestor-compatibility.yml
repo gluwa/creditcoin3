@@ -59,6 +59,15 @@ name: Attestor Compatibility
           by build-native.yml. Must be a `--release --features=fast-runtime` build.
         required: true
         type: string
+      informational:
+        description: >-
+          Report an incompatibility as a warning instead of failing the job. On dev PRs
+          the released attestors' pallet-hash guard refuses to start against any change
+          to pallet-attestation's metadata, so the check is red by construction there.
+          It stays blocking where it means something: promotion PRs.
+        required: false
+        type: boolean
+        default: false
 
 permissions: read-all
 
@@ -146,29 +155,14 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   # ---------------------------------------------------------------------------
-  # Provision a large self-hosted Linode runner for the compatibility job.
-  # ---------------------------------------------------------------------------
-  deploy-runner:
-    needs:
-      - discover-versions
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      # Shared CPU, Linode 64 GB, 16 vCPU -- same class as validator-compatibility.
-      LINODE_VM_SIZE: "g6-standard-16"
-      proxy_type: "attestor-compatibility"
-    secrets: inherit
-
-  # ---------------------------------------------------------------------------
   # Run the attestor compatibility network.
   # ---------------------------------------------------------------------------
   attestor-compatibility:
     needs:
       - discover-versions
-      - deploy-runner
-    runs-on:
-      [self-hosted, "workflow-${{ github.run_id }}", "type-attestor-compatibility"]
+    # A standard hosted runner (4 vCPU, 16 GB): the job peaks at ~2.7 GB of memory and ~2.4 GB of disk
+    # (resource-monitor.sh), so the 64 GB Linode VM it used to provision was idle headroom.
+    runs-on: ubuntu-26.04
     timeout-minutes: 120
     env:
       VERSIONS_JSON: ${{ needs.discover-versions.outputs.versions }}
@@ -192,13 +186,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y jq unzip
-          # firefox/tigervnc/mutter are installed for optional visual debugging
-          # of the local network from the self-hosted VM. They must never fail the
-          # job: on Ubuntu 26.04 the firefox deb is a snap shim whose preinst talks
-          # to api.snapcraft.io, and a timeout there wedges dpkg.
-          sudo apt-get install -y firefox tigervnc-standalone-server mutter openbox \
-            || echo "WARNING: optional visual-debugging tools not installed"
-          sudo dpkg --configure -a || true
           mkdir -p "${LOG_DIR}" "${DATA_DIR}"
 
       - name: Start resource monitor
@@ -225,7 +212,7 @@ jobs:
       # pure waste. The key is the discovered version list: a new release changes the
       # list and therefore the key, and nothing else can change the contents.
       - name: Restore cached historical attestor binaries
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           # Only the archives: the unzipped copies are re-derived cheaply below, and
           # caching both would double this entry against the repo-wide 10 GB cache
@@ -437,7 +424,12 @@ jobs:
             i=$(( i + 1 ))
           done < "${LOG_DIR}/historical-versions.txt"
 
+      # The checks from here on are the compatibility verdict. With `informational` a
+      # failure is reported by the last step instead of failing the job, and once one has
+      # failed the later ones are skipped: they could only fail the same way, slowly.
       - name: Wait for all attestors to register
+        id: register
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
 
@@ -530,6 +522,9 @@ jobs:
           fi
 
       - name: Set on-chain identity (display = version) for each historical attestor
+        id: identity
+        if: ${{ steps.register.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         working-directory: cli
         run: |
           # Signs identity.setIdentity({ display: <version> }) from each
@@ -542,6 +537,9 @@ jobs:
             --map "${LOG_DIR}/seeds/identity-map.tsv"
 
       - name: Soak – wait for an attestation checkpoint to finalize
+        id: soak
+        if: ${{ steps.register.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         working-directory: cli
         run: |
           set -euo pipefail
@@ -563,6 +561,9 @@ jobs:
             --timeout-min 60
 
       - name: Assert each historical attestor participated in at least one attestation round
+        id: participated
+        if: ${{ steps.register.outcome == 'success' && steps.soak.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
 
@@ -608,6 +609,9 @@ jobs:
           echo "DONE: all historical attestors confirmed active via logs"
 
       - name: Assert all attestors appear in on-chain attestation records
+        id: on-chain
+        if: ${{ steps.register.outcome == 'success' && steps.soak.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         working-directory: cli
         run: |
           # ----- Part 2: on-chain SignedAttestation.attestors check -----
@@ -638,7 +642,9 @@ jobs:
           done
 
       - name: Scan attestor logs for fatal / incompatibility errors
+        id: fatal-scan
         if: always()
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
 
@@ -669,6 +675,32 @@ jobs:
             exit 1
           fi
 
+      - name: Report an incompatibility without failing
+        if: ${{ always() && inputs.informational }}
+        env:
+          OUTCOMES: >-
+            register=${{ steps.register.outcome }}
+            identity=${{ steps.identity.outcome }}
+            soak=${{ steps.soak.outcome }}
+            participated=${{ steps.participated.outcome }}
+            on-chain=${{ steps.on-chain.outcome }}
+            fatal-scan=${{ steps.fatal-scan.outcome }}
+        run: |
+          FAILED=$(tr ' ' '\n' <<< "${OUTCOMES}" | grep '=failure$' | cut -d= -f1 | paste -sd, - || true)
+          if [ -z "${FAILED}" ]; then
+            echo "Historical attestors are compatible with this build."
+            exit 0
+          fi
+          MSG="Historical attestors are NOT compatible with this build (failed: ${FAILED}). Informational on dev: a pallet-attestation metadata change makes released attestors refuse to start. It blocks on promotion PRs."
+          echo "::warning title=Attestor compatibility::${MSG}"
+          {
+            echo "### ⚠️ Attestor compatibility (informational)"
+            echo
+            echo "${MSG}"
+            echo
+            echo "See the failed steps above and the \`attestor-compatibility-logs\` artifact."
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Report resource usage
         if: always()
         continue-on-error: true
@@ -687,17 +719,3 @@ jobs:
         continue-on-error: true
         run: |
           killall -9 creditcoin3-node attestor_zombienet attestor anvil || true
-
-  # ---------------------------------------------------------------------------
-  # Tear down the self-hosted runner.
-  # ---------------------------------------------------------------------------
-  remove-runner:
-    needs:
-      - deploy-runner
-      - attestor-compatibility
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy_type: "attestor-compatibility"
-    secrets: inherit

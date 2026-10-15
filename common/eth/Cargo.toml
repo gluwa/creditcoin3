@@ -8,7 +8,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-alloy = { workspace = true, features = ["full"] }
+alloy = { workspace = true, features = ["full", "rlp"] }
 
 anyhow = { workspace = true }
 async-trait = { workspace = true }

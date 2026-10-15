@@ -32,7 +32,7 @@ pub use extensions::PrevalidateAttestationCommit;
 pub mod pallet {
     use core::marker::PhantomData;
 
-    use crate::clear_or_revert::CheckpointPruningState;
+    use crate::clear_or_revert::{CheckpointPruningState, RemovedChainCleanupPhase};
     use crate::ledger::AttestorLedger;
     use attestor_primitives::{
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
@@ -136,12 +136,11 @@ pub mod pallet {
         /// neuters the `commit_attestation` weight bound.
         #[pallet::constant]
         type MaxChainAttestationInterval: Get<ChainAttestationIntervalType>;
-        /// Default committee **cap** for chains registered without an explicit one.
+        /// Default [`TargetSampleSize`] for chains registered without an explicit one.
         ///
-        /// This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
-        /// active-attestor count means the cap binds on every newly registered chain, which is
-        /// the regime where quorum intersection is lost, so it should sit comfortably above the
-        /// largest fleet a chain is expected to run.
+        /// Inert — it does not affect quorum. Set at RFC-0174's ~120 sortition floor so the
+        /// default records the population at which committee sampling would start being worth
+        /// building, rather than any committee size actually run.
         #[pallet::constant]
         type DefaultTargetSampleSize: Get<u32>;
         /// The default maximum catchup bound, expressed in **blocks**.
@@ -196,8 +195,16 @@ pub mod pallet {
         /// carries the same epoch either way.
         type CurrentEpochIndex: Get<u64>;
 
+        /// Maximum number of successful `commit_attestation` calls per chain in a single block.
+        /// Attestors pipeline consecutive heights, each extending the one before, so more than
+        /// one can land per block; this must leave room for those. An over-limit commit fails
+        /// and stays valid for resubmission in a later block.
         #[pallet::constant]
         type MaxAttestationsPerBlock: Get<u32>;
+        /// Maximum length of a chain's [`CheckpointingQueues`] entry. Must be greater than
+        /// `2 * MaxAttestationCheckpointInterval + 1`.
+        #[pallet::constant]
+        type MaxCheckpointingQueueLen: Get<u32>;
         #[pallet::constant]
         type MaxCheckpointsImportedPerCall: Get<u32>;
         #[pallet::constant]
@@ -214,6 +221,8 @@ pub mod pallet {
         fn unregister_invulnerable() -> Weight;
         fn set_max_invulnerables() -> Weight;
         fn commit_attestation(a: u32, b: u32) -> Weight;
+        fn commit_attestation_queued(q: u32) -> Weight;
+        fn continuity_roots(r: u32) -> Weight;
         fn set_target_sample_size() -> Weight;
         fn set_chain_attestation_interval() -> Weight;
         fn set_attestations_per_checkpoint() -> Weight;
@@ -418,6 +427,12 @@ pub mod pallet {
     pub type CheckpointingQueues<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, VecDeque<Digest>, ValueQuery, GetDefault>;
 
+    /// Number of successful attestation commits per chain in the block recorded alongside it.
+    /// Bounded by [`Config::MaxAttestationsPerBlock`].
+    #[pallet::storage]
+    pub type AttestationsInBlock<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, (BlockNumberFor<T>, u32), OptionQuery>;
+
     #[pallet::storage]
     #[pallet::getter(fn last_attestation_digest)]
     pub type LastDigest<T: Config> =
@@ -428,22 +443,15 @@ pub mod pallet {
     pub type PendingTargetSampleSize<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, u32, OptionQuery>;
 
-    /// Per-chain **cap** on the voting committee, not the committee itself.
+    /// Reserved for future committee sortition. **Does not affect quorum.**
     ///
-    /// The quorum `validate_attestation` enforces is `2/3+1` of
-    /// `min(|ActiveAttestors|, TargetSampleSize)` (see
-    /// [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). While fewer
-    /// attestors are active than this value, the whole active set is the committee and the cap is
-    /// inert; it only binds once the active set grows past it.
+    /// `validate_attestation` derives its threshold from `|ActiveAttestors|` alone (see
+    /// [`attestor_primitives::calculate_quorum`]). Setting this value changes nothing today; it
+    /// is kept so RFC-0174 has its parameter when sortition is built.
     ///
-    /// Two consequences operators need to know:
-    ///
-    /// - Setting this **above** the active-attestor count is safe and is the recommended posture.
-    ///   Quorum intersection — the property that two conflicting quorums cannot both exist at one
-    ///   height — holds only while the cap does not bind, because nothing selects which attestors
-    ///   vote (sortition is unbuilt: see `do_start_election`'s unused `_randomness`, RFC-0174).
-    /// - While the cap **does** bind, any self-selected `2/3+1` of the cap is a valid quorum, and
-    ///   two disjoint such groups can exist within a larger active set (USCP2-004).
+    /// Its default is RFC-0174's ~120 committee floor — the population at which sampling would
+    /// start being worth building. `MaxAttestationNodes` sits below that, so the ceiling would
+    /// have to be raised before this value could matter.
     #[pallet::storage]
     #[pallet::getter(fn target_sample_size)]
     pub type TargetSampleSize<T: Config> =
@@ -557,6 +565,12 @@ pub mod pallet {
     pub type AttestationClearingCursors<T: Config> =
         StorageMap<_, Blake2_128Concat, ChainKey, Vec<u8>, OptionQuery>;
 
+    /// Where the attestor-side cleanup of a removed chain stands. Drained a bounded batch per
+    /// block by `on_init_cleanup_removed_chains`; the entry is removed once nothing is left.
+    #[pallet::storage]
+    pub type RemovedChainCleanup<T: Config> =
+        StorageMap<_, Blake2_128Concat, ChainKey, RemovedChainCleanupPhase, OptionQuery>;
+
     /// The pivot of the next checkpoint bucket to be pruned. This is used during a chain reversion, when
     /// we want to remove all `CheckpointBuckets` entries above the height of the checkpoint we reverted to.
     #[pallet::storage]
@@ -649,6 +663,27 @@ pub mod pallet {
     impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
         fn build(&self) {
             for chain_configuration in self.attestation_chain_configurations.iter() {
+                // Same bounds as chain registration and the setters, which a hand-written chain
+                // spec would otherwise bypass.
+                assert!(
+                    chain_configuration.target_sample_size > 0,
+                    "target_sample_size must be non-zero"
+                );
+                assert!(
+                    chain_configuration.attestation_interval > 0
+                        && chain_configuration.attestation_interval
+                            <= T::MaxChainAttestationInterval::get()
+                        && chain_configuration.attestation_interval
+                            <= T::DefaultMaxCatchup::get() as u64,
+                    "attestation_interval must be non-zero and within MaxChainAttestationInterval and DefaultMaxCatchup"
+                );
+                assert!(
+                    chain_configuration.attestations_per_checkpoint > 0
+                        && chain_configuration.attestations_per_checkpoint
+                            <= T::MaxAttestationCheckpointInterval::get(),
+                    "attestations_per_checkpoint must be non-zero and within MaxAttestationCheckpointInterval"
+                );
+
                 // Set the committee set size for the chain
                 TargetSampleSize::<T>::insert(
                     chain_configuration.chain_key,
@@ -868,9 +903,10 @@ pub mod pallet {
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
         /// Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
-        /// ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
-        /// `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
-        /// would either overflow those bounds or undercharge weight.
+        /// ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
+        /// bound is measured against, so a per-chain value above it would undercharge weight.
+        /// (`ActiveAttestors` is an unbounded `Vec`, so lowering the ceiling cannot invalidate
+        /// stored state; the weight path clamps a stale per-chain value with `.min()`.)
         InvalidMaxAttestors,
         /// A `commit_attestation` payload carried more attestor accounts than the per-chain
         /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
@@ -964,9 +1000,12 @@ pub mod pallet {
         // NOTE: appended at the end of the enum on purpose — inserting mid-list would shift the
         // SCALE index of every following variant relative to the last released runtime.
         OversizedContinuityProof,
-        /// A `revert_to`/removal attestation cleanup cursor is still draining for this chain;
-        /// commits are rejected so cleanup can't collaterally delete a new attestation.
+        /// A `revert_to`/removal cleanup (attestation cursor or checkpoint pruning) is still
+        /// draining for this chain; commits are rejected so cleanup can't collaterally delete a
+        /// new attestation or checkpoint.
         AttestationCleanupInProgress,
+        /// The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
+        TooManyAttestationsInBlock,
     }
 
     #[pallet::hooks]
@@ -977,12 +1016,60 @@ pub mod pallet {
             let checkpoint_clear_weight = Self::on_init_clear_checkpoints();
             let bucket_clear_weight = Self::on_init_clear_buckets();
             let attestation_clear_weight = Self::on_init_clear_attestations();
+            let removed_chain_weight = Self::on_init_cleanup_removed_chains();
 
             // Return combined weight from helpers this is a more practical
             prune_weight
                 .saturating_add(checkpoint_clear_weight)
                 .saturating_add(bucket_clear_weight)
                 .saturating_add(attestation_clear_weight)
+                .saturating_add(removed_chain_weight)
+        }
+
+        fn integrity_test() {
+            assert!(T::MaxAttestationsPerBlock::get() > 0);
+            // Registration defaults must satisfy the setters' `interval <= MaxCatchup` rule.
+            assert!(T::DefaultAttestationInterval::get() <= T::DefaultMaxCatchup::get() as u64);
+            // Room for the queue a chain holds between checkpoints at the largest allowed
+            // checkpoint interval. Queued attestations are at least an attestation interval
+            // apart (see `validate_attestation`), so a steady interval never fills the queue; a
+            // full one (e.g. after the interval grew) is condensed into an off-grid checkpoint.
+            assert!(
+                T::MaxCheckpointingQueueLen::get()
+                    > T::MaxAttestationCheckpointInterval::get()
+                        .saturating_mul(2)
+                        .saturating_add(1)
+            );
+            // A catch-up commit against a full queue, with the largest attestor set and the span
+            // such a queue covers at the default intervals, must still fit in a single normal
+            // extrinsic. Mirrors `weigh_data`: the gap since the last checkpoint, the
+            // attestation's own proof and the queued proof that straddles the last checkpoint.
+            let max_queue = T::MaxCheckpointingQueueLen::get();
+            let interval = T::DefaultAttestationInterval::get();
+            let max_proof_len = T::DefaultMaxCatchup::get() as u64;
+            let straddle = interval
+                .saturating_mul(T::DefaultAttestationsPerCheckpoint::get() as u64)
+                .saturating_mul(2);
+            let own_proof = straddle.max(max_proof_len);
+            let straddle = straddle.min(max_proof_len);
+            let gap = (max_queue as u64)
+                .saturating_add(1)
+                .saturating_mul(interval);
+            let extra = gap.saturating_add(straddle).min(u32::MAX as u64) as u32;
+            let worst = CommitAttestationWeight::<T>::weight_for(
+                own_proof.min(u32::MAX as u64) as u32,
+                extra,
+                T::MaxAttestationNodes::get(),
+                max_queue,
+            );
+            let normal = T::BlockWeights::get();
+            let normal = normal.get(DispatchClass::Normal);
+            if let Some(max) = normal.max_extrinsic {
+                assert!(
+                    worst.all_lte(max),
+                    "worst-case commit_attestation exceeds max_extrinsic: {worst:?} > {max:?}"
+                );
+            }
         }
     }
 
@@ -1017,6 +1104,14 @@ pub mod pallet {
                 Error::<T>::InvalidAttestationInterval
             );
 
+            // Attestors never attest past `MaxCatchup` blocks beyond the last attested height,
+            // and the runtime requires each attestation to be at least an interval past it, so a
+            // larger interval would leave every height out of reach.
+            ensure!(
+                chain_attestation_interval <= Self::effective_max_catchup(chain_key) as u64,
+                Error::<T>::InvalidAttestationInterval
+            );
+
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
@@ -1032,13 +1127,14 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Set the per-chain committee **cap** (see [`TargetSampleSize`]). Applies at the next
-        /// epoch via [`PendingTargetSampleSize`].
+        /// Set the per-chain [`TargetSampleSize`]. Applies at the next epoch via
+        /// [`PendingTargetSampleSize`].
         ///
-        /// This does not by itself set the quorum: the quorum is `2/3+1` of
-        /// `min(|ActiveAttestors|, TargetSampleSize)`. Raising this above the active-attestor
-        /// count makes the whole active set the committee, which is the posture that preserves
-        /// quorum intersection.
+        /// **This has no effect on anything today.** The quorum is `2/3+1` of
+        /// `|ActiveAttestors|` and does not read this value; the committee sortition that would
+        /// consume it (RFC-0174) is unbuilt and out of scope while `MaxAttestationNodes` sits
+        /// below its ~120 floor. The call is kept so the parameter survives for that work — see
+        /// [`TargetSampleSize`] for when it could start to matter.
         #[pallet::call_index(1)]
         #[pallet::weight(<T as Config>::WeightInfo::set_target_sample_size())]
         pub fn set_target_sample_size(
@@ -1507,6 +1603,12 @@ pub mod pallet {
                 Error::<T>::InvalidMaxCatchup
             };
 
+            // See `set_chain_attestation_interval`: the interval must stay within `MaxCatchup`.
+            ensure!(
+                max_catchup as u64 >= Self::effective_attestation_interval(chain_key),
+                Error::<T>::InvalidMaxCatchup
+            );
+
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
@@ -1699,7 +1801,10 @@ pub mod pallet {
                 }
             }
             if let Some(v) = chain_attestation_interval {
-                if v == 0 || v > T::MaxChainAttestationInterval::get() {
+                if v == 0
+                    || v > T::MaxChainAttestationInterval::get()
+                    || v > MaxCatchup::<T>::get(chain_key) as u64
+                {
                     return Err("InvalidAttestationInterval");
                 }
             }
@@ -1816,52 +1921,88 @@ pub mod pallet {
                 MaxAttestors::<T>::get(chain_key).min(T::MaxAttestationNodes::get());
             let m = (attestation.0.attestors.len() as u32).min(max_attestors);
 
-            // Base weight from benchmarks (measured with checkpoint_width = 10 * 10 = 100)
-            let mut weight = <T as Config>::WeightInfo::commit_attestation(s, m);
-
-            // The benchmark used attestation_interval=10, checkpoint_interval=10 (width=100).
-            // Production configs may differ, causing more or fewer checkpoints, queue reads,
-            // and attestation removals than the benchmark captured. We compensate below.
             let attestation_interval = ChainAttestationInterval::<T>::get(chain_key);
             let checkpoint_interval = AttestationCheckpointInterval::<T>::get(chain_key);
-            let checkpoint_width = attestation_interval.saturating_mul(checkpoint_interval as u64);
-
+            let checkpoint_width = attestation_interval
+                .saturating_mul(checkpoint_interval as u64)
+                .max(1);
             let proof_len = s as u64;
+            let header_number = attestation.0.header_number();
+            let last_checkpoint = LastCheckpoint::<T>::get(chain_key)
+                .map(|c| c.block_number)
+                .unwrap_or(header_number);
+
+            // Charged from the stored queue length, read from its length prefix.
+            let q = Pallet::<T>::checkpointing_queue_len(chain_key);
+
+            // Continuity-proof roots walked beyond the attestation's own proof. The catch-up
+            // path expands every queued attestation's proof. Each proof extends the digest
+            // before it (see `validate_attestation_continuity`), so together they cover exactly
+            // the blocks between the last checkpoint and the last attested height plus the
+            // queued proof that straddles the checkpoint. A queued proof is shorter than
+            // `2 * checkpoint_width`, since a longer one takes the catch-up path instead, and no
+            // longer than the proof cap `validate_attestation_continuity` enforces. The legacy
+            // path walks one queued proof to locate the checkpoint target; the fallback for a
+            // full queue walks none.
+            let catching_up = proof_len >= checkpoint_width.saturating_mul(2);
+            let max_proof_len = (MaxCatchup::<T>::get(chain_key) as u64).max(attestation_interval);
+            let straddle = checkpoint_width.saturating_mul(2).min(max_proof_len);
+            let extra_roots = if catching_up {
+                let last_height = LastDigest::<T>::get(chain_key)
+                    .map(|(h, _)| h)
+                    .unwrap_or(last_checkpoint);
+                last_height
+                    .saturating_sub(last_checkpoint)
+                    .saturating_add(straddle)
+            } else {
+                straddle
+            };
+            let extra_roots = extra_roots.min(u32::MAX as u64) as u32;
+
+            // Base weight from benchmarks, measured with checkpoint_width = 10 * 10 = 100.
+            let weight = CommitAttestationWeight::<T>::weight_for(s, extra_roots, m, q);
 
             // --- Checkpoint creation writes ---
-            // Each checkpoint boundary hit during proof processing incurs 3 storage writes
-            // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus an event deposit.
-            let estimated_checkpoints = proof_len / checkpoint_width;
-            // The benchmark assumed checkpoint_width=100, so it measured:
-            let benchmark_checkpoint_width: u64 = 100;
-            let benchmark_checkpoints = proof_len / benchmark_checkpoint_width;
+            // The legacy path creates at most one checkpoint per commit, plus one more if the
+            // queue is then still full; the catch-up path creates one per checkpoint boundary
+            // between the last checkpoint and this attestation. Each costs 3 storage writes
+            // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus a `CheckpointReached` event.
+            let estimated_checkpoints = if catching_up {
+                header_number.saturating_sub(last_checkpoint) / checkpoint_width
+            } else {
+                2
+            };
+            // The benchmark created `proof_len / 100` checkpoints.
+            let benchmark_checkpoints = proof_len / 100;
+            let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
+            weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(4)))
+        }
+    }
 
-            if estimated_checkpoints > benchmark_checkpoints {
-                let extra = estimated_checkpoints.saturating_sub(benchmark_checkpoints);
-                // 3 writes per checkpoint (Checkpoints + CheckpointBuckets + LastCheckpoint)
-                weight = weight.saturating_add(T::DbWeight::get().writes(extra.saturating_mul(3)));
-            }
+    /// Longest own continuity proof the `commit_attestation` benchmark samples (the default
+    /// `MaxCatchup`).
+    pub(crate) const COMMIT_BENCHMARK_MAX_SPAN: u32 = 500;
 
-            // --- Queue processing reads ---
-            // During checkpointing, each queued attestation triggers an Attestations::get
-            // storage read. Queue length is bounded by checkpoint_interval. The benchmark's
-            // fixed base reads (18) don't scale with this.
-            weight = weight.saturating_add(T::DbWeight::get().reads(checkpoint_interval as u64));
-
-            // --- Attestation removal reads/writes ---
-            // remove_attestations calls Attestations::take (1 read + 1 write) for each
-            // entry exceeding retention_duration. In the worst case, one checkpoint's
-            // worth of attestations is removed per call.
-            let retention_duration = AttestationRetentionDuration::<T>::get(chain_key) as u64;
-            // The max removals per checkpoint call is bounded by the number of attestations
-            // that were queued since the previous checkpoint, i.e. checkpoint_interval.
-            // We use the larger of checkpoint_interval and retention_duration as a
-            // conservative bound.
-            let max_removals = (checkpoint_interval as u64).max(retention_duration);
-            weight =
-                weight.saturating_add(T::DbWeight::get().reads_writes(max_removals, max_removals));
-
-            weight
+    impl<T: Config> CommitAttestationWeight<T> {
+        /// Commit weight for an attestation with `own` continuity-proof roots and `m`
+        /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
+        /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
+        /// The own proof is charged through `commit_attestation`, whose `s` slope covers
+        /// everything a commit does per root of its own proof. That benchmark only samples the
+        /// catch-up path (`s` from 200), so its intercept is an extrapolation that moves between
+        /// runs; the own proof is charged at no less than the top of the sampled range, which
+        /// never falls below a measured point. Only a proof past it (a `MaxCatchup` raised above
+        /// the default) is charged along the slope. The extra roots are only walked, so each is
+        /// charged through `continuity_roots` alone and no root is counted twice.
+        pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
+            let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
+            let own = own.max(COMMIT_BENCHMARK_MAX_SPAN);
+            <T as Config>::WeightInfo::commit_attestation(own, m)
+                .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
+                .saturating_add(marginal(
+                    <T as Config>::WeightInfo::commit_attestation_queued,
+                    q,
+                ))
         }
     }
 

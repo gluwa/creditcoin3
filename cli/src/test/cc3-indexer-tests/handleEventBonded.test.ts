@@ -3,7 +3,7 @@ import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 describe('handleEventBonded()', () => {
     let api: ApiPromise;
@@ -56,7 +56,7 @@ describe('handleEventBonded()', () => {
                 // WARNING: ^^^ this is prone to false matches when we execute tests in parallel
                 // and may fail to error out if there is a problem with indexer
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(0n);
 
                 // query each node individually to cover this endpoint too

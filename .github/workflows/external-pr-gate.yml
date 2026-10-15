@@ -45,17 +45,29 @@ jobs:
 
           # Keep only each reviewer's most recent decisive review, so an
           # approval that was later dismissed or superseded does not count.
-          approvals=$(gh api "repos/$BASE_REPO/pulls/$PR_NUMBER/reviews" --paginate --jq '
-            [ .[] | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED") ]
-            | group_by(.user.login)
-            | map(last)
-            | map(select(
-                .state == "APPROVED"
-                and (.author_association == "MEMBER"
-                     or .author_association == "OWNER"
-                     or .author_association == "COLLABORATOR")
-                and .user.login != env.PR_AUTHOR))
-            | length')
+          # --jq runs once per page, so emit one review per line and group
+          # across all pages afterwards.
+          approvers=$(gh api "repos/$BASE_REPO/pulls/$PR_NUMBER/reviews" --paginate --jq '
+            .[]
+            | select(.state == "APPROVED" or .state == "CHANGES_REQUESTED")
+            | {login: .user.login, state}' \
+            | jq -rs --arg author "$PR_AUTHOR" '
+              group_by(.login)
+              | map(last)
+              | map(select(.state == "APPROVED" and .login != $author))
+              | .[].login')
+
+          # author_association hides private org membership from this
+          # workflow's token, so check each approver's repository permission
+          # instead. The maintain role reports as "write".
+          approvals=0
+          for login in $approvers; do
+            permission=$(gh api "repos/$BASE_REPO/collaborators/$login/permission" --jq '.permission') || permission=none
+            echo "Approval from $login (permission: $permission)"
+            case "$permission" in
+              admin | write) approvals=$((approvals + 1)) ;;
+            esac
+          done
 
           echo "Qualifying approvals: $approvals (need $REQUIRED_APPROVALS)"
 

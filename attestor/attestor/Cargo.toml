@@ -46,6 +46,7 @@ tokio-tungstenite = { workspace = true, features = ["url"] }
 tokio-util = "0.7"
 
 # P2P
+# gossipsub resolves to the vendored copy in attestor/vendor (see its README).
 libp2p = { workspace = true, features = [
     "tokio",
     "macros",

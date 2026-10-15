@@ -83,6 +83,7 @@ import type {
     PalletAttestationAttestorElectionPolicy,
     PalletAttestationCall,
     PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationClearOrRevertRemovedChainCleanupPhase,
     PalletAttestationError,
     PalletAttestationEvent,
     PalletAttestationExtensionsPrevalidateAttestationCommit,
@@ -339,6 +340,7 @@ declare module '@polkadot/types/types/registry' {
         PalletAttestationAttestorElectionPolicy: PalletAttestationAttestorElectionPolicy;
         PalletAttestationCall: PalletAttestationCall;
         PalletAttestationClearOrRevertCheckpointPruningState: PalletAttestationClearOrRevertCheckpointPruningState;
+        PalletAttestationClearOrRevertRemovedChainCleanupPhase: PalletAttestationClearOrRevertRemovedChainCleanupPhase;
         PalletAttestationError: PalletAttestationError;
         PalletAttestationEvent: PalletAttestationEvent;
         PalletAttestationExtensionsPrevalidateAttestationCommit: PalletAttestationExtensionsPrevalidateAttestationCommit;

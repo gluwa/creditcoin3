@@ -12,6 +12,10 @@ pub(crate) struct P2PBehavior {
     /// [`Limits`]: libp2p::connection_limits
     pub limits: libp2p::connection_limits::Behaviour,
 
+    /// Keeps inbound capacity for configured boot peers and known attestor peers
+    /// (see [`super::admission`]).
+    pub admission: super::admission::Behaviour,
+
     /// [`Identify`] is used for identification between peers. This is required as other protocols
     /// in this behavior do not implement identification of their own.
     ///
@@ -39,7 +43,29 @@ pub(crate) struct P2PBehavior {
     /// disseminated this way are scoped by _source chain_ into individual gossip topics.
     ///
     /// [`gossipsub`]: libp2p::gossipsub
-    pub gossipsub: libp2p::gossipsub::Behaviour,
+    pub gossipsub:
+        libp2p::gossipsub::Behaviour<libp2p::gossipsub::IdentityTransform, SubscriptionFilter>,
+}
+
+/// Only configured attestation and write-ability topics are accepted from peers, with caps.
+pub(crate) type SubscriptionFilter =
+    libp2p::gossipsub::MaxCountSubscriptionFilter<libp2p::gossipsub::WhitelistSubscriptionFilter>;
+
+/// Topics a peer may be subscribed to at once. Attestors use one topic; the slack keeps
+/// subscribe/unsubscribe churn from tripping the cap.
+const MAX_SUBSCRIBED_TOPICS_PER_PEER: usize = 4;
+/// Subscription entries accepted in a single message from a peer.
+const MAX_SUBSCRIPTIONS_PER_REQUEST: usize = 8;
+
+fn subscription_filter(
+    credited_topics: &[&libp2p::gossipsub::IdentTopic],
+    penalty_only_topics: &[&libp2p::gossipsub::IdentTopic],
+) -> SubscriptionFilter {
+    libp2p::gossipsub::MaxCountSubscriptionFilter {
+        filter: libp2p::gossipsub::WhitelistSubscriptionFilter(credited_topics.iter().chain(penalty_only_topics.iter()).map(|topic| topic.hash()).collect()),
+        max_subscribed_topics: MAX_SUBSCRIBED_TOPICS_PER_PEER,
+        max_subscriptions_per_request: MAX_SUBSCRIPTIONS_PER_REQUEST,
+    }
 }
 
 impl P2PBehavior {
@@ -97,6 +123,8 @@ impl P2PBehavior {
                 .with_max_established_incoming(Some(256)),
         );
 
+        let admission = super::admission::Behaviour::new(super::admission::MAX_UNRESERVED_INCOMING);
+
         let identify = libp2p::identify::Behaviour::new(libp2p::identify::Config::new(
             super::protocols::IDENTIFY.to_string(),
             key.public(),
@@ -121,13 +149,15 @@ impl P2PBehavior {
             libp2p::kad::Config::new(super::protocols::KADEMLIA),
         );
 
-        let mut gossipsub = libp2p::gossipsub::Behaviour::new(
+        let mut gossipsub = libp2p::gossipsub::Behaviour::new_with_subscription_filter(
             libp2p::gossipsub::MessageAuthenticity::Signed(key.clone()),
             libp2p::gossipsub::ConfigBuilder::default()
                 .heartbeat_interval(std::time::Duration::from_secs(10))
                 .validation_mode(libp2p::gossipsub::ValidationMode::Strict)
                 .validate_messages()
                 .build()?,
+            None,
+            subscription_filter(credited_topics, penalty_only_topics),
         )?;
 
         // Peer scoring: without it, `report_message_validation_result(.., Reject)` only drops
@@ -151,6 +181,7 @@ impl P2PBehavior {
         Ok(Self {
             ping,
             limits,
+            admission,
             identify,
             mdns,
             kad,
@@ -246,6 +277,7 @@ fn peer_score_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use libp2p::gossipsub::{IdentTopic, TopicHash, TopicSubscriptionFilter as _};
 
     /// Regression guard for the audit finding: the three write-ability topics were subscribed but left
     /// out of `PeerScoreParams::topics`, which makes `Reject` on them a silent no-op. Any topic the
@@ -303,5 +335,23 @@ mod tests {
             let entry = &params.topics[&topic.hash()];
             assert!(entry.first_message_deliveries_weight > 0.0);
         }
+    }
+
+    #[test]
+    fn only_configured_topics_are_accepted() {
+        let attest = IdentTopic::new("7/attest");
+        let votes = IdentTopic::new(write_ability::protocol::message_votes_topic(7));
+        let reobs = IdentTopic::new(write_ability::protocol::reobservation_topic(7));
+        let updates = IdentTopic::new(write_ability::protocol::attestor_set_update_topic(7));
+        let mut filter = subscription_filter(&[&attest, &votes], &[&reobs, &updates]);
+        for topic in [&attest, &votes, &reobs, &updates] {
+            assert!(filter.can_subscribe(&topic.hash()));
+        }
+        assert!(!filter.can_subscribe(&IdentTopic::new("8/attest").hash()));
+        assert!(!filter.can_subscribe(&TopicHash::from_raw("anything")));
+        let mut disabled = subscription_filter(&[&attest], &[]);
+        assert!(!disabled.can_subscribe(&votes.hash()));
+        assert_eq!(filter.max_subscribed_topics, MAX_SUBSCRIBED_TOPICS_PER_PEER);
+        assert_eq!(filter.max_subscriptions_per_request, MAX_SUBSCRIPTIONS_PER_REQUEST);
     }
 }

@@ -1,7 +1,7 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 
 describe('handleAttestorElectionPolicyChanged()', () => {
@@ -43,7 +43,7 @@ describe('handleAttestorElectionPolicyChanged()', () => {
                 // note: inspecting only last record
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(Number(node.chainKey)).toEqual(chain_Anvil2_Key);
                 expect(node.electionPolicy).toEqual(newPolicy);
             }

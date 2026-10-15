@@ -33,7 +33,7 @@ pub mod pallet {
     use sp_core::H160;
     use sp_std::vec::Vec;
     use supported_chains_primitives::{
-        chain_removal_listener::ChainRemovalListener,
+        chain_removal_listener::{ChainRemovalListener, ChainRemovalListenerWeight},
         provider::{OnRegisterChainProvider as OnChainRegisteredProvider, SupportedChainsProvider},
         CoreFeeConfig, SupportedChain, WriteAbilityConfig,
     };
@@ -53,7 +53,7 @@ pub mod pallet {
         /// A type representing the weights required by the dispatchables of this pallet.
         type WeightInfo: WeightInfo;
         /// Informs other pallets if a supported chain is removed
-        type EventListeners: ChainRemovalListener;
+        type EventListeners: ChainRemovalListener + ChainRemovalListenerWeight;
         type ChainRegistrationHandler: OnChainRegisteredProvider;
         /// Determines which maturity strategy attestors will use when fetching source chain
         /// blocks and building attestations. Strict strategies such as EvmFinalized delay
@@ -81,6 +81,7 @@ pub mod pallet {
         fn set_write_ability_config() -> Weight;
         fn set_core_fee() -> Weight;
         fn set_maturity_strategy() -> Weight;
+        fn set_chain_name() -> Weight;
     }
 
     #[pallet::storage]
@@ -304,6 +305,15 @@ pub mod pallet {
             chain_key: ChainKey,
             outbox_discovery_addr: H160,
         },
+        /// The display name of a registered chain has been changed. The name is informational
+        /// only (nothing attested or hashed depends on it), so this is a record for indexers and
+        /// operators; no node acts on it.
+        ChainNameSet {
+            chain_key: ChainKey,
+            chain_id: ChainId,
+            old_chain_name: Vec<u8>,
+            chain_name: Vec<u8>,
+        },
     }
 
     #[pallet::error]
@@ -345,6 +355,9 @@ pub mod pallet {
         /// inserting mid-enum would have shifted it and made older metadata / operator tooling
         /// misreport a rejected `set_write_ability_config` as this error instead.
         ZeroOutboxDiscoveryAddress,
+        /// The chain already carries the requested name. Rejected rather than applied as a
+        /// no-op so that every `ChainNameSet` event stands for a real change.
+        ChainNameUnchanged,
     }
 
     #[pallet::call]
@@ -431,11 +444,10 @@ pub mod pallet {
 
         /// Removes a supported chain by its chain key. Only accounts in the Operators membership can call this extrinsic.
         #[pallet::call_index(1)]
-        // We artificially add 200 writes to our assessed weight here since the `remove_chain` benchmark doesn't
-        // account for modifications to storage made in pallet attestation poc. Actually capturing these writes
-        // precisely requires dependence on about 10 additional pallets and 100's of added code lines. And we can afford
-        // to charge more than necessary since we remove chains very rarely.
-        #[pallet::weight(T::WeightInfo::remove_chain().saturating_add(T::DbWeight::get().writes(200)))]
+        // The listener bounds its work per call and defers the rest to `on_initialize`, so it
+        // reports a fixed worst case. That can overlap the benchmark's empty-state listener cost;
+        // we remove chains rarely, so over-charging is fine.
+        #[pallet::weight(T::WeightInfo::remove_chain().saturating_add(T::EventListeners::on_supported_chain_removed_weight()))]
         pub fn remove_chain(
             origin: OriginFor<T>,
             chain_key: ChainId,
@@ -669,6 +681,52 @@ pub mod pallet {
                 chain_key,
                 chain_id,
                 maturity_strategy,
+            });
+
+            Ok(())
+        }
+
+        /// Renames an already-registered chain.
+        ///
+        /// The name is a label: it is exposed by the chain-info precompile and logged by the
+        /// archiver, but no attestation, digest or checkpoint depends on it, so a rename has no
+        /// effect on running attestors or archivers and needs no restart. The only thing keyed
+        /// on the name is the `(chain_id, chain_name)` lookup, which is moved to the new name
+        /// atomically. The new name must be unique for the chain's `chain_id`, exactly as on
+        /// registration.
+        ///
+        /// Only accounts in the Operators membership can call this extrinsic.
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::WeightInfo::set_chain_name())]
+        pub fn set_chain_name(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            chain_name: String,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+
+            let mut chain =
+                SupportedChains::<T>::get(chain_key).ok_or(Error::<T>::ChainNotSupported)?;
+
+            let new_name = chain_name.as_bytes().to_vec();
+            ensure!(chain.chain_name != new_name, Error::<T>::ChainNameUnchanged);
+            ensure!(
+                !ChainIdAndNameToUniqKey::<T>::contains_key(chain.chain_id, &new_name),
+                Error::<T>::ChainAlreadyRegistered
+            );
+
+            let chain_id = chain.chain_id;
+            let old_chain_name = core::mem::replace(&mut chain.chain_name, new_name.clone());
+
+            ChainIdAndNameToUniqKey::<T>::remove(chain_id, &old_chain_name);
+            ChainIdAndNameToUniqKey::<T>::insert(chain_id, &new_name, chain_key);
+            SupportedChains::<T>::insert(chain_key, chain);
+
+            Self::deposit_event(Event::ChainNameSet {
+                chain_key,
+                chain_id,
+                old_chain_name,
+                chain_name: new_name,
             });
 
             Ok(())

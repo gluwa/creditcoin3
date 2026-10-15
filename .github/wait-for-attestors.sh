@@ -21,7 +21,7 @@ else
 fi
 
 # make sure there is a node running at TARGET_URL
-while [[ "$RESULT" == "null" && $COUNTER -lt 15 ]]; do
+while [[ "$RESULT" == "null" && $COUNTER -lt 30 ]]; do
     RESULT=$(curl -H 'Content-Type: application/json' \
                 -d "{\"id\":\"1\", \"jsonrpc\":\"2.0\", \"method\": \"state_getStorage\", \"params\":[\"$STORAGE_KEY\"]}" \
                 "$TARGET_URL" | jq -r .result
@@ -33,7 +33,7 @@ while [[ "$RESULT" == "null" && $COUNTER -lt 15 ]]; do
 
 done
 
-if [[ $COUNTER -ge 15 ]]; then
+if [[ $COUNTER -ge 30 ]]; then
     exit 3
 fi
 

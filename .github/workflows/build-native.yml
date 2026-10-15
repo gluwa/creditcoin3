@@ -20,13 +20,7 @@ name: Reusable workflow to build a native client
       runs-on:
         required: true
         type: string
-      build-subkey:
-        required: false
-        type: boolean
       build-subxt:
-        required: false
-        type: boolean
-      use-new-metadata:
         required: false
         type: boolean
       # Lets a caller run this purely to populate the Rust dependency cache, without
@@ -36,37 +30,92 @@ name: Reusable workflow to build a native client
         required: false
         type: boolean
         default: true
+      # Reuse the binaries of an identical source tree instead of compiling them again, e.g. on
+      # a PR that only changes CLI tests, docs or workflows. Entries are saved from the
+      # default branch only (build-cache.yml keeps them current), keyed by every tracked file
+      # a crate can read plus the build options. Off by default.
+      reuse-binaries:
+        required: false
+        type: boolean
+        default: false
+      # opt-level for the workspace crates only, e.g. "1" for testing builds. Dependencies
+      # come from the rust-cache and keep the profile's own level. A PR build spends nearly
+      # all of its time compiling the workspace crates, and tests don't need them at 3.
+      # Empty keeps the profile's level for everything.
+      workspace-opt-level:
+        required: false
+        type: string
+        default: ""
 
 # Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
 # <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
 # use uint64_t without including it, so force-include cstdint when compiling C/C++.
 env:
   CXXFLAGS: "-include cstdint"
+  NATIVE_BINARIES: |
+    target/release/archiver
+    target/release/attestor
+    target/release/attestor_zombienet
+    target/release/checkpoint-builder
+    target/release/creditcoin3-node
+    target/release/proof-gen-api-server
+    target/release/query-cli
+  # The binaries plus the runtime WASM: everything a reused build has to hand on.
+  NATIVE_OUTPUTS: |
+    target/release/archiver
+    target/release/attestor
+    target/release/attestor_zombienet
+    target/release/checkpoint-builder
+    target/release/creditcoin3-node
+    target/release/proof-gen-api-server
+    target/release/query-cli
+    target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
 
 jobs:
   build-creditcoin-node:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # A cold build on a hosted runner is the slow case; well above it, far below the 6 h default.
+    timeout-minutes: 120
     steps:
-      - name: Checkout code regularly
-        if: ${{ ! inputs.use-new-metadata }}
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
         with:
           lfs: ${{ inputs.git-lfs-checkout }}
 
-      - name: Checkout code for typedefs update
-        if: ${{ inputs.use-new-metadata }}
-        uses: actions/checkout@v7
+      - name: Key the binaries by the files they're built from
+        id: bin-key
+        if: ${{ inputs.reuse-binaries }}
+        env:
+          BUILD_OPTIONS: ${{ inputs.build-options }}${{ inputs.workspace-opt-level != '' && format(' workspace-opt-level={0}', inputs.workspace-opt-level) || '' }}
+        run: |
+          set -euo pipefail
+          # Blob ids of every tracked file except those no crate reads: the CLI and indexer
+          # (TypeScript), docs, scripts, workflows and Markdown. Crates also read
+          # chainspecs/ and common/cc-client/artifacts/ through include_bytes!, which stay in.
+          SOURCES=$(git ls-files -s -- . ':!cli' ':!cc3-indexer' ':!docs' ':!scripts' \
+            ':!.github' ':!.claude' ':!.cursor' ':!*.md' | sha256sum | cut -c1-40)
+          # This workflow sets the build environment (CXXFLAGS, toolchain setup), and it also
+          # holds the workspace-opt-level override generation, which the key covers only
+          # through this hash. If that generation moves into a script, add the script here.
+          SELF=$(git ls-files -s -- .github/workflows/build-native.yml | sha256sum | cut -c1-12)
+          OPTS=$(printf '%s' "$BUILD_OPTIONS" | sha256sum | cut -c1-12)
+          echo "key=native-bins-v1-${RUNNER_OS}-${RUNNER_ARCH}-${OPTS}-${SELF}-${SOURCES}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore binaries built from the same sources
+        id: bin-cache
+        if: ${{ steps.bin-key.outputs.key != '' }}
+        uses: actions/cache/restore@v4
         with:
-          lfs: ${{ inputs.git-lfs-checkout }}
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.ref }}
+          path: ${{ env.NATIVE_OUTPUTS }}
+          key: ${{ steps.bin-key.outputs.key }}
 
       - name: Install protobuf
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: arduino/setup-protoc@v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install libclang
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         run: sudo apt-get update && sudo apt-get install -y libclang-dev
 
       - name: Configure rustc version
@@ -75,21 +124,19 @@ jobs:
           echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
           components: rust-src
 
-      # Hosted and self-hosted runners compute the *same* Swatinem key today: same arch, same
-      # rustc, same manifests, and build-native.yml sets no CXXFLAGS on either side, so the
-      # env hash matches too (`...-6cf672bd-...` on both). Their Cargo home and checkout root
-      # differ though, and `target/` fingerprints and `.d` files record absolute paths, so an
-      # archive restored across families fails every fingerprint check and rebuilds anyway
-      # after paying for the download. Give each family its own namespace, otherwise the
-      # hosted warmer below wins the entry the Linode build needs and the Linode warmer can
-      # never save.
+      # Hosted and self-hosted runners differ in Cargo home and checkout root, and `target/`
+      # fingerprints record absolute paths, so an archive restored across families rebuilds
+      # anyway. Give each family its own namespace so cache-warm.yml's hosted and Linode
+      # warmers don't overwrite each other's entry.
       - name: Identify runner family
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         id: runner-family
         env:
           RUNNER_FAMILY: ${{ runner.environment }}
@@ -97,54 +144,123 @@ jobs:
           ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
           echo "id=$ID" >> "$GITHUB_OUTPUT"
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       - uses: Swatinem/rust-cache@v2
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         with:
           # The default keeps callers that omit `cache-key-name` (proof-gen-api-server) in the
           # same namespace as the warmer, since they build the same configuration.
           shared-key: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
+          # Only the default branch saves; cache-warm.yml produces every key used here. An
+          # entry saved under a PR or tag ref is readable by that ref alone, so it bought a
+          # re-run at most, while the ~2 GB per ref pushed the repository past its 50 GB cache
+          # limit and evicted the default-branch entries everyone restores from.
+          save-if: ${{ github.event_name != 'pull_request' && github.ref_type != 'tag' }}
 
-      # Copied in rather than `git apply`-ed, see the producer in ci.yml's
-      # regenerate-metadata. This job is the one that *must* sit on the PR branch
-      # head, because it commits the result back below, so it was the consumer most
-      # exposed to the checkout mismatch a diff is sensitive to.
-      - name: Download regenerated metadata
-        if: ${{ inputs.use-new-metadata }}
-        uses: actions/download-artifact@v8
+      # The runtime wasm is built by a nested cargo (substrate-wasm-builder) with its own
+      # target dir under target/<profile>/wbuild: host build scripts and proc-macros
+      # (wasm-opt-sys compiles binaryen's C++) and the wasm32 dependencies. rust-cache
+      # doesn't keep it, so every build compiled all of it again: 13.5 of 15.5 min of a
+      # testing build. Cached on its own, saved by the default branch only, like the above.
+      - name: Key the wasm build cache
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
+        id: wasm-key
+        env:
+          BUILD_OPTIONS: ${{ inputs.build-options }}
+          KEY_NAME: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
+          SOURCES: ${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+        run: |
+          OPTS=$(printf '%s' "$BUILD_OPTIONS" | sha256sum | cut -c1-12)
+          echo "prefix=wasm-build-v1-${KEY_NAME}-${OPTS}-" >> "$GITHUB_OUTPUT"
+          echo "key=wasm-build-v1-${KEY_NAME}-${OPTS}-${SOURCES}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the wasm build
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/restore@v4
         with:
-          name: new-metadata
-          path: .
-
-      - name: Show what the regenerated metadata changed
-        if: ${{ inputs.use-new-metadata }}
-        run: git diff --binary
+          path: target/*/wbuild
+          key: ${{ steps.wasm-key.outputs.key }}
+          # A dependency bump still reuses most of an older entry.
+          restore-keys: ${{ steps.wasm-key.outputs.prefix }}
 
       - name: Start resource monitor
-        # The use-new-metadata path checks out the PR *head branch*, which for
-        # any PR opened before this landed does not contain the script. Guard
-        # so rebuild-new-metadata cannot fail on a missing file.
-        if: hashFiles('.github/resource-monitor.sh') != ''
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         run: |
           .github/resource-monitor.sh start build-native
 
+      # One override per workspace crate, as name@version so that a dependency of the same
+      # name (polkadot-sdk's generate-bags) keeps its level. `[profile.*.package."*"]` would
+      # not do: it outranks build-override, so it would also raise every dependency's build
+      # scripts and proc-macros from opt-level 0 and recompile all of them. A named override
+      # outranks build-override too and applies to host units, so the workspace's build.rs
+      # scripts and the workspace libraries its one proc-macro (builder) depends on build at
+      # this level instead of 0. Only the proc-macro crate itself is left out.
+      #
+      # The runtime wasm comes from a nested cargo that --config does not reach, so the chain
+      # itself is unchanged. The node's native copies of the runtime, pallets and precompiles
+      # (genesis building, the tracing RPC) do build at this level, which is still more than
+      # the opt-level 0 of the debug builds that run them locally every day.
+      - name: Set the workspace crates' opt-level
+        id: workspace-opt
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && inputs.workspace-opt-level != '' }}
+        env:
+          OPT_LEVEL: ${{ inputs.workspace-opt-level }}
+        run: |
+          set -euo pipefail
+          case "${OPT_LEVEL}" in
+            0|1|2|3) LEVEL="${OPT_LEVEL}" ;;
+            s|z) LEVEL="\"${OPT_LEVEL}\"" ;;
+            *) echo "ERROR: workspace-opt-level must be 0-3, s or z, not '${OPT_LEVEL}'" >&2; exit 1 ;;
+          esac
+
+          command -v jq >/dev/null || { echo "ERROR: workspace-opt-level needs jq on the runner" >&2; exit 1; }
+
+          # The same tables for dev and release rather than parsing build-options for the
+          # profile. Profiles that inherit from them (production) pick the overrides up too.
+          CONFIG="${RUNNER_TEMP}/workspace-opt-level.toml"
+          METADATA=$(cargo metadata --no-deps --offline --locked --format-version 1)
+          for PROFILE in dev release; do
+            jq -r --arg p "${PROFILE}" --arg o "${LEVEL}" \
+              '.packages[]
+               | select(any(.targets[]; .kind | index("proc-macro")) | not)
+               | "[profile.\($p).package.\"\(.name)@\(.version)\"]\nopt-level = \($o)\n"' \
+              <<< "${METADATA}"
+          done > "${CONFIG}"
+          echo "INFO: $(grep -c '^\[profile.release' "${CONFIG}") workspace crates at opt-level ${OPT_LEVEL}"
+          echo "args=--config ${CONFIG}" >> "$GITHUB_OUTPUT"
+
       - name: Build SUT
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: ${{ inputs.build-options }}
+          args: ${{ inputs.build-options }} ${{ steps.workspace-opt.outputs.args }}
+
+      - name: Save the wasm build
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
+        uses: actions/cache/save@v4
+        with:
+          path: target/*/wbuild
+          key: ${{ steps.wasm-key.outputs.key }}
+
+      - name: Save the binaries for identical source trees
+        if: ${{ inputs.reuse-binaries && steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.NATIVE_OUTPUTS }}
+          key: ${{ steps.bin-key.outputs.key }}
 
       - name: Upload binaries
         if: ${{ inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: binary-for-${{ inputs.version-string }}
-          path: |
-            target/release/archiver
-            target/release/attestor
-            target/release/attestor_zombienet
-            target/release/checkpoint-builder
-            target/release/creditcoin3-node
-            target/release/proof-gen-api-server
-            target/release/query-cli
+          path: ${{ env.NATIVE_BINARIES }}
 
       - name: Upload WASM runtime
         if: ${{ inputs.upload-artifacts }}
@@ -153,22 +269,18 @@ jobs:
           name: creditcoin_node_runtime.compact.compressed.wasm-${{ inputs.version-string }}
           path: target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.compact.compressed.wasm
 
-      - name: Install subkey
-        if: ${{ inputs.build-subkey }}
-        uses: gluwa/cargo@dev
+      # subxt-cli is pinned below, so its binary only changes when the pin or the toolchain
+      # does. Restore it instead of compiling it again on every release.
+      - name: Restore subxt binary
+        id: subxt-cache
+        if: ${{ inputs.build-subxt }}
+        uses: actions/cache@v4
         with:
-          command: install
-          args: --locked --git https://github.com/paritytech/polkadot-sdk --rev 7304295 subkey
-
-      - name: Upload subkey binary
-        if: ${{ inputs.build-subkey }}
-        uses: actions/upload-artifact@v7
-        with:
-          name: subkey
-          path: ~/.cargo/bin/subkey
+          path: ~/.cargo/bin/subxt
+          key: subxt-cli-0.44.3-${{ runner.os }}-${{ runner.arch }}-${{ env.RUSTC_VERSION }}
 
       - name: Install subxt
-        if: ${{ inputs.build-subxt }}
+        if: ${{ inputs.build-subxt && steps.subxt-cache.outputs.cache-hit != 'true' }}
         uses: gluwa/cargo@dev
         with:
           command: install
@@ -178,27 +290,17 @@ jobs:
           args: subxt-cli@0.44.3 --locked
 
       - name: Upload subxt binary
-        if: ${{ inputs.build-subxt }}
+        if: ${{ inputs.build-subxt && inputs.upload-artifacts }}
         uses: actions/upload-artifact@v7
         with:
           name: subxt
           path: ~/.cargo/bin/subxt
 
-      - name: Commit typedefs and metadata changes after successfull build
-        if: ${{ inputs.use-new-metadata }}
-        uses: EndBug/add-and-commit@v10
-        with:
-          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
-          author_name: gluwa-bot
-          author_email: creditcoin@gluwa.com
-          message: "Auto-update metadata & TypeScript type definitions"
-          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
-
       - name: Report resource usage
-        # Last step on purpose: Install subkey / Install subxt are full cargo
-        # compiles on the release path and would otherwise land outside the
-        # sampling window.
-        if: always() && hashFiles('.github/resource-monitor.sh') != ''
+        # Last step on purpose: Install subxt is a full cargo
+        # compile on the release path when its cache misses, and would otherwise
+        # land outside the sampling window.
+        if: always() && steps.bin-cache.outputs.cache-hit != 'true'
         continue-on-error: true
         run: |
           .github/resource-monitor.sh report build-native

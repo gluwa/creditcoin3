@@ -5,8 +5,21 @@ name: CI
 "on":
   pull_request:
 
-  # Allows you to run this workflow manually from the Actions tab
+  # Nightly soak: on the default branch, runs only the attestor-network suite, with
+  # sanity.test.ts over its full 250-block window instead of stopping as soon as its
+  # conditions are met (see ATTESTATION_SOAK below). Posts to Slack when it fails.
+  schedule:
+    - cron: "0 1 * * *"
+
+  # Allows you to run this workflow manually from the Actions tab. `soak` runs the nightly
+  # soak on the chosen branch, e.g. to try a change to it before it reaches dev.
   workflow_dispatch:
+    inputs:
+      soak:
+        # checkov:skip=CKV_GHA_7:Only picks which suites run; the source is still the dispatched ref
+        description: Run the nightly attestor-network soak instead of the PR suites
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -20,23 +33,35 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
+      # The nightly or dispatched soak: one definition, which every soak check reads.
+      soak: ${{ steps.mode.outputs.soak }}
       changes: ${{ steps.filter.outputs.changes }}
-      archiver: ${{ steps.filter.outputs.archiver }}
-      attestor_cli_testing: ${{ steps.filter.outputs.attestor_cli_testing }}
-      attestor_network_testing: ${{ steps.filter.outputs.attestor_network_testing }}
-      cc3_indexer: ${{ steps.filter.outputs.cc3_indexer }}
-      docs_smart_contract: ${{ steps.filter.outputs.docs_smart_contract }}
-      integration_test_blockchain: ${{ steps.filter.outputs.integration_test_blockchain }}
-      integration_test_cli: ${{ steps.filter.outputs.integration_test_cli }}
-      regenerate_metadata: ${{ steps.filter.outputs.regenerate_metadata }}
-      attestor_compatibility: ${{ steps.filter.outputs.attestor_compatibility }}
-      validator_compatibility: ${{ steps.filter.outputs.validator_compatibility }}
+      archiver: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.archiver || 'false' }}
+      attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_cli_testing || 'false' }}
+      attestor_network_testing: ${{ steps.mode.outputs.soak == 'true' && 'true' || steps.filter.outputs.attestor_network_testing }}
+      cc3_indexer: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.cc3_indexer || 'false' }}
+      docs_smart_contract: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.docs_smart_contract || 'false' }}
+      integration_test_blockchain: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_blockchain || 'false' }}
+      integration_test_cli: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_cli || 'false' }}
+      regenerate_metadata: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.regenerate_metadata || 'false' }}
+      extrinsics: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.extrinsics || 'false' }}
+      attestor_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_compatibility || 'false' }}
+      validator_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.validator_compatibility || 'false' }}
+      proof_gen: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.proof_gen || 'false' }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
+      - name: Is this a soak run
+        id: mode
+        env:
+          SOAK: ${{ github.event_name == 'schedule' || inputs.soak }}
+        run: echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
 
+      # The nightly soak has no diff to filter; should-run's outputs pick its suite instead.
       - name: "Examine which files have been modified by this PR"
-        uses: dorny/paths-filter@v4.0.2
+        if: ${{ steps.mode.outputs.soak != 'true' }}
+        uses: dorny/paths-filter@v4.0.3
         id: filter
         with:
           filters: |
@@ -60,11 +85,29 @@ jobs:
             # Each filter below lists only the shared files the suites it gates actually
             # import. Over the six months before this was written those files changed in 2
             # of 143 commits, so this costs close to nothing in extra runs.
+            #
+            # Every suite also runs the node and other Rust binaries, so each one lists what
+            # those are built from outside its own directories: node/**, the root manifest,
+            # the lockfile (a dependency bump can change RPC or EVM behaviour without touching
+            # a crate here) and the toolchain.
             archiver:
               - "archiver/**"
               - "common/**"
               - "**/archiver.rs"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/archiver-tests/**"
+              - "cli/src/test/archiver-tests.config.ts"
+              - "cli/src/test/archiverSetup.ts"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
             attestor_cli_testing:
               - "attestor/**"
               - "common/**"
@@ -73,11 +116,24 @@ jobs:
               - "primitives/**"
               - "runtime/**"
               - "cli/yarn.lock"
+              - "cli/package.json"
+              - "cli/src/commands/attestor/**"
+              - "cli/src/commands/options.ts"
+              - "cli/src/lib/**"
               - "cli/src/test/integration-tests/attestor/**"
+              - "cli/src/test/integration-tests.config.ts"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
               - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/junitReporters.ts"
+              - ".github/seal-blocks.sh"
+              - ".github/wait-for-creditcoin.sh"
             attestor_network_testing:
               - "checkpoint-builder/**"
               - "checkpoint-verifier/**"
@@ -91,7 +147,19 @@ jobs:
               - "cli/yarn.lock"
               - "cli/src/test/attestation-tests/**"
               - "cli/src/test/utils.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/attestation-tests.config.ts"
+              - "cli/src/test/attestationSetup.ts"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
             cc3_indexer:
               - "attestor/**"
               - "common/**"
@@ -105,10 +173,25 @@ jobs:
               - "cli/src/test/cc3-indexer-tests/**"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/cc3-indexer-tests.config.ts"
+              - "cli/src/test/alphabeticalSequencer.js"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/seal-blocks.sh"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
             docs_smart_contract:
               - "docs/smart-contract-development/**"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - ".github/wait-for-creditcoin.sh"
             integration_test_blockchain:
               - "common/**"
               - "pallets/**"
@@ -119,7 +202,19 @@ jobs:
               - "cli/src/test/blockchain-tests/**"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/blockchain-tests.config.ts"
+              - "cli/src/test/blockchainSetup.ts"
+              - "cli/src/test/junitReporters.ts"
+              - "cli/package.json"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-attestors.sh"
+              - ".github/wait-for-ethereum.sh"
             integration_test_cli:
               - "common/**"
               - "pallets/**"
@@ -127,12 +222,21 @@ jobs:
               - "primitives/**"
               - "runtime/**"
               - "cli/yarn.lock"
+              - "cli/package.json"
               - "cli/src/commands/**"
               - "cli/src/lib/**"
               - "cli/src/test/integration-tests/**"
+              - "cli/src/test/integration-tests.config.ts"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+              - "cli/src/test/junitReporters.ts"
+              - ".github/seal-blocks.sh"
             # Carried over verbatim from attestor-compatibility.yml's own pull_request
             # trigger, which it no longer has now that ci.yml calls it.
             attestor_compatibility:
@@ -147,10 +251,36 @@ jobs:
               - "runtime/**"
               - "chainspecs/**"
               - ".github/workflows/validator-compatibility.yml"
+            # Carried over from proof-gen-api-server.yml's own pull_request trigger, plus
+            # ci.yml now that it calls that workflow.
+            proof_gen:
+              - "proof-gen-api-server/**"
+              - "common/eth/**"
+              - "scripts/**"
+              - ".github/wait-for-proof-gen.sh"
+              - ".github/workflows/proof-gen-api-server.yml"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
+            # What the runtime's call metadata is built from, including the FRAME pallets
+            # that come in through Cargo.lock.
+            extrinsics:
+              - "runtime/**"
+              - "pallets/**"
+              - "primitives/**"
+              - "Cargo.lock"
+              - "**/Cargo.toml"
+              - ".github/check-extrinsics.sh"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
 
       - name: Devnet ENV
         id: devnet-env
@@ -162,42 +292,36 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
 
-  deploy-runner-build-creditcoin-for-testing:
-    needs:
-      - should-run
-    # extrinsics check below needs the build unconditionally on usc-dev, regardless of path filters
-    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: build-creditcoin-node-for-testing-ci
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: ${{ matrix.proxy }}
-    secrets: inherit
-
   build-creditcoin-node-for-testing-ci:
     needs:
       - should-run
-      - deploy-runner-build-creditcoin-for-testing
-    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
+    # Any matching filter needs the binaries, the extrinsics check among them.
+    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
+      # Workspace crates at opt-level 1 for PRs. The nightly and dispatched soaks measure
+      # timing and catch-up, so they keep the release level.
+      workspace-opt-level: ${{ needs.should-run.outputs.soak != 'true' && '1' || '' }}
       git-lfs-checkout: false
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-creditcoin-node-for-testing-ci']"
+      runs-on: "['ubuntu-26.04']"
+      # A PR that changes no file a crate reads (CLI tests, docs, workflows) reuses the
+      # binaries build-cache.yml made from the same sources on dev. The soaks build at the
+      # release level, which build-cache.yml does not save, so they compile and save nothing.
+      reuse-binaries: ${{ needs.should-run.outputs.soak != 'true' }}
     secrets: inherit
 
   integration-test-check-extrinsics:
-    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
+    # The call metadata can only change with the runtime, its pallets or their dependencies.
+    # Runs on every trunk. transaction_version is bumped when a release is cut, so a call
+    # reordered or removed on a development trunk fails until then: it is reported as a
+    # warning there and blocks only promotion into usc-testnet and main.
+    if: ${{ contains(fromJSON('["dev", "usc-dev", "asc-dev", "usc-testnet", "main"]'), github.base_ref) && needs.should-run.outputs.extrinsics == 'true' }}
     needs:
       - build-creditcoin-node-for-testing-ci
+      - should-run
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
@@ -215,6 +339,8 @@ jobs:
           path: target/release
 
       - name: Run Extrinsics Ordering
+        id: extrinsics
+        continue-on-error: ${{ !contains(fromJSON('["usc-testnet", "main"]'), github.base_ref) }}
         shell: bash
         run: |
           chmod a+x ./target/release/creditcoin3-node
@@ -222,6 +348,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
           OWNER_REPO_SLUG: ${{ github.repository }}
+
+      - name: Report extrinsics changes
+        if: ${{ steps.extrinsics.outcome == 'failure' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          MSG="Extrinsics were reordered or removed without a transaction_version bump. It does not block a PR into ${BASE_REF}, but promotion into usc-testnet or main needs the bump. See the Run Extrinsics Ordering step."
+          echo "::warning title=check-extrinsics::${MSG}"
+          echo "### check-extrinsics: warning" >> "$GITHUB_STEP_SUMMARY"
+          echo "$MSG" >> "$GITHUB_STEP_SUMMARY"
 
       # Upload logs if nodes are not connecting.
       # head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
@@ -236,21 +372,6 @@ jobs:
             release-node.log
             metadata-cmp-with-mainnet.txt
             metadata-cmp-with-testnet.txt
-
-  rm-gh-runner-build-creditcoin-node-for-testing:
-    needs:
-      - build-creditcoin-node-for-testing-ci
-    if: ${{ always() }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - proxy: build-creditcoin-node-for-testing-ci
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: ${{ matrix.proxy }}
-    secrets: inherit
 
   integration-test-attestator-network:
     needs:
@@ -281,13 +402,17 @@ jobs:
             --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
 
+      # 10,005 blocks with two transactions each (55 MB unpacked), made by
+      # .github/generate-anvil-fixture.py. The attestors need the backlog of blocks, not
+      # traffic in them: the previous fixture's ~50 transactions per block made a 4.8 GB
+      # state that every load, dump, archive and verification step had to work through.
       - name: Download 10k Anvil state
         run: |
-          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks.json.xz"
-          ls -lh
+          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks_2tx.json.xz"
+          echo "bb70269b8b19b6d8c27d9aba113e27177fe80050464d492e17f2e61b331dd65e  anvil10k_blocks.json.xz" | sha256sum -c -
 
           unxz anvil10k_blocks.json.xz
-          ls -lh
+          ls -lh anvil10k_blocks.json
 
       - name: Install Foundry
         uses: ./.github/actions/install-foundry
@@ -301,9 +426,12 @@ jobs:
         run: |
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          # The state dump is as large as the fixture (~5 GB of JSON) and only feeds the
+          # restart below, so it lives outside the log directory that gets uploaded.
+          mkdir -p /var/tmp/anvil-state
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
               --load-state ./anvil10k_blocks.json \
-              --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart.json \
+              --dump-state /var/tmp/anvil-state/anvil1-restart.json \
               >/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
@@ -358,8 +486,16 @@ jobs:
 
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9955'
 
-          # Wait for first zombienet to finish registering attestors to avoid nonce conflicts
-          sleep 60
+          # Wait for first zombienet to finish registering attestors to avoid nonce conflicts:
+          # it only starts the attestor processes once funding and registration are on chain.
+          for _ in $(seq 1 180); do
+            [ "$(grep -c 'Starting attestor' /var/tmp/integration-test-attestor-network/zombienet-alice.log)" -ge 3 ] && break
+            sleep 1
+          done
+          if [ "$(grep -c 'Starting attestor' /var/tmp/integration-test-attestor-network/zombienet-alice.log)" -lt 3 ]; then
+            echo "First zombienet did not start its 3 attestors within 180s" >&2
+            exit 1
+          fi
 
           ./target/release/attestor_zombienet \
                 -n 3 \
@@ -378,7 +514,7 @@ jobs:
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944'
 
           # also wait for Anvil_2 attestors (chain 4)
-          .github/wait-for-attestors.sh 'http://127.0.0.1:9955'
+          .github/wait-for-attestors.sh 'http://127.0.0.1:9955' 4
 
       - name: Start creditcoin3-node - Charlie
         env:
@@ -414,11 +550,21 @@ jobs:
           ./abi-creator.sh
 
       - name: Run attestation tests
+        env:
+          # Nightly: run sanity.test.ts over its whole block window.
+          ATTESTATION_SOAK: ${{ needs.should-run.outputs.soak == 'true' && '1' || '' }}
         working-directory: ./cli
         run: |
-          sleep 100 # wait for attestors to register
           yarn install --immutable
           yarn test:attestation
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-attestor-network
+          path: cli/reports/junit/
+          if-no-files-found: ignore
 
       - name: Start creditcoin3-node - Dave - stand alone chain
         if: always()
@@ -567,7 +713,7 @@ jobs:
           # anvil1-restart.json — the restart reloads that state, and the dumped-state
           # check below hard-fails without it. So: TERM + wait for the dump, then KILL
           # as a fallback, then wait for port 8141 to be released before restarting.
-          # The dump is the whole 10k-block fixture state (gigabytes of JSON) written
+          # The dump is the whole 10k-block fixture state (tens of MB of JSON) written
           # while the archiver is still hammering eth_getBlockReceipts, so give it
           # minutes, not seconds: a KILL here truncates the file and the restart fails
           # on "failed to parse json file" instead of exercising recovery.
@@ -592,16 +738,14 @@ jobs:
             echo "Port 8141 still bound after killing old anvil" >&2
             exit 1
           fi
-          if [ ! -s /var/tmp/integration-test-attestor-network/anvil1-restart.json ]; then
+          if [ ! -s /var/tmp/anvil-state/anvil1-restart.json ]; then
             echo "Anvil did not dump restart state" >&2
             exit 1
           fi
-          cp /var/tmp/integration-test-attestor-network/anvil1-restart.json \
-            /var/tmp/integration-test-attestor-network/anvil1-load.json
 
+          # Nothing restarts this one, so it dumps no state.
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
-            --load-state /var/tmp/integration-test-attestor-network/anvil1-load.json \
-            --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart-2.json \
+            --load-state /var/tmp/anvil-state/anvil1-restart.json \
             >>/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
@@ -861,7 +1005,11 @@ jobs:
           killall -TERM attestor
           killall -TERM archiver
           killall -TERM creditcoin3-node
-          sleep 60
+          # give them up to 60s to exit cleanly; [t] keeps pgrep from matching this shell
+          for _ in $(seq 1 60); do
+            pgrep -f '[t]arget/release/(creditcoin3-node|attestor|archiver)' >/dev/null || break
+            sleep 1
+          done
 
       - name: KILL binaries
         if: always()
@@ -891,29 +1039,45 @@ jobs:
   integration-test-cli:
     strategy:
       fail-fast: false
+      # The full validator suite runs once without a proxy. The proxy variants only run the
+      # files that sign extrinsics, since that is the only path a proxy changes: the error
+      # variants need just the core signing files, the valid-proxy variants add the wizard,
+      # and only Staking also runs the slow era-wait files (payouts, withdraw-unbonded),
+      # which are the staking calls that proxy type exists for.
+      #
+      # With blocks sealed every second each leg takes minutes, so neither the full suite
+      # nor Staking is split over runners any more.
       matrix:
         include:
+          # runs every file in integration-tests/validator
           - proxy: "no"
+            shard: "all"
 
           - proxy: "yes"
             secret: no-funds
+            files: "bond send validate chill set-keys unbond validatorCycle"
 
           - proxy: "yes"
             secret: not-a-proxy
+            files: "bond send validate chill set-keys unbond validatorCycle"
 
+          # Staking also runs the two era-wait files (withdraw-unbonded, distribute-rewards).
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: Staking
+            files: "withdraw-unbonded distribute-rewards bond unbond set-keys send validate wizard chill validatorCycle"
 
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: NonTransfer
+            files: "bond send validate chill set-keys unbond validatorCycle wizard"
 
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: All
+            files: "bond send validate chill set-keys unbond validatorCycle wizard"
 
-    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret }} / type=${{ matrix.proxy_type }}
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}
     # Gated directly rather than through a separate no-op `trigger-` job, which burned a
     # runner on a bare checkout and, because it also waited on the node build, could only
     # report its skip decision after that build had finished.
@@ -927,7 +1091,7 @@ jobs:
     steps:
       # Plain checkout, i.e. the PR merge ref, like every other job here. This one
       # used to pin the branch head, inherited from the commit that introduced the
-      # typedef auto-update; only `rebuild-new-metadata` needs that, because only it
+      # typedef auto-update; only `commit-new-metadata` needs that, because only it
       # commits back. The pin meant this job ran CLI sources from the un-merged branch
       # against a node binary that build-creditcoin-node-for-testing-ci compiled from
       # the merge ref.
@@ -1006,13 +1170,40 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          yarn test:validator-cli
+          # The proxy=no leg runs every file, so a new one can't drop out of CI.
+          if [ "$PROXY_ENABLED" = "no" ]; then
+            TEST_FILES=$(find src/test/integration-tests/validator -name '*.test.ts' -exec basename {} .test.ts \; | sort | tr '\n' ' ')
+          fi
+
+          read -ra NAMES <<< "$TEST_FILES"
+          if [ "${#NAMES[@]}" -eq 0 ]; then
+            echo "no test files for this leg" >&2
+            exit 1
+          fi
+          PATHS=()
+          for name in "${NAMES[@]}"; do
+            PATHS+=("src/test/integration-tests/validator/${name}.test.ts")
+          done
+          yarn test:validator-cli:files "${PATHS[@]}"
         env:
+          TEST_FILES: ${{ matrix.files }}
+          # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
+          # startSealTicker in cli/src/test/utils.ts): the valid-proxy All leg went from 21 to
+          # 6 min with it.
+          CREDITCOIN_SEALING: manual
           RUST_LOG: debug
           PROXY_ENABLED: ${{ matrix.proxy }}
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
           PROXY_TYPE: ${{ matrix.proxy_type }}
           EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO: ${{ steps.for-dev-prs.outputs.validator_cycle || steps.non-dev-prs.outputs.validator_cycle }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
+          path: cli/reports/junit/
+          if-no-files-found: ignore
 
       - name: Kill nodes
         if: always()
@@ -1027,14 +1218,25 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret }}-type-${{ matrix.proxy_type }}
-          path: /tmp/creditcoin3-node-*.std*
+          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
+          path: |
+            /tmp/creditcoin3-node-*.std*
+            /tmp/seal-blocks.log
 
   integration-test-blockchain:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
+    # Split over two runners, each with its own chain, by measured file duration (~10 min of
+    # tests each instead of ~19 in one job). The split follows directory boundaries, so the
+    # files that change attestation and supported-chains settings keep sharing one chain.
+    # Files come from BLOCKCHAIN_SHARDS in the run step.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    name: integration-test-blockchain / shard ${{ matrix.shard }}
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
@@ -1148,11 +1350,93 @@ jobs:
         working-directory: ./cli
         env:
           ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
+          SHARD: ${{ matrix.shard }}
+          # <shard>:<path under src/test/blockchain-tests>, split by measured file duration.
+          # Shard 1: the attestation and supported-chains pallets. Shard 2: everything else.
+          BLOCKCHAIN_SHARDS: >-
+            1:pallets/attestation/attest
+            1:pallets/attestation/authorize-attestor
+            1:pallets/attestation/chill
+            1:pallets/attestation/force-apply-updates
+            1:pallets/attestation/force-election
+            1:pallets/attestation/interval-ceilings
+            1:pallets/attestation/kick-active-attestor
+            1:pallets/attestation/register-attestor
+            1:pallets/attestation/register-invulnerable
+            1:pallets/attestation/remove-authorized-attestor
+            1:pallets/attestation/set-attestations-per-checkpoint
+            1:pallets/attestation/set-chain-attestation-interval
+            1:pallets/attestation/set-election-policy
+            1:pallets/attestation/set-max-attestors
+            1:pallets/attestation/set-max-catchup
+            1:pallets/attestation/set-max-invulnerables
+            1:pallets/attestation/set-min-bond-requirement
+            1:pallets/attestation/set-target-sample-size
+            1:pallets/attestation/unregister-attestor
+            1:pallets/attestation/unregister-full-unlocking-queue
+            1:pallets/attestation/unregister-invulnerable
+            1:pallets/attestation/withdraw-unbonded
+            1:pallets/supported-chains/register-chain
+            1:pallets/supported-chains/register-chain-roster-limits
+            1:pallets/supported-chains/remove-chain
+            2:block-hash-block-param
+            2:danger-will-brick-the-blockchain
+            2:evm-gasprice-opcode
+            2:evm-priority-fee
+            2:evm-state-overrides
+            2:evm-tracing
+            2:gas-estimation
+            2:pallets/identity/identityOf
+            2:pallets/operators/add-member
+            2:pallets/operators/change-key
+            2:pallets/operators/remove-member
+            2:pallets/operators/reset-members
+            2:pallets/operators/swap-member
+            2:pallets/randomness/on-initialize
+            2:precompiles/attestor-stash
+            2:precompiles/block-prover
+            2:precompiles/chain-info
+            2:precompiles/ed25519-verifier
+            2:precompiles/sr25519-verifier
+            2:precompiles/substrate-transfer
         run: |
-          yarn test:blockchain
+          # The list must cover every test file exactly once, so a new file can't silently
+          # drop out of CI.
+          DIR=src/test/blockchain-tests
+          ASSIGNED=$(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | cut -d: -f2 | sort)
+          PRESENT=$(cd "$DIR" && find . -name '*.test.ts' | sed -e 's|^\./||' -e 's|\.test\.ts$||' | sort)
+          if [ "$ASSIGNED" != "$PRESENT" ]; then
+            echo "blockchain shard list doesn't match the test files:" >&2
+            diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
+            exit 1
+          fi
+          UNKNOWN=$(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | grep -vE '^[12]:' || true)
+          if [ -n "$UNKNOWN" ]; then
+            echo "BLOCKCHAIN_SHARDS entries for a shard the matrix doesn't run: $UNKNOWN" >&2
+            exit 1
+          fi
 
-      - name: Collect pallet storage versions from Local chain
+          PATHS=()
+          for name in $(echo "$BLOCKCHAIN_SHARDS" | tr ' ' '\n' | sed -n "s/^${SHARD}://p"); do
+            PATHS+=("$DIR/${name}.test.ts")
+          done
+          if [ "${#PATHS[@]}" -eq 0 ]; then
+            echo "no test files for shard $SHARD" >&2
+            exit 1
+          fi
+          yarn test:blockchain:files "${PATHS[@]}"
+
+      - name: Upload test results
         if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-blockchain-shard-${{ matrix.shard }}
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
+      # The storage-version comparison needs one chain, not both: shard 1 does it.
+      - name: Collect pallet storage versions from Local chain
+        if: ${{ always() && matrix.shard == 1 }}
         working-directory: ./cli
         run: |
           sudo apt-get install colordiff
@@ -1160,38 +1444,26 @@ jobs:
           node dist/scripts/queryPalletVersions.js ws://127.0.0.1:9944 2>/dev/null | sort > /var/tmp/pallet_storage.local
 
       - name: Compare to pallet storage versions from Devnet
-        if: always()
+        if: ${{ always() && matrix.shard == 1 }}
         timeout-minutes: 15
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-devnet.creditcoin.network 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
-          DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.devnet /var/tmp/pallet_storage.local | colordiff)
-
-          if [ -n "$DIFF_OUTPUT" ]; then
-              echo "FAIL: difference in pallet storage versions detected"
-              echo "$DIFF_OUTPUT"
-              exit 1
-          fi
+          ../.github/compare-pallet-storage-versions.sh devnet "${{ github.base_ref }}"
 
       - name: Compare to pallet storage versions from Testnet
         timeout-minutes: 15
-        if: always()
+        if: ${{ always() && matrix.shard == 1 }}
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
-          DIFF_OUTPUT=$(diff -u /var/tmp/pallet_storage.testnet /var/tmp/pallet_storage.local | colordiff)
-
-          if [ -n "$DIFF_OUTPUT" ]; then
-              echo "FAIL: difference in pallet storage versions detected"
-              echo "$DIFF_OUTPUT"
-              exit 1
-          fi
+          ../.github/compare-pallet-storage-versions.sh testnet "${{ github.base_ref }}"
 
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: integration-test-blockchain
+          name: integration-test-blockchain-shard-${{ matrix.shard }}
           path: |
             /var/tmp/pallet_storage.*
             /var/tmp/integration-test-blockchain/
@@ -1404,6 +1676,8 @@ jobs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
+    # One job: with a block sealed every second and eras sealed ahead, the files no longer
+    # need splitting over runners. cc3-indexer-handlers checks that every handler ran.
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
@@ -1421,9 +1695,12 @@ jobs:
         run: |
           mkdir -p /var/tmp/cc3-indexer-testing/
           chmod a+x ./target/release/creditcoin3-node
+          # Manual sealing: .github/seal-blocks.sh produces a block every slot, and tests
+          # waiting for eras (unbonding, chilling, pending changes) seal the rest at once.
           ./target/release/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
+            --sealing manual \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --unsafe-rpc-external --rpc-cors all \
             --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
@@ -1448,6 +1725,7 @@ jobs:
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/seal-blocks.sh 'http://127.0.0.1:9944' 1 >/var/tmp/cc3-indexer-testing/seal-blocks.log 2>&1 &
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8343'
@@ -1548,15 +1826,40 @@ jobs:
 
           docker compose pull
           docker compose up -d
-          sleep 30
+
+          # wait until the SubQuery GraphQL endpoint answers with a processed height
+          for _ in $(seq 1 120); do
+            HEIGHT=$(curl --silent -H 'Content-Type: application/json' \
+              -d '{"query":"{ _metadata { lastProcessedHeight } }"}' \
+              http://127.0.0.1:3000 | jq -r '.data._metadata.lastProcessedHeight // empty' 2>/dev/null || true)
+            [ -n "$HEIGHT" ] && break
+            sleep 1
+          done
+          if [ -z "$HEIGHT" ]; then
+            echo "cc3-indexer did not start processing blocks within 120s" >&2
+            exit 1
+          fi
+          echo "cc3-indexer processed up to block $HEIGHT"
 
       - name: Run integration tests for cc3-indexer
         working-directory: ./cli
         env:
           ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
         run: |
+          # Every file, alphabetically: the files that only read what the attestors
+          # produced (Elected, BlockAttested, CheckpointReached) come after the setup ones,
+          # and zz-/zzz-, which revert and then remove chain 5, stay last.
+          mapfile -t PATHS < <(find src/test/cc3-indexer-tests -name '*.test.ts' | sort)
           yarn install
-          yarn test:cc3-indexer
+          yarn test:cc3-indexer:files "${PATHS[@]}"
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-cc3-indexer
+          path: cli/reports/junit/
+          if-no-files-found: ignore
 
       - name: Collect logs
         if: always()
@@ -1570,8 +1873,14 @@ jobs:
         run: |
           .github/check-logs-for-error.sh /var/tmp/cc3-indexer-testing/indexer-compose.log
 
-          sudo apt-get install colordiff
-          .github/check-cc3-indexer-handlers.sh /var/tmp/cc3-indexer-testing/.monitor/app-fileA.txt
+      - name: Upload the handlers the tests executed
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cc3-indexer-monitor
+          path: /var/tmp/cc3-indexer-testing/.monitor/app-fileA.txt
+          include-hidden-files: true
+          if-no-files-found: ignore
 
       - name: Sanity check Int vs BigInt data types
         if: always()
@@ -1606,10 +1915,34 @@ jobs:
         continue-on-error: true
         run: |
           docker compose -f cc3-indexer/docker-compose.yaml down
+          pkill -f seal-blocks.sh
 
           killall -9 attestor_zombienet
           killall -9 attestor
           killall -9 creditcoin3-node
+
+  # Every handler in datasources.ts must have run.
+  cc3-indexer-handlers:
+    needs:
+      - should-run
+      - cc3-indexer-testing
+    if: ${{ always() && needs.should-run.outputs.cc3_indexer == 'true' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download the handlers the tests executed
+        uses: actions/download-artifact@v8
+        with:
+          name: cc3-indexer-monitor
+          path: monitor
+
+      - name: Check every handler was executed
+        run: |
+          sudo apt-get install colordiff
+          mapfile -t FILES < <(find monitor -type f -name 'app-fileA.txt')
+          .github/check-cc3-indexer-handlers.sh "${FILES[@]}"
 
   attestor-cli-testing:
     # Attestor stash operations are dispatched through the EVM precompile, which
@@ -1621,6 +1954,8 @@ jobs:
       - should-run
       - regenerate-metadata
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
+    # One job: with blocks sealed every second the attestor files no longer need to be
+    # split over runners.
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
@@ -1632,22 +1967,9 @@ jobs:
           name: binary-for-testing-ci
           path: target/release
 
-      - name: Download subkey from release ${{ needs.should-run.outputs.devnet_release_tag }}
-        uses: i3h/download-release-asset@v1
-        with:
-          owner: ${{ github.repository_owner }}
-          repo: ${{ github.event.repository.name }}
-          tag: ${{ needs.should-run.outputs.devnet_release_tag }}
-          file: subkey
-          path: /usr/local/bin
-          token: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
-
       - name: Start creditcoin3-node
         run: |
           chmod a+x ./target/release/attestor
-
-          sudo chmod a+x /usr/local/bin/subkey
-          subkey --version
 
           chmod a+x ./target/release/creditcoin3-node
           ./target/release/creditcoin3-node \
@@ -1718,12 +2040,37 @@ jobs:
         run: |
           node dist/scripts/eth-check.js ws://127.0.0.1:9944
 
+      # Each test file starts its own Alice and Bob on the default ports, with the same node
+      # key as the node above. Left running, it holds those ports for the first file: the
+      # CLI talks to it while Bob syncs from two peers with one identity and stalls.
+      - name: Stop the pre-test node
+        run: |
+          killall -9 creditcoin3-node || true
+          for _ in $(seq 1 30); do
+            pgrep -f '[t]arget/release/creditcoin3-node' >/dev/null || exit 0
+            sleep 1
+          done
+          echo "creditcoin3-node still running after 30 s" >&2
+          exit 1
+
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          yarn test:attestor-cli
+          yarn jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --forceExit \
+            src/test/integration-tests/attestor
         env:
           RUST_LOG: debug
+          # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
+          # startSealTicker in cli/src/test/utils.ts), as for the validator CLI legs.
+          CREDITCOIN_SEALING: manual
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-attestor-cli
+          path: cli/reports/junit/
+          if-no-files-found: ignore
 
       - name: Kill nodes
         if: always()
@@ -1742,6 +2089,7 @@ jobs:
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
+            /tmp/seal-blocks.log
 
   regenerate-metadata:
     outputs:
@@ -1851,8 +2199,8 @@ jobs:
       # `metadata.scale`, and would again if the refs ever drift apart. Copying the
       # files in has no pre-image to match, so it cannot fail that way.
       #
-      # These are exactly the three paths `rebuild-new-metadata` commits back
-      # (build-native.yml). Incidental `cli/yarn.lock` churn is deliberately not
+      # These are exactly the three paths `commit-new-metadata` commits back
+      # (below). Incidental `cli/yarn.lock` churn is deliberately not
       # carried over: every consumer runs its own `yarn install` afterwards.
       - name: Upload regenerated metadata
         uses: actions/upload-artifact@v7
@@ -1865,91 +2213,98 @@ jobs:
             cli/src/lib/interfaces/
             common/cc-client/artifacts/metadata.scale
 
-  deploy-runner-rebuild-new-metadata:
+  # Commits the files regenerate-metadata produced back to the PR branch. It used to
+  # compile the whole workspace in release first, only to check that cc-client builds
+  # against the new metadata.scale, and nothing used the binaries. The bot's commit
+  # starts a new CI run that compiles everything against the committed metadata anyway.
+  commit-new-metadata:
+    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
+    permissions:
+      contents: write
     needs:
       - regenerate-metadata
     if: ${{ needs.regenerate-metadata.outputs.git_diff == 'true' }}
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "rebuild-new-metadata"
-    secrets: inherit
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      # The branch head, not the merge ref: this job commits back to it. With the bot's
+      # token, which checkout keeps as the push credential: a push made with GITHUB_TOKEN
+      # starts no workflow, so nothing would compile the committed metadata.
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
-  rebuild-new-metadata:
-    # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
-    permissions: write-all
-    needs:
-      - deploy-runner-rebuild-new-metadata
-    uses: ./.github/workflows/build-native.yml
-    with:
-      build-options: "--release"
-      git-lfs-checkout: false
-      version-string: new-metadata
-      cache-key-name: build-creditcoin-node
-      use-new-metadata: true
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-rebuild-new-metadata']"
-    secrets: inherit
+      - name: Download regenerated metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata
+          path: .
 
-  rm-runner-rebuild-new-metadata:
-    needs:
-      - rebuild-new-metadata
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "rebuild-new-metadata"
-    secrets: inherit
+      - name: Show what the regenerated metadata changed
+        run: git status --short --untracked-files=no
 
+      - name: Commit typedefs and metadata changes
+        uses: EndBug/add-and-commit@v10
+        with:
+          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update metadata & TypeScript type definitions"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+  # The four example workflows below run gluwa/attestcoin-protocol-examples. They are pinned
+  # to one commit, the same SHA in `uses:` and `checkout_ref`, so a push to the examples repo
+  # can't turn every open PR here red. Bump both together when the examples change.
   hello-bridge:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/hello-bridge.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/hello-bridge.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
     with:
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
 
   custom-contracts-bridging:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/custom-contracts-bridging.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/custom-contracts-bridging.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
     with:
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
 
   bridge-offchain-worker:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/bridge-offchain-worker.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/bridge-offchain-worker.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
     with:
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
 
   loan-flow:
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
     if: ${{ needs.should-run.outputs.integration_test_blockchain == 'true' }}
-    uses: gluwa/attestcoin-protocol-examples/.github/workflows/loan-flow.yml@main
+    uses: gluwa/attestcoin-protocol-examples/.github/workflows/loan-flow.yml@f5eca1234d57b53149f312063798d71072faebe3 # main, 2026-10-16
     with:
       runs-on: "['ubuntu-26.04']"
       source_chain_kind: "anvil"
       asc_kind: "local"
       checkout_repo: "gluwa/attestcoin-protocol-examples"
-      checkout_ref: "main"
+      checkout_ref: "f5eca1234d57b53149f312063798d71072faebe3"
 
   # Both compatibility suites used to live in their own pull_request workflows, each
   # building its own SUT. That was the same `--release --features=fast-runtime` compile
@@ -1968,6 +2323,9 @@ jobs:
     uses: ./.github/workflows/attestor-compatibility.yml
     with:
       sut-artifact: binary-for-testing-ci
+      # Red by construction on dev whenever pallet-attestation's metadata changes; a
+      # warning there, blocking on promotion PRs.
+      informational: ${{ github.base_ref == 'dev' }}
     secrets: inherit
 
   validator-compatibility:
@@ -1976,6 +2334,16 @@ jobs:
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.validator_compatibility == 'true' }}
     uses: ./.github/workflows/validator-compatibility.yml
+    with:
+      sut-artifact: binary-for-testing-ci
+    secrets: inherit
+
+  proof-gen-api-server:
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+    if: ${{ needs.should-run.outputs.proof_gen == 'true' }}
+    uses: ./.github/workflows/proof-gen-api-server.yml
     with:
       sut-artifact: binary-for-testing-ci
     secrets: inherit
@@ -2117,6 +2485,14 @@ jobs:
 
           yarn test:archiver
 
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-archiver
+          path: cli/reports/junit/
+          if-no-files-found: ignore
+
       - name: Check archiver logs for errors
         if: always()
         run: |
@@ -2129,3 +2505,29 @@ jobs:
           name: archiver-testing
           path: /var/tmp/archiver-testing/
           include-hidden-files: true
+
+  # The nightly soak has nobody watching the run, so a failure has to reach people. A manual
+  # soak run (workflow_dispatch with `soak`) is watched by whoever started it.
+  report-nightly-soak-failure:
+    # should-run is listed too: if it fails, the two jobs after it are skipped rather than
+    # failed, and the night would otherwise pass without a word.
+    needs:
+      - should-run
+      - build-creditcoin-node-for-testing-ci
+      - integration-test-attestator-network
+    if: ${{ always() && github.event_name == 'schedule' && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    steps:
+      - name: Report result to Slack
+        uses: act10ns/slack@v2
+        with:
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          status: failure
+          channel: "#protocol-internal"
+          message: |-
+            Nightly attestor-network soak failed on `${{ github.ref_name }}` (${{ github.sha }}).
+            should-run: ${{ needs.should-run.result }} |
+            build: ${{ needs.build-creditcoin-node-for-testing-ci.result }} |
+            attestor-network: ${{ needs.integration-test-attestator-network.result }}
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

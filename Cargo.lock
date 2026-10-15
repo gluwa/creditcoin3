@@ -1059,13 +1059,16 @@ name = "archiver"
 version = "3.142.0"
 dependencies = [
  "anyhow",
+ "attestcoin-abi-encoding",
  "axum",
  "cc-client",
  "clap",
  "dotenvy",
  "eth",
  "futures 0.3.32",
+ "reqwest",
  "serde",
+ "serde_json",
  "sled",
  "sp-core",
  "stream_eth",
@@ -1885,6 +1888,7 @@ name = "attestor_zombienet"
 version = "3.142.0"
 dependencies = [
  "anyhow",
+ "attestor",
  "attestor-primitives",
  "bip39",
  "cc-client",
@@ -1892,6 +1896,7 @@ dependencies = [
  "clap",
  "common",
  "eth",
+ "libp2p",
  "rand 0.8.5",
  "subxt 0.44.3",
  "subxt-signer 0.44.3",
@@ -3267,6 +3272,7 @@ version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "ethereum",
+ "finality-grandpa",
  "fp-evm",
  "fp-rpc",
  "fp-self-contained",
@@ -4768,7 +4774,7 @@ dependencies = [
 [[package]]
 name = "fc-api"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "async-trait",
  "fp-storage",
@@ -4780,7 +4786,7 @@ dependencies = [
 [[package]]
 name = "fc-cli"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "clap",
  "ethereum-types 0.15.1",
@@ -4798,7 +4804,7 @@ dependencies = [
 [[package]]
 name = "fc-consensus"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "async-trait",
  "fp-consensus",
@@ -4814,7 +4820,7 @@ dependencies = [
 [[package]]
 name = "fc-db"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "async-trait",
  "ethereum",
@@ -4844,7 +4850,7 @@ dependencies = [
 [[package]]
 name = "fc-mapping-sync"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "fc-db",
  "fc-storage",
@@ -4867,7 +4873,7 @@ dependencies = [
 [[package]]
 name = "fc-rpc"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "ethereum",
  "ethereum-types 0.15.1",
@@ -4921,7 +4927,7 @@ dependencies = [
 [[package]]
 name = "fc-rpc-core"
 version = "1.1.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "ethereum",
  "ethereum-types 0.15.1",
@@ -4937,7 +4943,7 @@ dependencies = [
 [[package]]
 name = "fc-storage"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "ethereum",
  "ethereum-types 0.15.1",
@@ -5149,7 +5155,7 @@ dependencies = [
 [[package]]
 name = "fp-account"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "hex",
  "impl-serde",
@@ -5167,7 +5173,7 @@ dependencies = [
 [[package]]
 name = "fp-consensus"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "ethereum",
  "parity-scale-codec",
@@ -5178,7 +5184,7 @@ dependencies = [
 [[package]]
 name = "fp-dynamic-fee"
 version = "1.0.0"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "async-trait",
  "sp-core",
@@ -5188,7 +5194,7 @@ dependencies = [
 [[package]]
 name = "fp-ethereum"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "ethereum",
  "ethereum-types 0.15.1",
@@ -5200,7 +5206,7 @@ dependencies = [
 [[package]]
 name = "fp-evm"
 version = "3.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "environmental",
  "evm",
@@ -5216,7 +5222,7 @@ dependencies = [
 [[package]]
 name = "fp-rpc"
 version = "3.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "ethereum",
  "ethereum-types 0.15.1",
@@ -5232,7 +5238,7 @@ dependencies = [
 [[package]]
 name = "fp-self-contained"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "frame-support",
  "parity-scale-codec",
@@ -5244,7 +5250,7 @@ dependencies = [
 [[package]]
 name = "fp-storage"
 version = "2.0.0"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "parity-scale-codec",
  "serde",
@@ -7454,8 +7460,6 @@ dependencies = [
 [[package]]
 name = "libp2p-gossipsub"
 version = "0.47.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4e830fdf24ac8c444c12415903174d506e1e077fbe3875c404a78c5935a8543"
 dependencies = [
  "asynchronous-codec 0.7.0",
  "base64",
@@ -9322,7 +9326,7 @@ dependencies = [
 [[package]]
 name = "pallet-base-fee"
 version = "1.0.0"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "fp-evm",
  "frame-support",
@@ -9354,7 +9358,7 @@ dependencies = [
 [[package]]
 name = "pallet-dynamic-fee"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "fp-dynamic-fee",
  "fp-evm",
@@ -9369,7 +9373,7 @@ dependencies = [
 [[package]]
 name = "pallet-ethereum"
 version = "4.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "ethereum",
  "ethereum-types 0.15.1",
@@ -9392,7 +9396,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm"
 version = "6.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "environmental",
  "ethereum",
@@ -9416,7 +9420,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-chain-id"
 version = "1.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "frame-support",
  "frame-system",
@@ -9495,7 +9499,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-bn128"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "fp-evm",
  "sp-core",
@@ -9560,7 +9564,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-modexp"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "fp-evm",
  "num",
@@ -9569,7 +9573,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-sha3fips"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "fp-evm",
  "frame-support",
@@ -9580,7 +9584,7 @@ dependencies = [
 [[package]]
 name = "pallet-evm-precompile-simple"
 version = "2.0.0-dev"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "fp-evm",
  "ripemd",
@@ -9673,7 +9677,7 @@ dependencies = [
 [[package]]
 name = "pallet-hotfix-sufficients"
 version = "1.0.0"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "frame-benchmarking",
  "frame-support",
@@ -10873,7 +10877,7 @@ dependencies = [
 [[package]]
 name = "precompile-utils"
 version = "0.1.0"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "derive_more 1.0.0",
  "environmental",
@@ -10902,7 +10906,7 @@ dependencies = [
 [[package]]
 name = "precompile-utils-macro"
 version = "0.1.0"
-source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d9249d6440f35d1688a34692c32e3a15c62a6ad5"
+source = "git+https://github.com/gluwa/frontier_2?branch=stable2512_patch_no_extension#d2b78224dfbacfcf3652c3712082b7b82cf15b3b"
 dependencies = [
  "case",
  "num_enum 0.7.6",
@@ -16049,6 +16053,7 @@ dependencies = [
  "sp-api",
  "sp-core",
  "sp-std",
+ "sp-weights",
 ]
 
 [[package]]

@@ -13,6 +13,7 @@
 //!   no manual `Waker` plumbing.
 //! - No `ctrl_c` arms; cancellation flows through `shared.token`.
 
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::Arc;
 
 use rand::seq::SliceRandom as _;
@@ -30,6 +31,8 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
     // Height of the in-flight submission. Used to filter duplicate-height quorums the pool
     // may surface while we're mid-submit (otherwise we'd stash twice for the same height).
     let mut in_flight_height: Option<Height> = None;
+    // Lets a higher rival quorum replace the in-flight submission before it broadcasts.
+    let mut in_flight_preempt: Option<Preemptable> = None;
     // Per-height re-injection budget for the unlock path (see `take_reinject_budget`).
     let mut reinject_budget: Option<(Height, u8)> = None;
 
@@ -45,12 +48,14 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
             Some(joined) = submission_fut => {
                 in_flight = None;
                 in_flight_height = None;
+                in_flight_preempt = None;
                 let submission = joined.map_err(Error::TaskJoin)?;
                 handle_submission_result(
                     &shared,
                     &pool_rx,
                     &mut in_flight,
                     &mut in_flight_height,
+                    &mut in_flight_preempt,
                     &mut reinject_budget,
                     submission,
                 ).await;
@@ -85,6 +90,7 @@ pub async fn run(shared: Arc<Shared>, pool_rx: Receiver) -> Result<(), Error> {
                     &pool_rx,
                     &mut in_flight,
                     &mut in_flight_height,
+                    &mut in_flight_preempt,
                     quorum,
                     permit,
                 ).await?;
@@ -100,6 +106,7 @@ async fn handle_quorum(
     pool_rx: &Receiver,
     in_flight: &mut Option<tokio::task::JoinHandle<Submission>>,
     in_flight_height: &mut Option<Height>,
+    in_flight_preempt: &mut Option<Preemptable>,
     quorum: Quorum,
     permit: Permit,
 ) -> Result<(), Error> {
@@ -170,10 +177,38 @@ async fn handle_quorum(
         Err(ValidationError::External(e)) => return Err(e),
     };
 
+    // A higher quorum anchored on the same digest as the in-flight one is its rival, not its
+    // successor: the runtime only accepts a proof that extends the latest attested digest, so
+    // whichever of the two lands first fails the other. Catch-up emits a whole descending range
+    // per anchor and gossip can complete a lower height first; submitting it would cost the
+    // higher one a failed commit and a re-formation round. Replace the in-flight submission
+    // while it has not broadcast yet, and only while the shared anchor is still the latest
+    // finalized digest: if anything finalized since (e.g. a peer landed the lower height), the
+    // rival no longer extends it and is stashed instead, where `revalidate_stashed` drops it.
+    let finalized = shared.latest_finalized_rx.borrow().map(|info| info.digest);
+    let rival = in_flight_preempt.as_ref().filter(|preempt| {
+        in_flight_height.is_some_and(|in_flight| agg.height > in_flight)
+            && preempt.anchor.is_some()
+            && preempt.anchor == finalized
+            && preempt.anchor == quorum_anchor(&agg.attestation_signed)
+    });
+    let preempted = rival.is_some_and(Preemptable::preempt);
+    if preempted {
+        tracing::info!(
+            ?digest,
+            height,
+            replaced = ?*in_flight_height,
+            "⏫ higher quorum on the same anchor — replacing pending submission"
+        );
+        *in_flight = None;
+    }
+
     if in_flight.is_none() {
         pool_rx.mark_valid(permit);
         *in_flight_height = Some(agg.height);
-        *in_flight = Some(spawn_submission(shared.clone(), agg));
+        let (handle, preempt) = spawn_submission(shared.clone(), agg);
+        *in_flight = Some(handle);
+        *in_flight_preempt = Some(preempt);
     } else {
         tracing::info!(?digest, height, "🗃️ stash for later");
         pool_rx.mark_for_later(
@@ -196,6 +231,7 @@ async fn handle_submission_result(
     pool_rx: &Receiver,
     in_flight: &mut Option<tokio::task::JoinHandle<Submission>>,
     in_flight_height: &mut Option<Height>,
+    in_flight_preempt: &mut Option<Preemptable>,
     reinject_budget: &mut Option<(Height, u8)>,
     submission: Submission,
 ) {
@@ -341,7 +377,9 @@ async fn handle_submission_result(
                     "🛫 submitting pre-validated stash"
                 );
                 *in_flight_height = Some(agg.height);
-                *in_flight = Some(spawn_submission(shared.clone(), agg));
+                let (handle, preempt) = spawn_submission(shared.clone(), agg);
+                *in_flight = Some(handle);
+                *in_flight_preempt = Some(preempt);
                 break;
             }
             None => {
@@ -385,9 +423,8 @@ async fn handle_submission_result(
 ///
 /// 1. Drop votes whose signer left the active attestor set (the runtime filters `attestors` to
 ///    `ActiveAttestors`; a stale signer in the aggregate yields `InvalidBlsSignature`).
-/// 2. Re-fetch the live quorum (`2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`) and
-///    require the surviving vote count to still satisfy it (otherwise the runtime rejects with
-///    `MajorityNotReached`).
+/// 2. Re-fetch the live quorum (`2/3+1` of `|ActiveAttestors|`) and require the surviving vote
+///    count to still satisfy it (otherwise the runtime rejects with `MajorityNotReached`).
 ///
 /// If signers were dropped but the quorum still stands, the BLS aggregate and attestor list are
 /// rebuilt from the surviving votes. Returns `None` when the quorum no longer satisfies the live
@@ -401,15 +438,10 @@ async fn revalidate_stashed(shared: &Arc<Shared>, stashed: SignedQuorum) -> Opti
     // `InvalidAttestationContinuityProofTail` at runtime level — submitting it burns fees and
     // delays the failed height's clean retry. Only submit when the anchor is the digest the
     // chain actually finalized; otherwise drop (the caller unlocks the height and the quorum
-    // re-forms from gossip). This can conservatively drop a stash anchored on an *older*
-    // finalized attestation the runtime would still accept — a rare race that costs one
-    // re-formation round, never a fee.
+    // re-forms from gossip). A stash anchored on an *older* finalized attestation is dropped
+    // too: the runtime only accepts a proof that extends the latest finalized digest.
     if stashed.height != shared.genesis {
-        let anchor = stashed
-            .signed
-            .continuity_proof
-            .tail_prev_digest()
-            .or_else(|| stashed.signed.prev_digest());
+        let anchor = quorum_anchor(&stashed.signed);
         let finalized = shared.latest_finalized_rx.borrow().map(|info| info.digest);
         match (anchor, finalized) {
             (Some(anchor), Some(finalized)) if anchor == finalized => {}
@@ -568,9 +600,8 @@ async fn aggregate_and_validate(
     }
 
     // Threshold gate: refresh the live quorum from the chain and refuse to submit if we are now
-    // under it. The pool's quorum count is captured at startup; if the quorum grew since — the
-    // active set gained members (election), or an operator raised `TargetSampleSize` while it
-    // caps the set — an under-threshold submission would be rejected at runtime level
+    // under it. The pool's quorum count is captured at startup; if the active set gained members
+    // since (an election), an under-threshold submission would be rejected at runtime level
     // (`MajorityNotReached`). Catch it here instead — fees are saved and the pool collects more
     // votes from gossip before the next emission.
     let threshold = crate::retry::with_retries(&shared.cc3, &shared.token, |cc3| async move {
@@ -792,13 +823,63 @@ fn should_unlock_if_unfinalized(outcome: &Outcome) -> bool {
     )
 }
 
-fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHandle<Submission> {
-    tokio::spawn(async move {
+/// The digest a quorum's continuity proof extends: the proof tail's previous digest, or the
+/// attestation's own `prev_digest` for an empty (direct-link) proof.
+fn quorum_anchor(signed: &common::types::AttestationSigned) -> Option<Digest> {
+    signed
+        .continuity_proof
+        .tail_prev_digest()
+        .or_else(|| signed.prev_digest())
+}
+
+/// Submission states shared between the validation loop and a submission task.
+const SUBMISSION_PENDING: u8 = 0;
+const SUBMISSION_BROADCAST: u8 = 1;
+const SUBMISSION_PREEMPTED: u8 = 2;
+
+/// Handle on an in-flight submission that a higher rival quorum may still replace. The task
+/// claims the broadcast with a compare-exchange from `PENDING` right before it signs, and
+/// `preempt` claims the cancellation the same way, so exactly one side wins: a submission that
+/// reached the txpool is never abandoned, and a preempted one never broadcasts.
+struct Preemptable {
+    anchor: Option<Digest>,
+    state: Arc<AtomicU8>,
+    abort: tokio::task::AbortHandle,
+}
+
+impl Preemptable {
+    /// Cancel the submission if it has not started broadcasting. Returns whether it was
+    /// cancelled.
+    fn preempt(&self) -> bool {
+        let preempted = self
+            .state
+            .compare_exchange(
+                SUBMISSION_PENDING,
+                SUBMISSION_PREEMPTED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok();
+        if preempted {
+            self.abort.abort();
+        }
+        preempted
+    }
+}
+
+fn spawn_submission(
+    shared: Arc<Shared>,
+    agg: Aggregated,
+) -> (tokio::task::JoinHandle<Submission>, Preemptable) {
+    let anchor = quorum_anchor(&agg.attestation_signed);
+    let state = Arc::new(AtomicU8::new(SUBMISSION_PENDING));
+    let task_state = state.clone();
+    let handle = tokio::spawn(async move {
         let height = agg.height;
         // Stash a copy of the votes — submit_one moves `agg`, but we need them in `Submission`
         // so the handler can re-inject on any unlock path.
         let votes = agg.votes.clone();
-        let outcome = match submit_one(&shared, agg).await {
+        let outcome = match submit_one(&shared, agg, &task_state).await {
             OutcomeInternal::Eligible(result) => Outcome::Eligible { result },
             OutcomeInternal::Finalized => Outcome::Finalized,
             OutcomeInternal::Unresolved => Outcome::Unresolved,
@@ -808,7 +889,13 @@ fn spawn_submission(shared: Arc<Shared>, agg: Aggregated) -> tokio::task::JoinHa
             outcome,
             votes,
         }
-    })
+    });
+    let preempt = Preemptable {
+        anchor,
+        state,
+        abort: handle.abort_handle(),
+    };
+    (handle, preempt)
 }
 
 /// The submit_one helper's local return type — same variants as `Outcome`. The held `votes` are
@@ -819,7 +906,7 @@ enum OutcomeInternal {
     Unresolved,
 }
 
-async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
+async fn submit_one(shared: &Arc<Shared>, agg: Aggregated, state: &AtomicU8) -> OutcomeInternal {
     let height = agg.height;
 
     if !*shared.can_attest_rx.borrow() {
@@ -865,6 +952,20 @@ async fn submit_one(shared: &Arc<Shared>, agg: Aggregated) -> OutcomeInternal {
             // Chilled while jittering — same reasoning as the pre-jitter chill check above.
             return OutcomeInternal::Unresolved;
         }
+    }
+
+    // Claim the broadcast. Fails only if a higher rival quorum preempted this submission while
+    // it jittered; the validation loop has already dropped this task and moved on.
+    if state
+        .compare_exchange(
+            SUBMISSION_PENDING,
+            SUBMISSION_BROADCAST,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        )
+        .is_err()
+    {
+        return OutcomeInternal::Unresolved;
     }
 
     // Submit.
@@ -1119,11 +1220,14 @@ async fn wait_finalized(shared: &Arc<Shared>, height: Height) {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU8, Ordering};
+    use std::sync::Arc;
+
     use attestor_primitives::Digest;
 
     use super::{
-        should_unlock_if_unfinalized, take_reinject_budget, validate_proof_chain, Outcome,
-        MAX_REINJECTS_PER_HEIGHT,
+        quorum_anchor, should_unlock_if_unfinalized, take_reinject_budget, validate_proof_chain,
+        Outcome, Preemptable, MAX_REINJECTS_PER_HEIGHT, SUBMISSION_BROADCAST, SUBMISSION_PENDING,
     };
     use crate::proof_cache::CachedProof;
 
@@ -1150,6 +1254,57 @@ mod tests {
         assert!(should_unlock_if_unfinalized(&outcome));
         assert!(should_unlock_if_unfinalized(&Outcome::Unresolved));
         assert!(!should_unlock_if_unfinalized(&Outcome::Finalized));
+    }
+
+    fn pending_submission() -> (tokio::task::JoinHandle<()>, Preemptable) {
+        let handle = tokio::spawn(std::future::pending::<()>());
+        let preempt = Preemptable {
+            anchor: Some(Digest::from([0x11; 32])),
+            state: Arc::new(AtomicU8::new(SUBMISSION_PENDING)),
+            abort: handle.abort_handle(),
+        };
+        (handle, preempt)
+    }
+
+    /// A submission still in its jitter is cancelled by a rival quorum, and cannot claim the
+    /// broadcast afterwards.
+    #[tokio::test]
+    async fn preempt_cancels_a_pending_submission() {
+        let (handle, preempt) = pending_submission();
+        assert!(preempt.preempt());
+        assert!(handle.await.unwrap_err().is_cancelled());
+        assert!(preempt
+            .state
+            .compare_exchange(
+                SUBMISSION_PENDING,
+                SUBMISSION_BROADCAST,
+                Ordering::AcqRel,
+                Ordering::Acquire
+            )
+            .is_err());
+    }
+
+    /// Once the task has claimed the broadcast its extrinsic may already be in the txpool, so a
+    /// rival quorum must not abandon it.
+    #[tokio::test]
+    async fn preempt_leaves_a_broadcast_submission_alone() {
+        let (handle, preempt) = pending_submission();
+        preempt.state.store(SUBMISSION_BROADCAST, Ordering::Release);
+        assert!(!preempt.preempt());
+        assert!(!handle.is_finished());
+        handle.abort();
+    }
+
+    #[test]
+    fn quorum_anchor_falls_back_to_prev_digest_for_an_empty_proof() {
+        let prev = Digest::from([0x22; 32]);
+        let signed = attestor_primitives::SignedAttestation {
+            attestation: cached(Some(prev)).attestation_data,
+            signature: [0u8; 96],
+            attestors: vec![],
+            continuity_proof: Default::default(),
+        };
+        assert_eq!(quorum_anchor(&signed), Some(prev));
     }
 
     #[test]

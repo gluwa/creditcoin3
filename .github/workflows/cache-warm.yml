@@ -1,7 +1,8 @@
 ---
 name: cache-warm
 
-# Populates the `build-creditcoin-node` Rust dependency cache on the default branch.
+# Populates the `build-creditcoin-node` and `build-release` Rust dependency caches on the
+# default branch.
 #
 # Why this exists: a cache saved during a PR run is stored under refs/pull/<n>/merge,
 # and GitHub will not let another PR restore it. Only caches on the default branch are
@@ -11,16 +12,12 @@ name: cache-warm
 # everyone else still paid full price.
 #
 # rust.yml carries its own `push` trigger for the rust-check / rust-clippy / rust-test
-# keys. This workflow covers the separate key used by build-native.yml callers, all of
-# which now run on self-hosted Linode VMs.
+# keys. This workflow covers the separate key used by build-native.yml callers.
 #
 # IMPORTANT, on why this calls build-native.yml instead of running cargo directly:
-# Swatinem/rust-cache mixes the Rust environment into the cache key, including env vars
-# beginning with CXX. build-native.yml sets no CXXFLAGS while rust.yml sets
-# `CXXFLAGS: -include cstdint`, so the two compute *different* keys even when both pass
-# the same `shared-key`. Warming therefore has to reproduce the consumer's environment
-# exactly, and the only reliable way to do that is to invoke the very same reusable
-# workflow. Do not reimplement the build here.
+# Swatinem/rust-cache mixes the Rust environment (rustc, CXX* env vars) into the cache
+# key, so warming has to reproduce the consumer's environment exactly. Invoke the same
+# reusable workflow; do not reimplement the build here.
 "on":
   # Only manifest changes. The cache key is derived from the Cargo manifests and the
   # toolchain, and the cache holds dependencies rather than workspace crates, so an
@@ -35,28 +32,59 @@ name: cache-warm
       - ".github/workflows/build-native.yml"
       - ".github/workflows/cache-warm.yml"
       - ".github/workflows/deploy-runner.yml"
+  # Hosted runners mix the image's preinstalled Rust into the cache key, so an image bump
+  # invalidates the entry without any manifest change. A daily run re-warms it; scheduled
+  # runs only fire on the default branch.
+  schedule:
+    - cron: "0 3 * * *"
   workflow_dispatch:
 
 concurrency:
+  # Let a running warm finish and save; only the newest waiting run follows it (see
+  # build-cache.yml).
   group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions: read-all
 
 jobs:
-  # Every remaining build-native.yml caller runs on a Linode VM: ci.yml's
-  # build-creditcoin-node-for-testing-ci and rebuild-new-metadata, proof-gen-api-server,
-  # benchmarks, both chainspec builds, runtime-upgrade and release. build-native.yml keys the
-  # self-hosted family separately from hosted runners because a `target/` built under a
-  # different Cargo home fingerprints as stale, so this is the producer that namespace needs.
-  # Without it every fresh PR builds it cold.
-  #
-  # There used to be a second, hosted warmer here for the two compatibility builds. Those now
-  # consume ci.yml's artifact instead of building anything, leaving no hosted caller of
-  # build-native.yml at all, so it was removed rather than left warming a namespace nobody
-  # reads.
-  #
-  # It costs one VM per manifest change on usc-dev, not per PR.
+  # Warms the hosted-runner family used by ci.yml, chainspec and proof-gen-api-server.
+  warm-build-creditcoin-node:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features=fast-runtime"
+      workspace-opt-level: "1"
+      git-lfs-checkout: false
+      version-string: cache-warm
+      cache-key-name: build-creditcoin-node
+      runs-on: "['ubuntu-26.04']"
+      # Nothing consumes the output; this run exists only for its cache entry.
+      upload-artifacts: false
+    secrets: inherit
+
+  # Warms the release configuration for release.yml. A tag build can restore caches from
+  # the default branch only, and the fast-runtime entry above shares little with a
+  # metadata-hash build, so without this every release compiled from cold. Testnet and
+  # mainnet tags build exactly these features; devnet tags add `devnet` on top and still
+  # reuse the dependencies.
+  warm-build-release:
+    uses: ./.github/workflows/build-native.yml
+    with:
+      build-options: "--release --features metadata-hash"
+      git-lfs-checkout: false
+      version-string: cache-warm-release
+      cache-key-name: build-release
+      runs-on: "['ubuntu-26.04']"
+      upload-artifacts: false
+      # Like the Rust cache, a subxt binary cached by a tag is readable by that tag alone,
+      # so the default-branch entry releases restore has to come from here.
+      build-subxt: true
+    secrets: inherit
+
+  # build-native.yml keys runner families separately (see "Identify runner family"), and
+  # benchmarks and runtime-upgrade still build on Linode. This
+  # leg keeps their self-hosted family warm. It costs one VM per manifest change or daily
+  # run, not per PR.
   deploy-runner:
     uses: ./.github/workflows/deploy-runner.yml
     with:
@@ -75,7 +103,6 @@ jobs:
       version-string: cache-warm-linode
       cache-key-name: build-creditcoin-node
       runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-cache-warm']"
-      # Nothing consumes the output; this run exists only for its cache entry.
       upload-artifacts: false
     secrets: inherit
 
@@ -89,24 +116,13 @@ jobs:
       proxy: cache-warm
     secrets: inherit
 
-  # ---------------------------------------------------------------------------
-  # Alert when the warmer breaks.
-  #
-  # This workflow is the only producer of the `build-creditcoin-node-<family>` cache
-  # entry that ci.yml, proof-gen-api-server, benchmarks, both chainspec builds,
-  # runtime-upgrade and release all restore from. A cache saved by a PR run is scoped
-  # to refs/pull/<n>/merge and no other PR can restore it, so when this fails nothing
-  # is written to the default branch and every PR afterwards builds the dependency
-  # graph from cold. Nothing else surfaces that: the PRs still go green, just slowly.
-  #
-  # `remove-runner` is not in `needs` on purpose. It runs under always() and a leaked
-  # VM is already the Linode Cleaner's job, so folding it in here would alert on a
-  # different problem than the one this watches.
-  #
-  # Runs on a hosted runner: by this point the Linode VM may already be gone.
-  # ---------------------------------------------------------------------------
+  # This workflow is the only producer of the default-branch cache entry PRs restore
+  # from; a PR-scoped cache is not readable by other PRs. When it fails, every PR
+  # builds cold and still goes green, so nothing else surfaces it.
   report-cache-producer-failure:
     needs:
+      - warm-build-creditcoin-node
+      - warm-build-release
       - deploy-runner
       - warm-build-creditcoin-node-linode
     if: ${{ failure() }}
@@ -121,10 +137,12 @@ jobs:
           channel: "#protocol-internal"
           message: |-
             Native build cache warmer failed on `${{ github.ref_name }}`. PRs that build
-            the node (ci.yml, proof-gen-api-server, chainspec, benchmarks) will compile
-            from cold until this is green again.
+            the node (ci.yml, proof-gen-api-server, chainspec, benchmarks) and releases
+            will compile from cold until this is green again.
+            warm-build (hosted): ${{ needs.warm-build-creditcoin-node.result }} |
+            warm-build (release): ${{ needs.warm-build-release.result }} |
             deploy-runner: ${{ needs.deploy-runner.result }} |
-            warm-build: ${{ needs.warm-build-creditcoin-node-linode.result }}
+            warm-build (Linode): ${{ needs.warm-build-creditcoin-node-linode.result }}
             Once the cause is fixed, re-run to repopulate the cache:
             `gh workflow run cache-warm.yml --ref ${{ github.ref_name }}`
             cc <!subteam^S028FDV6CCV>

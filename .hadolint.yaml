@@ -1,0 +1,6 @@
+---
+ignored:
+  # Pin versions in apk add (kept from MegaLinter's default config, which this file replaces)
+  - DL3018
+  # Non-numeric user-id may not be resolvable by host system (new in hadolint v2.15)
+  - DL3066

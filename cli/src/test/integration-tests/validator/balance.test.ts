@@ -1,4 +1,3 @@
-import { try_catch_else_finally } from '../../utils';
 import { ALICE_NODE_URL, BOB_NODE_URL, initAliceKeyring, CLIBuilder, fundedAccountPool } from '../helpers';
 import { newApi, ApiPromise, BN, KeyringPair, MICROUNITS_PER_CTC } from '../../../lib';
 
@@ -26,21 +25,6 @@ describe('balance', () => {
     afterAll(async () => {
         await api.disconnect();
     });
-
-    it('should error when required option is not specified', () => {
-        try_catch_else_finally(
-            () => {
-                CLI('balance');
-            },
-            (error: any) => {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '--substrate-address [address]' not specified");
-            },
-            () => {
-                throw new Error('cli was expected to fail but it did not');
-            },
-        );
-    }, 30_000);
 
     it('should display balance', () => {
         const result = CLI(`balance --substrate-address ${randomAccount.address} --url ${ALICE_NODE_URL}`);

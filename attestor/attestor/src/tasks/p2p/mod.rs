@@ -8,6 +8,7 @@
 //! - Verifies incoming votes via the local `proof_cache` (peers must have produced their own
 //!   AttestationData at that height to verify a remote BLS signature).
 
+pub(crate) mod admission;
 pub mod behavior;
 pub mod protocols;
 
@@ -222,6 +223,7 @@ pub async fn run(
             continue;
         };
         boot_peers.insert(peer_id);
+        swarm.behaviour_mut().admission.pin(peer_id);
         swarm.behaviour_mut().kad.add_address(&peer_id, address);
     }
 
@@ -756,7 +758,12 @@ async fn handle_swarm(
                 // is trustworthy. This is what later lets us evict / deny that peer once its attestor
                 // is chilled.
                 if let (Some(attestor), Some(source)) = (learned, message.source) {
-                    note_attestor_peer(peers_by_attestor, attestor, source);
+                    if let Some(old) = note_attestor_peer(peers_by_attestor, attestor, source) {
+                        if !peers_by_attestor.iter().any(|(_, p)| *p == old) {
+                            swarm.behaviour_mut().admission.unreserve(&old);
+                        }
+                    }
+                    swarm.behaviour_mut().admission.reserve(source);
                 }
 
                 match acceptance {
@@ -1095,24 +1102,25 @@ fn republish_outbox(
 /// BLS-verified votes, so the binding is trustworthy. A single attestor keeps at most one peer id;
 /// a node that re-registers under a *new* attestor id simply adds a second `(attestor, peer)`
 /// entry, which is exactly what lets [`deny_decision`] treat a peer as active while *any* attestor
-/// mapped to it is active.
+/// mapped to it is active. Returns the previous peer id when it changed.
 fn note_attestor_peer(
     peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
     attestor: AttestorId,
     peer_id: libp2p::PeerId,
-) {
+) -> Option<libp2p::PeerId> {
     // `position` (shared borrow) then index (mutable borrow) keeps the two borrows disjoint, so
     // the `push` in the not-found case is accepted without relying on Polonius.
     if let Some(pos) = peers_by_attestor.iter().position(|(a, _)| *a == attestor) {
         let existing = &mut peers_by_attestor[pos].1;
         if *existing != peer_id {
             tracing::info!(%attestor, old = %existing, new = %peer_id, "🔁 attestor peer id changed");
-            *existing = peer_id;
+            return Some(std::mem::replace(existing, peer_id));
         }
     } else {
         tracing::debug!(%attestor, %peer_id, "🪪 learned attestor peer id");
         peers_by_attestor.push((attestor, peer_id));
     }
+    None
 }
 
 /// Pure deny decision, split out so it can be unit tested without a live swarm or chain.
@@ -1160,6 +1168,7 @@ fn is_peer_denied(
 ///
 /// [`PeerId`]: libp2p::PeerId
 fn evict_peer(swarm: &mut libp2p::Swarm<behavior::P2PBehavior>, peer_id: libp2p::PeerId) {
+    swarm.behaviour_mut().admission.unreserve(&peer_id);
     swarm.behaviour_mut().kad.remove_peer(&peer_id);
     if swarm.disconnect_peer_id(peer_id).is_ok() {
         tracing::info!(%peer_id, "✂️  closed connection to denied peer");
@@ -1598,7 +1607,7 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
 #[cfg(test)]
 mod tests {
     use super::{
-        deny_decision, drain_pending_votes, is_bufferable, PendingVotes, ReobsAdmission,
+        deny_decision, drain_pending_votes, is_bufferable, note_attestor_peer, PendingVotes, ReobsAdmission,
         REOBS_PER_PEER_CAPACITY,
     };
     use attestor_primitives::AttestorId;
@@ -1623,6 +1632,19 @@ mod tests {
 
     fn att(n: u8) -> AttestorId {
         AttestorId::from_public([n; 32])
+    }
+
+    // ------------------------------* attestor peer map *------------------------------ //
+
+    #[test]
+    fn note_attestor_peer_reports_the_replaced_peer_id() {
+        let mut map = Vec::new();
+        let (first, second) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+
+        assert_eq!(note_attestor_peer(&mut map, att(1), first), None);
+        assert_eq!(note_attestor_peer(&mut map, att(1), first), None);
+        assert_eq!(note_attestor_peer(&mut map, att(1), second), Some(first));
+        assert_eq!(map, vec![(att(1), second)]);
     }
 
     // ------------------------------* deny-list decision *------------------------------ //

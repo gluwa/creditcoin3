@@ -51,10 +51,16 @@ permissions: read-all
 jobs:
   docker-build:
     runs-on: ${{ fromJSON(inputs.runs-on) }}
+    # A cold build on a hosted runner is the slow case; well above it, far below the 6 h default.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
         with:
           lfs: true
+
+      - name: Start resource monitor
+        run: |
+          .github/resource-monitor.sh start docker-build
 
       - name: Build ${{ github.repository }} docker image
         if: ${{ inputs.build-node-image }}
@@ -91,7 +97,7 @@ jobs:
         id: scout-compare
         if: ${{ inputs.build-node-image }}
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: compare
           image: local://${{ github.repository }}:${{ inputs.version-string }}
@@ -111,7 +117,7 @@ jobs:
       - name: Docker Scout - comment on the PR about the vulnerability change
         if: ${{ inputs.build-node-image && steps.scout-compare.outcome == 'failure' && github.event_name == 'pull_request' }}
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: compare
           image: local://${{ github.repository }}:${{ inputs.version-string }}
@@ -164,7 +170,7 @@ jobs:
       # the job summary and in the weekly Scout report.
       - name: Docker Scout - CVE scan (${{ github.repository }}:indexer-for-${{ inputs.version-string }})
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: cves
           image: local://${{ github.repository }}:indexer-for-${{ inputs.version-string }}
@@ -180,7 +186,7 @@ jobs:
       # the job summary and in the weekly Scout report.
       - name: Docker Scout - CVE scan (${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }})
         continue-on-error: true
-        uses: docker/scout-action@v1.23.1
+        uses: docker/scout-action@v1.26.0
         with:
           command: cves
           image: local://${{ github.repository }}:proof-gen-stress-test-for-${{ inputs.version-string }}
@@ -201,6 +207,12 @@ jobs:
         with:
           name: locally-built-docker-image
           path: ${{ runner.temp }}/${{ github.repository }}.tar
+
+      - name: Report resource usage
+        if: always()
+        continue-on-error: true
+        run: |
+          .github/resource-monitor.sh report docker-build
 
       - name: Push docker images
         # executes only when credentials are specified in the caller workflow.

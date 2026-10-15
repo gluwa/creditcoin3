@@ -7,6 +7,11 @@ name: Reusable workflow to generate changelog
       previous-release:
         required: true
         type: string
+      release-tag:
+        description: Heading for the notes; "Unreleased" when empty
+        required: false
+        type: string
+        default: ""
 
 permissions: read-all
 
@@ -14,29 +19,36 @@ jobs:
   generate-changelog:
     runs-on: ubuntu-26.04
     steps:
-      - name: Install
-        shell: bash
-        run: |
-          sudo apt-get update
-          sudo apt-get install ruby-dev
-          # note: also update faraday b/c of
-          # https://github.com/github-changelog-generator/github-changelog-generator/issues/1056
-          sudo gem install faraday github_changelog_generator
+      - uses: actions/checkout@v7
+        with:
+          # The notes are built from `git log <previous-release>..HEAD`, so they need
+          # the full history and the previous release tag.
+          fetch-depth: 0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        working-directory: ./scripts/changelog-warnings
+        run: npm ci
 
       - name: Generate changelog
         id: generate-changelog
         run: |
-          # shellcheck disable=SC2129
-          github_changelog_generator \
-            -u ${{ github.repository_owner }} \
-            -p ${{ github.event.repository.name }} \
-            --since-tag ${{ inputs.previous-release }} \
-            -t ${{ secrets.GITHUB_TOKEN }} \
+          npx tsx scripts/changelog-warnings/src/notes.ts \
+            --previous-tag "${{ inputs.previous-release }}" \
+            --tag "${{ inputs.release-tag }}" \
             --output /var/tmp/changelog.md
 
           echo "===== DEBUG ====="
           cat /var/tmp/changelog.md
           echo "===== END ====="
+        env:
+          # Read-only use: current PR titles and authors' GitHub logins.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Upload changelog
         if: always()

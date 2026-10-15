@@ -20,8 +20,12 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
 
     if [ "$remote_sha" = "$ZERO" ]; then
         # New branch: compare against the upstream default branch, so only the
-        # commits this branch adds are considered.
-        base=$(git merge-base "$local_sha" origin/usc-dev 2>/dev/null)
+        # commits this branch adds are considered. `usc-dev` was renamed to
+        # `dev`; try both so clones that still have the old ref keep working.
+        base=""
+        for upstream in origin/dev origin/usc-dev; do
+            base=$(git merge-base "$local_sha" "$upstream" 2>/dev/null) && break
+        done
         if [ -z "$base" ]; then
             continue
         fi
@@ -35,7 +39,7 @@ while read -r _local_ref local_sha _remote_ref remote_sha; do
     if [ -n "$merges" ]; then
         echo "FAIL: pre-push: found Merge: commit(s) in $range"
         while read -r sha; do echo "  $sha"; done <<< "$merges"
-        echo "usc-dev requires linear history; rebase instead of merging."
+        echo "dev requires linear history; rebase instead of merging."
         exit 1
     fi
 done
