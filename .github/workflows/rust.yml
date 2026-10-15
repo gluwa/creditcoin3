@@ -74,6 +74,11 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: build-creditcoin-node
@@ -114,6 +119,11 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: rustfmt
+
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -158,6 +168,11 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       # Only the default branch saves. A PR's entry is readable by that PR alone, and at
       # ~2 GB per key per PR they filled the repository's 50 GB cache limit, which evicted
       # the default-branch entries every PR restores from.
@@ -215,6 +230,11 @@ jobs:
           targets: wasm32v1-none
           components: clippy, rust-src
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-clippy
@@ -251,6 +271,11 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
+
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -295,6 +320,11 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: rust-src
           targets: wasm32v1-none
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-test
