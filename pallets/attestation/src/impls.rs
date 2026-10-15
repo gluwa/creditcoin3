@@ -454,18 +454,12 @@ impl<T: Config> Pallet<T> {
         if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key, header_number) {
             log::error!("Error: {e:?}");
         }
-        // Checked after checkpointing, which drains the queue, so the commit that would
-        // checkpoint is never the one rejected.
+        // Checked after checkpointing, which drains the queue.
         if queue.len() > T::MaxCheckpointingQueueLen::get() as usize {
-            // The queue can't grow any further. Condense it in one go from every queued proof,
-            // as a catch-up commit does.
-            queue.retain(|queued| *queued != digest);
-            let condensed =
-                Self::create_checkpoints_from_queue(chain_key, &attestation, digest, queue)
-                    .inspect_err(|e| log::error!("Error: {e:?}"))
-                    .unwrap_or(false);
-            ensure!(condensed, Error::<T>::CheckpointingQueueFull);
-            return Ok(());
+            // The queue can't grow any further, and the next checkpoint boundary may still be
+            // out of reach (e.g. after the attestation interval grew). Checkpoint at this
+            // attestation instead, which condenses the whole queue without walking any proof.
+            return Self::checkpoint_at_attestation(chain_key, header_number, digest, queue);
         }
         CheckpointingQueues::<T>::insert(chain_key, queue);
 
@@ -809,6 +803,17 @@ impl<T: Config> Pallet<T> {
 
         // Free balance is the total balance minus the minimum balance and the locked balance
         free_b.saturating_sub(min_b).saturating_sub(locked_balance)
+    }
+
+    /// The chain's `MaxCatchup` once pending updates apply.
+    pub(crate) fn effective_max_catchup(chain_key: ChainKey) -> u32 {
+        PendingMaxCatchup::<T>::get(chain_key).unwrap_or_else(|| MaxCatchup::<T>::get(chain_key))
+    }
+
+    /// The chain's attestation interval once pending updates apply.
+    pub(crate) fn effective_attestation_interval(chain_key: ChainKey) -> u64 {
+        PendingAttestationInterval::<T>::get(chain_key)
+            .unwrap_or_else(|| ChainAttestationInterval::<T>::get(chain_key))
     }
 
     pub fn apply_interval_updates() {
@@ -1291,6 +1296,36 @@ impl<T: Config> Pallet<T> {
         Self::remove_attestations(chain_key, attestation_removal_queue)?;
 
         Ok(())
+    }
+
+    /// Checkpoint at an attested height, off the checkpoint-width grid, and move `condensed`
+    /// to the removal queue. The chain's checkpointing queue is cleared.
+    fn checkpoint_at_attestation(
+        chain_key: ChainKey,
+        block_number: u64,
+        digest: Digest,
+        condensed: VecDeque<Digest>,
+    ) -> DispatchResult {
+        let checkpoint = AttestationCheckpoint {
+            block_number,
+            digest,
+        };
+        Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+        Checkpoints::<T>::insert(chain_key, block_number, digest);
+        CheckpointBuckets::<T>::insert(
+            (
+                chain_key,
+                Self::compute_block_index_for(block_number),
+                block_number,
+            ),
+            (),
+        );
+        LastCheckpoint::<T>::insert(chain_key, &checkpoint);
+        CheckpointingQueues::<T>::remove(chain_key);
+
+        let mut attestation_removal_queue = AttestationRemovalQueues::<T>::get(chain_key);
+        attestation_removal_queue.extend(condensed);
+        Self::remove_attestations(chain_key, attestation_removal_queue)
     }
 
     /// Create checkpoints dynamically from an attestation's continuity proof when catching up

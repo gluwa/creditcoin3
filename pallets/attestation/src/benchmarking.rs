@@ -455,8 +455,9 @@ mod benchmarks {
     /// `commit_attestation` on the catch-up path against a checkpointing queue of `q` entries,
     /// each carrying the largest attestor set and an attestation interval's worth of roots.
     /// Catch-up reads, decodes and removes every queued attestation. Only the marginal cost of
-    /// `q` is charged on top of [`commit_attestation`]; the roots in queued proofs are charged
-    /// through its `s`.
+    /// `q` is charged on top of [`commit_attestation`]. `weigh_data` charges the roots in queued
+    /// proofs separately through [`continuity_roots`], so the interval's worth of roots measured
+    /// here per entry is charged twice, erring high.
     #[benchmark]
     fn commit_attestation_queued(q: Linear<0, { T::MaxCheckpointingQueueLen::get() - 1 }>) {
         let (attestors, attestation_prev) = setup_commit::<T>(1);

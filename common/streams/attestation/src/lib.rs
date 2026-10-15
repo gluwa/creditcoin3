@@ -300,12 +300,11 @@ impl StreamAttestation {
         // `prev_digest` derives from the *shape of the continuity proof*, not the attestation
         // interval:
         //
-        // * Empty proof (the target directly follows the previous finalized attestation —
-        //   e.g. after an interval change, a reversion, or a restart from a non-aligned
-        //   height): the runtime's direct-link path requires `prev_digest` to equal the last
-        //   finalized digest. Deriving it from the (empty) proof would yield the proof's
-        //   default zero `lower_endpoint_digest`, which the runtime rejects for non-genesis
-        //   attestations.
+        // * Empty proof (the target directly follows the previous finalized attestation, which
+        //   the runtime only accepts with an attestation interval of 1): the runtime's
+        //   direct-link path requires `prev_digest` to equal the last finalized digest.
+        //   Deriving it from the (empty) proof would yield the proof's default zero
+        //   `lower_endpoint_digest`, which the runtime rejects for non-genesis attestations.
         // * Non-empty proof: the runtime reconstructs the digest chain over the proof roots and
         //   requires `prev_digest` to equal the reconstructed head.
         let prev_digest = if continuity_proof.is_empty() {
@@ -393,6 +392,17 @@ impl futures::Stream for StreamAttestation {
         use futures::StreamExt as _;
 
         loop {
+            // The runtime only accepts an attestation at least an interval past the last attested
+            // height. The cursor only descends, so nothing left in this range would be accepted.
+            if self.cursor
+                < self
+                    .attestation_prev
+                    .height
+                    .saturating_add(self.attestation_interval.get())
+            {
+                self.cursor = *self.computed.start();
+            }
+
             // Yield cached roots
             if self.cursor > *self.computed.start() {
                 assert!(

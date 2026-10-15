@@ -368,18 +368,22 @@ async fn attestation_interval_change(
         .note_attestation_interval_change(nonzero!(3))
         .await;
 
-    roots.send_ready(); // 2
-    roots.send_ready(); // 3
+    for _ in 2..=6 {
+        roots.send_ready(); // 2..=6
+        tip.send_ready(); // 2..=6
+    }
 
-    tip.send_ready(); // 2
-    tip.send_ready(); // 3
-
+    // Catch-up stops at height 4, an interval past height 1.
     let std::task::Poll::Ready(Some(attestation)) = poll!(stream_attestation) else {
         panic!("Failed to generate attestation");
     };
 
-    assert_eq!(attestation.header_number(), 3);
-    assert_eq!(attestation.continuity_proof.len(), 1);
+    assert_eq!(attestation.header_number(), 4);
+    assert_eq!(attestation.continuity_proof.len(), 2);
+
+    // Height 3 is on the new interval but less than an interval past height 1, which the
+    // runtime rejects, so it is not generated.
+    assert!(poll!(stream_attestation).is_pending());
 }
 
 /// Attestation chain reversion should reset attestation production to a previous height

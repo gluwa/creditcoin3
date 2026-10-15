@@ -637,8 +637,10 @@ pub mod pallet {
                 assert!(
                     chain_configuration.attestation_interval > 0
                         && chain_configuration.attestation_interval
-                            <= T::MaxChainAttestationInterval::get(),
-                    "attestation_interval must be non-zero and within MaxChainAttestationInterval"
+                            <= T::MaxChainAttestationInterval::get()
+                        && chain_configuration.attestation_interval
+                            <= T::DefaultMaxCatchup::get() as u64,
+                    "attestation_interval must be non-zero and within MaxChainAttestationInterval and DefaultMaxCatchup"
                 );
                 assert!(
                     chain_configuration.attestations_per_checkpoint > 0
@@ -957,8 +959,6 @@ pub mod pallet {
         /// draining for this chain; commits are rejected so cleanup can't collaterally delete a
         /// new attestation or checkpoint.
         AttestationCleanupInProgress,
-        /// The chain's checkpointing queue is at [`Config::MaxCheckpointingQueueLen`].
-        CheckpointingQueueFull,
         /// The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
         TooManyAttestationsInBlock,
     }
@@ -983,16 +983,19 @@ pub mod pallet {
 
         fn integrity_test() {
             assert!(T::MaxAttestationsPerBlock::get() > 0);
+            // Registration defaults must satisfy the setters' `interval <= MaxCatchup` rule.
+            assert!(T::DefaultAttestationInterval::get() <= T::DefaultMaxCatchup::get() as u64);
             // Room for the queue a chain holds between checkpoints at the largest allowed
             // checkpoint interval. Queued attestations are at least an attestation interval
-            // apart (see `validate_attestation`), so a full queue always spans a checkpoint.
+            // apart (see `validate_attestation`), so a steady interval never fills the queue; a
+            // full one (e.g. after the interval grew) is condensed into an off-grid checkpoint.
             assert!(
                 T::MaxCheckpointingQueueLen::get()
                     > T::MaxAttestationCheckpointInterval::get()
                         .saturating_mul(2)
                         .saturating_add(1)
             );
-            // A commit that condenses a full queue, with the largest attestor set and the span
+            // A catch-up commit against a full queue, with the largest attestor set and the span
             // such a queue covers at the default intervals, must still fit in a single normal
             // extrinsic. Mirrors `weigh_data`: the gap since the last checkpoint, the
             // attestation's own proof and the queued proof that straddles the last checkpoint.
@@ -1053,6 +1056,14 @@ pub mod pallet {
             // neutering the `OversizedContinuityProof` guard (see `MaxChainAttestationInterval`).
             ensure!(
                 chain_attestation_interval <= T::MaxChainAttestationInterval::get(),
+                Error::<T>::InvalidAttestationInterval
+            );
+
+            // Attestors never attest past `MaxCatchup` blocks beyond the last attested height,
+            // and the runtime requires each attestation to be at least an interval past it, so a
+            // larger interval would leave every height out of reach.
+            ensure!(
+                chain_attestation_interval <= Self::effective_max_catchup(chain_key) as u64,
                 Error::<T>::InvalidAttestationInterval
             );
 
@@ -1547,6 +1558,12 @@ pub mod pallet {
                 Error::<T>::InvalidMaxCatchup
             };
 
+            // See `set_chain_attestation_interval`: the interval must stay within `MaxCatchup`.
+            ensure!(
+                max_catchup as u64 >= Self::effective_attestation_interval(chain_key),
+                Error::<T>::InvalidMaxCatchup
+            );
+
             ensure!(
                 T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
@@ -1662,7 +1679,10 @@ pub mod pallet {
                 }
             }
             if let Some(v) = chain_attestation_interval {
-                if v == 0 || v > T::MaxChainAttestationInterval::get() {
+                if v == 0
+                    || v > T::MaxChainAttestationInterval::get()
+                    || v > MaxCatchup::<T>::get(chain_key) as u64
+                {
                     return Err("InvalidAttestationInterval");
                 }
             }
@@ -1793,15 +1813,16 @@ pub mod pallet {
             // Charged from the stored queue length, read from its length prefix.
             let q = Pallet::<T>::checkpointing_queue_len(chain_key);
 
-            // Continuity-proof roots walked beyond the attestation's own proof. Condensing the
-            // queue (the catch-up path, or the fallback once the queue is over
-            // `MaxCheckpointingQueueLen`) expands every queued attestation's proof, which covers
+            // Continuity-proof roots walked beyond the attestation's own proof. The catch-up
+            // path expands every queued attestation's proof. Each proof extends the digest
+            // before it (see `validate_attestation_continuity`), so together they cover exactly
             // the blocks between the last checkpoint and the last attested height plus the
             // queued proof that straddles the checkpoint. A queued proof is shorter than
             // `2 * checkpoint_width`, since a longer one takes the catch-up path instead. The
-            // legacy path walks one queued proof to locate the checkpoint target.
+            // legacy path walks one queued proof to locate the checkpoint target; the fallback
+            // for a full queue walks none.
             let straddle = checkpoint_width.saturating_mul(2);
-            let catching_up = proof_len >= straddle || q >= T::MaxCheckpointingQueueLen::get();
+            let catching_up = proof_len >= straddle;
             let extra_roots = if catching_up {
                 let last_height = LastDigest::<T>::get(chain_key)
                     .map(|(h, _)| h)
@@ -1818,14 +1839,14 @@ pub mod pallet {
             let weight = CommitAttestationWeight::<T>::weight_for(s_eff, m, q);
 
             // --- Checkpoint creation writes ---
-            // The legacy path creates at most one checkpoint per commit; the catch-up path
-            // creates one per checkpoint boundary between the last checkpoint and this
-            // attestation. Each costs 3 storage writes (Checkpoints, CheckpointBuckets,
-            // LastCheckpoint) plus a `CheckpointReached` event.
+            // The legacy path creates at most one checkpoint per commit, plus one more if the
+            // queue is then still full; the catch-up path creates one per checkpoint boundary
+            // between the last checkpoint and this attestation. Each costs 3 storage writes
+            // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus a `CheckpointReached` event.
             let estimated_checkpoints = if catching_up {
                 header_number.saturating_sub(last_checkpoint) / checkpoint_width
             } else {
-                1
+                2
             };
             // The benchmark created `proof_len / 100` checkpoints.
             let benchmark_checkpoints = proof_len / 100;
@@ -1837,8 +1858,9 @@ pub mod pallet {
     impl<T: Config> CommitAttestationWeight<T> {
         /// Commit weight for `s` continuity-proof roots and `m` attestors, plus the marginal
         /// cost of a checkpointing queue of `q` entries. Each queued entry is read, decoded and
-        /// removed; every root walked, including those in queued proofs, is charged through
-        /// `continuity_roots`, which is benchmarked over a range wide enough to resolve it.
+        /// removed. `s` counts every root walked, including those in queued proofs, which the
+        /// caller sizes from the span they cover; each is charged through `continuity_roots`,
+        /// which is benchmarked over a range wide enough to resolve it.
         pub(crate) fn weight_for(s: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
             <T as Config>::WeightInfo::commit_attestation(s, m)
