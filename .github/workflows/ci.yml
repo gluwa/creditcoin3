@@ -16,6 +16,7 @@ name: CI
   workflow_dispatch:
     inputs:
       soak:
+        # checkov:skip=CKV_GHA_7:Only picks which suites run; the source is still the dispatched ref
         description: Run the nightly attestor-network soak instead of the PR suites
         type: boolean
         default: false
