@@ -315,9 +315,12 @@ jobs:
         run: |
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          # The state dump is as large as the fixture (~5 GB of JSON) and only feeds the
+          # restart below, so it lives outside the log directory that gets uploaded.
+          mkdir -p /var/tmp/anvil-state
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
               --load-state ./anvil10k_blocks.json \
-              --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart.json \
+              --dump-state /var/tmp/anvil-state/anvil1-restart.json \
               >/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
@@ -624,16 +627,14 @@ jobs:
             echo "Port 8141 still bound after killing old anvil" >&2
             exit 1
           fi
-          if [ ! -s /var/tmp/integration-test-attestor-network/anvil1-restart.json ]; then
+          if [ ! -s /var/tmp/anvil-state/anvil1-restart.json ]; then
             echo "Anvil did not dump restart state" >&2
             exit 1
           fi
-          cp /var/tmp/integration-test-attestor-network/anvil1-restart.json \
-            /var/tmp/integration-test-attestor-network/anvil1-load.json
 
+          # Nothing restarts this one, so it dumps no state.
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
-            --load-state /var/tmp/integration-test-attestor-network/anvil1-load.json \
-            --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart-2.json \
+            --load-state /var/tmp/anvil-state/anvil1-restart.json \
             >>/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
