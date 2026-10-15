@@ -556,9 +556,23 @@ where
             }
         };
 
+    // Under --sealing, block time advances one slot per sealed block, starting from the best
+    // block's slot, so the BABE slot and the timestamp always agree and epochs end after
+    // `EpochDuration` blocks however quickly they are sealed. Authorship advances it; the
+    // Ethereum RPC's pending block only reads it, since sealed time runs ahead of the wall
+    // clock and a wall-clock pending timestamp would fall behind its parent.
+    let manual_seal_clock = match sealing {
+        Some(_) => Some(Arc::new(
+            SlotTimestampProvider::new_babe(client.clone())
+                .map_err(|e| ServiceError::Other(format!("manual seal: block clock: {e}")))?,
+        )),
+        None => None,
+    };
+
     let rpc_builder = {
         let client = client.clone();
         let pool = transaction_pool.clone();
+        let manual_seal_clock = manual_seal_clock.clone();
         let network = network.clone();
         let sync_service = sync_service.clone();
 
@@ -582,16 +596,25 @@ where
 
         let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
         let target_gas_price = eth_config.target_gas_price;
-        let pending_create_inherent_data_providers = move |_, ()| async move {
-            let current = sp_timestamp::InherentDataProvider::from_system_time();
-            let next_slot = current.timestamp().as_millis() + slot_duration.as_millis();
-            let timestamp = sp_timestamp::InherentDataProvider::new(next_slot.into());
-            let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-				*timestamp,
-				slot_duration,
-			);
-            let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
-            Ok((slot, timestamp, dynamic_fee))
+        let pending_create_inherent_data_providers = move |_, ()| {
+            let manual_seal_clock = manual_seal_clock.clone();
+            async move {
+                let next_block_time = match manual_seal_clock {
+                    Some(clock) => clock.timestamp(),
+                    None => {
+                        let now = sp_timestamp::InherentDataProvider::from_system_time();
+                        (now.timestamp().as_millis() + slot_duration.as_millis()).into()
+                    }
+                };
+                let timestamp = sp_timestamp::InherentDataProvider::new(next_block_time);
+                let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+                    *timestamp,
+                    slot_duration,
+                );
+                let dynamic_fee =
+                    fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+                Ok((slot, timestamp, dynamic_fee))
+            }
         };
         let select_chain = select_chain.clone();
         let keystore = keystore_container.keystore();
@@ -629,7 +652,8 @@ where
                     fee_history_cache_limit,
                     execute_gas_limit_multiplier,
                     forced_parent_hashes: None,
-                    pending_create_inherent_data_providers,
+                    pending_create_inherent_data_providers: pending_create_inherent_data_providers
+                        .clone(),
                     pending_consensus_data_provider: Some(rpc::BabeConsensusDataProvider::new()),
                 };
                 let deps = rpc::FullDeps {
@@ -708,6 +732,7 @@ where
                 client,
                 keystore_container.keystore(),
                 babe_link,
+                manual_seal_clock.expect("created whenever sealing is set; qed"),
                 transaction_pool,
                 select_chain,
                 block_import,
@@ -827,6 +852,7 @@ fn run_manual_seal_authorship<RuntimeApi>(
     client: Arc<FullClient<RuntimeApi>>,
     keystore: sp_keystore::KeystorePtr,
     babe_link: BabeLink<Block>,
+    clock: Arc<SlotTimestampProvider>,
     transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
     select_chain: FullSelectChain,
     block_import: BoxBlockImport,
@@ -847,14 +873,6 @@ where
         transaction_pool.clone(),
         prometheus_registry,
         telemetry.as_ref().map(|x| x.handle()),
-    );
-
-    // Block time advances one slot per sealed block, starting from the best block's slot, so
-    // the BABE slot and the timestamp always agree and epochs end after `EpochDuration`
-    // blocks however quickly they are sealed.
-    let clock = Arc::new(
-        SlotTimestampProvider::new_babe(client.clone())
-            .map_err(|e| ServiceError::Other(format!("manual seal: block clock: {e}")))?,
     );
 
     let target_gas_price = eth_config.target_gas_price;
