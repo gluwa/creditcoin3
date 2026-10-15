@@ -41,6 +41,7 @@ jobs:
       integration_test_blockchain: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.integration_test_blockchain || 'false' }}
       integration_test_cli: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.integration_test_cli || 'false' }}
       regenerate_metadata: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.regenerate_metadata || 'false' }}
+      extrinsics: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.extrinsics || 'false' }}
       attestor_compatibility: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.attestor_compatibility || 'false' }}
       validator_compatibility: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.validator_compatibility || 'false' }}
       proof_gen: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.proof_gen || 'false' }}
@@ -178,6 +179,16 @@ jobs:
               - ".github/wait-for-proof-gen.sh"
               - ".github/workflows/proof-gen-api-server.yml"
               - ".github/workflows/ci.yml"
+            # What the runtime's call metadata is built from, including the FRAME pallets
+            # that come in through Cargo.lock.
+            extrinsics:
+              - "runtime/**"
+              - "pallets/**"
+              - "primitives/**"
+              - "Cargo.lock"
+              - "**/Cargo.toml"
+              - ".github/check-extrinsics.sh"
+              - ".github/workflows/ci.yml"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
@@ -196,8 +207,8 @@ jobs:
   build-creditcoin-node-for-testing-ci:
     needs:
       - should-run
-    # extrinsics check below needs the build unconditionally on usc-dev, regardless of path filters
-    if: ${{ needs.should-run.outputs.changes != '[]' || contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) || (github.event_name == 'schedule' || inputs.soak) }}
+    # Any matching filter needs the binaries, the extrinsics check among them.
+    if: ${{ needs.should-run.outputs.changes != '[]' || (github.event_name == 'schedule' || inputs.soak) }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -211,9 +222,11 @@ jobs:
     secrets: inherit
 
   integration-test-check-extrinsics:
-    if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
+    # The call metadata can only change with the runtime, its pallets or their dependencies.
+    if: ${{ contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) && needs.should-run.outputs.extrinsics == 'true' }}
     needs:
       - build-creditcoin-node-for-testing-ci
+      - should-run
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
