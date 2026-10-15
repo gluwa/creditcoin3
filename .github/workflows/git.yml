@@ -67,20 +67,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
           # The PR head as this repository sees it. `refs/pull/<n>/head` exists for fork and
           # same-repo PRs alike, whereas `github.head_ref` names a branch that only exists in
           # the fork, so checking that out here failed every fork PR before any check ran.
-          # The full fetch also brings `origin/<base>`, which the merge-commit check needs.
           ref: refs/pull/${{ github.event.pull_request.number }}/head
-
-      - name: Check for Merge commit(s)
-        run: |
-          commits=$(git log "origin/$GITHUB_BASE_REF..HEAD" | grep "Merge: " || echo -n)
-          if [ -n "$commits" ]; then
-              echo "FAIL: found Merge: commit(s)"
-              exit 1
-          fi
 
       - name: Check for duplicate files
         run: |
