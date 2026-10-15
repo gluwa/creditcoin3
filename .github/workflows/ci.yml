@@ -343,13 +343,17 @@ jobs:
             --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
 
+      # 10,005 blocks with two transactions each (55 MB unpacked), made by
+      # .github/generate-anvil-fixture.py. The attestors need the backlog of blocks, not
+      # traffic in them: the previous fixture's ~50 transactions per block made a 4.8 GB
+      # state that every load, dump, archive and verification step had to work through.
       - name: Download 10k Anvil state
         run: |
-          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks.json.xz"
-          ls -lh
+          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks_2tx.json.xz"
+          echo "bb70269b8b19b6d8c27d9aba113e27177fe80050464d492e17f2e61b331dd65e  anvil10k_blocks.json.xz" | sha256sum -c -
 
           unxz anvil10k_blocks.json.xz
-          ls -lh
+          ls -lh anvil10k_blocks.json
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -650,7 +654,7 @@ jobs:
           # anvil1-restart.json — the restart reloads that state, and the dumped-state
           # check below hard-fails without it. So: TERM + wait for the dump, then KILL
           # as a fallback, then wait for port 8141 to be released before restarting.
-          # The dump is the whole 10k-block fixture state (gigabytes of JSON) written
+          # The dump is the whole 10k-block fixture state (tens of MB of JSON) written
           # while the archiver is still hammering eth_getBlockReceipts, so give it
           # minutes, not seconds: a KILL here truncates the file and the restart fails
           # on "failed to parse json file" instead of exercising recovery.
