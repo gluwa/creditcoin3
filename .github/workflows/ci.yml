@@ -2217,6 +2217,9 @@ jobs:
     uses: ./.github/workflows/attestor-compatibility.yml
     with:
       sut-artifact: binary-for-testing-ci
+      # Red by construction on dev whenever pallet-attestation's metadata changes; a
+      # warning there, blocking on promotion PRs.
+      informational: ${{ github.base_ref == 'dev' }}
     secrets: inherit
 
   validator-compatibility:
