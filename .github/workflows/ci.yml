@@ -1008,9 +1008,6 @@ jobs:
             secret: valid-proxy
             proxy_type: All
             files: "bond send validate chill set-keys unbond validatorCycle wizard"
-            # Blocks sealed and finalized every second instead of BABE slots and GRANDPA
-            # (see startSealTicker in cli/src/test/utils.ts). Trialled on this leg first.
-            sealing: manual
 
     name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}${{ matrix.part && format(' / {0}', matrix.part) || '' }}
     # Gated directly rather than through a separate no-op `trigger-` job, which burned a
@@ -1137,7 +1134,10 @@ jobs:
         env:
           TEST_FILES: ${{ matrix.files }}
           SHARD: ${{ matrix.shard }}
-          CREDITCOIN_SEALING: ${{ matrix.sealing }}
+          # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
+          # startSealTicker in cli/src/test/utils.ts): the valid-proxy All leg went from 21 to
+          # 6 min with it.
+          CREDITCOIN_SEALING: manual
           # <shard>:<file> for the proxy=no legs, split by measured file duration
           VALIDATOR_SHARDS: >-
             shard-1:withdraw-unbonded
