@@ -1023,7 +1023,7 @@ jobs:
     steps:
       # Plain checkout, i.e. the PR merge ref, like every other job here. This one
       # used to pin the branch head, inherited from the commit that introduced the
-      # typedef auto-update; only `rebuild-new-metadata` needs that, because only it
+      # typedef auto-update; only `commit-new-metadata` needs that, because only it
       # commits back. The pin meant this job ran CLI sources from the un-merged branch
       # against a node binary that build-creditcoin-node-for-testing-ci compiled from
       # the merge ref.
@@ -2256,8 +2256,8 @@ jobs:
       # `metadata.scale`, and would again if the refs ever drift apart. Copying the
       # files in has no pre-image to match, so it cannot fail that way.
       #
-      # These are exactly the three paths `rebuild-new-metadata` commits back
-      # (build-native.yml). Incidental `cli/yarn.lock` churn is deliberately not
+      # These are exactly the three paths `commit-new-metadata` commits back
+      # (below). Incidental `cli/yarn.lock` churn is deliberately not
       # carried over: every consumer runs its own `yarn install` afterwards.
       - name: Upload regenerated metadata
         uses: actions/upload-artifact@v7
@@ -2270,23 +2270,46 @@ jobs:
             cli/src/lib/interfaces/
             common/cc-client/artifacts/metadata.scale
 
-  # On a hosted runner, like the main testing build (#1489): no Linode VM to provision and
-  # remove around it.
-  rebuild-new-metadata:
+  # Commits the files regenerate-metadata produced back to the PR branch. It used to
+  # compile the whole workspace in release first, only to check that cc-client builds
+  # against the new metadata.scale, and nothing used the binaries. The bot's commit
+  # starts a new CI run that compiles everything against the committed metadata anyway.
+  commit-new-metadata:
     # checkov:skip=CKV2_GHA_1:We need this for typedefs auto-commit
-    permissions: write-all
+    permissions:
+      contents: write
     needs:
       - regenerate-metadata
     if: ${{ needs.regenerate-metadata.outputs.git_diff == 'true' }}
-    uses: ./.github/workflows/build-native.yml
-    with:
-      build-options: "--release"
-      git-lfs-checkout: false
-      version-string: new-metadata
-      cache-key-name: build-creditcoin-node
-      use-new-metadata: true
-      runs-on: "['ubuntu-26.04']"
-    secrets: inherit
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      # The branch head, not the merge ref: this job commits back to it. With the bot's
+      # token, which checkout keeps as the push credential: a push made with GITHUB_TOKEN
+      # starts no workflow, so nothing would compile the committed metadata.
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+
+      - name: Download regenerated metadata
+        uses: actions/download-artifact@v8
+        with:
+          name: new-metadata
+          path: .
+
+      - name: Show what the regenerated metadata changed
+        run: git status --short --untracked-files=no
+
+      - name: Commit typedefs and metadata changes
+        uses: EndBug/add-and-commit@v10
+        with:
+          add: "cli/creditcoin.json cli/src/lib/interfaces/ common/cc-client/artifacts/metadata.scale"
+          author_name: gluwa-bot
+          author_email: creditcoin@gluwa.com
+          message: "Auto-update metadata & TypeScript type definitions"
+          github_token: ${{ secrets.GLUWA_BOT_TOKEN }}
 
   # The four example workflows below run gluwa/attestcoin-protocol-examples. They are pinned
   # to one commit, the same SHA in `uses:` and `checkout_ref`, so a push to the examples repo
