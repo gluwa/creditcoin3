@@ -1,4 +1,5 @@
 import { createClient } from 'graphqurl';
+import { ApiPromise } from '../../lib';
 
 export const graphQLQuery = (queryString: string) => {
     return createClient({
@@ -11,3 +12,8 @@ export const graphQLQuery = (queryString: string) => {
         query: queryString,
     });
 };
+
+// The chain's clock at its best block. Under `--sealing`, `waitEras` seals blocks ahead of
+// time, so chain time runs ahead of the wall clock: "not in the future" means not later
+// than the best block, not not later than `Date.now()`.
+export const chainNow = async (api: ApiPromise): Promise<number> => (await api.query.timestamp.now()).toNumber();

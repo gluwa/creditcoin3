@@ -7,7 +7,7 @@ import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil1_Key, chain_Anvil1_Url } from '../blockchain-tests/pallets/supported-chains/consts';
 import { blockProverAddress } from '../blockchain-tests/precompiles/consts';
 import { forElapsedBlocks } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import blockProverABIJSON = require('../blockchain-tests/artifacts/block_prover.json');
@@ -123,7 +123,7 @@ describe('handleTransactionVerified()', () => {
                 expect(BigInt(node.transactionIndex)).toBeGreaterThanOrEqual(0n);
                 expect(BigInt(node.ccBlockNumber)).toBeGreaterThan(startingBlock);
                 expect(BigInt(node.timestamp)).toBeGreaterThan(0);
-                expect(BigInt(node.timestamp)).toBeLessThan(Date.now());
+                expect(BigInt(node.timestamp)).toBeLessThanOrEqual(await chainNow(api));
                 // note: this is the transaction hash on the Creditcoin 3 chain
                 // not on the source chain, iow not the transaction in the query
                 expect(node.txHash.startsWith('0x')).toEqual(true);

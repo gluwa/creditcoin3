@@ -1,7 +1,7 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks, randomIntBetween, sleep } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 // Poll the chain until `set_chain_attestation_interval` has actually been *applied* to
 // `chainKey`, i.e. `ChainAttestationInterval` reads back as `expected`.
@@ -126,7 +126,7 @@ describe('handleEventAttestationIntervalChanged()', () => {
                 // note: inspecting only last record
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(BigInt(node.interval)).toEqual(newInterval);
             }

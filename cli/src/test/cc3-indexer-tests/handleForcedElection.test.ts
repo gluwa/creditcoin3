@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 describe('handleForcedElection()', () => {
     let api: ApiPromise;
@@ -41,7 +41,7 @@ describe('handleForcedElection()', () => {
                 expect(node.id).toBeTruthy();
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 // labelled with the epoch current at submission (allow one rollover since)
                 expect(BigInt(node.epoch)).toBeGreaterThanOrEqual(currentEpoch - 1n);

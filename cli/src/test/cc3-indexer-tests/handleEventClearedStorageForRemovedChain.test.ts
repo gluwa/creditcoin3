@@ -1,7 +1,7 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 describe('handleEventClearedStorageForRemovedChain()', () => {
     let api: ApiPromise;
@@ -69,7 +69,7 @@ describe('handleEventClearedStorageForRemovedChain()', () => {
                 // note: inspecting only last record
                 expect(BigInt(node.blockNumber)).toBeGreaterThan(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(BigInt(node.chainKey)).toEqual(newChainKey);
                 expect(node.whoId).toEqual(root.address);
             }
