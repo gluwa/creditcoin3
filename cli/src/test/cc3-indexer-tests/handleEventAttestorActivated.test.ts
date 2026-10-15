@@ -6,7 +6,7 @@ import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { proofOfPossessionMessage } from '../../lib/attestor/proof-of-possession';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 describe('handleEventAttestorActivated()', () => {
     let api: ApiPromise;
@@ -101,7 +101,7 @@ describe('handleEventAttestorActivated()', () => {
                 expect(node.attestorId).toEqual(attestor.address);
                 expect(node.chainKey).toEqual(chain_Anvil2_Key.toString());
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(node.blsPublicKey.startsWith('0x')).toEqual(true);
             }
         });

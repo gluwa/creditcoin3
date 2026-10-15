@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 describe('handleEventCheckpointsCleared()', () => {
     let api: ApiPromise;
@@ -54,7 +54,7 @@ describe('handleEventCheckpointsCleared()', () => {
                 // note: inspecting only last record
                 expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(startingBlock);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(node.chainKey).toEqual(chain_Anvil3_Key.toString());
             }
         });

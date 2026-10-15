@@ -1,12 +1,16 @@
 //! Service and ServiceFactory implementation. Specialized wrapper over substrate service.
 
 use futures::{channel::mpsc, prelude::*};
-use std::{cell::RefCell, path::Path, sync::Arc, time::Duration};
+use std::{path::Path, sync::Arc, time::Duration};
 // Substrate
 use fc_rpc::{StorageOverride, StorageOverrideHandler};
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus::BasicQueue;
 use sc_consensus_babe::{BabeBlockImport, BabeLink, BabeWorkerHandle};
+use sc_consensus_manual_seal::consensus::{
+    babe::{BabeConsensusDataProvider, BabeVerifier},
+    timestamp::SlotTimestampProvider,
+};
 use sc_network_sync::{strategy::warp::WarpSyncProvider, WarpSyncConfig};
 use sc_service::{error::Error as ServiceError, Configuration, PartialComponents, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryHandle, TelemetryWorker};
@@ -60,9 +64,13 @@ where
 /// imported and generated.
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
+/// How far ahead of the wall clock a manual-seal node accepts block timestamps: a year.
+const MANUAL_SEAL_CLOCK_LEAD_MILLIS: u64 = 365 * 24 * 60 * 60 * 1000;
+
 pub fn new_partial<RuntimeApi, BIQ>(
     config: &Configuration,
     eth_config: &EthConfiguration,
+    sealing: Option<Sealing>,
     build_import_queue: BIQ,
 ) -> Result<
     PartialComponents<
@@ -196,6 +204,7 @@ where
 
     let babe_config = sc_consensus_babe::configuration(&*client)?;
     let slot_duration_for_import = babe_config.slot_duration();
+    let manual_seal = sealing.is_some();
     let (babe_block_import, babe_link) = sc_consensus_babe::block_import(
         babe_config,
         grandpa_block_import.clone(),
@@ -203,7 +212,20 @@ where
         Arc::new(move |_, _| {
             let slot_duration = slot_duration_for_import;
             async move {
-                let timestamp = sp_timestamp::InherentDataProvider::from_system_time();
+                // Manual seal moves block time one slot per block, however fast blocks are
+                // requested, so a test that seals a few eras ahead runs hours ahead of the
+                // wall clock. Imports compare the block's timestamp with this one (at most
+                // 30 s in the future), so give them a clock that is ahead by more than any
+                // test fast-forwards.
+                let timestamp = if manual_seal {
+                    sp_timestamp::InherentDataProvider::new(
+                        sp_timestamp::Timestamp::current()
+                            .saturating_add(MANUAL_SEAL_CLOCK_LEAD_MILLIS)
+                            .into(),
+                    )
+                } else {
+                    sp_timestamp::InherentDataProvider::from_system_time()
+                };
                 let slot =
                     sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
                         *timestamp,
@@ -310,12 +332,17 @@ where
     ))
 }
 
-/// Build the import queue for the template runtime (manual seal).
+/// Build the import queue for manual seal.
+///
+/// Blocks still go through BABE's block import, so BABE tracks epochs and the runtime's
+/// epoch, session and era logic keeps running; without it a manually sealed chain never
+/// leaves its first epoch. The verifier stands in for BABE's own, which would check slots
+/// against the wall clock.
 pub fn build_manual_seal_import_queue<RuntimeApi>(
     _eth_config: &EthConfiguration,
     basics: Basics<RuntimeApi>,
     _grandpa_block_import: GrandpaBlockImport<FullClient<RuntimeApi>>,
-    _babe_import: (
+    babe_import: (
         BabeBlockImport<
             Block,
             FullClient<RuntimeApi>,
@@ -345,10 +372,14 @@ where
         config,
         ..
     } = basics;
-    let frontier_block_import = FrontierBlockImport::new(client.clone(), client);
+    let (babe_import, babe_link) = babe_import;
+    let frontier_block_import = FrontierBlockImport::new(babe_import, client.clone());
+    let verifier = BabeVerifier::new(babe_link.epoch_changes().clone(), client);
     Ok((
-        sc_consensus_manual_seal::import_queue(
+        BasicQueue::new(
+            verifier,
             Box::new(frontier_block_import.clone()),
+            None,
             &task_manager.spawn_essential_handle(),
             config.prometheus_registry(),
         ),
@@ -394,7 +425,7 @@ where
                 overrides,
                 babe_worker,
             ),
-    } = new_partial(&config, &eth_config, build_import_queue)?;
+    } = new_partial(&config, &eth_config, sealing, build_import_queue)?;
 
     let FrontierPartialComponents {
         filter_pool,
@@ -551,16 +582,41 @@ where
 
         let slot_duration = sc_consensus_babe::configuration(&*client)?.slot_duration();
         let target_gas_price = eth_config.target_gas_price;
-        let pending_create_inherent_data_providers = move |_, ()| async move {
-            let current = sp_timestamp::InherentDataProvider::from_system_time();
-            let next_slot = current.timestamp().as_millis() + slot_duration.as_millis();
-            let timestamp = sp_timestamp::InherentDataProvider::new(next_slot.into());
-            let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
-				*timestamp,
-				slot_duration,
-			);
-            let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
-            Ok((slot, timestamp, dynamic_fee))
+        let manual_seal = sealing.is_some();
+        let pending_client = client.clone();
+        let pending_create_inherent_data_providers = move |parent: Hash, ()| {
+            let client = pending_client.clone();
+            async move {
+                // Under --sealing, block time advances one slot per sealed block and runs
+                // ahead of the wall clock, so the pending block follows its parent's slot
+                // instead. That holds on a node that only follows a sealed chain, too.
+                let parent_slot = if manual_seal {
+                    client
+                        .header(parent)?
+                        .and_then(|header| {
+                            sc_consensus_babe::find_pre_digest::<Block>(&header).ok()
+                        })
+                        .map(|pre_digest| *pre_digest.slot())
+                } else {
+                    None
+                };
+                let next_block_time: sp_timestamp::Timestamp = match parent_slot {
+                    Some(slot) => ((slot + 1) * slot_duration.as_millis()).into(),
+                    // Not sealing, or the parent is genesis: one slot from now.
+                    None => {
+                        let now = sp_timestamp::InherentDataProvider::from_system_time();
+                        (now.timestamp().as_millis() + slot_duration.as_millis()).into()
+                    }
+                };
+                let timestamp = sp_timestamp::InherentDataProvider::new(next_block_time);
+                let slot = sp_consensus_babe::inherents::InherentDataProvider::from_timestamp_and_slot_duration(
+                    *timestamp,
+                    slot_duration,
+                );
+                let dynamic_fee =
+                    fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+                Ok((slot, timestamp, dynamic_fee))
+            }
         };
         let select_chain = select_chain.clone();
         let keystore = keystore_container.keystore();
@@ -598,7 +654,8 @@ where
                     fee_history_cache_limit,
                     execute_gas_limit_multiplier,
                     forced_parent_hashes: None,
-                    pending_create_inherent_data_providers,
+                    pending_create_inherent_data_providers: pending_create_inherent_data_providers
+                        .clone(),
                     pending_consensus_data_provider: Some(rpc::BabeConsensusDataProvider::new()),
                 };
                 let deps = rpc::FullDeps {
@@ -675,6 +732,8 @@ where
                 &eth_config,
                 sealing,
                 client,
+                keystore_container.keystore(),
+                babe_link,
                 transaction_pool,
                 select_chain,
                 block_import,
@@ -787,10 +846,13 @@ where
     Ok(task_manager)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_manual_seal_authorship<RuntimeApi>(
     eth_config: &EthConfiguration,
     sealing: Sealing,
     client: Arc<FullClient<RuntimeApi>>,
+    keystore: sp_keystore::KeystorePtr,
+    babe_link: BabeLink<Block>,
     transaction_pool: Arc<FullPool<FullClient<RuntimeApi>>>,
     select_chain: FullSelectChain,
     block_import: BoxBlockImport,
@@ -813,40 +875,33 @@ where
         telemetry.as_ref().map(|x| x.handle()),
     );
 
-    thread_local!(static TIMESTAMP: RefCell<u64> = const { RefCell::new(0) });
-
-    /// Provide a mock duration starting at 0 in millisecond for timestamp inherent.
-    /// Each call will increment timestamp by slot_duration making Babe think time has passed.
-    struct MockTimestampInherentDataProvider;
-
-    #[async_trait::async_trait]
-    impl sp_inherents::InherentDataProvider for MockTimestampInherentDataProvider {
-        async fn provide_inherent_data(
-            &self,
-            inherent_data: &mut sp_inherents::InherentData,
-        ) -> Result<(), sp_inherents::Error> {
-            TIMESTAMP.with(|x| {
-                *x.borrow_mut() += creditcoin3_runtime::SLOT_DURATION;
-                inherent_data.put_data(sp_timestamp::INHERENT_IDENTIFIER, &*x.borrow())
-            })
-        }
-
-        async fn try_handle_error(
-            &self,
-            _identifier: &sp_inherents::InherentIdentifier,
-            _error: &[u8],
-        ) -> Option<Result<(), sp_inherents::Error>> {
-            // The pallet never reports error.
-            None
-        }
-    }
+    // Block time advances one slot per sealed block, starting from the best block's slot, so
+    // the BABE slot and the timestamp always agree and epochs end after `EpochDuration`
+    // blocks however quickly they are sealed.
+    let clock = Arc::new(
+        SlotTimestampProvider::new_babe(client.clone())
+            .map_err(|e| ServiceError::Other(format!("manual seal: block clock: {e}")))?,
+    );
 
     let target_gas_price = eth_config.target_gas_price;
-    let create_inherent_data_providers = move |_, ()| async move {
-        let timestamp = MockTimestampInherentDataProvider;
-        let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
-        Ok((timestamp, dynamic_fee))
+    let create_inherent_data_providers = move |_, ()| {
+        let clock = clock.clone();
+        async move {
+            let slot = sp_consensus_babe::inherents::InherentDataProvider::new(clock.slot());
+            let timestamp = ManualSealClock(clock);
+            let dynamic_fee = fp_dynamic_fee::InherentDataProvider(U256::from(target_gas_price));
+            Ok((slot, timestamp, dynamic_fee))
+        }
     };
+
+    let babe_authorities = sc_consensus_babe::configuration(&*client)?.authorities;
+    let consensus_data_provider = BabeConsensusDataProvider::new(
+        client.clone(),
+        keystore,
+        babe_link.epoch_changes().clone(),
+        babe_authorities,
+    )
+    .map_err(|e| ServiceError::Other(format!("manual seal: BABE data provider: {e}")))?;
 
     let manual_seal = match sealing {
         Sealing::Manual => future::Either::Left(sc_consensus_manual_seal::run_manual_seal(
@@ -857,7 +912,7 @@ where
                 pool: transaction_pool,
                 commands_stream,
                 select_chain,
-                consensus_data_provider: None,
+                consensus_data_provider: Some(Box::new(consensus_data_provider)),
                 create_inherent_data_providers,
             },
         )),
@@ -868,7 +923,7 @@ where
                 client,
                 pool: transaction_pool,
                 select_chain,
-                consensus_data_provider: None,
+                consensus_data_provider: Some(Box::new(consensus_data_provider)),
                 create_inherent_data_providers,
             },
         )),
@@ -917,7 +972,30 @@ pub fn new_chain_ops(
     } = new_partial::<creditcoin3_runtime::RuntimeApi, _>(
         config,
         eth_config,
+        None,
         build_babe_grandpa_import_queue,
     )?;
     Ok((client, backend, import_queue, task_manager, other.4))
+}
+
+/// The manual-seal block clock as a timestamp inherent; the authorship task also reads its
+/// slot for the BABE inherent of the same block.
+struct ManualSealClock(Arc<SlotTimestampProvider>);
+
+#[async_trait::async_trait]
+impl sp_inherents::InherentDataProvider for ManualSealClock {
+    async fn provide_inherent_data(
+        &self,
+        inherent_data: &mut sp_inherents::InherentData,
+    ) -> Result<(), sp_inherents::Error> {
+        self.0.provide_inherent_data(inherent_data).await
+    }
+
+    async fn try_handle_error(
+        &self,
+        identifier: &sp_inherents::InherentIdentifier,
+        error: &[u8],
+    ) -> Option<Result<(), sp_inherents::Error>> {
+        self.0.try_handle_error(identifier, error).await
+    }
 }

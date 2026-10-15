@@ -76,10 +76,19 @@ jobs:
             # Each filter below lists only the shared files the suites it gates actually
             # import. Over the six months before this was written those files changed in 2
             # of 143 commits, so this costs close to nothing in extra runs.
+            #
+            # Every suite also runs the node and other Rust binaries, so each one lists what
+            # those are built from outside its own directories: node/**, the root manifest,
+            # the lockfile (a dependency bump can change RPC or EVM behaviour without touching
+            # a crate here) and the toolchain.
             archiver:
               - "archiver/**"
               - "common/**"
               - "**/archiver.rs"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             attestor_cli_testing:
               - "attestor/**"
@@ -98,6 +107,10 @@ jobs:
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
               - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             attestor_network_testing:
               - "checkpoint-builder/**"
@@ -112,6 +125,10 @@ jobs:
               - "cli/yarn.lock"
               - "cli/src/test/attestation-tests/**"
               - "cli/src/test/utils.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             cc3_indexer:
               - "attestor/**"
@@ -126,6 +143,10 @@ jobs:
               - "cli/src/test/cc3-indexer-tests/**"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             docs_smart_contract:
               - "docs/smart-contract-development/**"
@@ -140,6 +161,10 @@ jobs:
               - "cli/src/test/blockchain-tests/**"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             integration_test_cli:
               - "common/**"
@@ -155,6 +180,10 @@ jobs:
               - "cli/src/test/integration-tests.config.ts"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             # Carried over verbatim from attestor-compatibility.yml's own pull_request
             # trigger, which it no longer has now that ci.yml calls it.
@@ -178,6 +207,10 @@ jobs:
               - "scripts/**"
               - ".github/wait-for-proof-gen.sh"
               - ".github/workflows/proof-gen-api-server.yml"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             # What the runtime's call metadata is built from, including the FRAME pallets
             # that come in through Cargo.lock.
@@ -223,7 +256,10 @@ jobs:
 
   integration-test-check-extrinsics:
     # The call metadata can only change with the runtime, its pallets or their dependencies.
-    if: ${{ contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) && needs.should-run.outputs.extrinsics == 'true' }}
+    # Runs on every trunk. transaction_version is bumped when a release is cut, so a call
+    # reordered or removed on a development trunk fails until then: it is reported as a
+    # warning there and blocks only promotion into usc-testnet and main.
+    if: ${{ contains(fromJSON('["dev", "usc-dev", "asc-dev", "usc-testnet", "main"]'), github.base_ref) && needs.should-run.outputs.extrinsics == 'true' }}
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
@@ -244,6 +280,8 @@ jobs:
           path: target/release
 
       - name: Run Extrinsics Ordering
+        id: extrinsics
+        continue-on-error: ${{ !contains(fromJSON('["usc-testnet", "main"]'), github.base_ref) }}
         shell: bash
         run: |
           chmod a+x ./target/release/creditcoin3-node
@@ -251,6 +289,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
           OWNER_REPO_SLUG: ${{ github.repository }}
+
+      - name: Report extrinsics changes
+        if: ${{ steps.extrinsics.outcome == 'failure' }}
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          MSG="Extrinsics were reordered or removed without a transaction_version bump. It does not block a PR into ${BASE_REF}, but promotion into usc-testnet or main needs the bump. See the Run Extrinsics Ordering step."
+          echo "::warning title=check-extrinsics::${MSG}"
+          echo "### check-extrinsics: warning" >> "$GITHUB_STEP_SUMMARY"
+          echo "$MSG" >> "$GITHUB_STEP_SUMMARY"
 
       # Upload logs if nodes are not connecting.
       # head-node.log and release-node.log are created in ./scripts/check-extrinsics.sh
@@ -295,13 +343,17 @@ jobs:
             --base-path ./alice-data >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/creditcoin3-node-alice.pid
 
+      # 10,005 blocks with two transactions each (55 MB unpacked), made by
+      # .github/generate-anvil-fixture.py. The attestors need the backlog of blocks, not
+      # traffic in them: the previous fixture's ~50 transactions per block made a 4.8 GB
+      # state that every load, dump, archive and verification step had to work through.
       - name: Download 10k Anvil state
         run: |
-          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks.json.xz"
-          ls -lh
+          curl -fL -o anvil10k_blocks.json.xz "https://github.com/gluwa/creditcoin3/releases/download/3.130.0-devnet/anvil10k_blocks_2tx.json.xz"
+          echo "bb70269b8b19b6d8c27d9aba113e27177fe80050464d492e17f2e61b331dd65e  anvil10k_blocks.json.xz" | sha256sum -c -
 
           unxz anvil10k_blocks.json.xz
-          ls -lh
+          ls -lh anvil10k_blocks.json
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
@@ -315,9 +367,12 @@ jobs:
         run: |
           # supported chain keys are hard-coded in attestor/src/cc3.rs and node/src/chain_spec.rs
           # Anvil1 == chain_key(2), Anvil2 == chain_key(4). Ports are arbitrary
+          # The state dump is as large as the fixture (~5 GB of JSON) and only feeds the
+          # restart below, so it lives outside the log directory that gets uploaded.
+          mkdir -p /var/tmp/anvil-state
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
               --load-state ./anvil10k_blocks.json \
-              --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart.json \
+              --dump-state /var/tmp/anvil-state/anvil1-restart.json \
               >/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
@@ -599,7 +654,7 @@ jobs:
           # anvil1-restart.json — the restart reloads that state, and the dumped-state
           # check below hard-fails without it. So: TERM + wait for the dump, then KILL
           # as a fallback, then wait for port 8141 to be released before restarting.
-          # The dump is the whole 10k-block fixture state (gigabytes of JSON) written
+          # The dump is the whole 10k-block fixture state (tens of MB of JSON) written
           # while the archiver is still hammering eth_getBlockReceipts, so give it
           # minutes, not seconds: a KILL here truncates the file and the restart fails
           # on "failed to parse json file" instead of exercising recovery.
@@ -624,16 +679,14 @@ jobs:
             echo "Port 8141 still bound after killing old anvil" >&2
             exit 1
           fi
-          if [ ! -s /var/tmp/integration-test-attestor-network/anvil1-restart.json ]; then
+          if [ ! -s /var/tmp/anvil-state/anvil1-restart.json ]; then
             echo "Anvil did not dump restart state" >&2
             exit 1
           fi
-          cp /var/tmp/integration-test-attestor-network/anvil1-restart.json \
-            /var/tmp/integration-test-attestor-network/anvil1-load.json
 
+          # Nothing restarts this one, so it dumps no state.
           ~/.foundry/bin/anvil --block-time 6 --chain-id 31337 --port 8141 \
-            --load-state /var/tmp/integration-test-attestor-network/anvil1-load.json \
-            --dump-state /var/tmp/integration-test-attestor-network/anvil1-restart-2.json \
+            --load-state /var/tmp/anvil-state/anvil1-restart.json \
             >>/var/tmp/integration-test-attestor-network/anvil1.log 2>&1 &
           echo $! >/var/tmp/integration-test-attestor-network/anvil1.pid
 
@@ -1603,9 +1656,12 @@ jobs:
         run: |
           mkdir -p /var/tmp/cc3-indexer-testing/
           chmod a+x ./target/release/creditcoin3-node
+          # Manual sealing: .github/seal-blocks.sh produces a block every slot, and tests
+          # waiting for eras (unbonding, chilling, pending changes) seal the rest at once.
           ./target/release/creditcoin3-node \
             --chain dev \
             --validator --alice  --pruning archive \
+            --sealing manual \
             --node-key d182d503b7dd97e7c055f33438c7717145840fd66b2a055284ee8d768241a463 \
             --unsafe-rpc-external --rpc-cors all \
             --base-path ./alice-data >/var/tmp/cc3-indexer-testing/creditcoin3-node.log 2>&1 &
@@ -1630,6 +1686,7 @@ jobs:
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
+          .github/seal-blocks.sh 'http://127.0.0.1:9944' 5 >/var/tmp/cc3-indexer-testing/seal-blocks.log 2>&1 &
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8343'
@@ -1878,6 +1935,7 @@ jobs:
         continue-on-error: true
         run: |
           docker compose -f cc3-indexer/docker-compose.yaml down
+          pkill -f seal-blocks.sh
 
           killall -9 attestor_zombienet
           killall -9 attestor

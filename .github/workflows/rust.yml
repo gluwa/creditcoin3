@@ -41,7 +41,10 @@ name: rust
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  # check, clippy and test save the caches every PR restores, so a run on the default branch
+  # finishes and saves; only the newest waiting run follows it (see build-cache.yml). A new
+  # push to a PR still cancels that PR's superseded run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions: read-all
 
@@ -74,16 +77,6 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
-      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
-      # stable, which changes whenever GitHub updates the image, would rotate the key.
-      - name: Remove the runner image's Rust toolchains
-        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-          save-if: false
-
       - name: Install cargo audit
         run: |
           cargo install cargo-audit --features=fix --locked
@@ -119,16 +112,6 @@ jobs:
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
           components: rustfmt
-
-      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
-      # stable, which changes whenever GitHub updates the image, would rotate the key.
-      - name: Remove the runner image's Rust toolchains
-        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-          save-if: false
 
       - name: Check formatting
         uses: gluwa/cargo@dev
@@ -271,16 +254,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUSTC_VERSION }}
-
-      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
-      # stable, which changes whenever GitHub updates the image, would rotate the key.
-      - name: Remove the runner image's Rust toolchains
-        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-          save-if: false
 
       - name: Install cargo-machete
         uses: taiki-e/install-action@v2.85.4
