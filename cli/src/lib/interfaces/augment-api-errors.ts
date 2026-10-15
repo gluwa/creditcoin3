@@ -26,8 +26,9 @@ declare module '@polkadot/api-base/types/errors' {
             AlreadyAttestor: AugmentedError<ApiType>;
             AlreadyBonded: AugmentedError<ApiType>;
             /**
-             * A `revert_to`/removal attestation cleanup cursor is still draining for this chain;
-             * commits are rejected so cleanup can't collaterally delete a new attestation.
+             * A `revert_to`/removal cleanup (attestation cursor or checkpoint pruning) is still
+             * draining for this chain; commits are rejected so cleanup can't collaterally delete a
+             * new attestation or checkpoint.
              **/
             AttestationCleanupInProgress: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;

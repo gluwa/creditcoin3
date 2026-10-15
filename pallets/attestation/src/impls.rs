@@ -936,6 +936,15 @@ impl<T: Config> Pallet<T> {
         AttestationClearingCursors::<T>::get(chain_key).is_none()
     }
 
+    /// Whether commits for this chain must be rejected while a `revert_to`/removal cleanup is
+    /// still draining. A draining `Attestations` cursor sweeps the prefix in hash order and
+    /// `CheckpointPruningStates` deletes every checkpoint in the pivots it hasn't reached, so a
+    /// row or checkpoint created now could be deleted along with the stale ones.
+    pub fn commit_blocked_by_cleanup(chain_key: ChainKey) -> bool {
+        AttestationClearingCursors::<T>::get(chain_key).is_some()
+            || CheckpointPruningStates::<T>::get(chain_key).is_some()
+    }
+
     pub fn get(
         chain_key: ChainKey,
         digest: Digest,
@@ -994,11 +1003,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::ChainNotSupported
         );
 
-        // A draining cursor clears this chain's whole `Attestations` prefix in unpredictable
-        // (hash) order, so a new row accepted now could still get swept up by it. Block commits
-        // until it's done rather than risk that.
         ensure!(
-            AttestationClearingCursors::<T>::get(chain_key).is_none(),
+            !Self::commit_blocked_by_cleanup(chain_key),
             Error::<T>::AttestationCleanupInProgress
         );
 
