@@ -1059,13 +1059,16 @@ name = "archiver"
 version = "3.142.0"
 dependencies = [
  "anyhow",
+ "attestcoin-abi-encoding",
  "axum",
  "cc-client",
  "clap",
  "dotenvy",
  "eth",
  "futures 0.3.32",
+ "reqwest",
  "serde",
+ "serde_json",
  "sled",
  "sp-core",
  "stream_eth",
@@ -1885,6 +1888,7 @@ name = "attestor_zombienet"
 version = "3.142.0"
 dependencies = [
  "anyhow",
+ "attestor",
  "attestor-primitives",
  "bip39",
  "cc-client",
@@ -1892,6 +1896,7 @@ dependencies = [
  "clap",
  "common",
  "eth",
+ "libp2p",
  "rand 0.8.5",
  "subxt 0.44.3",
  "subxt-signer 0.44.3",
@@ -3267,6 +3272,7 @@ version = "3.142.0"
 dependencies = [
  "attestor-primitives",
  "ethereum",
+ "finality-grandpa",
  "fp-evm",
  "fp-rpc",
  "fp-self-contained",
@@ -16049,6 +16055,7 @@ dependencies = [
  "sp-api",
  "sp-core",
  "sp-std",
+ "sp-weights",
 ]
 
 [[package]]

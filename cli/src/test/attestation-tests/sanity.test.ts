@@ -16,7 +16,16 @@ describe('BlockAttested events', (): void => {
     let chain_Anvil1_AttestationInterval = 0;
     let startBlock_Anvil1 = 0;
     let provider_Anvil1: WebSocketProvider;
+    // Hard ceiling only: the test stops as soon as every condition in `isDone()` holds,
+    // which is usually ~8 mins. Running into the ceiling means something is stuck and the
+    // assertions below will say what. The nightly soak (ATTESTATION_SOAK=1) ignores
+    // `isDone()` and always runs the whole window.
     const maxBlocks = 250; // ~ 21 mins
+    const soak = process.env.ATTESTATION_SOAK === '1';
+    const minEpochBoundaries = 3;
+    const minIntervalChanges = 2;
+    const minAttestedAfterIntervalChange = 2;
+    const minAttestedAfterCatchUp = 2;
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -59,12 +68,31 @@ describe('BlockAttested events', (): void => {
             '4': 0,
         };
         let epochBoundaries = 0;
+        // Anvil-2 attestations made under an interval that was changed during this test
+        let attestedAfterIntervalChange_Anvil2 = 0;
+        // Anvil-1 attestations past the head it had when the test started, i.e. once the
+        // attestors have caught up with the preloaded blocks and follow the tip
+        let attestedAfterCatchUp_Anvil1 = 0;
         const initialBlock = (await getChainStatus(api)).bestNumber;
+
+        const isDone = (): boolean =>
+            epochBoundaries >= minEpochBoundaries &&
+            intervalChangedEvents[chain_Anvil2_Key] >= minIntervalChanges &&
+            attestedAfterIntervalChange_Anvil2 >= minAttestedAfterIntervalChange &&
+            attestedAfterCatchUp_Anvil1 >= minAttestedAfterCatchUp &&
+            attestedEvents[chain_Anvil1_Key] >= 15 &&
+            attestedEvents[chain_Anvil2_Key] >= 4;
+
+        let done = false;
+        let unsubscribe: (() => void) | undefined;
 
         return new Promise((resolve, reject): void => {
             // Subscribe to system events via storage
             api.query.system
                 .events(async (events) => {
+                    if (done) {
+                        return;
+                    }
                     console.log(`Received ${events.length} events`);
 
                     // Loop through the Vec<EventRecord>
@@ -74,10 +102,23 @@ describe('BlockAttested events', (): void => {
                         if (`${event.section}.${event.method}` === 'attestation.BlockAttested') {
                             // Show what we are busy with
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [supportedChainKey, _headerNumber, _digest] = event.data;
+                            const [supportedChainKey, headerNumber, _digest] = event.data;
                             const supportedChainKeyStr = (supportedChainKey as U64).toString();
 
                             attestedEvents[supportedChainKeyStr]++;
+
+                            if (
+                                supportedChainKeyStr === String(chain_Anvil1_Key) &&
+                                (headerNumber as U64).toNumber() > startBlock_Anvil1
+                            ) {
+                                attestedAfterCatchUp_Anvil1++;
+                            }
+                            if (
+                                supportedChainKeyStr === String(chain_Anvil2_Key) &&
+                                intervalChangedEvents[chain_Anvil2_Key] > 0
+                            ) {
+                                attestedAfterIntervalChange_Anvil2++;
+                            }
                         }
 
                         if (`${event.section}.${event.method}` === 'attestation.AttestationIntervalChanged') {
@@ -103,31 +144,37 @@ describe('BlockAttested events', (): void => {
                         // per-epoch heartbeat we can schedule work from.
                         if (`${event.section}.${event.method}` === 'randomness.StoreRandomnessForEpoch') {
                             console.log(`EVENT=${event.section}:${event.method}; data=${event.data.toString()}`);
-                            const [epochIndex] = event.data;
-                            const epochAsNum = (epochIndex as U64).toNumber();
                             epochBoundaries++;
 
-                            if (epochAsNum % 2 === 0) {
-                                const defaultInterval = (
-                                    api.consts.attestation.defaultAttestationInterval as U64
-                                ).toNumber();
-                                const newInterval = randomIntBetween(defaultInterval - 5, defaultInterval + 5);
+                            // Pending intervals apply at the next epoch boundary, so changing it on
+                            // every boundary gives one applied change per epoch from the second one on.
+                            const defaultInterval = (
+                                api.consts.attestation.defaultAttestationInterval as U64
+                            ).toNumber();
+                            const newInterval = randomIntBetween(defaultInterval - 5, defaultInterval + 5);
 
-                                // note: using chain Anvil-2 b/c changing interval for Anvil-1
-                                // may lead to side effects in other test scenarios
-                                const nonce = await api.rpc.system.accountNextIndex(root.address);
-                                await api.tx.sudo
-                                    .sudo(api.tx.attestation.setChainAttestationInterval(chain_Anvil2_Key, newInterval))
-                                    .signAndSend(root, { nonce });
-                                console.log(`**** DEBUG: NEW INTERVAL for ${chain_Anvil2_Key} will be ${newInterval}`);
-                            }
+                            // note: using chain Anvil-2 b/c changing interval for Anvil-1
+                            // may lead to side effects in other test scenarios
+                            const nonce = await api.rpc.system.accountNextIndex(root.address);
+                            await api.tx.sudo
+                                .sudo(api.tx.attestation.setChainAttestationInterval(chain_Anvil2_Key, newInterval))
+                                .signAndSend(root, { nonce });
+                            console.log(`**** DEBUG: NEW INTERVAL for ${chain_Anvil2_Key} will be ${newInterval}`);
                         }
                     } // loop over events
 
                     const currentBlock = (await getChainStatus(api)).bestNumber;
-                    if (currentBlock - initialBlock >= maxBlocks) {
+                    if ((!soak && isDone()) || currentBlock - initialBlock >= maxBlocks) {
+                        done = true;
+                        console.log(
+                            `Stopping after ${currentBlock - initialBlock} blocks, all conditions met: ${isDone()}`,
+                        );
+                        unsubscribe?.();
                         resolve(undefined);
                     }
+                })
+                .then((unsub) => {
+                    unsubscribe = unsub;
                 })
                 .catch((error) => reject(new Error(error)));
         }).then(async () => {
@@ -146,14 +193,14 @@ describe('BlockAttested events', (): void => {
             const currentEpoch = (await api.query.babe.epochIndex()).toNumber();
             const elapsedEpochs = currentEpoch - startingEpoch;
             // we must have crossed enough epoch boundaries for the assertions below to mean anything
-            expect(elapsedEpochs).toBeGreaterThanOrEqual(5);
+            expect(elapsedEpochs).toBeGreaterThanOrEqual(minEpochBoundaries);
 
             // `AttestorsElected` fires only when a chain's attestor set changes, never as a per-epoch
             // heartbeat. The fleet is steady for the whole run, so at most a straggler from a
             // previous scenario (e.g. a chilled attestor retiring at the boundary) may show up.
             // The epoch hook itself is observed through pallet-randomness: we must have seen the
             // boundaries the election count is being compared against.
-            expect(epochBoundaries).toBeGreaterThanOrEqual(5);
+            expect(epochBoundaries).toBeGreaterThanOrEqual(minEpochBoundaries);
             expect(electionEvents[chain_Anvil1_Key]).toBeLessThanOrEqual(2);
             expect(electionEvents[chain_Anvil2_Key]).toBeLessThanOrEqual(2);
             expect(electionEvents[chain_Anvil1_Key]).toBeLessThan(epochBoundaries);
@@ -161,6 +208,9 @@ describe('BlockAttested events', (): void => {
 
             expect(attestedEvents[chain_Anvil1_Key]).toBeGreaterThan(0);
             expect(attestedEvents[chain_Anvil2_Key]).toBeGreaterThan(0);
+
+            // attestors caught up with the preloaded Anvil-1 blocks and keep following its tip
+            expect(attestedAfterCatchUp_Anvil1).toBeGreaterThanOrEqual(minAttestedAfterCatchUp);
 
             const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
             // There are 10013 initial blocks which will result in 20 attestations for each 500
@@ -186,8 +236,10 @@ describe('BlockAttested events', (): void => {
             // starts failing
 
             expect(intervalChangedEvents[chain_Anvil1_Key]).toBe(0);
-            // this test loops over roughly 15 epochs and we make a change every 2
-            expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(5);
+            // a change is requested on every epoch boundary and applied on the next one
+            expect(intervalChangedEvents[chain_Anvil2_Key]).toBeGreaterThanOrEqual(minIntervalChanges);
+            // and attestation keeps going under the changed interval
+            expect(attestedAfterIntervalChange_Anvil2).toBeGreaterThanOrEqual(minAttestedAfterIntervalChange);
         });
     }, 1_500_000); // 250 blocks is 1250 sec + reserve to avoid timeouts
 });

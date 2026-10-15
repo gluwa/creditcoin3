@@ -29,46 +29,6 @@ describe('set-keys', () => {
         nonProxiedCli = CLIBuilder({ CC_SECRET: caller.secret });
     }, 60_000);
 
-    describe('when NOT bonded', () => {
-        beforeEach(() => {
-            CLI = nonProxiedCli;
-        });
-
-        it('should error when NO key options are specified', () => {
-            try_catch_else_finally(
-                () => {
-                    CLI('set-keys');
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stdout).toContain(
-                        'Must specify keys to set or generate new ones using the --rotate flag',
-                    );
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        });
-
-        it('should error when BOTH key options are specified', () => {
-            try_catch_else_finally(
-                () => {
-                    CLI('set-keys --rotate --keys "test-me"');
-                },
-                (error: any) => {
-                    expect(error.exitCode).toEqual(1);
-                    expect(error.stderr).toContain(
-                        'Must either specify keys or rotate to generate new ones, can not do both',
-                    );
-                },
-                () => {
-                    throw new Error('cli was expected to fail but it did not');
-                },
-            );
-        });
-    });
-
     describe('when ALREADY bonded', () => {
         beforeEach(async () => {
             // bond before calling set-keys

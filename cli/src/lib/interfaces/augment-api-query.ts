@@ -30,6 +30,7 @@ import type {
     FrameSystemPhase,
     PalletAttestationAttestorElectionPolicy,
     PalletAttestationClearOrRevertCheckpointPruningState,
+    PalletAttestationClearOrRevertRemovedChainCleanupPhase,
     PalletAttestationLedgerAttestorLedger,
     PalletAttestationRetiredAttestorBlsKeyEntry,
     PalletBagsListListBag,
@@ -154,6 +155,16 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64, H256]
             > &
                 QueryableStorageEntry<ApiType, [u64, H256]>;
+            /**
+             * Number of successful attestation commits per chain in the block recorded alongside it.
+             * Bounded by [`Config::MaxAttestationsPerBlock`].
+             **/
+            attestationsInBlock: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<Option<ITuple<[u32, u32]>>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
             /**
              * Write-ability message-vote signing address (EVM / secp256k1) an attestor registered for a
              * chain, proven via [`set_attestor_evm_address`](Pallet::set_attestor_evm_address). This is the
@@ -377,6 +388,18 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
+             * Where the attestor-side cleanup of a removed chain stands. Drained a bounded batch per
+             * block by `on_init_cleanup_removed_chains`; the entry is removed once nothing is left.
+             **/
+            removedChainCleanup: AugmentedQuery<
+                ApiType,
+                (
+                    arg: u64 | AnyNumber | Uint8Array,
+                ) => Observable<Option<PalletAttestationClearOrRevertRemovedChainCleanupPhase>>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
              * BLS public keys kept after [`unregister_attestor`](Pallet::unregister_attestor) so
              * aggregated attestations that still list this controller can be verified until the unbond
              * delay elapses. Purged in [`withdraw_unbonded`](Pallet::withdraw_unbonded) once
@@ -401,22 +424,15 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [AccountId32]>;
             /**
-             * Per-chain **cap** on the voting committee, not the committee itself.
+             * Reserved for future committee sortition. **Does not affect quorum.**
              *
-             * The quorum `validate_attestation` enforces is `2/3+1` of
-             * `min(|ActiveAttestors|, TargetSampleSize)` (see
-             * [`attestor_primitives::calculate_quorum`] and [`Pallet::quorum_threshold`]). While fewer
-             * attestors are active than this value, the whole active set is the committee and the cap is
-             * inert; it only binds once the active set grows past it.
+             * `validate_attestation` derives its threshold from `|ActiveAttestors|` alone (see
+             * [`attestor_primitives::calculate_quorum`]). Setting this value changes nothing today; it
+             * is kept so RFC-0174 has its parameter when sortition is built.
              *
-             * Two consequences operators need to know:
-             *
-             * - Setting this **above** the active-attestor count is safe and is the recommended posture.
-             * Quorum intersection — the property that two conflicting quorums cannot both exist at one
-             * height — holds only while the cap does not bind, because nothing selects which attestors
-             * vote (sortition is unbuilt: see `do_start_election`'s unused `_randomness`, RFC-0174).
-             * - While the cap **does** bind, any self-selected `2/3+1` of the cap is a valid quorum, and
-             * two disjoint such groups can exist within a larger active set (USCP2-004).
+             * Its default is RFC-0174's ~120 committee floor — the population at which sampling would
+             * start being worth building. `MaxAttestationNodes` sits below that, so the ceiling would
+             * have to be raised before this value could matter.
              **/
             targetSampleSize: AugmentedQuery<ApiType, (arg: u64 | AnyNumber | Uint8Array) => Observable<u32>, [u64]> &
                 QueryableStorageEntry<ApiType, [u64]>;

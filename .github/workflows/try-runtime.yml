@@ -7,7 +7,7 @@ name: Try Runtime
       - "**/migrations/**"
       - "**/migrations.rs"
       - "runtime/src/lib.rs"
-      - ".github/workflows/try-runtime.yml"
+  # A run is ~1 h against live state, so a change to this workflow is tested by dispatching it.
   workflow_dispatch:
 
 concurrency:
@@ -47,8 +47,6 @@ jobs:
             dedicated_migration_files:
               - "**/migrations/**"
               - "**/migrations.rs"
-            workflow:
-              - ".github/workflows/try-runtime.yml"
             runtime_lib:
               - "runtime/src/lib.rs"
 
@@ -58,10 +56,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Unambiguous: dedicated migration files, or this workflow itself.
-          if [ "${{ steps.filter.outputs.dedicated_migration_files }}" = "true" ] \
-             || [ "${{ steps.filter.outputs.workflow }}" = "true" ]; then
-            echo "INFO: migration files or this workflow changed"
+          # Unambiguous: dedicated migration files.
+          if [ "${{ steps.filter.outputs.dedicated_migration_files }}" = "true" ]; then
+            echo "INFO: migration files changed"
             echo "migrations=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -131,9 +128,28 @@ jobs:
           targets: wasm32v1-none
           components: rust-src
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
+      # Same id as build-native.yml's "Identify runner family", whose warmers save the
+      # build-creditcoin-node-<id> entries on dev (cache-warm.yml, hosted and Linode).
+      - name: Identify runner family
+        id: runner-family
+        env:
+          RUNNER_FAMILY: ${{ runner.environment }}
+        run: |
+          ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build-creditcoin-node
+          # Restores the warmer's dependencies. This workflow runs on PRs only and builds other
+          # features, so it never saves: nothing would read a PR-scoped entry, and the warmer's
+          # key is for its own build.
+          shared-key: build-creditcoin-node-${{ steps.runner-family.outputs.id }}
+          save-if: false
 
       - name: Bump version to force try-runtime to attempt to apply migrations
         id: bump-version

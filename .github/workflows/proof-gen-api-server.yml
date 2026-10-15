@@ -1,18 +1,24 @@
 ---
 name: proof-gen-api-server
 
+# Called from ci.yml, which passes the node build it already made for every other e2e
+# suite instead of this workflow compiling the same `--release --features=fast-runtime`
+# configuration a second time.
+#
+# The path filters that used to gate this workflow now live in ci.yml's should-run job,
+# under the `proof_gen` filter. Keep the two in sync.
+#
+# No `concurrency` here on purpose: it is inherited from the calling run, and declaring
+# a group keyed on github.workflow would collide with ci.yml's own group.
 "on":
-  pull_request:
-    paths:
-      - "proof-gen-api-server/**"
-      - "common/eth/**"
-      - "scripts/**"
-      - ".github/workflows/proof-gen-api-server.yml"
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  workflow_call:
+    inputs:
+      sut-artifact:
+        description: >-
+          Name of the artifact holding the binaries built from this commit, as uploaded
+          by build-native.yml. Must be a `--release --features=fast-runtime` build.
+        required: true
+        type: string
 
 permissions: read-all
 
@@ -66,9 +72,9 @@ jobs:
           targets: wasm32v1-none
           components: llvm-tools-preview, rust-src
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
+      # No rust-cache here: cargo llvm-cov compiles every crate with coverage
+      # instrumentation, so no build-creditcoin-node entry matches, and this job runs only
+      # from ci.yml on PRs, so it never saved one of its own either.
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2.85.4
@@ -92,39 +98,7 @@ jobs:
           name: coverage-report
           path: target/llvm-cov/html/
 
-  deploy-runner-build-proof-gen:
-    uses: ./.github/workflows/deploy-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      LINODE_REGION: "nl-ams"
-      LINODE_VM_SIZE: "g6-standard-6"
-      proxy: "build-proof-gen"
-    secrets: inherit
-
-  rm-gh-runner-build-proof-gen:
-    needs:
-      - build-everything
-    if: ${{ always() }}
-    uses: ./.github/workflows/remove-runner.yml
-    with:
-      RUNNER_VM_NAME: "${{ github.event.repository.name }}-${{ github.run_id }}-attempt-${{ github.run_attempt }}"
-      proxy: "build-proof-gen"
-    secrets: inherit
-
-  build-everything:
-    needs:
-      - deploy-runner-build-proof-gen
-    uses: ./.github/workflows/build-native.yml
-    with:
-      build-options: "--release --features=fast-runtime"
-      git-lfs-checkout: false
-      version-string: testing-proof-gen
-      runs-on: "['self-hosted', 'workflow-${{ github.run_id }}', 'proxy-build-proof-gen']"
-    secrets: inherit
-
   exercise-scripts:
-    needs:
-      - build-everything
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
@@ -132,7 +106,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v8
         with:
-          name: binary-for-testing-proof-gen
+          name: ${{ inputs.sut-artifact }}
           path: target/release
 
       - name: Start creditcoin3-node - Alice
@@ -253,20 +227,28 @@ jobs:
         run: |
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 4
 
-      - name: Wait for chain 2 transfer and attestation events
+      # Both chains at once: each transfer is signed on its own Anvil and the attestation
+      # side only reads from Creditcoin, so the two can't collide. One after the other took
+      # ~2.4 and ~1.9 min.
+      - name: Wait for chain 2 and chain 4 transfer and attestation events
         working-directory: scripts
         run: |
+          set -euo pipefail
           npm install
           node TransferAndWait.js --chain-key 2 \
             --source-rpc-url http://127.0.0.1:8141 \
-            --cc3-rpc-url ws://localhost:9944
-
-      - name: Wait for chain 4 transfer and attestation events
-        working-directory: scripts
-        run: |
+            --cc3-rpc-url ws://localhost:9944 \
+            > >(sed 's/^/[chain 2] /') 2>&1 &
+          CHAIN2=$!
           node TransferAndWait.js --chain-key 4 \
             --source-rpc-url http://127.0.0.1:8142 \
-            --cc3-rpc-url ws://localhost:9944
+            --cc3-rpc-url ws://localhost:9944 \
+            > >(sed 's/^/[chain 4] /') 2>&1 &
+          CHAIN4=$!
+          RC=0
+          wait "${CHAIN2}" || { echo "ERROR: chain 2 transfer/attestation wait failed" >&2; RC=1; }
+          wait "${CHAIN4}" || { echo "ERROR: chain 4 transfer/attestation wait failed" >&2; RC=1; }
+          exit "${RC}"
 
       - name: Start proof-gen-api-server (multi-chain via YAML config)
         run: |
@@ -278,7 +260,7 @@ jobs:
             --config proof-gen-api-server/config.ci.yaml \
             >/var/tmp/exercise-scripts/proof-gen-api-server.log &
 
-          sleep 30
+          .github/wait-for-proof-gen.sh 'http://127.0.0.1:3100' /var/tmp/exercise-scripts/proof-gen-api-server.log
 
       - name: Exercise TransferWaitAndSubmit.js
         working-directory: scripts
@@ -296,9 +278,13 @@ jobs:
           killall -9 anvil
           killall -9 creditcoin3-node
 
-      - name: Random sleep up to 3 mins
+      # A random outage of 60-90 s. The prover's Creditcoin reconnect backoff doubles from
+      # 100 ms to its 30 s cap (cc-client BackoffState), which takes ~55 s, and the Ethereum
+      # one caps at 5 s, so every run now exercises reconnecting at the cap. The old 0-180 s
+      # sometimes ended before the cap was reached and spent up to 3 min idle.
+      - name: Random outage of 60-90 s
         run: |
-          sleep $((RANDOM % 180))
+          sleep $((60 + RANDOM % 31))
 
       - name: Restart creditcoin3-node - Alice
         run: |
@@ -375,8 +361,6 @@ jobs:
   # NOTE: not using a self-hosted runner here b/c this job is intended to run
   # in under 10 minutes, probably even 5
   stress-test-sanity:
-    needs:
-      - build-everything
     runs-on: ubuntu-26.04
     steps:
       # The local install-foundry action needs the repo checked out first.
@@ -417,7 +401,7 @@ jobs:
       - name: Download binaries
         uses: actions/download-artifact@v8
         with:
-          name: binary-for-testing-proof-gen
+          name: ${{ inputs.sut-artifact }}
           path: target/release
 
       - name: Start creditcoin3-node - Alice
@@ -476,7 +460,7 @@ jobs:
             --eth-rpc-url http://localhost:8141 \
             >/var/tmp/stress-test-sanity/proof-gen-api-server.log &
 
-          sleep 30
+          .github/wait-for-proof-gen.sh 'http://127.0.0.1:3100' /var/tmp/stress-test-sanity/proof-gen-api-server.log
 
       - name: Extract Deno version from Dockerfile
         id: deno_version

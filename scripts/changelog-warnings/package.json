@@ -1,12 +1,13 @@
 {
     "name": "changelog-warnings",
     "version": "1.0.0",
-    "description": "Analyzes git diffs and appends operator warnings to changelogs",
+    "description": "Builds release notes grouped by topic and appends operator warnings",
     "type": "commonjs",
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit",
         "start": "tsx src/index.ts",
+        "notes": "tsx src/notes.ts",
         "format": "prettier --write \"src/**/*.ts\"",
         "check-format": "prettier --check \"src/**/*.ts\"",
         "lint": "eslint --max-warnings 0 \"src/**/*.ts\"",
@@ -19,9 +20,9 @@
     "devDependencies": {
         "@types/js-yaml": "^4.0.9",
         "@types/minimatch": "^5.1.2",
-        "@types/node": "^26.4.0",
-        "@typescript-eslint/eslint-plugin": "8.68.0",
-        "@typescript-eslint/parser": "8.68.0",
+        "@types/node": "^26.6.5",
+        "@typescript-eslint/eslint-plugin": "8.71.1",
+        "@typescript-eslint/parser": "8.71.1",
         "eslint": "^8.57.0",
         "eslint-config-prettier": "^10.1.8",
         "prettier": "3.9.4",

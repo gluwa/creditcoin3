@@ -1227,6 +1227,16 @@ declare module '@polkadot/api-base/types/events' {
         };
         supportedChains: {
             /**
+             * The display name of a registered chain has been changed. The name is informational
+             * only (nothing attested or hashed depends on it), so this is a record for indexers and
+             * operators; no node acts on it.
+             **/
+            ChainNameSet: AugmentedEvent<
+                ApiType,
+                [chainKey: u64, chainId: u64, oldChainName: Bytes, chainName: Bytes],
+                { chainKey: u64; chainId: u64; oldChainName: Bytes; chainName: Bytes }
+            >;
+            /**
              * A chain has been registered with a given ID
              **/
             ChainRegistered: AugmentedEvent<

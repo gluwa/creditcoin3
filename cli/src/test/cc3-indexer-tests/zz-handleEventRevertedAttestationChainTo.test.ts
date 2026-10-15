@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { forElapsedBlocks, sleep } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 // Poll the indexer until the latest reversion for `chainKey` is fully applied
 // (status === 'complete'). Returns once settled or throws after the timeout so a
@@ -57,6 +57,13 @@ describe('handleEventRevertedAttestationChainTo()', () => {
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
+
+        // A checkpoint every 2 attestations instead of the genesis 10, so the first one past
+        // genesis comes within a couple of minutes of the attestors starting, however early
+        // in the run this file is scheduled.
+        await api.tx.sudo
+            .sudo(api.tx.attestation.setAttestationsPerCheckpoint(chainKey, 2))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
 
         let checkpoints: { blockNumber: string; digest: string }[] = [];
 
@@ -137,7 +144,7 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                 expect(node.id).toBeTruthy();
                 expect(BigInt(node.blockNumber)).toBeGreaterThanOrEqual(blockBeforeRevert);
                 expect(Date.parse(node.date)).toBeGreaterThan(0);
-                expect(Date.parse(node.date)).toBeLessThan(Date.now());
+                expect(Date.parse(node.date)).toBeLessThanOrEqual(await chainNow(api));
                 expect(node.chainKey).toEqual(chainKey.toString());
                 expect(BigInt(node.checkpointHeight)).toEqual(checkpointHeightToRevertTo);
                 expect(node.digest).toEqual(checkpointDigestToRevertTo);
@@ -232,9 +239,30 @@ describe('handleEventRevertedAttestationChainTo()', () => {
 
             const node = response.data.attestationChainData.nodes[0];
             expect(BigInt(node.chainKey)).toEqual(chainKey);
-            expect(BigInt(node.lastCheckpointHeaderNumber)).toEqual(checkpointHeightToRevertTo);
-            expect(BigInt(node.lastAttestedHeaderNumber)).toEqual(checkpointHeightToRevertTo);
-            expect(node.lastAttestedDigest).toEqual(checkpointDigestToRevertTo);
+
+            // The attestors keep attesting after the revert, and under `--sealing` they can
+            // reach the next checkpoint before this runs. As for the rows above, the data may
+            // only point past the reverted checkpoint at a checkpoint indexed after the revert.
+            if (BigInt(node.lastCheckpointHeaderNumber) === checkpointHeightToRevertTo) {
+                expect(BigInt(node.lastAttestedHeaderNumber)).toBeGreaterThanOrEqual(checkpointHeightToRevertTo);
+                if (BigInt(node.lastAttestedHeaderNumber) === checkpointHeightToRevertTo) {
+                    expect(node.lastAttestedDigest).toEqual(checkpointDigestToRevertTo);
+                }
+            } else {
+                const checkpoint = await graphQLQuery(
+                    `query {
+                        checkpoints(
+                            filter: {
+                                chainKey: { equalTo: "${chainKey}" },
+                                blockNumber: { equalTo: "${node.lastCheckpointHeaderNumber}" }
+                            }
+                        ) { nodes { atBlockNumber, timestamp } }
+                    }`,
+                );
+                expect(checkpoint.data.checkpoints.nodes.length).toEqual(1);
+                expect(BigInt(checkpoint.data.checkpoints.nodes[0].atBlockNumber)).toBeGreaterThan(blockBeforeRevert);
+                expect(BigInt(checkpoint.data.checkpoints.nodes[0].timestamp)).toBeGreaterThan(timestampBeforeRevert);
+            }
         });
     });
 });

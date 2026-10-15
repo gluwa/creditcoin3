@@ -84,6 +84,26 @@ export const extractFee = async (
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const manualSealing = new WeakMap<ApiPromise, Promise<boolean>>();
+
+// true when the node runs with `--sealing`: it then exposes `engine_createBlock` and only
+// produces a block when asked to, so tests can seal blocks instead of waiting for them
+export const isManualSealing = (api: ApiPromise): Promise<boolean> => {
+    let sealing = manualSealing.get(api);
+    if (sealing === undefined) {
+        sealing = api.rpc.rpc
+            .methods()
+            .then(({ methods }) => methods.some((method) => method.toString() === 'engine_createBlock'));
+        manualSealing.set(api, sealing);
+    }
+    return sealing;
+};
+
+// seal and finalize one block on a `--sealing` node, including whatever is in the pool
+export const sealBlock = async (api: ApiPromise) => {
+    await api.rpc.engine.createBlock(true, true);
+};
+
 // wait until a certain amount of blocks have elapsed
 export const forElapsedBlocks = async (api: ApiPromise, opts?: { minBlocks?: number; maxRetries?: number }) => {
     const { maxRetries = 10, minBlocks = 2 } = opts ?? {};
@@ -108,15 +128,42 @@ function runNode(name: string, extraArgs: string) {
     const logPrefix = path.join(os.tmpdir(), `creditcoin3-node-${name}-${timeStamp}-log`);
 
     // warning: do NOT await, runs in background
+    // CREDITCOIN_SEALING=manual: blocks come from the ticker below instead of BABE slots
+    const sealing = process.env.CREDITCOIN_SEALING ? ` --sealing ${process.env.CREDITCOIN_SEALING}` : '';
     void execa(
         '../target/release/creditcoin3-node',
-        `--chain dev --validator --pruning archive ${extraArgs}`.split(' '),
+        `--chain dev --validator --pruning archive${sealing} ${extraArgs}`.split(' '),
         {
             detached: true,
             stdout: fs.openSync(`${logPrefix}.stdout`, 'w'),
             stderr: fs.openSync(`${logPrefix}.stderr`, 'w'),
         },
     );
+}
+
+let sealTicker: execa.ExecaChildProcess | undefined;
+
+// Under `--sealing manual` nothing produces blocks on its own and GRANDPA does not run, so
+// seal and finalize a block on Alice every CREDITCOIN_SEAL_INTERVAL_MS (default 1 s, a fifth
+// of a slot) and finalize the same block on Bob, which only imports it. Transactions then
+// finalize within about a second instead of the 10-15 s GRANDPA takes on 5 s slots. Chain
+// time still moves one slot per block, so it runs ahead of the wall clock.
+//
+// It runs as its own process: the CLI tests run the CLI with `commandSync`, which blocks
+// this one until the CLI's transaction is finalized, i.e. until the next block is sealed.
+function startSealTicker() {
+    const interval = Number(process.env.CREDITCOIN_SEAL_INTERVAL_MS ?? 1000) / 1000;
+    sealTicker = execa(
+        '../.github/seal-blocks.sh',
+        ['http://127.0.0.1:9944', String(interval), 'http://127.0.0.1:9955'],
+        {
+            detached: true,
+            stdout: fs.openSync(path.join(os.tmpdir(), 'seal-blocks.log'), 'a'),
+            stderr: 'inherit',
+        },
+    );
+    // killed on purpose in killCreditcoinNodes()
+    sealTicker.catch(() => undefined);
 }
 
 export async function startAliceAndBob() {
@@ -135,10 +182,19 @@ export async function startAliceAndBob() {
         '--bob --tmp --node-key d9cccabf274641a185bc94f9f8c3d791f50514277cb3ba8c2aa4d7d6757c661f --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWKEKymnBDKfa8MkMWiLE6DYbC4aAUciqmYucm7xFKK3Au --port 30335 --rpc-port 9955',
     );
     await sleep(1000);
+
+    if (process.env.CREDITCOIN_SEALING) {
+        startSealTicker();
+    }
 }
 
 export function killCreditcoinNodes() {
     console.log('INFO: killing all creditcoin3-node processes');
+
+    if (sealTicker) {
+        sealTicker.kill('SIGKILL');
+        sealTicker = undefined;
+    }
 
     commandSync(`killall -9 creditcoin3-node`);
 }
@@ -160,10 +216,4 @@ export async function expectIsFinalizing() {
 
 export function randomIntBetween(min: number, max: number) {
     return min + Math.floor(Math.random() * (max - min));
-}
-
-// Function to calculate the threshold for a committee set size to reach majority vote
-// Duplicate of pub fn calculate_threshold(target_sample_size: u32) -> u32 (Path: creditcoin3-next/primitives/attestor/src/lib.rs)
-export function calculateThreshold(targetSampleSize: bigint): bigint {
-    return (BigInt(2) * targetSampleSize) / BigInt(3);
 }

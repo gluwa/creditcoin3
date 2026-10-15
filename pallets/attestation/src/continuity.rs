@@ -47,7 +47,9 @@ impl<T: Config> Pallet<T> {
 
         // If the attestation's prev digest matches the last finalized digest
         // We need no continuity proof, the attestation links directly.
-        // We still need to check the header number continuity
+        // We still need to check the header number continuity. Attestations must also be at
+        // least an attestation interval past the last one (see `validate_attestation`), so this
+        // path is only reachable with an interval of 1.
         if attestation_prev_digest == last_finalized_digest
             && attestation.continuity_proof.is_empty()
         {
@@ -117,6 +119,14 @@ impl<T: Config> Pallet<T> {
             .tail_prev_digest()
             .ok_or(Error::<T>::InvalidAttestationContinuityProofTail)?;
         debug!("📝 Checking continuity proof tail: block_number={tail_block_number}, prev_digest={tail_prev_digest:?}");
+
+        // The proof must extend the latest finalized digest. Proofs of consecutive attestations
+        // then never overlap, which bounds the roots a commit walks when it condenses the
+        // checkpointing queue (see `CommitAttestationWeight`).
+        ensure!(
+            tail_prev_digest == last_finalized_digest,
+            Error::<T>::InvalidAttestationContinuityProofTail
+        );
 
         // Verify the tail's prev_digest points to a known finalized attestation or the last checkpoint.
         // When linking to a checkpoint, it must be the LastCheckpoint since attestations

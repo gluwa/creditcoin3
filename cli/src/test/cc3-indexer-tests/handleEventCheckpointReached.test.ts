@@ -1,6 +1,6 @@
 import { newApi, ApiPromise } from '../../lib';
 import { chain_Anvil1_Key, chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 describe('handleEventCheckpointReached()', () => {
     let api: ApiPromise;
@@ -44,7 +44,7 @@ describe('handleEventCheckpointReached()', () => {
 
                 // 0 means that the block timestamp wasn't present, and it defaulted to 0, which is a problem
                 expect(BigInt(node.timestamp)).toBeGreaterThan(0);
-                expect(BigInt(node.timestamp)).toBeLessThan(Date.now());
+                expect(BigInt(node.timestamp)).toBeLessThanOrEqual(await chainNow(api));
 
                 // query each node individually to cover this endpoint too
                 const response2 = await graphQLQuery(

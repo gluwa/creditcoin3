@@ -269,14 +269,24 @@ impl Attestor {
 
         // ----------------------------------* attestation params *----------------------------- //
 
+        let interval_on_chain = cc3
+            .chain_attestation_interval(chain_key)
+            .await?
+            .and_then(NonZero::new);
         let interval_attestation =
             if let Some(forced) = self.config.attestation.attestation_interval {
+                // The runtime only accepts an attestation at least the on-chain interval past
+                // the last one, so a shorter forced interval gets most attestations rejected.
+                if let Some(on_chain) = interval_on_chain.filter(|on_chain| forced < *on_chain) {
+                    tracing::warn!(
+                        "⚠️ forced attestation interval {forced} is below the on-chain interval \
+                         {on_chain}; attestations closer than {on_chain} blocks to the last one \
+                         are rejected"
+                    );
+                }
                 forced
             } else {
-                cc3.chain_attestation_interval(chain_key)
-                    .await?
-                    .and_then(NonZero::new)
-                    .ok_or(Error::MissingAttestationInterval(chain_key))?
+                interval_on_chain.ok_or(Error::MissingAttestationInterval(chain_key))?
             };
 
         let (genesis_height, start_attestation) =
@@ -288,15 +298,14 @@ impl Attestor {
             .or_else(|| start_attestation.as_ref().map(|i| i.height + 1))
             .unwrap_or(genesis_height);
 
-        // Live quorum: `2/3+1` of `min(|ActiveAttestors|, TargetSampleSize)`. Deriving this from
-        // `TargetSampleSize` alone would overshoot on any chain whose target sits above the
-        // active-attestor count — the recommended posture, since quorum intersection only holds
-        // while the cap does not bind — and the node would never reach its own threshold, so it
-        // would boot healthy and silently never submit an attestation.
+        // Live quorum: `2/3+1` of `|ActiveAttestors|`. Read from the chain rather than derived
+        // locally so this node enforces exactly what the runtime does — a threshold computed from
+        // anything else either burns fees on `MajorityNotReached` (too low) or leaves the node
+        // booting healthy and silently never submitting (too high).
         let quorum = NonZero::new(
             cc3.quorum(chain_key)
                 .await
-                .map_err(|_| Error::MissingTargetSampleSize(chain_key))? as usize,
+                .map_err(|_| Error::QuorumReadFailed(chain_key))? as usize,
         )
         .expect("quorum > 0");
         health.set_p2p_expected(quorum.get() > 1);

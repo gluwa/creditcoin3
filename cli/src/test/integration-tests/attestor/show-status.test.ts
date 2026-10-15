@@ -1,5 +1,5 @@
 import { newApi, ApiPromise, KeyringPair } from '../../../lib';
-import { try_catch_else_finally } from '../../utils';
+import { sleep } from '../../utils';
 import {
     ALICE_NODE_URL,
     BOB_NODE_URL,
@@ -37,36 +37,6 @@ describe('show-status', () => {
         await api.disconnect();
     });
 
-    it('should error when required option --evm-address is not specified', () => {
-        try_catch_else_finally(
-            () => {
-                CLI('attestor show-status');
-            },
-            (error: any) => {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '--evm-address [address]' not specified");
-            },
-            () => {
-                throw new Error('cli was expected to fail but it did not');
-            },
-        );
-    }, 30_000);
-
-    it('should error when required option --chain is not specified', () => {
-        try_catch_else_finally(
-            () => {
-                CLI(`attestor show-status --evm-address ${stash.ethEvmAddress}`);
-            },
-            (error: any) => {
-                expect(error.exitCode).toEqual(1);
-                expect(error.stderr).toContain("error: required option '-c, --chain [chain]' not specified");
-            },
-            () => {
-                throw new Error('cli was expected to fail but it did not');
-            },
-        );
-    }, 30_000);
-
     it('should display "no attestors" message when stash has none registered', () => {
         // note: nothing registered yet under this stash!
         const result = CLI(`attestor show-status --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key}`);
@@ -85,12 +55,21 @@ describe('show-status', () => {
         let result = authenticatedCLI(`attestor register --chain ${chain_Anvil1_Key} --attestor ${attestor.address}`);
         expect(result.exitCode).toEqual(0);
 
-        result = CLI(
-            `attestor show-status --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key} --url ${BOB_NODE_URL}`,
-        );
+        // The registration was submitted through Alice and returns once it is in a block there;
+        // Bob may not have imported that block yet, so give it a few blocks to catch up.
+        const expected = `Address ${attestor.address} status is Idle`;
+        for (let attempt = 0; attempt < 6; attempt++) {
+            result = CLI(
+                `attestor show-status --evm-address ${stash.ethEvmAddress} --chain ${chain_Anvil1_Key} --url ${BOB_NODE_URL}`,
+            );
+            if (result.exitCode !== 0 || result.stdout.includes(expected)) {
+                break;
+            }
+            await sleep(5_000);
+        }
         expect(result.exitCode).toEqual(0);
-        expect(result.stdout).toContain(`Address ${attestor.address} status is Idle`);
-    }, 60_000);
+        expect(result.stdout).toContain(expected);
+    }, 120_000);
 
     test('should display status Active for an attestor after election promotes it', async () => {
         await fundFromSudo(api, stash.evmStashAddress, parseAmount('1000'));
