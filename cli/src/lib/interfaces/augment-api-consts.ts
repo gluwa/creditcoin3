@@ -67,9 +67,9 @@ declare module '@polkadot/api-base/types/consts' {
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
             /**
              * Maximum number of successful `commit_attestation` calls per chain in a single block.
-             * Attestors racing different heights off the same previous digest can land more than
-             * one per block, so this must leave room for those. An over-limit commit fails and stays
-             * valid for resubmission in a later block.
+             * Attestors pipeline consecutive heights, each extending the one before, so more than
+             * one can land per block; this must leave room for those. An over-limit commit fails
+             * and stays valid for resubmission in a later block.
              **/
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
             /**
