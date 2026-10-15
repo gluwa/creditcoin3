@@ -40,17 +40,10 @@ async function internalSignSendAndWatch(
                 }
             }
 
-            // Called every time the status changes
-            if (status.isFinalized) {
-                const result = {
-                    status: TxStatus.ok,
-                    info: `Transaction included at blockHash ${status.asFinalized.toString()}`,
-                };
-                unsubAndResolve(result);
-            }
             if (dispatchError) {
                 let blockHash: string | null = null;
                 if (status.isInBlock) blockHash = status.asInBlock.toHex();
+                if (status.isFinalized) blockHash = status.asFinalized.toHex();
 
                 if (dispatchError.isModule) {
                     // for module errors, the section is indexed, lookup
@@ -72,6 +65,18 @@ async function internalSignSendAndWatch(
                     };
                     unsubAndResolve(result);
                 }
+                return;
+            }
+
+            // Called every time the status changes. Checked after dispatchError: a node that
+            // seals and finalizes in one step (`--sealing manual`) reports Finalized without
+            // an InBlock first, and a failed transaction must not resolve as ok there.
+            if (status.isFinalized) {
+                const result = {
+                    status: TxStatus.ok,
+                    info: `Transaction included at blockHash ${status.asFinalized.toString()}`,
+                };
+                unsubAndResolve(result);
             }
         })
             .then((unsub) => {
