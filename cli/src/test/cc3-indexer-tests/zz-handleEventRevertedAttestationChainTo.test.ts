@@ -58,6 +58,13 @@ describe('handleEventRevertedAttestationChainTo()', () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
+        // A checkpoint every 2 attestations instead of the genesis 10, so the first one past
+        // genesis comes within a couple of minutes of the attestors starting, however early
+        // in the run this file is scheduled.
+        await api.tx.sudo
+            .sudo(api.tx.attestation.setAttestationsPerCheckpoint(chainKey, 2))
+            .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+
         let checkpoints: { blockNumber: string; digest: string }[] = [];
 
         while (checkpoints.length < 2) {
