@@ -31,6 +31,7 @@ pub mod reobservation;
 pub mod resolver;
 pub mod set_update;
 pub mod signing;
+mod storage;
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -116,7 +117,8 @@ pub struct MessageVoteState {
 
 /// Build the shared message-vote state and the matching publish channel receiver from config, or
 /// `None` when message attestation is disabled / not yet supported. Runs during `lib.rs` startup
-/// before tasks spawn; resolving an [`AttestorSet::OnChainValidator`] set performs one RPC read.
+/// before tasks spawn. Durable storage is scoped to the public signing account; storage and
+/// ownership failures abort startup instead of silently disabling recovery.
 ///
 /// Enablement is gated twice: the local `enabled` flag is the *operator's* opt-in (and implies the
 /// RPC endpoints are configured), while the on-chain `WriteAbilityConfigs` entry for `chain_key` is
@@ -125,18 +127,21 @@ pub struct MessageVoteState {
 /// local config for dev setups. Signing starts paused; after a successful read, failed refreshes
 /// retain the last known authorization. The task remains alive while disabled
 /// so finalized governance changes can enable it or change its destination key without a restart.
-#[must_use]
 pub async fn build_state(
     cfg: &Config,
     cc3: &cc_client::Client,
-) -> Option<(
-    Arc<MessageVoteState>,
-    mpsc::Receiver<pending::PendingVote>,
-    mpsc::Receiver<ReobservationRequest>,
-    mpsc::Receiver<SetUpdateVote>,
-)> {
+    account_id: [u8; 32],
+) -> Result<
+    Option<(
+        Arc<MessageVoteState>,
+        mpsc::Receiver<pending::PendingVote>,
+        mpsc::Receiver<ReobservationRequest>,
+        mpsc::Receiver<SetUpdateVote>,
+    )>,
+    Error,
+> {
     if !cfg.enabled {
-        return None;
+        return Ok(None);
     }
     // Only nag operators who actually configured it: the field defaults to a non-zero value, so
     // an unconditional warning would fire on every attestor that never mentioned the setting.
@@ -160,9 +165,19 @@ pub async fn build_state(
              support write-ability (SupportedChainsApi < v2 / no WriteAbilityConfigs) — refusing \
              to enable message attestation. Upgrade the runtime or disable message attestation."
         );
-        return None;
+        return Ok(None);
     }
-    let active_set = resolve_active_set(cfg).await?;
+    let Some(active_set) = resolve_active_set(cfg).await else {
+        return Ok(None);
+    };
+    let pending = pending::Store::open(
+        &cfg.state_dir,
+        cfg.write_ability_chain_key,
+        account_id,
+        cfg.start_block,
+    )
+    .await
+    .map_err(Error::WriteAbility)?;
     let threshold = attestor_primitives::calculate_threshold(active_set.len() as u32) as usize;
     let aggregator =
         aggregator::VoteAggregator::new(threshold, cfg.max_tracked_messages, cfg.vote_ttl);
@@ -174,7 +189,7 @@ pub async fn build_state(
         aggregator: Mutex::new(aggregator),
         active_set: RwLock::new(active_set),
         publish_tx,
-        pending: pending::Store::new(&cfg.state_dir, cfg.write_ability_chain_key),
+        pending,
         set_update_publish_tx,
         reobs_tx,
         destination_chain_key: RwLock::new(None),
@@ -184,7 +199,7 @@ pub async fn build_state(
         threshold,
         "🧑‍🤝‍🧑 message-vote quorum configured"
     );
-    Some((state, publish_rx, reobs_rx, set_update_publish_rx))
+    Ok(Some((state, publish_rx, reobs_rx, set_update_publish_rx)))
 }
 
 /// Register this attestor's write-ability EVM message-vote address on-chain (audit P2-8),
@@ -457,15 +472,6 @@ pub async fn run(
         return Ok(());
     };
 
-    // Durable storage is mandatory for a write-ability attestor. Verify the state directory is
-    // writable up front so a missing / read-only volume fails the boot loudly here, rather than
-    // silently degrading to no cursor persistence (the restart-loses-messages footgun) once the
-    // listener is running.
-    let state_dir = cfg.state_dir.clone();
-    tokio::task::spawn_blocking(move || cursor::ensure_writable(&state_dir))
-        .await?
-        .map_err(Error::WriteAbility)?;
-
     // On-chain attestor-set hot-reload watcher (only when the set is sourced from the validator).
     // Runs independently of Outbox resolution — the set is unrelated to the Outbox — so it keeps the
     // active set in sync even while write-ability is idle waiting for the Outbox.
@@ -713,11 +719,7 @@ pub async fn run(
     let scan_from = cfg.start_block.or(Some(head_before_resolve));
     // One durable cursor covers all Outboxes for this chain: a chunk advances only after every
     // candidate message has been authenticated at its historical source block and drained.
-    let cursor_store = cursor::CursorStore::for_all_outboxes(
-        &cfg.state_dir,
-        cfg.write_ability_chain_key,
-        cfg.start_block,
-    );
+    let cursor_store = state.pending.cursor(cfg.start_block);
     tracing::info!(
         path = %cursor_store.path().display(),
         "🗂️ persisting Outbox scan cursor across restarts"

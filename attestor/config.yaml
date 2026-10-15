@@ -123,8 +123,8 @@ write_ability:
   #
   # block_confirmation_depth: 3
 
-  # Directory for durable write-ability state — the Outbox scan cursor, so a restart
-  # resumes where it left off instead of skipping messages published while down.
+  # Base directory for durable write-ability cursors and pending messages, so a restart
+  # resumes without skipping work published while down.
   #
   # Set here because the default is `/data` (the persistent volume the attestor
   # StatefulSet mounts in k8s), which cannot be created off-cluster: an unprivileged
@@ -132,17 +132,12 @@ write_ability:
   # deliberately fails loudly when the state dir is not writable. In production leave
   # this unset so it uses the mounted volume.
   #
-  # Note for multi-attestor local runs (launch-attestors.sh): the cursor file is named
-  # per chain key (`outbox-cursor-<chain_key>.json`), not per attestor, so instances
-  # sharing this directory share one cursor. Give each instance its own state_dir if you
-  # care about exact coverage. Sharing it cuts both ways, and the second direction is the
-  # one that matters:
-  #   - resuming from a *older* cursor re-signs a few messages — absorbed by vote dedup;
-  #   - resuming from a *newer* one (written by a faster peer) would skip messages.
-  # The listener bounds the second case by rewinding a resumed cursor by
-  # CURSOR_RESUME_LOOKBACK_BLOCKS before scanning, so a shared cursor re-scans that window
-  # instead of skipping it. Only a divergence wider than that lookback could still skip,
-  # which local runs do not reach. Production gives every attestor its own volume.
+  # Multi-attestor local runs may share this base: each public signing account gets a
+  # `write-ability-<account-hex>/` subdirectory. A lock per account and chain rejects a
+  # duplicate process. Keep the whole base directory on restart.
+  # On upgrade, legacy root-level state is preserved and copied into each account's
+  # directory. Its cursor cannot prove this signer's coverage, so migration replays from
+  # start_block (or genesis). Set a safe activation floor before upgrading.
   state_dir: ".attestor-state"
 
   # Anti-abuse bounds.

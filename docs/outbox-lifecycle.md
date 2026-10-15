@@ -18,8 +18,12 @@ receipts and filters their logs locally. RPC outages still fail the current chun
 
 One durable cursor represents the fully scanned range across **all** Outboxes. It advances only
 once the entire range has been authenticated, durably journaled, and handed to the signing pipeline.
-Pending messages live under `pending-messages-<chain_key>/<destination_key>/` in the same persistent
-state directory as the cursor. A bounded worker replays them until gossip accepts their votes;
+Each public attestor account owns `write-ability-<account-hex>/` beneath the configured `state_dir`.
+Pending messages live under `pending-messages-<chain_key>/<destination_key>/` in that account's
+directory alongside its cursor. Different attestors may share the base directory without sharing
+progress or acknowledgements. A per-account, per-chain file lock rejects duplicate processes; the
+lock remains held through in-flight disk operations. The filesystem must support exclusive file
+locks and atomic renames. A bounded worker replays messages until gossip accepts their votes;
 channel overflow and a process crash cannot discard them. Gossip acceptance is a network handoff,
 not confirmation of downstream delivery; relayers still use reobservation for missed deliveries.
 Cursor and journal I/O run on blocking workers. Corrupt or unreadable records stop recovery and
@@ -38,6 +42,13 @@ all pending work was handed to gossip. Set a known activation floor when older r
 do not expose the Discovery precompile; choosing a floor excludes earlier messages by operator policy. Already published votes may repeat and are deduplicated downstream. New deployments
 retain the configured `start_block` behavior. Backfill can be costly because all matching event
 emitters must be checked, including unauthorized deployments.
+
+Upgrading from root-level shared state also replays from the configured floor or genesis. Each
+account imports legacy pending records without removing the originals, then writes its own replay
+cursor last so an interrupted migration retries safely. Legacy progress may belong to another
+signer and cannot authorize skipping history, even if that cursor used the durable journal. Once
+the account's cursor exists, restarts use it and do not reimport acknowledged legacy work. Keep
+the whole state directory when backing up or restoring, and stop older binaries before upgrading.
 
 This lifecycle policy does not change finality policy or destination-key governance. The route's
 destination key is captured in each indexed message so governance can reject a buffer created

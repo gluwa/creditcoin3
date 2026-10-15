@@ -69,6 +69,8 @@ pub fn ensure_writable(dir: &Path) -> Result<()> {
 /// durable position and [`save`](Self::save) advances it.
 #[derive(Clone, Debug)]
 pub struct CursorStore {
+    // Keep exclusive ownership until the last cloned disk operation completes.
+    directory: Option<Arc<super::storage::StateDirectory>>,
     io: Arc<Semaphore>,
     all_outboxes: bool,
     migration_floor: u64,
@@ -80,18 +82,12 @@ pub struct CursorStore {
 impl CursorStore {
     /// Cursor file for `chain_key`'s Outbox inside `dir`.
     ///
-    /// **Invariant: each attestor instance must own its `dir`.** The file name is scoped only by
-    /// `chain_key`, so two attestors pointed at the *same* `dir` for the same chain write the same
-    /// file and clobber each other's `last_seen` — a faster peer's higher value could make a slower
-    /// peer skip messages on restart. Production gives every attestor its own persistent volume, so
-    /// they never share `dir`. Two safety nets bound the blast radius if the invariant is ever
-    /// violated: the `outbox`-mismatch guard in [`load`](Self::load) discards a cursor written
-    /// against a *different* Outbox, and the listener rewinds a resumed cursor by a lookback
-    /// (`CURSOR_RESUME_LOOKBACK_BLOCKS`) so a cursor left *ahead* re-scans that window rather than
-    /// skipping it (downstream dedups the re-signed votes).
+    /// `dir` must be private to an attestor identity. The production listener obtains its cursor
+    /// from the pending store, retaining the same identity-directory ownership lock.
     #[must_use]
     pub fn new(dir: &Path, chain_key: u64, outbox: Address) -> Self {
         Self {
+            directory: None,
             io: Arc::new(Semaphore::new(1)),
             all_outboxes: false,
             migration_floor: 0,
@@ -110,6 +106,14 @@ impl CursorStore {
             migration_floor: start_block.unwrap_or(0).saturating_sub(1),
             ..Self::new(dir, chain_key, Address::ZERO)
         }
+    }
+
+    pub(super) fn with_directory(
+        mut self,
+        directory: Option<Arc<super::storage::StateDirectory>>,
+    ) -> Self {
+        self.directory = directory;
+        self
     }
 
     /// Explicit operator floor used during migration and restart lookback. Zero means no floor.
@@ -390,5 +394,57 @@ mod tests {
         );
         release_tx.send(()).unwrap();
         second.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelling_disk_waiter_keeps_namespace_locked_until_disk_finishes() {
+        use std::time::Duration;
+
+        let dir = TmpDir::new("cancelled-namespace-owner");
+        let owner = super::super::pending::Store::open(dir.path(), 7, [1; 32], None)
+            .await
+            .unwrap();
+        let cursor = owner.cursor(None);
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+        let waiter = tokio::spawn(async move {
+            cursor
+                .disk(move |store| {
+                    started_tx.send(()).unwrap();
+                    release_rx
+                        .recv_timeout(Duration::from_secs(5))
+                        .context("timed out releasing cancelled disk operation")?;
+                    store.save(123)?;
+                    // Signal only after the blocking operation drops its ownership guard.
+                    drop(store);
+                    finished_tx.send(()).unwrap();
+                    Ok(())
+                })
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), started_rx)
+            .await
+            .unwrap()
+            .unwrap();
+        waiter.abort();
+        assert!(waiter.await.unwrap_err().is_cancelled());
+        drop(owner);
+
+        assert!(
+            super::super::pending::Store::open(dir.path(), 7, [1; 32], None)
+                .await
+                .is_err()
+        );
+        release_tx.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), finished_rx)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let reopened = super::super::pending::Store::open(dir.path(), 7, [1; 32], None)
+            .await
+            .unwrap();
+        assert_eq!(reopened.cursor(None).load_async().await.unwrap(), Some(123));
     }
 }

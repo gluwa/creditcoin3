@@ -1823,6 +1823,7 @@ dependencies = [
  "clap",
  "common",
  "eth",
+ "fs2",
  "futures 0.3.32",
  "hex",
  "libp2p",
