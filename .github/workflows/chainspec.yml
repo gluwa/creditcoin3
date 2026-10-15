@@ -7,8 +7,10 @@ name: chainspec
       - "runtime/**"
       - "chainspecs/**"
       - "cli/src/test/**ChainspecSetup.ts"
-      - "cli/src/test/blockchain-tests/**"
-      - ".github/workflows/chainspec.yml"
+      # The only test this workflow runs, and the config it runs under.
+      - "cli/src/test/blockchain-tests/danger-will-brick-the-blockchain.test.ts"
+      - "cli/src/test/blockchain-tests.config.ts"
+  # Two node builds per run, so a change to this workflow is tested by dispatching it.
   workflow_dispatch:
 
 concurrency:
