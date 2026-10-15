@@ -76,10 +76,19 @@ jobs:
             # Each filter below lists only the shared files the suites it gates actually
             # import. Over the six months before this was written those files changed in 2
             # of 143 commits, so this costs close to nothing in extra runs.
+            #
+            # Every suite also runs the node and other Rust binaries, so each one lists what
+            # those are built from outside its own directories: node/**, the root manifest,
+            # the lockfile (a dependency bump can change RPC or EVM behaviour without touching
+            # a crate here) and the toolchain.
             archiver:
               - "archiver/**"
               - "common/**"
               - "**/archiver.rs"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             attestor_cli_testing:
               - "attestor/**"
@@ -98,6 +107,10 @@ jobs:
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
               - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             attestor_network_testing:
               - "checkpoint-builder/**"
@@ -112,6 +125,10 @@ jobs:
               - "cli/yarn.lock"
               - "cli/src/test/attestation-tests/**"
               - "cli/src/test/utils.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             cc3_indexer:
               - "attestor/**"
@@ -126,6 +143,10 @@ jobs:
               - "cli/src/test/cc3-indexer-tests/**"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             docs_smart_contract:
               - "docs/smart-contract-development/**"
@@ -140,6 +161,10 @@ jobs:
               - "cli/src/test/blockchain-tests/**"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integration-tests/helpers.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             integration_test_cli:
               - "common/**"
@@ -155,6 +180,10 @@ jobs:
               - "cli/src/test/integration-tests.config.ts"
               - "cli/src/test/utils.ts"
               - "cli/src/test/integrationTestSetupAfterEnv.ts"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             # Carried over verbatim from attestor-compatibility.yml's own pull_request
             # trigger, which it no longer has now that ci.yml calls it.
@@ -178,6 +207,10 @@ jobs:
               - "scripts/**"
               - ".github/wait-for-proof-gen.sh"
               - ".github/workflows/proof-gen-api-server.yml"
+              - "node/**"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
             # What the runtime's call metadata is built from, including the FRAME pallets
             # that come in through Cargo.lock.
