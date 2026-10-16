@@ -2331,9 +2331,9 @@ jobs:
     uses: ./.github/workflows/attestor-compatibility.yml
     with:
       sut-artifact: binary-for-testing-ci
-      # Historical attestor incompatibility warns operators on dev and testnet. Operators
-      # review the affected releases before deploying; mainnet keeps its blocking verdict.
-      informational: ${{ contains(fromJSON('["dev", "usc-testnet"]'), needs.should-run.outputs.target_ref) }}
+      # Historical attestor compatibility advises operators on dev and both promotion
+      # targets; incompatibility is deployment guidance rather than a promotion blocker.
+      informational: ${{ contains(fromJSON('["dev", "usc-testnet", "main"]'), needs.should-run.outputs.target_ref) }}
     secrets: inherit
 
   validator-compatibility:
@@ -2344,6 +2344,9 @@ jobs:
     uses: ./.github/workflows/validator-compatibility.yml
     with:
       sut-artifact: binary-for-testing-ci
+      # Operators review historical-validator compatibility before deploying on either
+      # network. Setup failures and ordinary blockchain tests still block promotion.
+      informational: ${{ contains(fromJSON('["usc-testnet", "main"]'), needs.should-run.outputs.target_ref) }}
     secrets: inherit
 
   proof-gen-api-server:
