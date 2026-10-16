@@ -33,26 +33,34 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     outputs:
+      # The nightly or dispatched soak: one definition, which every soak check reads.
+      soak: ${{ steps.mode.outputs.soak }}
       changes: ${{ steps.filter.outputs.changes }}
-      archiver: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.archiver || 'false' }}
-      attestor_cli_testing: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.attestor_cli_testing || 'false' }}
-      attestor_network_testing: ${{ (github.event_name == 'schedule' || inputs.soak) && 'true' || steps.filter.outputs.attestor_network_testing }}
-      cc3_indexer: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.cc3_indexer || 'false' }}
-      docs_smart_contract: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.docs_smart_contract || 'false' }}
-      integration_test_blockchain: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.integration_test_blockchain || 'false' }}
-      integration_test_cli: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.integration_test_cli || 'false' }}
-      regenerate_metadata: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.regenerate_metadata || 'false' }}
-      extrinsics: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.extrinsics || 'false' }}
-      attestor_compatibility: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.attestor_compatibility || 'false' }}
-      validator_compatibility: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.validator_compatibility || 'false' }}
-      proof_gen: ${{ !(github.event_name == 'schedule' || inputs.soak) && steps.filter.outputs.proof_gen || 'false' }}
+      archiver: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.archiver || 'false' }}
+      attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_cli_testing || 'false' }}
+      attestor_network_testing: ${{ steps.mode.outputs.soak == 'true' && 'true' || steps.filter.outputs.attestor_network_testing }}
+      cc3_indexer: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.cc3_indexer || 'false' }}
+      docs_smart_contract: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.docs_smart_contract || 'false' }}
+      integration_test_blockchain: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_blockchain || 'false' }}
+      integration_test_cli: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_cli || 'false' }}
+      regenerate_metadata: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.regenerate_metadata || 'false' }}
+      extrinsics: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.extrinsics || 'false' }}
+      attestor_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_compatibility || 'false' }}
+      validator_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.validator_compatibility || 'false' }}
+      proof_gen: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.proof_gen || 'false' }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
+      - name: Is this a soak run
+        id: mode
+        env:
+          SOAK: ${{ github.event_name == 'schedule' || inputs.soak }}
+        run: echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
 
       # The nightly soak has no diff to filter; should-run's outputs pick its suite instead.
       - name: "Examine which files have been modified by this PR"
-        if: ${{ !(github.event_name == 'schedule' || inputs.soak) }}
+        if: ${{ steps.mode.outputs.soak != 'true' }}
         uses: dorny/paths-filter@v4.0.2
         id: filter
         with:
@@ -242,17 +250,21 @@ jobs:
     needs:
       - should-run
     # Any matching filter needs the binaries, the extrinsics check among them.
-    if: ${{ needs.should-run.outputs.changes != '[]' || (github.event_name == 'schedule' || inputs.soak) }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
+      # Workspace crates at opt-level 1 for PRs. The nightly and dispatched soaks measure
+      # timing and catch-up, so they keep the release level.
+      workspace-opt-level: ${{ needs.should-run.outputs.soak != 'true' && '1' || '' }}
       git-lfs-checkout: false
       version-string: testing-ci
       cache-key-name: build-creditcoin-node
       runs-on: "['ubuntu-26.04']"
       # A PR that changes no file a crate reads (CLI tests, docs, workflows) reuses the
-      # binaries build-cache.yml made from the same sources on dev.
-      reuse-binaries: true
+      # binaries build-cache.yml made from the same sources on dev. The soaks build at the
+      # release level, which build-cache.yml does not save, so they compile and save nothing.
+      reuse-binaries: ${{ needs.should-run.outputs.soak != 'true' }}
     secrets: inherit
 
   integration-test-check-extrinsics:
@@ -494,7 +506,7 @@ jobs:
       - name: Run attestation tests
         env:
           # Nightly: run sanity.test.ts over its whole block window.
-          ATTESTATION_SOAK: ${{ (github.event_name == 'schedule' || inputs.soak) && '1' || '' }}
+          ATTESTATION_SOAK: ${{ needs.should-run.outputs.soak == 'true' && '1' || '' }}
         working-directory: ./cli
         run: |
           yarn install --immutable
