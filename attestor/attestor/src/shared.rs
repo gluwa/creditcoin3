@@ -35,7 +35,7 @@ pub struct Shared {
     /// (root stream, genesis bootstrap) must use this — hardcoding a version would silently
     /// produce wrong roots/digests the moment the runtime registers a chain with a different
     /// encoding.
-    pub encoding: usc_abi_encoding::common::EncodingVersion,
+    pub encoding: attestcoin_abi_encoding::common::EncodingVersion,
     pub account_id: cc_client::AccountId32,
     pub attestor_id: attestor_primitives::AttestorId,
 
@@ -82,6 +82,11 @@ pub struct Shared {
     /// `can_attest` if it is still current at wake time — so a real chill landing during the warm-up
     /// window cancels the pending enable rather than racing it.
     pub eligibility_gen: AtomicU64,
+
+    /// USC write-ability message-vote state, shared between the `write_ability` task (which
+    /// produces votes) and the `p2p` task (which publishes them and validates incoming peer
+    /// votes on the same swarm). `None` when message attestation is disabled.
+    pub message_votes: Option<Arc<crate::tasks::write_ability::MessageVoteState>>,
 
     pub can_attest_tx: watch::Sender<bool>,
     pub can_attest_rx: watch::Receiver<bool>,

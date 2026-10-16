@@ -62,11 +62,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_chain() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `381`
-		//  Estimated: `3846`
-		// Minimum execution time: 63_570_000 picoseconds.
-		Weight::from_parts(66_800_000, 0)
-			.saturating_add(Weight::from_parts(0, 3846))
+		//  Measured:  `457`
+		//  Estimated: `3922`
+		// Minimum execution time: 70_870_000 picoseconds.
+		Weight::from_parts(76_160_000, 0)
+			.saturating_add(Weight::from_parts(0, 3922))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(11))
 	}
@@ -84,8 +84,8 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `406`
 		//  Estimated: `3871`
-		// Minimum execution time: 30_680_000 picoseconds.
-		Weight::from_parts(31_920_000, 0)
+		// Minimum execution time: 32_270_000 picoseconds.
+		Weight::from_parts(35_530_000, 0)
 			.saturating_add(Weight::from_parts(0, 3871))
 			.saturating_add(T::DbWeight::get().reads(5))
 			.saturating_add(T::DbWeight::get().writes(3))
@@ -104,11 +104,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_chain_name() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `655`
-		//  Estimated: `4120`
-		// Minimum execution time: 44_830_000 picoseconds.
-		Weight::from_parts(48_170_000, 0)
-			.saturating_add(Weight::from_parts(0, 4120))
+		//  Measured:  `693`
+		//  Estimated: `4158`
+		// Minimum execution time: 47_450_000 picoseconds.
+		Weight::from_parts(51_710_000, 0)
+			.saturating_add(Weight::from_parts(0, 4158))
 			.saturating_add(T::DbWeight::get().reads(6))
 			.saturating_add(T::DbWeight::get().writes(5))
 	}
@@ -164,16 +164,112 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::AttestationRetentionDuration` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::RemovedChainCleanup` (r:0 w:1)
 	/// Proof: `Attestation::RemovedChainCleanup` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::WriteAbilityConfigs` (r:0 w:1)
+	/// Proof: `SupportedChains::WriteAbilityConfigs` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `SupportedChains::ChainIdAndNameToUniqKey` (r:0 w:1)
 	/// Proof: `SupportedChains::ChainIdAndNameToUniqKey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::OutboxFactories` (r:0 w:1)
+	/// Proof: `SupportedChains::OutboxFactories` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::OutboxDiscoveries` (r:0 w:1)
+	/// Proof: `SupportedChains::OutboxDiscoveries` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::CoreFees` (r:0 w:1)
+	/// Proof: `SupportedChains::CoreFees` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn remove_chain() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `882`
-		//  Estimated: `4347`
-		// Minimum execution time: 122_180_000 picoseconds.
-		Weight::from_parts(147_420_000, 0)
-			.saturating_add(Weight::from_parts(0, 4347))
+		//  Measured:  `840`
+		//  Estimated: `4305`
+		// Minimum execution time: 138_320_000 picoseconds.
+		Weight::from_parts(144_030_000, 0)
+			.saturating_add(Weight::from_parts(0, 4305))
 			.saturating_add(T::DbWeight::get().reads(7))
-			.saturating_add(T::DbWeight::get().writes(23))
+			.saturating_add(T::DbWeight::get().writes(27))
+	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::OutboxFactories` (r:0 w:1)
+	/// Proof: `SupportedChains::OutboxFactories` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn set_outbox_factory_addr() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `369`
+		//  Estimated: `3834`
+		// Minimum execution time: 27_880_000 picoseconds.
+		Weight::from_parts(31_790_000, 0)
+			.saturating_add(Weight::from_parts(0, 3834))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(3))
+	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::OutboxDiscoveries` (r:0 w:1)
+	/// Proof: `SupportedChains::OutboxDiscoveries` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn set_outbox_discovery_addr() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `369`
+		//  Estimated: `3834`
+		// Minimum execution time: 27_800_000 picoseconds.
+		Weight::from_parts(29_450_000, 0)
+			.saturating_add(Weight::from_parts(0, 3834))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(3))
+	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::WriteAbilityConfigs` (r:0 w:1)
+	/// Proof: `SupportedChains::WriteAbilityConfigs` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn set_write_ability_config() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `369`
+		//  Estimated: `3834`
+		// Minimum execution time: 27_020_000 picoseconds.
+		Weight::from_parts(29_160_000, 0)
+			.saturating_add(Weight::from_parts(0, 3834))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(3))
+	}
+	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
+	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `SupportedChains::CoreFees` (r:0 w:1)
+	/// Proof: `SupportedChains::CoreFees` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn set_core_fee() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `369`
+		//  Estimated: `3834`
+		// Minimum execution time: 27_810_000 picoseconds.
+		Weight::from_parts(29_140_000, 0)
+			.saturating_add(Weight::from_parts(0, 3834))
+			.saturating_add(T::DbWeight::get().reads(5))
+			.saturating_add(T::DbWeight::get().writes(3))
 	}
 }

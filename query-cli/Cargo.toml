@@ -29,7 +29,7 @@ sp-core = { workspace = true }
 user = { workspace = true }
 
 anyhow.workspace = true
+attestcoin-abi-encoding = { workspace = true }
+attestcoin-query-builder = { workspace = true }
 continuity = { path = "../common/continuity" }
-usc-abi-encoding = { workspace = true }
-usc-query-builder = { workspace = true }
 utils = { path = "../common/utils" }

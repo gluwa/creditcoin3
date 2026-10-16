@@ -7,10 +7,10 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
+use attestcoin_abi_encoding::common::EncodingVersion;
 use clap::Parser;
 use eth::{simple_merkle_tree, BlockFetchMode, Client};
 use serde::Deserialize;
-use usc_abi_encoding::common::EncodingVersion;
 
 #[derive(Parser, Debug)]
 #[command(

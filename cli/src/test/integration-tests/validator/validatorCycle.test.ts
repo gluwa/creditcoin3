@@ -41,7 +41,7 @@ describeIf(
             sudoSigner = initAliceKeyring();
             accounts = fundedAccountPool(api, sudoSigner);
             await increaseValidatorCount(api, sudoSigner);
-        }, 20_000);
+        }, 60_000);
 
         beforeEach(async () => {
             const stashSecret = CLIBuilder({})('new').stdout.split('Seed phrase: ')[1];

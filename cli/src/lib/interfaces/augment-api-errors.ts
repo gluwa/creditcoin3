@@ -85,6 +85,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             EmptyCheckpointPatch: AugmentedError<ApiType>;
             EmptyContinuityProof: AugmentedError<ApiType>;
+            /**
+             * The EVM address is already registered to a different attestor on this chain.
+             **/
+            EvmAddressAlreadyRegistered: AugmentedError<ApiType>;
             InsufficientBalance: AugmentedError<ApiType>;
             /**
              * The attestation lists enough distinct controller accounts but they map to fewer
@@ -118,6 +122,11 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidAttestorFound: AugmentedError<ApiType>;
             InvalidBlsPublicKey: AugmentedError<ApiType>;
             InvalidBlsSignature: AugmentedError<ApiType>;
+            /**
+             * The submitted EVM proof-of-possession did not recover to the claimed address over the
+             * domain-separated registration digest (bad signature, wrong key, or wrong binding).
+             **/
+            InvalidEvmProofOfPossession: AugmentedError<ApiType>;
             /**
              * Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
              * ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
@@ -178,6 +187,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyAttestors: AugmentedError<ApiType>;
             TriedToRevertDuringOngoingReversion: AugmentedError<ApiType>;
+            /**
+             * The claimed EVM address is the zero address.
+             **/
+            ZeroEvmAddress: AugmentedError<ApiType>;
             /**
              * Generic error
              **/
@@ -1005,6 +1018,29 @@ declare module '@polkadot/api-base/types/errors' {
              * archivers is due, and a no-op write would call for a restart that is not needed.
              **/
             MaturityStrategyUnchanged: AugmentedError<ApiType>;
+            /**
+             * The Outbox discovery-registry address is the zero address. A zero registry cannot be
+             * resolved by the attestor/relayer (it reads as "not registered"), so setting it via the
+             * operator path is rejected to fail loudly instead of silently disabling registry-based
+             * resolution for the chain.
+             *
+             * Appended after `ZeroWriteAbilityChainKey` rather than inserted where it's introduced
+             * above: `DispatchError::Module` carries the pallet-error byte by declaration order, so
+             * inserting mid-enum would have shifted it and made older metadata / operator tooling
+             * misreport a rejected `set_write_ability_config` as this error instead.
+             **/
+            ZeroOutboxDiscoveryAddress: AugmentedError<ApiType>;
+            /**
+             * The Outbox Factory address is the zero address. A zero factory cannot be resolved by the
+             * attestor/relayer (it reads as "not registered"), so setting it via the operator path is
+             * rejected to fail loudly instead of silently disabling write-ability for the chain.
+             **/
+            ZeroOutboxFactoryAddress: AugmentedError<ApiType>;
+            /**
+             * The write-ability chain key is all zero bytes. It is bound into every `messageHash`, so a
+             * zero key would break cross-chain attestation; rejected to fail loudly at configuration time.
+             **/
+            ZeroWriteAbilityChainKey: AugmentedError<ApiType>;
             /**
              * Generic error
              **/
