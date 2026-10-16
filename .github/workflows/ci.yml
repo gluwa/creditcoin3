@@ -1981,16 +1981,8 @@ jobs:
       - should-run
       - regenerate-metadata
     if: ${{ needs.should-run.outputs.attestor_cli_testing == 'true' }}
-    # Two shards with their own nodes, split by measured file duration (~15 and ~17 min)
-    # instead of jest's hash-based --shard, which can put the slow files on one side.
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # files come from ATTESTOR_SHARDS in the run step
-          - shard: 1
-          - shard: 2
-    name: attestor-cli-testing / shard ${{ matrix.shard }}
+    # One job: with blocks sealed every second the attestor files no longer need to be
+    # split over runners.
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
@@ -2091,52 +2083,19 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          # ATTESTOR_SHARDS is the one list that says which shard runs which file. It must
-          # cover every attestor test file exactly once, or a new file would never run.
-          ASSIGNED=$(echo "$ATTESTOR_SHARDS" | tr ' ' '\n' | cut -d: -f2 | sort)
-          PRESENT=$(find src/test/integration-tests/attestor -name '*.test.ts' -exec basename {} .test.ts \; | sort)
-          if [ "$ASSIGNED" != "$PRESENT" ]; then
-            echo "attestor-cli shard lists don't match the test files:" >&2
-            diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
-            exit 1
-          fi
-          UNKNOWN=$(echo "$ATTESTOR_SHARDS" | tr ' ' '\n' | grep -vE '^[12]:' || true)
-          if [ -n "$UNKNOWN" ]; then
-            echo "ATTESTOR_SHARDS entries for a shard the matrix doesn't run: $UNKNOWN" >&2
-            exit 1
-          fi
-
-          read -ra NAMES <<< "$(echo "$ATTESTOR_SHARDS" | tr ' ' '\n' | sed -n "s/^${SHARD}://p" | tr '\n' ' ')"
-          if [ "${#NAMES[@]}" -eq 0 ]; then
-            echo "no test files for shard ${SHARD}" >&2
-            exit 1
-          fi
-          PATHS=()
-          for name in "${NAMES[@]}"; do
-            PATHS+=("src/test/integration-tests/attestor/${name}.test.ts")
-          done
           yarn jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --forceExit \
-            --runTestsByPath "${PATHS[@]}"
+            src/test/integration-tests/attestor
         env:
           RUST_LOG: debug
-          SHARD: ${{ matrix.shard }}
           # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
           # startSealTicker in cli/src/test/utils.ts), as for the validator CLI legs.
           CREDITCOIN_SEALING: manual
-          # <shard>:<file>, split by measured file duration
-          ATTESTOR_SHARDS: >-
-            1:chill
-            1:register
-            1:show-stash-balance
-            2:withdraw-unbonded
-            2:unregister
-            2:show-status
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-attestor-cli-shard-${{ matrix.shard }}
+          name: junit-attestor-cli
           path: cli/reports/junit/
           if-no-files-found: ignore
 
@@ -2153,7 +2112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: logs-for-attestor-cli-shard-${{ matrix.shard }}
+          name: logs-for-attestor-cli
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
