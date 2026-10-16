@@ -235,20 +235,28 @@ jobs:
         run: |
           .github/wait-for-attestors.sh 'http://127.0.0.1:9944' 4
 
-      - name: Wait for chain 2 transfer and attestation events
+      # Both chains at once: each transfer is signed on its own Anvil and the attestation
+      # side only reads from Creditcoin, so the two can't collide. One after the other took
+      # ~2.4 and ~1.9 min.
+      - name: Wait for chain 2 and chain 4 transfer and attestation events
         working-directory: scripts
         run: |
+          set -euo pipefail
           npm install
           node TransferAndWait.js --chain-key 2 \
             --source-rpc-url http://127.0.0.1:8141 \
-            --cc3-rpc-url ws://localhost:9944
-
-      - name: Wait for chain 4 transfer and attestation events
-        working-directory: scripts
-        run: |
+            --cc3-rpc-url ws://localhost:9944 \
+            > >(sed 's/^/[chain 2] /') 2>&1 &
+          CHAIN2=$!
           node TransferAndWait.js --chain-key 4 \
             --source-rpc-url http://127.0.0.1:8142 \
-            --cc3-rpc-url ws://localhost:9944
+            --cc3-rpc-url ws://localhost:9944 \
+            > >(sed 's/^/[chain 4] /') 2>&1 &
+          CHAIN4=$!
+          RC=0
+          wait "${CHAIN2}" || { echo "ERROR: chain 2 transfer/attestation wait failed" >&2; RC=1; }
+          wait "${CHAIN4}" || { echo "ERROR: chain 4 transfer/attestation wait failed" >&2; RC=1; }
+          exit "${RC}"
 
       - name: Start proof-gen-api-server (multi-chain via YAML config)
         run: |
@@ -278,9 +286,13 @@ jobs:
           killall -9 anvil
           killall -9 creditcoin3-node
 
-      - name: Random sleep up to 3 mins
+      # A random outage of 60-90 s. The prover's Creditcoin reconnect backoff doubles from
+      # 100 ms to its 30 s cap (cc-client BackoffState), which takes ~55 s, and the Ethereum
+      # one caps at 5 s, so every run now exercises reconnecting at the cap. The old 0-180 s
+      # sometimes ended before the cap was reached and spent up to 3 min idle.
+      - name: Random outage of 60-90 s
         run: |
-          sleep $((RANDOM % 180))
+          sleep $((60 + RANDOM % 31))
 
       - name: Restart creditcoin3-node - Alice
         run: |
