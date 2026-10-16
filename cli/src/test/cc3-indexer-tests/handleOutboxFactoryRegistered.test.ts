@@ -2,7 +2,7 @@ import { U64 } from '@polkadot/types-codec';
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
-import { graphQLQuery } from './common';
+import { chainNow, graphQLQuery } from './common';
 
 // USC write-ability: `supportedChains.set_outbox_factory_addr` emits OutboxFactoryRegistered, which
 // the indexer records both as a display-oriented OutboxFactory and as the authoritative per-chain
@@ -92,7 +92,7 @@ describe('handleOutboxFactoryRegistered()', () => {
                 expect(BigInt(node.chainKey)).toEqual(chainKey.toBigInt());
                 expect(BigInt(node.registeredAt)).toBeGreaterThanOrEqual(startingBlock);
                 expect(BigInt(node.registeredTimestamp)).toBeGreaterThan(0n);
-                expect(BigInt(node.registeredTimestamp)).toBeLessThanOrEqual(BigInt(Date.now()));
+                expect(BigInt(node.registeredTimestamp)).toBeLessThanOrEqual(BigInt(await chainNow(api)));
             }
         });
 
