@@ -53,6 +53,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
+      workspace-opt-level: "1"
       git-lfs-checkout: false
       version-string: cache-warm
       cache-key-name: build-creditcoin-node
@@ -98,6 +99,7 @@ jobs:
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
+      workspace-opt-level: "1"
       git-lfs-checkout: false
       version-string: cache-warm-linode
       cache-key-name: build-creditcoin-node

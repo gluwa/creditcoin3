@@ -38,6 +38,14 @@ name: Reusable workflow to build a native client
         required: false
         type: boolean
         default: false
+      # opt-level for the workspace crates only, e.g. "1" for testing builds. Dependencies
+      # come from the rust-cache and keep the profile's own level. A PR build spends nearly
+      # all of its time compiling the workspace crates, and tests don't need them at 3.
+      # Empty keeps the profile's level for everything.
+      workspace-opt-level:
+        required: false
+        type: string
+        default: ""
 
 # Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
 # <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
@@ -77,7 +85,7 @@ jobs:
         id: bin-key
         if: ${{ inputs.reuse-binaries }}
         env:
-          BUILD_OPTIONS: ${{ inputs.build-options }}
+          BUILD_OPTIONS: ${{ inputs.build-options }} workspace-opt-level=${{ inputs.workspace-opt-level }}
         run: |
           set -euo pipefail
           # Blob ids of every tracked file except those no crate reads: the CLI and indexer
@@ -157,12 +165,37 @@ jobs:
         run: |
           .github/resource-monitor.sh start build-native
 
+      # One override per workspace crate, as name@version so a dependency of the same name
+      # (polkadot-sdk's generate-bags) keeps its level. `[profile.*.package."*"]` would not do:
+      # it outranks build-override, so it would also raise every dependency's build scripts
+      # and proc-macros from opt-level 0 and recompile all of them. The runtime wasm comes
+      # from a nested cargo that --config does not reach, so the chain itself is unchanged.
+      - name: Set the workspace crates' opt-level
+        id: workspace-opt
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && inputs.workspace-opt-level != '' }}
+        env:
+          OPT_LEVEL: ${{ inputs.workspace-opt-level }}
+          BUILD_OPTIONS: ${{ inputs.build-options }}
+        run: |
+          set -euo pipefail
+          case " ${BUILD_OPTIONS} " in
+            *" --release "*) PROFILE=release ;;
+            *) echo "ERROR: workspace-opt-level supports --release builds only" >&2; exit 1 ;;
+          esac
+          CONFIG="${RUNNER_TEMP}/workspace-opt-level.toml"
+          cargo metadata --no-deps --format-version 1 \
+            | jq -r --arg p "${PROFILE}" --arg o "${OPT_LEVEL}" \
+                '.packages[] | "[profile.\($p).package.\"\(.name)@\(.version)\"]\nopt-level = \($o)\n"' \
+            > "${CONFIG}"
+          echo "INFO: $(grep -c '^\[profile' "${CONFIG}") workspace crates at opt-level ${OPT_LEVEL}"
+          echo "args=--config ${CONFIG}" >> "$GITHUB_OUTPUT"
+
       - name: Build SUT
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: ${{ inputs.build-options }}
+          args: ${{ inputs.build-options }} ${{ steps.workspace-opt.outputs.args }}
 
       - name: Save the binaries for identical source trees
         if: ${{ inputs.reuse-binaries && steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
