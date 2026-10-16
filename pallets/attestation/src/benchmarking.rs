@@ -645,6 +645,8 @@ mod benchmarks {
 
     #[benchmark]
     fn forward_patch_checkpoints() {
+        let stash_id = create_funded_user_with_balance::<T>("stash", 1);
+        let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let mock_checkpoints: Vec<AttestationCheckpoint> = (0..100u8)
             .map(|i| AttestationCheckpoint {
@@ -652,6 +654,20 @@ mod benchmarks {
                 digest: H256::from([i; 32]),
             })
             .collect();
+
+        // The call clears at most one `MAX_ATTESTATIONS_CLEARED_PER_BLOCK` batch and persists a
+        // cursor for the rest, so seed one row more than that to measure the full batch.
+        let attestor = Attestor::new(stash_id, attestor_id, 0);
+        for i in 0..=clear_or_revert::MAX_ATTESTATIONS_CLEARED_PER_BLOCK as u64 {
+            let a = create_signed_attestation::<T>(
+                Vec::from([attestor.clone()]),
+                DEV_CHAIN_KEY,
+                1,
+                i * 10,
+                None,
+            );
+            Attestations::<T>::insert(DEV_CHAIN_KEY, a.digest(), a);
+        }
 
         #[extrinsic_call]
         _(

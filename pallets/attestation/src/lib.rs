@@ -947,7 +947,8 @@ pub mod pallet {
         EmptyCheckpointPatch,
         /// More checkpoints sit above the patch tip than allowed by [`MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL`].
         CheckpointSuffixWipeTooLarge,
-        /// More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+        /// No longer returned: leftover attestations are drained across blocks. Kept so later
+        /// variants keep their SCALE index.
         TooManyAttestationsForForwardPatchClear,
         // Continuity proof `roots` exceeds `max_catchup * attestation_interval`.
         // Defends `validate_attestation_continuity` against an attacker feeding an unbounded
@@ -1633,7 +1634,9 @@ pub mod pallet {
         ///
         /// Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
         /// **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
-        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+        /// ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]). Only one
+        /// batch of attestations is cleared here; the rest drains over the following blocks, during
+        /// which commits for the chain are rejected and a further patch is refused.
         ///
         /// Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
         /// attestations after recovery.
