@@ -239,7 +239,15 @@ jobs:
         uses: gluwa/cargo@dev
         with:
           command: build
-          args: ${{ inputs.build-options }} ${{ steps.workspace-opt.outputs.args }}
+          args: ${{ inputs.build-options }} ${{ steps.workspace-opt.outputs.args }} --timings
+
+      - name: Upload cargo timings (trial)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-timings-${{ inputs.version-string }}
+          path: target/cargo-timings/
+          if-no-files-found: ignore
 
       - name: Save the wasm build
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
