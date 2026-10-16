@@ -11689,23 +11689,44 @@ fn genesis_rejects_zero_target_sample_size() {
     });
 }
 
-/// The commit weight must stay computable even if a chain's stored intervals are zero.
+/// The commit weight must stay computable even if a chain's stored intervals are zero, and a
+/// zero checkpoint width must estimate no checkpoints rather than one per proof block.
 #[test]
 fn commit_attestation_weight_with_zero_checkpoint_width() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        // A non-empty continuity proof, so any non-zero checkpoint estimate adds writes.
         let attestation =
-            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 0, None, None);
+            create_signed_attestation(vec![attestor], SUPPORTED_CHAIN_KEY, 50, None, None);
+        let s = attestation.continuity_proof.len() as u32;
+        assert!(s > 0);
 
-        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 0);
-        let _ = Call::<Test>::commit_attestation {
-            attestation: attestation.clone(),
-        }
-        .get_dispatch_info();
+        let weight_with = |attestation_interval: u64, checkpoint_interval: u32| {
+            ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, attestation_interval);
+            AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, checkpoint_interval);
+            Call::<Test>::commit_attestation {
+                attestation: attestation.clone(),
+            }
+            .get_dispatch_info()
+            .call_weight
+        };
 
-        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 10);
-        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 0);
-        let _ = Call::<Test>::commit_attestation { attestation }.get_dispatch_info();
+        // Zero attestation interval: charged like a width too wide to hold any checkpoint.
+        let zero_width = weight_with(0, 10);
+        assert_eq!(zero_width, weight_with(u64::MAX, 10));
+        // A narrow width does estimate checkpoints, so the comparison above isn't vacuous.
+        // (DB writes carry no proof size, so compare ref time.)
+        assert!(weight_with(1, 10).ref_time() > zero_width.ref_time());
+
+        // Zero checkpoint interval: no extra checkpoint writes and no queue reads, so only the
+        // benchmarked base plus the retention-bounded removals remain.
+        let db = <Test as frame_system::Config>::DbWeight::get();
+        let retention = AttestationRetentionDuration::<Test>::get(SUPPORTED_CHAIN_KEY) as u64;
+        assert_eq!(
+            weight_with(10, 0),
+            <Test as Config>::WeightInfo::commit_attestation(s, 1)
+                .saturating_add(db.reads_writes(retention, retention))
+        );
     })
 }
 
