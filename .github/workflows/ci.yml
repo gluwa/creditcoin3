@@ -254,8 +254,9 @@ jobs:
       cache-key-name: build-creditcoin-node
       runs-on: "['ubuntu-26.04']"
       # A PR that changes no file a crate reads (CLI tests, docs, workflows) reuses the
-      # binaries build-cache.yml made from the same sources on dev.
-      reuse-binaries: true
+      # binaries build-cache.yml made from the same sources on dev. The soaks build at the
+      # release level, which build-cache.yml does not save, so they compile and save nothing.
+      reuse-binaries: ${{ github.event_name != 'schedule' && !inputs.soak }}
     secrets: inherit
 
   integration-test-check-extrinsics:

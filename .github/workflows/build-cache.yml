@@ -35,7 +35,8 @@ concurrency:
 permissions: read-all
 
 jobs:
-  # Same inputs as ci.yml's build-creditcoin-node-for-testing-ci, so the key matches.
+  # Same inputs as ci.yml's build-creditcoin-node-for-testing-ci on PR runs, so the key
+  # matches. The soaks there build at the release level and don't reuse binaries.
   build-testing-ci:
     uses: ./.github/workflows/build-native.yml
     with:

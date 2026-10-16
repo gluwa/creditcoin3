@@ -181,7 +181,6 @@ jobs:
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && inputs.workspace-opt-level != '' }}
         env:
           OPT_LEVEL: ${{ inputs.workspace-opt-level }}
-          BUILD_OPTIONS: ${{ inputs.build-options }}
         run: |
           set -euo pipefail
           case "${OPT_LEVEL}" in
@@ -190,25 +189,20 @@ jobs:
             *) echo "ERROR: workspace-opt-level must be 0-3, s or z, not '${OPT_LEVEL}'" >&2; exit 1 ;;
           esac
 
-          # The profile the build options select: --release / -r, or --profile [=]name.
-          PROFILE=dev
-          read -r -a ARGS <<< "${BUILD_OPTIONS}"
-          for i in "${!ARGS[@]}"; do
-            case "${ARGS[$i]}" in
-              --release|-r) PROFILE=release ;;
-              --profile=*) PROFILE="${ARGS[$i]#--profile=}" ;;
-              --profile) PROFILE="${ARGS[$((i + 1))]}" ;;
-            esac
-          done
+          command -v jq >/dev/null || { echo "ERROR: workspace-opt-level needs jq on the runner" >&2; exit 1; }
 
+          # The same tables for dev and release rather than parsing build-options for the
+          # profile. Profiles that inherit from them (production) pick the overrides up too.
           CONFIG="${RUNNER_TEMP}/workspace-opt-level.toml"
-          cargo metadata --no-deps --offline --locked --format-version 1 \
-            | jq -r --arg p "${PROFILE}" --arg o "${LEVEL}" \
-                '.packages[]
-                 | select(any(.targets[]; .kind | index("proc-macro")) | not)
-                 | "[profile.\($p).package.\"\(.name)@\(.version)\"]\nopt-level = \($o)\n"' \
-            > "${CONFIG}"
-          echo "INFO: $(grep -c '^\[profile' "${CONFIG}") workspace crates at opt-level ${OPT_LEVEL} in profile ${PROFILE}"
+          METADATA=$(cargo metadata --no-deps --offline --locked --format-version 1)
+          for PROFILE in dev release; do
+            jq -r --arg p "${PROFILE}" --arg o "${LEVEL}" \
+              '.packages[]
+               | select(any(.targets[]; .kind | index("proc-macro")) | not)
+               | "[profile.\($p).package.\"\(.name)@\(.version)\"]\nopt-level = \($o)\n"' \
+              <<< "${METADATA}"
+          done > "${CONFIG}"
+          echo "INFO: $(grep -c '^\[profile.release' "${CONFIG}") workspace crates at opt-level ${OPT_LEVEL}"
           echo "args=--config ${CONFIG}" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
