@@ -86,12 +86,13 @@ export const extractFee = async (
 
 // Sends `call` through `sudo.sudo` and resolves once it's in a block. The outer extrinsic
 // succeeds even when the inner call fails, which `extractFee` and `signSendAndWatchCcKeyring`
-// don't detect, so this returns the inner result from the `Sudid` event instead.
+// don't detect, so this returns the inner result from the `Sudid` event instead, along with the
+// events and the hash of the block the call was included in.
 export const sudoInBlock = async (
     api: ApiPromise,
     sudo: KeyringPair,
     call: SubmittableExtrinsic<'promise'>,
-): Promise<{ innerError: SpRuntimeDispatchError | null; events: EventRecord[] }> => {
+): Promise<{ innerError: SpRuntimeDispatchError | null; events: EventRecord[]; blockHash: string }> => {
     const nonce = await api.rpc.system.accountNextIndex(sudo.address);
     return new Promise((resolve, reject) => {
         let unsubscribe: (() => void) | undefined;
@@ -106,7 +107,11 @@ export const sudoInBlock = async (
                     for (const { event } of events) {
                         if (api.events.sudo.Sudid.is(event)) {
                             const { sudoResult } = event.data;
-                            resolve({ innerError: sudoResult.isErr ? sudoResult.asErr : null, events });
+                            resolve({
+                                innerError: sudoResult.isErr ? sudoResult.asErr : null,
+                                events,
+                                blockHash: status.asInBlock.toHex(),
+                            });
                             return;
                         }
                     }
