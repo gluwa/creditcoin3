@@ -39,7 +39,7 @@ name: Promote Branch (fast-forward)
         required: false
         type: boolean
         default: true
-        description: Run every check and report what would move, without moving it.
+        description: Run promotion checks and report what would move, without moving it. Checks never deploy contracts or commit metadata.
 
   # Self-test. A workflow_dispatch trigger only registers from the default
   # branch, so without this there is no way to exercise this file until it has
@@ -211,9 +211,11 @@ jobs:
           echo "      then re-run this workflow."
           exit 1
 
-      # The ancestry gates above say nothing about whether the commit passes the checks that
-      # block only promotion PRs (extrinsics, pallet storage versions, compatibility). A
-      # fast-forward has no PR, so ci.yml's promotion mode runs them on the commit instead.
+      # A fast-forward has no PR, so run every test suite on the exact commit under the
+      # target's rules. Extrinsics, stale metadata, setup and test failures block promotion;
+      # historical compatibility and storage-version differences are operator warnings.
+      # Promotion checks never deploy to live networks or auto-commit metadata, including
+      # when this workflow is a dry run.
       - name: Check CI passed on ${{ env.SOURCE_REF }} under ${{ env.TARGET_BRANCH }} rules
         id: gate-ci
         continue-on-error: ${{ github.event_name == 'pull_request' }}

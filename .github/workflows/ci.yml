@@ -22,9 +22,9 @@ name: CI
         default: false
       promotion_target:
         # checkov:skip=CKV_GHA_7:Only picks the blocking rules; the source is still the dispatched ref
-        # Started by promote-branch.yml before it moves a branch: every suite runs on the
-        # dispatched commit, and the checks that block only promotion PRs block here too.
-        description: "Check the dispatched commit for promotion into usc-testnet or main (every suite, promotion rules). Empty: a normal run."
+        # Started by promote-branch.yml before it moves a branch. Runs all test suites;
+        # live-network deployments and metadata auto-commits are excluded.
+        description: "Check the dispatched commit for promotion into usc-testnet or main (all test suites, no network deployments or source changes). Empty: a normal run."
         type: string
         default: ""
 
@@ -47,6 +47,7 @@ jobs:
     outputs:
       # The nightly or dispatched soak: one definition, which every soak check reads.
       soak: ${{ steps.mode.outputs.soak }}
+      promotion: ${{ steps.mode.outputs.promotion }}
       # The branch whose rules apply: a PR's base, or the target of a promotion check.
       # Read this instead of github.base_ref, which is empty on a promotion check.
       target_ref: ${{ steps.mode.outputs.target_ref }}
@@ -1455,6 +1456,8 @@ jobs:
         if: ${{ always() && matrix.shard == 1 }}
         timeout-minutes: 15
         working-directory: ./cli
+        env:
+          PROMOTION_CHECK: ${{ needs.should-run.outputs.promotion }}
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-devnet.creditcoin.network 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
           ../.github/compare-pallet-storage-versions.sh devnet "${{ needs.should-run.outputs.target_ref }}"
@@ -1463,6 +1466,8 @@ jobs:
         timeout-minutes: 15
         if: ${{ always() && matrix.shard == 1 }}
         working-directory: ./cli
+        env:
+          PROMOTION_CHECK: ${{ needs.should-run.outputs.promotion }}
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
           ../.github/compare-pallet-storage-versions.sh testnet "${{ needs.should-run.outputs.target_ref }}"
@@ -1599,7 +1604,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Devnet
-        if: contains(fromJSON('["usc-dev", "dev"]'), needs.should-run.outputs.target_ref) && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: needs.should-run.outputs.promotion != 'true' && contains(fromJSON('["usc-dev", "dev"]'), needs.should-run.outputs.target_ref) && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -1621,7 +1626,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Testnet
-        if: needs.should-run.outputs.target_ref == 'usc-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: needs.should-run.outputs.promotion != 'true' && needs.should-run.outputs.target_ref == 'usc-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -1643,7 +1648,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Mainnet
-        if: needs.should-run.outputs.target_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: needs.should-run.outputs.promotion != 'true' && needs.should-run.outputs.target_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -2200,6 +2205,12 @@ jobs:
               echo "git_diff=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Reject stale metadata in promotion checks
+        if: ${{ needs.should-run.outputs.promotion == 'true' && steps.update_typedefs.outputs.git_diff == 'true' }}
+        run: |
+          echo "::error::Generated metadata is stale. Regenerate and commit it through a PR before promoting this commit. Promotion checks never update the source branch."
+          exit 1
+
       # Ship the regenerated files themselves rather than a `git diff` of them.
       # A diff records the blob it was computed against, so `git apply` in the
       # consumers below failed outright whenever their checkout differed from this
@@ -2231,7 +2242,7 @@ jobs:
       contents: write
     needs:
       - regenerate-metadata
-    if: ${{ needs.regenerate-metadata.outputs.git_diff == 'true' }}
+    if: ${{ github.event_name == 'pull_request' && needs.regenerate-metadata.outputs.git_diff == 'true' }}
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:

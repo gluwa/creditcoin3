@@ -6,10 +6,11 @@
 #
 # Usage: compare-pallet-storage-versions.sh <network> <base-ref>
 #
-# On a PR into usc-testnet or main a difference fails the job: that is a promotion, and a
-# storage version that moved without a migration would ship. On dev and asc-dev a
-# difference is the normal state while migrations are pending release, so it is reported
-# as a warning and in the job summary instead of turning every PR red.
+# On a PR into usc-testnet or main a difference fails the job. Dispatched promotion checks
+# set PROMOTION_CHECK=true: differences there are advisory, because a migration changes
+# storage versions before the live chain is upgraded. Equality with a live chain does not
+# validate a migration. Missing input and comparison errors still block promotion checks.
+# Differences on dev and asc-dev remain informational too.
 
 set -euo pipefail
 
@@ -59,6 +60,13 @@ echo "$diff_output" | colordiff || echo "$diff_output"
   echo "$diff_output"
   echo '```'
 } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+if [ "${PROMOTION_CHECK:-false}" = "true" ]; then
+  message="local chain differs from ${network}. Storage-version changes are expected during migrations; this comparison does not validate the upgrade. Review the diff and validate migrations before deployment."
+  echo "::warning title=Pallet storage versions::${message}"
+  printf '\n%s\n' "$message" >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+  exit 0
+fi
 
 case "$base_ref" in
   usc-testnet | main)
