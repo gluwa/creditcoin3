@@ -2713,6 +2713,74 @@ fn commit_attestation_should_error_on_oversized_continuity_proof() {
     })
 }
 
+/// Builds a genesis attestation (no prev digest) that carries `roots` continuity roots.
+fn genesis_attestation_with_proof(
+    attestor: &Attestor,
+    roots: u64,
+) -> SignedAttestation<H256, mock::AccountId> {
+    let attestation = AttestationPrimitive {
+        chain_key: SUPPORTED_CHAIN_KEY,
+        header_number: 0,
+        header_hash: H256::random(),
+        root: H256::from([0; 32]),
+        prev_digest: None,
+    };
+    let proof = construct_fragment(None, RangeInclusive::new(1, roots));
+    assert_eq!(proof.len() as u64, roots);
+    bls_sign_attestation(vec![attestor.clone()], attestation, proof)
+}
+
+fn setup_registered_attestor() -> Attestor {
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    assert_ok!(Attestation::register_attestor(
+        attestor.stash.clone(),
+        SUPPORTED_CHAIN_KEY,
+        attestor.attestor_id,
+    ));
+    assert_ok!(Attestation::attest(
+        RuntimeOrigin::signed(attestor.attestor_id),
+        SUPPORTED_CHAIN_KEY,
+        attestor.public_key,
+        attestor.signature
+    ));
+    progress_to_block(5);
+    attestor
+}
+
+#[test]
+fn commit_attestation_should_error_on_non_empty_genesis_continuity_proof() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = setup_registered_attestor();
+
+        // Below the bound (1 root), at the bound (`max(MaxCatchup, interval)` roots) and above
+        // it: dispatch rejects all of them, so no outer call shape (e.g. a `Utility` wrapper,
+        // which skips `PrevalidateAttestationCommit`) can store a genesis proof.
+        let max_roots = (MaxCatchup::<Test>::get(SUPPORTED_CHAIN_KEY) as u64)
+            .max(Attestation::chain_attestation_interval(SUPPORTED_CHAIN_KEY));
+        for roots in [1, max_roots, max_roots + 1] {
+            assert_err!(
+                Attestation::commit_attestation(
+                    attestor.attestor_origin.clone(),
+                    genesis_attestation_with_proof(&attestor, roots),
+                ),
+                Error::<Test>::OversizedContinuityProof
+            );
+        }
+        assert_eq!(Attestation::last_checkpoint(SUPPORTED_CHAIN_KEY), None);
+    })
+}
+
+#[test]
+fn commit_attestation_should_accept_genesis_with_empty_continuity_proof() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = setup_registered_attestor();
+        assert_ok!(Attestation::commit_attestation(
+            attestor.attestor_origin.clone(),
+            genesis_attestation_with_proof(&attestor, 0),
+        ));
+    })
+}
+
 #[test]
 fn commit_attestation_should_accept_continuity_proof_at_max_catchup_boundary() {
     ExtBuilder.build_and_execute(|| {
