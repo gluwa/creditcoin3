@@ -211,12 +211,31 @@ jobs:
           echo "INFO: $(grep -c '^\[profile' "${CONFIG}") workspace crates at opt-level ${OPT_LEVEL} in profile ${PROFILE}"
           echo "args=--config ${CONFIG}" >> "$GITHUB_OUTPUT"
 
+      - name: Show restored wasm build dir (trial)
+        run: du -sh target/release/wbuild target/release/wbuild/* 2>/dev/null || echo "no wbuild dir restored"
+
       - name: Build SUT
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         uses: gluwa/cargo@dev
         with:
           command: build
           args: ${{ inputs.build-options }} ${{ steps.workspace-opt.outputs.args }}
+
+      - name: Upload cargo timings (trial)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cargo-timings-${{ inputs.version-string }}
+          path: |
+            target/cargo-timings/
+            target/release/wbuild/creditcoin3-runtime/
+          if-no-files-found: ignore
+
+      - name: Show wasm build cache state (trial)
+        if: always()
+        run: |
+          du -sh target/release/wbuild 2>/dev/null || echo "no wbuild dir"
+          find target/release/wbuild -maxdepth 1 2>/dev/null | head
 
       - name: Save the binaries for identical source trees
         if: ${{ inputs.reuse-binaries && steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
