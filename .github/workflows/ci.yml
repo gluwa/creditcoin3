@@ -966,16 +966,13 @@ jobs:
       # and only Staking also runs the slow era-wait files (payouts, withdraw-unbonded),
       # which are the staking calls that proxy type exists for.
       #
-      # The full suite is split over two shards with their own nodes, by measured file
-      # duration (~15 min each), instead of jest's hash-based --shard.
+      # With blocks sealed every second each leg takes minutes, so neither the full suite
+      # nor Staking is split over runners any more.
       matrix:
         include:
-          # files come from VALIDATOR_SHARDS in the run step
+          # runs every file in integration-tests/validator
           - proxy: "no"
-            shard: "shard-1"
-
-          - proxy: "no"
-            shard: "shard-2"
+            shard: "all"
 
           - proxy: "yes"
             secret: no-funds
@@ -985,20 +982,11 @@ jobs:
             secret: not-a-proxy
             files: "bond send validate chill set-keys unbond validatorCycle"
 
-          # Staking runs the two era-wait files on top of the rest, ~34 min in one leg, so
-          # it is split in two by measured file duration (~17 min each). Together the two
-          # parts must keep covering the full Staking list.
+          # Staking also runs the two era-wait files (withdraw-unbonded, distribute-rewards).
           - proxy: "yes"
             secret: valid-proxy
             proxy_type: Staking
-            part: "part-1"
-            files: "withdraw-unbonded bond unbond set-keys send"
-
-          - proxy: "yes"
-            secret: valid-proxy
-            proxy_type: Staking
-            part: "part-2"
-            files: "distribute-rewards validate wizard chill validatorCycle"
+            files: "withdraw-unbonded distribute-rewards bond unbond set-keys send validate wizard chill validatorCycle"
 
           - proxy: "yes"
             secret: valid-proxy
@@ -1010,7 +998,7 @@ jobs:
             proxy_type: All
             files: "bond send validate chill set-keys unbond validatorCycle wizard"
 
-    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}${{ matrix.part && format(' / {0}', matrix.part) || '' }}
+    name: integration-test-cli / proxy=${{ matrix.proxy }} / ${{ matrix.secret || matrix.shard }} / type=${{ matrix.proxy_type }}
     # Gated directly rather than through a separate no-op `trigger-` job, which burned a
     # runner on a bare checkout and, because it also waited on the node build, could only
     # report its skip decision after that build had finished.
@@ -1103,23 +1091,9 @@ jobs:
       - name: Run integration tests
         working-directory: ./cli
         run: |
-          # The proxy=no shards take their files from VALIDATOR_SHARDS, the one list that
-          # says which shard runs which file. It must cover every test file exactly once, so
-          # a new file can't silently drop out of CI.
+          # The proxy=no leg runs every file, so a new one can't drop out of CI.
           if [ "$PROXY_ENABLED" = "no" ]; then
-            ASSIGNED=$(echo "$VALIDATOR_SHARDS" | tr ' ' '\n' | cut -d: -f2 | sort)
-            PRESENT=$(find src/test/integration-tests/validator -name '*.test.ts' -exec basename {} .test.ts \; | sort)
-            if [ "$ASSIGNED" != "$PRESENT" ]; then
-              echo "validator-cli shard lists don't match the test files:" >&2
-              diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
-              exit 1
-            fi
-            UNKNOWN=$(echo "$VALIDATOR_SHARDS" | tr ' ' '\n' | grep -vE '^shard-[12]:' || true)
-            if [ -n "$UNKNOWN" ]; then
-              echo "VALIDATOR_SHARDS entries for a shard the matrix doesn't run: $UNKNOWN" >&2
-              exit 1
-            fi
-            TEST_FILES=$(echo "$VALIDATOR_SHARDS" | tr ' ' '\n' | sed -n "s/^${SHARD}://p" | tr '\n' ' ')
+            TEST_FILES=$(find src/test/integration-tests/validator -name '*.test.ts' -exec basename {} .test.ts \; | sort | tr '\n' ' ')
           fi
 
           read -ra NAMES <<< "$TEST_FILES"
@@ -1134,29 +1108,10 @@ jobs:
           yarn test:validator-cli:files "${PATHS[@]}"
         env:
           TEST_FILES: ${{ matrix.files }}
-          SHARD: ${{ matrix.shard }}
           # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
           # startSealTicker in cli/src/test/utils.ts): the valid-proxy All leg went from 21 to
           # 6 min with it.
           CREDITCOIN_SEALING: manual
-          # <shard>:<file> for the proxy=no legs, split by measured file duration
-          VALIDATOR_SHARDS: >-
-            shard-1:withdraw-unbonded
-            shard-1:bond
-            shard-1:validate
-            shard-1:unbond
-            shard-1:balance
-            shard-1:convertAddress
-            shard-1:status
-            shard-1:showAddress
-            shard-2:distribute-rewards
-            shard-2:proxy
-            shard-2:wizard
-            shard-2:evm
-            shard-2:chill
-            shard-2:set-keys
-            shard-2:send
-            shard-2:validatorCycle
           RUST_LOG: debug
           PROXY_ENABLED: ${{ matrix.proxy }}
           PROXY_SECRET_VARIANT: ${{ matrix.secret }}
@@ -1167,7 +1122,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}${{ matrix.part && format('-{0}', matrix.part) || '' }}
+          name: junit-validator-cli-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
           path: cli/reports/junit/
           if-no-files-found: ignore
 
@@ -1184,7 +1139,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}${{ matrix.part && format('-{0}', matrix.part) || '' }}
+          name: Alice-and-Bob-logs-for-run-proxy-${{ matrix.proxy }}-${{ matrix.secret || matrix.shard }}-type-${{ matrix.proxy_type }}
           path: |
             /tmp/creditcoin3-node-*.std*
             /tmp/seal-blocks.log
