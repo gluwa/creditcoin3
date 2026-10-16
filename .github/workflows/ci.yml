@@ -2120,6 +2120,9 @@ jobs:
         env:
           RUST_LOG: debug
           SHARD: ${{ matrix.shard }}
+          # Blocks sealed and finalized every second instead of BABE slots and GRANDPA (see
+          # startSealTicker in cli/src/test/utils.ts), as for the validator CLI legs.
+          CREDITCOIN_SEALING: manual
           # <shard>:<file>, split by measured file duration
           ATTESTOR_SHARDS: >-
             1:chill
@@ -2154,6 +2157,7 @@ jobs:
           path: |
             /tmp/attestor-*.std*
             /tmp/creditcoin3-node-*.std*
+            /tmp/seal-blocks.log
 
   regenerate-metadata:
     outputs:
