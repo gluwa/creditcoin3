@@ -1379,6 +1379,9 @@ jobs:
             1:pallets/supported-chains/register-chain
             1:pallets/supported-chains/register-chain-roster-limits
             1:pallets/supported-chains/remove-chain
+            1:pallets/supported-chains/set-core-fee
+            1:pallets/supported-chains/set-outbox-factory-addr
+            1:pallets/supported-chains/set-write-ability-config
             2:block-hash-block-param
             2:danger-will-brick-the-blockchain
             2:evm-gasprice-opcode
