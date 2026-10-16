@@ -239,9 +239,30 @@ describe('handleEventRevertedAttestationChainTo()', () => {
 
             const node = response.data.attestationChainData.nodes[0];
             expect(BigInt(node.chainKey)).toEqual(chainKey);
-            expect(BigInt(node.lastCheckpointHeaderNumber)).toEqual(checkpointHeightToRevertTo);
-            expect(BigInt(node.lastAttestedHeaderNumber)).toEqual(checkpointHeightToRevertTo);
-            expect(node.lastAttestedDigest).toEqual(checkpointDigestToRevertTo);
+
+            // The attestors keep attesting after the revert, and under `--sealing` they can
+            // reach the next checkpoint before this runs. As for the rows above, the data may
+            // only point past the reverted checkpoint at a checkpoint indexed after the revert.
+            if (BigInt(node.lastCheckpointHeaderNumber) === checkpointHeightToRevertTo) {
+                expect(BigInt(node.lastAttestedHeaderNumber)).toBeGreaterThanOrEqual(checkpointHeightToRevertTo);
+                if (BigInt(node.lastAttestedHeaderNumber) === checkpointHeightToRevertTo) {
+                    expect(node.lastAttestedDigest).toEqual(checkpointDigestToRevertTo);
+                }
+            } else {
+                const checkpoint = await graphQLQuery(
+                    `query {
+                        checkpoints(
+                            filter: {
+                                chainKey: { equalTo: "${chainKey}" },
+                                blockNumber: { equalTo: "${node.lastCheckpointHeaderNumber}" }
+                            }
+                        ) { nodes { atBlockNumber, timestamp } }
+                    }`,
+                );
+                expect(checkpoint.data.checkpoints.nodes.length).toEqual(1);
+                expect(BigInt(checkpoint.data.checkpoints.nodes[0].atBlockNumber)).toBeGreaterThan(blockBeforeRevert);
+                expect(BigInt(checkpoint.data.checkpoints.nodes[0].timestamp)).toBeGreaterThan(timestampBeforeRevert);
+            }
         });
     });
 });
