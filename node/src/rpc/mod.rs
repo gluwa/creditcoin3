@@ -26,12 +26,14 @@ use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::{Block as BlockT, Header as HeaderT};
 // Runtime
 use creditcoin3_cli_opt::EthApi as EthApiCmd;
-use creditcoin3_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Nonce};
+use creditcoin3_runtime::{
+    opaque::Block, used_addresses, AccountId, Balance, BlockNumber, Hash, Nonce,
+};
 use fc_rpc_core::types::{FeeHistoryCache, FilterPool};
 use fc_storage::StorageOverride;
 use sc_client_api::BlockOf;
 use sp_block_builder::BlockBuilder;
-use sp_core::H256;
+use sp_core::{H160, H256};
 use sp_runtime::traits::BlakeTwo256;
 use std::time::Duration;
 
@@ -114,6 +116,11 @@ where
     // silently ignored.
     type RuntimeStorageOverride =
         fc_rpc::frontier_backend_client::SystemAccountId32StorageOverride<Block, C, BE>;
+
+    // Keeps estimate_gas's flat-transfer shortcut off precompile addresses (CSUB-2067).
+    fn is_precompile(address: H160) -> bool {
+        used_addresses().contains(&address)
+    }
 }
 
 /// Instantiate all Full RPC extensions.
