@@ -99,6 +99,7 @@ jobs:
               - "Cargo.toml"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             attestor_cli_testing:
               - "attestor/**"
               - "common/**"
@@ -121,6 +122,7 @@ jobs:
               - "Cargo.toml"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             attestor_network_testing:
               - "checkpoint-builder/**"
               - "checkpoint-verifier/**"
@@ -139,6 +141,7 @@ jobs:
               - "Cargo.toml"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             cc3_indexer:
               - "attestor/**"
               - "common/**"
@@ -157,9 +160,11 @@ jobs:
               - "Cargo.toml"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             docs_smart_contract:
               - "docs/smart-contract-development/**"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             integration_test_blockchain:
               - "common/**"
               - "pallets/**"
@@ -175,6 +180,7 @@ jobs:
               - "Cargo.toml"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             integration_test_cli:
               - "common/**"
               - "pallets/**"
@@ -194,6 +200,7 @@ jobs:
               - "Cargo.toml"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             # Carried over verbatim from attestor-compatibility.yml's own pull_request
             # trigger, which it no longer has now that ci.yml calls it.
             attestor_compatibility:
@@ -221,6 +228,7 @@ jobs:
               - "Cargo.toml"
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             # What the runtime's call metadata is built from, including the FRAME pallets
             # that come in through Cargo.lock.
             extrinsics:
@@ -231,10 +239,12 @@ jobs:
               - "**/Cargo.toml"
               - ".github/check-extrinsics.sh"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
               - ".github/workflows/ci.yml"
+              - ".github/workflows/build-native.yml"
 
       - name: Devnet ENV
         id: devnet-env

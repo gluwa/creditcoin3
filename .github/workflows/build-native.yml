@@ -162,6 +162,32 @@ jobs:
           # limit and evicted the default-branch entries everyone restores from.
           save-if: ${{ github.event_name != 'pull_request' && github.ref_type != 'tag' }}
 
+      # The runtime wasm is built by a nested cargo (substrate-wasm-builder) with its own
+      # target dir under target/<profile>/wbuild: host build scripts and proc-macros
+      # (wasm-opt-sys compiles binaryen's C++) and the wasm32 dependencies. rust-cache
+      # doesn't keep it, so every build compiled all of it again: 13.5 of 15.5 min of a
+      # testing build. Cached on its own, saved by the default branch only, like the above.
+      - name: Key the wasm build cache
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
+        id: wasm-key
+        env:
+          BUILD_OPTIONS: ${{ inputs.build-options }}
+          KEY_NAME: ${{ inputs.cache-key-name || 'build-creditcoin-node' }}-${{ steps.runner-family.outputs.id }}
+          SOURCES: ${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+        run: |
+          OPTS=$(printf '%s' "$BUILD_OPTIONS" | sha256sum | cut -c1-12)
+          echo "prefix=wasm-build-v1-${KEY_NAME}-${OPTS}-" >> "$GITHUB_OUTPUT"
+          echo "key=wasm-build-v1-${KEY_NAME}-${OPTS}-${SOURCES}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the wasm build
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: target/*/wbuild
+          key: ${{ steps.wasm-key.outputs.key }}
+          # A dependency bump still reuses most of an older entry.
+          restore-keys: ${{ steps.wasm-key.outputs.prefix }}
+
       - name: Start resource monitor
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' }}
         run: |
@@ -214,6 +240,13 @@ jobs:
         with:
           command: build
           args: ${{ inputs.build-options }} ${{ steps.workspace-opt.outputs.args }}
+
+      - name: Save the wasm build
+        if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
+        uses: actions/cache/save@v4
+        with:
+          path: target/*/wbuild
+          key: ${{ steps.wasm-key.outputs.key }}
 
       - name: Save the binaries for identical source trees
         if: ${{ inputs.reuse-binaries && steps.bin-cache.outputs.cache-hit != 'true' && github.event_name != 'pull_request' && github.ref_type != 'tag' }}
