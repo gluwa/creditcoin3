@@ -1001,10 +1001,12 @@ pub mod pallet {
             // attestation's own proof and the queued proof that straddles the last checkpoint.
             let max_queue = T::MaxCheckpointingQueueLen::get();
             let interval = T::DefaultAttestationInterval::get();
+            let max_proof_len = T::DefaultMaxCatchup::get() as u64;
             let straddle = interval
                 .saturating_mul(T::DefaultAttestationsPerCheckpoint::get() as u64)
                 .saturating_mul(2);
-            let own_proof = straddle.max(T::DefaultMaxCatchup::get() as u64);
+            let own_proof = straddle.max(max_proof_len);
+            let straddle = straddle.min(max_proof_len);
             let gap = (max_queue as u64)
                 .saturating_add(1)
                 .saturating_mul(interval);
@@ -1818,11 +1820,13 @@ pub mod pallet {
             // before it (see `validate_attestation_continuity`), so together they cover exactly
             // the blocks between the last checkpoint and the last attested height plus the
             // queued proof that straddles the checkpoint. A queued proof is shorter than
-            // `2 * checkpoint_width`, since a longer one takes the catch-up path instead. The
-            // legacy path walks one queued proof to locate the checkpoint target; the fallback
-            // for a full queue walks none.
-            let straddle = checkpoint_width.saturating_mul(2);
-            let catching_up = proof_len >= straddle;
+            // `2 * checkpoint_width`, since a longer one takes the catch-up path instead, and no
+            // longer than the proof cap `validate_attestation_continuity` enforces. The legacy
+            // path walks one queued proof to locate the checkpoint target; the fallback for a
+            // full queue walks none.
+            let catching_up = proof_len >= checkpoint_width.saturating_mul(2);
+            let max_proof_len = (MaxCatchup::<T>::get(chain_key) as u64).max(attestation_interval);
+            let straddle = checkpoint_width.saturating_mul(2).min(max_proof_len);
             let extra_roots = if catching_up {
                 let last_height = LastDigest::<T>::get(chain_key)
                     .map(|(h, _)| h)
@@ -1859,11 +1863,12 @@ pub mod pallet {
         /// Commit weight for `s` continuity-proof roots and `m` attestors, plus the marginal
         /// cost of a checkpointing queue of `q` entries. Each queued entry is read, decoded and
         /// removed. `s` counts every root walked, including those in queued proofs, which the
-        /// caller sizes from the span they cover; each is charged through `continuity_roots`,
-        /// which is benchmarked over a range wide enough to resolve it.
+        /// caller sizes from the span they cover; each is charged only through
+        /// `continuity_roots`, which is benchmarked over a range wide enough to resolve it, so
+        /// any `s` slope in `commit_attestation` is left out to avoid charging roots twice.
         pub(crate) fn weight_for(s: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
-            <T as Config>::WeightInfo::commit_attestation(s, m)
+            <T as Config>::WeightInfo::commit_attestation(0, m)
                 .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, s))
                 .saturating_add(marginal(
                     <T as Config>::WeightInfo::commit_attestation_queued,

@@ -12008,6 +12008,43 @@ fn integrity_holds_at_max_checkpoint_interval() {
 }
 
 #[test]
+fn commit_weight_caps_queued_proof_at_max_catchup() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let max_catchup = MaxCatchup::<Test>::get(SUPPORTED_CHAIN_KEY);
+        let max_checkpoint_interval =
+            <<Test as Config>::MaxAttestationCheckpointInterval as Get<u32>>::get();
+        // Largest settable widths: interval up to `MaxCatchup`, checkpoint interval up to its cap.
+        ChainAttestationInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, max_catchup as u64);
+        let queue: VecDeque<Digest> = (0..queue_len_limit()).map(|_| H256::random()).collect();
+        CheckpointingQueues::<Test>::insert(SUPPORTED_CHAIN_KEY, queue);
+        let attestation = create_signed_attestation(
+            vec![attestor],
+            SUPPORTED_CHAIN_KEY,
+            max_catchup as u64 + 1,
+            Some(H256::random()),
+            None,
+        );
+
+        // Once `2 * checkpoint_width` exceeds the proof cap, a wider checkpoint adds nothing:
+        // no queued proof is longer than `MaxCatchup`.
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, 1);
+        let narrow = commit_weight(&attestation);
+        AttestationCheckpointInterval::<Test>::insert(SUPPORTED_CHAIN_KEY, max_checkpoint_interval);
+        let wide = commit_weight(&attestation);
+        assert_eq!(wide, narrow);
+
+        let max_extrinsic = <<Test as frame_system::Config>::BlockWeights as Get<
+            frame_system::limits::BlockWeights,
+        >>::get()
+        .get(frame_support::dispatch::DispatchClass::Normal)
+        .max_extrinsic
+        .expect("normal class has an extrinsic limit");
+        assert!(wide.all_lte(max_extrinsic));
+    })
+}
+
+#[test]
 fn catch_up_commit_with_queued_attestations() {
     ExtBuilder.build_and_execute(|| {
         let (attestor, genesis) = setup_attesting_chain();
