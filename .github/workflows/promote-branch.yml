@@ -57,6 +57,7 @@ name: Promote Branch (fast-forward)
       - '.github/workflows/promote-branch.yml'
       - '.github/check-promotion-is-safe.sh'
       - '.github/branch-on-origin.sh'
+      - '.github/check-promotion-ci.sh'
 
 permissions: read-all
 
@@ -210,6 +211,19 @@ jobs:
           echo "      then re-run this workflow."
           exit 1
 
+      # The ancestry gates above say nothing about whether the commit passes the checks that
+      # block only promotion PRs (extrinsics, pallet storage versions, compatibility). A
+      # fast-forward has no PR, so ci.yml's promotion mode runs them on the commit instead.
+      - name: Check CI passed on ${{ env.SOURCE_REF }} under ${{ env.TARGET_BRANCH }} rules
+        id: gate-ci
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only a manual dispatch may start a check run; the self-test only looks for one.
+          MAY_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          .github/check-promotion-ci.sh "$SOURCE_SHA" "$SOURCE_REF" "$TARGET_BRANCH" "$MAY_DISPATCH"
+
       - name: Promote ${{ env.SOURCE_REF }} to ${{ env.TARGET_BRANCH }}
         id: push
         continue-on-error: ${{ github.event_name == 'pull_request' }}
@@ -234,6 +248,7 @@ jobs:
           GATE_SOURCE: ${{ steps.gate-source.outcome }}
           GATE_SAFE: ${{ steps.gate-safe.outcome }}
           GATE_FF: ${{ steps.gate-ff.outcome }}
+          GATE_CI: ${{ steps.gate-ci.outcome }}
           GATE_PUSH: ${{ steps.push.outcome }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -254,9 +269,9 @@ jobs:
           fi
 
           if [[ "$DRY_RUN" == "true" ]]; then
-              PUSH_LABEL="4. dry-run push"
+              PUSH_LABEL="5. dry-run push"
           else
-              PUSH_LABEL="4. push"
+              PUSH_LABEL="5. push"
           fi
 
           {
@@ -269,6 +284,7 @@ jobs:
               echo "| 1. source has cleared the required stages | $GATE_SOURCE |"
               echo "| 2. nothing with content is lost | $GATE_SAFE |"
               echo "| 3. promotion is a fast-forward | $GATE_FF |"
+              echo "| 4. CI passed under $TARGET_BRANCH rules | $GATE_CI |"
               echo "| $PUSH_LABEL | $GATE_PUSH |"
               echo
               if [[ "$GATE_FF" == "failure" ]]; then

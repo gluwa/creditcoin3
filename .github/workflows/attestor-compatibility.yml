@@ -61,10 +61,9 @@ name: Attestor Compatibility
         type: string
       informational:
         description: >-
-          Report an incompatibility as a warning instead of failing the job. On dev PRs
-          the released attestors' pallet-hash guard refuses to start against any change
-          to pallet-attestation's metadata, so the check is red by construction there.
-          It stays blocking where it means something: promotion PRs.
+          Report historical-attestor incompatibility as an operator warning instead of
+          failing the job. The caller enables this on dev, testnet and mainnet, where
+          operators review affected releases before deploying. Setup failures still fail.
         required: false
         type: boolean
         default: false
@@ -691,7 +690,7 @@ jobs:
             echo "Historical attestors are compatible with this build."
             exit 0
           fi
-          MSG="Historical attestors are NOT compatible with this build (failed: ${FAILED}). Informational on dev: a pallet-attestation metadata change makes released attestors refuse to start. It blocks on promotion PRs."
+          MSG="Historical attestors are NOT compatible with this build (failed: ${FAILED}). Compatibility is advisory for this target. Operators must review the affected releases before deploying and upgrade incompatible attestors. See the compatibility logs for details."
           echo "::warning title=Attestor compatibility::${MSG}"
           {
             echo "### ⚠️ Attestor compatibility (informational)"

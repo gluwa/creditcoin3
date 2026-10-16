@@ -20,10 +20,22 @@ name: CI
         description: Run the nightly attestor-network soak instead of the PR suites
         type: boolean
         default: false
+      promotion_target:
+        # checkov:skip=CKV_GHA_7:Only picks the blocking rules; the source is still the dispatched ref
+        # Started by promote-branch.yml before it moves a branch: every suite runs on the
+        # dispatched commit, and the checks that block only promotion PRs block here too.
+        description: "Check the dispatched commit for promotion into usc-testnet or main (every suite, promotion rules). Empty: a normal run."
+        type: string
+        default: ""
+
+# promote-branch.yml finds its check by this title and the commit.
+run-name: ${{ inputs.promotion_target && format('Promotion check into {0}', inputs.promotion_target) || '' }}
 
 concurrency:
-  group: ${{ github.ref }}-${{ github.workflow }}
-  cancel-in-progress: true
+  # A promotion check must not be cancelled by the nightly run or a later dispatch on the
+  # same branch.
+  group: ${{ github.ref }}-${{ github.workflow }}${{ inputs.promotion_target && format('-promotion-{0}', inputs.promotion_target) || '' }}
+  cancel-in-progress: ${{ !inputs.promotion_target }}
 
 permissions: read-all
 
@@ -35,32 +47,51 @@ jobs:
     outputs:
       # The nightly or dispatched soak: one definition, which every soak check reads.
       soak: ${{ steps.mode.outputs.soak }}
+      # The branch whose rules apply: a PR's base, or the target of a promotion check.
+      # Read this instead of github.base_ref, which is empty on a promotion check.
+      target_ref: ${{ steps.mode.outputs.target_ref }}
       changes: ${{ steps.filter.outputs.changes }}
-      archiver: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.archiver || 'false' }}
-      attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_cli_testing || 'false' }}
-      attestor_network_testing: ${{ steps.mode.outputs.soak == 'true' && 'true' || steps.filter.outputs.attestor_network_testing }}
-      cc3_indexer: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.cc3_indexer || 'false' }}
-      docs_smart_contract: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.docs_smart_contract || 'false' }}
-      integration_test_blockchain: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_blockchain || 'false' }}
-      integration_test_cli: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_cli || 'false' }}
-      regenerate_metadata: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.regenerate_metadata || 'false' }}
-      extrinsics: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.extrinsics || 'false' }}
-      attestor_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_compatibility || 'false' }}
-      validator_compatibility: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.validator_compatibility || 'false' }}
-      proof_gen: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.proof_gen || 'false' }}
+      archiver: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.archiver) || 'false' }}
+      attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.attestor_cli_testing) || 'false' }}
+      attestor_network_testing: ${{ (steps.mode.outputs.soak == 'true' || steps.mode.outputs.promotion == 'true') && 'true' || steps.filter.outputs.attestor_network_testing }}
+      cc3_indexer: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.cc3_indexer) || 'false' }}
+      docs_smart_contract: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.docs_smart_contract) || 'false' }}
+      integration_test_blockchain: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.integration_test_blockchain) || 'false' }}
+      integration_test_cli: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.integration_test_cli) || 'false' }}
+      regenerate_metadata: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.regenerate_metadata) || 'false' }}
+      extrinsics: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.extrinsics) || 'false' }}
+      attestor_compatibility: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.attestor_compatibility) || 'false' }}
+      validator_compatibility: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.validator_compatibility) || 'false' }}
+      proof_gen: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.proof_gen) || 'false' }}
       devnet_release_tag: ${{ steps.devnet-env.outputs.release_tag }}
     steps:
-      - name: Is this a soak run
+      - name: Is this a soak run or a promotion check
         id: mode
         env:
           SOAK: ${{ github.event_name == 'schedule' || inputs.soak }}
-        run: echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+          TARGET_REF: ${{ github.base_ref || inputs.promotion_target }}
+          PROMOTION: ${{ inputs.promotion_target != '' && inputs.promotion_target != null }}
+          PROMOTION_TARGET: ${{ inputs.promotion_target }}
+        run: |
+          case "${PROMOTION_TARGET}" in
+            "" | usc-testnet | main) ;;
+            *) echo "promotion_target must be empty, usc-testnet or main, not '${PROMOTION_TARGET}'" >&2; exit 1 ;;
+          esac
+          if [ "$SOAK" = "true" ] && [ "$PROMOTION" = "true" ]; then
+            echo "::error::soak and promotion_target cannot be combined" >&2
+            exit 1
+          fi
+          {
+            echo "soak=${SOAK}"
+            echo "target_ref=${TARGET_REF}"
+            echo "promotion=${PROMOTION}"
+          } >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
 
       # The nightly soak has no diff to filter; should-run's outputs pick its suite instead.
       - name: "Examine which files have been modified by this PR"
-        if: ${{ steps.mode.outputs.soak != 'true' }}
+        if: ${{ steps.mode.outputs.soak != 'true' && steps.mode.outputs.promotion != 'true' }}
         uses: dorny/paths-filter@v4.0.2
         id: filter
         with:
@@ -296,7 +327,7 @@ jobs:
     needs:
       - should-run
     # Any matching filter needs the binaries, the extrinsics check among them.
-    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' || inputs.promotion_target != '' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -318,7 +349,7 @@ jobs:
     # Runs on every trunk. transaction_version is bumped when a release is cut, so a call
     # reordered or removed on a development trunk fails until then: it is reported as a
     # warning there and blocks only promotion into usc-testnet and main.
-    if: ${{ contains(fromJSON('["dev", "usc-dev", "asc-dev", "usc-testnet", "main"]'), github.base_ref) && needs.should-run.outputs.extrinsics == 'true' }}
+    if: ${{ contains(fromJSON('["dev", "usc-dev", "asc-dev", "usc-testnet", "main"]'), needs.should-run.outputs.target_ref) && needs.should-run.outputs.extrinsics == 'true' }}
     needs:
       - build-creditcoin-node-for-testing-ci
       - should-run
@@ -340,7 +371,7 @@ jobs:
 
       - name: Run Extrinsics Ordering
         id: extrinsics
-        continue-on-error: ${{ !contains(fromJSON('["usc-testnet", "main"]'), github.base_ref) }}
+        continue-on-error: ${{ !contains(fromJSON('["usc-testnet", "main"]'), needs.should-run.outputs.target_ref) }}
         shell: bash
         run: |
           chmod a+x ./target/release/creditcoin3-node
@@ -348,11 +379,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
           OWNER_REPO_SLUG: ${{ github.repository }}
+          EXTRINSICS_BASE_REF: ${{ needs.should-run.outputs.target_ref }}
 
       - name: Report extrinsics changes
         if: ${{ steps.extrinsics.outcome == 'failure' }}
         env:
-          BASE_REF: ${{ github.base_ref }}
+          BASE_REF: ${{ needs.should-run.outputs.target_ref }}
         run: |
           MSG="Extrinsics were reordered or removed without a transaction_version bump. It does not block a PR into ${BASE_REF}, but promotion into usc-testnet or main needs the bump. See the Run Extrinsics Ordering step."
           echo "::warning title=check-extrinsics::${MSG}"
@@ -1127,21 +1159,21 @@ jobs:
           yarn build
 
       - name: Extra ENV for PRs towards dev branch
-        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
+        if: contains(fromJSON('["usc-dev", "dev"]'), needs.should-run.outputs.target_ref)
         id: for-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
-          echo "${{ github.base_ref }}"
+          echo "${{ needs.should-run.outputs.target_ref }}"
           echo "======================================="
 
           echo "validator_cycle=no" >> "$GITHUB_OUTPUT"
 
       - name: Extra ENV for other PRs and commits
-        if: ${{ !contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) }}
+        if: ${{ !contains(fromJSON('["usc-dev", "dev"]'), needs.should-run.outputs.target_ref) }}
         id: non-dev-prs
         run: |
           echo "========== DEBUG DEBUG DEBUG =========="
-          echo "${{ github.base_ref }}"
+          echo "${{ needs.should-run.outputs.target_ref }}"
           echo "======================================="
 
           echo "validator_cycle=yes" >> "$GITHUB_OUTPUT"
@@ -1423,7 +1455,7 @@ jobs:
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-devnet.creditcoin.network 2>/var/tmp/pallet_storage.devnet.stderr | sort > /var/tmp/pallet_storage.devnet
-          ../.github/compare-pallet-storage-versions.sh devnet "${{ github.base_ref }}"
+          ../.github/compare-pallet-storage-versions.sh devnet "${{ needs.should-run.outputs.target_ref }}"
 
       - name: Compare to pallet storage versions from Testnet
         timeout-minutes: 15
@@ -1431,7 +1463,7 @@ jobs:
         working-directory: ./cli
         run: |
           node dist/scripts/queryPalletVersions.js wss://rpc.cc3-testnet.creditcoin.network 2>/var/tmp/pallet_storage.testnet.stderr | sort > /var/tmp/pallet_storage.testnet
-          ../.github/compare-pallet-storage-versions.sh testnet "${{ github.base_ref }}"
+          ../.github/compare-pallet-storage-versions.sh testnet "${{ needs.should-run.outputs.target_ref }}"
 
       - name: Upload logs
         if: always()
@@ -1565,7 +1597,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Devnet
-        if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref) && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: contains(fromJSON('["usc-dev", "dev"]'), needs.should-run.outputs.target_ref) && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -1587,7 +1619,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Testnet
-        if: github.base_ref == 'usc-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: needs.should-run.outputs.target_ref == 'usc-testnet' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -1609,7 +1641,7 @@ jobs:
           HARDHAT_IGNITION_CONFIRM_RESET: "yes"
 
       - name: Deploy contract(s) to Creditcoin Mainnet
-        if: github.base_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
+        if: needs.should-run.outputs.target_ref == 'main' && env.HARDHAT_VAR_CC3TEST_PRIVATE_KEY
         working-directory: ./docs/smart-contract-development/with-hardhat
         run: |
           WALLET_ADDRESS=$(~/.foundry/bin/cast wallet address --private-key "$HARDHAT_VAR_CC3TEST_PRIVATE_KEY")
@@ -2297,9 +2329,9 @@ jobs:
     uses: ./.github/workflows/attestor-compatibility.yml
     with:
       sut-artifact: binary-for-testing-ci
-      # Red by construction on dev whenever pallet-attestation's metadata changes; a
-      # warning there, blocking on promotion PRs.
-      informational: ${{ github.base_ref == 'dev' }}
+      # Historical attestor compatibility advises operators on dev and both promotion
+      # targets; incompatibility is deployment guidance rather than a promotion blocker.
+      informational: ${{ contains(fromJSON('["dev", "usc-testnet", "main"]'), needs.should-run.outputs.target_ref) }}
     secrets: inherit
 
   validator-compatibility:
@@ -2310,6 +2342,9 @@ jobs:
     uses: ./.github/workflows/validator-compatibility.yml
     with:
       sut-artifact: binary-for-testing-ci
+      # Operators review historical-validator compatibility before deploying on either
+      # network. Setup failures and ordinary blockchain tests still block promotion.
+      informational: ${{ contains(fromJSON('["usc-testnet", "main"]'), needs.should-run.outputs.target_ref) }}
     secrets: inherit
 
   proof-gen-api-server:
