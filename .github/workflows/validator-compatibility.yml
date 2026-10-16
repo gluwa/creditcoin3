@@ -360,14 +360,23 @@ jobs:
             >"${LOG_DIR}/wait-elected.log" 2>&1 &
           WAIT_PID=$!
 
-          yarn test:blockchain
+          # Both results count: a test failure still waits for the election outcome, so
+          # the log shows both and the poller is not left running into later steps.
+          TESTS_RC=0
+          yarn test:blockchain || TESTS_RC=$?
 
-          if ! wait "${WAIT_PID}"; then
+          ELECTED_RC=0
+          wait "${WAIT_PID}" || ELECTED_RC=$?
+          if [ "${ELECTED_RC}" -ne 0 ]; then
             cat "${LOG_DIR}/wait-elected.log"
             echo "ERROR: the onboarded validators were not all elected" >&2
-            exit 1
+          else
+            tail -n 1 "${LOG_DIR}/wait-elected.log"
           fi
-          tail -n 1 "${LOG_DIR}/wait-elected.log"
+          if [ "${TESTS_RC}" -ne 0 ]; then
+            echo "ERROR: the blockchain integration tests failed" >&2
+          fi
+          [ "${TESTS_RC}" -eq 0 ] && [ "${ELECTED_RC}" -eq 0 ]
 
       - name: Assert peering and block agreement
         run: |

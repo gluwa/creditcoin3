@@ -45,6 +45,8 @@ async function sudoCall(api: ApiPromise, call: any): Promise<void> {
     }
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 interface NodeToOnboard {
     tag: string;
     port: number;
@@ -68,6 +70,16 @@ async function onboardNode(node: NodeToOnboard, stashPair: KeyringPair, bondAmou
     const version = `v${node.tag.replace(/-[^-]*$/, '')}`;
     const { api } = await newApi(`ws://127.0.0.1:${node.port}`);
     console.log(`INFO: onboarding ${version} with stash ${stashPair.address}`);
+
+    // The stash was funded through Alice. Wait until this node has imported that block,
+    // otherwise the bond below is checked against an empty account.
+    const fundedBy = Date.now() + 120_000;
+    while ((await api.query.system.account(stashPair.address)).data.free.isZero()) {
+        if (Date.now() > fundedBy) {
+            throw new Error(`${version}: the stash funding never reached this node`);
+        }
+        await sleep(1_000);
+    }
 
     // Generate session keys *on the target node* so the keystore holds them.
     const keys = (await api.rpc.author.rotateKeys()).toString();
@@ -122,8 +134,6 @@ async function onboardAll(sudoUrl: string, nodesFile: string, bondCtc: number, s
 
     fs.writeFileSync(stashesFile, stashes.map((stash) => stash.address).join('\n') + '\n');
 }
-
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Block until every onboarded stash is in the active session validator set, so the
 // historical nodes are authoring. Validators that start validating mid-era are elected
