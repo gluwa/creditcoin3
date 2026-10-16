@@ -25,6 +25,7 @@ use supported_chains_primitives::provider::SupportedChainsProvider;
 
 use crate::{
     asset::existential_deposit,
+    clear_or_revert::MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
     ledger::{AttestorLedger, UnlockChunk},
 };
 
@@ -36,11 +37,6 @@ pub const ONE_TENTH_CTC: u64 = 100_000_000_000_000_000;
 /// Upper bound on how many checkpoints may sit strictly above a [`forward_patch_checkpoints`] batch tip
 /// when [`crate::pallet::Pallet::do_forward_patch_checkpoints`] `wipe_suffix` is enabled (single dispatch).
 pub const MAX_CHECKPOINT_SUFFIX_WIPE_TOTAL: usize = 4096;
-
-/// Batch size for scanning removals from [`Attestations`] during [`forward_patch_checkpoints`].
-const FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH: u32 = 128;
-/// Upper bound on iterations; total attestations cleared per dispatch ≤ batch × loops (currently 65_536).
-const MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS: u32 = 512;
 
 /// PALLET CALL IMPLS ///
 impl<T: Config> Pallet<T> {
@@ -1580,27 +1576,21 @@ impl<T: Config> Pallet<T> {
     /// Clear attestations and checkpointing/removal queues plus [`LastDigest`] for `chain_key`.
     ///
     /// Used by [`forward_patch_checkpoints`] so repaired checkpoints are not contradicted by stale
-    /// attestation rows (bounded by `FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH` ×
-    /// `MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS` entries per dispatch).
-    pub(crate) fn purge_attestations_for_forward_patch(chain_key: ChainKey) -> DispatchResult {
+    /// attestation rows. Clears one fixed batch and defers any remainder to
+    /// [`AttestationClearingCursors`], like `do_revert_to`: `clear_prefix` ignores its cursor
+    /// within a single dispatch, so the rest can only drain across blocks.
+    pub(crate) fn purge_attestations_for_forward_patch(chain_key: ChainKey) {
         CheckpointingQueues::<T>::remove(chain_key);
         AttestationRemovalQueues::<T>::remove(chain_key);
         LastDigest::<T>::remove(chain_key);
 
-        let mut maybe_cursor: Option<Vec<u8>> = None;
-        for _ in 0..MAX_FORWARD_PATCH_ATTESTATIONS_CLEAR_LOOPS {
-            let kill = Attestations::<T>::clear_prefix(
-                chain_key,
-                FORWARD_PATCH_ATTESTATIONS_CLEAR_BATCH,
-                maybe_cursor.as_deref(),
-            );
-            maybe_cursor = kill.maybe_cursor;
-            if maybe_cursor.is_none() {
-                return Ok(());
-            }
+        let maybe_cursor =
+            Attestations::<T>::clear_prefix(chain_key, MAX_ATTESTATIONS_CLEARED_PER_BLOCK, None)
+                .maybe_cursor;
+        match maybe_cursor {
+            Some(cursor) => AttestationClearingCursors::<T>::insert(chain_key, cursor),
+            None => AttestationClearingCursors::<T>::remove(chain_key),
         }
-
-        Err(Error::<T>::TooManyAttestationsForForwardPatchClear.into())
     }
 
     #[transactional]
@@ -1623,7 +1613,7 @@ impl<T: Config> Pallet<T> {
         );
         ensure!(!checkpoints.is_empty(), Error::<T>::EmptyCheckpointPatch);
 
-        Self::purge_attestations_for_forward_patch(chain_key)?;
+        Self::purge_attestations_for_forward_patch(chain_key);
 
         let mut merged = BTreeMap::new();
         for checkpoint in checkpoints.into_inner() {
