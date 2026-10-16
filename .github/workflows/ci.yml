@@ -1319,6 +1319,7 @@ jobs:
             1:pallets/attestation/force-apply-updates
             1:pallets/attestation/force-election
             1:pallets/attestation/kick-active-attestor
+            1:pallets/attestation/proof-of-possession
             1:pallets/attestation/register-attestor
             1:pallets/attestation/register-invulnerable
             1:pallets/attestation/remove-authorized-attestor
