@@ -77,7 +77,7 @@ jobs:
       # from ci.yml on PRs, so it never saved one of its own either.
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.87.27
         with:
           tool: cargo-llvm-cov@0.6.24
 
