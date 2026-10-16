@@ -62,8 +62,8 @@ name: Attestor Compatibility
       informational:
         description: >-
           Report historical-attestor incompatibility as an operator warning instead of
-          failing the job. The caller enables this on dev and testnet, where operators
-          review affected releases before deploying. Setup failures still fail the job.
+          failing the job. The caller enables this on dev, testnet and mainnet, where
+          operators review affected releases before deploying. Setup failures still fail.
         required: false
         type: boolean
         default: false
