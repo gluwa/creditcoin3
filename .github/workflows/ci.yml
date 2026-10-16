@@ -1352,6 +1352,7 @@ jobs:
             1:pallets/attestation/set-min-bond-requirement
             1:pallets/attestation/set-target-sample-size
             1:pallets/attestation/unregister-attestor
+            1:pallets/attestation/unregister-full-unlocking-queue
             1:pallets/attestation/unregister-invulnerable
             1:pallets/attestation/withdraw-unbonded
             1:pallets/supported-chains/register-chain
