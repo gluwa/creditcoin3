@@ -3595,6 +3595,7 @@ export default {
             'TooManyAttestationsForForwardPatchClear',
             'OversizedContinuityProof',
             'AttestationCleanupInProgress',
+            'TooManyAttestationsInBlock',
         ],
     },
     /**

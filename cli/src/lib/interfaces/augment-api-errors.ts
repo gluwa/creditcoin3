@@ -167,6 +167,10 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
             /**
+             * The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
+             **/
+            TooManyAttestationsInBlock: AugmentedError<ApiType>;
+            /**
              * A `commit_attestation` payload carried more attestor accounts than the per-chain
              * `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
              * is bounded by `MaxAttestors`, so an over-long list is both a weight under-accounting

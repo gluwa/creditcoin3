@@ -4217,6 +4217,7 @@ declare module '@polkadot/types/lookup' {
         readonly isTooManyAttestationsForForwardPatchClear: boolean;
         readonly isOversizedContinuityProof: boolean;
         readonly isAttestationCleanupInProgress: boolean;
+        readonly isTooManyAttestationsInBlock: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -4284,7 +4285,8 @@ declare module '@polkadot/types/lookup' {
             | 'CheckpointSuffixWipeTooLarge'
             | 'TooManyAttestationsForForwardPatchClear'
             | 'OversizedContinuityProof'
-            | 'AttestationCleanupInProgress';
+            | 'AttestationCleanupInProgress'
+            | 'TooManyAttestationsInBlock';
     }
 
     /** @name SupportedChainsPrimitivesSupportedChain (450) */

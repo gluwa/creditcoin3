@@ -374,6 +374,19 @@ impl<T: Config> Pallet<T> {
         // Validate the attestation
         Self::validate_attestation(chain_key, &attestation)?;
 
+        // Checked after validation so a duplicate submission still fails with
+        // `AttestationExists`, which attestors treat as a lost race.
+        let now = frame_system::Pallet::<T>::block_number();
+        let committed_this_block = match AttestationsInBlock::<T>::get(chain_key) {
+            Some((block, count)) if block == now => count,
+            _ => 0,
+        };
+        ensure!(
+            committed_this_block < T::MaxAttestationsPerBlock::get(),
+            Error::<T>::TooManyAttestationsInBlock
+        );
+        AttestationsInBlock::<T>::insert(chain_key, (now, committed_this_block.saturating_add(1)));
+
         // Store the attestation
         let digest = attestation.digest();
         let header_number = attestation.header_number();
@@ -440,6 +453,13 @@ impl<T: Config> Pallet<T> {
         // via extrinsic rollback in the case of checkpointing failure.
         if let Err(e) = Self::try_make_checkpoint(&mut queue, chain_key, header_number) {
             log::error!("Error: {e:?}");
+        }
+        // Checked after checkpointing, which drains the queue.
+        if queue.len() > T::MaxCheckpointingQueueLen::get() as usize {
+            // The queue can't grow any further, and the next checkpoint boundary may still be
+            // out of reach (e.g. after the attestation interval grew). Checkpoint at this
+            // attestation instead, which condenses the whole queue without walking any proof.
+            return Self::checkpoint_at_attestation(chain_key, header_number, digest, queue);
         }
         CheckpointingQueues::<T>::insert(chain_key, queue);
 
@@ -785,6 +805,17 @@ impl<T: Config> Pallet<T> {
         free_b.saturating_sub(min_b).saturating_sub(locked_balance)
     }
 
+    /// The chain's `MaxCatchup` once pending updates apply.
+    pub(crate) fn effective_max_catchup(chain_key: ChainKey) -> u32 {
+        PendingMaxCatchup::<T>::get(chain_key).unwrap_or_else(|| MaxCatchup::<T>::get(chain_key))
+    }
+
+    /// The chain's attestation interval once pending updates apply.
+    pub(crate) fn effective_attestation_interval(chain_key: ChainKey) -> u64 {
+        PendingAttestationInterval::<T>::get(chain_key)
+            .unwrap_or_else(|| ChainAttestationInterval::<T>::get(chain_key))
+    }
+
     pub fn apply_interval_updates() {
         // Use `drain()` rather than `iter() + bounded clear(num_supported_chains)`. The bounded
         // clear leaked entries whenever the pending map held more rows than the supported-chain
@@ -1025,6 +1056,16 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::AttestationExists.into());
         }
 
+        // Each attestation is at least an attestation interval past the last one, so queued
+        // attestations are at least an interval apart.
+        if let Some((last_height, _)) = LastDigest::<T>::get(chain_key) {
+            ensure!(
+                attestation.header_number()
+                    >= last_height.saturating_add(Self::chain_attestation_interval(chain_key)),
+                Error::<T>::InvalidAttestationBlockNumber
+            );
+        }
+
         // Attestor eligibility validation
         let active_attestors = ActiveAttestors::<T>::get(chain_key)
             .into_iter()
@@ -1260,13 +1301,42 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Checkpoint at an attested height, off the checkpoint-width grid, and move `condensed`
+    /// to the removal queue. The chain's checkpointing queue is cleared.
+    fn checkpoint_at_attestation(
+        chain_key: ChainKey,
+        block_number: u64,
+        digest: Digest,
+        condensed: VecDeque<Digest>,
+    ) -> DispatchResult {
+        let checkpoint = AttestationCheckpoint {
+            block_number,
+            digest,
+        };
+        Self::deposit_event(Event::<T>::CheckpointReached(chain_key, checkpoint.clone()));
+        Checkpoints::<T>::insert(chain_key, block_number, digest);
+        CheckpointBuckets::<T>::insert(
+            (
+                chain_key,
+                Self::compute_block_index_for(block_number),
+                block_number,
+            ),
+            (),
+        );
+        LastCheckpoint::<T>::insert(chain_key, &checkpoint);
+        CheckpointingQueues::<T>::remove(chain_key);
+
+        let mut attestation_removal_queue = AttestationRemovalQueues::<T>::get(chain_key);
+        attestation_removal_queue.extend(condensed);
+        Self::remove_attestations(chain_key, attestation_removal_queue)
+    }
+
     /// Create checkpoints dynamically from an attestation's continuity proof when catching up
     /// (proof spans 2+ checkpoint intervals). Otherwise no-op so the legacy queue-based flow
     /// handles normal attestation cadence.
     ///
     /// Returns `Ok(true)` when checkpoints were created and the digest was added to
     /// AttestationRemovalQueues (caller must remove it from CheckpointingQueues to avoid duplicate).
-    #[transactional]
     pub(crate) fn create_checkpoints_from_continuity_proof(
         chain_key: ChainKey,
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
@@ -1275,9 +1345,6 @@ impl<T: Config> Pallet<T> {
         if attestation.continuity_proof.is_empty() {
             return Ok(false);
         }
-
-        let last_checkpoint =
-            LastCheckpoint::<T>::get(chain_key).ok_or(Error::<T>::LastCheckpointEmpty)?;
 
         let attestation_interval = Self::chain_attestation_interval(chain_key);
         let checkpoint_interval = Self::attestation_checkpoint_interval(chain_key);
@@ -1289,6 +1356,36 @@ impl<T: Config> Pallet<T> {
         if proof_len < 2 * checkpoint_width as usize {
             return Ok(false);
         }
+
+        Self::create_checkpoints_from_queue(
+            chain_key,
+            attestation,
+            attestation_digest,
+            CheckpointingQueues::<T>::get(chain_key),
+        )
+    }
+
+    /// Create a checkpoint at every boundary between the last checkpoint and `attestation`,
+    /// taking boundary digests from its continuity proof and from the proofs of every
+    /// attestation in `checkpointing_queue`.
+    ///
+    /// Returns `Ok(true)` when checkpoints were created; the queued attestations and
+    /// `attestation_digest` then join the removal queue and the chain's checkpointing queue is
+    /// cleared.
+    #[transactional]
+    pub(crate) fn create_checkpoints_from_queue(
+        chain_key: ChainKey,
+        attestation: &SignedAttestation<T::Hash, T::AccountId>,
+        attestation_digest: Digest,
+        mut checkpointing_queue: VecDeque<Digest>,
+    ) -> Result<bool, DispatchError> {
+        let last_checkpoint =
+            LastCheckpoint::<T>::get(chain_key).ok_or(Error::<T>::LastCheckpointEmpty)?;
+
+        let attestation_interval = Self::chain_attestation_interval(chain_key);
+        let checkpoint_interval = Self::attestation_checkpoint_interval(chain_key);
+        let checkpoint_width = attestation_interval.saturating_mul(checkpoint_interval as u64);
+        ensure!(checkpoint_width > 0, Error::<T>::CheckpointWidthIsZero);
 
         // Build map of block_number -> digest from continuity proof.
         // USC-001: Compute digests from roots rather than trusting proof.digest values.
@@ -1306,7 +1403,6 @@ impl<T: Config> Pallet<T> {
         // CheckpointingQueues may contain attestations covering blocks between
         // the last checkpoint and the start of this proof. We need their digests
         // to create checkpoints at boundaries that fall in that gap.
-        let mut checkpointing_queue = CheckpointingQueues::<T>::get(chain_key);
         for queued_digest in checkpointing_queue.iter() {
             if let Some(queued_att) = Attestations::<T>::get(chain_key, queued_digest) {
                 // Add the attestation header block itself
@@ -1331,12 +1427,9 @@ impl<T: Config> Pallet<T> {
         let mut attestation_removal_queue: VecDeque<Digest> =
             AttestationRemovalQueues::<T>::get(chain_key);
 
-        // Create checkpoints for each boundary block in the continuity proof.
+        // Create a checkpoint at every boundary up to and including the attestation head.
         // Target calculation mirrors the legacy path: round down to nearest global
         // multiple of checkpoint_width to keep checkpoint placement consistent.
-        //
-        // Also match `try_make_checkpoint`: only advance when the attestation head is at least
-        // `2 * checkpoint_width + 1` blocks past the last checkpoint (same span rule).
         loop {
             let next = last_checkpoint_block.saturating_add(checkpoint_width);
             let target_block = next.saturating_sub(next % checkpoint_width);
@@ -1606,6 +1699,16 @@ impl<T: Config> Pallet<T> {
         attestation: &SignedAttestation<T::Hash, T::AccountId>,
     ) -> bool {
         attestation.attestors.len() as u32 <= MaxAttestors::<T>::get(chain_key)
+    }
+
+    /// Length of the chain's [`CheckpointingQueues`] entry, read from its length prefix
+    /// without decoding the digests.
+    pub(crate) fn checkpointing_queue_len(chain_key: ChainKey) -> u32 {
+        // `VecDeque` and `Vec` share a SCALE encoding, so `Vec`'s length decoder applies.
+        let key = CheckpointingQueues::<T>::hashed_key_for(chain_key);
+        <Vec<Digest> as frame_support::storage::StorageDecodeLength>::decode_len(&key)
+            .unwrap_or(0)
+            .min(u32::MAX as usize) as u32
     }
 
     pub(crate) fn check_duplicate(attestation: &SignedAttestation<T::Hash, T::AccountId>) -> bool {
