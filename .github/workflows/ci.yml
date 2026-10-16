@@ -1318,6 +1318,7 @@ jobs:
             1:pallets/attestation/chill
             1:pallets/attestation/force-apply-updates
             1:pallets/attestation/force-election
+            1:pallets/attestation/interval-ceilings
             1:pallets/attestation/kick-active-attestor
             1:pallets/attestation/register-attestor
             1:pallets/attestation/register-invulnerable
@@ -1334,6 +1335,7 @@ jobs:
             1:pallets/attestation/unregister-invulnerable
             1:pallets/attestation/withdraw-unbonded
             1:pallets/supported-chains/register-chain
+            1:pallets/supported-chains/register-chain-roster-limits
             1:pallets/supported-chains/remove-chain
             2:block-hash-block-param
             2:danger-will-brick-the-blockchain

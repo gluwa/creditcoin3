@@ -11,9 +11,11 @@ import os = require('os');
 import path = require('path');
 
 import { commandSync } from 'execa';
+import { SubmittableExtrinsic } from '@polkadot/api/types';
+import { SpRuntimeDispatchError } from '@polkadot/types/lookup';
 
 import type { EventRecord, Balance, DispatchError } from '../lib';
-import { ApiPromise, expectNoEventError, expectNoDispatchError, newApi } from '../lib';
+import { ApiPromise, KeyringPair, expectNoEventError, expectNoDispatchError, newApi } from '../lib';
 import { getChainStatus } from '../lib/chain/status';
 
 export const describeIf = (condition: boolean, name: string, fn: any) =>
@@ -80,6 +82,51 @@ export const extractFee = async (
             reject(new Error("Fee wasn't found"));
         }
     }
+};
+
+// Sends `call` through `sudo.sudo` and resolves once it's in a block. The outer extrinsic
+// succeeds even when the inner call fails, which `extractFee` and `signSendAndWatchCcKeyring`
+// don't detect, so this returns the inner result from the `Sudid` event instead.
+export const sudoInBlock = async (
+    api: ApiPromise,
+    sudo: KeyringPair,
+    call: SubmittableExtrinsic<'promise'>,
+): Promise<{ innerError: SpRuntimeDispatchError | null; events: EventRecord[] }> => {
+    const nonce = await api.rpc.system.accountNextIndex(sudo.address);
+    return new Promise((resolve, reject) => {
+        let unsubscribe: (() => void) | undefined;
+        api.tx.sudo
+            .sudo(call)
+            .signAndSend(sudo, { nonce }, ({ dispatchError, events, status }) => {
+                if (dispatchError) {
+                    unsubscribe?.();
+                    reject(new Error(`sudo extrinsic failed: ${dispatchError.toString()}`));
+                } else if (status.isInBlock) {
+                    unsubscribe?.();
+                    for (const { event } of events) {
+                        if (api.events.sudo.Sudid.is(event)) {
+                            const { sudoResult } = event.data;
+                            resolve({ innerError: sudoResult.isErr ? sudoResult.asErr : null, events });
+                            return;
+                        }
+                    }
+                    reject(new Error('no Sudid event'));
+                }
+            })
+            .then((unsub) => {
+                unsubscribe = unsub;
+            })
+            .catch((error) => reject(new Error(error)));
+    });
+};
+
+// `section.Name` for a module error (e.g. `attestation.InvalidAttestationInterval`), otherwise
+// the error's string form; `null` when there's no error.
+export const dispatchErrorName = (api: ApiPromise, error: SpRuntimeDispatchError | null): string | null => {
+    if (error === null) return null;
+    if (!error.isModule) return error.toString();
+    const { section, name } = api.registry.findMetaError(error.asModule);
+    return `${section}.${name}`;
 };
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
