@@ -133,16 +133,20 @@ describe('withdraw-unbonded', () => {
 
                 if (manualSealing) {
                     // Every block moves chain time by whole slots: one for ours, more if the
-                    // background ticker sealed one in between.
+                    // background ticker sealed one in between. The countdown is polkadot.js's
+                    // estimate from era progress, which can stand still for the block on an era
+                    // boundary, so a single step may be 0 but the three together must not be.
+                    const startUnbonding = oldUnbonding;
                     for (let i = 0; i < 3; i++) {
                         const errMsg = `Failed on sealed block #${i}`;
                         await sealBlock(api);
                         const newUnbonding = await nextUnbondingInMs(callerFullUnbond.address, api);
                         const difference = oldUnbonding - newUnbonding;
-                        expect(difference, errMsg).toBeGreaterThanOrEqual(blockTime);
+                        expect(difference, errMsg).toBeGreaterThanOrEqual(0n);
                         expect(difference % BigInt(blockTime), errMsg).toEqual(0n);
                         oldUnbonding = newUnbonding;
                     }
+                    expect(startUnbonding - oldUnbonding).toBeGreaterThanOrEqual(BigInt(2 * blockTime));
                 }
 
                 // This loop must finish *before* the unbonding period expires, because once
