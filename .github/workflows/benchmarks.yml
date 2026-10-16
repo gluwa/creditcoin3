@@ -188,12 +188,23 @@ jobs:
 
       # use cache from previous build jobs
       # WARNING: always before actions/download-artifact
+      # Same id as build-native.yml's "Identify runner family", whose warmers save the
+      # build-creditcoin-node-<id> entries on dev (cache-warm.yml, hosted and Linode).
+      - name: Identify runner family
+        id: runner-family
+        env:
+          RUNNER_FAMILY: ${{ runner.environment }}
+        run: |
+          ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build-creditcoin-node
-          # PR-scoped entries are readable by that PR alone and push the repository past its
-          # 50 GB cache limit, which evicts the dev entries every build restores from.
-          save-if: ${{ github.event_name != 'pull_request' }}
+          # Restores the warmer's dependencies. This workflow runs on PRs only and builds other
+          # features, so it never saves: nothing would read a PR-scoped entry, and the warmer's
+          # key is for its own build.
+          shared-key: build-creditcoin-node-${{ steps.runner-family.outputs.id }}
+          save-if: false
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary

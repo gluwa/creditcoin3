@@ -72,17 +72,9 @@ jobs:
           targets: wasm32v1-none
           components: llvm-tools-preview, rust-src
 
-      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
-      # stable, which changes whenever GitHub updates the image, would rotate the key.
-      - name: Remove the runner image's Rust toolchains
-        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: build-creditcoin-node
-          # PR-scoped entries are readable by that PR alone and push the repository past its
-          # 50 GB cache limit, which evicts the dev entries every build restores from.
-          save-if: ${{ github.event_name != 'pull_request' }}
+      # No rust-cache here: cargo llvm-cov compiles every crate with coverage
+      # instrumentation, so no build-creditcoin-node entry matches, and this job runs only
+      # from ci.yml on PRs, so it never saved one of its own either.
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@v2.85.4
