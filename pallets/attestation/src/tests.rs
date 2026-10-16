@@ -12008,6 +12008,25 @@ fn integrity_holds_at_max_checkpoint_interval() {
 }
 
 #[test]
+fn commit_weight_charges_own_proof_through_commit_benchmark() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let interval = ChainAttestationInterval::<Test>::get(SUPPORTED_CHAIN_KEY);
+        // A steady-state commit: the proof spans one interval and the queue is empty.
+        let attestation = create_signed_attestation(
+            vec![attestor],
+            SUPPORTED_CHAIN_KEY,
+            interval,
+            Some(H256::random()),
+            None,
+        );
+        let own = attestation.continuity_proof.len() as u32;
+        let benchmarked = <<Test as Config>::WeightInfo as WeightInfo>::commit_attestation(own, 1);
+        assert!(commit_weight(&attestation).all_gte(benchmarked));
+    })
+}
+
+#[test]
 fn commit_weight_caps_queued_proof_at_max_catchup() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);

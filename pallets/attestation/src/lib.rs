@@ -1010,12 +1010,10 @@ pub mod pallet {
             let gap = (max_queue as u64)
                 .saturating_add(1)
                 .saturating_mul(interval);
-            let span = gap
-                .saturating_add(own_proof)
-                .saturating_add(straddle)
-                .min(u32::MAX as u64) as u32;
+            let extra = gap.saturating_add(straddle).min(u32::MAX as u64) as u32;
             let worst = CommitAttestationWeight::<T>::weight_for(
-                span,
+                own_proof.min(u32::MAX as u64) as u32,
+                extra,
                 T::MaxAttestationNodes::get(),
                 max_queue,
             );
@@ -1837,10 +1835,10 @@ pub mod pallet {
             } else {
                 straddle
             };
-            let s_eff = proof_len.saturating_add(extra_roots).min(u32::MAX as u64) as u32;
+            let extra_roots = extra_roots.min(u32::MAX as u64) as u32;
 
             // Base weight from benchmarks, measured with checkpoint_width = 10 * 10 = 100.
-            let weight = CommitAttestationWeight::<T>::weight_for(s_eff, m, q);
+            let weight = CommitAttestationWeight::<T>::weight_for(s, extra_roots, m, q);
 
             // --- Checkpoint creation writes ---
             // The legacy path creates at most one checkpoint per commit, plus one more if the
@@ -1860,16 +1858,18 @@ pub mod pallet {
     }
 
     impl<T: Config> CommitAttestationWeight<T> {
-        /// Commit weight for `s` continuity-proof roots and `m` attestors, plus the marginal
-        /// cost of a checkpointing queue of `q` entries. Each queued entry is read, decoded and
-        /// removed. `s` counts every root walked, including those in queued proofs, which the
-        /// caller sizes from the span they cover; each is charged only through
-        /// `continuity_roots`, which is benchmarked over a range wide enough to resolve it, so
-        /// any `s` slope in `commit_attestation` is left out to avoid charging roots twice.
-        pub(crate) fn weight_for(s: u32, m: u32, q: u32) -> Weight {
+        /// Commit weight for an attestation with `own` continuity-proof roots and `m`
+        /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
+        /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
+        /// The own proof is charged through `commit_attestation`, whose `s` slope covers
+        /// everything a commit does per root of its own proof; below the benchmarked range the
+        /// line over-charges the queue-based path, which does less per root. The extra roots are
+        /// only walked, so each is charged through `continuity_roots` alone and no root is
+        /// counted twice.
+        pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
-            <T as Config>::WeightInfo::commit_attestation(0, m)
-                .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, s))
+            <T as Config>::WeightInfo::commit_attestation(own, m)
+                .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
                 .saturating_add(marginal(
                     <T as Config>::WeightInfo::commit_attestation_queued,
                     q,
