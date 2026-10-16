@@ -275,6 +275,10 @@ declare module '@polkadot/api-base/types/errors' {
         };
         evm: {
             /**
+             * The EIP-7702 authorization list exceeds the maximum number of entries.
+             **/
+            AuthorizationListTooLarge: AugmentedError<ApiType>;
+            /**
              * Not enough balance to perform action
              **/
             BalanceLow: AugmentedError<ApiType>;
