@@ -2,7 +2,7 @@ import { WasmPrivateKey } from 'bls-signatures-bindings';
 
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
-import { forElapsedBlocks } from '../utils';
+import { forElapsedBlocks, sleep } from '../utils';
 import { randomFundedAccount, waitEras } from '../integration-tests/helpers';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
 import { proofOfPossessionMessage } from '../../lib/attestor/proof-of-possession';
@@ -87,17 +87,24 @@ describe('handleEventAttestorChilled()', () => {
             }
             expect(foundMatch).toEqual(false);
 
+            // NOTE: chill schedules Leaving for an active attestor; Idle is applied at epoch rotation.
+            // Under `--sealing` an epoch is 15 s of sealed blocks, so start right after a rotation
+            // to leave the indexer most of an epoch to report Leaving.
+            const epoch = (await api.query.babe.epochIndex()).toNumber();
+            while ((await api.query.babe.epochIndex()).toNumber() === epoch) {
+                await sleep(500);
+            }
+
             startingBlock = BigInt((await getChainStatus(api)).bestNumber);
             expect(startingBlock).toBeGreaterThan(0n);
 
-            // NOTE: chill schedules Leaving for an active attestor; Idle is applied at epoch rotation.
             await api.tx.attestation
                 .chill(chain_Anvil1_Key, attestor.address)
                 .signAndSend(bob, { nonce: await api.rpc.system.accountNextIndex(bob.address) });
 
             // wait for txn to make it on chain & indexer to ingest the successful call
             await forElapsedBlocks(api, { minBlocks: 3 });
-        }, 30_000);
+        }, 60_000);
 
         it('graphQL returns Leaving Attestor entity before epoch rotation', async () => {
             const response = await graphQLQuery(
