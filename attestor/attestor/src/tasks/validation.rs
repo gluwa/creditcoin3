@@ -182,10 +182,14 @@ async fn handle_quorum(
     // whichever of the two lands first fails the other. Catch-up emits a whole descending range
     // per anchor and gossip can complete a lower height first; submitting it would cost the
     // higher one a failed commit and a re-formation round. Replace the in-flight submission
-    // while it has not broadcast yet.
+    // while it has not broadcast yet, and only while the shared anchor is still the latest
+    // finalized digest: if anything finalized since (e.g. a peer landed the lower height), the
+    // rival no longer extends it and is stashed instead, where `revalidate_stashed` drops it.
+    let finalized = shared.latest_finalized_rx.borrow().map(|info| info.digest);
     let rival = in_flight_preempt.as_ref().filter(|preempt| {
         in_flight_height.is_some_and(|in_flight| agg.height > in_flight)
             && preempt.anchor.is_some()
+            && preempt.anchor == finalized
             && preempt.anchor == quorum_anchor(&agg.attestation_signed)
     });
     let preempted = rival.is_some_and(Preemptable::preempt);
