@@ -81,7 +81,7 @@ jobs:
     secrets: inherit
 
   # build-native.yml keys runner families separately (see "Identify runner family"), and
-  # rebuild-new-metadata, benchmarks and runtime-upgrade still build on Linode. This
+  # benchmarks and runtime-upgrade still build on Linode. This
   # leg keeps their self-hosted family warm. It costs one VM per manifest change or daily
   # run, not per PR.
   deploy-runner:
