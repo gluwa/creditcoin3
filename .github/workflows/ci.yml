@@ -1637,15 +1637,8 @@ jobs:
       - should-run
       - build-creditcoin-node-for-testing-ci
     if: ${{ needs.should-run.outputs.cc3_indexer == 'true' }}
-    # Split over three runners, each with its own chain, attestors and indexer, by measured
-    # file duration (~8.5 min of tests each instead of ~26 in one job). Each shard gets one
-    # of the files that wait out eras (Chilled, Withdrawn, TargetSampleSizeChanged). Files
-    # come from INDEXER_SHARDS in the run step; cc3-indexer-handlers checks the union.
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-    name: cc3-indexer-testing / shard ${{ matrix.shard }}
+    # One job: with a block sealed every second and eras sealed ahead, the files no longer
+    # need splitting over runners. cc3-indexer-handlers checks that every handler ran.
     runs-on: ubuntu-26.04
     timeout-minutes: 90
     steps:
@@ -1693,7 +1686,7 @@ jobs:
       - name: Check that creditcoin-node and anvil are running
         run: |
           .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
-          .github/seal-blocks.sh 'http://127.0.0.1:9944' 5 >/var/tmp/cc3-indexer-testing/seal-blocks.log 2>&1 &
+          .github/seal-blocks.sh 'http://127.0.0.1:9944' 1 >/var/tmp/cc3-indexer-testing/seal-blocks.log 2>&1 &
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8141'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8242'
           .github/wait-for-ethereum.sh 'http://127.0.0.1:8343'
@@ -1813,68 +1806,11 @@ jobs:
         working-directory: ./cli
         env:
           ANVIL1_TXN_HASH: ${{ steps.native-transfer-anvil-1.outputs.txn_hash }}
-          SHARD: ${{ matrix.shard }}
-          # <shard>:<file under src/test/cc3-indexer-tests>, split by measured file duration.
-          # Within a shard files still run alphabetically, so the files that only read what
-          # the attestors produced (Elected, BlockAttested, CheckpointReached) stay behind
-          # ~8 min of shard 1, and zz-/zzz-, which revert and then remove chain 5, stay last.
-          INDEXER_SHARDS: >-
-            1:handleAttestorElectionPolicyChanged
-            1:handleAuthorizedAttestorAdded
-            1:handleAuthorizedAttestorRemoved
-            1:handleChainNameSet
-            1:handleCheckpointIntervalChanged
-            1:handleEventAttestationIntervalChanged
-            1:handleEventAttestorChilled
-            1:handleEventAttestorElected
-            1:handleEventBlockAttested
-            1:handleEventCheckpointReached
-            2:handleEventAttestorActivated
-            2:handleEventAttestorRegistered
-            2:handleEventAttestorUnregistered
-            2:handleEventBonded
-            2:handleEventClearedStorageForRemovedChain
-            2:handleEventInvulnerableRegistered
-            2:handleEventInvulnerableUnregistered
-            2:handleEventWithdrawn
-            3:handleEventMinBondRequirementUpdated
-            3:handleEventPendingAttestationIntervalSet
-            3:handleEventPendingTargetSampleSizeSet
-            3:handleEventTargetSampleSizeChanged
-            3:handleEventUnbonded
-            3:handleForcedElection
-            3:handleMaturityStrategySet
-            3:handleSupportedChainRegistered
-            3:handleSupportedChainRemoved
-            3:handleTransactionVerified
-            3:initiateStoreAndDatabase
-            3:zz-handleEventRevertedAttestationChainTo
-            3:zzz-handleEventCheckpointsCleared
         run: |
-          # The list must cover every test file exactly once, so a new file can't silently
-          # drop out of CI.
-          DIR=src/test/cc3-indexer-tests
-          ASSIGNED=$(echo "$INDEXER_SHARDS" | tr ' ' '\n' | cut -d: -f2 | sort)
-          PRESENT=$(cd "$DIR" && find . -name '*.test.ts' | sed -e 's|^\./||' -e 's|\.test\.ts$||' | sort)
-          if [ "$ASSIGNED" != "$PRESENT" ]; then
-            echo "cc3-indexer shard list doesn't match the test files:" >&2
-            diff <(echo "$ASSIGNED") <(echo "$PRESENT") >&2 || true
-            exit 1
-          fi
-          UNKNOWN=$(echo "$INDEXER_SHARDS" | tr ' ' '\n' | grep -vE '^[123]:' || true)
-          if [ -n "$UNKNOWN" ]; then
-            echo "INDEXER_SHARDS entries for a shard the matrix doesn't run: $UNKNOWN" >&2
-            exit 1
-          fi
-
-          PATHS=()
-          for name in $(echo "$INDEXER_SHARDS" | tr ' ' '\n' | sed -n "s/^${SHARD}://p"); do
-            PATHS+=("$DIR/${name}.test.ts")
-          done
-          if [ "${#PATHS[@]}" -eq 0 ]; then
-            echo "no test files for shard $SHARD" >&2
-            exit 1
-          fi
+          # Every file, alphabetically: the files that only read what the attestors
+          # produced (Elected, BlockAttested, CheckpointReached) come after the setup ones,
+          # and zz-/zzz-, which revert and then remove chain 5, stay last.
+          mapfile -t PATHS < <(find src/test/cc3-indexer-tests -name '*.test.ts' | sort)
           yarn install
           yarn test:cc3-indexer:files "${PATHS[@]}"
 
@@ -1882,7 +1818,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: junit-cc3-indexer-shard-${{ matrix.shard }}
+          name: junit-cc3-indexer
           path: cli/reports/junit/
           if-no-files-found: ignore
 
@@ -1898,24 +1834,22 @@ jobs:
         run: |
           .github/check-logs-for-error.sh /var/tmp/cc3-indexer-testing/indexer-compose.log
 
-      # Each shard fires only its own files' handlers; cc3-indexer-handlers checks the union.
-      - name: Upload the handlers this shard executed
+      - name: Upload the handlers the tests executed
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: cc3-indexer-monitor-shard-${{ matrix.shard }}
+          name: cc3-indexer-monitor
           path: /var/tmp/cc3-indexer-testing/.monitor/app-fileA.txt
           include-hidden-files: true
           if-no-files-found: ignore
 
-      # Neither of the next two depends on which tests ran: shard 1 does them.
       - name: Sanity check Int vs BigInt data types
-        if: ${{ always() && matrix.shard == 1 }}
+        if: always()
         run: |
           .github/check-grapqhl-schema-types.sh
 
       - name: Run query-cli e2e with native verification
-        if: ${{ always() && matrix.shard == 1 }}
+        if: always()
         run: |
           chmod a+x ./target/release/query-cli
           ./target/release/query-cli \
@@ -1933,7 +1867,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: cc3-indexer-testing-shard-${{ matrix.shard }}
+          name: cc3-indexer-testing
           path: /var/tmp/cc3-indexer-testing/
           include-hidden-files: true
 
@@ -1948,7 +1882,7 @@ jobs:
           killall -9 attestor
           killall -9 creditcoin3-node
 
-  # Every handler in datasources.ts must have run in at least one shard.
+  # Every handler in datasources.ts must have run.
   cc3-indexer-handlers:
     needs:
       - should-run
@@ -1959,10 +1893,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Download the handlers each shard executed
+      - name: Download the handlers the tests executed
         uses: actions/download-artifact@v8
         with:
-          pattern: cc3-indexer-monitor-shard-*
+          name: cc3-indexer-monitor
           path: monitor
 
       - name: Check every handler was executed
