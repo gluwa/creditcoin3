@@ -212,7 +212,7 @@ fn setup_commit<T: Config>(m: u32) -> (Vec<Attestor<T>>, BenchAttestation<T>) {
 mod benchmarks {
     use super::*;
 
-    pub const MAX_SPAN: u32 = 500; // continuity blocks: 10–500 for realistic weight scaling
+    pub const MAX_SPAN: u32 = COMMIT_BENCHMARK_MAX_SPAN; // continuity blocks, up to the default MaxCatchup
     /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
     /// checkpoint width of 100 (`2 * width`). Sampling `s` only on that path keeps the step from
     /// the queue-based path out of the per-root slope; the queue-based path does strictly less

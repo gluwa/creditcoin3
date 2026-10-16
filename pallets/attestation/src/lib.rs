@@ -1857,17 +1857,24 @@ pub mod pallet {
         }
     }
 
+    /// Longest own continuity proof the `commit_attestation` benchmark samples (the default
+    /// `MaxCatchup`).
+    pub(crate) const COMMIT_BENCHMARK_MAX_SPAN: u32 = 500;
+
     impl<T: Config> CommitAttestationWeight<T> {
         /// Commit weight for an attestation with `own` continuity-proof roots and `m`
         /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
         /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
         /// The own proof is charged through `commit_attestation`, whose `s` slope covers
-        /// everything a commit does per root of its own proof; below the benchmarked range the
-        /// line over-charges the queue-based path, which does less per root. The extra roots are
-        /// only walked, so each is charged through `continuity_roots` alone and no root is
-        /// counted twice.
+        /// everything a commit does per root of its own proof. That benchmark only samples the
+        /// catch-up path (`s` from 200), so its intercept is an extrapolation that moves between
+        /// runs; the own proof is charged at no less than the top of the sampled range, which
+        /// never falls below a measured point. Only a proof past it (a `MaxCatchup` raised above
+        /// the default) is charged along the slope. The extra roots are only walked, so each is
+        /// charged through `continuity_roots` alone and no root is counted twice.
         pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
+            let own = own.max(COMMIT_BENCHMARK_MAX_SPAN);
             <T as Config>::WeightInfo::commit_attestation(own, m)
                 .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
                 .saturating_add(marginal(

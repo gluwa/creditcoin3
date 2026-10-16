@@ -12020,9 +12020,38 @@ fn commit_weight_charges_own_proof_through_commit_benchmark() {
             Some(H256::random()),
             None,
         );
-        let own = attestation.continuity_proof.len() as u32;
-        let benchmarked = <<Test as Config>::WeightInfo as WeightInfo>::commit_attestation(own, 1);
+        // The fit's intercept is extrapolated below the sampled range, so even a short proof
+        // is charged no less than the longest benchmarked one.
+        assert!(attestation.continuity_proof.len() < COMMIT_BENCHMARK_MAX_SPAN as usize);
+        let benchmarked = <<Test as Config>::WeightInfo as WeightInfo>::commit_attestation(
+            COMMIT_BENCHMARK_MAX_SPAN,
+            1,
+        );
         assert!(commit_weight(&attestation).all_gte(benchmarked));
+    })
+}
+
+#[test]
+fn commit_weight_follows_slope_past_benchmarked_span() {
+    ExtBuilder.build_and_execute(|| {
+        let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+        let long = COMMIT_BENCHMARK_MAX_SPAN as u64 * 2;
+        MaxCatchup::<Test>::insert(SUPPORTED_CHAIN_KEY, long as u32);
+        let at_cap = create_signed_attestation(
+            vec![attestor.clone()],
+            SUPPORTED_CHAIN_KEY,
+            COMMIT_BENCHMARK_MAX_SPAN as u64 + 1,
+            Some(H256::random()),
+            None,
+        );
+        let past_cap = create_signed_attestation(
+            vec![attestor],
+            SUPPORTED_CHAIN_KEY,
+            long + 1,
+            Some(H256::random()),
+            None,
+        );
+        assert!(commit_weight(&past_cap).ref_time() > commit_weight(&at_cap).ref_time());
     })
 }
 
