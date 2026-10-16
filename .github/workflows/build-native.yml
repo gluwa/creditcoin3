@@ -93,7 +93,9 @@ jobs:
           # chainspecs/ and common/cc-client/artifacts/ through include_bytes!, which stay in.
           SOURCES=$(git ls-files -s -- . ':!cli' ':!cc3-indexer' ':!docs' ':!scripts' \
             ':!.github' ':!.claude' ':!.cursor' ':!*.md' | sha256sum | cut -c1-40)
-          # This workflow sets the build environment (CXXFLAGS, toolchain setup).
+          # This workflow sets the build environment (CXXFLAGS, toolchain setup), and it also
+          # holds the workspace-opt-level override generation, which the key covers only
+          # through this hash. If that generation moves into a script, add the script here.
           SELF=$(git ls-files -s -- .github/workflows/build-native.yml | sha256sum | cut -c1-12)
           OPTS=$(printf '%s' "$BUILD_OPTIONS" | sha256sum | cut -c1-12)
           echo "key=native-bins-v1-${RUNNER_OS}-${RUNNER_ARCH}-${OPTS}-${SELF}-${SOURCES}" >> "$GITHUB_OUTPUT"
@@ -169,8 +171,9 @@ jobs:
       # name (polkadot-sdk's generate-bags) keeps its level. `[profile.*.package."*"]` would
       # not do: it outranks build-override, so it would also raise every dependency's build
       # scripts and proc-macros from opt-level 0 and recompile all of them. A named override
-      # outranks build-override too, so the workspace's own build.rs units build at this
-      # level instead of 0; its one proc-macro crate is left out and keeps build-override.
+      # outranks build-override too and applies to host units, so the workspace's build.rs
+      # scripts and the workspace libraries its one proc-macro (builder) depends on build at
+      # this level instead of 0. Only the proc-macro crate itself is left out.
       #
       # The runtime wasm comes from a nested cargo that --config does not reach, so the chain
       # itself is unchanged. The node's native copies of the runtime, pallets and precompiles
