@@ -85,7 +85,7 @@ jobs:
         id: bin-key
         if: ${{ inputs.reuse-binaries }}
         env:
-          BUILD_OPTIONS: ${{ inputs.build-options }} workspace-opt-level=${{ inputs.workspace-opt-level }}
+          BUILD_OPTIONS: ${{ inputs.build-options }}${{ inputs.workspace-opt-level != '' && format(' workspace-opt-level={0}', inputs.workspace-opt-level) || '' }}
         run: |
           set -euo pipefail
           # Blob ids of every tracked file except those no crate reads: the CLI and indexer
@@ -165,11 +165,17 @@ jobs:
         run: |
           .github/resource-monitor.sh start build-native
 
-      # One override per workspace crate, as name@version so a dependency of the same name
-      # (polkadot-sdk's generate-bags) keeps its level. `[profile.*.package."*"]` would not do:
-      # it outranks build-override, so it would also raise every dependency's build scripts
-      # and proc-macros from opt-level 0 and recompile all of them. The runtime wasm comes
-      # from a nested cargo that --config does not reach, so the chain itself is unchanged.
+      # One override per workspace crate, as name@version so that a dependency of the same
+      # name (polkadot-sdk's generate-bags) keeps its level. `[profile.*.package."*"]` would
+      # not do: it outranks build-override, so it would also raise every dependency's build
+      # scripts and proc-macros from opt-level 0 and recompile all of them. A named override
+      # outranks build-override too, so the workspace's own build.rs units build at this
+      # level instead of 0; its one proc-macro crate is left out and keeps build-override.
+      #
+      # The runtime wasm comes from a nested cargo that --config does not reach, so the chain
+      # itself is unchanged. The node's native copies of the runtime, pallets and precompiles
+      # (genesis building, the tracing RPC) do build at this level, which is still more than
+      # the opt-level 0 of the debug builds that run them locally every day.
       - name: Set the workspace crates' opt-level
         id: workspace-opt
         if: ${{ steps.bin-cache.outputs.cache-hit != 'true' && inputs.workspace-opt-level != '' }}
@@ -178,16 +184,31 @@ jobs:
           BUILD_OPTIONS: ${{ inputs.build-options }}
         run: |
           set -euo pipefail
-          case " ${BUILD_OPTIONS} " in
-            *" --release "*) PROFILE=release ;;
-            *) echo "ERROR: workspace-opt-level supports --release builds only" >&2; exit 1 ;;
+          case "${OPT_LEVEL}" in
+            0|1|2|3) LEVEL="${OPT_LEVEL}" ;;
+            s|z) LEVEL="\"${OPT_LEVEL}\"" ;;
+            *) echo "ERROR: workspace-opt-level must be 0-3, s or z, not '${OPT_LEVEL}'" >&2; exit 1 ;;
           esac
+
+          # The profile the build options select: --release / -r, or --profile [=]name.
+          PROFILE=dev
+          read -r -a ARGS <<< "${BUILD_OPTIONS}"
+          for i in "${!ARGS[@]}"; do
+            case "${ARGS[$i]}" in
+              --release|-r) PROFILE=release ;;
+              --profile=*) PROFILE="${ARGS[$i]#--profile=}" ;;
+              --profile) PROFILE="${ARGS[$((i + 1))]}" ;;
+            esac
+          done
+
           CONFIG="${RUNNER_TEMP}/workspace-opt-level.toml"
-          cargo metadata --no-deps --format-version 1 \
-            | jq -r --arg p "${PROFILE}" --arg o "${OPT_LEVEL}" \
-                '.packages[] | "[profile.\($p).package.\"\(.name)@\(.version)\"]\nopt-level = \($o)\n"' \
+          cargo metadata --no-deps --offline --locked --format-version 1 \
+            | jq -r --arg p "${PROFILE}" --arg o "${LEVEL}" \
+                '.packages[]
+                 | select(any(.targets[]; .kind | index("proc-macro")) | not)
+                 | "[profile.\($p).package.\"\(.name)@\(.version)\"]\nopt-level = \($o)\n"' \
             > "${CONFIG}"
-          echo "INFO: $(grep -c '^\[profile' "${CONFIG}") workspace crates at opt-level ${OPT_LEVEL}"
+          echo "INFO: $(grep -c '^\[profile' "${CONFIG}") workspace crates at opt-level ${OPT_LEVEL} in profile ${PROFILE}"
           echo "args=--config ${CONFIG}" >> "$GITHUB_OUTPUT"
 
       - name: Build SUT
