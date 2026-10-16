@@ -32,7 +32,8 @@ network_for_base_ref() {
 }
 
 OWNER_REPO_SLUG="${OWNER_REPO_SLUG:-gluwa/creditcoin3}"
-network=$(network_for_base_ref "${GITHUB_BASE_REF:-dev}")
+# workflow_dispatch has no GITHUB_BASE_REF; the caller passes the promotion target.
+network=$(network_for_base_ref "${EXTRINSICS_BASE_REF:-${GITHUB_BASE_REF:-dev}}")
 # RELEASE_TAG can be set by the caller to pin the comparison to one release.
 latest_tag="${RELEASE_TAG:-$(GITHUB_REPOSITORY="$OWNER_REPO_SLUG" ./.github/extract-release-tag.sh "$network")}"
 if [ -z "$latest_tag" ]; then

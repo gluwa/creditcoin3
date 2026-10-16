@@ -48,7 +48,7 @@ jobs:
       # The nightly or dispatched soak: one definition, which every soak check reads.
       soak: ${{ steps.mode.outputs.soak }}
       # The branch whose rules apply: a PR's base, or the target of a promotion check.
-      # Read this, never needs.should-run.outputs.target_ref, which is empty on a promotion check.
+      # Read this instead of github.base_ref, which is empty on a promotion check.
       target_ref: ${{ steps.mode.outputs.target_ref }}
       changes: ${{ steps.filter.outputs.changes }}
       archiver: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.promotion == 'true' && 'true' || steps.filter.outputs.archiver) || 'false' }}
@@ -77,6 +77,10 @@ jobs:
             "" | usc-testnet | main) ;;
             *) echo "promotion_target must be empty, usc-testnet or main, not '${PROMOTION_TARGET}'" >&2; exit 1 ;;
           esac
+          if [ "$SOAK" = "true" ] && [ "$PROMOTION" = "true" ]; then
+            echo "::error::soak and promotion_target cannot be combined" >&2
+            exit 1
+          fi
           {
             echo "soak=${SOAK}"
             echo "target_ref=${TARGET_REF}"
@@ -375,6 +379,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.PAT || secrets.GITHUB_TOKEN }}
           OWNER_REPO_SLUG: ${{ github.repository }}
+          EXTRINSICS_BASE_REF: ${{ needs.should-run.outputs.target_ref }}
 
       - name: Report extrinsics changes
         if: ${{ steps.extrinsics.outcome == 'failure' }}
@@ -2326,9 +2331,9 @@ jobs:
     uses: ./.github/workflows/attestor-compatibility.yml
     with:
       sut-artifact: binary-for-testing-ci
-      # Red by construction on dev whenever pallet-attestation's metadata changes; a
-      # warning there, blocking on promotion PRs.
-      informational: ${{ needs.should-run.outputs.target_ref == 'dev' }}
+      # Historical attestor incompatibility warns operators on dev and testnet. Operators
+      # review the affected releases before deploying; mainnet keeps its blocking verdict.
+      informational: ${{ contains(fromJSON('["dev", "usc-testnet"]'), needs.should-run.outputs.target_ref) }}
     secrets: inherit
 
   validator-compatibility:
