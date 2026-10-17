@@ -1359,6 +1359,7 @@ jobs:
             1:pallets/supported-chains/remove-chain
             2:block-hash-block-param
             2:danger-will-brick-the-blockchain
+            2:evm-gasprice-opcode
             2:evm-priority-fee
             2:evm-tracing
             2:gas-estimation
