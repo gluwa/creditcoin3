@@ -1,7 +1,7 @@
 import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { chain_Anvil3_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { forElapsedBlocks, sleep } from '../utils';
+import { dispatchErrorName, forElapsedBlocks, sleep, sudoInBlock } from '../utils';
 import { chainNow, graphQLQuery } from './common';
 
 // Poll the indexer until the latest reversion for `chainKey` is fully applied
@@ -52,7 +52,39 @@ describe('handleEventRevertedAttestationChainTo()', () => {
 
     let checkpointHeightToRevertTo: bigint;
     let checkpointDigestToRevertTo: string;
+    let revertBlockHash: string;
     const chainKey = BigInt(chain_Anvil3_Key);
+
+    // A `commit_attestation` signed by `root`, run through the pool's validation against the state
+    // at `blockHash`. Whether it's admitted at all is decided before anything about its content or
+    // signer is checked, so a dummy attestation from a non-attestor is enough. It's immortal and
+    // uses `root`'s nonce at that block, so neither check rejects it at an older block.
+    const commitValidityAt = async (blockHash: string) => {
+        const at = await api.at(blockHash);
+        const { nonce } = await at.query.system.account(root.address);
+        const commit = api.tx.attestation.commitAttestation({
+            attestation: {
+                chainKey,
+                headerNumber: 1,
+                headerHash: new Uint8Array(32),
+                root: new Uint8Array(32),
+                prevDigest: null,
+            },
+            signature: new Uint8Array(96),
+            attestors: [],
+            continuityProof: { lowerEndpointDigest: new Uint8Array(32), roots: [] },
+        });
+        await commit.signAsync(root, { nonce, era: 0 });
+        return at.call.taggedTransactionQueue.validateTransaction('External', commit.toHex(), blockHash);
+    };
+
+    const cleanupPendingAt = async (blockHash: string) => {
+        const at = await api.at(blockHash);
+        return {
+            checkpointPruning: (await at.query.attestation.checkpointPruningStates(chainKey)).isSome,
+            attestationClearing: (await at.query.attestation.attestationClearingCursors(chainKey)).isSome,
+        };
+    };
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
@@ -105,9 +137,13 @@ describe('handleEventRevertedAttestationChainTo()', () => {
             expect(blockBeforeRevert).toBeGreaterThan(0n);
             timestampBeforeRevert = (await api.query.timestamp.now()).toBigInt();
 
-            await api.tx.sudo
-                .sudo(api.tx.attestation.revertTo(chainKey, checkpointHeightToRevertTo))
-                .signAndSend(root, { nonce: await api.rpc.system.accountNextIndex(root.address) });
+            const revert = await sudoInBlock(
+                api,
+                root,
+                api.tx.attestation.revertTo(chainKey, checkpointHeightToRevertTo),
+            );
+            expect(dispatchErrorName(api, revert.innerError)).toBeNull();
+            revertBlockHash = revert.blockHash;
 
             // A fixed block wait races the indexer: the assertions below query the
             // indexer's GraphQL state, which is populated asynchronously by
@@ -263,6 +299,63 @@ describe('handleEventRevertedAttestationChainTo()', () => {
                 expect(BigInt(checkpoint.data.checkpoints.nodes[0].atBlockNumber)).toBeGreaterThan(blockBeforeRevert);
                 expect(BigInt(checkpoint.data.checkpoints.nodes[0].timestamp)).toBeGreaterThan(timestampBeforeRevert);
             }
+        });
+
+        // A commit accepted while the revert's checkpoint pruning was still draining could have
+        // its new checkpoint deleted along with the stale ones, so the pool must turn every commit
+        // for the chain away until both cleanups have drained.
+        describe('on chain', () => {
+            let drainedBlockHash: string;
+
+            it('keeps commits out of the pool while checkpoint pruning is pending', async () => {
+                const pending = await cleanupPendingAt(revertBlockHash);
+                expect(pending.checkpointPruning).toBe(true);
+
+                const validity = await commitValidityAt(revertBlockHash);
+                expect(validity.isErr).toBe(true);
+                // `ATTESTATION_CLEANUP_IN_PROGRESS_CODE` in pallets/attestation/src/extensions.rs
+                expect(validity.asErr.isInvalid && validity.asErr.asInvalid.isCustom).toBe(true);
+                expect(validity.asErr.asInvalid.asCustom.toNumber()).toEqual(2);
+            });
+
+            it('lets commits back in once the cleanup has drained', async () => {
+                const deadline = Date.now() + 120_000;
+                for (;;) {
+                    const hash = (await api.rpc.chain.getHeader()).hash.toHex();
+                    const pending = await cleanupPendingAt(hash);
+                    if (!pending.checkpointPruning && !pending.attestationClearing) {
+                        drainedBlockHash = hash;
+                        break;
+                    }
+                    if (Date.now() > deadline) {
+                        throw new Error(`cleanup still pending at ${hash}: ${JSON.stringify(pending)}`);
+                    }
+                    await forElapsedBlocks(api, { minBlocks: 1 });
+                }
+
+                // `root` isn't an attestor, so the commit is admitted (and fails in dispatch).
+                expect((await commitValidityAt(drainedBlockHash)).isOk).toBe(true);
+            }, 150_000);
+
+            it('keeps checkpoints the attestors reach after the cleanup', async () => {
+                // Commits were blocked until the cleanup drained, so any checkpoint above the
+                // reverted-to height was reached after it.
+                const deadline = Date.now() + 600_000;
+                let lastCheckpoint = (await api.query.attestation.lastCheckpoint(chainKey)).unwrap();
+                while (lastCheckpoint.blockNumber.toBigInt() <= checkpointHeightToRevertTo) {
+                    if (Date.now() > deadline) {
+                        throw new Error('the attestors reached no new checkpoint after the revert');
+                    }
+                    await forElapsedBlocks(api, { minBlocks: 2 });
+                    lastCheckpoint = (await api.query.attestation.lastCheckpoint(chainKey)).unwrap();
+                }
+
+                // Give any leftover pruning a few blocks to (wrongly) delete it.
+                await forElapsedBlocks(api, { minBlocks: 3 });
+                const stored = await api.query.attestation.checkpoints(chainKey, lastCheckpoint.blockNumber);
+                expect(stored.isSome).toBe(true);
+                expect(stored.unwrap().eq(lastCheckpoint.digest)).toBe(true);
+            }, 660_000);
         });
     });
 });
