@@ -1336,6 +1336,7 @@ jobs:
             1:pallets/attestation/attest
             1:pallets/attestation/authorize-attestor
             1:pallets/attestation/chill
+            1:pallets/attestation/commit-attestation-pool-tag
             1:pallets/attestation/force-apply-updates
             1:pallets/attestation/force-election
             1:pallets/attestation/interval-ceilings
