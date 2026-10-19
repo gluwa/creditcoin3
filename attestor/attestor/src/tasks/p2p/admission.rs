@@ -28,6 +28,8 @@ pub(crate) const MAX_UNRESERVED_INCOMING: usize = 64;
 pub(crate) struct Behaviour {
     max_unreserved_incoming: usize,
     reserved: HashSet<PeerId>,
+    /// Configured boot peers: reserved for the node's lifetime, never unreserved.
+    pinned: HashSet<PeerId>,
     /// Established inbound connections from non-reserved peers.
     unreserved_incoming: HashMap<ConnectionId, PeerId>,
 }
@@ -37,6 +39,7 @@ impl Behaviour {
         Self {
             max_unreserved_incoming,
             reserved: HashSet::new(),
+            pinned: HashSet::new(),
             unreserved_incoming: HashMap::new(),
         }
     }
@@ -48,9 +51,18 @@ impl Behaviour {
         }
     }
 
+    /// Always admit `peer` for the node's lifetime; [`Self::unreserve`] leaves it reserved.
+    pub(crate) fn pin(&mut self, peer: PeerId) {
+        self.pinned.insert(peer);
+        self.reserve(peer);
+    }
+
     /// Treat `peer` like any other peer again (e.g. its attestor was chilled or kicked).
+    /// Pinned boot peers stay reserved.
     pub(crate) fn unreserve(&mut self, peer: &PeerId) {
-        self.reserved.remove(peer);
+        if !self.pinned.contains(peer) {
+            self.reserved.remove(peer);
+        }
     }
 
     fn admit(&self, peer: &PeerId) -> Result<(), ConnectionDenied> {
@@ -178,6 +190,17 @@ mod tests {
 
         behaviour.unreserve(&member);
         assert!(behaviour.admit(&member).is_err());
+    }
+
+    #[test]
+    fn pinned_peers_stay_reserved_after_unreserve() {
+        let mut behaviour = Behaviour::new(2);
+        fill(&mut behaviour, 2);
+        let boot = PeerId::random();
+        behaviour.pin(boot);
+
+        behaviour.unreserve(&boot);
+        assert!(behaviour.admit(&boot).is_ok());
     }
 
     #[test]
