@@ -1,32 +1,11 @@
 #!/usr/bin/env bash
-#
-# launch-attestors.sh — start the attestor zombienet (WITHOUT --well-known-keys), discover each
-# attestor's derived message-vote EVM address from its logs, and write those addresses into both
-# attestor/config.yaml (`write_ability.attestors`) and a `--attestor-set` value for the relayer.
-#
-# It does NOT launch the relayer — run that yourself in a separate terminal (so its logs stay
-# visible) using the printed `--attestor-set`. This script stays in the foreground with the
-# zombienet's logs, exactly like running the zombienet directly.
-#
-# Prerequisite: deploy.ts must have already run (the OutboxFactory must be registered on-chain for
-# the attestor's chain_key) — otherwise the attestors leave write-ability disabled and never log a
-# signer address, and this script will time out.
-#
-# Usage:
-#   bash usc-messaging/scripts/launch-attestors.sh [N]
-# where N is the number of attestors (default 3). The chain_key and the source chain the attestors
-# attest are read from .env: DESTINATION_CHAIN_KEY (e.g. 2 = local anvil, 3 = Sepolia) and
-# DESTINATION_CHAIN_WS_URL (the destination chain's wss:// RPC). So the same command works for the
-# local and Sepolia demos — just edit .env. CHAIN_KEY / ETH_URL / CC3_URL / FUNDING_ADDRESS still
-# accept an inline override for one-off runs.
-
+# Start a local attestor fleet, discover its public identities, and synchronize the destination
+# registry. E2E_* paths isolate concurrent runs; only this launcher's child process is stopped.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-ENV_FILE="$SCRIPT_DIR/../.env"
-
-# Load .env so CHAIN_KEY / ETH_URL / the EOAValidator-sync vars can be derived from it.
+ENV_FILE="${E2E_ENV_FILE:-$SCRIPT_DIR/../.env}"
 if [[ -f "$ENV_FILE" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -35,188 +14,128 @@ if [[ -f "$ENV_FILE" ]]; then
 fi
 
 N="${1:-3}"
-# Attestor chain_key and the source chain it attests come from .env (DESTINATION_CHAIN_KEY /
-# DESTINATION_CHAIN_WS_URL); both still accept an inline override for one-off runs.
-CHAIN_KEY="${CHAIN_KEY:-${DESTINATION_CHAIN_KEY:-2}}"          # 2 = local anvil (Anvil1); 3 = Sepolia
-ETH_URL="${ETH_URL:-${DESTINATION_CHAIN_WS_URL:-ws://localhost:8545}}"  # must match CHAIN_KEY's chain
-CC3_URL="${CC3_URL:-ws://localhost:9944}"
+if [[ ! "$N" =~ ^[0-9]+$ ]] || (( N < 3 )); then
+  echo "❌ at least 3 attestors are required" >&2
+  exit 1
+fi
+CHAIN_KEY="${CHAIN_KEY:-${DESTINATION_CHAIN_KEY:-2}}"
+ETH_URL="${ETH_URL:-${DESTINATION_CHAIN_WS_URL:-ws://localhost:8545}}"
+CC3_URL="${CC3_URL:-${CREDITCOIN_SUBSTRATE_WS_URL:-ws://localhost:9944}}"
 FUNDING_ADDRESS="${FUNDING_ADDRESS:-//Alice}"
-
-ZOMBIENET="$REPO_ROOT/target/release/attestor_zombienet"
-ATTESTOR_BIN="$REPO_ROOT/target/release/attestor"
-CONFIG="$REPO_ROOT/attestor/config.yaml"
-LOGS_DIR="$REPO_ROOT/logs"
-ATTESTOR_SET_FILE="$SCRIPT_DIR/.attestor-set"
-DEADLINE_SECS=180
+ZOMBIENET="${E2E_ZOMBIENET_BIN:-$REPO_ROOT/target/release/attestor_zombienet}"
+ATTESTOR_BIN="${E2E_ATTESTOR_BIN:-$REPO_ROOT/target/release/attestor}"
+STATE_DIR="${E2E_STATE_DIR:-$REPO_ROOT/.attestor-state}"
+CONFIG="${E2E_ATTESTOR_CONFIG:-$STATE_DIR/attestor.yaml}"
+LOGS_DIR="${E2E_ATTESTOR_LOGS:-$REPO_ROOT/logs}"
+ATTESTOR_SET_FILE="${E2E_ATTESTOR_SET_FILE:-$SCRIPT_DIR/.attestor-set}"
+READY_PATH="${E2E_ATTESTOR_READY_PATH:-$STATE_DIR/attestor-ready.json}"
+DEADLINE_SECS="${E2E_ATTESTOR_TIMEOUT_SECS:-240}"
+P2P_PORT_BASE="${E2E_ATTESTOR_P2P_PORT_BASE:-9000}"
+API_PORT_BASE="${E2E_ATTESTOR_API_PORT_BASE:-9100}"
 
 for bin in "$ZOMBIENET" "$ATTESTOR_BIN"; do
-  if [[ ! -x "$bin" ]]; then
-    echo "❌ missing $bin" >&2
-    echo "   build it first: cargo build --features=fast-runtime --release" >&2
-    exit 1
-  fi
+  [[ -x "$bin" ]] || { echo "❌ missing executable $bin" >&2; exit 1; }
 done
-[[ -f "$CONFIG" ]] || { echo "❌ missing $CONFIG" >&2; exit 1; }
-command -v node >/dev/null || { echo "❌ node is required (used to rewrite config.yaml)" >&2; exit 1; }
+for tool in node cast; do
+  command -v "$tool" >/dev/null || { echo "❌ $tool is required" >&2; exit 1; }
+done
+: "${VOTE_VALIDATOR_ADDR:?set VOTE_VALIDATOR_ADDR to the deployed EOAValidator}"
+: "${DESTINATION_CHAIN_PRIVATE_KEY:?set the destination registry owner key}"
+DEST_RPC="${DESTINATION_CHAIN_RPC_URL:-http://127.0.0.1:8545}"
+mkdir -p "$LOGS_DIR" "$STATE_DIR" "$(dirname "$CONFIG")" "$(dirname "$ATTESTOR_SET_FILE")" "$(dirname "$READY_PATH")"
+# These are this launcher's scoped output files, never process-name-wide cleanup.
+rm -f "$READY_PATH" "$ATTESTOR_SET_FILE" "$LOGS_DIR"/attestor-zombie-*.json.*
+
+# Configure the on-chain committee before any attestor starts. The source template remains
+# untouched; each run has its own state/config, and attestors hot-reload the registry update below.
+node --input-type=module - "$REPO_ROOT/attestor/config.yaml" "$CONFIG" "$VOTE_VALIDATOR_ADDR" "$STATE_DIR" <<'JS'
+import fs from "node:fs";
+const [source, output, validator, state] = process.argv.slice(2);
+if (!/^0x[0-9a-fA-F]{40}$/.test(validator)) throw new Error("invalid validator address");
+const text = fs.readFileSync(source, "utf8");
+const start = text.search(/^write_ability:\s*$/m);
+if (start < 0) throw new Error("write_ability config section is missing");
+const tail = text.slice(start).split("\n");
+const end = tail.findIndex((line, i) => i > 0 && /^[a-zA-Z_][\w-]*:/.test(line));
+const block = end < 0 ? tail : tail.slice(0, end);
+const set = (key, value) => {
+  const index = block.findIndex(line => new RegExp(`^  ${key}:`).test(line));
+  if (index < 0) block.push(`  ${key}: ${value}`);
+  else block[index] = `  ${key}: ${value}`;
+};
+set("enabled", "true");
+set("validator_address", JSON.stringify(validator));
+set("state_dir", JSON.stringify(state));
+set("start_block", "1");
+fs.writeFileSync(output, text.slice(0, start) + block.concat(end < 0 ? [] : tail.slice(end)).join("\n"));
+JS
 
 cd "$REPO_ROOT"
-mkdir -p "$LOGS_DIR"
-
-# Remove this run's stale per-attestor logs so we only read addresses from the run we start below.
-rm -f "$LOGS_DIR"/attestor-zombie-*.json.* 2>/dev/null || true
-
-# Stop any attestor/zombienet processes left over from a previous (e.g. aborted/timed-out) run.
-# Their held p2p/API ports would otherwise make this run's attestors fail with
-# "Address already in use". This matches the demo's own binary path only.
-if pgrep -f "$ATTESTOR_BIN" >/dev/null 2>&1; then
-  echo "🧹 Stopping leftover attestor/zombienet processes from a previous run…"
-  pkill -f "$ATTESTOR_BIN" 2>/dev/null || true
-  sleep 2
-fi
-
-echo "🧟 Launching $N attestor(s) for chain_key $CHAIN_KEY (no --well-known-keys)…"
-"$ZOMBIENET" \
-  -n "$N" \
-  --bin="$ATTESTOR_BIN" \
-  --chain-key="$CHAIN_KEY" \
-  --eth-url="$ETH_URL" \
-  --cc3-url="$CC3_URL" \
-  --funding-address="$FUNDING_ADDRESS" \
-  --config="$CONFIG" &
+echo "🧟 Launching $N attestors for chain_key $CHAIN_KEY with on-chain committee discovery…"
+"$ZOMBIENET" -n "$N" --bin="$ATTESTOR_BIN" --chain-key="$CHAIN_KEY" \
+  --eth-url="$ETH_URL" --cc3-url="$CC3_URL" --funding-address="$FUNDING_ADDRESS" \
+  --config="$CONFIG" --p2p-port-base="$P2P_PORT_BASE" --api-port-base="$API_PORT_BASE" \
+  -- --logs="$LOGS_DIR" &
 ZPID=$!
+cleanup() { kill -INT "$ZPID" 2>/dev/null || true; }
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-# Shut the zombienet down with SIGINT (not SIGTERM): it handles ctrl_c by gracefully chilling and
-# stopping its child attestors, so they don't orphan and hold ports for the next run.
-cleanup() {
-  trap - INT TERM
-  kill -INT "$ZPID" 2>/dev/null || true
-}
-trap cleanup INT TERM
-
-echo "⏳ Waiting for attestors to report their message-vote signer addresses (timeout ${DEADLINE_SECS}s)…"
-declare -a ADDRS
+declare -a ADDRS BOOT_NODES
 deadline=$(( $(date +%s) + DEADLINE_SECS ))
 for (( i=0; i<N; i++ )); do
-  addr=""
-  while [[ -z "$addr" ]]; do
-    if ! kill -0 "$ZPID" 2>/dev/null; then
-      echo "❌ zombienet exited before all signer addresses were found." >&2
-      exit 1
-    fi
-    if (( $(date +%s) > deadline )); then
-      echo "❌ Timed out waiting for zombie-$i's signer address." >&2
-      echo "   Did you run deploy.ts first? Write-ability stays disabled (no signer logged) until" >&2
-      echo "   the OutboxFactory is registered for this chain_key." >&2
-      cleanup
-      exit 1
-    fi
-    # shellcheck disable=SC2012  # ls -t picks the newest rotated log; filenames are controlled
-    f="$(ls -t "$LOGS_DIR"/attestor-zombie-"$i".json.* 2>/dev/null | head -1 || true)"
-    if [[ -n "$f" ]]; then
-      # The "message-vote signer ready" line carries the attestor's derived EVM vote address.
-      addr="$(grep -h 'evm_address' "$f" 2>/dev/null | grep -oE '0x[0-9a-fA-F]{40}' | tail -1 || true)"
-    fi
-    [[ -z "$addr" ]] && sleep 2
-  done
-  ADDRS[i]="$addr"
-  echo "  zombie-$i → $addr"
-done
-
-# Comma-separated set for the relayer's --attestor-set.
-SET="$(IFS=,; echo "${ADDRS[*]}")"
-
-# Rewrite the `write_ability.attestors` list in config.yaml (preserving everything else).
-# shellcheck disable=SC2016  # single-quoted on purpose: this is a JS program, args come via argv
-node -e '
-  const fs = require("fs");
-  const [path, set] = process.argv.slice(1);
-  const addrs = set.split(",");
-  const lines = fs.readFileSync(path, "utf8").split("\n");
-  const out = [];
-  let i = 0;
-  while (i < lines.length) {
-    out.push(lines[i]);
-    if (/^  attestors:\s*$/.test(lines[i])) {
-      i++;
-      while (i < lines.length && /^\s+-\s/.test(lines[i])) i++; // drop old entries
-      addrs.forEach((a, n) => out.push(`    - "${a}"  # zombie-${n}`));
-      continue;
+  while true; do
+    kill -0 "$ZPID" 2>/dev/null || { echo "❌ zombienet exited before readiness" >&2; exit 1; }
+    (( $(date +%s) <= deadline )) || { echo "❌ Timed out waiting for zombie-$i; check governance Discovery registration and RPCs" >&2; exit 1; }
+    identities="$(node --input-type=module - "$LOGS_DIR" "$i" "$((P2P_PORT_BASE + i))" <<'JS'
+import fs from "node:fs";
+import path from "node:path";
+const [directory, index, port] = process.argv.slice(2);
+let address, bootNode;
+for (const file of fs.readdirSync(directory).filter(f => f.startsWith(`attestor-zombie-${index}.json.`)).sort()) {
+  for (const line of fs.readFileSync(path.join(directory, file), "utf8").split("\n")) {
+    let fields;
+    try { fields = JSON.parse(line).fields; } catch { continue; }
+    if (fields?.message?.includes("message-vote signer ready") && /^0x[0-9a-fA-F]{40}$/.test(fields.evm_address ?? "")) address = fields.evm_address;
+    if (fields?.message?.includes("new listen addr")) {
+      const match = String(fields.address ?? "").match(/^\/ip4\/[^/]+\/tcp\/(\d+)\/p2p\/([A-Za-z0-9]+)$/);
+      if (match?.[1] === port) bootNode = `/ip4/127.0.0.1/tcp/${port}/p2p/${match[2]}`;
     }
-    i++;
   }
-  fs.writeFileSync(path, out.join("\n"));
-' "$CONFIG" "$SET"
-echo "✍️  Updated $CONFIG  (write_ability.attestors)"
-
-printf '%s\n' "$SET" > "$ATTESTOR_SET_FILE"
-
-# Sync the on-chain attestor set with the addresses we just discovered, so the destination
-# Inbox's validateVotes accepts exactly these attestors. Post-#23: EOAValidator no longer owns the
-# set directly — it delegates to a shared AttestorRegistry (EOAValidator.attestorRegistry()), and
-# updateAttestorSet lives there. deploy-dest-ethers.mts seeds the registry with a 3-address
-# placeholder best-effort (it runs before the attestors); this is the authoritative update. The
-# destination deployer (DESTINATION_CHAIN_PRIVATE_KEY) is the registry's owner. (.env sourced at startup.)
-if [[ -n "${VOTE_VALIDATOR_ADDR:-}" ]]; then
-  if command -v cast >/dev/null 2>&1; then
-    REGISTRY_ADDR="$(cast call "$VOTE_VALIDATOR_ADDR" 'attestorRegistry()(address)' \
-      --rpc-url "${DESTINATION_CHAIN_RPC_URL:-http://127.0.0.1:8545}" 2>/dev/null || true)"
-    if [[ -z "$REGISTRY_ADDR" ]]; then
-      echo "❌ Could not resolve attestorRegistry() from EOAValidator ($VOTE_VALIDATOR_ADDR) — is the RPC reachable?" >&2
-      exit 1
+}
+if (address && bootNode) console.log(`${address} ${bootNode}`);
+JS
+)"
+    if [[ -n "$identities" ]]; then
+      read -r addr boot_node <<< "$identities"
+      ADDRS[i]="$addr"
+      BOOT_NODES[i]="$boot_node"
+      echo "  zombie-$i → $addr ($boot_node)"
+      break
     fi
-    echo "🔗 Syncing AttestorRegistry attestor set on the destination chain ($REGISTRY_ADDR)…"
-    if cast send "$REGISTRY_ADDR" 'updateAttestorSet(address[])' "[$SET]" \
-        --rpc-url "${DESTINATION_CHAIN_RPC_URL:-http://127.0.0.1:8545}" \
-        --private-key "${DESTINATION_CHAIN_PRIVATE_KEY:-}" \
-        >/dev/null 2>&1; then
-      echo "✅ EOAValidator attestor set updated to the live attestors"
-    else
-      echo "❌ Could not update the AttestorRegistry set ($REGISTRY_ADDR): updateAttestorSet reverted or the RPC/admin key is wrong. The destination Inbox would then reject these attestors and delivery would fail — failing now instead of printing 'ready' and surfacing later as a confusing delivery timeout." >&2
-      exit 1
-    fi
-  else
-    echo "❌ cast not found on PATH but VOTE_VALIDATOR_ADDR is set — cannot sync the on-chain EOAValidator set to the live attestors. Failing now rather than proceeding with an unsynced set." >&2
-    exit 1
-  fi
-fi
-
-cat <<EOF
-
-✅ Attestor set ready (also saved to $ATTESTOR_SET_FILE):
-
-    --attestor-set $SET
-
-In a SEPARATE terminal, launch the relayer with that flag, e.g.:
-
-  source usc-messaging/.env
-  # relayer lives in gluwa/usc-message-relayer — run from a sibling checkout:
-  cargo run --manifest-path ../usc-message-relayer/Cargo.toml -p message-relayer -- --single-route \\
-    --cc3-rpc-url $CC3_URL \\
-    --creditcoin-eth-rpc-url http://localhost:9944 \\
-    --chain-key $CHAIN_KEY --cc3-chain-id 42 \\
-    --outbox-address "\$OUTBOX_ADDR" \\
-    --destination-rpc-url "\$DESTINATION_CHAIN_RPC_URL" \\
-    --inbox-address "\$INBOX_ADDR" \\
-    --signer-key "\$DESTINATION_CHAIN_PRIVATE_KEY" \\
-    --attestor-set $SET
-
-⚠️  IN-MESH AGGREGATION NOTE: this launcher uses random per-attestor seeds (no --well-known-keys),
-so each attestor's EVM signer address is only known after it boots — config.yaml's static
-'write_ability.attestors' is therefore rewritten AFTER startup and, because static sets are not
-hot-reloaded, the already-running attestors keep the pre-boot (placeholder) set for this run. They
-still each gossip their own vote and the relayer reaches quorum via --attestor-set above (delivery
-works), but attestor-side in-mesh quorum aggregation is against the stale set until restart.
-For correct in-mesh aggregation without a restart, run the attestors in OnChainValidator mode:
-set 'write_ability.validator_address' to the EOAValidator this script syncs (VOTE_VALIDATOR_ADDR)
-instead of a static 'attestors' list — the on-chain set watcher then converges every node's active
-set to the synced attestors within one poll interval. (Static-list demos remain fine for delivery.)
-
-🧟 Attestors are running. The zombienet keeps this terminal (Ctrl-C to stop everything), but it
-prints little after startup: each attestor writes its own logs (block attestation + write-ability
-votes) to per-attestor files, not to stdout. Tail them in another terminal, e.g.:
-
-  tail -F logs/attestor-zombie-0.json.* | hl -P -l i -h spans -h filename -h line-number   # or: tail -F logs/attestor-zombie-0.json.*
-EOF
-
-# Hand the terminal back to the zombienet: keep it in the foreground (Ctrl-C stops it).
+    sleep 2
+  done
+done
+SET="$(IFS=,; echo "${ADDRS[*]}")"
+PEERS="$(IFS=,; echo "${BOOT_NODES[*]}")"
+REGISTRY_ADDR="$(cast call "$VOTE_VALIDATOR_ADDR" 'attestorRegistry()(address)' --rpc-url "$DEST_RPC")"
+cast send "$REGISTRY_ADDR" 'updateAttestorSet(address[])' "[$SET]" \
+  --rpc-url "$DEST_RPC" --private-key "$DESTINATION_CHAIN_PRIVATE_KEY" >/dev/null
+ACTUAL="$(cast call "$VOTE_VALIDATOR_ADDR" 'attestors()(address[])' --rpc-url "$DEST_RPC")"
+THRESHOLD="$(cast call "$VOTE_VALIDATOR_ADDR" 'threshold()(uint256)' --rpc-url "$DEST_RPC")"
+node --input-type=module - "$SET" "$PEERS" "$ACTUAL" "$THRESHOLD" "$READY_PATH" "$ATTESTOR_SET_FILE" <<'JS'
+import fs from "node:fs";
+const [set, peers, actual, threshold, ready, setFile] = process.argv.slice(2);
+const addresses = set.split(",");
+const normalized = list => list.map(a => a.toLowerCase()).sort();
+const expected = normalized(addresses);
+if (new Set(expected).size !== addresses.length || JSON.stringify(normalized(actual.match(/0x[0-9a-fA-F]{40}/g) ?? [])) !== JSON.stringify(expected)) throw new Error("live EOAValidator committee does not match attestors");
+if (BigInt(threshold.split(/\s/)[0]) !== BigInt(Math.floor(addresses.length * 2 / 3) + 1)) throw new Error("unexpected validator threshold");
+fs.writeFileSync(setFile, set + "\n");
+fs.writeFileSync(ready + ".tmp", JSON.stringify({ addresses, bootNodes: peers.split(",") }, null, 2));
+fs.renameSync(ready + ".tmp", ready);
+JS
+echo "✅ EOAValidator attestor set updated to the live attestors"
+echo "✅ Attestor set ready — identities and bootstrap peers in $READY_PATH"
 wait "$ZPID"

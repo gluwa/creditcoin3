@@ -20,6 +20,11 @@ name: CI
         description: Run the nightly attestor-network soak instead of the PR suites
         type: boolean
         default: false
+      writeability-e2e:
+        # checkov:skip=CKV_GHA_7:Selects an existing testing suite and refreshes its native artifact.
+        description: Build testing binaries and run writability E2E, even without a PR diff
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.ref }}-${{ github.workflow }}
@@ -36,6 +41,7 @@ jobs:
       # The nightly or dispatched soak: one definition, which every soak check reads.
       soak: ${{ steps.mode.outputs.soak }}
       changes: ${{ steps.filter.outputs.changes }}
+      writeability_e2e: ${{ steps.mode.outputs.soak != 'true' && (steps.mode.outputs.writeability_e2e == 'true' || steps.filter.outputs.writeability_e2e == 'true') }}
       archiver: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.archiver || 'false' }}
       attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_cli_testing || 'false' }}
       attestor_network_testing: ${{ steps.mode.outputs.soak == 'true' && 'true' || steps.filter.outputs.attestor_network_testing }}
@@ -54,7 +60,14 @@ jobs:
         id: mode
         env:
           SOAK: ${{ github.event_name == 'schedule' || inputs.soak }}
-        run: echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+          WRITEABILITY_E2E: ${{ github.event_name == 'workflow_dispatch' && inputs.writeability-e2e }}
+        run: |
+          if [[ "$SOAK" == true && "$WRITEABILITY_E2E" == true ]]; then
+            echo "::error::Select either soak or writability E2E; the builds use different optimization levels."
+            exit 1
+          fi
+          echo "soak=${SOAK}" >> "$GITHUB_OUTPUT"
+          echo "writeability_e2e=${WRITEABILITY_E2E}" >> "$GITHUB_OUTPUT"
 
       - uses: actions/checkout@v7
 
@@ -90,6 +103,25 @@ jobs:
             # those are built from outside its own directories: node/**, the root manifest,
             # the lockfile (a dependency bump can change RPC or EVM behaviour without touching
             # a crate here) and the toolchain.
+            writeability_e2e:
+              - "attestor/**"
+              - "common/**"
+              - "usc-messaging/**"
+              - "pallets/supported-chains/**"
+              - "pallets/attestation/**"
+              - "precompiles/chain-info/**"
+              - "primitives/supported-chains/**"
+              - "runtime/**"
+              - "node/**"
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/write-ability-e2e.yml"
+              - ".github/workflows/build-native.yml"
+              - ".github/scripts/testing-artifact.py"
+              - ".github/scripts/test_testing_artifact.py"
+              - ".github/actions/install-foundry/**"
             archiver:
               - "archiver/**"
               - "common/**"
@@ -282,6 +314,10 @@ jobs:
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
 
+      - name: Test native artifact provenance validation
+        if: ${{ steps.mode.outputs.writeability_e2e == 'true' || steps.filter.outputs.writeability_e2e == 'true' }}
+        run: python3 -m unittest discover -s .github/scripts -p test_testing_artifact.py -v
+
       - name: Devnet ENV
         id: devnet-env
         run: |
@@ -296,7 +332,7 @@ jobs:
     needs:
       - should-run
     # Any matching filter needs the binaries, the extrinsics check among them.
-    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' }}
+    if: ${{ needs.should-run.outputs.changes != '[]' || needs.should-run.outputs.soak == 'true' || needs.should-run.outputs.writeability_e2e == 'true' }}
     uses: ./.github/workflows/build-native.yml
     with:
       build-options: "--release --features=fast-runtime"
@@ -311,6 +347,16 @@ jobs:
       # binaries build-cache.yml made from the same sources on dev. The soaks build at the
       # release level, which build-cache.yml does not save, so they compile and save nothing.
       reuse-binaries: ${{ needs.should-run.outputs.soak != 'true' }}
+    secrets: inherit
+
+  writeability-e2e:
+    needs: [should-run, build-creditcoin-node-for-testing-ci]
+    if: ${{ needs.should-run.outputs.writeability_e2e == 'true' }}
+    uses: ./.github/workflows/write-ability-e2e.yml
+    with:
+      creditcoin-ref: ${{ needs.build-creditcoin-node-for-testing-ci.outputs.native-source-sha }}
+      creditcoin-run-id: ${{ github.run_id }}
+      creditcoin-artifact-id: ${{ needs.build-creditcoin-node-for-testing-ci.outputs.native-artifact-id }}
     secrets: inherit
 
   integration-test-check-extrinsics:
@@ -532,13 +578,12 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: |
             attestor/scripts/package.json
             checkpoint-verifier/yarn.lock
             cli/yarn.lock
       - run: npm install -g yarn
-
       - name: Install Solidity compiler
         run: |
           sudo .github/install-solidity-compiler.sh
@@ -1101,7 +1146,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -1252,7 +1297,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -1501,7 +1546,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'npm'
+          cache: "npm"
           cache-dependency-path: docs/smart-contract-development/with-hardhat/package-lock.json
 
       - name: Install dependencies
@@ -1737,7 +1782,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: |
             cc3-indexer/yarn.lock
             cli/yarn.lock
@@ -2003,7 +2048,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -2110,7 +2155,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
       - run: npm install -g yarn
 
@@ -2403,7 +2448,7 @@ jobs:
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: 'yarn'
+          cache: "yarn"
           cache-dependency-path: cli/yarn.lock
 
       - name: Run native token transfers in background

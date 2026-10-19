@@ -39,7 +39,8 @@ describe('Outbox lifecycle handlers', () => {
 
     beforeAll(async () => {
         ({ api } = await newApi((global as any).CREDITCOIN_API_URL));
-        provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL);
+        // Fast manual sealing can mine a deployment before ethers' nonce cache expires.
+        provider = new WebSocketProvider((global as any).CREDITCOIN_API_URL, undefined, { cacheTimeout: -1 });
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
 
         const privateKey = (global as any).CREDITCOIN_EVM_PRIVATE_KEY('alice');

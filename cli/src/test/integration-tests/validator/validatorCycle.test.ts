@@ -16,8 +16,50 @@ import {
     CLIBuilder,
     fundedAccountPool,
 } from '../helpers';
-import { describeIf, sleep } from '../../utils';
+import { describeIf, isManualSealing, sealBlock, sleep } from '../../utils';
 import { parseAmount } from '../../../commands/options';
+
+async function waitForCompletedRewardEra(api: ApiPromise, validator: string, manualSealing: boolean): Promise<number> {
+    const blockTime = api.consts.babe.expectedBlockTime.toNumber();
+    const maxBlocks = api.consts.babe.epochDuration.toNumber() * api.consts.staking.sessionsPerEra.toNumber() * 3;
+    const deadline = Date.now() + Math.max(60_000, (maxBlocks + 1) * blockTime);
+    let rewardedEra: number | undefined;
+    let activeEra = -1;
+    let points = 0;
+
+    for (let block = 0; block <= maxBlocks; block++) {
+        // Read points and era completion from the same finalized state, including on BABE nodes.
+        const state = await api.at(await api.rpc.chain.getFinalizedHead());
+        activeEra = (await state.query.staking.activeEra()).unwrap().index.toNumber();
+        const candidateEra = rewardedEra ?? activeEra;
+        const rewardPoints = await state.query.staking.erasRewardPoints(candidateEra);
+        points =
+            [...rewardPoints.individual].find(([account]) => account.toString() === validator)?.[1].toNumber() ?? 0;
+        if (points > 0) rewardedEra = candidateEra;
+
+        if (rewardedEra !== undefined && activeEra > rewardedEra) {
+            const payout = await state.query.staking.erasValidatorReward(rewardedEra);
+            if (payout.isSome && !payout.unwrap().isZero()) {
+                console.log(
+                    `Finalized reward era ${rewardedEra}: validator points=${points}, era payout=${payout.toString()}`,
+                );
+                return rewardedEra;
+            }
+            throw new Error(
+                `Completed era ${rewardedEra} has ${points} points for ${validator}, but payout is ${payout.toString()}`,
+            );
+        }
+
+        if (block === maxBlocks || Date.now() >= deadline) break;
+        if (manualSealing) await sealBlock(api);
+        else await sleep(blockTime);
+    }
+
+    throw new Error(
+        `No completed rewarded era for ${validator} within ${maxBlocks} blocks: ` +
+            `activeEra=${activeEra}, rewardedEra=${rewardedEra ?? 'none'}, points=${points}`,
+    );
+}
 
 describeIf(
     process.env.EXECUTE_VALIDATOR_CYCLE_TEST_SCENARIO === 'yes' &&
@@ -72,6 +114,11 @@ describeIf(
         });
 
         it('full validator cycle', async () => {
+            const manualSealing = await isManualSealing(api);
+            // The manual-seal ticker produces blocks only on Alice; it must own the new
+            // validator's keys as well as its original keys to award real authorship points.
+            const authoringNodeUrl = manualSealing ? ALICE_NODE_URL : BOB_NODE_URL;
+
             // Bonding 1k ctc from stash
             const bondAmount = '1000';
             let result = nonProxiedCli(`bond --amount ${bondAmount}`);
@@ -88,7 +135,7 @@ describeIf(
 
             // Rotating session keys for the node should return a valid hex string
             const newKeys = parseHexStringInternal(
-                nonProxiedCli(`rotate-keys --url ${BOB_NODE_URL}`).stdout.split('New keys: ')[1],
+                nonProxiedCli(`rotate-keys --url ${authoringNodeUrl}`).stdout.split('New keys: ')[1],
             );
 
             // Setting session keys for the controller should
@@ -102,10 +149,10 @@ describeIf(
             await sleep(2000);
             const validatorSessionKeys = await api.query.session.nextKeys(caller.address);
             expect(validatorSessionKeys.toHex()).toBe(newKeys);
-            const bobApi = (await newApi(BOB_NODE_URL)).api;
-            const nodeHasKeys = (await bobApi.rpc.author.hasSessionKeys(newKeys)).isTrue;
+            const authoringApi = (await newApi(authoringNodeUrl)).api;
+            const nodeHasKeys = (await authoringApi.rpc.author.hasSessionKeys(newKeys)).isTrue;
             expect(nodeHasKeys).toBe(true);
-            await bobApi.disconnect();
+            await authoringApi.disconnect();
 
             // Signaling intention to validate should make the validator (stash) appear as waiting
             result = CLI('validate --commission 1');
@@ -120,10 +167,9 @@ describeIf(
             const stashStatusAfterEra = await getValidatorStatus(caller.address, api);
             expect(stashStatusAfterEra?.active).toBe(true);
 
-            // After waiting for another era, the validator should have accumulated era rewards to distribute
-            const startingEra = (await api.derive.session.info()).activeEra.toNumber();
-            console.log('Starting era: ', startingEra);
-            await waitEras(1, api);
+            // Election alone does not imply rewards: prove authorship points, then wait
+            // for that same era's finalized payout before exercising the CLI distribution.
+            const startingEra = await waitForCompletedRewardEra(api, caller.address, manualSealing);
 
             // After distributing rewards, the validator staked balance should increase
             // (because it was set to staked)
