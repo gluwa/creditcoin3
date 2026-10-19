@@ -39,7 +39,7 @@ name: Promote Branch (fast-forward)
         required: false
         type: boolean
         default: true
-        description: Run every check and report what would move, without moving it.
+        description: Run promotion checks and report what would move, without moving it. Checks never deploy contracts or commit metadata.
 
   # Self-test. A workflow_dispatch trigger only registers from the default
   # branch, so without this there is no way to exercise this file until it has
@@ -57,6 +57,7 @@ name: Promote Branch (fast-forward)
       - '.github/workflows/promote-branch.yml'
       - '.github/check-promotion-is-safe.sh'
       - '.github/branch-on-origin.sh'
+      - '.github/check-promotion-ci.sh'
 
 permissions: read-all
 
@@ -210,6 +211,21 @@ jobs:
           echo "      then re-run this workflow."
           exit 1
 
+      # A fast-forward has no PR, so run every test suite on the exact commit under the
+      # target's rules. Extrinsics, stale metadata, setup and test failures block promotion;
+      # historical compatibility and storage-version differences are operator warnings.
+      # Promotion checks never deploy to live networks or auto-commit metadata, including
+      # when this workflow is a dry run.
+      - name: Check CI passed on ${{ env.SOURCE_REF }} under ${{ env.TARGET_BRANCH }} rules
+        id: gate-ci
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Only a manual dispatch may start a check run; the self-test only looks for one.
+          MAY_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          .github/check-promotion-ci.sh "$SOURCE_SHA" "$SOURCE_REF" "$TARGET_BRANCH" "$MAY_DISPATCH"
+
       - name: Promote ${{ env.SOURCE_REF }} to ${{ env.TARGET_BRANCH }}
         id: push
         continue-on-error: ${{ github.event_name == 'pull_request' }}
@@ -234,6 +250,7 @@ jobs:
           GATE_SOURCE: ${{ steps.gate-source.outcome }}
           GATE_SAFE: ${{ steps.gate-safe.outcome }}
           GATE_FF: ${{ steps.gate-ff.outcome }}
+          GATE_CI: ${{ steps.gate-ci.outcome }}
           GATE_PUSH: ${{ steps.push.outcome }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -254,9 +271,9 @@ jobs:
           fi
 
           if [[ "$DRY_RUN" == "true" ]]; then
-              PUSH_LABEL="4. dry-run push"
+              PUSH_LABEL="5. dry-run push"
           else
-              PUSH_LABEL="4. push"
+              PUSH_LABEL="5. push"
           fi
 
           {
@@ -269,6 +286,7 @@ jobs:
               echo "| 1. source has cleared the required stages | $GATE_SOURCE |"
               echo "| 2. nothing with content is lost | $GATE_SAFE |"
               echo "| 3. promotion is a fast-forward | $GATE_FF |"
+              echo "| 4. CI passed under $TARGET_BRANCH rules | $GATE_CI |"
               echo "| $PUSH_LABEL | $GATE_PUSH |"
               echo
               if [[ "$GATE_FF" == "failure" ]]; then

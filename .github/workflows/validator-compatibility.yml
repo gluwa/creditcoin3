@@ -43,6 +43,13 @@ name: Validator Compatibility
           by build-native.yml. Must be a `--release --features=fast-runtime` build.
         required: true
         type: string
+      informational:
+        description: >-
+          Report historical-validator incompatibility as an operator warning instead of
+          failing the job. Discovery, downloads, SUT setup and blockchain tests still fail.
+        required: false
+        type: boolean
+        default: false
 
 permissions: read-all
 
@@ -280,7 +287,11 @@ jobs:
           node dist/scripts/validatorCompatibility.js increase-validators \
             --node-url ws://127.0.0.1:9944 --additional 1000
 
+      # Historical binaries can refuse the new runtime or stop following it. Those are
+      # compatibility verdicts; setup of the SUT and its blockchain tests stay blocking.
       - name: Start historical nodes
+        id: historical-start
+        continue-on-error: ${{ inputs.informational }}
         env:
           RUST_LOG: info
         run: |
@@ -317,15 +328,20 @@ jobs:
             i=$(( i + 1 ))
           done
 
-      - name: Wait for all nodes to come online
+      - name: Wait for historical nodes to come online
+        id: historical-ready
+        if: ${{ steps.historical-start.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
-          .github/wait-for-creditcoin.sh 'http://127.0.0.1:9944'
           while read -r _TAG PORT; do
             .github/wait-for-creditcoin.sh "http://127.0.0.1:${PORT}"
           done < "${LOG_DIR}/nodes.txt"
 
       - name: Onboard each historical node as a validator (identity = version)
+        id: onboard
+        if: ${{ steps.historical-ready.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         working-directory: cli
         # All nodes at once: one sudo batch funds a stash per node, then every node bonds,
         # sets keys and validates in parallel. One at a time took ~30 s per node.
@@ -337,48 +353,58 @@ jobs:
             --bond 1000
 
       - name: Run blockchain integration tests while the validators get elected
+        id: traffic
         working-directory: cli
-        # Drive some real-world traffic through the mixed-version network, similar
-        # to what test-against-fork does during a runtime upgrade. Uses the
-        # default blockchain global setup (no BLOCKCHAIN_TESTS_GLOBAL_SETUP), so
-        # no Anvil / attestation chain is started -- it just talks to the SUT
-        # (Alice) node on 9944, which is started with EVM tracing enabled.
-        #
-        # The new validators are elected at the next era boundary or the one after
-        # (~2 min each), while the tests take ~5 min. Waiting for the election first
-        # left the network idle; now both run together, the historical nodes import
-        # the test traffic throughout and author for most of it, and the step still
-        # fails unless every one of them made it into the active set.
+        # Keep test failures blocking even when historical compatibility is advisory. If a
+        # historical node could not start or onboard, still test the SUT without it.
         env:
           SKIP_ON_PURPOSE: "true"
+          WAIT_FOR_ELECTION: ${{ steps.onboard.outcome == 'success' }}
         run: |
           set -euo pipefail
-          node dist/scripts/validatorCompatibility.js wait-elected \
-            --node-url ws://127.0.0.1:9944 \
-            --stashes-file "${LOG_DIR}/stashes.txt" \
-            --max-eras 3 \
-            >"${LOG_DIR}/wait-elected.log" 2>&1 &
-          WAIT_PID=$!
+          WAIT_PID=""
+          if [ "$WAIT_FOR_ELECTION" = "true" ]; then
+            node dist/scripts/validatorCompatibility.js wait-elected \
+              --node-url ws://127.0.0.1:9944 \
+              --stashes-file "${LOG_DIR}/stashes.txt" \
+              --max-eras 3 \
+              >"${LOG_DIR}/wait-elected.log" 2>&1 &
+            WAIT_PID=$!
+          fi
 
-          # Both results count: a test failure still waits for the election outcome, so
-          # the log shows both and the poller is not left running into later steps.
           TESTS_RC=0
           yarn test:blockchain || TESTS_RC=$?
 
-          ELECTED_RC=0
-          wait "${WAIT_PID}" || ELECTED_RC=$?
-          if [ "${ELECTED_RC}" -ne 0 ]; then
-            cat "${LOG_DIR}/wait-elected.log"
-            echo "ERROR: the onboarded validators were not all elected" >&2
-          else
-            tail -n 1 "${LOG_DIR}/wait-elected.log"
+          # Reap the election poller even if tests fail, then let its own step report the
+          # compatibility verdict. Never use continue-on-error on this test step.
+          if [ -n "$WAIT_PID" ]; then
+            ELECTED_RC=0
+            wait "$WAIT_PID" || ELECTED_RC=$?
+            echo "election_rc=$ELECTED_RC" >> "$GITHUB_OUTPUT"
           fi
-          if [ "${TESTS_RC}" -ne 0 ]; then
+          if [ "$TESTS_RC" -ne 0 ]; then
             echo "ERROR: the blockchain integration tests failed" >&2
           fi
-          [ "${TESTS_RC}" -eq 0 ] && [ "${ELECTED_RC}" -eq 0 ]
+          exit "$TESTS_RC"
+
+      - name: Assert historical validators were elected
+        id: elected
+        if: ${{ !cancelled() && steps.onboard.outcome == 'success' && steps.traffic.outputs.election_rc != '' }}
+        continue-on-error: ${{ inputs.informational }}
+        env:
+          ELECTED_RC: ${{ steps.traffic.outputs.election_rc }}
+        run: |
+          if [ "$ELECTED_RC" -ne 0 ]; then
+            cat "${LOG_DIR}/wait-elected.log"
+            echo "ERROR: the onboarded validators were not all elected" >&2
+            exit 1
+          fi
+          tail -n 1 "${LOG_DIR}/wait-elected.log"
 
       - name: Assert peering and block agreement
+        id: agreement
+        if: ${{ steps.elected.outcome == 'success' }}
+        continue-on-error: ${{ inputs.informational }}
         run: |
           set -euo pipefail
 
@@ -492,10 +518,51 @@ jobs:
         run: |
           .github/resource-monitor.sh report validator-compatibility
 
-      - name: Scan node logs for errors
+      - name: Scan SUT node logs for errors
         if: always()
         run: |
-          .github/check-logs-for-error.sh "${LOG_DIR}"
+          .github/check-logs-for-error.sh "${LOG_DIR}/node-sut-alice.log"
+
+      - name: Scan historical node logs for errors
+        id: historical-logs
+        if: always()
+        continue-on-error: ${{ inputs.informational }}
+        run: |
+          set -euo pipefail
+          for LOG in "${LOG_DIR}"/node-*.log; do
+            [ -f "$LOG" ] || continue
+            [ "$LOG" != "${LOG_DIR}/node-sut-alice.log" ] || continue
+            .github/check-logs-for-error.sh "$LOG"
+          done
+
+      - name: Report historical-validator compatibility
+        if: ${{ always() && inputs.informational }}
+        env:
+          OUTCOMES: >-
+            start=${{ steps.historical-start.outcome }}
+            ready=${{ steps.historical-ready.outcome }}
+            onboard=${{ steps.onboard.outcome }}
+            elected=${{ steps.elected.outcome }}
+            agreement=${{ steps.agreement.outcome }}
+            logs=${{ steps.historical-logs.outcome }}
+          AGREEMENT: ${{ steps.agreement.outcome }}
+        run: |
+          FAILED=$(tr ' ' '\n' <<< "$OUTCOMES" | grep '=failure$' | cut -d= -f1 | paste -sd, - || true)
+          if [ -z "$FAILED" ]; then
+            if [ "$AGREEMENT" = "success" ]; then
+              echo "Historical validators are compatible with this build."
+            else
+              echo "Historical-validator compatibility checks did not complete; see the earlier failure."
+            fi
+            exit 0
+          fi
+          MSG="Historical validators are NOT compatible with this build (failed: $FAILED). Compatibility is advisory for this target. Operators must review the affected releases before deploying and upgrade incompatible validators. See validator-compatibility-logs."
+          echo "::warning title=Validator compatibility::$MSG"
+          {
+            echo "### Validator compatibility (operator warning)"
+            echo
+            echo "$MSG"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload node logs
         if: always()
