@@ -75,7 +75,11 @@ describe('handleEventRevertedAttestationChainTo()', () => {
             continuityProof: { lowerEndpointDigest: new Uint8Array(32), roots: [] },
         });
         await commit.signAsync(root, { nonce, era: 0 });
-        return at.call.taggedTransactionQueue.validateTransaction('External', commit.toHex(), blockHash);
+        // Pass the encoded bytes, not hex: the metadata types this argument as Frontier's
+        // self-contained extrinsic, which polkadot.js treats as `Bytes`, so a hex string would be
+        // taken as raw content and length-prefixed a second time, and the runtime would panic
+        // decoding it.
+        return at.call.taggedTransactionQueue.validateTransaction('External', commit.toU8a(), blockHash);
     };
 
     const cleanupPendingAt = async (blockHash: string) => {
