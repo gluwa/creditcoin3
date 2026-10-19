@@ -6,6 +6,9 @@
 //! WORST CASE MAP SIZE: `1000000`
 //! HOSTNAME: `localhost`, CPU: `AMD EPYC 7713 64-Core Processor`
 //! WASM-EXECUTION: `Compiled`, CHAIN: `Some("dev")`, DB CACHE: 1024
+//!
+//! Manual conservative additions below account for peer-key registration/enforcement and
+//! cleanup. Their comments distinguish envelopes/DB allowances from measured coefficients.
 
 // Executed Command:
 // ./target/release/creditcoin3-node
@@ -215,6 +218,9 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(0, 5041))
 			.saturating_add(T::DbWeight::get().reads(14))
 			.saturating_add(T::DbWeight::get().writes(10))
+			// Additional peer-key forward/reverse cleanup, conservatively bounded.
+			.saturating_add(T::DbWeight::get().reads_writes(2, 2))
+			.saturating_add(Weight::from_parts(0, 8_192))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -488,6 +494,27 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(0, 4148))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().writes(4))
+			// Additional mandatory-peer-registration checks.
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(Weight::from_parts(0, 8_192))
+	}
+	/// Conservative envelope using the measured BLS-registration CPU budget, plus new
+	/// networking-key DB/proof allowances. This is not a new benchmark measurement.
+	fn set_attestor_peer_key() -> Weight {
+		Self::attest()
+			.saturating_add(T::DbWeight::get().reads_writes(8, 4))
+			.saturating_add(Weight::from_parts(0, 16_384))
+	}
+	/// Conservative full-scan envelope using the measured election budget, plus the
+	/// networking-key lookups. Dedicated benchmarks permit replacing this envelope.
+	fn set_peer_registration_required(a: u32) -> Weight {
+		Self::force_election(a)
+			.saturating_add(T::DbWeight::get().reads_writes(
+				u64::from(a).saturating_mul(3).saturating_add(5), 1,
+			))
+			.saturating_add(Weight::from_parts(
+				0, u64::from(a).saturating_mul(6_144).saturating_add(16_384),
+			))
 	}
 	/// Storage: `Attestation::Attestors` (r:1 w:1)
 	/// Proof: `Attestation::Attestors` (`max_values`: None, `max_size`: None, mode: `Measured`)

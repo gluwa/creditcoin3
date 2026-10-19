@@ -2,7 +2,7 @@
 
 use super::*;
 use attestor_primitives::{peer_key_proof_message, ChainKey, PeerPublicKey, PeerRegistry};
-use frame_support::{ensure, traits::Get, weights::Weight};
+use frame_support::ensure;
 use parity_scale_codec::Encode;
 use supported_chains_primitives::provider::SupportedChainsProvider;
 
@@ -115,22 +115,6 @@ impl<T: Config> Pallet<T> {
                 })
                 .collect(),
         }
-    }
-
-    /// Conservative dispatch envelopes reuse existing measured BLS/election CPU budgets,
-    /// add the new DB operations, and allow additional storage proof space. They deliberately
-    /// overcharge these infrequent administrative calls rather than claiming new measurements.
-    pub fn peer_key_registration_weight() -> Weight {
-        <T as Config>::WeightInfo::set_attestor_peer_key()
-            .saturating_add(T::DbWeight::get().reads_writes(8, 4))
-    }
-
-    pub fn peer_registration_policy_weight(chain_key: ChainKey) -> Weight {
-        let count = AttestorsCount::<T>::get(chain_key);
-        <T as Config>::WeightInfo::set_peer_registration_required(count).saturating_add(
-            T::DbWeight::get()
-                .reads_writes(u64::from(count).saturating_mul(3).saturating_add(5), 1),
-        )
     }
 
     #[cfg(feature = "try-runtime")]
