@@ -26,10 +26,14 @@ The restart scenario deliberately sends SIGKILL to its own relayer group.
 CI uploads the diagnostics and recovery evidence but excludes the bulky native
 Creditcoin and proof-generator databases; local runs retain those databases too.
 
-| Scenario          | Required evidence                                                                                                                                                                                                                                                                                                                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `happy-path`      | Exact `MessageExecuted` payload/emitter/destination and `processedAt`; exact `MessageAcknowledged` and `isAcknowledged`; automatic `DeliveryClaimed` paying the funded relay fee and tip to the expected relayer.                                                                                                                                                                                                        |
-| `durable-restart` | Destination RPC gate rejects real relayer calls; the exact publication exists in the durable journal; the marked all-Outbox cursor has advanced beyond the publication plus lookback; execution is still absent; SIGKILL exits the original PID; source finality advances while it is dead; unchanged checkpoint, journal and config restart a new PID; the same execution/ack/fee assertions pass after the gate opens. |
+- `happy-path` verifies the exact message's execution payload, emitter, destination
+  and processed state, then its acknowledgment event and state. The automatic fee
+  claim must pay the funded relay fee and tip to the expected relayer.
+- `durable-restart` gates destination RPC and proves the unexecuted publication is
+  journaled with the source checkpoint beyond its lookback. It kills the relayer,
+  waits for source finality to advance, then starts a new PID with unchanged
+  checkpoint, journal and config. Reopening RPC must produce the same execution,
+  acknowledgment and fee evidence.
 
 `--lookback-blocks` defaults to 2, so the test reaches a genuine out-of-lookback
 publication within a bounded time. The live checkpoint and journal are never

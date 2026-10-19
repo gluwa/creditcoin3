@@ -1,8 +1,7 @@
 // Plain-ethers source-stack deploy (no hardhat runtime — it wedges on this RPC).
 // Reads compiled artifacts from usc-contracts/artifacts. Run with tsx (Node 22).
-// Post-#23 redesign: RelayerContract owns verifier/decoder, RelayerFeeVault is a dumb vault,
-// AcknowledgmentValidator takes proofVerifier+attestToken, AttestorVault needs an AttestorRegistry
-// (mirrors deploy-source-devnet.mts, which already targets this same contract layout).
+// RelayerContract owns verifier/decoder wiring; the acknowledgment and delivery decoders share
+// a deployable EvmDecoder router. AttestorVault uses its own source-chain AttestorRegistry.
 import { ethers } from "ethers";
 import { ApiPromise, Keyring, WsProvider } from "@polkadot/api";
 import type { Option } from "@polkadot/types-codec";
@@ -53,6 +52,11 @@ const wallet = new ethers.Wallet(BALTHATHAR, provider);
 
 async function deploy(name: string, art: any, args: any[] = []) {
   const f = new ethers.ContractFactory(art.abi, art.bytecode, wallet);
+  if (f.interface.deploy.inputs.length !== args.length) {
+    throw new Error(
+      `${name} constructor expects ${f.interface.deploy.inputs.length} arguments, got ${args.length}`,
+    );
+  }
   const c = await f.deploy(...args);
   const addr = await c.getAddress();
   process.stdout.write(`  ${name} → ${addr}\n`);
@@ -203,11 +207,26 @@ async function main() {
     "ASCProofVerifier",
     ART("write-ability/common/ASCProofVerifier.sol", "ASCProofVerifier"),
   );
+  // Both proof consumers require the deployable EVM receipt decoder. Match the canonical
+  // contracts deployment: a V1 implementation behind the owner-routed, two-day-delay router.
+  const evmDecoderImpl = await deploy(
+    "EvmV1Decoder2",
+    ART("common/EvmV1Decoder2.sol", "EvmV1Decoder2"),
+  );
+  const evmDecoder = await deploy(
+    "EvmDecoder",
+    ART("common/EvmDecoder.sol", "EvmDecoder"),
+    [owner, await evmDecoderImpl.getAddress(), 2 * 24 * 60 * 60],
+  );
+  const evmDecoderAddr = await evmDecoder.getAddress();
   const decoder = await deploy(
     "EVMDeliveryDecoder",
     ART("write-ability/common/EVMDeliveryDecoder.sol", "EVMDeliveryDecoder"),
-    [owner],
+    [owner, evmDecoderAddr],
   );
+  if ((await (decoder as any).evmDecoder()) !== evmDecoderAddr) {
+    throw new Error("delivery decoder does not use the deployed EVM decoder");
+  }
   const twap = await deploy(
     "TWAPReader",
     ART("write-ability/TWAPReader.sol", "TWAPReader"),
@@ -231,9 +250,7 @@ async function main() {
   // Indexer discovery is fail-closed: authenticate OutboxCreated against governance registration.
   await registerFactoryBeforeOutbox(await factory.getAddress());
 
-  // Write-ability's attestor/relayer resolve the Outbox exclusively through the on-chain
-  // OutboxDiscovery registry now (registry-only, fail-closed — the OutboxCreated log scan and the
-  // relayer's config-driven override were both removed). Deploy the registry behind its UUPS proxy
+  // Deploy the on-chain OutboxDiscovery registry behind its UUPS proxy
   // — same pattern the contract's own Hardhat suite uses (OutboxDiscoveryProxy is a thin ERC-1967
   // wrapper compiled from asc-contracts' test mocks) — so the Outbox created below can be
   // registered as this chain key's default.
@@ -392,8 +409,13 @@ async function main() {
       "write-ability/AcknowledgementValidator.sol",
       "AcknowledgmentValidator",
     ),
-    [CHAIN_KEY, owner, proofAddr, attestAddr],
+    [CHAIN_KEY, owner, proofAddr, attestAddr, evmDecoderAddr],
   );
+  if ((await (ackValidator as any).evmDecoder()) !== evmDecoderAddr) {
+    throw new Error(
+      "acknowledgment validator does not use the deployed EVM decoder",
+    );
+  }
   const ackAddr = await ackValidator.getAddress();
   await (await outbox.setValidator(ackAddr)).wait();
   await (await (ackValidator as any).setOutbox(outboxAddr)).wait();
@@ -472,6 +494,8 @@ async function main() {
     attest: attestAddr,
     proofVerifier: proofAddr,
     deliveryDecoder: decoderAddr,
+    evmDecoder: evmDecoderAddr,
+    evmDecoderImplementation: await evmDecoderImpl.getAddress(),
     twapReader: await twap.getAddress(),
     attestorRegistry: await registry.getAddress(),
     quoter: quoterAddr,

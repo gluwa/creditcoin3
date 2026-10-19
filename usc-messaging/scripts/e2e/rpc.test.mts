@@ -84,6 +84,9 @@ test("RPC gate rejects single and batch calls without reaching upstream, then re
     assert.equal(forwarded, 2);
     const invalid = await fetch(proxy.url, { method: "POST", body: "{" });
     assert.equal(invalid.status, 502);
+    assert.deepEqual(await invalid.json(), {
+      error: "E2E RPC proxy request failed",
+    });
     assert.equal(
       await rpc.call("eth_chainId"),
       "0x2a",

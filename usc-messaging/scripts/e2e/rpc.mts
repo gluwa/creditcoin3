@@ -98,8 +98,10 @@ export class RpcProxy {
         response.statusCode = upstream.status;
         response.end(await upstream.text());
       } catch (error) {
+        console.error("E2E RPC proxy request failed:", error);
         response.statusCode = 502;
-        response.end(JSON.stringify({ error: String(error) }));
+        response.setHeader("content-type", "application/json");
+        response.end(JSON.stringify({ error: "E2E RPC proxy request failed" }));
       }
     });
   }

@@ -1,4 +1,5 @@
 ---
+# checkov:skip=CKV_GHA_7:Inputs select SHA-pinned E2E dependencies and allowlisted test scenarios.
 # Run the actual relayer against Creditcoin, destination Anvil, live attestors and native proofs.
 # Every companion repository is checked out explicitly so relayer/contract PRs exercise their
 # candidate code when calling this workflow from another repository.
@@ -18,7 +19,7 @@ name: write-ability-e2e
       relayer-ref:
         description: Full relayer candidate commit SHA
         type: string
-        default: 6e3ca07833c3f7ed61885abc2de2212bda247c6f
+        default: 2682fddca7809a9bcbaaf0c7c38d45e0763b6cc2
       contracts-ref:
         description: Full compatible contracts commit SHA
         type: string
@@ -38,7 +39,7 @@ name: write-ability-e2e
         default: gluwa/asc-message-relayer
       relayer-ref:
         type: string
-        default: 6e3ca07833c3f7ed61885abc2de2212bda247c6f
+        default: 2682fddca7809a9bcbaaf0c7c38d45e0763b6cc2
       contracts-ref:
         type: string
         default: 9e8a9e603d964b598b0d74bb8f4e5966ef75d17e
@@ -50,7 +51,16 @@ name: write-ability-e2e
         description: Read access to the private asc-contracts repository
         required: true
   pull_request:
-    branches: [main, dev, asc-dev, usc-dev, usc-testnet, attestor_v2, writeability-off-usc-dev]
+    branches:
+      [
+        main,
+        dev,
+        asc-dev,
+        usc-dev,
+        usc-testnet,
+        attestor_v2,
+        writeability-off-usc-dev,
+      ]
     paths:
       - "attestor/**"
       - "common/**"
@@ -94,7 +104,7 @@ jobs:
           CREDITCOIN_INPUT: ${{ inputs.creditcoin-ref }}
           CREDITCOIN_REF: ${{ inputs.creditcoin-ref || github.sha }}
           RELAYER_REPOSITORY: ${{ inputs.relayer-repository || 'gluwa/asc-message-relayer' }}
-          RELAYER_REF: ${{ inputs.relayer-ref || '6e3ca07833c3f7ed61885abc2de2212bda247c6f' }}
+          RELAYER_REF: ${{ inputs.relayer-ref || '2682fddca7809a9bcbaaf0c7c38d45e0763b6cc2' }}
           CONTRACTS_REF: ${{ inputs.contracts-ref || '9e8a9e603d964b598b0d74bb8f4e5966ef75d17e' }}
           SCENARIOS: ${{ inputs.scenarios || 'happy-path,durable-restart' }}
           CONTRACTS_TOKEN: ${{ secrets.GLUWA_BOT_TOKEN }}
@@ -151,7 +161,9 @@ jobs:
   e2e:
     needs: [prepare, build]
     runs-on: ubuntu-26.04
-    timeout-minutes: 45
+    # Cover cold relayer/ABI builds plus the runner's bounded deployment and recovery waits,
+    # leaving time for cleanup and evidence upload. The native build has its own 120m limit.
+    timeout-minutes: 150
     env:
       CARGO_TERM_COLOR: always
       E2E_OUTPUT_DIR: ${{ github.workspace }}/e2e-output
