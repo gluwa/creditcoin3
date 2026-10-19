@@ -1,9 +1,9 @@
 //! Inbound connection admission that keeps capacity for known committee peers.
 //!
-//! Inbound capacity is split: *reserved* peers (configured boot peers and peers bound to a
-//! BLS-verified attestor vote) are always admitted, while every other peer shares a pool of
-//! [`MAX_UNRESERVED_INCOMING`] connections. This complements [`connection_limits`], which applies
-//! one cap to every peer.
+//! Inbound capacity is split: *reserved* peers (configured boot/trusted committee peers and peers
+//! bound to a BLS-verified attestor vote) are admitted by this behaviour, while every other peer
+//! shares a pool of [`MAX_UNRESERVED_INCOMING`] connections. This complements
+//! [`connection_limits`], which applies one cap to every peer.
 //!
 //! [`connection_limits`]: libp2p::connection_limits
 
@@ -28,7 +28,7 @@ pub(crate) const MAX_UNRESERVED_INCOMING: usize = 64;
 pub(crate) struct Behaviour {
     max_unreserved_incoming: usize,
     reserved: HashSet<PeerId>,
-    /// Configured boot peers: reserved for the node's lifetime, never unreserved.
+    /// Configured boot/trusted peers: reserved for the node's lifetime, never unreserved.
     pinned: HashSet<PeerId>,
     /// Established inbound connections. Whether one counts against the shared pool is decided
     /// at admission time, so reserving or unreserving a peer moves its live connections too.
@@ -57,7 +57,7 @@ impl Behaviour {
     }
 
     /// Treat `peer` like any other peer again (e.g. its attestor was chilled or kicked).
-    /// Pinned boot peers stay reserved.
+    /// Pinned boot/trusted peers stay reserved.
     pub(crate) fn unreserve(&mut self, peer: &PeerId) {
         if !self.pinned.contains(peer) {
             self.reserved.remove(peer);
@@ -162,6 +162,118 @@ impl NetworkBehaviour for Behaviour {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seed_reserves_configured_member_before_its_first_vote() {
+        let mut behaviour = Behaviour::new(MAX_UNRESERVED_INCOMING);
+        fill(&mut behaviour, MAX_UNRESERVED_INCOMING);
+        let member = PeerId::random();
+        let address: Multiaddr = "/ip4/127.0.0.1/tcp/9000".parse().unwrap();
+
+        // No boot peers or learned vote bindings: exercise the seed's actual startup setup.
+        super::super::configure_bootstrap_admission(
+            &mut behaviour,
+            &HashSet::new(),
+            &[member],
+            PeerId::random(),
+            false,
+            true,
+        )
+        .unwrap();
+
+        assert!(behaviour
+            .handle_established_inbound_connection(
+                ConnectionId::new_unchecked(rand_id()),
+                member,
+                &address,
+                &address,
+            )
+            .is_ok());
+        assert!(behaviour.admit(&PeerId::random()).is_err());
+        assert_eq!(behaviour.unreserved_incoming(), MAX_UNRESERVED_INCOMING);
+
+        // A learned binding changing or an eviction must not erase configured trust.
+        behaviour.unreserve(&member);
+        assert!(behaviour.admit(&member).is_ok());
+    }
+
+    #[test]
+    fn public_seed_without_trusted_remote_peers_is_rejected() {
+        let local = PeerId::random();
+        // Neither mDNS nor pinning our own identity provides trusted inbound access.
+        for enable_mdns in [false, true] {
+            for reserved in [vec![], vec![local]] {
+                let error = super::super::configure_bootstrap_admission(
+                    &mut Behaviour::new(2),
+                    &HashSet::new(),
+                    &reserved,
+                    local,
+                    enable_mdns,
+                    true,
+                )
+                .unwrap_err();
+                assert!(error.to_string().contains("reserved-peers"));
+            }
+        }
+    }
+
+    #[test]
+    fn configured_boot_peer_provides_a_trusted_bootstrap_route() {
+        let mut behaviour = Behaviour::new(2);
+        fill(&mut behaviour, 2);
+        let boot = PeerId::random();
+        super::super::configure_bootstrap_admission(
+            &mut behaviour,
+            &HashSet::from([boot]),
+            &[],
+            PeerId::random(),
+            false,
+            true,
+        )
+        .unwrap();
+        assert!(behaviour.admit(&boot).is_ok());
+        assert!(behaviour.admit(&PeerId::random()).is_err());
+    }
+
+    #[test]
+    fn own_boot_peer_does_not_make_a_public_seed_safe() {
+        let local = PeerId::random();
+        assert!(super::super::configure_bootstrap_admission(
+            &mut Behaviour::new(2),
+            &HashSet::from([local]),
+            &[],
+            local,
+            false,
+            true,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn reserved_peer_ids_do_not_replace_discovery_for_a_non_seed() {
+        assert!(super::super::configure_bootstrap_admission(
+            &mut Behaviour::new(2),
+            &HashSet::new(),
+            &[PeerId::random()],
+            PeerId::random(),
+            false,
+            false,
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn local_mdns_network_still_bootstraps_without_configured_peers() {
+        assert!(super::super::configure_bootstrap_admission(
+            &mut Behaviour::new(2),
+            &HashSet::new(),
+            &[],
+            PeerId::random(),
+            true,
+            false,
+        )
+        .is_ok());
+    }
 
     fn fill(behaviour: &mut Behaviour, n: usize) {
         for _ in 0..n {

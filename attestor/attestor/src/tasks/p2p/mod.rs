@@ -46,6 +46,10 @@ const RETRY_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 #[derive(builder::Builder)]
 pub struct Config {
     pub boot_nodes: Vec<libp2p::Multiaddr>,
+    /// Trusted committee peer IDs, admitted before any vote binds an attestor to a peer.
+    /// These reserve inbound capacity only; discovery and BLS vote verification are unchanged.
+    #[default(Vec::new())]
+    pub reserved_peers: Vec<libp2p::PeerId>,
     pub public_addr: Option<String>,
     pub port: u16,
     #[default(false)]
@@ -107,6 +111,7 @@ pub async fn run(
     // rather than dropped from the routing table.
     let mut boot_peers: std::collections::HashSet<libp2p::PeerId> =
         std::collections::HashSet::new();
+    let local_peer_id = *swarm.local_peer_id();
     for address in cfg.boot_nodes {
         let Some(peer_id) = address.iter().find_map(|p| match p {
             libp2p::multiaddr::Protocol::P2p(pid) => Some(pid),
@@ -115,29 +120,26 @@ pub async fn run(
             tracing::error!(%address, "missing peer id in multiaddr");
             continue;
         };
+        if peer_id == local_peer_id {
+            tracing::warn!(%address, "ignoring own peer id in boot node multiaddr");
+            continue;
+        }
         boot_peers.insert(peer_id);
-        swarm.behaviour_mut().admission.pin(peer_id);
         swarm.behaviour_mut().kad.add_address(&peer_id, address);
     }
 
-    // Fail fast on a mesh-less configuration. There is no explicit `swarm.dial()` anywhere —
-    // connectivity is entirely kad-bootstrap-driven off the boot addresses (plus mdns locally) —
-    // so with mdns disabled (the k8s reality) and no usable bootnode the node sits permanently
-    // peerless while reporting healthy: /health has no p2p input and the task never exits.
-    // Malformed multiaddrs (missing /p2p/<peer-id>) are skipped above with only an error log, so
-    // an all-malformed list would otherwise fail just as silently as an empty one.
-    //
-    // EXCEPT a node that advertises a `public_addr` is a *seed* (the mesh bootnode): peers dial
-    // IT, so it forms a mesh without any boot peers of its own. Requiring it to have a boot node
-    // would be circular — the bootnode is the root of the mesh. Only fail-fast for a node that is
-    // neither seeded (boot peers / mdns) nor itself discoverable as a seed (public_addr).
-    if boot_peers.is_empty() && !enable_mdns && cfg.public_addr.is_none() {
-        return Err(Error::P2p(anyhow::anyhow!(
-            "no usable boot nodes (list empty or every multiaddr missing its /p2p/<peer-id> \
-             suffix), mdns is disabled, and no public_addr is set — this node can neither \
-             discover a peer nor be discovered as a seed"
-        )));
-    }
+    // Reserve trusted inbound peers before listening. A seed with no boot peers cannot rely on
+    // learning committee bindings from votes: Sybils may fill the unreserved pool first, leaving
+    // legitimate attestors unable to connect and send the very vote that would reserve them.
+    configure_bootstrap_admission(
+        &mut swarm.behaviour_mut().admission,
+        &boot_peers,
+        &cfg.reserved_peers,
+        local_peer_id,
+        enable_mdns,
+        cfg.public_addr.is_some(),
+    )
+    .map_err(Error::P2p)?;
 
     if let Some(dns) = cfg.public_addr {
         let external: libp2p::Multiaddr = format!("/dns4/{}/tcp/{}", dns, cfg.port)
@@ -312,6 +314,47 @@ pub async fn run(
             }
         }
     }
+}
+
+/// Configure admission independently of discovery: a seed needs trusted peer IDs, but does not
+/// need their addresses or an outbound boot route. Configured IDs are authenticated by libp2p's
+/// transport handshake; merely claiming an attestor identity in a vote cannot obtain a slot.
+fn configure_bootstrap_admission(
+    admission: &mut admission::Behaviour,
+    boot_peers: &std::collections::HashSet<libp2p::PeerId>,
+    reserved_peers: &[libp2p::PeerId],
+    local_peer: libp2p::PeerId,
+    enable_mdns: bool,
+    has_public_addr: bool,
+) -> anyhow::Result<()> {
+    let has_boot_peers = boot_peers.iter().any(|peer| *peer != local_peer);
+    let has_reserved_peers = reserved_peers.iter().any(|peer| *peer != local_peer);
+
+    if has_public_addr && !has_boot_peers && !has_reserved_peers {
+        anyhow::bail!(
+            "a public seed without usable boot nodes requires trusted committee peer IDs in \
+             --reserved-peers / ATTESTOR_RESERVED_PEERS / p2p.reserved_peers; otherwise \
+             untrusted inbound connections can prevent committee peers from connecting \
+             before their first verified vote (the local peer ID does not count)"
+        );
+    }
+
+    // Reserved peer IDs are not discovery addresses. Without mDNS, a non-seed still needs an
+    // outbound bootstrap route; public seeds can instead be dialed by their reserved peers.
+    if !has_boot_peers && !enable_mdns && !has_public_addr {
+        anyhow::bail!(
+            "no usable boot nodes (list empty or every multiaddr missing its /p2p/<peer-id> \
+             suffix or referring to this node), mdns is disabled, and no public_addr is set — \
+             this node can neither discover a peer nor be discovered as a seed"
+        );
+    }
+
+    for peer in boot_peers.iter().chain(reserved_peers) {
+        if *peer != local_peer {
+            admission.pin(*peer);
+        }
+    }
+    Ok(())
 }
 
 /// Pending buffer for votes that arrived before local production reached their height:

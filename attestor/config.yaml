@@ -39,6 +39,19 @@ p2p:
   #
   # boot_nodes: []
 
+  # Trusted libp2p peer IDs with inbound capacity reserved from startup, before any vote.
+  # A public seed (attestor.public_addr set) without usable remote boot_nodes MUST list
+  # trusted committee peers here. Otherwise untrusted peers can fill the shared inbound
+  # pool before the committee connects. The seed refuses to start without a trusted peer.
+  # List all committee peer IDs that need direct access; keep this list current on rotation.
+  # Use the libp2p peer ID from the peer's startup log or /p2p/<peer-id> boot multiaddr,
+  # not its on-chain attestor account. These IDs need no addresses and are not dialed.
+  # Only include peers you trust: reservations persist for this process's lifetime.
+  # Vote membership and BLS checks still apply. Local mDNS-only setups need no list.
+  # CLI: --reserved-peers=<peer-id> (repeatable); env: ATTESTOR_RESERVED_PEERS (comma-separated).
+  #
+  # reserved_peers: []
+
   # Optional: Fixed P2P port for libp2p networking
   #   If not specified, defaults to 9000.
   #
