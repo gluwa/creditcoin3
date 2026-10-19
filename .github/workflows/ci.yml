@@ -1362,6 +1362,7 @@ jobs:
             2:danger-will-brick-the-blockchain
             2:evm-gasprice-opcode
             2:evm-priority-fee
+            2:evm-revert-extra-data
             2:evm-state-overrides
             2:evm-tracing
             2:gas-estimation
