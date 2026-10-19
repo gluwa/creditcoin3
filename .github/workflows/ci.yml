@@ -1360,6 +1360,7 @@ jobs:
             2:block-hash-block-param
             2:danger-will-brick-the-blockchain
             2:evm-priority-fee
+            2:evm-state-overrides
             2:evm-tracing
             2:gas-estimation
             2:pallets/identity/identityOf
