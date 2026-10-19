@@ -15,6 +15,7 @@ struct Config {
     public_addr: Option<String>,
     api_port: u16,
     boot_nodes: Vec<libp2p::Multiaddr>,
+    reserved_peers: Vec<libp2p::PeerId>,
     p2p_port: u16, // Defaults to 9000 if not specified
     eth_url: attestor::secret::RpcSecret,
     eth_rps: Option<std::num::NonZeroU32>,
@@ -65,6 +66,7 @@ struct ConfigFileApi {
 #[derive(Debug, Default, serde::Deserialize)]
 struct ConfigFileP2P {
     boot_nodes: Option<Vec<libp2p::Multiaddr>>,
+    reserved_peers: Option<Vec<libp2p::PeerId>>,
     port: Option<u16>,
     #[serde(default)]
     no_mdns: bool,
@@ -183,6 +185,20 @@ impl Config {
                     .action(clap::ArgAction::Append)
                     .required(false)
                     .value_parser(clap::value_parser!(libp2p::Multiaddr)),
+            )
+            .arg(
+                clap::arg!(--"reserved-peers" [PEER_ID] ...)
+                    .help("Trusted peer IDs with reserved inbound capacity before their first vote")
+                    .long_help(
+                        "Trusted libp2p peer IDs with reserved inbound capacity from startup. \
+                        Configure committee peers on a public seed that has no boot nodes. \
+                        This does not dial the peers or bypass vote verification.",
+                    )
+                    .env("ATTESTOR_RESERVED_PEERS")
+                    .value_delimiter(',')
+                    .action(clap::ArgAction::Append)
+                    .required(false)
+                    .value_parser(clap::value_parser!(libp2p::PeerId)),
             )
             .arg(
                 clap::arg!(--"p2p-port" <PORT>)
@@ -390,6 +406,12 @@ impl Config {
             .cloned()
             .or(config_file.attestor.public_addr);
 
+        let reserved_peers = matches
+            .get_many::<libp2p::PeerId>("reserved-peers")
+            .map(|vals| vals.copied().collect::<Vec<_>>())
+            .or(config_file.p2p.reserved_peers)
+            .unwrap_or_default();
+
         let p2p_port = matches
             .get_one::<u16>("p2p-port")
             .copied()
@@ -456,6 +478,7 @@ impl Config {
             chain_key,
             secret,
             boot_nodes,
+            reserved_peers,
             public_addr,
             api_port,
             p2p_port,
@@ -617,6 +640,7 @@ async fn main() -> anyhow::Result<()> {
         .with_p2p(
             attestor::tasks::p2p::ConfigBuilder::new()
                 .with_boot_nodes(args.boot_nodes)
+                .with_reserved_peers(args.reserved_peers)
                 .with_public_addr(args.public_addr)
                 .with_port(args.p2p_port)
                 .with_no_mdns(args.no_mdns),
@@ -639,4 +663,25 @@ async fn main() -> anyhow::Result<()> {
     attestor::Attestor::new(config).run().await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConfigFile;
+
+    #[test]
+    fn reserved_peer_ids_are_read_from_yaml() {
+        let peer = libp2p::PeerId::random();
+        let config: ConfigFile =
+            serde_yaml::from_str(&format!("p2p:\n  reserved_peers:\n    - {peer}\n")).unwrap();
+        assert_eq!(config.p2p.reserved_peers, Some(vec![peer]));
+    }
+
+    #[test]
+    fn malformed_reserved_peer_id_is_rejected() {
+        assert!(serde_yaml::from_str::<ConfigFile>(
+            "p2p:\n  reserved_peers:\n    - not-a-peer-id\n"
+        )
+        .is_err());
+    }
 }
