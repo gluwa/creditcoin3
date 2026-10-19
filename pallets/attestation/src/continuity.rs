@@ -20,11 +20,18 @@ impl<T: Config> Pallet<T> {
             attestation.prev_digest(),
             attestation.continuity_proof.len()
         );
-        // GENESIS: must not have a prev digest; continuity proof can be empty
+        // GENESIS: must not have a prev digest, and the continuity proof must be empty (honest
+        // attestors never attach one). Enforced here rather than only in
+        // `PrevalidateAttestationCommit` because the extension cannot see calls nested in
+        // `Utility`/proxy wrappers.
         if attestation_header_number == attestation_genesis {
             ensure!(
                 attestation.prev_digest().is_none(),
                 Error::<T>::InvalidAttestationPrevDigest
+            );
+            ensure!(
+                attestation.continuity_proof.is_empty(),
+                Error::<T>::OversizedContinuityProof
             );
             info!("✅ Genesis attestation continuity proof is valid.");
             return Ok(());
