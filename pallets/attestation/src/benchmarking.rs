@@ -212,6 +212,8 @@ fn setup_commit<T: Config>(m: u32) -> (Vec<Attestor<T>>, BenchAttestation<T>) {
 mod benchmarks {
     use super::*;
 
+    const PEER_KEY_TYPE: sp_core::crypto::KeyTypeId = sp_core::crypto::KeyTypeId(*b"atpr");
+
     pub const MAX_SPAN: u32 = COMMIT_BENCHMARK_MAX_SPAN; // continuity blocks, up to the default MaxCatchup
     /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
     /// checkpoint width of 100 (`2 * width`). Sampling `s` only on that path keeps the step from
@@ -562,7 +564,6 @@ mod benchmarks {
 
     #[benchmark]
     fn set_attestor_peer_key() {
-        use sp_core::{ed25519, Pair as _};
         let stash = create_funded_user_with_balance::<T>("stash", 0);
         let controller = create_funded_user_with_balance::<T>("attestor", 1);
         assert_ok!(Attestation::<T>::register_attestor(
@@ -571,11 +572,11 @@ mod benchmarks {
             controller.clone()
         ));
         // Rotation takes the maximum storage-write path.
-        let old = ed25519::Pair::from_seed(&[1; 32]).public().0;
+        // Use the benchmark host's keystore so WASM does not enable native full_crypto.
+        let old = sp_io::crypto::ed25519_generate(PEER_KEY_TYPE, None).0;
         AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &controller, old);
         PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, old, &controller);
-        let pair = ed25519::Pair::from_seed(&[2; 32]);
-        let public = pair.public().0;
+        let public = sp_io::crypto::ed25519_generate(PEER_KEY_TYPE, None);
         let genesis = frame_system::Pallet::<T>::block_hash(
             frame_system::pallet_prelude::BlockNumberFor::<T>::default(),
         );
@@ -583,9 +584,12 @@ mod benchmarks {
             genesis.as_ref(),
             DEV_CHAIN_KEY,
             &controller.encode(),
-            &public,
+            &public.0,
         );
-        let proof = pair.sign(&message).0;
+        let proof = sp_io::crypto::ed25519_sign(PEER_KEY_TYPE, &public, &message)
+            .expect("benchmark host holds the generated key")
+            .0;
+        let public = public.0;
 
         #[extrinsic_call]
         _(
@@ -609,7 +613,6 @@ mod benchmarks {
 
     #[benchmark]
     fn set_peer_registration_required(a: Linear<1, MAX_ATTESTORS>) {
-        use sp_core::{ed25519, Pair as _};
         let mut active = Vec::new();
         for j in 0..a {
             let stash = create_funded_user_with_balance::<T>("stash", j);
@@ -626,9 +629,7 @@ mod benchmarks {
                 attestor.public_key,
                 attestor.signature
             ));
-            let mut seed = [0; 32];
-            seed[..4].copy_from_slice(&j.to_le_bytes());
-            let public = ed25519::Pair::from_seed(&seed).public().0;
+            let public = sp_io::crypto::ed25519_generate(PEER_KEY_TYPE, None).0;
             AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &controller, public);
             PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, public, &controller);
             active.push(controller);
@@ -646,16 +647,24 @@ mod benchmarks {
         use super::*;
         use crate::mock::{ExtBuilder, Test};
 
+        fn new_ext() -> sp_io::TestExternalities {
+            let mut ext = ExtBuilder.build();
+            ext.register_extension(sp_keystore::KeystoreExt::new(
+                sp_keystore::testing::MemoryKeystore::new(),
+            ));
+            ext
+        }
+
         #[test]
         fn peer_key_rotation_benchmark_fixture() {
-            ExtBuilder.build().execute_with(|| {
+            new_ext().execute_with(|| {
                 Pallet::<Test>::test_bench_by_name(b"set_attestor_peer_key").unwrap();
             });
         }
 
         #[test]
         fn peer_registration_policy_benchmark_fixture() {
-            ExtBuilder.build().execute_with(|| {
+            new_ext().execute_with(|| {
                 Pallet::<Test>::test_bench_by_name(b"set_peer_registration_required").unwrap();
             });
         }
