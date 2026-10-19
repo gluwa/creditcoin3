@@ -2,7 +2,7 @@ import { newApi, ApiPromise, KeyringPair } from '../../lib';
 import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks, isManualSealing, randomIntBetween, sealBlock, sleep } from '../utils';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery } from './common';
+import { graphQLQuery, indexedRecordQuery } from './common';
 
 export async function waitForAppliedSampleSize(
     api: ApiPromise,
@@ -171,7 +171,7 @@ describe('handleEventTargetSampleSizeChanged()', () => {
                 expect(node.eventNewTargetSampleSize).toEqual(newTargetSampleSize);
 
                 // query each node individually to cover this endpoint too
-                const response2 = await graphQLQuery(
+                const response2 = await indexedRecordQuery(
                     `query { targetSampleSizeChanged(id: "${node.id}") { id, chainKey, blockNumber, whoId, eventNewTargetSampleSize }}`,
                 );
                 expect(response2.data.targetSampleSizeChanged).toBeTruthy();

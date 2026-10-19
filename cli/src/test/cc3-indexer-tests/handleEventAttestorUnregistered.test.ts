@@ -3,7 +3,7 @@ import { getChainStatus } from '../../lib/chain/status';
 import { forElapsedBlocks } from '../utils';
 import { randomFundedAccount } from '../integration-tests/helpers';
 import { chain_Anvil1_Key, chain_Anvil2_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery } from './common';
+import { graphQLQuery, indexedRecordQuery } from './common';
 
 describe('handleEventAttestorUnregistered()', () => {
     let api: ApiPromise;
@@ -93,7 +93,7 @@ describe('handleEventAttestorUnregistered()', () => {
                 }
 
                 // query each node individually to cover this endpoint too
-                const response2 = await graphQLQuery(
+                const response2 = await indexedRecordQuery(
                     `query { attestorUnregistered(id: "${node.id}") { id, attestorId, chainKey, blockNumber } }`,
                 );
                 expect(response2.data.attestorUnregistered).toBeTruthy();

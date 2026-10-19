@@ -6,7 +6,7 @@ import {
     chain_Anvil2_Key,
     chain_Anvil3_Key,
 } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery } from './common';
+import { graphQLQuery, indexedRecordQuery } from './common';
 
 describe('handleEventAttestorRegistered()', () => {
     let api: ApiPromise;
@@ -87,7 +87,7 @@ describe('handleEventAttestorRegistered()', () => {
                 }
 
                 // query each node individually to cover this endpoint too
-                const response2 = await graphQLQuery(
+                const response2 = await indexedRecordQuery(
                     `query { attestorRegistered(id: "${node.id}") { id, attestorId, stashId, chainKey, blockNumber } }`,
                 );
                 expect(response2.data.attestorRegistered).toBeTruthy();
@@ -138,8 +138,8 @@ describe('handleEventAttestorRegistered()', () => {
                     expect(node.blsPublicKey).toBeTruthy();
                 }
 
-                // query each node individually to cover this endpoint too
-                const response2 = await graphQLQuery(
+                // Read back the observed record; this does not wait for a later attestor update.
+                const response2 = await indexedRecordQuery(
                     `query { attestor(id: "${node.id}") { id, attestorId, stashId, chainKey, lastUpdateBlockNumber, status, blsPublicKey } }`,
                 );
                 expect(response2.data.attestor).toBeTruthy();
