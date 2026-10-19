@@ -128,9 +128,13 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'commitAttestation pool ta
         await forgedCommit.signAsync(attestor.keyring, { nonce: -1 });
 
         const bestHash = (await api.rpc.chain.getHeader()).hash;
+        // Pass the encoded bytes, not hex: the metadata types this argument as Frontier's
+        // self-contained extrinsic, which polkadot.js treats as `Bytes`, so a hex string would be
+        // taken as raw content and length-prefixed a second time, and the runtime would panic
+        // decoding it.
         const validity = await api.call.taggedTransactionQueue.validateTransaction(
             'External',
-            forgedCommit.toHex(),
+            forgedCommit.toU8a(),
             bestHash,
         );
 
