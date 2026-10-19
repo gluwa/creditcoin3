@@ -151,6 +151,7 @@ pub async fn run(
         local_peer_id,
         enable_mdns,
         cfg.public_addr.is_some(),
+        peer_registry.has_bootstrap_peers(local_peer_id),
     )
     .map_err(Error::P2p)?;
 
@@ -354,15 +355,12 @@ fn configure_bootstrap_admission(
     local_peer: libp2p::PeerId,
     enable_mdns: bool,
     has_public_addr: bool,
+    has_committee_bootstrap: bool,
 ) -> anyhow::Result<()> {
     let has_boot_peers = boot_peers.iter().any(|peer| *peer != local_peer);
     let has_reserved_peers = reserved_peers.iter().any(|peer| *peer != local_peer);
 
-    if has_public_addr
-        && !has_boot_peers
-        && !has_reserved_peers
-        && !admission.has_committee_bootstrap()
-    {
+    if has_public_addr && !has_boot_peers && !has_reserved_peers && !has_committee_bootstrap {
         anyhow::bail!(
             "a public seed without usable boot nodes requires trusted committee peer IDs in \
              --reserved-peers / ATTESTOR_RESERVED_PEERS / p2p.reserved_peers; otherwise \
@@ -1316,6 +1314,52 @@ mod tests {
             attestors,
             finalized_hash: Default::default(),
             finalized_number: 0,
+        }
+    }
+
+    #[test]
+    fn sole_registered_public_seed_bootstraps_during_rollout_and_enforcement() {
+        let local = libp2p::PeerId::random();
+        for required in [false, true] {
+            let registry = registry(required, vec![(att(1), Some(local))]);
+            // Startup and admission consume the same finalized-registry decision. This also
+            // covers a restart after every other committee member has been chilled.
+            assert!(registry.has_bootstrap_peers(local));
+            let mut admission = super::admission::Behaviour::new(2);
+            super::configure_bootstrap_admission(
+                &mut admission,
+                &std::collections::HashSet::new(),
+                &[],
+                local,
+                false,
+                true,
+                registry.has_bootstrap_peers(local),
+            )
+            .unwrap();
+            assert!(!admission.is_reserved(&local));
+        }
+    }
+
+    #[test]
+    fn incomplete_committee_cannot_bootstrap_a_public_seed_with_only_its_own_key() {
+        let local = libp2p::PeerId::random();
+        for attestors in [
+            vec![],
+            vec![(att(1), None)],
+            vec![(att(1), Some(local)), (att(2), None)],
+        ] {
+            let registry = registry(false, attestors);
+            assert!(!registry.has_bootstrap_peers(local));
+            assert!(super::configure_bootstrap_admission(
+                &mut super::admission::Behaviour::new(2),
+                &std::collections::HashSet::new(),
+                &[],
+                local,
+                false,
+                true,
+                registry.has_bootstrap_peers(local),
+            )
+            .is_err());
         }
     }
 

@@ -473,8 +473,7 @@ impl Attestor {
             };
             if self.config.p2p.public_addr.is_none()
                 || has_static_route
-                || registry.registration_required
-                || registry.registered_peers().any(|peer| peer != peer_id)
+                || registry.has_bootstrap_peers(peer_id)
             {
                 break registry;
             }
