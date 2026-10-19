@@ -561,6 +561,107 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_attestor_peer_key() {
+        use sp_core::{ed25519, Pair as _};
+        let stash = create_funded_user_with_balance::<T>("stash", 0);
+        let controller = create_funded_user_with_balance::<T>("attestor", 1);
+        assert_ok!(Attestation::<T>::register_attestor(
+            T::RuntimeOrigin::signed(stash),
+            DEV_CHAIN_KEY,
+            controller.clone()
+        ));
+        // Rotation takes the maximum storage-write path.
+        let old = ed25519::Pair::from_seed(&[1; 32]).public().0;
+        AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &controller, old);
+        PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, old, &controller);
+        let pair = ed25519::Pair::from_seed(&[2; 32]);
+        let public = pair.public().0;
+        let genesis = frame_system::Pallet::<T>::block_hash(
+            frame_system::pallet_prelude::BlockNumberFor::<T>::default(),
+        );
+        let message = attestor_primitives::peer_key_proof_message(
+            genesis.as_ref(),
+            DEV_CHAIN_KEY,
+            &controller.encode(),
+            &public,
+        );
+        let proof = pair.sign(&message).0;
+
+        #[extrinsic_call]
+        _(
+            T::RuntimeOrigin::signed(controller.clone()),
+            DEV_CHAIN_KEY,
+            public,
+            proof,
+            Some(old),
+        );
+
+        assert_eq!(
+            AttestorPeerKeys::<T>::get(DEV_CHAIN_KEY, &controller),
+            Some(public)
+        );
+        assert_eq!(
+            PeerKeyOwner::<T>::get(DEV_CHAIN_KEY, public),
+            Some(controller)
+        );
+        assert!(!PeerKeyOwner::<T>::contains_key(DEV_CHAIN_KEY, old));
+    }
+
+    #[benchmark]
+    fn set_peer_registration_required(a: Linear<1, MAX_ATTESTORS>) {
+        use sp_core::{ed25519, Pair as _};
+        let mut active = Vec::new();
+        for j in 0..a {
+            let stash = create_funded_user_with_balance::<T>("stash", j);
+            let controller = create_funded_user_with_balance::<T>("attestor", j + 100);
+            let attestor = Attestor::<T>::new(stash, controller.clone(), j);
+            assert_ok!(Attestation::<T>::register_attestor(
+                attestor.stash_origin,
+                DEV_CHAIN_KEY,
+                controller.clone()
+            ));
+            assert_ok!(Attestation::<T>::attest(
+                attestor.attestor_origin,
+                DEV_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+            let mut seed = [0; 32];
+            seed[..4].copy_from_slice(&j.to_le_bytes());
+            let public = ed25519::Pair::from_seed(&seed).public().0;
+            AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &controller, public);
+            PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, public, &controller);
+            active.push(controller);
+        }
+        ActiveAttestors::<T>::insert(DEV_CHAIN_KEY, active);
+
+        #[extrinsic_call]
+        _(T::RuntimeOrigin::root(), DEV_CHAIN_KEY, true);
+
+        assert!(PeerRegistrationRequired::<T>::get(DEV_CHAIN_KEY));
+    }
+
+    #[cfg(test)]
+    mod peer_registration_benchmark_tests {
+        use super::*;
+        use crate::mock::{ExtBuilder, Test};
+
+        #[test]
+        fn peer_key_rotation_benchmark_fixture() {
+            ExtBuilder.build().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"set_attestor_peer_key").unwrap();
+            });
+        }
+
+        #[test]
+        fn peer_registration_policy_benchmark_fixture() {
+            ExtBuilder.build().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"set_peer_registration_required").unwrap();
+            });
+        }
+    }
+
+    #[benchmark]
     fn chill() {
         // Setup
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);

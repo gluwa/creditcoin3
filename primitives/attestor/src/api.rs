@@ -1,11 +1,14 @@
 use parity_scale_codec::{Codec, Decode};
 use sp_std::vec::Vec;
 
-use crate::{AttestationCheckpoint, AttestorStatus, ChainKey, Digest, SignedAttestation};
+use crate::{
+    AttestationCheckpoint, AttestorStatus, ChainKey, Digest, PeerRegistry, SignedAttestation,
+};
 
 use super::BlsPublicKey;
 
 sp_api::decl_runtime_apis! {
+    #[api_version(2)]
     pub trait AttestorApi<H, AccountId>
         where
             AccountId: Codec + Decode,
@@ -30,6 +33,8 @@ sp_api::decl_runtime_apis! {
         fn attestor_status(chain_key: ChainKey, attestor: &AccountId) -> Option<AttestorStatus>;
 
         fn active_attestor_set(chain_key: ChainKey) -> Vec<AccountId>;
+
+        fn attestor_peer_registry(chain_key: ChainKey) -> PeerRegistry<AccountId>;
 
         fn attestation_checkpoint_interval(chain_key: ChainKey) -> u32;
 
