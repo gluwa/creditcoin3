@@ -1449,6 +1449,10 @@ declare module '@polkadot/types/lookup' {
             readonly wipedSuffix: bool;
             readonly tipBlockNumber: u64;
         } & Struct;
+        readonly isAttestorPeerKeyUpdated: boolean;
+        readonly asAttestorPeerKeyUpdated: ITuple<[u64, AccountId32, U8aFixed]>;
+        readonly isPeerRegistrationRequiredChanged: boolean;
+        readonly asPeerRegistrationRequiredChanged: ITuple<[u64, bool]>;
         readonly type:
             | 'AttestorRegistered'
             | 'AttestorUnregistered'
@@ -1480,7 +1484,9 @@ declare module '@polkadot/types/lookup' {
             | 'ForcedElection'
             | 'ForcedUpdatesApplied'
             | 'RevertedAttestationChainTo'
-            | 'ForwardCheckpointPatchApplied';
+            | 'ForwardCheckpointPatchApplied'
+            | 'AttestorPeerKeyUpdated'
+            | 'PeerRegistrationRequiredChanged';
     }
 
     /** @name AttestorPrimitivesAttestationCheckpoint (104) */
@@ -3489,6 +3495,18 @@ declare module '@polkadot/types/lookup' {
         readonly asForceElection: {
             readonly chainKey: u64;
         } & Struct;
+        readonly isSetAttestorPeerKey: boolean;
+        readonly asSetAttestorPeerKey: {
+            readonly chainKey: u64;
+            readonly publicKey: U8aFixed;
+            readonly proofOfPossession: U8aFixed;
+            readonly expectedPreviousKey: Option<U8aFixed>;
+        } & Struct;
+        readonly isSetPeerRegistrationRequired: boolean;
+        readonly asSetPeerRegistrationRequired: {
+            readonly chainKey: u64;
+            readonly required: bool;
+        } & Struct;
         readonly type:
             | 'SetChainAttestationInterval'
             | 'SetTargetSampleSize'
@@ -3514,7 +3532,9 @@ declare module '@polkadot/types/lookup' {
             | 'ForceApplyUpdates'
             | 'RevertTo'
             | 'ForwardPatchCheckpoints'
-            | 'ForceElection';
+            | 'ForceElection'
+            | 'SetAttestorPeerKey'
+            | 'SetPeerRegistrationRequired';
     }
 
     /** @name AttestorPrimitivesSignedAttestation (343) */
@@ -4113,14 +4133,14 @@ declare module '@polkadot/types/lookup' {
         readonly type: 'Active' | 'Idle' | 'Waiting' | 'Leaving';
     }
 
-    /** @name PalletAttestationRetiredAttestorBlsKeyEntry (437) */
+    /** @name PalletAttestationRetiredAttestorBlsKeyEntry (438) */
     interface PalletAttestationRetiredAttestorBlsKeyEntry extends Struct {
         readonly blsPublicKey: U8aFixed;
         readonly purgeAtEra: u32;
         readonly stash: AccountId32;
     }
 
-    /** @name PalletAttestationLedgerAttestorLedger (443) */
+    /** @name PalletAttestationLedgerAttestorLedger (444) */
     interface PalletAttestationLedgerAttestorLedger extends Struct {
         readonly stash: AccountId32;
         readonly totalStaked: Compact<u128>;
@@ -4128,29 +4148,32 @@ declare module '@polkadot/types/lookup' {
         readonly unlocking: Vec<PalletAttestationLedgerUnlockChunk>;
     }
 
-    /** @name PalletAttestationLedgerUnlockChunk (445) */
+    /** @name PalletAttestationLedgerUnlockChunk (446) */
     interface PalletAttestationLedgerUnlockChunk extends Struct {
         readonly value: Compact<u128>;
         readonly era: Compact<u32>;
     }
 
-    /** @name PalletAttestationClearOrRevertRemovedChainCleanupPhase (447) */
+    /** @name PalletAttestationClearOrRevertRemovedChainCleanupPhase (448) */
     interface PalletAttestationClearOrRevertRemovedChainCleanupPhase extends Enum {
         readonly isChillAttestors: boolean;
         readonly asChillAttestors: Option<Bytes>;
         readonly isRetiredKeys: boolean;
         readonly isBlsKeyOwners: boolean;
         readonly isInvulnerables: boolean;
-        readonly type: 'ChillAttestors' | 'RetiredKeys' | 'BlsKeyOwners' | 'Invulnerables';
+        readonly isPeerKeys: boolean;
+        readonly isPeerKeyOwners: boolean;
+        readonly type:
+            'ChillAttestors' | 'RetiredKeys' | 'BlsKeyOwners' | 'Invulnerables' | 'PeerKeys' | 'PeerKeyOwners';
     }
 
-    /** @name PalletAttestationClearOrRevertCheckpointPruningState (448) */
+    /** @name PalletAttestationClearOrRevertCheckpointPruningState (449) */
     interface PalletAttestationClearOrRevertCheckpointPruningState extends Struct {
         readonly stopHeight: u64;
         readonly nextPivot: u64;
     }
 
-    /** @name PalletAttestationError (449) */
+    /** @name PalletAttestationError (450) */
     interface PalletAttestationError extends Enum {
         readonly isAlreadyAttestor: boolean;
         readonly isAttestorListFull: boolean;
@@ -4220,7 +4243,11 @@ declare module '@polkadot/types/lookup' {
         readonly isOversizedContinuityProof: boolean;
         readonly isAttestationCleanupInProgress: boolean;
         readonly isTooManyAttestationsInBlock: boolean;
-        readonly isInvalidMaxInvulnerables: boolean;
+        readonly isInvalidMaxInvulnerables: boolean
+        readonly isInvalidPeerKeyProof: boolean;
+        readonly isPeerKeyAlreadyRegistered: boolean;
+        readonly isPeerKeyNotRegistered: boolean;
+        readonly isPeerKeyRegistrationChanged: boolean;
         readonly type:
             | 'AlreadyAttestor'
             | 'AttestorListFull'
@@ -4290,10 +4317,14 @@ declare module '@polkadot/types/lookup' {
             | 'OversizedContinuityProof'
             | 'AttestationCleanupInProgress'
             | 'TooManyAttestationsInBlock'
-            | 'InvalidMaxInvulnerables';
+            | 'InvalidMaxInvulnerables'
+            | 'InvalidPeerKeyProof'
+            | 'PeerKeyAlreadyRegistered'
+            | 'PeerKeyNotRegistered'
+            | 'PeerKeyRegistrationChanged';
     }
 
-    /** @name SupportedChainsPrimitivesSupportedChain (450) */
+    /** @name SupportedChainsPrimitivesSupportedChain (451) */
     interface SupportedChainsPrimitivesSupportedChain extends Struct {
         readonly chainId: u64;
         readonly chainName: Bytes;
@@ -4301,7 +4332,7 @@ declare module '@polkadot/types/lookup' {
         readonly maturityStrategy: Text;
     }
 
-    /** @name PalletSupportedChainsError (452) */
+    /** @name PalletSupportedChainsError (453) */
     interface PalletSupportedChainsError extends Enum {
         readonly isChainAlreadyRegistered: boolean;
         readonly isChainNotSupported: boolean;

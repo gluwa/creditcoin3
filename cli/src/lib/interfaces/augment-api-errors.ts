@@ -135,6 +135,7 @@ declare module '@polkadot/api-base/types/errors' {
              * `MaxAttestationNodes` ceiling. Mirrors [`Error::InvalidMaxAttestors`].
              **/
             InvalidMaxInvulnerables: AugmentedError<ApiType>;
+            InvalidPeerKeyProof: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
             /**
@@ -161,6 +162,9 @@ declare module '@polkadot/api-base/types/errors' {
             NotStash: AugmentedError<ApiType>;
             NotYourAttestor: AugmentedError<ApiType>;
             OversizedContinuityProof: AugmentedError<ApiType>;
+            PeerKeyAlreadyRegistered: AugmentedError<ApiType>;
+            PeerKeyNotRegistered: AugmentedError<ApiType>;
+            PeerKeyRegistrationChanged: AugmentedError<ApiType>;
             /**
              * Too many retired attestor key entries are queued for this stash
              **/

@@ -163,6 +163,19 @@ declare module '@polkadot/api-base/types/storage' {
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * Separate maps preserve the SCALE layout of existing Attestors records. Missing keys
+             * are allowed during rollout; registration is optional until an operator enables it.
+             **/
+            attestorPeerKeys: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: AccountId32 | string | Uint8Array,
+                ) => Observable<Option<U8aFixed>>,
+                [u64, AccountId32]
+            > &
+                QueryableStorageEntry<ApiType, [u64, AccountId32]>;
             attestors: AugmentedQuery<
                 ApiType,
                 (
@@ -331,6 +344,24 @@ declare module '@polkadot/api-base/types/storage' {
             minBondRequirement: AugmentedQuery<
                 ApiType,
                 (arg: u64 | AnyNumber | Uint8Array) => Observable<u128>,
+                [u64]
+            > &
+                QueryableStorageEntry<ApiType, [u64]>;
+            /**
+             * One controller per networking identity on each source chain.
+             **/
+            peerKeyOwner: AugmentedQuery<
+                ApiType,
+                (
+                    arg1: u64 | AnyNumber | Uint8Array,
+                    arg2: U8aFixed | string | Uint8Array,
+                ) => Observable<Option<AccountId32>>,
+                [u64, U8aFixed]
+            > &
+                QueryableStorageEntry<ApiType, [u64, U8aFixed]>;
+            peerRegistrationRequired: AugmentedQuery<
+                ApiType,
+                (arg: u64 | AnyNumber | Uint8Array) => Observable<bool>,
                 [u64]
             > &
                 QueryableStorageEntry<ApiType, [u64]>;

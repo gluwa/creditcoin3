@@ -242,6 +242,18 @@ declare module '@polkadot/api-base/types/submittable' {
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u32]
             >;
+            /**
+             * Register or rotate the signing controller's Ed25519 networking identity.
+             **/
+            setAttestorPeerKey: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    publicKey: U8aFixed | string | Uint8Array,
+                    proofOfPossession: U8aFixed | string | Uint8Array,
+                    expectedPreviousKey: Option<U8aFixed> | null | Uint8Array | U8aFixed | string,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, U8aFixed, U8aFixed, Option<U8aFixed>]
+            >;
             setChainAttestationInterval: AugmentedSubmittable<
                 (
                     chainKey: u64 | AnyNumber | Uint8Array,
@@ -295,6 +307,16 @@ declare module '@polkadot/api-base/types/submittable' {
                     minBondRequirement: u128 | AnyNumber | Uint8Array,
                 ) => SubmittableExtrinsic<ApiType>,
                 [u64, u128]
+            >;
+            /**
+             * Enable after active/waiting attestors have backfilled their networking keys.
+             **/
+            setPeerRegistrationRequired: AugmentedSubmittable<
+                (
+                    chainKey: u64 | AnyNumber | Uint8Array,
+                    required: bool | boolean | Uint8Array,
+                ) => SubmittableExtrinsic<ApiType>,
+                [u64, bool]
             >;
             /**
              * Set the per-chain [`TargetSampleSize`]. Applies at the next epoch via

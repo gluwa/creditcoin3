@@ -66,11 +66,13 @@ pub async fn run(
     cfg: Config,
     mut gossip_rx: mpsc::UnboundedReceiver<Vote>,
     mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
+    mut peer_registry_rx: tokio::sync::watch::Receiver<Arc<crate::peer_registry::Registry>>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
 
     let enable_mdns = !cfg.no_mdns;
     let chain_key = cfg.chain_key;
+    let mut peer_registry = peer_registry_rx.borrow_and_update().clone();
 
     // Built before the swarm because the behavior needs the topic hash to install its
     // gossipsub peer-scoring topic parameters.
@@ -131,10 +133,21 @@ pub async fn run(
     // Reserve trusted inbound peers before listening. A seed with no boot peers cannot rely on
     // learning committee bindings from votes: Sybils may fill the unreserved pool first, leaving
     // legitimate attestors unable to connect and send the very vote that would reserve them.
+    swarm.behaviour_mut().admission.set_committee_peers(
+        peer_registry
+            .registered_peers()
+            .filter(|peer| *peer != local_peer_id),
+        peer_registry.registration_required,
+    );
+    let fallback_peers = if peer_registry.registration_required {
+        &[][..]
+    } else {
+        &cfg.reserved_peers
+    };
     configure_bootstrap_admission(
         &mut swarm.behaviour_mut().admission,
         &boot_peers,
-        &cfg.reserved_peers,
+        fallback_peers,
         local_peer_id,
         enable_mdns,
         cfg.public_addr.is_some(),
@@ -197,14 +210,19 @@ pub async fn run(
     let mut dial_failures: std::collections::HashMap<libp2p::PeerId, u32> =
         std::collections::HashMap::new();
 
-    // Known attestor → libp2p peer id bindings, learned from the (gossipsub-signed) authorship of
-    // BLS-verified votes. `message.source` is the original signer and survives relaying, so it
-    // reliably identifies an attestor's own peer even when the relaying neighbour differs. Used to
-    // (a) evict a chilled/kicked attestor's peer on the production nudge and (b) refuse to re-add
-    // or reconnect that peer while it stays chilled (the deny-list). A `Vec` suffices: the set is
-    // bounded by committee size and only ever linearly scanned. The p2p keypair is ed25519 while
-    // the on-chain attestor id is sr25519, so this binding cannot be derived — it must be learned.
+    // Finalized controller → networking identity bindings take priority over gossip. During
+    // rollout, BLS-verified votes may supply a temporary binding only for active controllers
+    // with no registered key. Retained inactive bindings support eviction and a bounded deny
+    // history; a controller's new finalized key replaces its previous binding.
     let mut peers_by_attestor: Vec<(AttestorId, libp2p::PeerId)> = Vec::new();
+    apply_peer_registry(
+        &mut swarm,
+        &mut peers_by_attestor,
+        &peer_registry,
+        &cfg.reserved_peers,
+    );
+    ensure_local_peer_key(&peer_registry, &shared.attestor_id, local_peer_id)
+        .map_err(Error::P2p)?;
 
     let mut local_produced_rx = shared.local_produced_rx.clone();
     let mut latest_finalized_rx = shared.latest_finalized_rx.clone();
@@ -226,6 +244,15 @@ pub async fn run(
         tokio::select! {
             biased;
             _ = shared.token.cancelled() => return Ok(()),
+
+            result = peer_registry_rx.changed() => {
+                if result.is_err() {
+                    return Err(Error::P2p(anyhow::anyhow!("finalized peer registry task stopped")));
+                }
+                peer_registry = peer_registry_rx.borrow_and_update().clone();
+                ensure_local_peer_key(&peer_registry, &shared.attestor_id, local_peer_id).map_err(Error::P2p)?;
+                apply_peer_registry(&mut swarm, &mut peers_by_attestor, &peer_registry, &cfg.reserved_peers);
+            }
 
             // Outgoing — production gives us a freshly built local vote to gossip. Always drain
             // the channel (even while peerless): the channel is unbounded, so draining
@@ -297,6 +324,7 @@ pub async fn run(
                     &mut dial_failures,
                     &boot_peers,
                     &mut peers_by_attestor,
+                    &peer_registry,
                     event,
                 ).await;
                 // Recompute the mesh hint after *every* event rather than inside selected event
@@ -333,7 +361,11 @@ fn configure_bootstrap_admission(
     let has_boot_peers = boot_peers.iter().any(|peer| *peer != local_peer);
     let has_reserved_peers = reserved_peers.iter().any(|peer| *peer != local_peer);
 
-    if has_public_addr && !has_boot_peers && !has_reserved_peers {
+    if has_public_addr
+        && !has_boot_peers
+        && !has_reserved_peers
+        && !admission.has_committee_bootstrap()
+    {
         anyhow::bail!(
             "a public seed without usable boot nodes requires trusted committee peer IDs in \
              --reserved-peers / ATTESTOR_RESERVED_PEERS / p2p.reserved_peers; otherwise \
@@ -352,12 +384,82 @@ fn configure_bootstrap_admission(
         );
     }
 
-    for peer in boot_peers.iter().chain(reserved_peers) {
+    for peer in boot_peers {
         if *peer != local_peer {
             admission.pin(*peer);
         }
     }
+    admission.set_configured_peers(
+        reserved_peers
+            .iter()
+            .copied()
+            .filter(|peer| *peer != local_peer),
+    );
     Ok(())
+}
+
+fn ensure_local_peer_key(
+    registry: &crate::peer_registry::Registry,
+    attestor: &AttestorId,
+    local: libp2p::PeerId,
+) -> anyhow::Result<()> {
+    if registry.peer(attestor).is_some_and(|peer| peer != local) {
+        anyhow::bail!("this instance's finalized networking key was rotated; restart with the matching p2p secret");
+    }
+    Ok(())
+}
+
+/// Rebuild dynamic reservations from one finalized view. Gossip may fill missing legacy
+/// bindings during rollout, but cannot overwrite a registered networking identity.
+fn apply_peer_registry(
+    swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
+    bindings: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    registry: &crate::peer_registry::Registry,
+    fallback: &[libp2p::PeerId],
+) {
+    let local = *swarm.local_peer_id();
+    let previously_reserved = swarm.behaviour().admission.reserved_peers();
+    for (attestor, peer) in &registry.attestors {
+        if let Some(peer) = peer {
+            note_attestor_peer(bindings, attestor.clone(), *peer);
+        }
+    }
+    let admission = &mut swarm.behaviour_mut().admission;
+    admission.set_committee_peers(
+        registry.registered_peers().filter(|peer| *peer != local),
+        registry.registration_required,
+    );
+    admission.set_configured_peers(
+        fallback
+            .iter()
+            .copied()
+            .filter(|peer| !registry.registration_required && *peer != local),
+    );
+    admission.set_learned_peers(
+        bindings
+            .iter()
+            .filter(|(id, _)| registry.is_legacy_member(id))
+            .map(|(_, peer)| *peer),
+    );
+    for peer in previously_reserved {
+        if !swarm.behaviour().admission.is_reserved(&peer) {
+            swarm.behaviour_mut().kad.remove_peer(&peer);
+            let _ = swarm.disconnect_peer_id(peer);
+        }
+    }
+    // Retain a bounded history for the existing chilled-peer deny gate, plus every current
+    // committee binding. Otherwise repeated elections would grow this vector forever.
+    let mut retired = 0;
+    let mut kept = Vec::with_capacity(bindings.len());
+    for binding in bindings.drain(..).rev() {
+        let active = registry.attestors.iter().any(|(id, _)| *id == binding.0);
+        if active || retired < common::constants::MAX_ATTESTORS {
+            retired += usize::from(!active);
+            kept.push(binding);
+        }
+    }
+    kept.reverse();
+    *bindings = kept;
 }
 
 /// Pending buffer for votes that arrived before local production reached their height:
@@ -405,6 +507,7 @@ async fn handle_swarm(
     dial_failures: &mut std::collections::HashMap<libp2p::PeerId, u32>,
     boot_peers: &std::collections::HashSet<libp2p::PeerId>,
     peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    peer_registry: &crate::peer_registry::Registry,
     event: libp2p::swarm::SwarmEvent<behavior::P2PBehaviorEvent>,
 ) {
     use behavior::P2PBehaviorEvent;
@@ -500,20 +603,18 @@ async fn handle_swarm(
             )
             .await;
 
-            // Learn the attestor → peer id binding from the *original signer* of a BLS-verified
-            // vote (`message.source`, preserved across relays), not the relaying neighbour. Only
-            // recorded when the vote cryptographically verified as the attestor's, so the binding
-            // is trustworthy. This is what later lets us evict / deny that peer once its attestor
-            // is chilled.
+            // During backfill, legacy bindings use the original signed publisher rather than
+            // the relaying neighbour. Registered controllers always use the finalized mapping.
             if let (Some(attestor), Some(source)) = (learned, message.source) {
-                if let Some(old) = note_attestor_peer(peers_by_attestor, attestor, source) {
-                    // The attestor moved to a new peer id; the old one keeps no reservation
-                    // unless another attestor still maps to it.
-                    if !peers_by_attestor.iter().any(|(_, p)| *p == old) {
-                        swarm.behaviour_mut().admission.unreserve(&old);
-                    }
-                }
-                swarm.behaviour_mut().admission.reserve(source);
+                // A valid BLS vote can be republished by another transport identity. Once
+                // registered, only the finalized on-chain mapping grants reserved capacity.
+                note_verified_vote_peer(
+                    &mut swarm.behaviour_mut().admission,
+                    peers_by_attestor,
+                    peer_registry,
+                    attestor,
+                    source,
+                );
             }
 
             let decision = match acceptance {
@@ -766,11 +867,30 @@ fn republish_outbox(
 
 // -------------------------------------* peer deny-list *-------------------------------------- //
 
-/// Records (or refreshes) the libp2p peer id we've observed for an attestor. Called only for
-/// BLS-verified votes, so the binding is trustworthy. A single attestor keeps at most one peer id;
-/// a node that re-registers under a *new* attestor id simply adds a second `(attestor, peer)`
-/// entry, which is exactly what lets [`deny_decision`] treat a peer as active while *any* attestor
-/// mapped to it is active. Returns the previous peer id when it changed.
+/// Opportunistic vote-authorship bindings exist only for unregistered members during rollout.
+/// A copied valid vote cannot override or reserve a finalized registered transport identity.
+fn note_verified_vote_peer(
+    admission: &mut admission::Behaviour,
+    bindings: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    registry: &crate::peer_registry::Registry,
+    attestor: AttestorId,
+    source: libp2p::PeerId,
+) {
+    if !registry.is_legacy_member(&attestor) {
+        return;
+    }
+    if let Some(old) = note_attestor_peer(bindings, attestor, source) {
+        if !bindings
+            .iter()
+            .any(|(id, peer)| *peer == old && registry.is_legacy_member(id))
+        {
+            admission.unreserve(&old);
+        }
+    }
+    admission.reserve(source);
+}
+
+/// Record one peer per attestor, returning its previous peer ID after a rotation.
 fn note_attestor_peer(
     peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
     attestor: AttestorId,
@@ -1221,12 +1341,119 @@ mod tests {
     }
 
     use super::{
-        deny_decision, drain_pending_votes, is_bufferable, note_attestor_peer, PendingVotes,
+        apply_peer_registry, deny_decision, drain_pending_votes, ensure_local_peer_key,
+        is_bufferable, note_attestor_peer, note_verified_vote_peer, PendingVotes,
     };
     use attestor_primitives::AttestorId;
 
     fn att(n: u8) -> AttestorId {
         AttestorId::from_public([n; 32])
+    }
+
+    fn registry(
+        required: bool,
+        attestors: Vec<(AttestorId, Option<libp2p::PeerId>)>,
+    ) -> crate::peer_registry::Registry {
+        crate::peer_registry::Registry {
+            genesis_hash: Default::default(),
+            registration_required: required,
+            attestors,
+            finalized_hash: Default::default(),
+            finalized_number: 0,
+        }
+    }
+
+    fn swarm() -> libp2p::Swarm<super::behavior::P2PBehavior> {
+        let topic = libp2p::gossipsub::IdentTopic::new("1/attest");
+        libp2p::SwarmBuilder::with_new_identity()
+            .with_tokio()
+            .with_tcp(
+                libp2p::tcp::Config::default(),
+                libp2p::noise::Config::new,
+                libp2p::yamux::Config::default,
+            )
+            .unwrap()
+            .with_behaviour(|key| super::behavior::P2PBehavior::new(key, false, &topic))
+            .unwrap()
+            .build()
+    }
+
+    #[tokio::test]
+    async fn registered_identity_cannot_be_rebound_by_a_republished_valid_vote() {
+        let mut swarm = swarm();
+        let (registered, attacker) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+        let registry = registry(false, vec![(att(1), Some(registered))]);
+        let mut bindings = Vec::new();
+        apply_peer_registry(&mut swarm, &mut bindings, &registry, &[]);
+        note_verified_vote_peer(
+            &mut swarm.behaviour_mut().admission,
+            &mut bindings,
+            &registry,
+            att(1),
+            attacker,
+        );
+        assert_eq!(bindings, vec![(att(1), registered)]);
+        assert!(!swarm.behaviour().admission.is_reserved(&attacker));
+    }
+
+    #[tokio::test]
+    async fn registry_rotation_replaces_legacy_and_configured_reservations() {
+        let mut swarm = swarm();
+        let (old, new, boot) = (
+            libp2p::PeerId::random(),
+            libp2p::PeerId::random(),
+            libp2p::PeerId::random(),
+        );
+        swarm.behaviour_mut().admission.pin(boot);
+        let mut bindings = Vec::new();
+        let legacy = registry(false, vec![(att(1), None)]);
+        note_verified_vote_peer(
+            &mut swarm.behaviour_mut().admission,
+            &mut bindings,
+            &legacy,
+            att(1),
+            old,
+        );
+        apply_peer_registry(
+            &mut swarm,
+            &mut bindings,
+            &registry(true, vec![(att(1), Some(new))]),
+            &[old],
+        );
+        assert_eq!(bindings, vec![(att(1), new)]);
+        assert!(!swarm.behaviour().admission.is_reserved(&old));
+        assert!(swarm.behaviour().admission.is_reserved(&new));
+        assert!(swarm.behaviour().admission.is_reserved(&boot));
+    }
+
+    #[tokio::test]
+    async fn deactivated_member_loses_capacity_and_keeps_a_bounded_deny_binding() {
+        let mut swarm = swarm();
+        let old = libp2p::PeerId::random();
+        let mut bindings = Vec::new();
+        apply_peer_registry(
+            &mut swarm,
+            &mut bindings,
+            &registry(true, vec![(att(1), Some(old))]),
+            &[],
+        );
+        apply_peer_registry(&mut swarm, &mut bindings, &registry(true, vec![]), &[]);
+        assert!(!swarm.behaviour().admission.is_reserved(&old));
+        assert!(deny_decision(
+            bindings
+                .iter()
+                .filter(|(_, peer)| *peer == old)
+                .map(|(id, _)| id),
+            |_| false
+        ));
+    }
+
+    #[test]
+    fn an_instance_stops_if_its_own_finalized_key_changes() {
+        let (old, new) = (libp2p::PeerId::random(), libp2p::PeerId::random());
+        let registry = registry(true, vec![(att(1), Some(new))]);
+        assert!(ensure_local_peer_key(&registry, &att(1), old).is_err());
+        assert!(ensure_local_peer_key(&registry, &att(1), new).is_ok());
     }
 
     // ------------------------------* attestor peer map *------------------------------ //
