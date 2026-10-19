@@ -34,7 +34,6 @@ pub(crate) struct Behaviour {
     configured: HashSet<PeerId>,
     /// Finalized on-chain committee identities; replaced atomically on membership/rotation.
     committee: HashSet<PeerId>,
-    registration_required: bool,
     /// Established inbound connections. Whether one counts against the shared pool is decided
     /// at admission time, so reserving or unreserving a peer moves its live connections too.
     incoming: HashMap<ConnectionId, PeerId>,
@@ -48,7 +47,6 @@ impl Behaviour {
             pinned: HashSet::new(),
             configured: HashSet::new(),
             committee: HashSet::new(),
-            registration_required: false,
             incoming: HashMap::new(),
         }
     }
@@ -82,7 +80,6 @@ impl Behaviour {
         registration_required: bool,
     ) {
         self.committee = peers.into_iter().collect();
-        self.registration_required = registration_required;
         if registration_required {
             self.configured.clear();
             self.reserved.retain(|peer| self.pinned.contains(peer));
@@ -91,11 +88,6 @@ impl Behaviour {
 
     pub(crate) fn set_learned_peers(&mut self, peers: impl IntoIterator<Item = PeerId>) {
         self.reserved = self.pinned.iter().copied().chain(peers).collect();
-    }
-
-    pub(crate) fn has_committee_bootstrap(&self) -> bool {
-        // A strict, single-member committee also needs no remote reservation to bootstrap.
-        self.registration_required || !self.committee.is_empty()
     }
 
     pub(crate) fn is_reserved(&self, peer: &PeerId) -> bool {
@@ -209,6 +201,7 @@ impl NetworkBehaviour for Behaviour {
 
 #[cfg(test)]
 mod tests {
+    use super::super::tests::registry;
     use super::*;
 
     #[test]
@@ -224,6 +217,13 @@ mod tests {
             PeerId::random(),
             false,
             true,
+            &registry(
+                true,
+                vec![(
+                    attestor_primitives::AttestorId::from_public([1; 32]),
+                    Some(member),
+                )],
+            ),
         )
         .unwrap();
         assert!(behaviour.admit(&member).is_ok());
@@ -273,6 +273,7 @@ mod tests {
             PeerId::random(),
             false,
             true,
+            &registry(false, vec![]),
         )
         .unwrap();
 
@@ -305,6 +306,7 @@ mod tests {
                     local,
                     enable_mdns,
                     true,
+                    &registry(false, vec![]),
                 )
                 .unwrap_err();
                 assert!(error.to_string().contains("reserved-peers"));
@@ -324,6 +326,7 @@ mod tests {
             PeerId::random(),
             false,
             true,
+            &registry(false, vec![]),
         )
         .unwrap();
         assert!(behaviour.admit(&boot).is_ok());
@@ -340,6 +343,7 @@ mod tests {
             local,
             false,
             true,
+            &registry(false, vec![]),
         )
         .is_err());
     }
@@ -353,6 +357,7 @@ mod tests {
             PeerId::random(),
             false,
             false,
+            &registry(false, vec![]),
         )
         .is_err());
     }
@@ -366,6 +371,7 @@ mod tests {
             PeerId::random(),
             true,
             false,
+            &registry(false, vec![]),
         )
         .is_ok());
     }

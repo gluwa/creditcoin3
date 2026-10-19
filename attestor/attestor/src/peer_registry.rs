@@ -81,6 +81,13 @@ impl Registry {
     pub fn registered_peers(&self) -> impl Iterator<Item = PeerId> + '_ {
         self.attestors.iter().filter_map(|(_, peer)| *peer)
     }
+
+    /// A public seed needs a registered remote peer, except when its own registered key is
+    /// the entire finalized committee. A partial larger committee still needs remote trust.
+    pub fn has_bootstrap_peers(&self, local: PeerId) -> bool {
+        self.registered_peers().any(|peer| peer != local)
+            || matches!(self.attestors.as_slice(), [(_, Some(peer))] if *peer == local)
+    }
 }
 
 pub fn networking_keypair(secret: &AttestorSecret) -> anyhow::Result<identity::Keypair> {

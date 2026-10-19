@@ -463,18 +463,21 @@ impl Attestor {
         // Load networking identities before any gossip or inbound listener is started. During
         // backfill a root seed can wait for another committee key without requiring a manually
         // maintained allowlist. Production has not started, so outgoing votes cannot accumulate.
-        let has_static_route = self.config.p2p.boot_nodes.iter().any(|address| {
+        let has_boot_route = self.config.p2p.boot_nodes.iter().any(|address| {
             address.iter().any(|protocol| matches!(protocol, libp2p::multiaddr::Protocol::P2p(peer) if peer != peer_id))
-        }) || self.config.p2p.reserved_peers.iter().any(|peer| *peer != peer_id);
+        });
         let initial_registry = loop {
             let registry = match peer_registry::load(&cc3, &token, chain_key).await {
                 Err(_) if token.is_cancelled() => return Ok(()),
                 result => result?,
             };
             if self.config.p2p.public_addr.is_none()
-                || has_static_route
-                || registry.registration_required
-                || registry.registered_peers().any(|peer| peer != peer_id)
+                || tasks::p2p::can_bootstrap_seed(
+                    peer_id,
+                    has_boot_route,
+                    &self.config.p2p.reserved_peers,
+                    &registry,
+                )
             {
                 break registry;
             }

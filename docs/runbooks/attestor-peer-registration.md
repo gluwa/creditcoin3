@@ -76,7 +76,8 @@ Connections from boot nodes remain explicitly trusted by configuration.
    verify their networking identities and connectivity. During backfill, `p2p.reserved_peers`
    remains an optional trusted fallback for unregistered peers. A root seed with no static route
    waits in startup for finalized committee keys rather than requiring a manually maintained
-   list. A strict single-member committee can bootstrap without a remote peer.
+   list. A registered single-member committee can bootstrap without a remote peer, including
+   while enforcement is disabled.
 5. Through the network's existing operator/governance mechanism, submit:
 
    ```text

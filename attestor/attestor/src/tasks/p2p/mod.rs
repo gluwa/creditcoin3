@@ -139,18 +139,14 @@ pub async fn run(
             .filter(|peer| *peer != local_peer_id),
         peer_registry.registration_required,
     );
-    let fallback_peers = if peer_registry.registration_required {
-        &[][..]
-    } else {
-        &cfg.reserved_peers
-    };
     configure_bootstrap_admission(
         &mut swarm.behaviour_mut().admission,
         &boot_peers,
-        fallback_peers,
+        &cfg.reserved_peers,
         local_peer_id,
         enable_mdns,
         cfg.public_addr.is_some(),
+        &peer_registry,
     )
     .map_err(Error::P2p)?;
 
@@ -347,6 +343,19 @@ pub async fn run(
     }
 }
 
+/// Startup waiting and admission must apply the same policy to each finalized registry snapshot.
+pub(crate) fn can_bootstrap_seed(
+    local_peer: libp2p::PeerId,
+    has_boot_peers: bool,
+    reserved_peers: &[libp2p::PeerId],
+    registry: &crate::peer_registry::Registry,
+) -> bool {
+    has_boot_peers
+        || registry.has_bootstrap_peers(local_peer)
+        || (!registry.registration_required
+            && reserved_peers.iter().any(|peer| *peer != local_peer))
+}
+
 /// Configure admission independently of discovery: a seed needs trusted peer IDs, but does not
 /// need their addresses or an outbound boot route. Configured IDs are authenticated by libp2p's
 /// transport handshake; merely claiming an attestor identity in a vote cannot obtain a slot.
@@ -357,15 +366,19 @@ fn configure_bootstrap_admission(
     local_peer: libp2p::PeerId,
     enable_mdns: bool,
     has_public_addr: bool,
+    registry: &crate::peer_registry::Registry,
 ) -> anyhow::Result<()> {
     let has_boot_peers = boot_peers.iter().any(|peer| *peer != local_peer);
-    let has_reserved_peers = reserved_peers.iter().any(|peer| *peer != local_peer);
 
-    if has_public_addr
-        && !has_boot_peers
-        && !has_reserved_peers
-        && !admission.has_committee_bootstrap()
+    if has_public_addr && !can_bootstrap_seed(local_peer, has_boot_peers, reserved_peers, registry)
     {
+        if registry.registration_required {
+            anyhow::bail!(
+                "a public seed without usable boot nodes must wait for finalized committee \
+                 networking keys; peer registration is required, so --reserved-peers / \
+                 ATTESTOR_RESERVED_PEERS / p2p.reserved_peers are ignored"
+            );
+        }
         anyhow::bail!(
             "a public seed without usable boot nodes requires trusted committee peer IDs in \
              --reserved-peers / ATTESTOR_RESERVED_PEERS / p2p.reserved_peers; otherwise \
@@ -389,6 +402,11 @@ fn configure_bootstrap_admission(
             admission.pin(*peer);
         }
     }
+    let reserved_peers = if registry.registration_required {
+        &[][..]
+    } else {
+        reserved_peers
+    };
     admission.set_configured_peers(
         reserved_peers
             .iter()
@@ -1350,7 +1368,7 @@ mod tests {
         AttestorId::from_public([n; 32])
     }
 
-    fn registry(
+    pub(super) fn registry(
         required: bool,
         attestors: Vec<(AttestorId, Option<libp2p::PeerId>)>,
     ) -> crate::peer_registry::Registry {
@@ -1361,6 +1379,182 @@ mod tests {
             finalized_hash: Default::default(),
             finalized_number: 0,
         }
+    }
+
+    #[test]
+    fn sole_registered_public_seed_bootstraps_during_rollout_and_enforcement() {
+        let local = libp2p::PeerId::random();
+        for required in [false, true] {
+            let registry = registry(required, vec![(att(1), Some(local))]);
+            // Startup and admission consume the same finalized-registry decision. This also
+            // covers a restart after every other committee member has been chilled.
+            assert!(registry.has_bootstrap_peers(local));
+            let mut admission = super::admission::Behaviour::new(2);
+            super::configure_bootstrap_admission(
+                &mut admission,
+                &std::collections::HashSet::new(),
+                &[],
+                local,
+                false,
+                true,
+                &registry,
+            )
+            .unwrap();
+            assert!(!admission.is_reserved(&local));
+        }
+    }
+
+    #[test]
+    fn incomplete_committee_cannot_bootstrap_a_public_seed_with_only_its_own_key() {
+        let local = libp2p::PeerId::random();
+        for attestors in [
+            vec![],
+            vec![(att(1), None)],
+            vec![(att(1), Some(local)), (att(2), None)],
+        ] {
+            let registry = registry(false, attestors);
+            assert!(!registry.has_bootstrap_peers(local));
+            assert!(super::configure_bootstrap_admission(
+                &mut super::admission::Behaviour::new(2),
+                &std::collections::HashSet::new(),
+                &[],
+                local,
+                false,
+                true,
+                &registry,
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn public_seed_waits_past_leftover_fallback_peers_until_a_key_finalizes() {
+        let local = libp2p::PeerId::random();
+        let stale = libp2p::PeerId::random();
+        let remote = libp2p::PeerId::random();
+        let configured = [local, stale];
+        let boot_peers = std::collections::HashSet::new();
+        let mut registry = registry(true, vec![]);
+        let mut admission = super::admission::Behaviour::new(2);
+
+        assert!(!super::can_bootstrap_seed(
+            local,
+            false,
+            &configured,
+            &registry
+        ));
+        let error = super::configure_bootstrap_admission(
+            &mut admission,
+            &boot_peers,
+            &configured,
+            local,
+            false,
+            true,
+            &registry,
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("finalized committee networking keys"));
+        assert!(error.to_string().contains("are ignored"));
+        assert!(!admission.is_reserved(&stale));
+
+        // A fresh finalized snapshot, including a waiting candidate, releases the startup wait.
+        for waiting in [false, true] {
+            registry.attestors.clear();
+            registry.waiting_attestors.clear();
+            if waiting {
+                registry.waiting_attestors.push((att(1), Some(remote)));
+            } else {
+                registry.attestors.push((att(1), Some(remote)));
+            }
+            assert!(super::can_bootstrap_seed(
+                local,
+                false,
+                &configured,
+                &registry
+            ));
+            super::configure_bootstrap_admission(
+                &mut admission,
+                &boot_peers,
+                &configured,
+                local,
+                false,
+                true,
+                &registry,
+            )
+            .unwrap();
+            assert!(!admission.is_reserved(&stale));
+        }
+    }
+
+    #[test]
+    fn public_seed_fallback_stops_working_when_enforcement_finalizes() {
+        let local = libp2p::PeerId::random();
+        let remote = libp2p::PeerId::random();
+        let mut registry = registry(false, vec![]);
+        let mut admission = super::admission::Behaviour::new(2);
+
+        assert!(!super::can_bootstrap_seed(
+            local,
+            false,
+            &[local],
+            &registry
+        ));
+        assert!(super::can_bootstrap_seed(
+            local,
+            false,
+            &[local, remote],
+            &registry
+        ));
+        super::configure_bootstrap_admission(
+            &mut admission,
+            &std::collections::HashSet::new(),
+            &[local, remote],
+            local,
+            false,
+            true,
+            &registry,
+        )
+        .unwrap();
+        assert!(admission.is_reserved(&remote));
+        assert!(!admission.is_reserved(&local));
+
+        registry.registration_required = true;
+        assert!(!super::can_bootstrap_seed(
+            local,
+            false,
+            &[local, remote],
+            &registry
+        ));
+    }
+
+    #[test]
+    fn enforced_public_seed_keeps_boot_nodes_without_reserving_fallback_peers() {
+        let local = libp2p::PeerId::random();
+        let boot = libp2p::PeerId::random();
+        let fallback = libp2p::PeerId::random();
+        let registry = registry(true, vec![]);
+        let mut admission = super::admission::Behaviour::new(2);
+
+        assert!(super::can_bootstrap_seed(
+            local,
+            true,
+            &[fallback],
+            &registry
+        ));
+        super::configure_bootstrap_admission(
+            &mut admission,
+            &std::collections::HashSet::from([boot]),
+            &[fallback],
+            local,
+            false,
+            true,
+            &registry,
+        )
+        .unwrap();
+        assert!(admission.is_reserved(&boot));
+        assert!(!admission.is_reserved(&fallback));
     }
 
     fn swarm() -> libp2p::Swarm<super::behavior::P2PBehavior> {
