@@ -54,8 +54,8 @@ Connections from boot nodes remain explicitly trusted by configuration.
 
 ## Rollout for an existing network
 
-1. Build the runtime and matching binaries/types from this feature. Apply the normal release
-   version process before deployment; this feature does not assign a production spec version.
+1. Build the runtime and matching binaries/types from this feature (3.140.0 / spec version 140,
+   following release 139). Coordinate the final release version through the normal release process.
    Existing binaries enforce Attestation metadata compatibility, so coordinate the finalized
    runtime upgrade and binary rollout using the normal network upgrade procedure.
 2. Leave `PeerRegistrationRequired` disabled while existing controllers publish keys. Existing

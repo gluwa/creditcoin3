@@ -244,19 +244,8 @@ pub mod pallet {
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
 
-        /// Conservative envelope: a benchmarked BLS registration plus extra trie proof space.
-        /// Ed25519 verification is cheaper; dispatch separately charges the additional DB work.
-        fn set_attestor_peer_key() -> Weight {
-            Self::attest().saturating_add(Weight::from_parts(0, 16_384))
-        }
-
-        /// Includes a full registered-attestor scan, as the benchmarked election does.
-        fn set_peer_registration_required(a: u32) -> Weight {
-            Self::force_election(a).saturating_add(Weight::from_parts(
-                0,
-                u64::from(a).saturating_mul(6_144).saturating_add(16_384),
-            ))
-        }
+        fn set_attestor_peer_key() -> Weight;
+        fn set_peer_registration_required(a: u32) -> Weight;
     }
 
     #[pallet::storage]
@@ -1194,9 +1183,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(3)]
-        #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor()
-            .saturating_add(T::DbWeight::get().reads_writes(2, 2))
-            .saturating_add(Weight::from_parts(0, 8_192)))]
+        #[pallet::weight(<T as Config>::WeightInfo::unregister_attestor())]
         pub fn unregister_attestor(
             origin: OriginFor<T>,
             chain_key: ChainKey,
@@ -1380,9 +1367,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(13)]
-        #[pallet::weight(<T as Config>::WeightInfo::attest()
-            .saturating_add(T::DbWeight::get().reads(2))
-            .saturating_add(Weight::from_parts(0, 8_192)))]
+        #[pallet::weight(<T as Config>::WeightInfo::attest())]
         pub fn attest(
             origin: OriginFor<T>,
             chain_key: ChainKey,
@@ -1718,7 +1703,7 @@ pub mod pallet {
 
         /// Register or rotate the signing controller's Ed25519 networking identity.
         #[pallet::call_index(31)]
-        #[pallet::weight(Pallet::<T>::peer_key_registration_weight())]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestor_peer_key())]
         pub fn set_attestor_peer_key(
             origin: OriginFor<T>,
             chain_key: ChainKey,
@@ -1738,7 +1723,7 @@ pub mod pallet {
 
         /// Enable after active/waiting attestors have backfilled their networking keys.
         #[pallet::call_index(32)]
-        #[pallet::weight(Pallet::<T>::peer_registration_policy_weight(*chain_key))]
+        #[pallet::weight(<T as Config>::WeightInfo::set_peer_registration_required(AttestorsCount::<T>::get(chain_key)))]
         pub fn set_peer_registration_required(
             origin: OriginFor<T>,
             chain_key: ChainKey,
