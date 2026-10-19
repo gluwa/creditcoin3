@@ -142,3 +142,7 @@ priority = -1
 
 [lints.rust]
 unreachable_pub = "warn"
+
+# Only carries the `wasm-bindgen` feature (`getrandom/js`); not referenced in code.
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]
