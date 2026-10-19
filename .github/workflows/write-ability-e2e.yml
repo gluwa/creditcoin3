@@ -1,10 +1,10 @@
 ---
-# checkov:skip=CKV_GHA_7:Inputs select SHA-pinned E2E dependencies and allowlisted test scenarios.
 # Run the actual relayer against Creditcoin, destination Anvil, live attestors and native proofs.
 # Every companion repository is checked out explicitly so relayer/contract PRs exercise their
 # candidate code when calling this workflow from another repository.
 name: write-ability-e2e
 
+# checkov:skip=CKV_GHA_7:Inputs select SHA-pinned E2E dependencies and allowlisted test scenarios.
 "on":
   workflow_dispatch:
     inputs:
