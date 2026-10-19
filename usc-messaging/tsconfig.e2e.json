@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": [
+    "scripts/e2e/**/*.mts",
+    "scripts/deploy-source-ethers.mts",
+    "scripts/deploy-dest-ethers.mts",
+    "scripts/publish-fee.mts",
+    "scripts/assert-relay-claimed.mts"
+  ],
+  "exclude": ["node_modules", "dist"]
+}

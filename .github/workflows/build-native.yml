@@ -5,6 +5,16 @@ name: Reusable workflow to build a native client
 "on":
   workflow_call:
     inputs:
+      repository:
+        description: Repository containing the native sources; defaults to the caller
+        required: false
+        type: string
+        default: ""
+      ref:
+        description: Source commit; empty preserves the caller checkout behavior
+        required: false
+        type: string
+        default: ""
       build-options:
         required: true
         type: string
@@ -79,6 +89,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          repository: ${{ inputs.repository || github.repository }}
+          ref: ${{ inputs.ref }}
           lfs: ${{ inputs.git-lfs-checkout }}
 
       - name: Key the binaries by the files they're built from

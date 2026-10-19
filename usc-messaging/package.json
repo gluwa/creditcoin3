@@ -8,6 +8,9 @@
     "deploy": "tsx scripts/deploy.ts",
     "quoter": "tsx src/quoter/index.ts",
     "quoter:selftest": "tsx src/quoter/selftest.ts",
+    "e2e": "tsx scripts/e2e/run.mts",
+    "e2e:test": "tsx --test scripts/e2e/*.test.mts",
+    "e2e:typecheck": "tsc -p tsconfig.e2e.json",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
