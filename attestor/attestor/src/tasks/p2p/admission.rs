@@ -30,8 +30,9 @@ pub(crate) struct Behaviour {
     reserved: HashSet<PeerId>,
     /// Configured boot peers: reserved for the node's lifetime, never unreserved.
     pinned: HashSet<PeerId>,
-    /// Established inbound connections from non-reserved peers.
-    unreserved_incoming: HashMap<ConnectionId, PeerId>,
+    /// Established inbound connections. Whether one counts against the shared pool is decided
+    /// at admission time, so reserving or unreserving a peer moves its live connections too.
+    incoming: HashMap<ConnectionId, PeerId>,
 }
 
 impl Behaviour {
@@ -40,15 +41,13 @@ impl Behaviour {
             max_unreserved_incoming,
             reserved: HashSet::new(),
             pinned: HashSet::new(),
-            unreserved_incoming: HashMap::new(),
+            incoming: HashMap::new(),
         }
     }
 
     /// Always admit `peer`; its existing connections stop counting against the shared pool.
     pub(crate) fn reserve(&mut self, peer: PeerId) {
-        if self.reserved.insert(peer) {
-            self.unreserved_incoming.retain(|_, p| *p != peer);
-        }
+        self.reserved.insert(peer);
     }
 
     /// Always admit `peer` for the node's lifetime; [`Self::unreserve`] leaves it reserved.
@@ -65,9 +64,15 @@ impl Behaviour {
         }
     }
 
+    fn unreserved_incoming(&self) -> usize {
+        self.incoming
+            .values()
+            .filter(|p| !self.reserved.contains(p))
+            .count()
+    }
+
     fn admit(&self, peer: &PeerId) -> Result<(), ConnectionDenied> {
-        if self.reserved.contains(peer)
-            || self.unreserved_incoming.len() < self.max_unreserved_incoming
+        if self.reserved.contains(peer) || self.unreserved_incoming() < self.max_unreserved_incoming
         {
             Ok(())
         } else {
@@ -129,12 +134,12 @@ impl NetworkBehaviour for Behaviour {
                 endpoint,
                 ..
             }) => {
-                if endpoint.is_listener() && !self.reserved.contains(&peer_id) {
-                    self.unreserved_incoming.insert(connection_id, peer_id);
+                if endpoint.is_listener() {
+                    self.incoming.insert(connection_id, peer_id);
                 }
             }
             FromSwarm::ConnectionClosed(ConnectionClosed { connection_id, .. }) => {
-                self.unreserved_incoming.remove(&connection_id);
+                self.incoming.remove(&connection_id);
             }
             _ => {}
         }
@@ -161,7 +166,7 @@ mod tests {
     fn fill(behaviour: &mut Behaviour, n: usize) {
         for _ in 0..n {
             behaviour
-                .unreserved_incoming
+                .incoming
                 .insert(ConnectionId::new_unchecked(rand_id()), PeerId::random());
         }
     }
@@ -193,6 +198,20 @@ mod tests {
     }
 
     #[test]
+    fn unreserving_a_peer_returns_its_connections_to_the_pool() {
+        let mut behaviour = Behaviour::new(1);
+        let member = PeerId::random();
+        behaviour.reserve(member);
+        behaviour
+            .incoming
+            .insert(ConnectionId::new_unchecked(rand_id()), member);
+        assert!(behaviour.admit(&PeerId::random()).is_ok());
+
+        behaviour.unreserve(&member);
+        assert!(behaviour.admit(&PeerId::random()).is_err());
+    }
+
+    #[test]
     fn pinned_peers_stay_reserved_after_unreserve() {
         let mut behaviour = Behaviour::new(2);
         fill(&mut behaviour, 2);
@@ -208,7 +227,7 @@ mod tests {
         let mut behaviour = Behaviour::new(1);
         let member = PeerId::random();
         behaviour
-            .unreserved_incoming
+            .incoming
             .insert(ConnectionId::new_unchecked(rand_id()), member);
         assert!(behaviour.admit(&PeerId::random()).is_err());
 
