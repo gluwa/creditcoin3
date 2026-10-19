@@ -6,6 +6,29 @@ the destination's on-chain attestor set and explicit gossip bootstrap addresses.
 Each assertion is tied to the published message ID, contract address, successful
 transaction receipt and on-chain state.
 
+Creditcoin PR CI runs this workflow after its existing testing build and passes
+that build's immutable artifact ID directly. The E2E workflow does not compile
+Creditcoin again. Relayer CI pins a successful Creditcoin CI run, its artifact ID
+and the exact source checkout SHA; it downloads `binary-for-testing-ci` across
+repositories and builds the candidate relayer.
+
+The artifact includes `native-build.json`. Before executing a binary, the workflow
+checks the producer run/repository/workflow, archive digest, source revision,
+`fast-runtime`/optimization/platform settings and every binary's SHA-256. A PR
+producer's API head SHA can differ from the actual merge checkout SHA. Rerunning
+only failed jobs may also retain a build uploaded in an earlier attempt; both
+identities are recorded. Cached binaries retain their original compilation
+revision and source/configuration key separately from the current artifact
+producer. These records are uploaded under `native-provenance/` with the scenario
+evidence.
+
+To refresh a dependency pin, dispatch `.github/workflows/ci.yml` with
+`writeability-e2e=true` on the desired Creditcoin revision, wait for CI success,
+then update the relayer caller's source SHA, run ID and artifact ID together.
+Testing artifacts are retained for 90 days. Missing, expired or incompatible
+artifacts fail with an instruction to refresh the pin; there is no automatic
+native build or fallback to a different revision.
+
 Build the Creditcoin binaries with `fast-runtime`, build the chosen
 `asc-message-relayer` revision, compile the chosen `asc-contracts` revision and
 install Foundry before running. Use the exact revisions pinned by

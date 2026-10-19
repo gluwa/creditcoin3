@@ -8,10 +8,18 @@ name: write-ability-e2e
 "on":
   workflow_dispatch:
     inputs:
-      creditcoin-ref:
-        description: Full Creditcoin commit SHA (empty uses this workflow's commit)
+      creditcoin-run-id:
+        description: Existing Creditcoin CI run containing the testing build
         type: string
-        default: ""
+        required: true
+      creditcoin-artifact-id:
+        description: Immutable binary-for-testing-ci artifact ID from that run
+        type: string
+        required: true
+      creditcoin-ref:
+        description: Exact source checkout SHA from the existing Creditcoin testing build
+        type: string
+        required: true
       relayer-repository:
         description: Repository containing the relayer candidate
         type: string
@@ -30,10 +38,18 @@ name: write-ability-e2e
         default: happy-path,durable-restart
   workflow_call:
     inputs:
-      creditcoin-ref:
-        description: Full Creditcoin commit SHA (required for cross-repository callers)
+      creditcoin-run-id:
+        description: Existing Creditcoin CI run containing the testing build
         type: string
-        default: ""
+        required: true
+      creditcoin-artifact-id:
+        description: Immutable binary-for-testing-ci artifact ID from that run
+        type: string
+        required: true
+      creditcoin-ref:
+        description: Exact source checkout SHA from the existing Creditcoin testing build
+        type: string
+        required: true
       relayer-repository:
         type: string
         default: gluwa/asc-message-relayer
@@ -50,33 +66,6 @@ name: write-ability-e2e
       GLUWA_BOT_TOKEN:
         description: Read access to the private asc-contracts repository
         required: true
-  pull_request:
-    branches:
-      [
-        main,
-        dev,
-        asc-dev,
-        usc-dev,
-        usc-testnet,
-        attestor_v2,
-        writeability-off-usc-dev,
-      ]
-    paths:
-      - "attestor/**"
-      - "common/**"
-      - "usc-messaging/**"
-      - "pallets/supported-chains/**"
-      - "pallets/attestation/**"
-      - "precompiles/chain-info/**"
-      - "primitives/supported-chains/**"
-      - "runtime/**"
-      - "node/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "rust-toolchain.toml"
-      - ".github/workflows/write-ability-e2e.yml"
-      - ".github/workflows/build-native.yml"
-      - ".github/actions/install-foundry/**"
 
 concurrency:
   # The caller has its own concurrency group. github.workflow is the caller's name even inside
@@ -92,6 +81,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       creditcoin-ref: ${{ steps.refs.outputs.creditcoin-ref }}
+      creditcoin-run-id: ${{ steps.refs.outputs.creditcoin-run-id }}
+      creditcoin-artifact-id: ${{ steps.refs.outputs.creditcoin-artifact-id }}
       relayer-repository: ${{ steps.refs.outputs.relayer-repository }}
       relayer-ref: ${{ steps.refs.outputs.relayer-ref }}
       contracts-ref: ${{ steps.refs.outputs.contracts-ref }}
@@ -100,9 +91,9 @@ jobs:
       - name: Validate immutable sources and required contracts access
         id: refs
         env:
-          CALLER_REPOSITORY: ${{ github.repository }}
-          CREDITCOIN_INPUT: ${{ inputs.creditcoin-ref }}
-          CREDITCOIN_REF: ${{ inputs.creditcoin-ref || github.sha }}
+          CREDITCOIN_REF: ${{ inputs.creditcoin-ref }}
+          CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
+          CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
           RELAYER_REPOSITORY: ${{ inputs.relayer-repository || 'gluwa/asc-message-relayer' }}
           RELAYER_REF: ${{ inputs.relayer-ref || '2682fddca7809a9bcbaaf0c7c38d45e0763b6cc2' }}
           CONTRACTS_REF: ${{ inputs.contracts-ref || '9e8a9e603d964b598b0d74bb8f4e5966ef75d17e' }}
@@ -110,12 +101,14 @@ jobs:
           CONTRACTS_TOKEN: ${{ secrets.GLUWA_BOT_TOKEN }}
         run: |
           set -euo pipefail
-          if [[ "$CALLER_REPOSITORY" != gluwa/creditcoin3 && -z "$CREDITCOIN_INPUT" ]]; then
-            echo "::error::Cross-repository callers must supply creditcoin-ref."
-            exit 1
-          fi
+          for identifier in "$CREDITCOIN_RUN_ID" "$CREDITCOIN_ARTIFACT_ID"; do
+            if [[ ! "$identifier" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Creditcoin run and artifact IDs must be positive integers."
+              exit 1
+            fi
+          done
           for ref in "$CREDITCOIN_REF" "$RELAYER_REF" "$CONTRACTS_REF"; do
-            if [[ ! "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
               echo "::error::All source refs must be full commit SHAs."
               exit 1
             fi
@@ -137,33 +130,59 @@ jobs:
           fi
           {
             echo "creditcoin-ref=$CREDITCOIN_REF"
+            echo "creditcoin-run-id=$CREDITCOIN_RUN_ID"
+            echo "creditcoin-artifact-id=$CREDITCOIN_ARTIFACT_ID"
             echo "relayer-repository=$RELAYER_REPOSITORY"
             echo "relayer-ref=$RELAYER_REF"
             echo "contracts-ref=$CONTRACTS_REF"
             echo "scenarios=$SCENARIOS"
           } >> "$GITHUB_OUTPUT"
 
-  build:
-    needs: prepare
-    uses: ./.github/workflows/build-native.yml
-    with:
-      repository: gluwa/creditcoin3
-      ref: ${{ needs.prepare.outputs.creditcoin-ref }}
-      build-options: "--release --features=fast-runtime"
-      git-lfs-checkout: false
-      version-string: write-ability-e2e
-      cache-key-name: build-creditcoin-node
-      runs-on: '["ubuntu-26.04"]'
-      reuse-binaries: true
-      workspace-opt-level: "1"
-    secrets: inherit
+      - name: Check out the artifact verifier
+        uses: actions/checkout@v7
+        with:
+          repository: gluwa/creditcoin3
+          ref: ${{ inputs.creditcoin-ref }}
+          persist-credentials: false
+
+      - name: Validate the existing testing build
+        env:
+          GH_TOKEN: ${{ github.repository == 'gluwa/creditcoin3' && github.token || secrets.GLUWA_BOT_TOKEN }}
+          CREDITCOIN_REF: ${{ inputs.creditcoin-ref }}
+          CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
+          CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
+          CURRENT_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p native-provenance
+          if ! gh api "repos/gluwa/creditcoin3/actions/artifacts/$CREDITCOIN_ARTIFACT_ID" > native-provenance/artifact.json; then
+            echo "::error::Testing artifact unavailable. Dispatch Creditcoin CI with writeability-e2e=true and update the source/run/artifact pins after success."
+            exit 1
+          fi
+          gh api "repos/gluwa/creditcoin3/actions/runs/$CREDITCOIN_RUN_ID" > native-provenance/run.json
+          gh api "repos/gluwa/creditcoin3/commits/$CREDITCOIN_REF" > native-provenance/source-commit.json
+          python3 .github/scripts/testing-artifact.py validate-metadata \
+            --artifact-metadata native-provenance/artifact.json \
+            --run-metadata native-provenance/run.json \
+            --source-commit-metadata native-provenance/source-commit.json \
+            --expected-source-sha "$CREDITCOIN_REF" \
+            --expected-run-id "$CREDITCOIN_RUN_ID" \
+            --expected-artifact-id "$CREDITCOIN_ARTIFACT_ID" \
+            --current-repository "$CURRENT_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" \
+            > native-provenance/validated.json
+
+      - name: Upload validated producer provenance
+        uses: actions/upload-artifact@v7
+        with:
+          name: write-ability-native-provenance
+          path: native-provenance/
 
   e2e:
-    needs: [prepare, build]
+    needs: prepare
     runs-on: ubuntu-26.04
-    # Cover cold relayer/ABI builds plus the runner's bounded deployment and recovery waits,
-    # leaving time for cleanup and evidence upload. The native build has its own 120m limit.
-    timeout-minutes: 150
+    # The native testing build is supplied by CI. This job only builds the candidate relayer
+    # and runs the real stack, with time left for cleanup and evidence upload.
+    timeout-minutes: 30
     env:
       CARGO_TERM_COLOR: always
       E2E_OUTPUT_DIR: ${{ github.workspace }}/e2e-output
@@ -175,11 +194,40 @@ jobs:
           repository: gluwa/creditcoin3
           ref: ${{ needs.prepare.outputs.creditcoin-ref }}
 
-      - name: Download native binaries
+      - name: Download validated producer provenance
         uses: actions/download-artifact@v8
         with:
-          name: binary-for-write-ability-e2e
+          name: write-ability-native-provenance
+          path: e2e-output/native-provenance
+          digest-mismatch: error
+
+      - name: Download the existing Creditcoin testing binaries
+        uses: actions/download-artifact@v8
+        with:
+          repository: gluwa/creditcoin3
+          run-id: ${{ needs.prepare.outputs.creditcoin-run-id }}
+          artifact-ids: ${{ needs.prepare.outputs.creditcoin-artifact-id }}
+          github-token: ${{ github.repository == 'gluwa/creditcoin3' && github.token || secrets.GLUWA_BOT_TOKEN }}
+          digest-mismatch: error
           path: target/release
+
+      - name: Verify native source, configuration and binary hashes
+        env:
+          CREDITCOIN_REF: ${{ needs.prepare.outputs.creditcoin-ref }}
+          CREDITCOIN_RUN_ID: ${{ needs.prepare.outputs.creditcoin-run-id }}
+          CREDITCOIN_ARTIFACT_ID: ${{ needs.prepare.outputs.creditcoin-artifact-id }}
+          CURRENT_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 .github/scripts/testing-artifact.py verify \
+            --directory target/release --expected-source-sha "$CREDITCOIN_REF" \
+            --expected-run-id "$CREDITCOIN_RUN_ID" \
+            --expected-artifact-id "$CREDITCOIN_ARTIFACT_ID" \
+            --artifact-metadata e2e-output/native-provenance/artifact.json \
+            --run-metadata e2e-output/native-provenance/run.json \
+            --source-commit-metadata e2e-output/native-provenance/source-commit.json \
+            --current-repository "$CURRENT_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" \
+            > e2e-output/native-provenance/verification.json
+          cp target/release/native-build.json e2e-output/native-provenance/native-build.json
 
       - name: Check out candidate relayer
         uses: actions/checkout@v7
