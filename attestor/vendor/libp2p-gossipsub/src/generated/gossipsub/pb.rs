@@ -564,4 +564,3 @@ impl<'a> From<&'a str> for EncMode {
 }
 
 }
-
