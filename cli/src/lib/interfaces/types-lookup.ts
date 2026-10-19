@@ -4072,6 +4072,7 @@ declare module '@polkadot/types/lookup' {
         readonly isTransactionMustComeFromEOA: boolean;
         readonly isUndefined: boolean;
         readonly isCreateOriginNotAllowed: boolean;
+        readonly isAuthorizationListTooLarge: boolean;
         readonly type:
             | 'BalanceLow'
             | 'FeeOverflow'
@@ -4086,7 +4087,8 @@ declare module '@polkadot/types/lookup' {
             | 'Reentrancy'
             | 'TransactionMustComeFromEOA'
             | 'Undefined'
-            | 'CreateOriginNotAllowed';
+            | 'CreateOriginNotAllowed'
+            | 'AuthorizationListTooLarge';
     }
 
     /** @name PalletHotfixSufficientsError (432) */

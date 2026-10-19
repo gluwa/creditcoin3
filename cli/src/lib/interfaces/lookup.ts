@@ -3459,6 +3459,7 @@ export default {
             'TransactionMustComeFromEOA',
             'Undefined',
             'CreateOriginNotAllowed',
+            'AuthorizationListTooLarge',
         ],
     },
     /**

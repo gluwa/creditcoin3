@@ -10,6 +10,9 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceil
     let root: KeyringPair;
     let maxCheckpointInterval: number;
     let maxAttestationInterval: number;
+    // The largest attestation interval the setters and registerChain accept: the ceiling, or
+    // DefaultMaxCatchup when that is lower.
+    let acceptedAttestationInterval: number;
     // A throwaway chain, so the Anvil chains other tests attest on keep their configuration.
     let chainKey: number;
 
@@ -48,6 +51,10 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceil
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         maxCheckpointInterval = api.consts.attestation.maxAttestationCheckpointInterval.toNumber();
         maxAttestationInterval = api.consts.attestation.maxChainAttestationInterval.toNumber();
+        acceptedAttestationInterval = Math.min(
+            maxAttestationInterval,
+            api.consts.attestation.defaultMaxCatchup.toNumber(),
+        );
 
         const { innerError, events } = await registerChain(nextChainId++, null, null);
         expect(dispatchErrorName(api, innerError)).toBeNull();
@@ -99,17 +106,17 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceil
             expect((await api.query.attestation.pendingAttestationInterval(chainKey)).isNone).toBe(true);
         }, 60_000);
 
-        test('accepts MaxChainAttestationInterval', async () => {
+        test('accepts the largest allowed attestation interval', async () => {
             const { innerError } = await sudoInBlock(
                 api,
                 root,
-                api.tx.attestation.setChainAttestationInterval(chainKey, maxAttestationInterval),
+                api.tx.attestation.setChainAttestationInterval(chainKey, acceptedAttestationInterval),
             );
 
             expect(dispatchErrorName(api, innerError)).toBeNull();
             // The setter stages the new interval; it's applied on a later update.
             const pending = await api.query.attestation.pendingAttestationInterval(chainKey);
-            expect(pending.unwrap().toNumber()).toEqual(maxAttestationInterval);
+            expect(pending.unwrap().toNumber()).toEqual(acceptedAttestationInterval);
         }, 60_000);
     });
 
@@ -149,10 +156,10 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceil
             60_000,
         );
 
-        test('accepts both intervals at their ceilings and stores them', async () => {
+        test('accepts both intervals at their largest allowed values and stores them', async () => {
             const { innerError, events } = await registerChain(
                 nextChainId++,
-                maxAttestationInterval,
+                acceptedAttestationInterval,
                 maxCheckpointInterval,
             );
 
@@ -160,7 +167,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceil
             const registered = registeredChainKey(events);
             expect(registered).toBeDefined();
             expect((await api.query.attestation.chainAttestationInterval(registered!)).toNumber()).toEqual(
-                maxAttestationInterval,
+                acceptedAttestationInterval,
             );
             expect((await api.query.attestation.attestationCheckpointInterval(registered!)).toNumber()).toEqual(
                 maxCheckpointInterval,
