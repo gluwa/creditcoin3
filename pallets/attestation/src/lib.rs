@@ -1896,7 +1896,7 @@ pub mod pallet {
     /// See the Polkadot SDK docs on [custom fees]
     ///
     /// [custom fees]: https://docs.polkadot.com/polkadot-protocol/parachain-basics/blocks-transactions-fees/fees/#custom-fees
-    struct CommitAttestationWeight<T>(PhantomData<T>);
+    pub(crate) struct CommitAttestationWeight<T>(PhantomData<T>);
 
     impl<T> Default for CommitAttestationWeight<T> {
         fn default() -> Self {
