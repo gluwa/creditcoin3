@@ -1344,6 +1344,7 @@ jobs:
             1:pallets/attestation/register-attestor
             1:pallets/attestation/register-invulnerable
             1:pallets/attestation/remove-authorized-attestor
+            1:pallets/attestation/revert-to-batched-cleanup
             1:pallets/attestation/set-attestations-per-checkpoint
             1:pallets/attestation/set-chain-attestation-interval
             1:pallets/attestation/set-election-policy
