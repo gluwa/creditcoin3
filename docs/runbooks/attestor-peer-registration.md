@@ -13,8 +13,10 @@ peer without specifying its reachable address.
   networking identity on one source chain. The same controller/key may serve different chains.
 - `Attestation.PeerRegistrationRequired(chain_key)` controls staged enforcement; it defaults to
   `false` for existing chains.
-- `AttestorApi_attestor_peer_registry` returns the active committee, including explicit missing
-  keys, and the enforcement setting from one queried block. The runtime API is version 2.
+- `AttestorApi_attestor_peer_registry` returns the active committee, a separate list of eligible
+  waiting candidates, explicit missing keys, and the enforcement setting from one queried block. The
+  runtime API is version 2. Waiting keys reserve capacity before election; BLS eligibility still
+  controls voting. Idle registrations do not receive a reservation.
 
 `set_attestor_peer_key(chain_key, public_key, proof_of_possession, expected_previous_key)` must be signed by the
 registered **controller**, rather than the stash. The Ed25519 proof signs the shared primitive's
@@ -51,6 +53,8 @@ Finalized registered keys are authoritative. Repackaging a valid BLS vote under 
 gossipsub signer cannot replace the binding or obtain a reserved slot. Unknown peers still share
 the 64-connection unreserved pool, and the existing global/per-peer connection limits still apply.
 Connections from boot nodes remain explicitly trusted by configuration.
+When a known member is deactivated, eviction immediately revokes learned, configured and
+committee reservations, including while the periodic registry snapshot is still catching up.
 
 ### When to use registration-only mode
 

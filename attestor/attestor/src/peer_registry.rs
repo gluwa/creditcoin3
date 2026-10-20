@@ -20,18 +20,25 @@ pub struct Registry {
     pub finalized_number: u64,
     pub registration_required: bool,
     pub attestors: Vec<(AttestorId, Option<PeerId>)>,
+    pub waiting_attestors: Vec<(AttestorId, Option<PeerId>)>,
 }
 
 impl Registry {
     pub fn from_chain(registry: PeerRegistry<cc_client::AccountId32>) -> anyhow::Result<Self> {
         ensure!(
-            registry.attestors.len() <= common::constants::MAX_ATTESTORS,
+            registry.attestors.len() + registry.waiting_attestors.len()
+                <= common::constants::MAX_ATTESTORS,
             "peer registry exceeds the committee bound"
         );
         let mut controllers = HashSet::new();
         let mut peers = HashSet::new();
-        let mut attestors = Vec::with_capacity(registry.attestors.len());
-        for (controller, key) in registry.attestors {
+        let active_count = registry.attestors.len();
+        let mut attestors = Vec::new();
+        for (controller, key) in registry
+            .attestors
+            .into_iter()
+            .chain(registry.waiting_attestors)
+        {
             ensure!(
                 controllers.insert(controller.0),
                 "duplicate controller in peer registry"
@@ -50,22 +57,23 @@ impl Registry {
                 .transpose()?;
             ensure!(
                 !registry.registration_required || peer.is_some(),
-                "active attestor {controller} has no required networking key"
+                "active or waiting attestor {controller} has no required networking key"
             );
             attestors.push((AttestorId::from_public(controller.0), peer));
         }
+        let waiting_attestors = attestors.split_off(active_count);
         Ok(Self {
             genesis_hash: Default::default(),
             finalized_hash: Default::default(),
             finalized_number: 0,
             registration_required: registry.registration_required,
             attestors,
+            waiting_attestors,
         })
     }
 
     pub fn peer(&self, attestor: &AttestorId) -> Option<PeerId> {
-        self.attestors
-            .iter()
+        self.members()
             .find(|(id, _)| id == attestor)
             .and_then(|(_, peer)| *peer)
     }
@@ -73,20 +81,24 @@ impl Registry {
     pub fn is_legacy_member(&self, attestor: &AttestorId) -> bool {
         !self.registration_required
             && self
-                .attestors
-                .iter()
+                .members()
                 .any(|(id, peer)| id == attestor && peer.is_none())
     }
 
     pub fn registered_peers(&self) -> impl Iterator<Item = PeerId> + '_ {
-        self.attestors.iter().filter_map(|(_, peer)| *peer)
+        self.members().filter_map(|(_, peer)| *peer)
+    }
+
+    fn members(&self) -> impl Iterator<Item = &(AttestorId, Option<PeerId>)> {
+        self.attestors.iter().chain(&self.waiting_attestors)
     }
 
     /// A public seed needs a registered remote peer, except when its own registered key is
-    /// the entire finalized committee. A partial larger committee still needs remote trust.
+    /// the entire finalized active/waiting set. A partial larger set still needs remote trust.
     pub fn has_bootstrap_peers(&self, local: PeerId) -> bool {
         self.registered_peers().any(|peer| peer != local)
-            || matches!(self.attestors.as_slice(), [(_, Some(peer))] if *peer == local)
+            || (self.attestors.len() + self.waiting_attestors.len() == 1
+                && self.registered_peers().next() == Some(local))
     }
 }
 
@@ -268,6 +280,7 @@ mod tests {
         let registry = Registry::from_chain(PeerRegistry {
             registration_required: true,
             attestors: vec![(cc_client::AccountId32([9; 32]), Some(key(1)))],
+            waiting_attestors: vec![],
         })
         .unwrap();
         assert_eq!(
@@ -281,6 +294,7 @@ mod tests {
         let input = PeerRegistry {
             registration_required: false,
             attestors: vec![(cc_client::AccountId32([9; 32]), None)],
+            waiting_attestors: vec![],
         };
         let registry = Registry::from_chain(input.clone()).unwrap();
         assert!(registry.is_legacy_member(&AttestorId::from_public([9; 32])));
@@ -304,9 +318,44 @@ mod tests {
         ] {
             assert!(Registry::from_chain(PeerRegistry {
                 registration_required: true,
-                attestors
+                attestors,
+                waiting_attestors: vec![],
             })
             .is_err());
+        }
+    }
+
+    #[test]
+    fn waiting_candidates_share_the_identity_and_size_checks() {
+        let controller = cc_client::AccountId32([9; 32]);
+        let input = PeerRegistry {
+            registration_required: true,
+            attestors: vec![],
+            waiting_attestors: vec![(controller.clone(), Some(key(1)))],
+        };
+        let registry = Registry::from_chain(input.clone()).unwrap();
+        assert!(registry.attestors.is_empty());
+        assert!(registry
+            .peer(&AttestorId::from_public(controller.0))
+            .is_some());
+        for invalid in [
+            PeerRegistry {
+                attestors: input.waiting_attestors.clone(),
+                ..input.clone()
+            },
+            PeerRegistry {
+                waiting_attestors: vec![(controller.clone(), None)],
+                ..input.clone()
+            },
+            PeerRegistry {
+                waiting_attestors: vec![
+                    (controller, Some(key(1)));
+                    common::constants::MAX_ATTESTORS + 1
+                ],
+                ..input
+            },
+        ] {
+            assert!(Registry::from_chain(invalid).is_err());
         }
     }
 
@@ -332,12 +381,14 @@ mod tests {
         let mut old = Registry::from_chain(PeerRegistry {
             registration_required: true,
             attestors: vec![(cc_client::AccountId32([9; 32]), Some(key(1)))],
+            waiting_attestors: vec![],
         })
         .unwrap();
         old.finalized_number = 10;
         let mut current = Registry::from_chain(PeerRegistry {
             registration_required: true,
             attestors: vec![(cc_client::AccountId32([9; 32]), Some(key(2)))],
+            waiting_attestors: vec![],
         })
         .unwrap();
         current.finalized_number = 20;

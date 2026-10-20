@@ -975,6 +975,11 @@ impl Client {
                 .into_iter()
                 .map(|(id, key)| (AccountId32(id.0), key))
                 .collect(),
+            waiting_attestors: registry
+                .waiting_attestors
+                .into_iter()
+                .map(|(id, key)| (AccountId32(id.0), key))
+                .collect(),
         })
     }
 

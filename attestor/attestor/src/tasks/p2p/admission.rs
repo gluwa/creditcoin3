@@ -62,12 +62,20 @@ impl Behaviour {
         self.reserve(peer);
     }
 
-    /// Treat `peer` like any other peer again (e.g. its attestor was chilled or kicked).
-    /// Pinned boot/trusted peers stay reserved.
+    /// Release a learned vote binding, leaving independently configured/finalized trust intact.
+    /// Membership eviction uses [`Self::revoke`] to clear those sources too.
     pub(crate) fn unreserve(&mut self, peer: &PeerId) {
         if !self.pinned.contains(peer) {
             self.reserved.remove(peer);
         }
+    }
+
+    /// Revoke a deactivated member's reservations from every dynamic source. Explicit boot
+    /// trust remains independent of committee membership.
+    pub(crate) fn revoke(&mut self, peer: &PeerId) {
+        self.unreserve(peer);
+        self.configured.remove(peer);
+        self.committee.remove(peer);
     }
 
     pub(crate) fn set_configured_peers(&mut self, peers: impl IntoIterator<Item = PeerId>) {
@@ -281,9 +289,37 @@ mod tests {
         assert!(behaviour.admit(&PeerId::random()).is_err());
         assert_eq!(behaviour.unreserved_incoming(), MAX_UNRESERVED_INCOMING);
 
-        // A learned binding changing or an eviction must not erase configured trust.
+        // Changing a learned binding does not erase configured trust.
         behaviour.unreserve(&member);
         assert!(behaviour.admit(&member).is_ok());
+    }
+
+    #[test]
+    fn revocation_clears_all_dynamic_reservations_and_recounts_live_connections() {
+        let mut behaviour = Behaviour::new(1);
+        let member = PeerId::random();
+        behaviour.reserve(member);
+        behaviour.set_configured_peers([member]);
+        behaviour.set_committee_peers([member], false);
+        behaviour
+            .incoming
+            .insert(ConnectionId::new_unchecked(rand_id()), member);
+        assert_eq!(behaviour.unreserved_incoming(), 0);
+        behaviour.revoke(&member);
+        assert!(!behaviour.is_reserved(&member));
+        assert_eq!(behaviour.unreserved_incoming(), 1);
+        assert!(behaviour.admit(&member).is_err());
+    }
+
+    #[test]
+    fn revocation_preserves_explicit_boot_trust() {
+        let mut behaviour = Behaviour::new(0);
+        let boot = PeerId::random();
+        behaviour.pin(boot);
+        behaviour.set_configured_peers([boot]);
+        behaviour.set_committee_peers([boot], false);
+        behaviour.revoke(&boot);
+        assert!(behaviour.admit(&boot).is_ok());
     }
 
     #[test]
