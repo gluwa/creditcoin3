@@ -397,7 +397,7 @@ impl Attestor {
         // Production → p2p nudge to evict a chilled/kicked attestor's peer. Unbounded: rare
         // (committee-change) events that must not apply backpressure to the production task.
         let (peer_deactivated_tx, peer_deactivated_rx) =
-            mpsc::unbounded_channel::<attestor_primitives::AttestorId>();
+            mpsc::unbounded_channel::<shared::PeerDeactivated>();
         let (can_attest_tx, can_attest_rx) = watch::channel::<bool>(true);
         // `None` until the production task observes the first BlockAttested event. Validation's
         // `wait_for_finalized` helper waits for `Some(info)` with `info.height >= target`, so it

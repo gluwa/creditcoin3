@@ -27,6 +27,12 @@ use attestor_primitives::{ChainKey, Digest, Height};
 use crate::bls::BlsStore;
 use crate::proof_cache::ProofCache;
 
+/// Membership removal observed in a finalized CC3 block.
+pub struct PeerDeactivated {
+    pub attestor: attestor_primitives::AttestorId,
+    pub finalized_number: u64,
+}
+
 /// What every task needs.
 pub struct Shared {
     pub name: String,
@@ -66,7 +72,7 @@ pub struct Shared {
     /// the production task *after* it refreshes `bls_store`, so the p2p task's active-set view is
     /// already up to date when it re-evaluates the peer. Unbounded because these events are rare
     /// (committee changes) and the p2p task must never block production on backpressure.
-    pub peer_deactivated_tx: mpsc::UnboundedSender<attestor_primitives::AttestorId>,
+    pub peer_deactivated_tx: mpsc::UnboundedSender<PeerDeactivated>,
 
     /// The *desired* eligibility, updated synchronously on every eligibility event. Distinct from
     /// `can_attest` (which lags by the warm-up on a disabled→enabled transition): a warm-up-pending
