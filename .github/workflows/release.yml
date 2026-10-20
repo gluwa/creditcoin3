@@ -203,11 +203,45 @@ jobs:
             exit 1
           fi
 
+  # A testnet or mainnet release must be a commit that passed try-runtime against that
+  # network's recent state. promote-branch.yml produces that run when it promotes; this
+  # job only looks it up, so a tag pushed without a promotion cannot publish unchecked.
+  # It gates docker-build too, because that job pushes images before the release exists.
+  try-runtime-evidence:
+    runs-on: ubuntu-26.04
+    needs:
+      - sanity-check
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Require a passed try-runtime promotion check for this commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ needs.sanity-check.outputs.TAG_NAME }}
+          SHA: ${{ github.sha }}
+          # Tags usually follow a promotion within hours; a week covers a delayed one.
+          MAX_AGE_HOURS: "168"
+        run: |
+          case "$TAG_NAME" in
+            *-devnet)
+              echo "INFO: $TAG_NAME is a devnet release, which is not promoted; nothing to check"
+              exit 0
+              ;;
+            *-testnet) TARGET=usc-testnet ;;
+            *-mainnet) TARGET=main ;;
+            *)
+              echo "FAIL: cannot tell which network $TAG_NAME releases to"
+              exit 1
+              ;;
+          esac
+          .github/check-promotion-try-runtime.sh "$SHA" "-" "$TARGET" false
+
   docker-build:
     needs:
       - sanity-check
       - setup
       - verify-metadata-hash-flag
+      - try-runtime-evidence
     uses: ./.github/workflows/build-docker.yml
     with:
       build-options: "BUILD_ARGS=${{ needs.setup.outputs.build_options }} --features metadata-hash"
@@ -226,6 +260,7 @@ jobs:
       - build-native-runtime
       - build-wasm-runtime
       - docker-build
+      - try-runtime-evidence
     steps:
       - uses: actions/checkout@v7
         with:
