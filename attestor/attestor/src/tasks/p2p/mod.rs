@@ -437,6 +437,13 @@ fn apply_peer_registry(
 ) {
     let local = *swarm.local_peer_id();
     let previously_reserved = swarm.behaviour().admission.reserved_peers();
+    // Waiting identities may connect before election. Do not feed them into the inactive-peer
+    // deny gate until they join the voting committee or produce a verified, eligible vote.
+    bindings.retain(|(id, peer)| {
+        !registry.waiting_attestors.iter().any(|(waiting, key)| {
+            waiting == id || key.is_some_and(|waiting_peer| waiting_peer == *peer)
+        })
+    });
     for (attestor, peer) in &registry.attestors {
         if let Some(peer) = peer {
             note_attestor_peer(bindings, attestor.clone(), *peer);
@@ -894,6 +901,13 @@ fn note_verified_vote_peer(
     attestor: AttestorId,
     source: libp2p::PeerId,
 ) {
+    if let Some(peer) = registry.peer(&attestor) {
+        // A waiting member can be elected before the next registry refresh. A verified vote
+        // then installs its canonical binding, so a later deactivation is still evicted.
+        note_attestor_peer(bindings, attestor, peer);
+        admission.reserve(peer);
+        return;
+    }
     if !registry.is_legacy_member(&attestor) {
         return;
     }
@@ -974,7 +988,7 @@ fn is_peer_denied(
 ///
 /// [`PeerId`]: libp2p::PeerId
 fn evict_peer(swarm: &mut libp2p::Swarm<behavior::P2PBehavior>, peer_id: libp2p::PeerId) {
-    swarm.behaviour_mut().admission.unreserve(&peer_id);
+    swarm.behaviour_mut().admission.revoke(&peer_id);
     swarm.behaviour_mut().kad.remove_peer(&peer_id);
     if swarm.disconnect_peer_id(peer_id).is_ok() {
         tracing::info!(%peer_id, "✂️  closed connection to denied peer");
@@ -1376,6 +1390,7 @@ mod tests {
             genesis_hash: Default::default(),
             registration_required: required,
             attestors,
+            waiting_attestors: vec![],
             finalized_hash: Default::default(),
             finalized_number: 0,
         }
@@ -1588,6 +1603,71 @@ mod tests {
         );
         assert_eq!(bindings, vec![(att(1), registered)]);
         assert!(!swarm.behaviour().admission.is_reserved(&attacker));
+    }
+
+    #[tokio::test]
+    async fn waiting_peer_is_admitted_before_election_and_eviction_revokes_cached_reservations() {
+        use libp2p::swarm::{ConnectionId, NetworkBehaviour as _};
+        let mut swarm = swarm();
+        // Saturate the public pool without opening real sockets.
+        swarm.behaviour_mut().admission = super::admission::Behaviour::new(0);
+        let (member, old, republisher) = (
+            libp2p::PeerId::random(),
+            libp2p::PeerId::random(),
+            libp2p::PeerId::random(),
+        );
+        let mut registry = registry(false, vec![]);
+        registry.waiting_attestors = vec![(att(1), Some(member))];
+        let mut bindings = vec![(att(1), old)];
+        apply_peer_registry(&mut swarm, &mut bindings, &registry, &[member]);
+        assert!(
+            bindings.is_empty(),
+            "waiting must not enter the inactive-voter deny gate"
+        );
+        let addr = "/ip4/127.0.0.1/tcp/9000".parse().unwrap();
+        assert!(swarm
+            .behaviour_mut()
+            .admission
+            .handle_established_inbound_connection(
+                ConnectionId::new_unchecked(1),
+                member,
+                &addr,
+                &addr
+            )
+            .is_ok());
+        assert!(swarm
+            .behaviour_mut()
+            .admission
+            .handle_established_inbound_connection(
+                ConnectionId::new_unchecked(2),
+                republisher,
+                &addr,
+                &addr
+            )
+            .is_err());
+
+        // Election and a valid BLS vote can precede the next registry refresh. Keep the
+        // registered transport identity even if another peer republishes that vote.
+        note_verified_vote_peer(
+            &mut swarm.behaviour_mut().admission,
+            &mut bindings,
+            &registry,
+            att(1),
+            republisher,
+        );
+        assert_eq!(bindings, vec![(att(1), member)]);
+        super::evict_peer(&mut swarm, member);
+        assert!(!swarm.behaviour().admission.is_reserved(&member));
+        assert!(swarm
+            .behaviour_mut()
+            .admission
+            .handle_established_inbound_connection(
+                ConnectionId::new_unchecked(3),
+                member,
+                &addr,
+                &addr
+            )
+            .is_err());
     }
 
     #[tokio::test]

@@ -120,7 +120,10 @@ pub type PeerPublicKey = [u8; 32];
 #[derive(Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo)]
 pub struct PeerRegistry<AccountId> {
     pub registration_required: bool,
+    /// Current voting committee, including members scheduled to leave at election.
     pub attestors: Vec<(AccountId, Option<PeerPublicKey>)>,
+    /// Registered candidates awaiting election; reserve networking capacity, not voting rights.
+    pub waiting_attestors: Vec<(AccountId, Option<PeerPublicKey>)>,
 }
 
 pub const PEER_KEY_DOMAIN_V1: &[u8] = b"CC3:ATTESTOR:PEER:v1";

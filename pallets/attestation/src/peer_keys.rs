@@ -1,7 +1,9 @@
 //! Controller-authorized networking identities; independent of the existing Attestor encoding.
 
 use super::*;
-use attestor_primitives::{peer_key_proof_message, ChainKey, PeerPublicKey, PeerRegistry};
+use attestor_primitives::{
+    peer_key_proof_message, AttestorStatus, ChainKey, PeerPublicKey, PeerRegistry,
+};
 use frame_support::ensure;
 use parity_scale_codec::Encode;
 use supported_chains_primitives::provider::SupportedChainsProvider;
@@ -105,15 +107,35 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn attestor_peer_registry(chain_key: ChainKey) -> PeerRegistry<T::AccountId> {
+        let active = ActiveAttestors::<T>::get(chain_key);
+        let policy = ChainElectionPolicy::<T>::get(chain_key);
+        let waiting_attestors = Attestors::<T>::iter_prefix(chain_key)
+            .filter(|(id, attestor)| {
+                attestor.status == AttestorStatus::Waiting
+                    && !active.contains(id)
+                    && match policy {
+                        AttestorElectionPolicy::OpenToAny => true,
+                        AttestorElectionPolicy::AuthorizedOnly => {
+                            AuthorizedAttestors::<T>::contains_key(chain_key, id)
+                        }
+                        AttestorElectionPolicy::DeniedToAll => false,
+                    }
+            })
+            .map(|(id, _)| {
+                let key = AttestorPeerKeys::<T>::get(chain_key, &id);
+                (id, key)
+            })
+            .collect();
         PeerRegistry {
             registration_required: PeerRegistrationRequired::<T>::get(chain_key),
-            attestors: ActiveAttestors::<T>::get(chain_key)
+            attestors: active
                 .into_iter()
                 .map(|id| {
                     let key = AttestorPeerKeys::<T>::get(chain_key, &id);
                     (id, key)
                 })
                 .collect(),
+            waiting_attestors,
         }
     }
 
@@ -510,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn registry_reports_only_the_active_committee_and_keeps_missing_keys_visible() {
+    fn registry_separates_waiting_candidates_from_voters_and_excludes_idle_keys() {
         ExtBuilder.build_and_execute(|| {
             register(STASH_1, ATTESTOR_1);
             set_key(ATTESTOR_1, &pair(1));
@@ -521,6 +543,41 @@ mod tests {
                 vec![(ATTESTOR_1, Some(pair(1).public().0)), (ATTESTOR_3, None)]
             );
             assert!(!registry.registration_required);
+            assert!(registry.waiting_attestors.is_empty());
+
+            register(STASH_2, ATTESTOR_2);
+            set_key(ATTESTOR_2, &pair(2));
+            // Idle key backfill does not grant admission.
+            assert!(Attestation::attestor_peer_registry(SUPPORTED_CHAIN_KEY)
+                .waiting_attestors
+                .is_empty());
+            Attestors::<Test>::mutate(SUPPORTED_CHAIN_KEY, ATTESTOR_2, |attestor| {
+                attestor.as_mut().unwrap().status = AttestorStatus::Waiting;
+            });
+            let waiting = Attestation::attestor_peer_registry(SUPPORTED_CHAIN_KEY);
+            assert_eq!(waiting.attestors, registry.attestors);
+            assert_eq!(
+                waiting.waiting_attestors,
+                vec![(ATTESTOR_2, Some(pair(2).public().0))]
+            );
+            for policy in [
+                AttestorElectionPolicy::DeniedToAll,
+                AttestorElectionPolicy::AuthorizedOnly,
+            ] {
+                ChainElectionPolicy::<Test>::insert(SUPPORTED_CHAIN_KEY, policy);
+                assert!(Attestation::attestor_peer_registry(SUPPORTED_CHAIN_KEY)
+                    .waiting_attestors
+                    .is_empty());
+            }
+            AuthorizedAttestors::<Test>::insert(SUPPORTED_CHAIN_KEY, ATTESTOR_2, ());
+            assert_eq!(
+                Attestation::attestor_peer_registry(SUPPORTED_CHAIN_KEY).waiting_attestors,
+                waiting.waiting_attestors
+            );
+            ActiveAttestors::<Test>::mutate(SUPPORTED_CHAIN_KEY, |active| active.push(ATTESTOR_2));
+            assert!(Attestation::attestor_peer_registry(SUPPORTED_CHAIN_KEY)
+                .waiting_attestors
+                .is_empty());
         });
     }
 
