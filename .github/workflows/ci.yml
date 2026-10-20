@@ -1366,6 +1366,7 @@ jobs:
             2:danger-will-brick-the-blockchain
             2:eth-new-heads
             2:evm-call-proof-size
+            2:eth-base-fee-history
             2:evm-gasprice-opcode
             2:evm-priority-fee
             2:evm-revert-extra-data
