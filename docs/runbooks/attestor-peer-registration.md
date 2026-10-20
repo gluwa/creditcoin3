@@ -52,6 +52,19 @@ gossipsub signer cannot replace the binding or obtain a reserved slot. Unknown p
 the 64-connection unreserved pool, and the existing global/per-peer connection limits still apply.
 Connections from boot nodes remain explicitly trusted by configuration.
 
+### When to use registration-only mode
+
+`--register-peer-key-only` is an optional maintenance command. Normal startup registers the
+networking key too, so operators starting an upgraded attestor do not need to run it first.
+Use it to backfill keys before enabling mandatory registration while a node's source-chain RPC
+or P2P deployment is not ready, or to finalize a stopped node's key rotation before restarting
+production. It works for registered controllers that are not currently elected as well.
+
+This command needs only the controller/networking secrets, source chain key and CC3 RPC. It
+exits after registration finalizes and does not produce attestations. Normal attestation mode
+always requires a source-chain RPC URL. Add this maintenance command and the rollout/rotation
+steps below to the attestor operator guide when publishing this release.
+
 ## Rollout for an existing network
 
 1. Build the runtime and matching binaries/types from this feature (3.140.0 / spec version 140,
@@ -136,11 +149,11 @@ instantaneous cross-network cutover. Keep RPC access healthy and coordinate rota
 
 ## Weight and validation notes
 
-The new calls use conservative envelopes based on the existing measured BLS-registration and
-full-election CPU budgets, with additional DB work and storage proof allowances. These are
-deliberately conservative bounds, not newly claimed benchmark measurements. Dedicated benchmarks
-cover key rotation and policy activation across the registered set so the regular benchmarking
-process can replace the envelopes with direct measurements.
+CI generates weights from dedicated benchmarks for key rotation and policy activation across
+the registered set. Activation is benchmarked with mandatory peer registration enabled, and
+unregistration with both peer-key indexes populated, so the measurements include the post-rollout
+storage work. Conservative DB/proof supplements cover these two paths until CI regenerates the
+weights from the corrected fixtures.
 
 Regression coverage includes proof replay across controllers/networks/chains, uniqueness,
 rotation and cleanup, staged enforcement, full-pool first-connection admission, registered peer

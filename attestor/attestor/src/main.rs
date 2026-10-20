@@ -13,14 +13,13 @@ struct Config {
     secret: attestor::secret::AttestorSecret,
     p2p_secret: Option<attestor::secret::AttestorSecret>,
     rotate_peer_key: bool,
-    register_peer_key_only: bool,
+    mode: RunMode,
     chain_key: attestor_primitives::ChainKey,
     public_addr: Option<String>,
     api_port: u16,
     boot_nodes: Vec<libp2p::Multiaddr>,
     reserved_peers: Vec<libp2p::PeerId>,
     p2p_port: u16, // Defaults to 9000 if not specified
-    eth_url: Option<attestor::secret::RpcSecret>,
     eth_rps: Option<std::num::NonZeroU32>,
     eth_max_concurrency: Option<std::num::NonZeroUsize>,
     eth_head_poll_secs: Option<std::num::NonZeroU64>,
@@ -28,6 +27,13 @@ struct Config {
     start_height: Option<attestor_primitives::Height>,
     attestation_interval: Option<std::num::NonZero<attestor_primitives::Height>>,
     no_mdns: bool,
+}
+
+enum RunMode {
+    Attest {
+        eth_url: attestor::secret::RpcSecret,
+    },
+    RegisterPeerKeyOnly,
 }
 
 #[derive(Debug, Default, serde::Deserialize)]
@@ -219,6 +225,13 @@ impl Config {
             .arg(
                 clap::arg!(--"register-peer-key-only")
                     .help("Register the networking key and exit; needs CC3 RPC, no source-chain RPC or election")
+                    .long_help(
+                        "Register the networking key and exit after finalization. \
+                        Useful for backfilling keys before enabling mandatory registration, \
+                        or rotating a stopped node's key without starting attestation. \
+                        Normal startup also registers the key, so this mode is optional. \
+                        Needs CC3 RPC, but no source-chain RPC or election.",
+                    )
                     .action(clap::ArgAction::SetTrue),
             )
             .arg(
@@ -454,18 +467,21 @@ impl Config {
             .get_one::<url::Url>("eth-url")
             .cloned()
             .or(config_file.eth.url);
-        if eth_url.is_none() && !register_peer_key_only {
-            anyhow::bail!(
-                "--eth-url / ATTESTOR_ETH_URL / eth.url is required when running the attestor"
-            );
-        }
-        let eth_url = eth_url.map(|url| {
-            if expose_url {
+        let mode = if register_peer_key_only {
+            RunMode::RegisterPeerKeyOnly
+        } else {
+            let url = eth_url.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "--eth-url / ATTESTOR_ETH_URL / eth.url is required when running the attestor"
+                )
+            })?;
+            let eth_url = if expose_url {
                 attestor::secret::RpcSecret::new_exposed(url)
             } else {
                 attestor::secret::RpcSecret::new_opaque(url)
-            }
-        });
+            };
+            RunMode::Attest { eth_url }
+        };
 
         let eth_rps = matches
             .get_one::<std::num::NonZeroU32>("eth-rps")
@@ -513,13 +529,12 @@ impl Config {
             secret,
             p2p_secret,
             rotate_peer_key,
-            register_peer_key_only,
+            mode,
             boot_nodes,
             reserved_peers,
             public_addr,
             api_port,
             p2p_port,
-            eth_url,
             eth_rps,
             eth_max_concurrency,
             eth_head_poll_secs,
@@ -654,34 +669,37 @@ async fn main() -> anyhow::Result<()> {
 
     // --------------------------------------* Configuration *-------------------------------------
 
-    if args.register_peer_key_only {
-        let registration = async {
-            let secret = args.secret.to_secret_uri_string();
-            let controller = cc_client::signer::CC3Signer::new(secret.as_str())?.account_id();
-            let keypair = attestor::peer_registry::networking_keypair(
-                args.p2p_secret.as_ref().unwrap_or(&args.secret),
-            )?;
-            let cc3 = std::sync::Arc::new(
-                cc_client::Client::new(args.cc3_url.as_ref().as_ref(), secret.as_str()).await?,
-            );
-            attestor::startup::reconcile_metadata(&cc3).await?;
-            attestor::peer_registry::ensure_registered(
-                &cc3,
-                &tokio_util::sync::CancellationToken::new(),
-                args.chain_key,
-                &controller,
-                &keypair,
-                args.rotate_peer_key,
-            )
-            .await?;
-            tracing::info!(%controller, peer_id = %keypair.public().to_peer_id(), "networking key finalized; registration-only mode complete");
-            Ok::<_, anyhow::Error>(())
-        };
-        return tokio::select! {
-            result = registration => result,
-            _ = tokio::signal::ctrl_c() => Ok(()),
-        };
-    }
+    let eth_url = match args.mode {
+        RunMode::Attest { eth_url } => eth_url,
+        RunMode::RegisterPeerKeyOnly => {
+            let registration = async {
+                let secret = args.secret.to_secret_uri_string();
+                let controller = cc_client::signer::CC3Signer::new(secret.as_str())?.account_id();
+                let keypair = attestor::peer_registry::networking_keypair(
+                    args.p2p_secret.as_ref().unwrap_or(&args.secret),
+                )?;
+                let cc3 = std::sync::Arc::new(
+                    cc_client::Client::new(args.cc3_url.as_ref().as_ref(), secret.as_str()).await?,
+                );
+                attestor::startup::reconcile_metadata(&cc3).await?;
+                attestor::peer_registry::ensure_registered(
+                    &cc3,
+                    &tokio_util::sync::CancellationToken::new(),
+                    args.chain_key,
+                    &controller,
+                    &keypair,
+                    args.rotate_peer_key,
+                )
+                .await?;
+                tracing::info!(%controller, peer_id = %keypair.public().to_peer_id(), "networking key finalized; registration-only mode complete");
+                Ok::<_, anyhow::Error>(())
+            };
+            return tokio::select! {
+                result = registration => result,
+                _ = tokio::signal::ctrl_c() => Ok(()),
+            };
+        }
+    };
 
     let config = attestor::ConfigBuilder::new()
         .with_name(args.name)
@@ -690,10 +708,7 @@ async fn main() -> anyhow::Result<()> {
         .with_rotate_peer_key(args.rotate_peer_key)
         .with_stream(
             attestor::secret::ConfigBuilder::new()
-                .with_url_eth(
-                    args.eth_url
-                        .expect("source-chain RPC was validated for normal mode"),
-                )
+                .with_url_eth(eth_url)
                 .with_url_cc3(args.cc3_url)
                 .with_secret(args.secret)
                 .with_eth_rps(args.eth_rps)
