@@ -8853,6 +8853,158 @@ fn forward_patch_clears_attestations_queues_and_last_digest() {
     });
 }
 
+/// Seeds `count` attestation rows and runs a forward patch against committed backend storage,
+/// where `clear_prefix` only bounds the work per commit (as it does between blocks).
+fn forward_patch_with_attestations(count: u32, test_ext: &mut TestExternalities) {
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    test_ext
+        .then_run(|| {
+            for i in 0..u64::from(count) {
+                let a = create_signed_attestation(
+                    vec![attestor.clone()],
+                    SUPPORTED_CHAIN_KEY,
+                    i * 10,
+                    None,
+                    None,
+                );
+                Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a);
+            }
+            System::set_block_number(1);
+            Timestamp::set_timestamp(1);
+        })
+        .then_run(|| {
+            let patch = vec![AttestationCheckpoint {
+                block_number: 100,
+                digest: H256::from([9u8; 32]),
+            }];
+            assert_ok!(Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ));
+        });
+}
+
+/// Regression test: the purge used to retry the same first batch within one dispatch, so any
+/// chain with more rows than one batch failed and rolled back. It now clears one batch and
+/// drains the rest across blocks through `AttestationClearingCursors`.
+#[test]
+fn forward_patch_drains_attestations_beyond_one_batch_across_blocks() {
+    for count in [
+        MAX_ATTESTATIONS_CLEARED_PER_BLOCK - 1,
+        MAX_ATTESTATIONS_CLEARED_PER_BLOCK,
+        MAX_ATTESTATIONS_CLEARED_PER_BLOCK + 1,
+        // 128/129 are the batch size the ticketed repair used to fail at.
+        129,
+    ] {
+        let mut test_ext = ExtBuilder.build();
+        forward_patch_with_attestations(count, &mut test_ext);
+
+        // Rows beyond the first batch survive the dispatch, behind a cursor.
+        test_ext.then_run(|| {
+            let remaining = Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count();
+            assert_eq!(
+                remaining,
+                count.saturating_sub(MAX_ATTESTATIONS_CLEARED_PER_BLOCK) as usize,
+                "count={count}"
+            );
+            assert_eq!(
+                AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some(),
+                remaining > 0,
+                "count={count}"
+            );
+            // The repaired checkpoints are in place from the start.
+            assert_eq!(
+                Checkpoints::<Test>::get(SUPPORTED_CHAIN_KEY, 100),
+                Some(H256::from([9u8; 32]))
+            );
+        });
+
+        // Each block removes at most one batch until the cursor is gone.
+        let blocks_to_drain = count.div_ceil(MAX_ATTESTATIONS_CLEARED_PER_BLOCK);
+        for block in 0..u64::from(blocks_to_drain) {
+            test_ext.run(|| progress_to_block(2 + block));
+        }
+        test_ext.run(|| {
+            assert_eq!(
+                Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+                0,
+                "count={count}"
+            );
+            assert_eq!(
+                AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY),
+                None,
+                "count={count}"
+            );
+            assert!(!Attestation::commit_blocked_by_cleanup(SUPPORTED_CHAIN_KEY));
+        });
+    }
+}
+
+/// While the leftover rows drain, a second repair and new commits are refused, and the stale
+/// rows are not readable.
+#[test]
+fn forward_patch_is_blocked_while_its_own_attestation_drain_is_pending() {
+    let count = MAX_ATTESTATIONS_CLEARED_PER_BLOCK * 2 + 10;
+    let mut test_ext = ExtBuilder.build();
+    forward_patch_with_attestations(count, &mut test_ext);
+
+    test_ext.run(|| {
+        assert!(AttestationClearingCursors::<Test>::get(SUPPORTED_CHAIN_KEY).is_some());
+        assert!(Attestation::commit_blocked_by_cleanup(SUPPORTED_CHAIN_KEY));
+        assert!(!Attestation::attestations_stable(SUPPORTED_CHAIN_KEY));
+
+        let rows_before = Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count();
+        let patch = vec![AttestationCheckpoint {
+            block_number: 200,
+            digest: H256::from([8u8; 32]),
+        }];
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ),
+            Error::<Test>::CheckpointMaintenanceInProgress,
+        );
+        assert_eq!(
+            Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            rows_before
+        );
+    });
+}
+
+#[test]
+fn forward_patch_checkpoints_rejects_non_operator_without_clearing_attestations() {
+    let mut test_ext = ExtBuilder.build();
+    let attestor = Attestor::new(STASH_1, ATTESTOR_1);
+    test_ext.run(|| {
+        let a =
+            create_signed_attestation(vec![attestor.clone()], SUPPORTED_CHAIN_KEY, 0, None, None);
+        Attestations::<Test>::insert(SUPPORTED_CHAIN_KEY, a.digest(), a);
+
+        let patch = vec![AttestationCheckpoint {
+            block_number: 100,
+            digest: H256::from([9u8; 32]),
+        }];
+        assert_noop!(
+            Attestation::forward_patch_checkpoints(
+                RuntimeOrigin::signed(ATTESTOR_1),
+                SUPPORTED_CHAIN_KEY,
+                false,
+                patch.try_into().unwrap(),
+            ),
+            BadOrigin
+        );
+        assert_eq!(
+            Attestations::<Test>::iter_prefix(SUPPORTED_CHAIN_KEY).count(),
+            1
+        );
+    });
+}
+
 #[test]
 fn import_checkpoints_should_succeed_when_signed_by_operator() {
     ExtBuilder.build_and_execute(|| {
