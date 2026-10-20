@@ -9,10 +9,12 @@ assembly proof reservation. The EVM runner receives its original execution-only 
 `on_initialize` reserves the fixed assembly cost, including empty blocks. Imported Ethereum
 pre-log batches also check execution plus assembly weight before each transaction.
 
-Gas prices, opcode gas costs and the advertised 75M block gas limit stay the same. The
+Opcode gas costs and the advertised 75M block gas limit stay the same. The
 additional weight reduces how much Ethereum execution fits inside the normal dispatch
 budget, particularly on devnet and fast-runtime. Other transactions still use their
-existing weight rules. Ship this as runtime **3.140.0 / spec 140**.
+existing weight rules. The base-fee formula is unchanged; when elasticity is enabled,
+it observes the additional block weight and can increase fees at lower gas volumes.
+Ship this as runtime **3.140.0 / spec 140**.
 
 ## Measurements and model
 
@@ -38,7 +40,9 @@ change records assembly proof weight without introducing a new global limit.
 
 ## Reproduce
 
-Build with `cargo build --release --features runtime-benchmarks`. Generate individual
+Build with `WASM_BUILD_WORKSPACE_HINT="$PWD" cargo build --locked --release --features runtime-benchmarks`.
+The workspace hint keeps the Wasm build pinned when using an external target directory.
+Generate individual
 coefficients with:
 
 ```sh
@@ -53,12 +57,16 @@ coefficients with:
 Run `on_finalize_gas_block` with `--steps 10 --repeat 5` to exercise a combined workload
 sharing one gas budget. Run `on_finalize_full_block` separately for the larger synthetic
 stress case. Its independent maxima cost several blocks' worth of gas and must not be
-treated as one admissible block. Both use 2048 heap pages, the default 128 MiB import heap.
+treated as one admissible block. Individual dimensions and `on_finalize_gas_block` use
+2048 heap pages, the default 128 MiB import heap. The larger diagnostic retains 10000 pages.
 
 The archived runtime completed the gas-bounded combined workload with that heap. Its
 independent-maxima fixture exhausted the heap in an aggregate-vector clone. Frontier's
 assembly path now borrows receipts and stored aggregates and moves transactions into the
-block, avoiding those unnecessary copies. Keep the stress test as a memory regression.
+block, avoiding those unnecessary copies. The independent-maxima fixture still exceeds
+128 MiB during receipt-trie construction after that change. Keep its larger-heap diagnostic
+separate from the production-heap checks; do not infer an admissible block's memory demand
+from that synthetic workload.
 
 CI regenerates the committed coefficients using the inherent-method template, checks that
 they compile, and preserves the outputs as an artifact. Review regenerated coefficients
