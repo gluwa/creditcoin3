@@ -1987,17 +1987,20 @@ pub mod pallet {
         /// Commit weight for an attestation with `own` continuity-proof roots and `m`
         /// attestors, plus `extra` roots walked in queued proofs and the marginal cost of a
         /// checkpointing queue of `q` entries. Each queued entry is read, decoded and removed.
-        /// The own proof is charged through `commit_attestation`, whose `s` slope covers
-        /// everything a commit does per root of its own proof. That benchmark only samples the
-        /// catch-up path (`s` from 200), so its intercept is an extrapolation that moves between
-        /// runs; the own proof is charged at no less than the top of the sampled range, which
-        /// never falls below a measured point. Only a proof past it (a `MaxCatchup` raised above
-        /// the default) is charged along the slope. The extra roots are only walked, so each is
-        /// charged through `continuity_roots` alone and no root is counted twice.
+        /// The benchmark samples the catch-up path at 200..=500 roots. Charge at least one
+        /// complete benchmark envelope per 500 own roots: a noisy fit can produce a zero `s`
+        /// slope, so extrapolating it would leave longer governance-enabled proofs uncharged.
+        /// Whole envelopes conservatively include checkpoint work as well as root traversal.
+        /// Keep a larger fitted estimate if one is available. Extra queued roots are charged
+        /// separately through `continuity_roots`.
         pub(crate) fn weight_for(own: u32, extra: u32, m: u32, q: u32) -> Weight {
             let marginal = |f: fn(u32) -> Weight, n: u32| f(n).saturating_sub(f(0));
             let own = own.max(COMMIT_BENCHMARK_MAX_SPAN);
+            let envelopes = own.div_ceil(COMMIT_BENCHMARK_MAX_SPAN);
+            let floor = <T as Config>::WeightInfo::commit_attestation(COMMIT_BENCHMARK_MAX_SPAN, m)
+                .saturating_mul(envelopes.into());
             <T as Config>::WeightInfo::commit_attestation(own, m)
+                .max(floor)
                 .saturating_add(marginal(<T as Config>::WeightInfo::continuity_roots, extra))
                 .saturating_add(marginal(
                     <T as Config>::WeightInfo::commit_attestation_queued,

@@ -188,6 +188,9 @@ jobs:
       E2E_OUTPUT_DIR: ${{ github.workspace }}/e2e-output
       SCENARIOS: ${{ needs.prepare.outputs.scenarios }}
     steps:
+      - name: Reserve cleanup and evidence upload time
+        run: echo "E2E_DEADLINE_EPOCH=$(($(date +%s) + 26 * 60))" >> "$GITHUB_ENV"
+
       - name: Check out Creditcoin and the scenario runner
         uses: actions/checkout@v7
         with:
@@ -271,6 +274,7 @@ jobs:
           workspaces: asc-message-relayer
 
       - name: Build candidate relayer
+        timeout-minutes: 10
         working-directory: asc-message-relayer
         run: |
           rustup show active-toolchain || rustup toolchain install
@@ -319,7 +323,10 @@ jobs:
         env:
           RELAYER_BIN: ${{ github.workspace }}/asc-message-relayer/target/release/message-relayer
           RUST_LOG: info
-        run: npm run e2e -- --scenario "$SCENARIOS" --output-dir "$E2E_OUTPUT_DIR"
+        run: |
+          remaining=$((E2E_DEADLINE_EPOCH - $(date +%s)))
+          if [ "$remaining" -lt 1 ]; then remaining=1; fi
+          npm run e2e -- --scenario "$SCENARIOS" --output-dir "$E2E_OUTPUT_DIR" --timeout-seconds "$remaining"
 
       - name: Upload scenario evidence
         if: always()

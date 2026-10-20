@@ -51,8 +51,7 @@ pub(crate) struct P2PBehavior {
 pub(crate) type SubscriptionFilter =
     libp2p::gossipsub::MaxCountSubscriptionFilter<libp2p::gossipsub::WhitelistSubscriptionFilter>;
 
-/// Topics a peer may be subscribed to at once. Attestors use one topic; the slack keeps
-/// subscribe/unsubscribe churn from tripping the cap.
+/// Topics a peer may be subscribed to at once: attestation plus three write-ability topics.
 const MAX_SUBSCRIBED_TOPICS_PER_PEER: usize = 4;
 /// Subscription entries accepted in a single message from a peer.
 const MAX_SUBSCRIPTIONS_PER_REQUEST: usize = 8;
@@ -62,7 +61,13 @@ fn subscription_filter(
     penalty_only_topics: &[&libp2p::gossipsub::IdentTopic],
 ) -> SubscriptionFilter {
     libp2p::gossipsub::MaxCountSubscriptionFilter {
-        filter: libp2p::gossipsub::WhitelistSubscriptionFilter(credited_topics.iter().chain(penalty_only_topics.iter()).map(|topic| topic.hash()).collect()),
+        filter: libp2p::gossipsub::WhitelistSubscriptionFilter(
+            credited_topics
+                .iter()
+                .chain(penalty_only_topics.iter())
+                .map(|topic| topic.hash())
+                .collect(),
+        ),
         max_subscribed_topics: MAX_SUBSCRIBED_TOPICS_PER_PEER,
         max_subscriptions_per_request: MAX_SUBSCRIPTIONS_PER_REQUEST,
     }
@@ -352,6 +357,9 @@ mod tests {
         let mut disabled = subscription_filter(&[&attest], &[]);
         assert!(!disabled.can_subscribe(&votes.hash()));
         assert_eq!(filter.max_subscribed_topics, MAX_SUBSCRIBED_TOPICS_PER_PEER);
-        assert_eq!(filter.max_subscriptions_per_request, MAX_SUBSCRIPTIONS_PER_REQUEST);
+        assert_eq!(
+            filter.max_subscriptions_per_request,
+            MAX_SUBSCRIPTIONS_PER_REQUEST
+        );
     }
 }

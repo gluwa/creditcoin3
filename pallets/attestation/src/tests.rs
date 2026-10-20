@@ -12452,7 +12452,7 @@ fn commit_weight_charges_own_proof_through_commit_benchmark() {
 }
 
 #[test]
-fn commit_weight_follows_slope_past_benchmarked_span() {
+fn commit_weight_grows_past_benchmarked_span() {
     ExtBuilder.build_and_execute(|| {
         let attestor = Attestor::new(STASH_1, ATTESTOR_1);
         let long = COMMIT_BENCHMARK_MAX_SPAN as u64 * 2;
@@ -12473,6 +12473,26 @@ fn commit_weight_follows_slope_past_benchmarked_span() {
         );
         assert!(commit_weight(&past_cap).ref_time() > commit_weight(&at_cap).ref_time());
     })
+}
+
+#[test]
+fn commit_weight_charges_long_proofs_even_when_generated_slope_is_zero() {
+    // The checked-in production fit currently has no `s` coefficient. Exercise it through
+    // the actual dispatch-weight helper rather than replacing it with a linear mock.
+    ExtBuilder.build_and_execute(|| {
+        let span = COMMIT_BENCHMARK_MAX_SPAN;
+        let base = <<Test as Config>::WeightInfo as WeightInfo>::commit_attestation(span, 1);
+        for own in [span + 1, span * 2, span * 2 + 1, u32::MAX] {
+            let expected = base.saturating_mul(own.div_ceil(span).into());
+            let weight = CommitAttestationWeight::<Test>::weight_for(own, 0, 1, 0);
+            assert!(weight.all_gte(expected));
+            assert!(weight.ref_time() > base.ref_time());
+        }
+        assert_eq!(
+            CommitAttestationWeight::<Test>::weight_for(span, 0, 1, 0),
+            base
+        );
+    });
 }
 
 #[test]

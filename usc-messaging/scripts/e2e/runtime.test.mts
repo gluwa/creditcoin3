@@ -76,6 +76,23 @@ test("SIGKILL targets the managed process group and leaves another child alive",
   }
 });
 
+test("one overall deadline bounds consecutive waits and an unresponsive final probe", async () => {
+  const signal = AbortSignal.any([
+    new AbortController().signal,
+    AbortSignal.timeout(60),
+  ]);
+  const started = Date.now();
+  await waitFor("first phase", async () => true, { timeoutMs: 1000, signal });
+  await assert.rejects(
+    waitFor("stalled later phase", () => new Promise<undefined>(() => {}), {
+      timeoutMs: 10_000,
+      signal,
+    }),
+    /timeout|aborted/i,
+  );
+  assert.ok(Date.now() - started < 1000);
+});
+
 test("JUnit diagnostics escape errors and preserve failed/skipped scenario counts", () => {
   const report = junit([
     {
@@ -123,4 +140,9 @@ test("runner validates scenario selection and lookback before starting a stack",
   const badLookback = run("--lookback-blocks", "0");
   assert.equal(badLookback.status, 1);
   assert.match(badLookback.stderr, /lookback-blocks/);
+  for (const value of ["0", "NaN", "7201"]) {
+    const invalidTimeout = run("--timeout-seconds", value);
+    assert.equal(invalidTimeout.status, 1);
+    assert.match(invalidTimeout.stderr, /timeout-seconds/);
+  }
 });

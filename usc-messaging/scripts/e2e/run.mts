@@ -18,12 +18,13 @@ const { values } = parseArgs({
       default: resolve(tmpdir(), `writeability-e2e-${Date.now()}`),
     },
     "lookback-blocks": { type: "string", default: "2" },
+    "timeout-seconds": { type: "string", default: "1200" },
     help: { type: "boolean", short: "h", default: false },
   },
 });
 if (values.help) {
   console.log(
-    "Usage: npm run e2e -- [--scenario happy-path,durable-restart] [--output-dir DIR] [--lookback-blocks 2]\n" +
+    "Usage: npm run e2e -- [--scenario happy-path,durable-restart] [--output-dir DIR] [--lookback-blocks 2] [--timeout-seconds 1200]\n" +
       "Requires compiled Creditcoin/attestor/proof-gen/relayer binaries, Foundry and ASC_CONTRACTS_DIR artifacts.\n" +
       "Uses a fresh state/ directory under DIR. Logs, exact-message evidence, report.json and junit.xml are retained.",
   );
@@ -39,6 +40,9 @@ if (values.help) {
   const lookback = Number(values["lookback-blocks"]);
   if (!Number.isSafeInteger(lookback) || lookback < 1 || lookback > 100)
     throw new Error("lookback-blocks must be an integer in 1..100");
+  const timeout = Number(values["timeout-seconds"]);
+  if (!Number.isSafeInteger(timeout) || timeout < 1 || timeout > 7200)
+    throw new Error("timeout-seconds must be an integer in 1..7200");
   const output = resolve(values["output-dir"]!);
   await mkdir(output, { recursive: true });
   const controller = new AbortController();
@@ -48,7 +52,13 @@ if (values.help) {
     );
   process.once("SIGINT", interrupt);
   process.once("SIGTERM", interrupt);
-  const stack = new Stack(output, lookback, controller.signal);
+  // One deadline covers startup and every sequential scenario. Aborting feeds the same
+  // failure/report/owned-process cleanup path as an interrupted run.
+  const signal = AbortSignal.any([
+    controller.signal,
+    AbortSignal.timeout(timeout * 1000),
+  ]);
+  const stack = new Stack(output, lookback, signal);
   const results: CaseResult[] = [];
   let current = "stack-startup";
   let started = Date.now();

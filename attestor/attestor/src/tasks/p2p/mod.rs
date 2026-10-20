@@ -1613,8 +1613,8 @@ async fn retry_pending_vote(shared: &Arc<Shared>, vote: Vote) {
 #[cfg(test)]
 mod tests {
     use super::{
-        deny_decision, drain_pending_votes, is_bufferable, note_attestor_peer, PendingVotes, ReobsAdmission,
-        REOBS_PER_PEER_CAPACITY,
+        deny_decision, drain_pending_votes, is_bufferable, note_attestor_peer, PendingVotes,
+        ReobsAdmission, REOBS_PER_PEER_CAPACITY,
     };
     use attestor_primitives::AttestorId;
     use std::time::{Duration, Instant};
