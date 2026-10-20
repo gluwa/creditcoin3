@@ -308,7 +308,13 @@ pub async fn run(
             // Production observed a chill/kick on chain and refreshed the active set — evict the
             // deactivated attestor's peer (if we know it) and keep it out until it reactivates.
             Some(attestor) = peer_deactivated_rx.recv() => {
-                handle_peer_deactivated(&shared, &mut swarm, &peers_by_attestor, &attestor);
+                handle_peer_deactivated(
+                    &mut swarm,
+                    &mut peers_by_attestor,
+                    &peer_registry,
+                    &attestor,
+                    |id| shared.bls_store.pubkey(id.account_id()).is_some(),
+                );
             }
 
             // Incoming events from the swarm.
@@ -981,11 +987,17 @@ fn note_dial_failure(
 /// lets it back in — no explicit "re-add" path needed. A peer id shared with a still-active
 /// attestor is left untouched.
 fn handle_peer_deactivated(
-    shared: &Arc<Shared>,
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
-    peers_by_attestor: &[(AttestorId, libp2p::PeerId)],
+    peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
+    registry: &crate::peer_registry::Registry,
     attestor: &AttestorId,
+    is_active: impl Fn(&AttestorId) -> bool,
 ) {
+    // Waiting members have a reservation before any vote, but deliberately do not enter the
+    // inactive-voter deny map. An explicit deactivation now supplies that missing binding.
+    if let Some(peer) = registry.peer(attestor) {
+        note_attestor_peer(peers_by_attestor, attestor.clone(), peer);
+    }
     let peers: Vec<libp2p::PeerId> = peers_by_attestor
         .iter()
         .filter(|(a, _)| a == attestor)
@@ -998,7 +1010,13 @@ fn handle_peer_deactivated(
     }
 
     for peer_id in peers {
-        if !is_peer_denied(shared, peers_by_attestor, &peer_id) {
+        if !deny_decision(
+            peers_by_attestor
+                .iter()
+                .filter(|(_, peer)| *peer == peer_id)
+                .map(|(id, _)| id),
+            &is_active,
+        ) {
             tracing::debug!(%attestor, %peer_id, "↩️  peer still maps to an active attestor — keeping");
             continue;
         }
@@ -1462,7 +1480,7 @@ mod tests {
             republisher,
         );
         assert_eq!(bindings, vec![(att(1), member)]);
-        super::evict_peer(&mut swarm, member);
+        super::handle_peer_deactivated(&mut swarm, &mut bindings, &registry, &att(1), |_| false);
         assert!(!swarm.behaviour().admission.is_reserved(&member));
         assert!(swarm
             .behaviour_mut()
@@ -1474,6 +1492,48 @@ mod tests {
                 &addr
             )
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn waiting_deactivation_uses_registered_identity_before_first_vote() {
+        for required in [false, true] {
+            for other_active in [false, true] {
+                let mut swarm = swarm();
+                let member = libp2p::PeerId::random();
+                let mut registry = registry(required, vec![]);
+                registry.waiting_attestors = vec![(att(1), Some(member))];
+                let mut bindings = Vec::new();
+                apply_peer_registry(&mut swarm, &mut bindings, &registry, &[member]);
+                assert!(bindings.is_empty());
+                assert!(swarm.behaviour().admission.is_reserved(&member));
+                if other_active {
+                    note_attestor_peer(&mut bindings, att(2), member);
+                }
+                let is_active = |id: &AttestorId| other_active && *id == att(2);
+                super::handle_peer_deactivated(
+                    &mut swarm,
+                    &mut bindings,
+                    &registry,
+                    &att(1),
+                    is_active,
+                );
+                assert!(bindings.contains(&(att(1), member)));
+                assert_eq!(
+                    swarm.behaviour().admission.is_reserved(&member),
+                    other_active
+                );
+                assert_eq!(
+                    deny_decision(
+                        bindings
+                            .iter()
+                            .filter(|(_, peer)| *peer == member)
+                            .map(|(id, _)| id),
+                        is_active,
+                    ),
+                    !other_active
+                );
+            }
+        }
     }
 
     #[tokio::test]
