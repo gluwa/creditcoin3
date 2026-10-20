@@ -324,7 +324,8 @@ mod benchmarks {
 
     #[benchmark]
     fn unregister_attestor() {
-        // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`
+        // Worst case retains the BLS key, updates ActiveAttestors, and deletes both peer-key
+        // indexes. An unregistered networking key would skip the reverse-index read/write.
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
         let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
@@ -344,14 +345,23 @@ mod benchmarks {
         .expect("attest() required so unregister stores a retired BLS key");
         Attestation::<T>::chill(att.stash_origin.clone(), DEV_CHAIN_KEY, attestor_id.clone())
             .expect("chill() required before unregister");
+        let peer_key = [9; 32];
+        AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &attestor_id, peer_key);
+        PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, peer_key, &attestor_id);
         let signed_origin = att.stash_origin;
 
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
-            attestor_id,
-        )
+            attestor_id.clone(),
+        );
+
+        assert!(!AttestorPeerKeys::<T>::contains_key(
+            DEV_CHAIN_KEY,
+            &attestor_id
+        ));
+        assert!(!PeerKeyOwner::<T>::contains_key(DEV_CHAIN_KEY, peer_key));
     }
 
     #[benchmark]
@@ -544,7 +554,7 @@ mod benchmarks {
 
     #[benchmark]
     fn attest() {
-        // Setup
+        // Enforcement adds a peer-key lookup that the rollout/default-disabled path skips.
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
         let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
@@ -552,8 +562,12 @@ mod benchmarks {
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
             DEV_CHAIN_KEY,
-            attestor_id,
+            attestor_id.clone(),
         ));
+        let peer_key = [9; 32];
+        AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &attestor_id, peer_key);
+        PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, peer_key, &attestor_id);
+        PeerRegistrationRequired::<T>::insert(DEV_CHAIN_KEY, true);
 
         let signed_origin = attestor.attestor_origin;
 
@@ -563,7 +577,14 @@ mod benchmarks {
             DEV_CHAIN_KEY,
             attestor.public_key,
             attestor.signature,
-        )
+        );
+
+        assert_eq!(
+            Attestors::<T>::get(DEV_CHAIN_KEY, attestor_id)
+                .unwrap()
+                .status,
+            attestor_primitives::AttestorStatus::Waiting
+        );
     }
 
     #[benchmark]
@@ -670,6 +691,20 @@ mod benchmarks {
         fn peer_registration_policy_benchmark_fixture() {
             new_ext().execute_with(|| {
                 Pallet::<Test>::test_bench_by_name(b"set_peer_registration_required").unwrap();
+            });
+        }
+
+        #[test]
+        fn unregister_with_peer_key_benchmark_fixture() {
+            new_ext().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"unregister_attestor").unwrap();
+            });
+        }
+
+        #[test]
+        fn attest_with_peer_registration_required_benchmark_fixture() {
+            new_ext().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"attest").unwrap();
             });
         }
     }

@@ -217,6 +217,11 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(0, 5041))
 			.saturating_add(T::DbWeight::get().reads(15))
 			.saturating_add(T::DbWeight::get().writes(10))
+			// Conservative supplement until CI regenerates the corrected benchmark: the
+			// measurement above had no peer key, skipping both index deletes and owner read.
+			.saturating_add(Weight::from_parts(0, 8192))
+			.saturating_add(T::DbWeight::get().reads(1))
+			.saturating_add(T::DbWeight::get().writes(2))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -488,6 +493,10 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(Weight::from_parts(0, 4173))
 			.saturating_add(T::DbWeight::get().reads(8))
 			.saturating_add(T::DbWeight::get().writes(4))
+			// Conservative supplement until CI regenerates with peer registration required:
+			// the disabled-policy measurement above skipped the registered-key lookup.
+			.saturating_add(Weight::from_parts(0, 8192))
+			.saturating_add(T::DbWeight::get().reads(1))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
