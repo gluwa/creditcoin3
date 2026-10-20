@@ -594,7 +594,7 @@ impl pallet_babe::Config for Runtime {
         pallet_babe::EquivocationReportSystem<Self, Offences, Historical, ReportLongevity>;
     type WeightInfo = ();
     type MaxAuthorities = MaxAuthorities;
-    type DisabledValidators = ();
+    type DisabledValidators = Session;
     type MaxNominators = MaxNominatorRewardedPerValidator;
 }
 
@@ -707,7 +707,9 @@ impl pallet_staking::Config for Runtime {
     type BenchmarkingConfig = StakingBenchmarkingConfig;
     type WeightInfo = ();
     type NominationsQuota = pallet_staking::FixedNominationsQuota<16>;
-    type EventListeners = (); // TODO: should be pools when nomination pools are added
+    // Nomination pools track staking events (`on_slash`, `on_withdraw`) to keep their
+    // sub-pool balances and `TotalValueLocked` in sync with staking.
+    type EventListeners = NominationPools;
     type MaxExposurePageSize = MaxExposurePageSize;
     type MaxControllersInDeprecationBatch = MaxControllersInDeprecationBatch;
     type OldCurrency = Balances;
@@ -1251,6 +1253,9 @@ type Migrations = (
         pallet_session::migrations::v1::InitOffenceSeverity<Runtime>,
     >,
     pallet_staking::migrations::v16::MigrateV15ToV16<Runtime>,
+    // Re-derives `TotalValueLocked` from the staking ledgers of all bonded pools.
+    // Unversioned and idempotent, so it can stay in the tuple.
+    pallet_nomination_pools::migration::unversioned::TotalValueLockedSync<Runtime>,
 );
 
 pub type Executive = frame_executive::Executive<
@@ -2112,7 +2117,7 @@ impl_runtime_apis! {
 
 #[cfg(test)]
 mod tests {
-    use super::{BondingDuration, Runtime, SlashDeferDuration, WeightPerGas};
+    use super::{BondingDuration, NominationPools, Runtime, SlashDeferDuration, WeightPerGas};
 
     /// Every deployed environment must keep the 7-era unbonding period.
     ///
@@ -2434,6 +2439,20 @@ mod tests {
         }
     }
 
+    /// Nomination pools receive staking events through `pallet_staking::Config::EventListeners`.
+    /// Behavioural coverage lives in `pallet_nomination_pools`' own tests; this checks the
+    /// runtime wires the listener up.
+    #[test]
+    fn nomination_pools_are_registered_as_staking_event_listeners() {
+        use core::any::TypeId;
+
+        assert_eq!(
+            TypeId::of::<<Runtime as pallet_staking::Config>::EventListeners>(),
+            TypeId::of::<NominationPools>(),
+            "pallet_staking::Config::EventListeners must be NominationPools",
+        );
+    }
+
     #[test]
     fn configured_base_extrinsic_weight_is_evm_compatible() {
         let min_ethereum_transaction_weight = WeightPerGas::get() * 21_000;
@@ -2441,6 +2460,27 @@ mod tests {
             .get(frame_support::dispatch::DispatchClass::Normal)
             .base_extrinsic;
         assert!(base_extrinsic.ref_time() <= min_ethereum_transaction_weight.ref_time());
+    }
+
+    #[test]
+    fn babe_follows_session_disabled_validators() {
+        use frame_support::traits::DisabledValidators as _;
+        use sp_runtime::BuildStorage as _;
+
+        let storage = frame_system::GenesisConfig::<Runtime>::default()
+            .build_storage()
+            .unwrap();
+        sp_io::TestExternalities::new(storage).execute_with(|| {
+            let validators: Vec<super::AccountId> =
+                (1u8..=4).map(|i| super::AccountId::from([i; 32])).collect();
+            pallet_session::Validators::<Runtime>::put(validators);
+
+            type Babe = <Runtime as pallet_babe::Config>::DisabledValidators;
+            assert!(!Babe::is_disabled(1));
+            assert!(pallet_session::Pallet::<Runtime>::disable_index(1));
+            assert!(Babe::is_disabled(1));
+            assert!(!Babe::is_disabled(0));
+        });
     }
 }
 

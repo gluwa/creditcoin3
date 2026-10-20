@@ -8,6 +8,8 @@ ALL_FILES=$(
     grep -v "./target" |
     grep -v node_modules |
     grep -v cli/dist |
+    # vendored upstream crate, kept byte-identical to upstream
+    grep -v attestor/vendor/ |
     grep -v cli/src/lib/interfaces |
     # these are usually the same b/c that's what we were told to do
     grep -v precompiles/metadata/precompiles-creditcoin3 |
