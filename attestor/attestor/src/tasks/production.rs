@@ -286,8 +286,16 @@ async fn handle_cc3_batch(
     // Steady liveness pulse: a cc3 finalized batch arriving means the connection is live and the
     // production loop is turning. The watchdog reads this to distinguish "alive" from "wedged".
     shared.health.note_progress();
+    let finalized_number = batch.block_number();
     while let Some(event) = batch.try_next().await? {
-        handle_one(shared, stream_attestation, latest_cc3, event).await?;
+        handle_one(
+            shared,
+            stream_attestation,
+            latest_cc3,
+            event,
+            finalized_number,
+        )
+        .await?;
     }
     Ok(())
 }
@@ -438,6 +446,7 @@ async fn handle_one(
     stream_attestation: &mut stream::attestation::StreamAttestation,
     latest_cc3: &mut AttestationInfo,
     event: CcEvent,
+    finalized_number: u64,
 ) -> Result<(), Error> {
     match event {
         // 1] new finalized attestation on cc3
@@ -561,7 +570,10 @@ async fn handle_one(
             if !is_local {
                 let _ = shared
                     .peer_deactivated_tx
-                    .send(attestor_primitives::AttestorId::from_public(who.0));
+                    .send(crate::shared::PeerDeactivated {
+                        attestor: attestor_primitives::AttestorId::from_public(who.0),
+                        finalized_number,
+                    });
             }
         }
 
@@ -686,6 +698,7 @@ async fn wait_for_block_attested(
                 // Keep the watchdog fed during a slow genesis wait (can exceed the startup grace
                 // on a slow chain) — batches are still arriving, so we're alive, not wedged.
                 shared.health.note_progress();
+                let finalized_number = batch.block_number();
                 while let Some(event) = batch.try_next().await? {
                     match event {
                         // The genesis terminator: the first BlockAttested at/above the genesis
@@ -712,7 +725,7 @@ async fn wait_for_block_attested(
                         // stale until a later duplicate event. Route them through the same handler
                         // the steady-state loop uses.
                         other => {
-                            handle_one(shared, stream_attestation, &mut scratch, other).await?;
+                            handle_one(shared, stream_attestation, &mut scratch, other, finalized_number).await?;
                         }
                     }
                 }

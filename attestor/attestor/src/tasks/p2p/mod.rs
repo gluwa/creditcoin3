@@ -65,7 +65,7 @@ pub async fn run(
     shared: Arc<Shared>,
     cfg: Config,
     mut gossip_rx: mpsc::UnboundedReceiver<Vote>,
-    mut peer_deactivated_rx: mpsc::UnboundedReceiver<AttestorId>,
+    mut peer_deactivated_rx: mpsc::UnboundedReceiver<crate::shared::PeerDeactivated>,
     mut peer_registry_rx: tokio::sync::watch::Receiver<Arc<crate::peer_registry::Registry>>,
 ) -> Result<(), Error> {
     use futures::StreamExt as _;
@@ -73,6 +73,7 @@ pub async fn run(
     let enable_mdns = !cfg.no_mdns;
     let chain_key = cfg.chain_key;
     let mut peer_registry = peer_registry_rx.borrow_and_update().clone();
+    let mut minimum_registry_number = peer_registry.finalized_number;
 
     // Built before the swarm because the behavior needs the topic hash to install its
     // gossipsub peer-scoring topic parameters.
@@ -216,6 +217,7 @@ pub async fn run(
         &mut peers_by_attestor,
         &peer_registry,
         &cfg.reserved_peers,
+        &mut minimum_registry_number,
     );
     ensure_local_peer_key(&peer_registry, &shared.attestor_id, local_peer_id)
         .map_err(Error::P2p)?;
@@ -245,9 +247,15 @@ pub async fn run(
                 if result.is_err() {
                     return Err(Error::P2p(anyhow::anyhow!("finalized peer registry task stopped")));
                 }
-                peer_registry = peer_registry_rx.borrow_and_update().clone();
-                ensure_local_peer_key(&peer_registry, &shared.attestor_id, local_peer_id).map_err(Error::P2p)?;
-                apply_peer_registry(&mut swarm, &mut peers_by_attestor, &peer_registry, &cfg.reserved_peers);
+                let next = peer_registry_rx.borrow_and_update().clone();
+                if next.finalized_number < minimum_registry_number {
+                    tracing::debug!(observed = next.finalized_number, minimum = minimum_registry_number,
+                        "ignoring registry older than observed membership removal");
+                    continue;
+                }
+                ensure_local_peer_key(&next, &shared.attestor_id, local_peer_id).map_err(Error::P2p)?;
+                apply_peer_registry(&mut swarm, &mut peers_by_attestor, &next, &cfg.reserved_peers, &mut minimum_registry_number);
+                peer_registry = next;
             }
 
             // Outgoing — production gives us a freshly built local vote to gossip. Always drain
@@ -304,12 +312,13 @@ pub async fn run(
 
             // Production observed a chill/kick on chain and refreshed the active set — evict the
             // deactivated attestor's peer (if we know it) and keep it out until it reactivates.
-            Some(attestor) = peer_deactivated_rx.recv() => {
+            Some(event) = peer_deactivated_rx.recv() => {
                 handle_peer_deactivated(
                     &mut swarm,
                     &mut peers_by_attestor,
                     &peer_registry,
-                    &attestor,
+                    &mut minimum_registry_number,
+                    &event,
                     |id| shared.bls_store.pubkey(id.account_id()).is_some(),
                 );
             }
@@ -440,7 +449,14 @@ fn apply_peer_registry(
     bindings: &mut Vec<(AttestorId, libp2p::PeerId)>,
     registry: &crate::peer_registry::Registry,
     fallback: &[libp2p::PeerId],
-) {
+    minimum_registry_number: &mut u64,
+) -> bool {
+    // A removal event may arrive before the independently refreshed registry. Never undo its
+    // eviction with a snapshot from before that finalized block (or regress an accepted view).
+    if registry.finalized_number < *minimum_registry_number {
+        return false;
+    }
+    *minimum_registry_number = registry.finalized_number;
     let local = *swarm.local_peer_id();
     let previously_reserved = swarm.behaviour().admission.reserved_peers();
     // Waiting identities may connect before election. Do not feed them into the inactive-peer
@@ -491,6 +507,7 @@ fn apply_peer_registry(
     }
     kept.reverse();
     *bindings = kept;
+    true
 }
 
 /// Pending buffer for votes that arrived before local production reached their height:
@@ -1034,9 +1051,17 @@ fn handle_peer_deactivated(
     swarm: &mut libp2p::Swarm<behavior::P2PBehavior>,
     peers_by_attestor: &mut Vec<(AttestorId, libp2p::PeerId)>,
     registry: &crate::peer_registry::Registry,
-    attestor: &AttestorId,
+    minimum_registry_number: &mut u64,
+    event: &crate::shared::PeerDeactivated,
     is_active: impl Fn(&AttestorId) -> bool,
 ) {
+    // A registry at/after this event already contains its post-block state. Replaying an old
+    // removal must not revoke a subsequent reactivation (including one in the same block).
+    if event.finalized_number <= registry.finalized_number {
+        return;
+    }
+    *minimum_registry_number = (*minimum_registry_number).max(event.finalized_number);
+    let attestor = &event.attestor;
     // Waiting members have a reservation before any vote, but deliberately do not enter the
     // inactive-voter deny map. An explicit deactivation now supplies that missing binding.
     if let Some(peer) = registry.peer(attestor) {
@@ -1611,7 +1636,7 @@ mod tests {
         let (registered, attacker) = (libp2p::PeerId::random(), libp2p::PeerId::random());
         let registry = registry(false, vec![(att(1), Some(registered))]);
         let mut bindings = Vec::new();
-        apply_peer_registry(&mut swarm, &mut bindings, &registry, &[]);
+        apply_peer_registry(&mut swarm, &mut bindings, &registry, &[], &mut 0);
         note_verified_vote_peer(
             &mut swarm.behaviour_mut().admission,
             &mut bindings,
@@ -1637,7 +1662,7 @@ mod tests {
         let mut registry = registry(false, vec![]);
         registry.waiting_attestors = vec![(att(1), Some(member))];
         let mut bindings = vec![(att(1), old)];
-        apply_peer_registry(&mut swarm, &mut bindings, &registry, &[member]);
+        apply_peer_registry(&mut swarm, &mut bindings, &registry, &[member], &mut 0);
         assert!(
             bindings.is_empty(),
             "waiting must not enter the inactive-voter deny gate"
@@ -1674,7 +1699,17 @@ mod tests {
             republisher,
         );
         assert_eq!(bindings, vec![(att(1), member)]);
-        super::handle_peer_deactivated(&mut swarm, &mut bindings, &registry, &att(1), |_| false);
+        super::handle_peer_deactivated(
+            &mut swarm,
+            &mut bindings,
+            &registry,
+            &mut 0,
+            &crate::shared::PeerDeactivated {
+                attestor: att(1),
+                finalized_number: 1,
+            },
+            |_| false,
+        );
         assert!(!swarm.behaviour().admission.is_reserved(&member));
         assert!(swarm
             .behaviour_mut()
@@ -1697,7 +1732,7 @@ mod tests {
                 let mut registry = registry(required, vec![]);
                 registry.waiting_attestors = vec![(att(1), Some(member))];
                 let mut bindings = Vec::new();
-                apply_peer_registry(&mut swarm, &mut bindings, &registry, &[member]);
+                apply_peer_registry(&mut swarm, &mut bindings, &registry, &[member], &mut 0);
                 assert!(bindings.is_empty());
                 assert!(swarm.behaviour().admission.is_reserved(&member));
                 if other_active {
@@ -1708,7 +1743,11 @@ mod tests {
                     &mut swarm,
                     &mut bindings,
                     &registry,
-                    &att(1),
+                    &mut 0,
+                    &crate::shared::PeerDeactivated {
+                        attestor: att(1),
+                        finalized_number: 1,
+                    },
                     is_active,
                 );
                 assert!(bindings.contains(&(att(1), member)));
@@ -1727,6 +1766,89 @@ mod tests {
                     !other_active
                 );
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_registry_cannot_undo_deactivation_but_later_reactivation_can() {
+        for required in [false, true] {
+            let mut swarm = swarm();
+            let member = libp2p::PeerId::random();
+            let mut current = registry(required, vec![]);
+            current.finalized_number = 10;
+            current.waiting_attestors = vec![(att(1), Some(member))];
+            let mut bindings = Vec::new();
+            let mut minimum = 0;
+            assert!(apply_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &[member],
+                &mut minimum
+            ));
+            assert!(swarm.behaviour().admission.is_reserved(&member));
+
+            let removal = crate::shared::PeerDeactivated {
+                attestor: att(1),
+                finalized_number: 20,
+            };
+            super::handle_peer_deactivated(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &mut minimum,
+                &removal,
+                |_| false,
+            );
+            assert_eq!(minimum, 20);
+            assert!(!swarm.behaviour().admission.is_reserved(&member));
+
+            // A refresh can be newer than our last registry but still predate the removal.
+            let mut next = current.clone();
+            next.finalized_number = 15;
+            assert!(!apply_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &next,
+                &[member],
+                &mut minimum
+            ));
+            assert_eq!(bindings, vec![(att(1), member)]);
+            assert!(!swarm.behaviour().admission.is_reserved(&member));
+
+            next.finalized_number = 20;
+            next.waiting_attestors.clear();
+            assert!(apply_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &next,
+                &[],
+                &mut minimum
+            ));
+            assert!(!swarm.behaviour().admission.is_reserved(&member));
+
+            // Reactivation clears the deny binding and restores capacity. A delayed/backfilled
+            // removal notification must not undo this already-finalized post-block state.
+            next.finalized_number = 21;
+            next.waiting_attestors = vec![(att(1), Some(member))];
+            assert!(apply_peer_registry(
+                &mut swarm,
+                &mut bindings,
+                &next,
+                &[member],
+                &mut minimum
+            ));
+            current = next;
+            super::handle_peer_deactivated(
+                &mut swarm,
+                &mut bindings,
+                &current,
+                &mut minimum,
+                &removal,
+                |_| false,
+            );
+            assert!(bindings.is_empty());
+            assert!(swarm.behaviour().admission.is_reserved(&member));
         }
     }
 
@@ -1753,6 +1875,7 @@ mod tests {
             &mut bindings,
             &registry(true, vec![(att(1), Some(new))]),
             &[old],
+            &mut 0,
         );
         assert_eq!(bindings, vec![(att(1), new)]);
         assert!(!swarm.behaviour().admission.is_reserved(&old));
@@ -1770,8 +1893,15 @@ mod tests {
             &mut bindings,
             &registry(true, vec![(att(1), Some(old))]),
             &[],
+            &mut 0,
         );
-        apply_peer_registry(&mut swarm, &mut bindings, &registry(true, vec![]), &[]);
+        apply_peer_registry(
+            &mut swarm,
+            &mut bindings,
+            &registry(true, vec![]),
+            &[],
+            &mut 0,
+        );
         assert!(!swarm.behaviour().admission.is_reserved(&old));
         assert!(deny_decision(
             bindings
