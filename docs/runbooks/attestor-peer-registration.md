@@ -151,9 +151,8 @@ instantaneous cross-network cutover. Keep RPC access healthy and coordinate rota
 
 CI generates weights from dedicated benchmarks for key rotation and policy activation across
 the registered set. Activation is benchmarked with mandatory peer registration enabled, and
-unregistration with both peer-key indexes populated, so the measurements include the post-rollout
-storage work. Conservative DB/proof supplements cover these two paths until CI regenerates the
-weights from the corrected fixtures.
+unregistration with both peer-key indexes populated, so the generated weights include the
+post-rollout storage work. CI has regenerated the weights from these corrected fixtures.
 
 Regression coverage includes proof replay across controllers/networks/chains, uniqueness,
 rotation and cleanup, staged enforcement, full-pool first-connection admission, registered peer
