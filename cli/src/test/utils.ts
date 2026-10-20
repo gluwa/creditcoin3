@@ -88,6 +88,9 @@ export const extractFee = async (
 // succeeds even when the inner call fails, which `extractFee` and `signSendAndWatchCcKeyring`
 // don't detect, so this returns the inner result from the `Sudid` event instead, along with the
 // events and the hash of the block the call was included in.
+//
+// A node that seals and finalizes each block at once (`--sealing manual`, as in the cc3-indexer
+// job) can report the transaction as `Finalized` without an `InBlock` first, so either counts.
 export const sudoInBlock = async (
     api: ApiPromise,
     sudo: KeyringPair,
@@ -102,20 +105,21 @@ export const sudoInBlock = async (
                 if (dispatchError) {
                     unsubscribe?.();
                     reject(new Error(`sudo extrinsic failed: ${dispatchError.toString()}`));
-                } else if (status.isInBlock) {
+                } else if (status.isInBlock || status.isFinalized) {
                     unsubscribe?.();
+                    const blockHash = (status.isInBlock ? status.asInBlock : status.asFinalized).toHex();
                     for (const { event } of events) {
                         if (api.events.sudo.Sudid.is(event)) {
                             const { sudoResult } = event.data;
-                            resolve({
-                                innerError: sudoResult.isErr ? sudoResult.asErr : null,
-                                events,
-                                blockHash: status.asInBlock.toHex(),
-                            });
+                            resolve({ innerError: sudoResult.isErr ? sudoResult.asErr : null, events, blockHash });
                             return;
                         }
                     }
                     reject(new Error('no Sudid event'));
+                } else if (status.isDropped || status.isInvalid || status.isUsurped) {
+                    // Without this the caller waits for a block that will never include it.
+                    unsubscribe?.();
+                    reject(new Error(`sudo extrinsic was not included: ${status.type}`));
                 }
             })
             .then((unsub) => {
