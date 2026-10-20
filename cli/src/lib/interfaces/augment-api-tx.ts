@@ -150,7 +150,9 @@ declare module '@polkadot/api-base/types/submittable' {
              *
              * Clears **[`Attestations`]**, **[`CheckpointingQueues`]**, **[`AttestationRemovalQueues`]**, and
              * **[`LastDigest`]** for this `chain_key` first so stale attestations cannot contradict the patched
-             * ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]).
+             * ladder (see [`crate::pallet::Pallet::purge_attestations_for_forward_patch`]). Only one
+             * batch of attestations is cleared here; the rest drains over the following blocks, during
+             * which commits for the chain are rejected and a further patch is refused.
              *
              * Does **not** unregister attestors or alter bonding ledger entries — attestors resume committing
              * attestations after recovery.
