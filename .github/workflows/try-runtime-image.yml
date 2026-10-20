@@ -1,0 +1,93 @@
+---
+name: Try Runtime Snapshot Image
+
+# Builds the image the try-runtime-snapshot CronJob (cc-networks-iac) runs in each
+# network's cluster: the try-runtime-cli pinned in .github/try-runtime/config.json, the
+# Azure CLI, and .github/try-runtime/capture.sh.
+#
+# - A pull request touching these files builds and smoke-tests the image without pushing.
+# - A push to dev, or a dispatch from dev, also pushes
+#   gluwa/creditcoin3:try-runtime-snapshot-<commit>, which the CronJob values pin.
+"on":
+  pull_request:
+    paths:
+      - ".github/try-runtime/**"
+      - ".github/install-azure-cli.sh"
+      - ".github/workflows/try-runtime-image.yml"
+  push:
+    branches: [dev]
+    paths:
+      - ".github/try-runtime/**"
+      - ".github/install-azure-cli.sh"
+      - ".github/workflows/try-runtime-image.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Name the image
+        id: image
+        env:
+          SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "ref=${REPOSITORY}:try-runtime-snapshot-${SHA:0:9}" >> "$GITHUB_OUTPUT"
+
+      - name: Build the image
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          docker build \
+            --file .github/try-runtime/Dockerfile \
+            --build-arg "SOURCE_COMMIT=$SHA" \
+            --tag "$IMAGE" \
+            .
+
+      - name: Smoke-test the image
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm --entrypoint try-runtime "$IMAGE" --version
+          docker run --rm --entrypoint try-runtime "$IMAGE" create-snapshot --help >/dev/null
+
+          # The binary must be the revision config.json pins.
+          BUILT=$(docker run --rm --entrypoint cat "$IMAGE" /etc/try-runtime/cli-rev)
+          PINNED=$(jq -r .cli.rev .github/try-runtime/config.json)
+          if [ "$BUILT" != "$PINNED" ]; then
+            echo "FAIL: image holds try-runtime-cli $BUILT, config pins $PINNED"
+            exit 1
+          fi
+
+          docker run --rm --entrypoint /bin/bash "$IMAGE" -c \
+            'az version --output none && jq --version && zstd --version && xxd -v'
+
+          # Without NETWORK the capture script must refuse to start.
+          if docker run --rm "$IMAGE" 2>/dev/null; then
+            echo "FAIL: the capture script ran without NETWORK set"
+            exit 1
+          fi
+
+      - name: Push the image
+        if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/dev' }}
+        env:
+          IMAGE: ${{ steps.image.outputs.ref }}
+          DOCKER_PUSH_USERNAME: ${{ secrets.DOCKER_PUSH_USERNAME }}
+          DOCKER_PUSH_PASSWORD: ${{ secrets.DOCKER_PUSH_PASSWORD }}
+        run: |
+          echo "$DOCKER_PUSH_PASSWORD" | docker login -u="$DOCKER_PUSH_USERNAME" --password-stdin
+          docker push "$IMAGE"
+          docker logout
+          echo "Pushed \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"
