@@ -79,6 +79,7 @@ mod precompiles;
 pub use precompiles::{used_addresses, GluwaPrecompiles};
 
 mod migrations;
+pub mod weights;
 
 /// Type of block number.
 pub type BlockNumber = u32;
@@ -529,6 +530,7 @@ parameter_types! {
 }
 
 impl pallet_ethereum::Config for Runtime {
+    type FinalizationWeight = weights::ethereum::WeightInfo<Self>;
     type StateRoot = pallet_ethereum::IntermediateStateRoot<Self::Version>;
     type PostLogContent = PostBlockAndTxnHashes;
     type ExtraDataLength = ConstU32<30>;

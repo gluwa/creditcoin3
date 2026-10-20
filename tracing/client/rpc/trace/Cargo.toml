@@ -32,8 +32,8 @@ sp-blockchain = { git = "https://github.com/paritytech/polkadot-sdk", branch = "
 sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2512" }
 
 # Frontier
-fc-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension", features = [
+fc-rpc = { git = "https://github.com/gluwa/frontier_2", rev = "012a14f823da98c25784a7c0708b63b804e42f9a", features = [
     "rpc-binary-search-estimate",
 ] }
-fc-storage = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
-fp-rpc = { git = "https://github.com/gluwa/frontier_2", branch = "stable2512_patch_no_extension" }
+fc-storage = { git = "https://github.com/gluwa/frontier_2", rev = "012a14f823da98c25784a7c0708b63b804e42f9a" }
+fp-rpc = { git = "https://github.com/gluwa/frontier_2", rev = "012a14f823da98c25784a7c0708b63b804e42f9a" }

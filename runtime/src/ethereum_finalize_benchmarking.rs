@@ -210,11 +210,42 @@ mod benchmarks {
         assert_eq!(Pending::<T>::count(), 0);
     }
 
-    /// Every input at once. Taking all of them at their maximum together is
-    /// more than one block's gas buys, so this bounds the worst case from above.
-    /// The LOG4 logs, the log data and the calldata each ride in their own
-    /// transaction: together in one they would encode past the runtime
-    /// allocator's 32 MiB single-allocation limit, which no real block can do.
+    /// A combined workload sharing one block's gas budget.
+    #[benchmark]
+    fn on_finalize_gas_block(g: Linear<63_000, 75_000_000>) {
+        // Divide a single gas budget between the five dimensions. Unlike the independent
+        // maxima below, these allocations can coexist within one block. Ignore opcode and
+        // memory-expansion costs, which only reduce the data a real transaction can produce.
+        let part = (g - 63_000) / 5;
+        let n = 3 + part / 21_000;
+        let l = part / 1_875;
+        let d = part / 8_567;
+        // This calldata-only transaction pays Osaka's ten-gas-per-zero-byte floor.
+        let input_len = (part / 10) as usize;
+        let k = part / 5_000;
+        create_storage::<T>(k);
+        insert_pending::<T>(
+            n,
+            vec![
+                (logs(l, 4, 0), 0),
+                (logs(d, 0, KIB), 0),
+                (Vec::new(), input_len),
+            ],
+        );
+        set_block_number::<T>();
+
+        #[block]
+        {
+            dirty_storage::<T>(k);
+            finalize::<T>();
+        }
+
+        assert_eq!(Pending::<T>::count(), 0);
+    }
+
+    /// Independent maxima stress memory and interaction costs beyond one block's gas budget.
+    /// Put the large payloads in separate transactions to stay below the allocator's
+    /// 32 MiB single-allocation limit.
     #[benchmark]
     fn on_finalize_full_block(
         n: Linear<3, 3_600>,
