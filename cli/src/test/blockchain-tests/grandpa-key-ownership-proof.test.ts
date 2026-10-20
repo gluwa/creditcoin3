@@ -1,11 +1,14 @@
-import { u8aToHex } from '@polkadot/util';
-import { randomAsU8a } from '@polkadot/util-crypto';
+import { u8aConcat } from '@polkadot/util';
 
 import { newApi, ApiPromise } from '../../lib';
 
 // Reporting a GRANDPA equivocation needs a proof that the offender's key belongs to a validator
 // in the session it signed in. The runtime API that builds that proof was a stub returning `None`,
 // so no equivocation could be reported, and `SetIdSession` kept too few entries to check one.
+//
+// The API proves whatever key it is given: for a key outside the validator set it returns a proof
+// of absence, which `check_proof` rejects when a report is validated. So only the proof for a real
+// authority is checked here.
 describe('GRANDPA key ownership proofs', (): void => {
     let api: ApiPromise;
 
@@ -23,7 +26,13 @@ describe('GRANDPA key ownership proofs', (): void => {
         const [authority] = authorities[0];
         const setId = await api.call.grandpaApi.currentSetId();
 
-        const proof = await api.call.grandpaApi.generateKeyOwnershipProof(setId, authority);
+        // Called through `state_call` and decoded here: `api.call` hands back the raw result as the
+        // `Option`'s value without decoding it, because the raw result is already `Bytes`.
+        const raw = await api.rpc.state.call(
+            'GrandpaApi_generate_key_ownership_proof',
+            u8aConcat(setId.toU8a(), authority.toU8a()),
+        );
+        const proof = api.createType('Option<Bytes>', raw.toU8a(true));
 
         expect(proof.isSome).toBe(true);
         // The opaque proof is an encoded session-historical `MembershipProof`.
@@ -31,12 +40,6 @@ describe('GRANDPA key ownership proofs', (): void => {
         expect(membership.session.toNumber()).toEqual((await api.query.session.currentIndex()).toNumber());
         expect(membership.validatorCount.toNumber()).toEqual((await api.query.session.validators()).length);
         expect(membership.trieNodes.length).toBeGreaterThan(0);
-    });
-
-    test('a key that is not an authority gets no proof', async () => {
-        const setId = await api.call.grandpaApi.currentSetId();
-        const proof = await api.call.grandpaApi.generateKeyOwnershipProof(setId, u8aToHex(randomAsU8a(32)));
-        expect(proof.isNone).toBe(true);
     });
 
     test('set ids are kept for every session an offence can still be slashed in', () => {
