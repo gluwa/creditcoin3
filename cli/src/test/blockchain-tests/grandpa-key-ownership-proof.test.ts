@@ -1,4 +1,4 @@
-import { u8aConcat } from '@polkadot/util';
+import { u8aConcat, u8aToHex } from '@polkadot/util';
 
 import { newApi, ApiPromise } from '../../lib';
 
@@ -28,9 +28,11 @@ describe('GRANDPA key ownership proofs', (): void => {
 
         // Called through `state_call` and decoded here: `api.call` hands back the raw result as the
         // `Option`'s value without decoding it, because the raw result is already `Bytes`.
+        // The arguments go in as hex: a `Uint8Array` passed as `Bytes` is read as already
+        // length-prefixed, which would send the wrong bytes.
         const raw = await api.rpc.state.call(
             'GrandpaApi_generate_key_ownership_proof',
-            u8aConcat(setId.toU8a(), authority.toU8a()),
+            u8aToHex(u8aConcat(setId.toU8a(), authority.toU8a())),
         );
         const proof = api.createType('Option<Bytes>', raw.toU8a(true));
 
