@@ -171,7 +171,8 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             TooManyAttestations: AugmentedError<ApiType>;
             /**
-             * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
+             * No longer returned: leftover attestations are drained across blocks. Kept so later
+             * variants keep their SCALE index.
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
             /**
