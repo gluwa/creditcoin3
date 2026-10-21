@@ -1364,6 +1364,7 @@ jobs:
             1:pallets/supported-chains/remove-chain
             2:block-hash-block-param
             2:danger-will-brick-the-blockchain
+            2:eth-estimate-gas-shortcut
             2:eth-new-heads
             2:evm-call-proof-size
             2:eth-base-fee-history
