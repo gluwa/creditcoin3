@@ -812,6 +812,11 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_else(|| ChainAttestationInterval::<T>::get(chain_key))
     }
 
+    /// Number of supported chains, the bound on how many chains can carry pending updates.
+    pub(crate) fn supported_chains_count() -> u32 {
+        T::SupportedChains::supported_chains().len() as u32
+    }
+
     /// Applies every pending per-chain update, returning how many entries were applied.
     ///
     /// Each map holds at most one entry per supported chain (chain removal clears them), so the

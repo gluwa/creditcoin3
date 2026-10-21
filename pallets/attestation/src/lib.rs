@@ -1591,9 +1591,7 @@ pub mod pallet {
         /// and max catchup values for all supported chains without waiting
         /// for the next epoch boundary.
         #[pallet::call_index(27)]
-        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates(
-            T::SupportedChains::supported_chains().len() as u32,
-        ))]
+        #[pallet::weight(<T as Config>::WeightInfo::force_apply_updates(Pallet::<T>::supported_chains_count()))]
         pub fn force_apply_updates(origin: OriginFor<T>) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
 
