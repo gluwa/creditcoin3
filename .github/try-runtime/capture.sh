@@ -67,6 +67,8 @@ le_to_dec() {
 }
 
 [ -f "$CONFIG" ] || fail "config not found at $CONFIG"
+# The script moves into WORK_DIR below; a relative CONFIG would then read as missing.
+CONFIG="$(cd "$(dirname "$CONFIG")" && pwd)/$(basename "$CONFIG")"
 EXPECTED_GENESIS=$(jq -r --arg n "$NETWORK" '.networks[$n].genesis // empty' "$CONFIG")
 [ -n "$EXPECTED_GENESIS" ] || fail "network '$NETWORK' is not in $CONFIG"
 
