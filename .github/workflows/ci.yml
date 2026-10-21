@@ -1376,6 +1376,7 @@ jobs:
             2:evm-state-overrides
             2:evm-tracing
             2:gas-estimation
+            2:grandpa-key-ownership-proof
             2:pallets/identity/identityOf
             2:pallets/operators/add-member
             2:pallets/operators/change-key
