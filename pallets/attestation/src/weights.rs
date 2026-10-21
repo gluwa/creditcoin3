@@ -762,7 +762,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(a.into())))
 			.saturating_add(Weight::from_parts(0, 2614).saturating_mul(a.into()))
 	}
-	/// Storage: `Attestation::PendingAttestationInterval` (r:2 w:1)
+	/// Storage: `Attestation::PendingAttestationInterval` (r:33 w:32)
 	/// Proof: `Attestation::PendingAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -772,30 +772,32 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::PendingTargetSampleSize` (r:2 w:1)
+	/// Storage: `Attestation::PendingTargetSampleSize` (r:33 w:32)
 	/// Proof: `Attestation::PendingTargetSampleSize` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::PendingMaxCatchup` (r:2 w:1)
+	/// Storage: `Attestation::PendingMaxCatchup` (r:33 w:32)
 	/// Proof: `Attestation::PendingMaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::ChainAttestationInterval` (r:0 w:1)
+	/// Storage: `Attestation::ChainAttestationInterval` (r:0 w:32)
 	/// Proof: `Attestation::ChainAttestationInterval` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::MaxCatchup` (r:0 w:1)
+	/// Storage: `Attestation::MaxCatchup` (r:0 w:32)
 	/// Proof: `Attestation::MaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::TargetSampleSize` (r:0 w:1)
+	/// Storage: `Attestation::TargetSampleSize` (r:0 w:32)
 	/// Proof: `Attestation::TargetSampleSize` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// The range of component `c` is `[1, 32]`.
 	/// The range of component `c` is `[1, 32]`.
 	fn force_apply_updates(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `449`
-		//  Estimated: `6389 + c * (7842 ±0)`
-		// Minimum execution time: 64_770_000 picoseconds.
-		Weight::from_parts(62_240_000, 0)
-			.saturating_add(Weight::from_parts(0, 6389))
-			.saturating_add(Weight::from_parts(20_000_000, 0).saturating_mul(c.into()))
+		//  Measured:  `348 + c * (100 ±0)`
+		//  Estimated: `3814 + c * (2575 ±0)`
+		// Minimum execution time: 68_552_000 picoseconds.
+		Weight::from_parts(42_731_370, 0)
+			.saturating_add(Weight::from_parts(0, 3814))
+			// Standard Error: 414_892
+			.saturating_add(Weight::from_parts(40_766_129, 0).saturating_mul(c.into()))
 			.saturating_add(T::DbWeight::get().reads(7))
 			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(c.into())))
 			.saturating_add(T::DbWeight::get().writes(2))
 			.saturating_add(T::DbWeight::get().writes((6_u64).saturating_mul(c.into())))
-			.saturating_add(Weight::from_parts(0, 7842).saturating_mul(c.into()))
+			.saturating_add(Weight::from_parts(0, 2575).saturating_mul(c.into()))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
