@@ -188,6 +188,65 @@ jobs:
           name: write-ability-native-provenance
           path: native-provenance/
 
+  abi:
+    name: ABI compatibility / ${{ matrix.component }}
+    needs: prepare
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [creditcoin, relayer]
+    steps:
+      - name: Check out the native source or candidate relayer
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ matrix.component == 'creditcoin' && 'gluwa/creditcoin3' || needs.prepare.outputs.relayer-repository }}
+          ref: ${{ matrix.component == 'creditcoin' && needs.prepare.outputs.creditcoin-ref || needs.prepare.outputs.relayer-ref }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Check out the pinned contracts
+        uses: actions/checkout@v7
+        with:
+          repository: gluwa/asc-contracts
+          ref: ${{ needs.prepare.outputs.contracts-ref }}
+          path: asc-contracts
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+          persist-credentials: false
+
+      - name: Install the candidate toolchain
+        working-directory: candidate
+        run: |
+          version=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml)
+          rustup toolchain install "$version" --profile minimal
+
+      - name: Cache ABI test dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: candidate
+          shared-key: writeability-abi-${{ matrix.component }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: asc-contracts/package-lock.json
+
+      - name: Compile pinned contracts
+        working-directory: asc-contracts
+        run: |
+          npm ci --ignore-scripts
+          npx hardhat compile
+
+      - name: Enforce ABI compatibility
+        working-directory: candidate
+        env:
+          ASC_CONTRACTS_DIR: ${{ github.workspace }}/asc-contracts
+          ABI_GATE_STRICT: "1"
+        run: cargo test --locked -p write-ability --test abi_surface -- --nocapture
+
   e2e:
     needs: prepare
     runs-on: ubuntu-26.04
@@ -321,16 +380,12 @@ jobs:
           echo "ASC_CONTRACTS_DIR=$GITHUB_WORKSPACE/asc-contracts" >> "$GITHUB_ENV"
           echo "ABI_GATE_STRICT=1" >> "$GITHUB_ENV"
 
-      - name: Check runner and ABI bindings
-        env:
-          ASC_CONTRACTS_DIR: ${{ github.workspace }}/asc-contracts
-          ABI_GATE_STRICT: "1"
+      # The two toolchains' strict ABI checks run independently above, outside the
+      # 26-minute scenario budget. Their failures still fail the reusable workflow.
+      - name: Check scenario runner
         run: |
           npm --prefix usc-messaging run e2e:typecheck
           npm --prefix usc-messaging run e2e:test
-          cargo test --locked -p write-ability --test abi_surface -- --nocapture
-          cd asc-message-relayer
-          cargo test --locked -p write-ability --test abi_surface -- --nocapture
 
       - name: Exercise delivery, settlement, durable restart and attestor rotation
         working-directory: usc-messaging

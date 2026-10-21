@@ -4,14 +4,13 @@ import {
   Interface,
   JsonRpcProvider,
   Wallet,
-  concat,
   getAddress,
   isError,
   keccak256,
   recoverAddress,
-  toUtf8Bytes,
 } from "ethers";
 import { ANVIL_KEY, type Stack } from "./stack.mjs";
+import { committee } from "./committee.mjs";
 import { assertSettled, publish, requireEvidence } from "./scenarios.mjs";
 
 const abi = AbiCoder.defaultAbiCoder();
@@ -28,20 +27,6 @@ const registryAbi = [
   "function removeAttestor(address)",
   "function membershipNonce() view returns(uint256)",
 ];
-
-// Public Substrate development seeds, identical to attestor/zombienet's --well-known-keys.
-// EVM key derivation mirrors MessageSigner::from_seed, and is checked against the live registry.
-export const committee = [
-  "0xe5be9a5092b81bca64be81d212e7f2f9eba183bb7a90954f7b76361f6edb5c0a",
-  "0x398f0c28f98885e046333d4a41c19cee4c37368a9832c6502f6cfd182e2aef89",
-  "0xbc1ede780f784bb6991a585e4f6e61522c14e1cae6ad0895fb57b9a205a8f938",
-  "0x868020ae0687dda7d57565093a69090211449845a7e11453612800b663307246",
-].map(
-  (seed) =>
-    new Wallet(
-      keccak256(concat([toUtf8Bytes("usc/write-ability/evm-signer/v1"), seed])),
-    ),
-);
 
 const normalized = (addresses: readonly string[]) =>
   addresses.map(getAddress).sort();

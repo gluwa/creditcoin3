@@ -75,8 +75,8 @@ echo "🧟 Launching $N attestors for chain_key $CHAIN_KEY with on-chain committ
 KEY_ARGS=()
 # The isolated E2E runner uses public development identities so it can collect pre-revocation
 # approvals. Other launchers retain the existing randomly generated identity behavior.
-if [[ "${E2E_ATTESTOR_WELL_KNOWN_KEYS:-false}" == "true" ]]; then
-  KEY_ARGS+=(--well-known-keys)
+if [[ -n "${E2E_ATTESTOR_SEEDS_FILE:-}" ]]; then
+  KEY_ARGS+=(--seeds-file="$E2E_ATTESTOR_SEEDS_FILE")
 fi
 "$ZOMBIENET" -n "$N" --bin="$ATTESTOR_BIN" --chain-key="$CHAIN_KEY" \
   --eth-url="$ETH_URL" --cc3-url="$CC3_URL" --funding-address="$FUNDING_ADDRESS" \

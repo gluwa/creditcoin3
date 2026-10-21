@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { AbiCoder, Interface, Wallet } from "ethers";
-import { committee, updateDigest, verifySetUpdate } from "./rotation.mjs";
+import { Keyring } from "@polkadot/api";
+import { cryptoWaitReady } from "@polkadot/util-crypto";
+import { updateDigest, verifySetUpdate } from "./rotation.mjs";
+import { ATTESTOR_MNEMONICS, committee } from "./committee.mjs";
 
 const validator = `0x${"ab".repeat(20)}`;
 const otherValidator = `0x${"cd".repeat(20)}`;
@@ -11,6 +14,19 @@ const abi = AbiCoder.defaultAbiCoder();
 const contract = new Interface([
   "function submitAttestorSetUpdate(address[],bytes)",
 ]);
+
+test("the four deterministic fleet identities are distinct and exclude the sudo account", async () => {
+  await cryptoWaitReady();
+  const keyring = new Keyring({ type: "sr25519" });
+  const sudo = keyring.addFromUri("//Alice").address;
+  const addresses = ATTESTOR_MNEMONICS.map(
+    (phrase) => keyring.addFromMnemonic(phrase).address,
+  );
+  assert.equal(addresses.length, 4);
+  assert.equal(new Set(addresses).size, 4);
+  assert.equal(addresses.includes(sudo), false);
+  assert.equal(new Set(committee.map((key) => key.address)).size, 4);
+});
 
 function proposal(signers = committee.slice(0, 3), next = initial) {
   const digest = updateDigest(validator, next, 31337n, 8n);

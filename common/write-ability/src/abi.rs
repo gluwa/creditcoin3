@@ -158,11 +158,11 @@ sol! {
         function threshold() external view returns (uint256);
 
         /// Monotonic nonce bound into the attestor-set-update digest (replay/rollback protection).
-        /// Attestors read it to sign the current update; it increments on each successful update.
+        /// Advances on registry membership or local quorum-policy changes; read it for each digest.
         function attestorSetUpdateNonce() external view returns (uint256);
 
-        /// Rotate the attestor set. `signatures` is the concatenation of 65-byte `(r,s,v)` ECDSA
-        /// signatures by the *current* set over the update digest (see
+        /// Rotate the attestor set. `signatures` is `abi.encode(bytes[])`, with each element a
+        /// 65-byte `(r,s,v)` ECDSA signature by the *current* set over the update digest (see
         /// [`attestor_set_update_digest`](crate::hash::attestor_set_update_digest)); the contract
         /// verifies threshold-many and swaps in `newAttestors`. Permissionless — the relayer submits
         /// it once it has aggregated a threshold of gossiped signatures.

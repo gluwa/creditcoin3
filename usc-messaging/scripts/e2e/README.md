@@ -71,8 +71,9 @@ Creditcoin and proof-generator databases; local runs retain those databases too.
   submit a fresh update restoring the elected set. The runner verifies its mined
   transaction signatures against the new epoch and surviving committee, rejects the
   old approval again, and verifies another message after rotation.
-  These checks use the zombienet launcher's public `--well-known-keys` development
-  identities and validate them against the live registry before collecting approvals.
+  These checks pass public BIP39 test identities through the zombienet launcher's
+  `--seeds-file` option and validate them against the live registry before collecting
+  approvals. The fixture avoids the sudo account, which cannot register as an attestor.
 
 `--lookback-blocks` defaults to 2, so the test reaches a genuine out-of-lookback
 publication within a bounded time. The live checkpoint and journal are never

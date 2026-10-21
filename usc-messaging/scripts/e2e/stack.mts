@@ -10,6 +10,7 @@ import {
   waitFor,
 } from "./runtime.mjs";
 import { assertPortFree, Rpc, RpcProxy } from "./rpc.mjs";
+import { ATTESTOR_MNEMONICS } from "./committee.mjs";
 
 export const SOURCE_KEY =
   "0x8075991ce870b93a8870eca0c0f91913d12f47948ca0fd25b49c6fa7cdbeee8b";
@@ -81,7 +82,7 @@ export class Stack {
       E2E_ATTESTOR_LOGS: resolve(this.state, "attestor-logs"),
       E2E_ATTESTOR_SET_FILE: resolve(this.state, "attestor-set"),
       E2E_ATTESTOR_READY_PATH: resolve(this.state, "attestor-ready.json"),
-      E2E_ATTESTOR_WELL_KNOWN_KEYS: "true",
+      E2E_ATTESTOR_SEEDS_FILE: resolve(this.state, "attestor-seeds.txt"),
       E2E_ATTESTOR_BIN:
         process.env.E2E_ATTESTOR_BIN ??
         resolve(this.repo, "target/release/attestor"),
@@ -299,6 +300,10 @@ export class Stack {
       },
     );
     await this.httpReady("quoter", `${this.env.QUOTER_URL}/health`);
+    await writeFile(
+      this.env.E2E_ATTESTOR_SEEDS_FILE!,
+      ATTESTOR_MNEMONICS.join("\n") + "\n",
+    );
     this.start("attestors", "bash", ["scripts/launch-attestors.sh", "4"]);
     const ready = await this.wait(
       "attestor readiness and explicit boot nodes",
