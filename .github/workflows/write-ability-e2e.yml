@@ -216,13 +216,17 @@ jobs:
           persist-credentials: false
 
       - name: Install the candidate toolchain
+        id: abi-toolchain
         working-directory: candidate
         run: |
           version=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml)
           rustup toolchain install "$version" --profile minimal
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Cache ABI test dependencies
         uses: Swatinem/rust-cache@v2
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.abi-toolchain.outputs.version }}
         with:
           workspaces: candidate
           shared-key: writeability-abi-${{ matrix.component }}
