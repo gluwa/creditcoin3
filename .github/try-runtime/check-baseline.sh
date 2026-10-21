@@ -22,6 +22,10 @@ PUBLIC_RPC=$(jq -r --arg n "$NETWORK" '.networks[$n].public_rpc // empty' "$CONF
 # The public endpoints serve HTTP JSON-RPC on the same host as WebSocket.
 RPC_URL="${PUBLIC_RPC/#ws/http}"
 
+# Prints the result as JSON. A JSON-RPC error (a rate limit, say) comes back as HTTP 200,
+# and reading its missing .result as null would turn a failed cursor read into "no
+# migration running" and a failed version read into version 0. Only a genuine
+# `"result": null` means absent storage.
 rpc() {
     local response
     response=$(curl -sS --fail --max-time 60 -H 'Content-Type: application/json' \
@@ -29,6 +33,10 @@ rpc() {
         echo "FAIL: RPC $1 could not be reached at $RPC_URL" >&2
         return 1
     }
+    if ! jq -e 'has("result") and (has("error") | not)' <<<"$response" >/dev/null 2>&1; then
+        echo "FAIL: RPC $1 returned $(jq -c '.error // .' <<<"$response" 2>/dev/null || echo "$response")" >&2
+        return 1
+    fi
     jq -c '.result' <<<"$response"
 }
 
