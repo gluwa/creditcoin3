@@ -11,13 +11,20 @@
 #
 # Usage: check-promotion-try-runtime.sh <source-sha> <source-ref> <target-branch> <may-dispatch>
 #
-#   passed run for the commit, recent   PASS
-#   run still going                     wait for it, then PASS or FAIL
+#   passed run for the commit, recent,  PASS
+#   baseline still live
+#   run still going                     wait for it, then judge it as below
 #   failed run                          FAIL with its link; re-run it, then promote again
-#   passed run older than MAX_AGE_HOURS treated as missing: the chain has moved on since
-#   no run, may-dispatch=true           dispatch one on <source-ref> (whose head must be
+#   passed run older than MAX_AGE_HOURS treated as missing: state has grown since
+#   passed run whose snapshot no        treated as missing: a runtime upgrade or migration
+#   longer matches the live chain       since the run makes its evidence stale
+#   no usable run, may-dispatch=true    dispatch one on <source-ref> (whose head must be
 #                                       the commit), wait for it, then PASS or FAIL
-#   no run, may-dispatch=false          FAIL (the self-test and release.yml never dispatch)
+#   no usable run, may-dispatch=false   FAIL (the self-test and release.yml never dispatch)
+#
+# A passing run is only ever accepted after comparing the snapshot it was checked against
+# (its try-runtime-evidence artifact) with the live chain, including a run this script has
+# just waited for.
 #
 # Environment:
 #   GH_TOKEN        actions:read, and actions:write to dispatch
@@ -32,6 +39,9 @@ source_ref="$2"
 target="$3"
 may_dispatch="$4"
 max_age_hours="${MAX_AGE_HOURS:-24}"
+
+scripts_dir=$(cd "$(dirname "$0")" && pwd)
+network=$("$scripts_dir/network-for-ref.sh" --strict "$target")
 
 workflow="try-runtime.yml"
 title="Try-runtime promotion check into ${target}"
@@ -88,37 +98,62 @@ wait_for() {
     done
 }
 
+# Is the snapshot the run was checked against still a true picture of the live chain?
+# Fails closed: a missing artifact or an unreachable RPC counts as "cannot confirm".
+baseline_still_live() {
+    local id="$1" dir
+    dir=$(mktemp -d)
+    if ! read_with_retry gh run download "$id" --name try-runtime-evidence --dir "$dir" >/dev/null; then
+        echo "WARN: run ${id} has no try-runtime-evidence artifact (expired, or the run predates it)."
+        rm -rf "$dir"
+        return 1
+    fi
+    if ! CONFIG="$scripts_dir/try-runtime/config.json" \
+        "$scripts_dir/try-runtime/check-baseline.sh" "$dir/manifest.json" "$network"; then
+        rm -rf "$dir"
+        return 1
+    fi
+    rm -rf "$dir"
+}
+
+# 0: PASS. 1: FAIL. 2: the run passed, but its evidence no longer describes the chain.
 verdict() {
-    local run="$1" result conclusion url
-    result=$(read_with_retry gh run view "$(jq -r .databaseId <<<"$run")" \
-        --json conclusion,headSha,displayTitle,event,url)
+    local run="$1" id result conclusion url
+    id=$(jq -r .databaseId <<<"$run")
+    result=$(read_with_retry gh run view "$id" --json conclusion,headSha,displayTitle,event,url)
     url=$(jq -r .url <<<"$result")
     if ! jq -e --arg sha "$source_sha" --arg t "$title" \
         '.headSha == $sha and .displayTitle == $t and .event == "workflow_dispatch"' \
         <<<"$result" >/dev/null; then
         echo "FAIL: try-runtime run does not match source ${source_sha} and promotion target ${target}: ${url}"
-        exit 1
+        return 1
     fi
     conclusion=$(jq -r .conclusion <<<"$result")
-    if [ "$conclusion" = "success" ]; then
-        echo "PASS: ${title} passed for ${source_sha}: ${url}"
-        exit 0
+    if [ "$conclusion" != "success" ]; then
+        echo "FAIL: ${title} for ${source_sha} concluded '${conclusion}': ${url}"
+        echo "      Its report job says whether the migration failed or the state was unavailable."
+        echo "      Fix it or re-run the workflow, then promote again."
+        return 1
     fi
-    echo "FAIL: ${title} for ${source_sha} concluded '${conclusion}': ${url}"
-    echo "      Its report job says whether the migration failed or the state was unavailable."
-    echo "      Fix it or re-run the workflow, then promote again."
-    exit 1
+    if ! baseline_still_live "$id"; then
+        echo "INFO: ${title} passed for ${source_sha}, but its snapshot cannot be confirmed against live ${network}: ${url}"
+        return 2
+    fi
+    echo "PASS: ${title} passed for ${source_sha} and its snapshot still matches live ${network}: ${url}"
+    return 0
 }
 
 run=$(latest_run)
 if [ -n "$run" ]; then
     echo "INFO: found $(jq -r .url <<<"$run") ($(jq -r .status <<<"$run"))"
     [ "$(jq -r .status <<<"$run")" = "completed" ] || wait_for "$(jq -r .databaseId <<<"$run")"
-    verdict "$run"
+    status=0
+    verdict "$run" || status=$?
+    [ "$status" -eq 2 ] || exit "$status"
 fi
 
 if [ "$may_dispatch" != "true" ]; then
-    echo "FAIL: no '${title}' run of ${workflow} for ${source_sha} in the last ${max_age_hours} h."
+    echo "FAIL: no usable '${title}' run of ${workflow} for ${source_sha} in the last ${max_age_hours} h."
     echo "      promote-branch.yml starts one when dispatched. For a commit that was not"
     echo "      promoted (a hotfix), dispatch ${workflow} on the branch at that commit with"
     echo "      promotion_target=${target}."
@@ -169,4 +204,11 @@ if [ "$(jq -r .headSha <<<"$run")" != "$source_sha" ]; then
 fi
 echo "INFO: waiting for $(jq -r .url <<<"$run")"
 wait_for "$(jq -r .databaseId <<<"$run")"
-verdict "$run"
+status=0
+verdict "$run" || status=$?
+if [ "$status" -eq 2 ]; then
+    echo "FAIL: the check passed, but its snapshot cannot be confirmed against live ${network}"
+    echo "      (the chain changed while it ran, or the RPC could not be read). Promote again."
+    exit 1
+fi
+exit "$status"

@@ -449,6 +449,18 @@ jobs:
           fi
           echo "INFO: no sign of incomplete state in the log"
 
+      # What this pass was checked against. check-promotion-try-runtime.sh compares it with
+      # the live chain whenever it reuses this run, so evidence from before a later runtime
+      # upgrade cannot authorise a promotion or release.
+      - name: Keep the snapshot manifest as evidence
+        if: steps.complete.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: try-runtime-evidence
+          path: snapshot/manifest.json
+          # release.yml accepts a promotion check up to a week old.
+          retention-days: 14
+
       - name: Classify the result
         id: result
         if: always()
