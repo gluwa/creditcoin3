@@ -1,6 +1,6 @@
 # Writeability full-stack scenarios
 
-This runner starts Creditcoin, Anvil, three attestors, the quoter, proof generator
+This runner starts Creditcoin, Anvil, four attestors, the quoter, proof generator
 and the real `message-relayer` binary. It uses governance-based Outbox discovery,
 the destination's on-chain attestor set and explicit gossip bootstrap addresses.
 Each assertion is tied to the published message ID, contract address, successful
@@ -11,6 +11,11 @@ that build's immutable artifact ID directly. The E2E workflow does not compile
 Creditcoin again. Relayer CI pins a successful Creditcoin CI run, its artifact ID
 and the exact source checkout SHA; it downloads `binary-for-testing-ci` across
 repositories and builds the candidate relayer.
+
+The optional `runner-ref` pins the scenario controller independently of the native
+source SHA. This lets controller-only changes exercise an existing testing build.
+Both revisions appear in `sources.json`; native artifact provenance remains bound
+to `creditcoin-ref`, its producer run and its immutable artifact ID.
 
 The artifact includes `native-build.json`. Before executing a binary, the workflow
 checks the producer run/repository/workflow, archive digest, source revision,
@@ -39,7 +44,7 @@ cd usc-messaging
 npm ci
 export ASC_CONTRACTS_DIR=/path/to/compiled/asc-contracts
 export RELAYER_BIN=/path/to/message-relayer
-npm run e2e -- --scenario happy-path,durable-restart --output-dir /tmp/writeability-run-1
+npm run e2e -- --scenario happy-path,durable-restart,attestor-rotation --output-dir /tmp/writeability-run-1
 ```
 
 The output directory must not already contain `state/`. The runner preserves all
@@ -58,14 +63,26 @@ Creditcoin and proof-generator databases; local runs retain those databases too.
   checkpoint, journal and config. Reopening RPC must produce the same execution,
   acknowledgment and fee evidence.
 
+- `attestor-rotation` collects a valid signed replacement, revokes one of four live
+  attestors, and checks the old approval fails with `InvalidAttestor` in simulation
+  and in a mined transaction. With voted replacements temporarily disabled, the
+  remaining three attestors must still deliver, acknowledge and settle a message.
+  Re-enabling replacements lets the actual attestors propose and the actual relayer
+  submit a fresh update restoring the elected set. The runner verifies its mined
+  transaction signatures against the new epoch and surviving committee, rejects the
+  old approval again, and verifies another message after rotation.
+  These checks pass public BIP39 test identities through the zombienet launcher's
+  `--seeds-file` option and validate them against the live registry before collecting
+  approvals. The fixture avoids the sudo account, which cannot register as an attestor.
+
 `--lookback-blocks` defaults to 2, so the test reaches a genuine out-of-lookback
 publication within a bounded time. The live checkpoint and journal are never
 rewritten, deleted or rewound. A source RPC observer verifies that restarted broad
 publication scans all begin after the original message block. Historical
 message-ID-specific lookups used by acknowledgment routing remain allowed.
 
-Both scenarios run sequentially on one fresh stack. Select either with
-`--scenario happy-path` or `--scenario durable-restart`. The fault proxy affects
+All scenarios run sequentially on one fresh stack. Select one with
+`--scenario happy-path`, `--scenario durable-restart` or `--scenario attestor-rotation`. The fault proxy affects
 only the relayer; attestors, chain production and independent assertions continue
 using the original destination RPC.
 

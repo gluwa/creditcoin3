@@ -72,10 +72,16 @@ JS
 
 cd "$REPO_ROOT"
 echo "🧟 Launching $N attestors for chain_key $CHAIN_KEY with on-chain committee discovery…"
+KEY_ARGS=()
+# The isolated E2E runner uses public development identities so it can collect pre-revocation
+# approvals. Other launchers retain the existing randomly generated identity behavior.
+if [[ -n "${E2E_ATTESTOR_SEEDS_FILE:-}" ]]; then
+  KEY_ARGS+=(--seeds-file="$E2E_ATTESTOR_SEEDS_FILE")
+fi
 "$ZOMBIENET" -n "$N" --bin="$ATTESTOR_BIN" --chain-key="$CHAIN_KEY" \
   --eth-url="$ETH_URL" --cc3-url="$CC3_URL" --funding-address="$FUNDING_ADDRESS" \
   --config="$CONFIG" --p2p-port-base="$P2P_PORT_BASE" --api-port-base="$API_PORT_BASE" \
-  -- --logs="$LOGS_DIR" &
+  "${KEY_ARGS[@]}" -- --logs="$LOGS_DIR" &
 ZPID=$!
 cleanup() { kill -INT "$ZPID" 2>/dev/null || true; }
 trap cleanup EXIT
