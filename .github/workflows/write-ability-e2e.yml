@@ -20,6 +20,10 @@ name: write-ability-e2e
         description: Exact source checkout SHA from the existing Creditcoin testing build
         type: string
         required: true
+      runner-ref:
+        description: Optional full scenario-runner SHA; defaults to the native source SHA
+        type: string
+        default: ""
       relayer-repository:
         description: Repository containing the relayer candidate
         type: string
@@ -27,15 +31,15 @@ name: write-ability-e2e
       relayer-ref:
         description: Full relayer candidate commit SHA
         type: string
-        default: 2682fddca7809a9bcbaaf0c7c38d45e0763b6cc2
+        default: 5a8589e4e9a1c72da1d50bbacb8238c1f3156fe5
       contracts-ref:
         description: Full compatible contracts commit SHA
         type: string
-        default: 9e8a9e603d964b598b0d74bb8f4e5966ef75d17e
+        default: 9223d179f7a9de30a7dad2b390e9dcff45cddc69
       scenarios:
         description: Comma-separated E2E scenarios
         type: string
-        default: happy-path,durable-restart
+        default: happy-path,durable-restart,attestor-rotation
   workflow_call:
     inputs:
       creditcoin-run-id:
@@ -50,18 +54,22 @@ name: write-ability-e2e
         description: Exact source checkout SHA from the existing Creditcoin testing build
         type: string
         required: true
+      runner-ref:
+        description: Optional full scenario-runner SHA; defaults to the native source SHA
+        type: string
+        default: ""
       relayer-repository:
         type: string
         default: gluwa/asc-message-relayer
       relayer-ref:
         type: string
-        default: 2682fddca7809a9bcbaaf0c7c38d45e0763b6cc2
+        default: 5a8589e4e9a1c72da1d50bbacb8238c1f3156fe5
       contracts-ref:
         type: string
-        default: 9e8a9e603d964b598b0d74bb8f4e5966ef75d17e
+        default: 9223d179f7a9de30a7dad2b390e9dcff45cddc69
       scenarios:
         type: string
-        default: happy-path,durable-restart
+        default: happy-path,durable-restart,attestor-rotation
     secrets:
       GLUWA_BOT_TOKEN:
         description: Read access to the private asc-contracts repository
@@ -83,6 +91,7 @@ jobs:
       creditcoin-ref: ${{ steps.refs.outputs.creditcoin-ref }}
       creditcoin-run-id: ${{ steps.refs.outputs.creditcoin-run-id }}
       creditcoin-artifact-id: ${{ steps.refs.outputs.creditcoin-artifact-id }}
+      runner-ref: ${{ steps.refs.outputs.runner-ref }}
       relayer-repository: ${{ steps.refs.outputs.relayer-repository }}
       relayer-ref: ${{ steps.refs.outputs.relayer-ref }}
       contracts-ref: ${{ steps.refs.outputs.contracts-ref }}
@@ -92,12 +101,13 @@ jobs:
         id: refs
         env:
           CREDITCOIN_REF: ${{ inputs.creditcoin-ref }}
+          RUNNER_REF: ${{ inputs.runner-ref || inputs.creditcoin-ref }}
           CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
           CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
           RELAYER_REPOSITORY: ${{ inputs.relayer-repository || 'gluwa/asc-message-relayer' }}
-          RELAYER_REF: ${{ inputs.relayer-ref || '2682fddca7809a9bcbaaf0c7c38d45e0763b6cc2' }}
-          CONTRACTS_REF: ${{ inputs.contracts-ref || '9e8a9e603d964b598b0d74bb8f4e5966ef75d17e' }}
-          SCENARIOS: ${{ inputs.scenarios || 'happy-path,durable-restart' }}
+          RELAYER_REF: ${{ inputs.relayer-ref || '5a8589e4e9a1c72da1d50bbacb8238c1f3156fe5' }}
+          CONTRACTS_REF: ${{ inputs.contracts-ref || '9223d179f7a9de30a7dad2b390e9dcff45cddc69' }}
+          SCENARIOS: ${{ inputs.scenarios || 'happy-path,durable-restart,attestor-rotation' }}
           CONTRACTS_TOKEN: ${{ secrets.GLUWA_BOT_TOKEN }}
         run: |
           set -euo pipefail
@@ -107,7 +117,7 @@ jobs:
               exit 1
             fi
           done
-          for ref in "$CREDITCOIN_REF" "$RELAYER_REF" "$CONTRACTS_REF"; do
+          for ref in "$CREDITCOIN_REF" "$RUNNER_REF" "$RELAYER_REF" "$CONTRACTS_REF"; do
             if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
               echo "::error::All source refs must be full commit SHAs."
               exit 1
@@ -120,7 +130,7 @@ jobs:
           IFS=',' read -ra cases <<< "$SCENARIOS"
           for scenario in "${cases[@]}"; do
             case "$scenario" in
-              happy-path|durable-restart) ;;
+              happy-path|durable-restart|attestor-rotation) ;;
               *) echo "::error::Unknown scenario: $scenario"; exit 1 ;;
             esac
           done
@@ -132,6 +142,7 @@ jobs:
             echo "creditcoin-ref=$CREDITCOIN_REF"
             echo "creditcoin-run-id=$CREDITCOIN_RUN_ID"
             echo "creditcoin-artifact-id=$CREDITCOIN_ARTIFACT_ID"
+            echo "runner-ref=$RUNNER_REF"
             echo "relayer-repository=$RELAYER_REPOSITORY"
             echo "relayer-ref=$RELAYER_REF"
             echo "contracts-ref=$CONTRACTS_REF"
@@ -191,11 +202,11 @@ jobs:
       - name: Reserve cleanup and evidence upload time
         run: echo "E2E_DEADLINE_EPOCH=$(($(date +%s) + 26 * 60))" >> "$GITHUB_ENV"
 
-      - name: Check out Creditcoin and the scenario runner
+      - name: Check out the pinned scenario runner
         uses: actions/checkout@v7
         with:
           repository: gluwa/creditcoin3
-          ref: ${{ needs.prepare.outputs.creditcoin-ref }}
+          ref: ${{ needs.prepare.outputs.runner-ref }}
 
       - name: Download validated producer provenance
         uses: actions/download-artifact@v8
@@ -249,12 +260,15 @@ jobs:
           persist-credentials: false
 
       - name: Record tested source commits
+        env:
+          CREDITCOIN_REF: ${{ needs.prepare.outputs.creditcoin-ref }}
         run: |
           mkdir -p "$E2E_OUTPUT_DIR"
-          jq -n --arg creditcoin "$(git rev-parse HEAD)" \
+          jq -n --arg creditcoin "$CREDITCOIN_REF" \
+            --arg runner "$(git rev-parse HEAD)" \
             --arg relayer "$(git -C asc-message-relayer rev-parse HEAD)" \
             --arg contracts "$(git -C asc-contracts rev-parse HEAD)" \
-            '{creditcoin: $creditcoin, relayer: $relayer, contracts: $contracts}' \
+            '{creditcoin: $creditcoin, runner: $runner, relayer: $relayer, contracts: $contracts}' \
             > "$E2E_OUTPUT_DIR/sources.json"
           cat "$E2E_OUTPUT_DIR/sources.json" >> "$GITHUB_STEP_SUMMARY"
 
@@ -318,7 +332,7 @@ jobs:
           cd asc-message-relayer
           cargo test --locked -p write-ability --test abi_surface -- --nocapture
 
-      - name: Exercise delivery, settlement and durable restart
+      - name: Exercise delivery, settlement, durable restart and attestor rotation
         working-directory: usc-messaging
         env:
           RELAYER_BIN: ${{ github.workspace }}/asc-message-relayer/target/release/message-relayer

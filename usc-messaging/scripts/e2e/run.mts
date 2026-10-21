@@ -4,15 +4,20 @@ import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { Stack } from "./stack.mjs";
 import { durableRestart, happyPath } from "./scenarios.mjs";
+import { attestorRotation } from "./rotation.mjs";
 import { type CaseResult, writeReports } from "./runtime.mjs";
 
 const scenarios = {
   "happy-path": happyPath,
   "durable-restart": durableRestart,
+  "attestor-rotation": attestorRotation,
 };
 const { values } = parseArgs({
   options: {
-    scenario: { type: "string", default: "happy-path,durable-restart" },
+    scenario: {
+      type: "string",
+      default: "happy-path,durable-restart,attestor-rotation",
+    },
     "output-dir": {
       type: "string",
       default: resolve(tmpdir(), `writeability-e2e-${Date.now()}`),
@@ -24,7 +29,7 @@ const { values } = parseArgs({
 });
 if (values.help) {
   console.log(
-    "Usage: npm run e2e -- [--scenario happy-path,durable-restart] [--output-dir DIR] [--lookback-blocks 2] [--timeout-seconds 1200]\n" +
+    "Usage: npm run e2e -- [--scenario happy-path,durable-restart,attestor-rotation] [--output-dir DIR] [--lookback-blocks 2] [--timeout-seconds 1200]\n" +
       "Requires compiled Creditcoin/attestor/proof-gen/relayer binaries, Foundry and ASC_CONTRACTS_DIR artifacts.\n" +
       "Uses a fresh state/ directory under DIR. Logs, exact-message evidence, report.json and junit.xml are retained.",
   );

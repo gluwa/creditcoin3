@@ -127,6 +127,7 @@ test("runner validates scenario selection and lookback before starting a stack",
   const help = run("--help");
   assert.equal(help.status, 0);
   assert.match(help.stdout, /durable-restart/);
+  assert.match(help.stdout, /attestor-rotation/);
   for (const scenario of [
     "missing",
     "constructor",

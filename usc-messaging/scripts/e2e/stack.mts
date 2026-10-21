@@ -24,7 +24,12 @@ export interface Deployment {
     relayerContract: string;
     attest: string;
   };
-  dest: { inbox: string; voteValidator: string; dapp: string };
+  dest: {
+    inbox: string;
+    voteValidator: string;
+    attestorRegistry: string;
+    dapp: string;
+  };
 }
 
 export class Stack {
@@ -76,6 +81,7 @@ export class Stack {
       E2E_ATTESTOR_LOGS: resolve(this.state, "attestor-logs"),
       E2E_ATTESTOR_SET_FILE: resolve(this.state, "attestor-set"),
       E2E_ATTESTOR_READY_PATH: resolve(this.state, "attestor-ready.json"),
+      E2E_ATTESTOR_WELL_KNOWN_KEYS: "true",
       E2E_ATTESTOR_BIN:
         process.env.E2E_ATTESTOR_BIN ??
         resolve(this.repo, "target/release/attestor"),
@@ -293,7 +299,7 @@ export class Stack {
       },
     );
     await this.httpReady("quoter", `${this.env.QUOTER_URL}/health`);
-    this.start("attestors", "bash", ["scripts/launch-attestors.sh", "3"]);
+    this.start("attestors", "bash", ["scripts/launch-attestors.sh", "4"]);
     const ready = await this.wait(
       "attestor readiness and explicit boot nodes",
       async () => {
@@ -301,7 +307,7 @@ export class Stack {
           addresses: string[];
           bootNodes: string[];
         }>(this.env.E2E_ATTESTOR_READY_PATH!);
-        return state.addresses?.length === 3 && state.bootNodes?.length === 3
+        return state.addresses?.length === 4 && state.bootNodes?.length === 4
           ? state
           : undefined;
       },
