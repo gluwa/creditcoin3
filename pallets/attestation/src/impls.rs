@@ -812,7 +812,18 @@ impl<T: Config> Pallet<T> {
             .unwrap_or_else(|| ChainAttestationInterval::<T>::get(chain_key))
     }
 
-    pub fn apply_interval_updates() {
+    /// Number of supported chains, the bound on how many chains can carry pending updates.
+    pub(crate) fn supported_chains_count() -> u32 {
+        T::SupportedChains::supported_chains().len() as u32
+    }
+
+    /// Applies every pending per-chain update, returning how many entries were applied.
+    ///
+    /// Each map holds at most one entry per supported chain (chain removal clears them), so the
+    /// work is bounded by `3 * MaxSupportedChains`.
+    pub fn apply_interval_updates() -> u32 {
+        let mut applied = 0u32;
+
         // Use `drain()` rather than `iter() + bounded clear(num_supported_chains)`. The bounded
         // clear leaked entries whenever the pending map held more rows than the supported-chain
         // count — possible when an operator wrote a pending entry for a chain that was later
@@ -822,6 +833,7 @@ impl<T: Config> Pallet<T> {
         // applies it, so every iterated entry is guaranteed gone — no count guess.
         PendingAttestationInterval::<T>::drain().for_each(
             |(chain_key, new_attestation_interval)| {
+                applied = applied.saturating_add(1);
                 ChainAttestationInterval::<T>::set(chain_key, new_attestation_interval);
 
                 Self::deposit_event(Event::<T>::AttestationIntervalChanged(
@@ -832,6 +844,7 @@ impl<T: Config> Pallet<T> {
         );
 
         PendingTargetSampleSize::<T>::drain().for_each(|(chain_key, new_target_sample_size)| {
+            applied = applied.saturating_add(1);
             TargetSampleSize::<T>::set(chain_key, new_target_sample_size);
 
             Self::deposit_event(Event::<T>::TargetSampleSizeChanged(
@@ -841,10 +854,13 @@ impl<T: Config> Pallet<T> {
         });
 
         PendingMaxCatchup::<T>::drain().for_each(|(chain_key, new_max_catchup)| {
+            applied = applied.saturating_add(1);
             MaxCatchup::<T>::set(chain_key, new_max_catchup);
 
             Self::deposit_event(Event::<T>::MaxCatchupChanged(chain_key, new_max_catchup));
         });
+
+        applied
     }
 
     // Remove address as invulnerable and attestor
@@ -1843,13 +1859,16 @@ impl<T: Config> OnRandomnessUpdateWeight for Pallet<T> {
         // epoch-change `on_initialize` accounts for the listener cost instead of
         // under-weighting it (the randomness benchmark deliberately excludes the
         // listener, so this is the only place that cost is charged).
-        T::SupportedChains::supported_chains()
+        let chains = T::SupportedChains::supported_chains();
+        let chains_count = chains.len() as u32;
+
+        chains
             .into_iter()
             .fold(Weight::zero(), |acc, chain_key| {
                 acc.saturating_add(<T as Config>::WeightInfo::force_election(
                     AttestorsCount::<T>::get(chain_key),
                 ))
             })
-            .saturating_add(<T as Config>::WeightInfo::force_apply_updates())
+            .saturating_add(<T as Config>::WeightInfo::force_apply_updates(chains_count))
     }
 }

@@ -1793,6 +1793,12 @@ declare module '@polkadot/api-base/types/storage' {
             > &
                 QueryableStorageEntry<ApiType, [u64]>;
             /**
+             * Number of entries in [`SupportedChains`], kept in lock-step with it so the
+             * [`Config::MaxSupportedChains`] check in `register_chain` is O(1).
+             **/
+            supportedChainsCount: AugmentedQuery<ApiType, () => Observable<u32>, []> &
+                QueryableStorageEntry<ApiType, []>;
+            /**
              * Generic query
              **/
             [key: string]: QueryableStorageEntry<ApiType>;

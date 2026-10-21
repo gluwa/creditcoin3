@@ -247,6 +247,9 @@ impl frame_system::Config for Runtime {
         // executed on devnet/testnet (version 1). Remove once mainnet runs a runtime that
         // includes it.
         pallet_randomness::migrations::MigrateRandomnessByEpochIndexV0ToV1<Runtime>,
+        // Initialises `SupportedChainsCount` (supported-chains storage version 0 -> 1). Remove
+        // once every network runs a runtime that includes it.
+        pallet_supported_chains::migrations::MigrateSupportedChainsCountV0ToV1<Runtime>,
         // NOTE: all other historical migrations are intentionally NOT registered:
         // - pallet_attestation::MigrateAttestationContinuityProofV0ToV1 and
         //   MigrateAttestorsCountV1ToV2: executed everywhere (on-chain storage version 2
@@ -1081,6 +1084,10 @@ impl pallet_attestation::Config for Runtime {
 
 parameter_types! {
     pub const DefaultMaturityStrategy: &'static str = MATURITY_EVM_SAFE;
+    /// Ceiling on registered chains. The epoch hook elects attestors for every chain in one
+    /// mandatory block, so `MaxSupportedChains` x `MaxAttestors` bounds that work; see the
+    /// `epoch_hook_worst_case_fits_block` test before raising either.
+    pub const MaxSupportedChains: u32 = 32;
 }
 
 impl pallet_supported_chains::Config for Runtime {
@@ -1090,6 +1097,7 @@ impl pallet_supported_chains::Config for Runtime {
     type ChainRegistrationHandler = pallet_attestation::Pallet<Runtime>;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type MaxSupportedChains = MaxSupportedChains;
 }
 
 parameter_types! {
@@ -2137,6 +2145,36 @@ mod tests {
         assert!(
             SlashDeferDuration::get() < BondingDuration::get(),
             "slash defer duration must be less than bonding duration",
+        );
+    }
+
+    /// The epoch hook elects attestors for every supported chain and applies every pending update
+    /// in a mandatory block, which no weight limit can refuse. With the chain count and per-chain
+    /// attestor count capped, its worst case is a fixed number; this keeps that number from
+    /// outgrowing the block. Half the block leaves room for the rest of `on_initialize` and the
+    /// block's extrinsics under every build profile (the devnet/testnet profile has the smallest
+    /// block).
+    #[test]
+    fn epoch_hook_worst_case_fits_block() {
+        use super::{BlockWeights, MaxAttestors, MaxSupportedChains};
+        use pallet_attestation::{WeightInfo as _, MAX_BENCHMARKED_SUPPORTED_CHAINS};
+
+        type Weights = <Runtime as pallet_attestation::Config>::WeightInfo;
+
+        let chains = MaxSupportedChains::get();
+        assert!(
+            chains <= MAX_BENCHMARKED_SUPPORTED_CHAINS,
+            "the chain cap is past the range the epoch-hook weights are benchmarked over",
+        );
+
+        let worst = Weights::force_election(MaxAttestors::get())
+            .saturating_mul(u64::from(chains))
+            .saturating_add(Weights::force_apply_updates(chains));
+        let limit = BlockWeights::get().max_block / 2;
+
+        assert!(
+            worst.all_lt(limit),
+            "epoch hook worst case {worst:?} must stay under half the block ({limit:?})",
         );
     }
 

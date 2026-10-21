@@ -458,6 +458,14 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             defaultMaturityStrategy: Text & AugmentedConst<ApiType>;
             /**
+             * Maximum number of chains that can be registered at once.
+             *
+             * The epoch hook elects attestors for every supported chain and applies their pending
+             * updates in a single mandatory block, so this is what keeps that work, and the weight it
+             * reports, bounded.
+             **/
+            maxSupportedChains: u32 & AugmentedConst<ApiType>;
+            /**
              * Generic const
              **/
             [key: string]: Codec;

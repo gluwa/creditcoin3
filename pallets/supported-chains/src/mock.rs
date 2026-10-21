@@ -74,6 +74,7 @@ impl supported_chains::Config for Test {
     type ChainRegistrationHandler = DummyRegistrationHandler;
     type DefaultMaturityStrategy = DefaultMaturityStrategy;
     type OperatorsOrigin = EnsureRootOrOperators;
+    type MaxSupportedChains = frame_support::traits::ConstU32<4>;
 }
 
 parameter_types! {
