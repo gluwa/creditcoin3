@@ -25,9 +25,9 @@
       "blocktime_ms": 5000,
       "checks": "pre-and-post",
       "snapshot": {
-        "storage_account": "",
-        "container": "",
-        "prefix": ""
+        "storage_account": "cc3playgroundstorage",
+        "container": "chain-archives",
+        "prefix": "try-runtime"
       },
       "max_age_hours": 24,
       "capture_grace_minutes": 30
