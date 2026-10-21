@@ -224,6 +224,9 @@ mod benchmarks {
     // `MAX_ATTESTORS - 1` keeps the worst case at exactly `MAX_ATTESTORS`, which is the
     // `set_max_attestors` / `MaxAttestationNodes` ceiling.
     const MAX_ATTESTORS_PARAM: u32 = MAX_ATTESTORS - 1;
+    // Upper bound for the chain count `force_apply_updates` is measured over; the runtime's
+    // `MaxSupportedChains` must not exceed it.
+    const MAX_CHAINS: u32 = crate::MAX_BENCHMARKED_SUPPORTED_CHAINS;
 
     #[benchmark]
     fn set_chain_attestation_interval() {
@@ -814,17 +817,25 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn force_apply_updates() {
-        // Setup: populate pending storage items for all supported chains
+    fn force_apply_updates(c: Linear<1, MAX_CHAINS>) {
+        // Setup: every one of `c` chains carries a pending value in all three maps, the
+        // per-chain worst case. The maps are keyed by chain key and applying does not look the
+        // chain up, so the keys need no registered chain.
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
 
-        // Set pending values that will be applied
-        PendingAttestationInterval::<T>::insert(DEV_CHAIN_KEY, 200u64);
-        PendingTargetSampleSize::<T>::insert(DEV_CHAIN_KEY, 10u32);
-        PendingMaxCatchup::<T>::insert(DEV_CHAIN_KEY, 50u32);
+        for i in 0..c {
+            let chain_key: ChainKey = DEV_CHAIN_KEY + u64::from(i);
+            PendingAttestationInterval::<T>::insert(chain_key, 200u64);
+            PendingTargetSampleSize::<T>::insert(chain_key, 10u32);
+            PendingMaxCatchup::<T>::insert(chain_key, 50u32);
+        }
 
         #[extrinsic_call]
-        _(root_origin as <T as frame_system::Config>::RuntimeOrigin)
+        _(root_origin as <T as frame_system::Config>::RuntimeOrigin);
+
+        assert!(PendingAttestationInterval::<T>::iter().next().is_none());
+        assert!(PendingTargetSampleSize::<T>::iter().next().is_none());
+        assert!(PendingMaxCatchup::<T>::iter().next().is_none());
     }
 
     #[benchmark]

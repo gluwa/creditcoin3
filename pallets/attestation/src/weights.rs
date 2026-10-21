@@ -782,15 +782,20 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::MaxCatchup` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::TargetSampleSize` (r:0 w:1)
 	/// Proof: `Attestation::TargetSampleSize` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn force_apply_updates() -> Weight {
+	/// The range of component `c` is `[1, 32]`.
+	fn force_apply_updates(c: u32, ) -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `449`
-		//  Estimated: `6389`
+		//  Estimated: `6389 + c * (7842 ±0)`
 		// Minimum execution time: 64_770_000 picoseconds.
-		Weight::from_parts(82_240_000, 0)
+		Weight::from_parts(62_240_000, 0)
 			.saturating_add(Weight::from_parts(0, 6389))
-			.saturating_add(T::DbWeight::get().reads(10))
-			.saturating_add(T::DbWeight::get().writes(8))
+			.saturating_add(Weight::from_parts(20_000_000, 0).saturating_mul(c.into()))
+			.saturating_add(T::DbWeight::get().reads(7))
+			.saturating_add(T::DbWeight::get().reads((3_u64).saturating_mul(c.into())))
+			.saturating_add(T::DbWeight::get().writes(2))
+			.saturating_add(T::DbWeight::get().writes((6_u64).saturating_mul(c.into())))
+			.saturating_add(Weight::from_parts(0, 7842).saturating_mul(c.into()))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)

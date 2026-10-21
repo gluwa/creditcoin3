@@ -12649,3 +12649,192 @@ fn commit_attestation_requires_an_interval_past_the_last_height() {
         );
     })
 }
+
+/// The epoch hook runs election for every supported chain and drains every pending update in a
+/// mandatory block, so its work is bounded by `MaxSupportedChains` x `MaxAttestors`. These pin the
+/// behaviour at that ceiling and check the weight it reports covers it.
+mod epoch_hook_at_maximum_state {
+    use super::*;
+    use crate::weights::WeightInfo as Weights;
+    use attestor_primitives::Attestor as AttestorRow;
+    use frame_support::weights::Weight;
+    use randomness_primitives::{OnRandomnessUpdate, OnRandomnessUpdateWeight};
+
+    const FILLER_BASE: u64 = 1_000_000;
+
+    fn max_chains() -> u32 {
+        <Test as pallet_supported_chains::Config>::MaxSupportedChains::get()
+    }
+
+    fn max_attestors() -> u32 {
+        <Test as Config>::MaxAttestationNodes::get()
+    }
+
+    /// Registers chains until the cap is reached and returns every supported chain key.
+    fn fill_chains() -> Vec<ChainKey> {
+        for chain_id in 0..u64::from(max_chains()) {
+            // The genesis chain already holds one slot, so the last registration is rejected.
+            let _ = SupportedChains::register_chain(
+                RuntimeOrigin::root(),
+                10_000 + chain_id,
+                format!("MaxStateChain{chain_id}"),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                ChainEncodingVersion::V1,
+                None,
+            );
+        }
+        let mut chains = <Test as Config>::SupportedChains::supported_chains();
+        chains.sort_unstable();
+        chains
+    }
+
+    /// Seeds `max_attestors()` `Waiting` attestors on every chain (the per-attestor worst case: all
+    /// visited, all rewritten) and one pending value in each of the three pending maps.
+    fn fill_attestors_and_pending(chains: &[ChainKey]) {
+        for (c, chain_key) in chains.iter().enumerate() {
+            for a in 0..u64::from(max_attestors()) {
+                let id = FILLER_BASE + (c as u64) * 1_000 + a;
+                Attestors::<Test>::insert(
+                    chain_key,
+                    id,
+                    AttestorRow {
+                        bls_public_key: None,
+                        status: AttestorStatus::Waiting,
+                        stash: id,
+                    },
+                );
+            }
+            AttestorsCount::<Test>::insert(chain_key, max_attestors());
+            PendingAttestationInterval::<Test>::insert(chain_key, 7u64);
+            PendingTargetSampleSize::<Test>::insert(chain_key, 3u32);
+            PendingMaxCatchup::<Test>::insert(chain_key, 11u32);
+        }
+    }
+
+    #[test]
+    fn the_cap_is_reached_but_not_passed() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            assert_eq!(chains.len() as u32, max_chains());
+            assert_noop!(
+                SupportedChains::register_chain(
+                    RuntimeOrigin::root(),
+                    99_999,
+                    "OneTooMany".to_string(),
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    ChainEncodingVersion::V1,
+                    None,
+                ),
+                pallet_supported_chains::Error::<Test>::TooManyChains
+            );
+        });
+    }
+
+    #[test]
+    fn epoch_transition_elects_every_chain_and_drains_every_pending_map() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            fill_attestors_and_pending(&chains);
+
+            <Attestation as OnRandomnessUpdate>::on_new_epoch_randomness(1, [0u8; 32]);
+
+            for chain_key in &chains {
+                assert_eq!(
+                    ActiveAttestors::<Test>::get(chain_key).len() as u32,
+                    max_attestors(),
+                    "chain {chain_key} must have its whole waiting set elected"
+                );
+                assert!(Attestors::<Test>::iter_prefix(chain_key)
+                    .all(|(_, attestor)| attestor.status == AttestorStatus::Active));
+            }
+            assert_eq!(PendingAttestationInterval::<Test>::iter().count(), 0);
+            assert_eq!(PendingTargetSampleSize::<Test>::iter().count(), 0);
+            assert_eq!(PendingMaxCatchup::<Test>::iter().count(), 0);
+        });
+    }
+
+    #[test]
+    fn apply_interval_updates_reports_every_entry_it_applied() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            fill_attestors_and_pending(&chains);
+
+            assert_eq!(
+                Attestation::apply_interval_updates(),
+                3 * chains.len() as u32
+            );
+            assert_eq!(Attestation::apply_interval_updates(), 0);
+        });
+    }
+
+    #[test]
+    fn reported_weight_is_every_chains_election_plus_the_pending_updates() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let chains = fill_chains();
+            fill_attestors_and_pending(&chains);
+
+            let expected = chains
+                .iter()
+                .fold(Weight::zero(), |acc, _| {
+                    acc.saturating_add(Weights::<Test>::force_election(max_attestors()))
+                })
+                .saturating_add(Weights::<Test>::force_apply_updates(chains.len() as u32));
+
+            assert_eq!(
+                <Attestation as OnRandomnessUpdateWeight>::on_new_epoch_randomness_weight(),
+                expected
+            );
+        });
+    }
+
+    #[test]
+    fn reported_weight_grows_with_the_number_of_chains() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let one_chain =
+                <Attestation as OnRandomnessUpdateWeight>::on_new_epoch_randomness_weight();
+
+            fill_chains();
+            let all_chains =
+                <Attestation as OnRandomnessUpdateWeight>::on_new_epoch_randomness_weight();
+
+            assert!(all_chains.all_gt(one_chain));
+        });
+    }
+
+    #[test]
+    fn force_apply_updates_is_charged_for_the_chains_it_may_apply() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            let few = Call::<Test>::force_apply_updates {}
+                .get_dispatch_info()
+                .call_weight;
+
+            fill_chains();
+            let many = Call::<Test>::force_apply_updates {}
+                .get_dispatch_info()
+                .call_weight;
+
+            assert!(many.all_gt(few));
+        });
+    }
+
+    #[test]
+    fn the_benchmarked_chain_range_covers_the_runtime_ceiling() {
+        assert!(max_chains() <= crate::MAX_BENCHMARKED_SUPPORTED_CHAINS);
+    }
+}

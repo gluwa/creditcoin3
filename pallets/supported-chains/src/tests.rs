@@ -989,3 +989,145 @@ fn set_chain_name_allows_a_name_used_under_another_chain_id() {
         },
     );
 }
+
+mod max_supported_chains {
+    use super::*;
+    use crate::migrations::MigrateSupportedChainsCountV0ToV1;
+    use frame_support::traits::{Get, GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
+
+    fn register(chain_id: u64) -> frame_support::dispatch::DispatchResult {
+        SupportedChain::register_chain(
+            RuntimeOrigin::root(),
+            chain_id,
+            format!("Chain {chain_id}"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            ChainEncodingVersion::V1,
+            None,
+        )
+    }
+
+    fn max() -> u32 {
+        <Test as pallet::Config>::MaxSupportedChains::get()
+    }
+
+    #[test]
+    fn genesis_seeds_the_count() {
+        ExtBuilder.build_and_execute(|| {
+            assert_eq!(SupportedChain::supported_chains_count(), 1);
+        });
+    }
+
+    #[test]
+    fn register_chain_rejects_a_chain_past_the_cap() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+
+            // Genesis already registered one chain.
+            for chain_id in 1..u64::from(max()) {
+                assert_ok!(register(chain_id));
+            }
+            assert_eq!(SupportedChain::supported_chains_count(), max());
+            assert_eq!(SupportedChain::supported_chains().len() as u32, max());
+
+            let key_before = SupportedChain::chain_key_value();
+            assert_noop!(register(1_000), Error::<Test>::TooManyChains);
+            assert_eq!(SupportedChain::chain_key_value(), key_before);
+            assert_eq!(SupportedChain::supported_chains_count(), max());
+        });
+    }
+
+    #[test]
+    fn remove_chain_frees_a_slot() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            for chain_id in 1..u64::from(max()) {
+                assert_ok!(register(chain_id));
+            }
+            assert_noop!(register(1_000), Error::<Test>::TooManyChains);
+
+            assert_ok!(SupportedChain::remove_chain(
+                RuntimeOrigin::root(),
+                1,
+                false
+            ));
+            assert_eq!(SupportedChain::supported_chains_count(), max() - 1);
+
+            assert_ok!(register(1_000));
+            assert_eq!(SupportedChain::supported_chains_count(), max());
+            assert_noop!(register(1_001), Error::<Test>::TooManyChains);
+        });
+    }
+
+    #[test]
+    fn failed_removal_leaves_the_count_untouched() {
+        ExtBuilder.build_and_execute(|| {
+            System::set_block_number(1);
+            assert_noop!(
+                SupportedChain::remove_chain(RuntimeOrigin::root(), 99, false),
+                Error::<Test>::ChainNotSupported
+            );
+            assert_eq!(SupportedChain::supported_chains_count(), 1);
+        });
+    }
+
+    #[test]
+    #[should_panic(expected = "more chains than `MaxSupportedChains`")]
+    fn genesis_panics_when_it_registers_more_chains_than_the_cap() {
+        let chains = (0..=u64::from(max()))
+            .map(|id| {
+                (
+                    id,
+                    format!("Chain {id}").into_bytes(),
+                    ChainEncodingVersion::V1,
+                    MATURITY_FIXED_DELAY_10.to_string(),
+                )
+            })
+            .collect();
+        ExtBuilder.build_and_execute_with_duplicate_chains(chains, || {});
+    }
+
+    #[test]
+    fn migration_counts_the_existing_chains_and_bumps_the_version() {
+        new_test_ext().execute_with(|| {
+            // Pre-upgrade state: chains exist, no counter, storage version 0.
+            for key in 1..=3u64 {
+                SupportedChains::<Test>::insert(
+                    key,
+                    supported_chains_primitives::SupportedChain {
+                        chain_id: key,
+                        chain_name: format!("Chain {key}").into_bytes(),
+                        chain_encoding: ChainEncodingVersion::V1,
+                        maturity_strategy: MATURITY_FIXED_DELAY_10.to_string(),
+                    },
+                );
+            }
+            StorageVersion::new(0).put::<SupportedChain>();
+            assert_eq!(SupportedChain::supported_chains_count(), 0);
+
+            MigrateSupportedChainsCountV0ToV1::<Test>::on_runtime_upgrade();
+
+            assert_eq!(SupportedChain::supported_chains_count(), 3);
+            assert_eq!(
+                SupportedChain::on_chain_storage_version(),
+                StorageVersion::new(1)
+            );
+        });
+    }
+
+    #[test]
+    fn migration_is_a_no_op_once_applied() {
+        new_test_ext().execute_with(|| {
+            StorageVersion::new(1).put::<SupportedChain>();
+            crate::SupportedChainsCount::<Test>::put(7);
+
+            MigrateSupportedChainsCountV0ToV1::<Test>::on_runtime_upgrade();
+
+            assert_eq!(SupportedChain::supported_chains_count(), 7);
+        });
+    }
+}
