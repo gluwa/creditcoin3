@@ -212,6 +212,8 @@ fn setup_commit<T: Config>(m: u32) -> (Vec<Attestor<T>>, BenchAttestation<T>) {
 mod benchmarks {
     use super::*;
 
+    const PEER_KEY_TYPE: sp_core::crypto::KeyTypeId = sp_core::crypto::KeyTypeId(*b"atpr");
+
     pub const MAX_SPAN: u32 = COMMIT_BENCHMARK_MAX_SPAN; // continuity blocks, up to the default MaxCatchup
     /// Smallest `commit_attestation` span that takes the catch-up path at the benchmark's
     /// checkpoint width of 100 (`2 * width`). Sampling `s` only on that path keeps the step from
@@ -322,7 +324,8 @@ mod benchmarks {
 
     #[benchmark]
     fn unregister_attestor() {
-        // Setup: worst case retains BLS key in `RetiredAttestorBlsKeys` + updates `ActiveAttestors`
+        // Worst case retains the BLS key, updates ActiveAttestors, and deletes both peer-key
+        // indexes. An unregistered networking key would skip the reverse-index read/write.
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 4);
         let att = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
@@ -342,14 +345,23 @@ mod benchmarks {
         .expect("attest() required so unregister stores a retired BLS key");
         Attestation::<T>::chill(att.stash_origin.clone(), DEV_CHAIN_KEY, attestor_id.clone())
             .expect("chill() required before unregister");
+        let peer_key = [9; 32];
+        AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &attestor_id, peer_key);
+        PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, peer_key, &attestor_id);
         let signed_origin = att.stash_origin;
 
         #[extrinsic_call]
         _(
             signed_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
-            attestor_id,
-        )
+            attestor_id.clone(),
+        );
+
+        assert!(!AttestorPeerKeys::<T>::contains_key(
+            DEV_CHAIN_KEY,
+            &attestor_id
+        ));
+        assert!(!PeerKeyOwner::<T>::contains_key(DEV_CHAIN_KEY, peer_key));
     }
 
     #[benchmark]
@@ -538,7 +550,7 @@ mod benchmarks {
 
     #[benchmark]
     fn attest() {
-        // Setup
+        // Enforcement adds a peer-key lookup that the rollout/default-disabled path skips.
         let stash_id = create_funded_user_with_balance::<T>("stash", 0);
         let attestor_id: T::AccountId = create_funded_user_with_balance::<T>("attestor", 1);
         let attestor = Attestor::<T>::new(stash_id, attestor_id.clone(), 0);
@@ -546,8 +558,12 @@ mod benchmarks {
         assert_ok!(Attestation::<T>::register_attestor(
             attestor.stash_origin.clone(),
             DEV_CHAIN_KEY,
-            attestor_id,
+            attestor_id.clone(),
         ));
+        let peer_key = [9; 32];
+        AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &attestor_id, peer_key);
+        PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, peer_key, &attestor_id);
+        PeerRegistrationRequired::<T>::insert(DEV_CHAIN_KEY, true);
 
         let signed_origin = attestor.attestor_origin;
 
@@ -557,7 +573,136 @@ mod benchmarks {
             DEV_CHAIN_KEY,
             attestor.public_key,
             attestor.signature,
-        )
+        );
+
+        assert_eq!(
+            Attestors::<T>::get(DEV_CHAIN_KEY, attestor_id)
+                .unwrap()
+                .status,
+            attestor_primitives::AttestorStatus::Waiting
+        );
+    }
+
+    #[benchmark]
+    fn set_attestor_peer_key() {
+        let stash = create_funded_user_with_balance::<T>("stash", 0);
+        let controller = create_funded_user_with_balance::<T>("attestor", 1);
+        assert_ok!(Attestation::<T>::register_attestor(
+            T::RuntimeOrigin::signed(stash),
+            DEV_CHAIN_KEY,
+            controller.clone()
+        ));
+        // Rotation takes the maximum storage-write path.
+        // Use the benchmark host's keystore so WASM does not enable native full_crypto.
+        let old = sp_io::crypto::ed25519_generate(PEER_KEY_TYPE, None).0;
+        AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &controller, old);
+        PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, old, &controller);
+        let public = sp_io::crypto::ed25519_generate(PEER_KEY_TYPE, None);
+        let genesis = frame_system::Pallet::<T>::block_hash(
+            frame_system::pallet_prelude::BlockNumberFor::<T>::default(),
+        );
+        let message = attestor_primitives::peer_key_proof_message(
+            genesis.as_ref(),
+            DEV_CHAIN_KEY,
+            &controller.encode(),
+            &public.0,
+        );
+        let proof = sp_io::crypto::ed25519_sign(PEER_KEY_TYPE, &public, &message)
+            .expect("benchmark host holds the generated key")
+            .0;
+        let public = public.0;
+
+        #[extrinsic_call]
+        _(
+            T::RuntimeOrigin::signed(controller.clone()),
+            DEV_CHAIN_KEY,
+            public,
+            proof,
+            Some(old),
+        );
+
+        assert_eq!(
+            AttestorPeerKeys::<T>::get(DEV_CHAIN_KEY, &controller),
+            Some(public)
+        );
+        assert_eq!(
+            PeerKeyOwner::<T>::get(DEV_CHAIN_KEY, public),
+            Some(controller)
+        );
+        assert!(!PeerKeyOwner::<T>::contains_key(DEV_CHAIN_KEY, old));
+    }
+
+    #[benchmark]
+    fn set_peer_registration_required(a: Linear<1, MAX_ATTESTORS>) {
+        let mut active = Vec::new();
+        for j in 0..a {
+            let stash = create_funded_user_with_balance::<T>("stash", j);
+            let controller = create_funded_user_with_balance::<T>("attestor", j + 100);
+            let attestor = Attestor::<T>::new(stash, controller.clone(), j);
+            assert_ok!(Attestation::<T>::register_attestor(
+                attestor.stash_origin,
+                DEV_CHAIN_KEY,
+                controller.clone()
+            ));
+            assert_ok!(Attestation::<T>::attest(
+                attestor.attestor_origin,
+                DEV_CHAIN_KEY,
+                attestor.public_key,
+                attestor.signature
+            ));
+            let public = sp_io::crypto::ed25519_generate(PEER_KEY_TYPE, None).0;
+            AttestorPeerKeys::<T>::insert(DEV_CHAIN_KEY, &controller, public);
+            PeerKeyOwner::<T>::insert(DEV_CHAIN_KEY, public, &controller);
+            active.push(controller);
+        }
+        ActiveAttestors::<T>::insert(DEV_CHAIN_KEY, active);
+
+        #[extrinsic_call]
+        _(T::RuntimeOrigin::root(), DEV_CHAIN_KEY, true);
+
+        assert!(PeerRegistrationRequired::<T>::get(DEV_CHAIN_KEY));
+    }
+
+    #[cfg(test)]
+    mod peer_registration_benchmark_tests {
+        use super::*;
+        use crate::mock::{ExtBuilder, Test};
+
+        fn new_ext() -> sp_io::TestExternalities {
+            let mut ext = ExtBuilder.build();
+            ext.register_extension(sp_keystore::KeystoreExt::new(
+                sp_keystore::testing::MemoryKeystore::new(),
+            ));
+            ext
+        }
+
+        #[test]
+        fn peer_key_rotation_benchmark_fixture() {
+            new_ext().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"set_attestor_peer_key").unwrap();
+            });
+        }
+
+        #[test]
+        fn peer_registration_policy_benchmark_fixture() {
+            new_ext().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"set_peer_registration_required").unwrap();
+            });
+        }
+
+        #[test]
+        fn unregister_with_peer_key_benchmark_fixture() {
+            new_ext().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"unregister_attestor").unwrap();
+            });
+        }
+
+        #[test]
+        fn attest_with_peer_registration_required_benchmark_fixture() {
+            new_ext().execute_with(|| {
+                Pallet::<Test>::test_bench_by_name(b"attest").unwrap();
+            });
+        }
     }
 
     #[benchmark]

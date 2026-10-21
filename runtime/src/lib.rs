@@ -1719,6 +1719,10 @@ impl_runtime_apis! {
             Attestation::active_attestor_set(chain_key)
         }
 
+        fn attestor_peer_registry(chain_key: ChainKey) -> attestor_primitives::PeerRegistry<AccountId> {
+            Attestation::attestor_peer_registry(chain_key)
+        }
+
         fn attestation_checkpoint_interval(chain_key: ChainKey) -> u32 {
             Attestation::attestation_checkpoint_interval(chain_key)
         }

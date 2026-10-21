@@ -49,6 +49,7 @@ pallet-timestamp = { workspace = true }
 sp-consensus-babe = { workspace = true, default-features = false, features = [
     "serde",
 ] }
+sp-keystore = { workspace = true }
 
 [features]
 default = ["std"]
@@ -59,6 +60,7 @@ runtime-benchmarks = [
     "pallet-balances/runtime-benchmarks",
     "sp-runtime/runtime-benchmarks",
     "sp-staking/runtime-benchmarks",
+    "pallet-staking/runtime-benchmarks",
     "pallet-membership/runtime-benchmarks",
 ]
 std = [

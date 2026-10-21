@@ -958,6 +958,70 @@ impl Client {
         utils::handle_tx(tx_progress, "Start Attesting").await
     }
 
+    /// Read the committee and peer keys from one explicit finalized block.
+    pub async fn attestor_peer_registry_at(
+        &self,
+        chain_key: ChainKey,
+        at: H256,
+    ) -> Result<attestor_primitives::PeerRegistry<AccountId32>, Error> {
+        let query = Self::runtime_api()
+            .attestor_api()
+            .attestor_peer_registry(chain_key);
+        let registry = self.api().runtime_api().at(at).call(query).await?;
+        Ok(attestor_primitives::PeerRegistry {
+            registration_required: registry.registration_required,
+            attestors: registry
+                .attestors
+                .into_iter()
+                .map(|(id, key)| (AccountId32(id.0), key))
+                .collect(),
+            waiting_attestors: registry
+                .waiting_attestors
+                .into_iter()
+                .map(|(id, key)| (AccountId32(id.0), key))
+                .collect(),
+        })
+    }
+
+    pub async fn attestor_peer_key_at(
+        &self,
+        chain_key: ChainKey,
+        controller: &AccountId32,
+        at: H256,
+    ) -> Result<Option<attestor_primitives::PeerPublicKey>, Error> {
+        let query = cc3::storage()
+            .attestation()
+            .attestor_peer_keys(chain_key, controller.clone());
+        self.api()
+            .storage()
+            .at(at)
+            .fetch(&query)
+            .await
+            .map_err(Into::into)
+    }
+
+    /// Wait for finalized registration; startup must not publish gossip before its key exists.
+    pub async fn set_attestor_peer_key(
+        &self,
+        chain_key: ChainKey,
+        public_key: attestor_primitives::PeerPublicKey,
+        proof: [u8; 64],
+        expected_previous_key: Option<attestor_primitives::PeerPublicKey>,
+    ) -> Result<(), Error> {
+        let tx = cc3::tx().attestation().set_attestor_peer_key(
+            chain_key,
+            public_key,
+            proof,
+            expected_previous_key,
+        );
+        let progress = self
+            .api()
+            .tx()
+            .sign_and_submit_then_watch_default(&tx, &self.signer.signing_keypair)
+            .await?;
+        utils::handle_tx(progress, "Register Attestor Peer Key").await
+    }
+
     #[must_use]
     pub fn attestor_id(&self) -> AttestorId {
         self.signer.attestor_id()

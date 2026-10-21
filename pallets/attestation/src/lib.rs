@@ -25,6 +25,7 @@ pub mod extensions;
 mod impls;
 mod ledger;
 pub mod migrations;
+mod peer_keys;
 
 pub use extensions::PrevalidateAttestationCommit;
 
@@ -37,7 +38,7 @@ pub mod pallet {
     use attestor_primitives::{
         AttestationChainConfiguration, AttestationCheckpoint, Attestor, AttestorStatus,
         BlsPublicKey, BlsPublicKeyWrapper, BlsSignature, ChainAttestationIntervalType,
-        ChainEncodingVersion, ChainKey, Digest, SignedAttestation,
+        ChainEncodingVersion, ChainKey, Digest, PeerPublicKey, SignedAttestation,
     };
     use frame_support::{
         dispatch::{
@@ -242,6 +243,9 @@ pub mod pallet {
         fn force_apply_updates() -> Weight;
         fn revert_to() -> Weight;
         fn forward_patch_checkpoints() -> Weight;
+
+        fn set_attestor_peer_key() -> Weight;
+        fn set_peer_registration_required(a: u32) -> Weight;
     }
 
     #[pallet::storage]
@@ -265,6 +269,37 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn attestors_count)]
     pub type AttestorsCount<T: Config> = StorageMap<_, Blake2_128Concat, ChainKey, u32, ValueQuery>;
+
+    /// Separate maps preserve the SCALE layout of existing Attestors records. Missing keys
+    /// are allowed during rollout; registration is optional until an operator enables it.
+    #[pallet::storage]
+    #[pallet::getter(fn attestor_peer_key)]
+    pub type AttestorPeerKeys<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        T::AccountId,
+        PeerPublicKey,
+        OptionQuery,
+    >;
+
+    /// One controller per networking identity on each source chain.
+    #[pallet::storage]
+    pub type PeerKeyOwner<T: Config> = StorageDoubleMap<
+        _,
+        Twox64Concat,
+        ChainKey,
+        Blake2_128Concat,
+        PeerPublicKey,
+        T::AccountId,
+        OptionQuery,
+    >;
+
+    #[pallet::storage]
+    #[pallet::getter(fn peer_registration_required)]
+    pub type PeerRegistrationRequired<T: Config> =
+        StorageMap<_, Twox64Concat, ChainKey, bool, ValueQuery>;
 
     #[pallet::storage]
     #[pallet::getter(fn active_attestor_set)]
@@ -794,6 +829,8 @@ pub mod pallet {
             wiped_suffix: bool,
             tip_block_number: u64,
         },
+        AttestorPeerKeyUpdated(ChainKey, T::AccountId, PeerPublicKey),
+        PeerRegistrationRequiredChanged(ChainKey, bool),
     }
 
     #[pallet::error]
@@ -961,10 +998,19 @@ pub mod pallet {
         AttestationCleanupInProgress,
         /// The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
         TooManyAttestationsInBlock,
+        InvalidPeerKeyProof,
+        PeerKeyAlreadyRegistered,
+        PeerKeyNotRegistered,
+        PeerKeyRegistrationChanged,
     }
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+        #[cfg(feature = "try-runtime")]
+        fn try_state(_now: BlockNumberFor<T>) -> Result<(), sp_runtime::TryRuntimeError> {
+            Self::check_peer_key_invariants()
+        }
+
         /// Initialization
         fn on_initialize(_now: BlockNumberFor<T>) -> Weight {
             let prune_weight = Self::on_init_prune_checkpoints();
@@ -1653,6 +1699,38 @@ pub mod pallet {
             Self::do_forward_patch_checkpoints(chain_key, wipe_suffix, checkpoints)?;
 
             Ok(())
+        }
+
+        /// Register or rotate the signing controller's Ed25519 networking identity.
+        #[pallet::call_index(31)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_attestor_peer_key())]
+        pub fn set_attestor_peer_key(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            public_key: PeerPublicKey,
+            proof_of_possession: [u8; 64],
+            expected_previous_key: Option<PeerPublicKey>,
+        ) -> DispatchResult {
+            let controller = ensure_signed(origin)?;
+            Self::do_set_attestor_peer_key(
+                chain_key,
+                controller,
+                public_key,
+                proof_of_possession,
+                expected_previous_key,
+            )
+        }
+
+        /// Enable after active/waiting attestors have backfilled their networking keys.
+        #[pallet::call_index(32)]
+        #[pallet::weight(<T as Config>::WeightInfo::set_peer_registration_required(AttestorsCount::<T>::get(chain_key)))]
+        pub fn set_peer_registration_required(
+            origin: OriginFor<T>,
+            chain_key: ChainKey,
+            required: bool,
+        ) -> DispatchResult {
+            T::OperatorsOrigin::ensure_origin(origin)?;
+            Self::do_set_peer_registration_required(chain_key, required)
         }
     }
 
