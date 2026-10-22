@@ -45,26 +45,9 @@ WS_URL="${RPC_URL/#http/ws}"
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >&2; }
 fail() { log "FAIL: $*"; exit 1; }
 
-# One JSON-RPC call; prints the result as JSON (null for absent storage).
-rpc() {
-    local response
-    response=$(curl -sS --fail --max-time 120 -H 'Content-Type: application/json' \
-        -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"$1\",\"params\":$2}" "$RPC_URL") \
-        || fail "RPC $1 could not be reached at $RPC_URL"
-    if [ "$(jq 'has("error")' <<<"$response")" = "true" ]; then
-        fail "RPC $1 returned $(jq -c .error <<<"$response")"
-    fi
-    jq -c '.result' <<<"$response"
-}
-
-# SCALE little-endian unsigned integer (hex, 0x-prefixed) to decimal.
-le_to_dec() {
-    local hex="${1#0x}" be="" i
-    for ((i = ${#hex} - 2; i >= 0; i -= 2)); do
-        be+="${hex:i:2}"
-    done
-    printf '%d' "0x${be:-0}"
-}
+# rpc and le_to_dec. A failed call ends the script through set -e.
+# shellcheck source=SCRIPTDIR/lib.sh disable=SC1091
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib.sh"
 
 [ -f "$CONFIG" ] || fail "config not found at $CONFIG"
 # The script moves into WORK_DIR below; a relative CONFIG would then read as missing.

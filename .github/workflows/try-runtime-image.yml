@@ -80,6 +80,17 @@ jobs:
             exit 1
           fi
 
+          # With nothing listening, it must load lib.sh and fail on its first RPC call.
+          if OUTPUT=$(docker run --rm -e NETWORK=devnet -e RPC_URL=http://127.0.0.1:9 "$IMAGE" 2>&1); then
+            echo "FAIL: the capture script succeeded without a node"
+            exit 1
+          fi
+          if ! grep -q "FAIL: RPC chain_getBlockHash could not be reached" <<<"$OUTPUT"; then
+            echo "FAIL: the capture script did not fail on its first RPC call:"
+            echo "$OUTPUT"
+            exit 1
+          fi
+
       - name: Push the image
         if: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/dev' }}
         env:

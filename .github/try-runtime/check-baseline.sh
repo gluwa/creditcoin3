@@ -19,34 +19,12 @@ CONFIG="${CONFIG:-.github/try-runtime/config.json}"
 
 PUBLIC_RPC=$(jq -r --arg n "$NETWORK" '.networks[$n].public_rpc // empty' "$CONFIG")
 [ -n "$PUBLIC_RPC" ] || { echo "FAIL: no public RPC for '$NETWORK' in $CONFIG"; exit 1; }
-# The public endpoints serve HTTP JSON-RPC on the same host as WebSocket.
+# The public endpoints serve HTTP JSON-RPC on the same host as WebSocket. Read by rpc().
+# shellcheck disable=SC2034
 RPC_URL="${PUBLIC_RPC/#ws/http}"
 
-# Prints the result as JSON. A JSON-RPC error (a rate limit, say) comes back as HTTP 200,
-# and reading its missing .result as null would turn a failed cursor read into "no
-# migration running" and a failed version read into version 0. Only a genuine
-# `"result": null` means absent storage.
-rpc() {
-    local response
-    response=$(curl -sS --fail --max-time 60 -H 'Content-Type: application/json' \
-        -d "{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"$1\",\"params\":$2}" "$RPC_URL") || {
-        echo "FAIL: RPC $1 could not be reached at $RPC_URL" >&2
-        return 1
-    }
-    if ! jq -e 'has("result") and (has("error") | not)' <<<"$response" >/dev/null 2>&1; then
-        echo "FAIL: RPC $1 returned $(jq -c '.error // .' <<<"$response" 2>/dev/null || echo "$response")" >&2
-        return 1
-    fi
-    jq -c '.result' <<<"$response"
-}
-
-le_to_dec() {
-    local hex="${1#0x}" be="" i
-    for ((i = ${#hex} - 2; i >= 0; i -= 2)); do
-        be+="${hex:i:2}"
-    done
-    printf '%d' "0x${be:-0}"
-}
+# shellcheck source=SCRIPTDIR/lib.sh disable=SC1091
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib.sh"
 
 HEAD=$(rpc chain_getFinalizedHead '[]' | jq -r .)
 LIVE_SPEC=$(rpc state_getRuntimeVersion "[\"$HEAD\"]" | jq -r .specVersion)

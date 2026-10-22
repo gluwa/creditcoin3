@@ -38,7 +38,9 @@ RUN /tmp/install-azure-cli.sh && \
 COPY --from=cli-builder /opt/try-runtime/bin/try-runtime /usr/local/bin/try-runtime
 COPY --from=cli-builder /opt/try-runtime/cli-rev /etc/try-runtime/cli-rev
 COPY .github/try-runtime/config.json /etc/try-runtime/config.json
-COPY .github/try-runtime/capture.sh /usr/local/bin/try-runtime-capture
+# capture.sh finds lib.sh beside it through the symlink.
+COPY .github/try-runtime/capture.sh .github/try-runtime/lib.sh /usr/local/lib/try-runtime/
+RUN ln -s /usr/local/lib/try-runtime/capture.sh /usr/local/bin/try-runtime-capture
 
 RUN useradd --create-home --uid 10001 tryruntime && \
     mkdir -p /work && \
