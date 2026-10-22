@@ -614,6 +614,137 @@ fn register_attestor_without_sufficient_funds_should_fail_2() {
 }
 
 #[test]
+fn register_attestor_requires_funds_for_bond_and_controller_funding() {
+    ExtBuilder.build_and_execute(|| {
+        let free_balance = Attestation::get_free_balance(&STASH_3);
+
+        // Covers the bond but not the controller funding on top of it.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            free_balance
+        ));
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_noop!(
+            Attestation::register_attestor(att.stash.clone(), SUPPORTED_CHAIN_KEY, att.attestor_id),
+            Error::<Test>::InsufficientBalance
+        );
+
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            free_balance - ONE_TENTH_CTC as u128
+        ));
+        assert_ok!(Attestation::register_attestor(
+            att.stash,
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        // The recorded bond is fully backed by the stash balance.
+        let ledger = Ledger::<Test>::get(STASH_3).unwrap();
+        assert!(Balances::free_balance(STASH_3) >= ledger.total_staked);
+    })
+}
+
+#[test]
+fn bond_extra_never_records_a_partial_bond() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_3, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash,
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        let before = Ledger::<Test>::get(STASH_3).unwrap();
+
+        // Less free balance than the bond left: nothing is added to the ledger.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            Balances::free_balance(STASH_3) - before.total_staked + 1
+        ));
+        assert_noop!(
+            Attestation::bond_extra(SUPPORTED_CHAIN_KEY, &STASH_3),
+            Error::<Test>::InsufficientBalance
+        );
+        assert_eq!(
+            Ledger::<Test>::get(STASH_3).unwrap().total_staked,
+            before.total_staked
+        );
+    })
+}
+
+#[test]
+fn unregistering_settles_the_bond_recorded_at_registration() {
+    ExtBuilder.build_and_execute(|| {
+        let att = Attestor::new(STASH_1, ATTESTOR_1);
+        assert_ok!(Attestation::register_attestor(
+            att.stash.clone(),
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+        assert_eq!(
+            Attestation::attestor_collateral(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            Some(bond)
+        );
+
+        // Lowering the minimum to zero must not strand the stake.
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            0
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            att.stash,
+            SUPPORTED_CHAIN_KEY,
+            att.attestor_id,
+        ));
+
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(ledger.active, 0);
+        assert_eq!(ledger.unlocking.iter().map(|c| c.value).sum::<u128>(), bond);
+        assert_eq!(
+            Attestation::attestor_collateral(SUPPORTED_CHAIN_KEY, ATTESTOR_1),
+            None
+        );
+    })
+}
+
+#[test]
+fn raising_the_minimum_does_not_release_a_shared_stashes_other_bonds() {
+    ExtBuilder.build_and_execute(|| {
+        let first = Attestor::new(STASH_1, ATTESTOR_1);
+        let second = Attestor::new(STASH_1, ATTESTOR_2);
+        for attestor in [&first, &second] {
+            assert_ok!(Attestation::register_attestor(
+                attestor.stash.clone(),
+                SUPPORTED_CHAIN_KEY,
+                attestor.attestor_id,
+            ));
+        }
+        let bond = Attestation::min_bond_requirement(SUPPORTED_CHAIN_KEY);
+
+        assert_ok!(Attestation::set_min_bond_requirement(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            bond * 10
+        ));
+        assert_ok!(Attestation::unregister_attestor(
+            first.stash,
+            SUPPORTED_CHAIN_KEY,
+            first.attestor_id,
+        ));
+
+        // Only the first attestor's own bond is released; the second stays backed.
+        let ledger = Ledger::<Test>::get(STASH_1).unwrap();
+        assert_eq!(ledger.active, bond);
+        assert_eq!(ledger.unlocking.iter().map(|c| c.value).sum::<u128>(), bond);
+    })
+}
+
+#[test]
 fn registering_multiple_attestor_increases_locked_balance() {
     ExtBuilder.build_and_execute(|| {
         let att = Attestor::new(STASH_3, ATTESTOR_1);
