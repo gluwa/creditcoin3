@@ -669,11 +669,30 @@ mod benchmarks {
             Attestations::<T>::insert(DEV_CHAIN_KEY, a.digest(), a);
         }
 
+        // `wipe_suffix` also drops the tip's bucket synchronously and queues the buckets above it
+        // for `on_initialize`, so seed old checkpoints above the tip in the same bucket plus a
+        // later one that forces the pruning state to be written.
+        for i in 100..200u64 {
+            Checkpoints::<T>::insert(DEV_CHAIN_KEY, i, H256::from([1; 32]));
+            CheckpointBuckets::<T>::insert(
+                (DEV_CHAIN_KEY, Pallet::<T>::compute_block_index_for(i), i),
+                (),
+            );
+        }
+        let far_height = 2 * CHECKPOINT_BUCKET_SIZE;
+        LastCheckpoint::<T>::insert(
+            DEV_CHAIN_KEY,
+            AttestationCheckpoint {
+                block_number: far_height,
+                digest: H256::from([1; 32]),
+            },
+        );
+
         #[extrinsic_call]
         _(
             root_origin as <T as frame_system::Config>::RuntimeOrigin,
             DEV_CHAIN_KEY,
-            false,
+            true,
             mock_checkpoints.try_into().unwrap(),
         )
     }
