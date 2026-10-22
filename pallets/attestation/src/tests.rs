@@ -1402,13 +1402,54 @@ fn set_max_invulnerables_should_error_when_not_signed_by_operator_nor_root() {
 #[test]
 fn set_max_invulnerables_should_error_when_value_is_less_than_current_count() {
     ExtBuilder.build_and_execute(|| {
-        let root_origin = RuntimeOrigin::root();
-        // There should be at least one invulnerable set in mock.rs
-        // We set the max number of invulnerables to 0, less than the current number.
+        // mock.rs sets one invulnerable; add a second so a non-zero max can sit below the count.
+        assert_ok!(Attestation::register_invulnerable(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ATTESTOR_1,
+        ));
         assert_noop!(
-            Attestation::set_max_invulnerables(root_origin, SUPPORTED_CHAIN_KEY, 0),
+            Attestation::set_max_invulnerables(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 1),
             Error::<Test>::MaxInvulnerablesCannotBeChanged
         );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_rejects_zero() {
+    ExtBuilder.build_and_execute(|| {
+        assert_noop!(
+            Attestation::set_max_invulnerables(RuntimeOrigin::root(), SUPPORTED_CHAIN_KEY, 0),
+            Error::<Test>::InvalidMaxInvulnerables
+        );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_rejects_above_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxAttestationNodes::get();
+        assert_noop!(
+            Attestation::set_max_invulnerables(
+                RuntimeOrigin::root(),
+                SUPPORTED_CHAIN_KEY,
+                ceiling + 1
+            ),
+            Error::<Test>::InvalidMaxInvulnerables
+        );
+    })
+}
+
+#[test]
+fn set_max_invulnerables_accepts_runtime_ceiling() {
+    ExtBuilder.build_and_execute(|| {
+        let ceiling = <Test as crate::Config>::MaxAttestationNodes::get();
+        assert_ok!(Attestation::set_max_invulnerables(
+            RuntimeOrigin::root(),
+            SUPPORTED_CHAIN_KEY,
+            ceiling
+        ));
+        assert_eq!(Attestation::max_invulnerables(SUPPORTED_CHAIN_KEY), ceiling);
     })
 }
 
