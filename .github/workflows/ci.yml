@@ -1402,13 +1402,17 @@ jobs:
             1:pallets/attestation/attest
             1:pallets/attestation/authorize-attestor
             1:pallets/attestation/chill
+            1:pallets/attestation/commit-attestation-pool-tag
             1:pallets/attestation/force-apply-updates
             1:pallets/attestation/force-election
             1:pallets/attestation/interval-ceilings
             1:pallets/attestation/kick-active-attestor
+            1:pallets/attestation/proof-of-possession
             1:pallets/attestation/register-attestor
             1:pallets/attestation/register-invulnerable
             1:pallets/attestation/remove-authorized-attestor
+            1:pallets/attestation/revert-to-batched-cleanup
+            1:pallets/attestation/remove-chain-batched-cleanup
             1:pallets/attestation/set-attestations-per-checkpoint
             1:pallets/attestation/set-chain-attestation-interval
             1:pallets/attestation/set-election-policy
@@ -1429,11 +1433,19 @@ jobs:
             1:pallets/supported-chains/set-write-ability-config
             2:block-hash-block-param
             2:danger-will-brick-the-blockchain
+            2:eth-estimate-gas-shortcut
+            2:eth-new-heads
+            2:evm-call-proof-size
+            2:eth-base-fee-history
+            2:evm-blockhash-window
+            2:evm-authorization-list-limit
             2:evm-gasprice-opcode
             2:evm-priority-fee
+            2:evm-revert-extra-data
             2:evm-state-overrides
             2:evm-tracing
             2:gas-estimation
+            2:grandpa-key-ownership-proof
             2:pallets/identity/identityOf
             2:pallets/operators/add-member
             2:pallets/operators/change-key
