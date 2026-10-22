@@ -12,7 +12,7 @@
       "checks": "pre-and-post",
       "snapshot": {
         "storage_account": "cc3devnetstorage",
-        "container": "chain-archives",
+        "container": "ci-migration-snapshots",
         "prefix": "try-runtime"
       },
       "max_age_hours": 24,
@@ -26,7 +26,7 @@
       "checks": "pre-and-post",
       "snapshot": {
         "storage_account": "cc3playgroundstorage",
-        "container": "chain-archives",
+        "container": "ci-migration-snapshots",
         "prefix": "try-runtime"
       },
       "max_age_hours": 24,
@@ -40,7 +40,7 @@
       "checks": "all",
       "snapshot": {
         "storage_account": "cc3testnetstorage",
-        "container": "chain-archives",
+        "container": "ci-migration-snapshots",
         "prefix": "try-runtime"
       },
       "max_age_hours": 24,
@@ -54,7 +54,7 @@
       "checks": "all",
       "snapshot": {
         "storage_account": "",
-        "container": "chain-archives",
+        "container": "ci-migration-snapshots",
         "prefix": "try-runtime"
       },
       "max_age_hours": 24,
