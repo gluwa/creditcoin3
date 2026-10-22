@@ -268,6 +268,7 @@ impl pallet_attestation::Config for Runtime {
     type MaxChainAttestationInterval = ConstU64<10_000>;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = ConstU32<500>;
+    type MaxCatchupCeiling = ConstU32<2_000>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     type MaxAttestationNodes = MaxAttestorsDefault;

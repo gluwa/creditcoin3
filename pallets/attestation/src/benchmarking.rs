@@ -357,6 +357,10 @@ mod benchmarks {
         // Setup
         let root_origin = <T as frame_system::Config>::RuntimeOrigin::root();
         let new_max: u32 = 20;
+        // A roster at the new limit, so the roster floor reads real entries.
+        let roster: Vec<T::AccountId> = (0..new_max).map(|i| account("roster", i, SEED)).collect();
+        AttestorsCount::<T>::insert(DEV_CHAIN_KEY, new_max);
+        ActiveAttestors::<T>::insert(DEV_CHAIN_KEY, roster);
 
         #[extrinsic_call]
         _(

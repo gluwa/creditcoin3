@@ -6,6 +6,7 @@ use frame_election_provider_support::{
 use frame_support::{
     parameter_types,
     traits::{ConstU32, ConstU64, KeyOwnerProofSystem, OnInitialize},
+    weights::Weight,
 };
 use pallet_babe::CurrentSlot;
 use pallet_session::historical as pallet_session_historical;
@@ -64,7 +65,7 @@ impl frame_system::Config for Test {
     type MultiBlockMigrator = ();
     type SingleBlockMigrations = ();
     type BaseCallFilter = frame_support::traits::Everything;
-    type BlockWeights = ();
+    type BlockWeights = BlockWeights;
     type BlockLength = ();
     type DbWeight = frame_support::weights::constants::RocksDbWeight;
     type RuntimeOrigin = RuntimeOrigin;
@@ -268,6 +269,16 @@ parameter_types! {
     pub const MaxChainAttestationInterval: u64 = 10_000;
     pub const DefaultTargetSampleSize: u32 = 1;
     pub const DefaultMaxCatchup: u32 = 500;
+    pub const MaxCatchupCeiling: u32 = 1_000;
+    // The runtime's smallest (devnet) block budget, so the integrity test sees a real limit.
+    pub BlockWeights: frame_system::limits::BlockWeights =
+        frame_system::limits::BlockWeights::with_sensible_defaults(
+            Weight::from_parts(
+                1_666 * frame_support::weights::constants::WEIGHT_REF_TIME_PER_MILLIS,
+                u64::MAX,
+            ),
+            Perbill::from_percent(75),
+        );
     pub const DefaultMinBondRequirement: u128 = 100_000_000_000_000_000_000; // 100 units
     pub const MaxUnlockingChunks: u32 = 10;
     pub const MaxAttestationsPerBlock: u32 = 10;
@@ -289,6 +300,7 @@ impl attestation_poc::Config for Test {
     type MaxChainAttestationInterval = MaxChainAttestationInterval;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = DefaultMaxCatchup;
+    type MaxCatchupCeiling = MaxCatchupCeiling;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = attestation_poc::weights::WeightInfo<Test>;
     type MaxAttestationNodes = MaxAttestorsDefault;

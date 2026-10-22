@@ -152,6 +152,11 @@ pub mod pallet {
         /// attestation covers **at most** this many blocks.
         #[pallet::constant]
         type DefaultMaxCatchup: Get<u32>;
+        /// Runtime-safe ceiling for the per-chain `MaxCatchup` (see [`Pallet::set_max_catchup`]).
+        /// Catch-up commits walk and checkpoint up to this many roots, so `integrity_test` checks
+        /// their declared weight against the `Normal` extrinsic limit at this value.
+        #[pallet::constant]
+        type MaxCatchupCeiling: Get<u32>;
         #[pallet::constant]
         type MaxAttestationNodes: Get<u32>;
         // TODO: Make this useful
@@ -861,14 +866,15 @@ pub mod pallet {
         /// `MaxAttestationCheckpointInterval` ceiling. That ceiling keeps the interval-driven
         /// part of `commit_attestation`'s dispatch weight within the `Normal` block budget.
         InvalidAttestationsPerCheckpoint,
+        /// Tried to set `MaxCatchup` to zero, below the attestation interval, or above the
+        /// runtime-level `MaxCatchupCeiling`.
         InvalidMaxCatchup,
         // Tried to set committee set size to an invalid value.
         InvalidTargetSampleSize,
         /// Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
-        /// ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
-        /// bound is measured against, so a per-chain value above it would undercharge weight.
-        /// (`ActiveAttestors` is an unbounded `Vec`, so lowering the ceiling cannot invalidate
-        /// stored state; the weight path clamps a stale per-chain value with `.min()`.)
+        /// ceiling, to zero, or below the chain's registered or active attestor count. The
+        /// ceiling is what `commit_attestation`'s benchmarked weight bound is measured against,
+        /// so a per-chain value above it would undercharge weight.
         InvalidMaxAttestors,
         /// A `commit_attestation` payload carried more attestor accounts than the per-chain
         /// `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
@@ -998,35 +1004,75 @@ pub mod pallet {
                         .saturating_mul(2)
                         .saturating_add(1)
             );
-            // A catch-up commit against a full queue, with the largest attestor set and the span
-            // such a queue covers at the default intervals, must still fit in a single normal
-            // extrinsic. Mirrors `weigh_data`: the gap since the last checkpoint, the
-            // attestation's own proof and the queued proof that straddles the last checkpoint.
+            let ceiling = T::MaxCatchupCeiling::get();
+            // Registration starts every chain at `DefaultMaxCatchup`, which the setter would
+            // reject above the ceiling.
+            assert!(T::DefaultMaxCatchup::get() <= ceiling);
+
+            let normal = T::BlockWeights::get();
+            let Some(max_extrinsic) = normal.get(DispatchClass::Normal).max_extrinsic else {
+                return;
+            };
             let max_queue = T::MaxCheckpointingQueueLen::get();
-            let interval = T::DefaultAttestationInterval::get();
-            let max_proof_len = T::DefaultMaxCatchup::get() as u64;
-            let straddle = interval
-                .saturating_mul(T::DefaultAttestationsPerCheckpoint::get() as u64)
-                .saturating_mul(2);
-            let own_proof = straddle.max(max_proof_len);
-            let straddle = straddle.min(max_proof_len);
-            let gap = (max_queue as u64)
-                .saturating_add(1)
-                .saturating_mul(interval);
-            let extra = gap.saturating_add(straddle).min(u32::MAX as u64) as u32;
-            let worst = CommitAttestationWeight::<T>::weight_for(
-                own_proof.min(u32::MAX as u64) as u32,
-                extra,
-                T::MaxAttestationNodes::get(),
+
+            // The worst commit at one setting, with `MaxCatchup` at its ceiling, must fit a normal
+            // extrinsic. Valid proofs reach `max(MaxCatchup, interval)` roots; the candidates are
+            // that, and the shortest and longest proofs around the catch-up threshold.
+            let check = |interval: u64, checkpoint_interval: u32, queue_len: u32| {
+                let width = interval.saturating_mul(checkpoint_interval as u64).max(1);
+                let proof_cap = (ceiling as u64).max(interval);
+                let gap = (queue_len as u64)
+                    .saturating_add(1)
+                    .saturating_mul(interval);
+                for proof_len in [
+                    proof_cap,
+                    width.saturating_mul(2),
+                    width.saturating_mul(2).saturating_sub(1),
+                ] {
+                    if proof_len == 0 || proof_len > proof_cap {
+                        continue;
+                    }
+                    let state = CommitWeightState {
+                        proof_len: proof_len as u32,
+                        attestors: T::MaxAttestationNodes::get(),
+                        queue_len,
+                        attestation_interval: interval,
+                        checkpoint_interval,
+                        max_catchup: ceiling,
+                        header_span: gap.saturating_add(proof_len),
+                    };
+                    let worst = state.weight::<T>(|| gap);
+                    assert!(
+                        worst.all_lte(max_extrinsic),
+                        "worst-case commit_attestation exceeds max_extrinsic: {worst:?} > {max_extrinsic:?} for {state:?}"
+                    );
+                }
+            };
+
+            // A full queue at the default intervals, as after the interval grew.
+            check(
+                T::DefaultAttestationInterval::get(),
+                T::DefaultAttestationsPerCheckpoint::get(),
                 max_queue,
             );
-            let normal = T::BlockWeights::get();
-            let normal = normal.get(DispatchClass::Normal);
-            if let Some(max) = normal.max_extrinsic {
-                assert!(
-                    worst.all_lte(max),
-                    "worst-case commit_attestation exceeds max_extrinsic: {worst:?} > {max:?}"
-                );
+
+            // Every interval and checkpoint interval up to the maxima. The setters keep the
+            // interval within `MaxCatchup`, so it never exceeds the ceiling. A chain holds at
+            // most `2 * checkpoint_interval + 1` queued attestations at a fixed setting.
+            let sweep = |max: u64| {
+                core::iter::successors(Some(1u64), |v| u64::checked_mul(*v, 2))
+                    .take_while(move |v| *v < max)
+                    .chain([max])
+            };
+            for interval in sweep(T::MaxChainAttestationInterval::get().min(ceiling as u64)) {
+                for checkpoint_interval in sweep(T::MaxAttestationCheckpointInterval::get() as u64)
+                {
+                    let queue_len = checkpoint_interval
+                        .saturating_mul(2)
+                        .saturating_add(1)
+                        .min(max_queue as u64) as u32;
+                    check(interval, checkpoint_interval as u32, queue_len);
+                }
             }
         }
     }
@@ -1180,6 +1226,11 @@ pub mod pallet {
                 T::SupportedChains::is_chain_supported(chain_key),
                 Error::<T>::ChainNotSupported
             );
+
+            // The quorum is a share of the active set, so a limit below the roster would make
+            // every commit fail. Registration already gates on this limit.
+            let roster = AttestorsCount::<T>::get(chain_key).max(Self::working_set_size(chain_key));
+            ensure!(new_max >= roster, Error::<T>::InvalidMaxAttestors);
 
             MaxAttestors::<T>::insert(chain_key, new_max);
 
@@ -1553,8 +1604,8 @@ pub mod pallet {
 
         /// Set the maximum catchup bound (in **blocks**) for a given chain.
         /// During catchup, continuity proofs will span at most this many
-        /// blocks per attestation. Must be greater than zero. Takes effect
-        /// at the next checkpoint.
+        /// blocks per attestation. Must be greater than zero and at most
+        /// [`Config::MaxCatchupCeiling`]. Takes effect at the next checkpoint.
         #[pallet::call_index(26)]
         #[pallet::weight(<T as Config>::WeightInfo::set_max_catchup())]
         pub fn set_max_catchup(
@@ -1568,6 +1619,12 @@ pub mod pallet {
                 max_catchup > 0,
                 Error::<T>::InvalidMaxCatchup
             };
+
+            // An unbounded value would let `commit_attestation`'s declared weight outgrow a block.
+            ensure!(
+                max_catchup <= T::MaxCatchupCeiling::get(),
+                Error::<T>::InvalidMaxCatchup
+            );
 
             // See `set_chain_attestation_interval`: the interval must stay within `MaxCatchup`.
             ensure!(
@@ -1810,19 +1867,56 @@ pub mod pallet {
                 MaxAttestors::<T>::get(chain_key).min(T::MaxAttestationNodes::get());
             let m = (attestation.0.attestors.len() as u32).min(max_attestors);
 
-            let attestation_interval = ChainAttestationInterval::<T>::get(chain_key);
-            let checkpoint_interval = AttestationCheckpointInterval::<T>::get(chain_key);
-            let checkpoint_width = attestation_interval
-                .saturating_mul(checkpoint_interval as u64)
-                .max(1);
-            let proof_len = s as u64;
             let header_number = attestation.0.header_number();
             let last_checkpoint = LastCheckpoint::<T>::get(chain_key)
                 .map(|c| c.block_number)
                 .unwrap_or(header_number);
 
-            // Charged from the stored queue length, read from its length prefix.
-            let q = Pallet::<T>::checkpointing_queue_len(chain_key);
+            CommitWeightState {
+                proof_len: s,
+                attestors: m,
+                // Charged from the stored queue length, read from its length prefix.
+                queue_len: Pallet::<T>::checkpointing_queue_len(chain_key),
+                attestation_interval: ChainAttestationInterval::<T>::get(chain_key),
+                checkpoint_interval: AttestationCheckpointInterval::<T>::get(chain_key),
+                max_catchup: MaxCatchup::<T>::get(chain_key),
+                header_span: header_number.saturating_sub(last_checkpoint),
+            }
+            .weight::<T>(|| {
+                LastDigest::<T>::get(chain_key)
+                    .map(|(h, _)| h)
+                    .unwrap_or(last_checkpoint)
+                    .saturating_sub(last_checkpoint)
+            })
+        }
+    }
+
+    /// The chain state `commit_attestation`'s declared weight is derived from. `weigh_data` fills
+    /// it from storage; `integrity_test` fills it with the worst case at the configured maxima.
+    #[derive(Debug, Clone, Copy)]
+    pub(crate) struct CommitWeightState {
+        /// Roots in the attestation's own continuity proof.
+        pub proof_len: u32,
+        /// Attestors in the payload, already capped at the chain's `MaxAttestors`.
+        pub attestors: u32,
+        /// Entries in the checkpointing queue.
+        pub queue_len: u32,
+        pub attestation_interval: u64,
+        pub checkpoint_interval: u32,
+        pub max_catchup: u32,
+        /// Blocks from the last checkpoint to the attestation's header.
+        pub header_span: u64,
+    }
+
+    impl CommitWeightState {
+        /// `attested_gap` is only called on the catch-up path: the blocks from the last
+        /// checkpoint to the last attested height.
+        pub(crate) fn weight<T: Config>(&self, attested_gap: impl FnOnce() -> u64) -> Weight {
+            let checkpoint_width = self
+                .attestation_interval
+                .saturating_mul(self.checkpoint_interval as u64)
+                .max(1);
+            let proof_len = self.proof_len as u64;
 
             // Continuity-proof roots walked beyond the attestation's own proof. The catch-up
             // path expands every queued attestation's proof. Each proof extends the digest
@@ -1834,22 +1928,22 @@ pub mod pallet {
             // path walks one queued proof to locate the checkpoint target; the fallback for a
             // full queue walks none.
             let catching_up = proof_len >= checkpoint_width.saturating_mul(2);
-            let max_proof_len = (MaxCatchup::<T>::get(chain_key) as u64).max(attestation_interval);
+            let max_proof_len = (self.max_catchup as u64).max(self.attestation_interval);
             let straddle = checkpoint_width.saturating_mul(2).min(max_proof_len);
             let extra_roots = if catching_up {
-                let last_height = LastDigest::<T>::get(chain_key)
-                    .map(|(h, _)| h)
-                    .unwrap_or(last_checkpoint);
-                last_height
-                    .saturating_sub(last_checkpoint)
-                    .saturating_add(straddle)
+                attested_gap().saturating_add(straddle)
             } else {
                 straddle
             };
             let extra_roots = extra_roots.min(u32::MAX as u64) as u32;
 
             // Base weight from benchmarks, measured with checkpoint_width = 10 * 10 = 100.
-            let weight = CommitAttestationWeight::<T>::weight_for(s, extra_roots, m, q);
+            let weight = CommitAttestationWeight::<T>::weight_for(
+                self.proof_len,
+                extra_roots,
+                self.attestors,
+                self.queue_len,
+            );
 
             // --- Checkpoint creation writes ---
             // The legacy path creates at most one checkpoint per commit, plus one more if the
@@ -1857,7 +1951,7 @@ pub mod pallet {
             // between the last checkpoint and this attestation. Each costs 3 storage writes
             // (Checkpoints, CheckpointBuckets, LastCheckpoint) plus a `CheckpointReached` event.
             let estimated_checkpoints = if catching_up {
-                header_number.saturating_sub(last_checkpoint) / checkpoint_width
+                self.header_span / checkpoint_width
             } else {
                 2
             };
