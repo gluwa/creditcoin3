@@ -86,7 +86,7 @@ jobs:
           CHAIN_KEY=$(jq -r .chainKey "$LOG_DIR/source.json")
           INDEX=0
           while IFS= read -r TX_HASH; do
-            target/release/query-cli --cc3-rpc-url http://127.0.0.1:9944 \
+            target/release/query-cli --cc3-rpc-url "$CC3_RPC_URL" \
               --cc3-evm-private-key "$DEV_EVM_KEY" --eth-chain-family op-stack verify \
               --eth-rpc-url "$BASE_RPC_URL" --chain-key "$CHAIN_KEY" \
               --block-height 1 --txn-hash "$TX_HASH" 2>&1 | tee "$LOG_DIR/query-${INDEX}.log"
@@ -98,7 +98,7 @@ jobs:
         run: |
           CHAIN_KEY=$(jq -r .chainKey "$LOG_DIR/source.json")
           TX_HASH=$(jq -r '.hashes[0]' "$LOG_DIR/source.json")
-          if target/release/query-cli --cc3-rpc-url http://127.0.0.1:9944 \
+          if target/release/query-cli --cc3-rpc-url "$CC3_RPC_URL" \
             --cc3-evm-private-key "$DEV_EVM_KEY" verify --eth-rpc-url "$BASE_RPC_URL" \
             --chain-key "$CHAIN_KEY" --block-height 1 --txn-hash "$TX_HASH" \
             >"$LOG_DIR/query-wrong-family.log" 2>&1; then
