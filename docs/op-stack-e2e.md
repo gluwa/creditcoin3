@@ -1,5 +1,34 @@
 # Base / OP-Stack end-to-end run
 
+## Automated CI coverage
+
+`CI / integration-test-attestor-base / base-attestor` runs on changes to the source-chain
+consumers, runtime, dependencies, or its test infrastructure. It reuses the same PR binaries
+as the existing Ethereum attestor-network job; it needs no public RPC or secrets.
+
+The job starts a local OP-Stack execution node with Base Sepolia's chain ID (84532), registers
+it on Creditcoin, and launches three attestors with `op-stack` explicitly selected. The source
+block contains two type-126 deposits and a type-2 transaction, all emitting logs. It checks:
+
+- All three attestors contribute to a finalized post-genesis attestation, and a subsequent
+  checkpoint is finalized. The source uses a two-block interval and three-attestation
+  checkpoints to keep this focused test short.
+- The archiver and proof API use the OP-Stack family. API proofs for all three transactions
+  verify through Creditcoin's native precompile; modifying a leaf fails verification.
+- Deposit leaves preserve the receipt-authenticated nonces,
+  per-transaction gas usage, and event data.
+- `query-cli` independently verifies each transaction. Omitting the family override rejects
+  the deposit block, even though its source chain ID is 84532.
+
+Foundry is pinned to v1.8.6 with `--network optimism --hardfork canyon`: older v1.4.4/v1.5.1
+Anvil releases panic when fetching receipts for the mixed deposit block. This pin is separate
+from the Ethereum jobs and their state snapshots. Logs, source payloads, attestations,
+checkpoint and proof responses are uploaded as `attestor-base-logs`, including on failure.
+
+This tests the attestation and proof path against an actual local execution node. It does
+not run an L1, rollup derivation, or bridge; the real Base block fixtures and optional live
+check below remain complementary coverage.
+
 Build every source-block consumer from the same revision of creditcoin3 PR #1319. For a Solidity
 application that reads deposit receipts, also rebuild it with
 [asc-contracts PR #47](https://github.com/gluwa/asc-contracts/pull/47). The decoder is inlined:

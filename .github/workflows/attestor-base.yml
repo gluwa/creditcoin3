@@ -1,0 +1,124 @@
+# checkov:skip=CKV2_GHA_1:Caller supplies read-only permissions
+---
+name: Base attestor end-to-end
+
+"on":
+  workflow_call:
+
+permissions: read-all
+
+jobs:
+  base-attestor:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 25
+    defaults:
+      run:
+        shell: bash
+    env:
+      LOG_DIR: /var/tmp/attestor-base-logs
+      BASE_RPC_URL: http://127.0.0.1:8545
+      CC3_RPC_URL: ws://127.0.0.1:9944
+      RUST_LOG: info
+      # Public, prefunded development account Alith; used only with the local chain.
+      DEV_EVM_KEY: "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: binary-for-testing-ci
+          path: target/release
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          # Older pins panic when fetching receipts for mixed OP deposit blocks.
+          version: v1.8.6
+      - name: Install script dependencies
+        working-directory: scripts
+        run: |
+          npm install -g yarn
+          yarn install --frozen-lockfile
+
+      - name: Start Creditcoin and a local OP-Stack source
+        run: |
+          mkdir -p "$LOG_DIR"
+          chmod +x target/release/{creditcoin3-node,attestor,attestor_zombienet,archiver,proof-gen-api-server,query-cli}
+          target/release/creditcoin3-node --dev --pruning archive \
+            --base-path "${RUNNER_TEMP}/base-creditcoin" >"$LOG_DIR/creditcoin.log" 2>&1 &
+          anvil --network optimism --hardfork canyon --chain-id 84532 --port 8545 --no-mining --order fifo \
+            >"$LOG_DIR/base.log" 2>&1 &
+          .github/wait-for-creditcoin.sh http://127.0.0.1:9944
+          .github/wait-for-ethereum.sh "$BASE_RPC_URL" "$LOG_DIR/base.log"
+
+      - name: Seed deposits and register the Base source
+        run: |
+          node scripts/BaseAttestorE2E.js seed
+          node scripts/BaseAttestorE2E.js register
+
+      - name: Start three Base attestors, archiver and proof API
+        run: |
+          CHAIN_KEY=$(jq -r .chainKey "$LOG_DIR/source.json")
+          mkdir -p "$LOG_DIR/zombienet"
+          target/release/archiver \
+            --rpc-http "$BASE_RPC_URL" --rpc-ws ws://127.0.0.1:8545 \
+            --eth-chain-family op-stack --cc3-rpc-url "$CC3_RPC_URL" \
+            --chain-key "$CHAIN_KEY" --start-height 0 --flush-every 1 \
+            --sled-db-path "${RUNNER_TEMP}/base-archiver.sled" --api-bind 127.0.0.1:8080 \
+            >"$LOG_DIR/archiver.log" 2>&1 &
+          target/release/proof-gen-api-server --config "$LOG_DIR/proof.yaml" \
+            --cc3-rpc-url "$CC3_RPC_URL" >"$LOG_DIR/proof-api.log" 2>&1 &
+          cd "$LOG_DIR/zombienet"
+          "$GITHUB_WORKSPACE/target/release/attestor_zombienet" --number 3 \
+            --chain-key "$CHAIN_KEY" --bin "$GITHUB_WORKSPACE/target/release/attestor" \
+            --eth-url ws://127.0.0.1:8545 --cc3-url "$CC3_RPC_URL" --funding-address '//Alice' \
+            --config "$GITHUB_WORKSPACE/attestor/config.yaml" -- --eth-chain-family op-stack \
+            >"$LOG_DIR/zombienet.log" 2>&1 &
+
+      - name: Require a finalized quorum and post-genesis checkpoint
+        run: node scripts/BaseAttestorE2E.js wait
+
+      - name: Verify API proofs, deposit receipts and tamper rejection
+        run: node scripts/BaseAttestorE2E.js verify
+
+      - name: Verify each transaction through query-cli
+        run: |
+          CHAIN_KEY=$(jq -r .chainKey "$LOG_DIR/source.json")
+          INDEX=0
+          while IFS= read -r TX_HASH; do
+            target/release/query-cli --cc3-rpc-url http://127.0.0.1:9944 \
+              --cc3-evm-private-key "$DEV_EVM_KEY" --eth-chain-family op-stack verify \
+              --eth-rpc-url "$BASE_RPC_URL" --chain-key "$CHAIN_KEY" \
+              --block-height 1 --txn-hash "$TX_HASH" 2>&1 | tee "$LOG_DIR/query-${INDEX}.log"
+            grep -q 'Verification successful!' "$LOG_DIR/query-${INDEX}.log"
+            INDEX=$((INDEX + 1))
+          done < <(jq -r '.hashes[]' "$LOG_DIR/source.json")
+
+      - name: Require explicit OP-Stack family selection
+        run: |
+          CHAIN_KEY=$(jq -r .chainKey "$LOG_DIR/source.json")
+          TX_HASH=$(jq -r '.hashes[0]' "$LOG_DIR/source.json")
+          if target/release/query-cli --cc3-rpc-url http://127.0.0.1:9944 \
+            --cc3-evm-private-key "$DEV_EVM_KEY" verify --eth-rpc-url "$BASE_RPC_URL" \
+            --chain-key "$CHAIN_KEY" --block-height 1 --txn-hash "$TX_HASH" \
+            >"$LOG_DIR/query-wrong-family.log" 2>&1; then
+            echo 'Ethereum-family verification unexpectedly accepted a deposit block' >&2
+            exit 1
+          fi
+          grep -q 'UnsupportedTransactionType' "$LOG_DIR/query-wrong-family.log"
+
+      - name: Check infrastructure logs
+        run: |
+          for LOG in creditcoin archiver proof-api; do
+            .github/check-logs-for-error.sh "$LOG_DIR/${LOG}.log"
+          done
+
+      - name: Stop local processes
+        if: always()
+        run: killall attestor attestor_zombienet archiver proof-gen-api-server creditcoin3-node anvil || true
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: attestor-base-logs
+          path: ${{ env.LOG_DIR }}/
