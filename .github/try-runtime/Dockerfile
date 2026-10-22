@@ -2,8 +2,9 @@
 # try-runtime snapshot capture image.
 #
 # Holds the pinned try-runtime-cli and the capture script. The try-runtime-snapshot CronJob
-# in cc-networks-iac runs it inside each network's cluster; CI copies the same binary out
-# of it so the CLI is compiled once per pin, not once per pull request.
+# in cc-networks-iac runs it inside each network's cluster. CI builds the same pinned
+# revision itself (cached per revision), and fetch-snapshot.sh refuses a snapshot taken
+# with any other.
 #
 # Build from the repository root:
 #   docker build -f .github/try-runtime/Dockerfile .
