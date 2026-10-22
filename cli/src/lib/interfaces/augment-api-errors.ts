@@ -127,6 +127,11 @@ declare module '@polkadot/api-base/types/errors' {
              **/
             InvalidMaxAttestors: AugmentedError<ApiType>;
             InvalidMaxCatchup: AugmentedError<ApiType>;
+            /**
+             * Tried to set per-chain `MaxInvulnerables` to zero or above the runtime-level
+             * `MaxAttestationNodes` ceiling. Mirrors [`Error::InvalidMaxAttestors`].
+             **/
+            InvalidMaxInvulnerables: AugmentedError<ApiType>;
             InvalidProofOfPossession: AugmentedError<ApiType>;
             InvalidTargetSampleSize: AugmentedError<ApiType>;
             /**
