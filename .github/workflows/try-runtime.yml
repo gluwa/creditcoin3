@@ -374,20 +374,7 @@ jobs:
 
       - name: Unpack the snapshot
         run: |
-          set -euo pipefail
-          command -v zstd >/dev/null || sudo apt-get install -y zstd
-          ZST_SHA256=$(sha256sum snapshot/state.snap.zst | cut -d' ' -f1)
-          if [ "$ZST_SHA256" != "$(jq -r .artifact.zst_sha256 snapshot/manifest.json)" ]; then
-            echo "FAIL: the snapshot changed between jobs"
-            exit 1
-          fi
-          zstd -d --rm snapshot/state.snap.zst -o snapshot/state.snap
-          RAW_SHA256=$(sha256sum snapshot/state.snap | cut -d' ' -f1)
-          if [ "$RAW_SHA256" != "$(jq -r .artifact.raw_sha256 snapshot/manifest.json)" ]; then
-            echo "FAIL: the unpacked snapshot does not match its manifest"
-            exit 1
-          fi
-          jq '{network, block, runtime: {spec_version: .runtime.spec_version, code_hash: .runtime.code_hash}}' snapshot/manifest.json
+          .github/try-runtime/unpack-snapshot.sh snapshot
 
       - name: Check the snapshot still matches the live chain
         id: baseline
@@ -397,6 +384,8 @@ jobs:
         run: |
           .github/try-runtime/check-baseline.sh snapshot/manifest.json "$NETWORK"
 
+      # Two passes, one with multi-block migration checks off; run.sh says why.
+      # try-runtime-selftest.yml proves the same script catches broken migrations.
       - name: Run try-runtime on-runtime-upgrade
         id: run
         timeout-minutes: 60
@@ -404,38 +393,9 @@ jobs:
           BLOCKTIME: ${{ needs.select.outputs.blocktime }}
           CHECKS: ${{ needs.select.outputs.checks }}
         run: |
-          set -euo pipefail
-          WASM=./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm
-
-          # Two passes over the same original snapshot, because one cannot do both jobs.
-          #
-          # With multi-block migration checks on, the CLI runs the single-block migrations
-          # with no checks at all and applies the requested ones only after simulating
-          # blocks, by which point a VersionedMigration has bumped its storage version and
-          # skips its own pre/post hooks. So the first pass turns the multi-block simulation
-          # off to run every migration's pre_upgrade/post_upgrade (and try_state, unless the
-          # network's checks exclude it) on untouched state, plus idempotency and weights.
-          echo "::group::Single-block migrations with ${CHECKS} checks"
-          try-runtime --runtime "$WASM" \
-            on-runtime-upgrade \
-            --checks "$CHECKS" \
-            --disable-mbm-checks \
-            --blocktime "$BLOCKTIME" \
-            snap --path snapshot/state.snap \
-            2>&1 | tee try-runtime.log
-          echo "::endgroup::"
-
-          # The second pass simulates blocks until every multi-block migration finishes.
-          # 600 blocks is the CLI's own bound, spelled out so a change to it is a change here.
-          echo "::group::Multi-block migrations"
-          try-runtime --runtime "$WASM" \
-            on-runtime-upgrade \
-            --checks "$CHECKS" \
-            --blocktime "$BLOCKTIME" \
-            --mbm-max-blocks 600 \
-            snap --path snapshot/state.snap \
-            2>&1 | tee -a try-runtime.log
-          echo "::endgroup::"
+          .github/try-runtime/run.sh \
+            ./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm \
+            snapshot/state.snap "$CHECKS" "$BLOCKTIME" try-runtime.log
 
       # A pallet that has existed since genesis being reported as new means its storage was
       # missing, so the migrations ran against a chain that is not the real one.
