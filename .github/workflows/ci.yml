@@ -185,6 +185,7 @@ jobs:
               - ".github/workflows/ci.yml"
               - ".github/workflows/attestor-base.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - ".github/wait-for-creditcoin.sh"
               - ".github/wait-for-ethereum.sh"
               - ".github/check-logs-for-error.sh"
