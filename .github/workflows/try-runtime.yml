@@ -22,6 +22,7 @@ name: Try Runtime
       - "**/migrations.rs"
       - "runtime/src/lib.rs"
       - "Cargo.lock"
+      - ".github/try-runtime/config.json"
   workflow_dispatch:
     inputs:
       network:
@@ -140,6 +141,17 @@ jobs:
           fi
 
           echo "migrations=false" >> "$GITHUB_OUTPUT"
+
+  # The live-chain baseline compares the storage version of every pallet config.json
+  # lists, so a pallet added to construct_runtime! must be added there too. Cheap, so it
+  # runs whenever the workflow does, including adding a pallet with no migration.
+  pallets:
+    runs-on: ubuntu-26.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check config.json covers every pallet
+        run: .github/try-runtime/check-pallets.sh
 
   # Which network, and how to build and check against it. Settings live in
   # .github/try-runtime/config.json, shared with the snapshot capture.
