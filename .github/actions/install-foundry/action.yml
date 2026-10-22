@@ -1,0 +1,80 @@
+---
+name: Install Foundry
+description: >-
+  Install a pinned Foundry release (forge, cast, anvil, chisel) from its GitHub release tarball
+  with retries, falling back to foundry-rs/foundry-toolchain only if the direct download keeps
+  failing. Exists because foundry-toolchain fetches `foundryup` from `releases/latest` with a
+  single curl and no retry; on 2026-09-21 GitHub's release CDN answered that with HTTP 504 twice
+  in one hour, failing archiver-testing, cc3-indexer-testing and the bridging example on every
+  affected run before a single test had executed.
+
+inputs:
+  version:
+    description: >-
+      Foundry release tag to install. Pinned repo-wide: v1.6.x changed the anvil --dump-state
+      JSON format, which breaks --load-state on the existing anvil10k_blocks.json snapshot. Bump
+      deliberately when that snapshot is regenerated.
+    required: false
+    default: v1.5.1
+
+runs:
+  using: composite
+  steps:
+    - name: Download the pinned release tarball (with retries)
+      id: direct
+      shell: bash
+      continue-on-error: true
+      env:
+        FOUNDRY_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        case "$(uname -s)" in
+          Linux)  os=linux ;;
+          Darwin) os=darwin ;;
+          *) echo "unsupported OS $(uname -s)" >&2; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          x86_64|amd64)  arch=amd64 ;;
+          aarch64|arm64) arch=arm64 ;;
+          *) echo "unsupported arch $(uname -m)" >&2; exit 1 ;;
+        esac
+        url="https://github.com/foundry-rs/foundry/releases/download/${FOUNDRY_VERSION}/foundry_${FOUNDRY_VERSION}_${os}_${arch}.tar.gz"
+        # Same directory foundryup uses, so steps that call ~/.foundry/bin/anvil explicitly
+        # (proof-gen-api-server.yml stress-test-sanity) keep working on either install path.
+        dest="${HOME}/.foundry/bin"
+        tmp="$(mktemp -d)"
+        mkdir -p "$dest"
+        echo "Downloading $url"
+        # --retry-all-errors covers the 5xx the CDN hands out during a blip; --retry-delay keeps
+        # the eight attempts spread over ~1 minute rather than hammering the same bad edge.
+        curl -fsSL \
+          --retry 8 --retry-all-errors --retry-delay 5 \
+          --connect-timeout 20 --max-time 600 \
+          -o "$tmp/foundry.tar.gz" "$url"
+        tar -xzf "$tmp/foundry.tar.gz" -C "$tmp"
+        for bin in forge cast anvil chisel; do
+          test -x "$tmp/$bin" || { echo "tarball is missing $bin" >&2; exit 1; }
+          install -m 0755 "$tmp/$bin" "$dest/$bin"
+        done
+        rm -rf "$tmp"
+        echo "$dest" >> "$GITHUB_PATH"
+        "$dest/forge" --version
+        "$dest/anvil" --version
+
+    - name: Fall back to foundry-toolchain
+      if: steps.direct.outcome == 'failure'
+      uses: foundry-rs/foundry-toolchain@v1
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Report which path installed Foundry
+      shell: bash
+      env:
+        DIRECT_OUTCOME: ${{ steps.direct.outcome }}
+      run: |
+        if [ "$DIRECT_OUTCOME" = "success" ]; then
+          echo "Foundry installed from the pinned release tarball"
+        else
+          echo "::warning title=Foundry direct download failed::fell back to foundry-rs/foundry-toolchain after the release tarball could not be fetched"
+        fi
+        forge --version

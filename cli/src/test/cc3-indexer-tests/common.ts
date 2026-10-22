@@ -46,10 +46,18 @@ export const waitForIndexer = async (timeoutMs = 25_000): Promise<void> => {
     throw new Error(`indexer at block ${processed}, chain at ${target} after ${timeoutMs} ms`);
 };
 
+// Synchronize new-state queries with the chain tip captured at the start of each call.
 export const graphQLQuery = async (queryString: string) => {
     await waitForIndexer();
     return rawGraphQLQuery(queryString);
 };
+
+// Read back a record already returned by a synchronized graphQLQuery, without waiting
+// for a newer chain tip for every ID. Only use this for the same observed record when
+// no intervening mutation or later state is expected. This is not a snapshot read:
+// mutable records can still change between requests. New-state and list queries must
+// continue to use graphQLQuery.
+export const indexedRecordQuery = (queryString: string) => rawGraphQLQuery(queryString);
 
 // The chain's clock at its best block. Under `--sealing`, `waitEras` seals blocks ahead of
 // time, so chain time runs ahead of the wall clock: "not in the future" means not later

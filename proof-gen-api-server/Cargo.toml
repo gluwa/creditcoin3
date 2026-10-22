@@ -56,6 +56,7 @@ tower-http = { workspace = true }
 tracing = { workspace = true }
 
 # Creditcoin / USC dependencies
+attestcoin-abi-encoding = { workspace = true }
 attestor-primitives = { workspace = true }
 cc-client = { workspace = true }
 continuity = { workspace = true }
@@ -64,15 +65,15 @@ hex = { workspace = true }
 merkle = { workspace = true }
 prometheus-client = { workspace = true }
 stream = { workspace = true, features = ["cc3"] }
+subxt = { workspace = true }
 sysinfo = { workspace = true }
-usc-abi-encoding = { workspace = true }
 
 [features]
 default = []
 integration-tests = []
 
 [dev-dependencies]
-alloy-node-bindings = "0.11"                                # kept at 0.11 due to compatibility with alloy
+alloy-node-bindings = "~1.6"
 async-trait = { workspace = true }
 cc-client = { workspace = true, features = ["ws-fixture"] }
 parameterized = "2.1.0"

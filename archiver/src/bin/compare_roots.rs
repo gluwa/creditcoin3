@@ -7,10 +7,10 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
+use attestcoin_abi_encoding::common::EncodingVersion;
 use clap::Parser;
 use eth::{simple_merkle_tree, BlockFetchMode, Client};
 use serde::Deserialize;
-use usc_abi_encoding::common::EncodingVersion;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -29,6 +29,10 @@ struct Config {
     /// Fetch mode for the independent RPC. Public providers need `json`.
     #[arg(long, env = "FETCH_MODE", default_value = "json")]
     fetch_mode: BlockFetchMode,
+
+    /// Source execution family; must match the archiver being checked.
+    #[arg(long, env = "ETH_CHAIN_FAMILY")]
+    eth_chain_family: Option<eth::ChainFamily>,
 
     /// File of block numbers (one per line; `#` comments allowed).
     #[arg(long, default_value = "data/bsc-early-blocks.txt")]
@@ -329,13 +333,15 @@ async fn main() -> Result<()> {
     let eth = Client::new(&cfg.rpc_http, None)
         .await
         .map_err(|_| anyhow!("failed to connect independent RPC"))?
-        .with_fetch_mode(cfg.fetch_mode);
+        .with_fetch_mode(cfg.fetch_mode)
+        .with_chain_family_override(cfg.eth_chain_family);
 
     tracing::info!(
         blocks = heights.len(),
         archiver = %redact_url(&cfg.archiver_url),
         rpc = %redact_url(&cfg.rpc_http),
         fetch_mode = %cfg.fetch_mode,
+        chain_family = ?cfg.eth_chain_family,
         min_interval_ms = cfg.min_interval_ms,
         "comparing roots"
     );
@@ -467,6 +473,27 @@ async fn main() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn comparison_accepts_the_archivers_chain_family_override() {
+        let cfg = Config::try_parse_from([
+            "compare-roots",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--eth-chain-family",
+            "op-stack",
+        ])
+        .unwrap();
+        assert_eq!(cfg.eth_chain_family, Some(eth::ChainFamily::OpStack));
+        assert!(Config::try_parse_from([
+            "compare-roots",
+            "--rpc-http",
+            "http://localhost:8545",
+            "--eth-chain-family",
+            "unknown",
+        ])
+        .is_err());
+    }
 
     #[tokio::test]
     async fn throttle_spaces_calls_across_tasks() {

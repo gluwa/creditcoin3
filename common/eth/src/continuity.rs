@@ -1,8 +1,8 @@
 use anyhow::Result;
+use attestcoin_abi_encoding::common::EncodingVersion;
 use futures::stream::{self, StreamExt};
 use sp_core::H256;
 use tracing::{debug, trace};
-use usc_abi_encoding::common::EncodingVersion;
 use user::prelude::*;
 
 use super::{Client, Error as EthError};

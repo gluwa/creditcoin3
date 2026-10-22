@@ -12,10 +12,10 @@ version.workspace = true
 eth = { workspace = true, default-features = true }
 
 # Creditcoin
+attestcoin-abi-encoding = { workspace = true }
 attestor-primitives = { workspace = true, default-features = true }
 bls-signatures = { workspace = true }
 cc-client = { workspace = true }
-usc-abi-encoding = { workspace = true }
 
 # Streams
 futures = { workspace = true }

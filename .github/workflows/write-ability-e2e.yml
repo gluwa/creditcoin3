@@ -1,0 +1,413 @@
+---
+# Run the actual relayer against Creditcoin, destination Anvil, live attestors and native proofs.
+# Every companion repository is checked out explicitly so relayer/contract PRs exercise their
+# candidate code when calling this workflow from another repository.
+name: write-ability-e2e
+
+# checkov:skip=CKV_GHA_7:Inputs select SHA-pinned E2E dependencies and allowlisted test scenarios.
+"on":
+  workflow_dispatch:
+    inputs:
+      creditcoin-run-id:
+        description: Existing Creditcoin CI run containing the testing build
+        type: string
+        required: true
+      creditcoin-artifact-id:
+        description: Immutable binary-for-testing-ci artifact ID from that run
+        type: string
+        required: true
+      creditcoin-ref:
+        description: Exact source checkout SHA from the existing Creditcoin testing build
+        type: string
+        required: true
+      runner-ref:
+        description: Optional full scenario-runner SHA; defaults to the native source SHA
+        type: string
+        default: ""
+      relayer-repository:
+        description: Repository containing the relayer candidate
+        type: string
+        default: gluwa/asc-message-relayer
+      relayer-ref:
+        description: Full relayer candidate commit SHA
+        type: string
+        default: 5a8589e4e9a1c72da1d50bbacb8238c1f3156fe5
+      contracts-ref:
+        description: Full compatible contracts commit SHA
+        type: string
+        default: d9d61a5f7da00a56577f7d2333046898b234e1c3
+      scenarios:
+        description: Comma-separated E2E scenarios
+        type: string
+        default: happy-path,durable-restart,attestor-rotation
+  workflow_call:
+    inputs:
+      creditcoin-run-id:
+        description: Existing Creditcoin CI run containing the testing build
+        type: string
+        required: true
+      creditcoin-artifact-id:
+        description: Immutable binary-for-testing-ci artifact ID from that run
+        type: string
+        required: true
+      creditcoin-ref:
+        description: Exact source checkout SHA from the existing Creditcoin testing build
+        type: string
+        required: true
+      runner-ref:
+        description: Optional full scenario-runner SHA; defaults to the native source SHA
+        type: string
+        default: ""
+      relayer-repository:
+        type: string
+        default: gluwa/asc-message-relayer
+      relayer-ref:
+        type: string
+        default: 5a8589e4e9a1c72da1d50bbacb8238c1f3156fe5
+      contracts-ref:
+        type: string
+        default: d9d61a5f7da00a56577f7d2333046898b234e1c3
+      scenarios:
+        type: string
+        default: happy-path,durable-restart,attestor-rotation
+    secrets:
+      GLUWA_BOT_TOKEN:
+        description: Read access to the private asc-contracts repository
+        required: true
+
+concurrency:
+  # The caller has its own concurrency group. github.workflow is the caller's name even inside
+  # a reusable workflow, so sharing the caller's group would cancel this run itself.
+  group: cc3-fullstack-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  prepare:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      creditcoin-ref: ${{ steps.refs.outputs.creditcoin-ref }}
+      creditcoin-run-id: ${{ steps.refs.outputs.creditcoin-run-id }}
+      creditcoin-artifact-id: ${{ steps.refs.outputs.creditcoin-artifact-id }}
+      runner-ref: ${{ steps.refs.outputs.runner-ref }}
+      relayer-repository: ${{ steps.refs.outputs.relayer-repository }}
+      relayer-ref: ${{ steps.refs.outputs.relayer-ref }}
+      contracts-ref: ${{ steps.refs.outputs.contracts-ref }}
+      scenarios: ${{ steps.refs.outputs.scenarios }}
+    steps:
+      - name: Validate immutable sources and required contracts access
+        id: refs
+        env:
+          CREDITCOIN_REF: ${{ inputs.creditcoin-ref }}
+          RUNNER_REF: ${{ inputs.runner-ref || inputs.creditcoin-ref }}
+          CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
+          CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
+          RELAYER_REPOSITORY: ${{ inputs.relayer-repository || 'gluwa/asc-message-relayer' }}
+          RELAYER_REF: ${{ inputs.relayer-ref || '5a8589e4e9a1c72da1d50bbacb8238c1f3156fe5' }}
+          CONTRACTS_REF: ${{ inputs.contracts-ref || 'd9d61a5f7da00a56577f7d2333046898b234e1c3' }}
+          SCENARIOS: ${{ inputs.scenarios || 'happy-path,durable-restart,attestor-rotation' }}
+          CONTRACTS_TOKEN: ${{ secrets.GLUWA_BOT_TOKEN }}
+        run: |
+          set -euo pipefail
+          for identifier in "$CREDITCOIN_RUN_ID" "$CREDITCOIN_ARTIFACT_ID"; do
+            if [[ ! "$identifier" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Creditcoin run and artifact IDs must be positive integers."
+              exit 1
+            fi
+          done
+          for ref in "$CREDITCOIN_REF" "$RUNNER_REF" "$RELAYER_REF" "$CONTRACTS_REF"; do
+            if [[ ! "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::All source refs must be full commit SHAs."
+              exit 1
+            fi
+          done
+          if [[ ! "$RELAYER_REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+            echo "::error::Invalid relayer repository."
+            exit 1
+          fi
+          IFS=',' read -ra cases <<< "$SCENARIOS"
+          for scenario in "${cases[@]}"; do
+            case "$scenario" in
+              happy-path|durable-restart|attestor-rotation) ;;
+              *) echo "::error::Unknown scenario: $scenario"; exit 1 ;;
+            esac
+          done
+          if [[ -z "$CONTRACTS_TOKEN" ]]; then
+            echo "::error::GLUWA_BOT_TOKEN is required to test real private asc-contracts. Run in a trusted context with contracts access; this gate cannot silently skip."
+            exit 1
+          fi
+          {
+            echo "creditcoin-ref=$CREDITCOIN_REF"
+            echo "creditcoin-run-id=$CREDITCOIN_RUN_ID"
+            echo "creditcoin-artifact-id=$CREDITCOIN_ARTIFACT_ID"
+            echo "runner-ref=$RUNNER_REF"
+            echo "relayer-repository=$RELAYER_REPOSITORY"
+            echo "relayer-ref=$RELAYER_REF"
+            echo "contracts-ref=$CONTRACTS_REF"
+            echo "scenarios=$SCENARIOS"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Check out the artifact verifier
+        uses: actions/checkout@v7
+        with:
+          repository: gluwa/creditcoin3
+          ref: ${{ inputs.creditcoin-ref }}
+          persist-credentials: false
+
+      - name: Validate the existing testing build
+        env:
+          GH_TOKEN: ${{ github.repository == 'gluwa/creditcoin3' && github.token || secrets.GLUWA_BOT_TOKEN }}
+          CREDITCOIN_REF: ${{ inputs.creditcoin-ref }}
+          CREDITCOIN_RUN_ID: ${{ inputs.creditcoin-run-id }}
+          CREDITCOIN_ARTIFACT_ID: ${{ inputs.creditcoin-artifact-id }}
+          CURRENT_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p native-provenance
+          if ! gh api "repos/gluwa/creditcoin3/actions/artifacts/$CREDITCOIN_ARTIFACT_ID" > native-provenance/artifact.json; then
+            echo "::error::Testing artifact unavailable. Dispatch Creditcoin CI with writeability-e2e=true and update the source/run/artifact pins after success."
+            exit 1
+          fi
+          gh api "repos/gluwa/creditcoin3/actions/runs/$CREDITCOIN_RUN_ID" > native-provenance/run.json
+          gh api "repos/gluwa/creditcoin3/commits/$CREDITCOIN_REF" > native-provenance/source-commit.json
+          python3 .github/scripts/testing-artifact.py validate-metadata \
+            --artifact-metadata native-provenance/artifact.json \
+            --run-metadata native-provenance/run.json \
+            --source-commit-metadata native-provenance/source-commit.json \
+            --expected-source-sha "$CREDITCOIN_REF" \
+            --expected-run-id "$CREDITCOIN_RUN_ID" \
+            --expected-artifact-id "$CREDITCOIN_ARTIFACT_ID" \
+            --current-repository "$CURRENT_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" \
+            > native-provenance/validated.json
+
+      - name: Upload validated producer provenance
+        uses: actions/upload-artifact@v7
+        with:
+          name: write-ability-native-provenance
+          path: native-provenance/
+
+  abi:
+    name: ABI compatibility / ${{ matrix.component }}
+    needs: prepare
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [creditcoin, relayer]
+    steps:
+      - name: Check out the native source or candidate relayer
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ matrix.component == 'creditcoin' && 'gluwa/creditcoin3' || needs.prepare.outputs.relayer-repository }}
+          ref: ${{ matrix.component == 'creditcoin' && needs.prepare.outputs.creditcoin-ref || needs.prepare.outputs.relayer-ref }}
+          path: candidate
+          persist-credentials: false
+
+      - name: Check out the pinned contracts
+        uses: actions/checkout@v7
+        with:
+          repository: gluwa/asc-contracts
+          ref: ${{ needs.prepare.outputs.contracts-ref }}
+          path: asc-contracts
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+          persist-credentials: false
+
+      - name: Install the candidate toolchain
+        id: abi-toolchain
+        working-directory: candidate
+        run: |
+          version=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml)
+          rustup toolchain install "$version" --profile minimal
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache ABI test dependencies
+        uses: Swatinem/rust-cache@v2
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.abi-toolchain.outputs.version }}
+        with:
+          workspaces: candidate
+          shared-key: writeability-abi-${{ matrix.component }}
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: asc-contracts/package-lock.json
+
+      - name: Compile pinned contracts
+        working-directory: asc-contracts
+        run: |
+          npm ci --ignore-scripts
+          npx hardhat compile
+
+      - name: Enforce ABI compatibility
+        working-directory: candidate
+        env:
+          ASC_CONTRACTS_DIR: ${{ github.workspace }}/asc-contracts
+          ABI_GATE_STRICT: "1"
+        run: cargo test --locked -p write-ability --test abi_surface -- --nocapture
+
+  e2e:
+    needs: prepare
+    runs-on: ubuntu-26.04
+    # The native testing build is supplied by CI. This job only builds the candidate relayer
+    # and runs the real stack, with time left for cleanup and evidence upload.
+    timeout-minutes: 30
+    env:
+      CARGO_TERM_COLOR: always
+      E2E_OUTPUT_DIR: ${{ github.workspace }}/e2e-output
+      SCENARIOS: ${{ needs.prepare.outputs.scenarios }}
+    steps:
+      - name: Reserve cleanup and evidence upload time
+        run: echo "E2E_DEADLINE_EPOCH=$(($(date +%s) + 26 * 60))" >> "$GITHUB_ENV"
+
+      - name: Check out the pinned scenario runner
+        uses: actions/checkout@v7
+        with:
+          repository: gluwa/creditcoin3
+          ref: ${{ needs.prepare.outputs.runner-ref }}
+
+      - name: Download validated producer provenance
+        uses: actions/download-artifact@v8
+        with:
+          name: write-ability-native-provenance
+          path: e2e-output/native-provenance
+          digest-mismatch: error
+
+      - name: Download the existing Creditcoin testing binaries
+        uses: actions/download-artifact@v8
+        with:
+          repository: gluwa/creditcoin3
+          run-id: ${{ needs.prepare.outputs.creditcoin-run-id }}
+          artifact-ids: ${{ needs.prepare.outputs.creditcoin-artifact-id }}
+          github-token: ${{ github.repository == 'gluwa/creditcoin3' && github.token || secrets.GLUWA_BOT_TOKEN }}
+          digest-mismatch: error
+          path: target/release
+
+      - name: Verify native source, configuration and binary hashes
+        env:
+          CREDITCOIN_REF: ${{ needs.prepare.outputs.creditcoin-ref }}
+          CREDITCOIN_RUN_ID: ${{ needs.prepare.outputs.creditcoin-run-id }}
+          CREDITCOIN_ARTIFACT_ID: ${{ needs.prepare.outputs.creditcoin-artifact-id }}
+          CURRENT_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 .github/scripts/testing-artifact.py verify \
+            --directory target/release --expected-source-sha "$CREDITCOIN_REF" \
+            --expected-run-id "$CREDITCOIN_RUN_ID" \
+            --expected-artifact-id "$CREDITCOIN_ARTIFACT_ID" \
+            --artifact-metadata e2e-output/native-provenance/artifact.json \
+            --run-metadata e2e-output/native-provenance/run.json \
+            --source-commit-metadata e2e-output/native-provenance/source-commit.json \
+            --current-repository "$CURRENT_REPOSITORY" --current-run-id "$GITHUB_RUN_ID" \
+            > e2e-output/native-provenance/verification.json
+          cp target/release/native-build.json e2e-output/native-provenance/native-build.json
+
+      - name: Check out candidate relayer
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ needs.prepare.outputs.relayer-repository }}
+          ref: ${{ needs.prepare.outputs.relayer-ref }}
+          path: asc-message-relayer
+
+      - name: Check out compatible contracts
+        uses: actions/checkout@v7
+        with:
+          repository: gluwa/asc-contracts
+          ref: ${{ needs.prepare.outputs.contracts-ref }}
+          path: asc-contracts
+          token: ${{ secrets.GLUWA_BOT_TOKEN }}
+          persist-credentials: false
+
+      - name: Record tested source commits
+        env:
+          CREDITCOIN_REF: ${{ needs.prepare.outputs.creditcoin-ref }}
+        run: |
+          mkdir -p "$E2E_OUTPUT_DIR"
+          jq -n --arg creditcoin "$CREDITCOIN_REF" \
+            --arg runner "$(git rev-parse HEAD)" \
+            --arg relayer "$(git -C asc-message-relayer rev-parse HEAD)" \
+            --arg contracts "$(git -C asc-contracts rev-parse HEAD)" \
+            '{creditcoin: $creditcoin, runner: $runner, relayer: $relayer, contracts: $contracts}' \
+            > "$E2E_OUTPUT_DIR/sources.json"
+          cat "$E2E_OUTPUT_DIR/sources.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install the candidate relayer toolchain
+        id: relayer-toolchain
+        working-directory: asc-message-relayer
+        run: |
+          version=$(awk -F '"' '/^channel/ {print $2}' rust-toolchain.toml)
+          rustup toolchain install "$version" --profile minimal
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Rust cache for the candidate relayer
+        uses: Swatinem/rust-cache@v2
+        env:
+          RUSTUP_TOOLCHAIN: ${{ steps.relayer-toolchain.outputs.version }}
+        with:
+          workspaces: asc-message-relayer
+
+      - name: Build candidate relayer
+        timeout-minutes: 10
+        working-directory: asc-message-relayer
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          cargo build --release --locked -p message-relayer
+
+      - name: Make native binaries executable
+        run: chmod a+x target/release/creditcoin3-node target/release/attestor target/release/attestor_zombienet target/release/proof-gen-api-server
+
+      - name: Install Foundry
+        uses: ./.github/actions/install-foundry
+        with:
+          version: v1.5.1
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: usc-messaging/package-lock.json
+
+      - name: Install scenario runner dependencies
+        working-directory: usc-messaging
+        run: npm ci --ignore-scripts
+
+      - name: Compile contracts and enforce ABI compatibility
+        run: |
+          cd asc-contracts
+          npm ci --ignore-scripts
+          npx hardhat compile
+          echo "ASC_CONTRACTS_DIR=$GITHUB_WORKSPACE/asc-contracts" >> "$GITHUB_ENV"
+          echo "ABI_GATE_STRICT=1" >> "$GITHUB_ENV"
+
+      # The two toolchains' strict ABI checks run independently above, outside the
+      # 26-minute scenario budget. Their failures still fail the reusable workflow.
+      - name: Check scenario runner
+        run: |
+          npm --prefix usc-messaging run e2e:typecheck
+          npm --prefix usc-messaging run e2e:test
+
+      - name: Exercise delivery, settlement, durable restart and attestor rotation
+        working-directory: usc-messaging
+        env:
+          RELAYER_BIN: ${{ github.workspace }}/asc-message-relayer/target/release/message-relayer
+          RUST_LOG: info
+        run: |
+          remaining=$((E2E_DEADLINE_EPOCH - $(date +%s)))
+          if [ "$remaining" -lt 1 ]; then remaining=1; fi
+          npm run e2e -- --scenario "$SCENARIOS" --output-dir "$E2E_OUTPUT_DIR" --timeout-seconds "$remaining"
+
+      - name: Upload scenario evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: write-ability-e2e-evidence
+          path: |
+            e2e-output/
+            !e2e-output/state/creditcoin/**
+            !e2e-output/state/proof-gen/**
+          include-hidden-files: true

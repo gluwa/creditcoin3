@@ -1,6 +1,6 @@
 import { newApi, ApiPromise } from '../../lib';
 import { chain_Anvil1_Key } from '../blockchain-tests/pallets/supported-chains/consts';
-import { graphQLQuery } from './common';
+import { graphQLQuery, indexedRecordQuery } from './common';
 
 describe('handleEventAttestorElected()', () => {
     let api: ApiPromise;
@@ -77,7 +77,7 @@ describe('handleEventAttestorElected()', () => {
                 expect(node.chainKey).toEqual(chain_Anvil1_Key.toString());
                 expect(activeAttestorsForAnvil1).toContain(node.attestorId);
 
-                const response2 = await graphQLQuery(
+                const response2 = await indexedRecordQuery(
                     `query { attestorsElected(id: "${node.id}") { id, epoch, chainKey, attestorId }}`,
                 );
                 expect(response2.data.attestorsElected).toBeTruthy();

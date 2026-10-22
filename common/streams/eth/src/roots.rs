@@ -29,8 +29,8 @@ pub struct Config {
     /// Source-chain block encoding. Derived from CC3 supported-chain metadata by
     /// callers that know the chain; defaults to V1 (the only encoding today) so
     /// existing builders keep working.
-    #[default(usc_abi_encoding::common::EncodingVersion::V1)]
-    pub encoding: usc_abi_encoding::common::EncodingVersion,
+    #[default(attestcoin_abi_encoding::common::EncodingVersion::V1)]
+    pub encoding: attestcoin_abi_encoding::common::EncodingVersion,
 
     /// How often to poll `eth_blockNumber` alongside the `newHeads` subscription. The poll is
     /// the liveness floor: a subscription that acknowledges but stops delivering headers (seen
