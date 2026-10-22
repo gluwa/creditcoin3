@@ -18,6 +18,26 @@ export async function computeBlockDigest(
     blockNumber: number,
     prevDigest: string | null,
 ): Promise<{ root: string; digest: string } | null> {
+    const merkleRoot = await computeBlockRoot(provider, blockNumber);
+    if (merkleRoot === null) {
+        return null;
+    }
+
+    const digest = proofProvider.merkle.computeDigestOf(blockNumber, merkleRoot, prevDigest);
+
+    return { root: merkleRoot, digest };
+}
+
+/**
+ * Computes the merkle root of a single block. Unlike the digest, it does not depend on the
+ * previous block, so roots can be computed concurrently.
+ *
+ * @returns The merkle root, or null if block fetch failed
+ */
+async function computeBlockRoot(
+    provider: JsonRpcProvider | WebSocketProvider,
+    blockNumber: number,
+): Promise<string | null> {
     const blockData = await getBlockWithReceipts(provider, blockNumber);
     if (!blockData) {
         return null;
@@ -29,18 +49,16 @@ export async function computeBlockDigest(
     const orderedReceipts = receipts.sort((a, b) => a.index - b.index);
     const orderedTransactions = transactions.sort((a, b) => a.formatted.index - b.formatted.index);
 
-    // Compute merkle root
-    const merkleRoot = proofProvider.merkle.computeMerkleRootOfBlock(
+    return proofProvider.merkle.computeMerkleRootOfBlock(
         orderedTransactions,
         orderedReceipts,
         encoding.EncodingVersion.V1,
     );
-
-    // Compute digest
-    const digest = proofProvider.merkle.computeDigestOf(blockNumber, merkleRoot, prevDigest);
-
-    return { root: merkleRoot, digest };
 }
+
+// Blocks fetched and hashed at once. Each block costs two RPC round trips, so fetching them
+// one at a time left the replay waiting on the network for almost all of its run.
+const ROOT_FETCH_CONCURRENCY = 16;
 
 /**
  * Computes checkpoint digests for a range of blocks.
@@ -62,16 +80,24 @@ export async function computeRangeDigest(
     let prevDigest = startingDigest;
     const totalBlocks = endBlock - startBlock + 1;
 
-    for (let blockNumber = startBlock; blockNumber <= endBlock; blockNumber++) {
-        const result = await computeBlockDigest(provider, blockNumber, prevDigest);
-        if (!result) {
-            throw new Error(`Failed to compute digest for block ${blockNumber}`);
-        }
+    // Roots are fetched a window at a time; the digests, which chain, are folded in order.
+    for (let windowStart = startBlock; windowStart <= endBlock; windowStart += ROOT_FETCH_CONCURRENCY) {
+        const windowEnd = Math.min(windowStart + ROOT_FETCH_CONCURRENCY - 1, endBlock);
+        const blockNumbers = Array.from({ length: windowEnd - windowStart + 1 }, (_, i) => windowStart + i);
+        const roots = await Promise.all(blockNumbers.map((blockNumber) => computeBlockRoot(provider, blockNumber)));
 
-        prevDigest = result.digest;
+        for (let i = 0; i < blockNumbers.length; i++) {
+            const blockNumber = blockNumbers[i];
+            const root = roots[i];
+            if (root === null) {
+                throw new Error(`Failed to compute digest for block ${blockNumber}`);
+            }
 
-        if (onProgress) {
-            onProgress(blockNumber - startBlock + 1, totalBlocks);
+            prevDigest = proofProvider.merkle.computeDigestOf(blockNumber, root, prevDigest);
+
+            if (onProgress) {
+                onProgress(blockNumber - startBlock + 1, totalBlocks);
+            }
         }
     }
 

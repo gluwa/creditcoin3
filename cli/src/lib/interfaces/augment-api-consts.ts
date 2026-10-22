@@ -46,12 +46,11 @@ declare module '@polkadot/api-base/types/consts' {
             defaultMaxCatchup: u32 & AugmentedConst<ApiType>;
             defaultMinBondRequirement: u128 & AugmentedConst<ApiType>;
             /**
-             * Default committee **cap** for chains registered without an explicit one.
+             * Default [`TargetSampleSize`] for chains registered without an explicit one.
              *
-             * This is a cap, not a quorum — see [`TargetSampleSize`]. A value below the expected
-             * active-attestor count means the cap binds on every newly registered chain, which is
-             * the regime where quorum intersection is lost, so it should sit comfortably above the
-             * largest fleet a chain is expected to run.
+             * Inert — it does not affect quorum. Set at RFC-0174's ~120 sortition floor so the
+             * default records the population at which committee sampling would start being worth
+             * building, rather than any committee size actually run.
              **/
             defaultTargetSampleSize: u32 & AugmentedConst<ApiType>;
             /**
@@ -66,6 +65,12 @@ declare module '@polkadot/api-base/types/consts' {
              **/
             maxAttestationCheckpointInterval: u32 & AugmentedConst<ApiType>;
             maxAttestationNodes: u32 & AugmentedConst<ApiType>;
+            /**
+             * Maximum number of successful `commit_attestation` calls per chain in a single block.
+             * Attestors pipeline consecutive heights, each extending the one before, so more than
+             * one can land per block; this must leave room for those. An over-limit commit fails
+             * and stays valid for resubmission in a later block.
+             **/
             maxAttestationsPerBlock: u32 & AugmentedConst<ApiType>;
             /**
              * Runtime-safe ceiling for the per-chain attestation interval (see
@@ -75,6 +80,11 @@ declare module '@polkadot/api-base/types/consts' {
              * neuters the `commit_attestation` weight bound.
              **/
             maxChainAttestationInterval: u64 & AugmentedConst<ApiType>;
+            /**
+             * Maximum length of a chain's [`CheckpointingQueues`] entry. Must be greater than
+             * `2 * MaxAttestationCheckpointInterval + 1`.
+             **/
+            maxCheckpointingQueueLen: u32 & AugmentedConst<ApiType>;
             maxCheckpointsImportedPerCall: u32 & AugmentedConst<ApiType>;
             maxUnlockingChunks: u32 & AugmentedConst<ApiType>;
             /**

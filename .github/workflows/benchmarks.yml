@@ -4,12 +4,15 @@ name: BENCHMARKS
 "on":
   pull_request:
     branches: [main, usc-testnet, usc-dev, dev]
+    # Only the benchmarks and weights themselves: our pallets', and pallet_ethereum's, which
+    # lives in Frontier and is benchmarked from the runtime (see should-run). A change to this
+    # workflow or its scripts is tested with workflow_dispatch, rather than a Linode VM and a
+    # full benchmark run on every CI-only PR that happens to touch them.
     paths:
-      - "**weights.rs"
-      - "**benchmarking.rs"
-      - ".github/**bench**"
-      - ".github/check-hardware.sh"
-      - ".github/workflows/benchmarks.yml"
+      - "pallets/**/weights.rs"
+      - "pallets/**/benchmarking.rs"
+      - "node/src/benchmarking.rs"
+      - "runtime/src/ethereum_finalize_benchmarking.rs"
   workflow_dispatch:
 
 concurrency:
@@ -37,6 +40,7 @@ jobs:
     runs-on: ubuntu-26.04
     outputs:
       skip: ${{ steps.head.outputs.skip }}
+      ethereum: ${{ steps.ethereum.outputs.ethereum }}
     steps:
       - name: Check whether the head commit is the weights bot's own
         id: head
@@ -57,6 +61,26 @@ jobs:
               echo "skip=true" >> "$GITHUB_OUTPUT"
           else
               echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The pallet_ethereum benchmarks add about an hour, so they only run when dispatched or
+      # when their own benchmark code or this workflow changes.
+      - name: Check whether the pallet_ethereum benchmarks changed
+        id: ethereum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$PR_NUMBER" ]; then
+              echo "ethereum=true" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          # Fetch first so a failed API call fails the step instead of reading as "no match".
+          FILES=$(gh api --paginate "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          if grep -qxE 'runtime/src/ethereum_finalize_benchmarking\.rs|\.github/workflows/benchmarks\.yml' <<< "$FILES"; then
+              echo "ethereum=true" >> "$GITHUB_OUTPUT"
+          else
+              echo "ethereum=false" >> "$GITHUB_OUTPUT"
           fi
 
   deploy-runner-build-creditcoin-for-testing-benchmarks:
@@ -109,6 +133,7 @@ jobs:
 
   exercise-benchmarks:
     needs:
+      - should-run
       - build-creditcoin-node-for-testing-benchmarks
       - deploy-runner-benchmark
     runs-on: [self-hosted, "workflow-${{ github.run_id }}", "proxy-benchmark"]
@@ -156,11 +181,30 @@ jobs:
           targets: wasm32v1-none
           components: rust-src
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       # use cache from previous build jobs
       # WARNING: always before actions/download-artifact
+      # Same id as build-native.yml's "Identify runner family", whose warmers save the
+      # build-creditcoin-node-<id> entries on dev (cache-warm.yml, hosted and Linode).
+      - name: Identify runner family
+        id: runner-family
+        env:
+          RUNNER_FAMILY: ${{ runner.environment }}
+        run: |
+          ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: build-creditcoin-node
+          # Restores the warmer's dependencies. This workflow runs on PRs only and builds other
+          # features, so it never saves: nothing would read a PR-scoped entry, and the warmer's
+          # key is for its own build.
+          shared-key: build-creditcoin-node-${{ steps.runner-family.outputs.id }}
+          save-if: false
 
       # WARNING: always after Swatinem/rust-cache
       - name: Download creditcoin-node binary
@@ -181,6 +225,31 @@ jobs:
           .github/bench.sh -p randomness -b
           .github/bench.sh -p supported_chains -b
 
+      # pallet_ethereum lives in Frontier, so it has no weights.rs here and isn't run via bench.sh.
+      # Its output goes to an artifact, outside the tree, so the weights bot doesn't commit it.
+      # The five-component full-block benchmark gets fewer steps, or it would run for hours.
+      - name: Benchmark pallet_ethereum on_finalize
+        if: ${{ needs.should-run.outputs.ethereum == 'true' }}
+        run: |
+          OUT="$RUNNER_TEMP/pallet-ethereum-weights"
+          mkdir -p "$OUT"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=50 --repeat=20 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_transactions,on_finalize_logs,on_finalize_topics,on_finalize_log_data,on_finalize_transaction_size,on_finalize_state_root \
+            --output "$OUT/single_component.rs"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=10 --repeat=5 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --extrinsic=on_finalize_full_block \
+            --output "$OUT/full_block.rs"
+          cat "$OUT"/*.rs
+
+      - name: Upload pallet_ethereum weights
+        if: ${{ needs.should-run.outputs.ethereum == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: pallet-ethereum-weights
+          path: ${{ runner.temp }}/pallet-ethereum-weights/
+
       - name: git diff
         run: |
           sudo apt-get install colordiff
@@ -195,7 +264,7 @@ jobs:
 
       - name: Commit changes to current branch
         if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
-        uses: EndBug/add-and-commit@v10
+        uses: EndBug/add-and-commit@v11
         with:
           author_name: gluwa-bot
           author_email: creditcoin@gluwa.com

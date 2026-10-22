@@ -26,8 +26,9 @@ declare module '@polkadot/api-base/types/errors' {
             AlreadyAttestor: AugmentedError<ApiType>;
             AlreadyBonded: AugmentedError<ApiType>;
             /**
-             * A `revert_to`/removal attestation cleanup cursor is still draining for this chain;
-             * commits are rejected so cleanup can't collaterally delete a new attestation.
+             * A `revert_to`/removal cleanup (attestation cursor or checkpoint pruning) is still
+             * draining for this chain; commits are rejected so cleanup can't collaterally delete a
+             * new attestation or checkpoint.
              **/
             AttestationCleanupInProgress: AugmentedError<ApiType>;
             AttestationExists: AugmentedError<ApiType>;
@@ -119,9 +120,10 @@ declare module '@polkadot/api-base/types/errors' {
             InvalidBlsSignature: AugmentedError<ApiType>;
             /**
              * Tried to set per-chain `MaxAttestors` above the runtime-level `MaxAttestationNodes`
-             * ceiling, or to zero. The runtime ceiling drives the `BoundedVec` capacities used in
-             * `ActiveAttestors` and the `commit_attestation` weight bound, so values above it
-             * would either overflow those bounds or undercharge weight.
+             * ceiling, or to zero. The ceiling is what `commit_attestation`'s benchmarked weight
+             * bound is measured against, so a per-chain value above it would undercharge weight.
+             * (`ActiveAttestors` is an unbounded `Vec`, so lowering the ceiling cannot invalidate
+             * stored state; the weight path clamps a stale per-chain value with `.min()`.)
              **/
             InvalidMaxAttestors: AugmentedError<ApiType>;
             InvalidMaxCatchup: AugmentedError<ApiType>;
@@ -164,6 +166,10 @@ declare module '@polkadot/api-base/types/errors' {
              * More attestations remain on-chain than this dispatch can clear; splits/recovery tooling needed.
              **/
             TooManyAttestationsForForwardPatchClear: AugmentedError<ApiType>;
+            /**
+             * The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
+             **/
+            TooManyAttestationsInBlock: AugmentedError<ApiType>;
             /**
              * A `commit_attestation` payload carried more attestor accounts than the per-chain
              * `MaxAttestors` ceiling. The attestor list is iterated and stored, and dispatch weight
@@ -268,6 +274,10 @@ declare module '@polkadot/api-base/types/errors' {
             [key: string]: AugmentedError<ApiType>;
         };
         evm: {
+            /**
+             * The EIP-7702 authorization list exceeds the maximum number of entries.
+             **/
+            AuthorizationListTooLarge: AugmentedError<ApiType>;
             /**
              * Not enough balance to perform action
              **/

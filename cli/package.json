@@ -31,7 +31,9 @@
         "test:validator-cli:files": "jest --config src/test/integration-tests.config.ts --silent --verbose --runInBand --forceExit --runTestsByPath",
         "test:attestation": "jest --config src/test/attestation-tests.config.ts --verbose --runInBand --forceExit src/test/attestation-tests",
         "test:blockchain": "jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit src/test/blockchain-tests",
+        "test:blockchain:files": "jest --config src/test/blockchain-tests.config.ts --silent --verbose --runInBand --forceExit --runTestsByPath",
         "test:cc3-indexer": "jest --config src/test/cc3-indexer-tests.config.ts --silent --verbose --runInBand --forceExit src/test/cc3-indexer-tests",
+        "test:cc3-indexer:files": "jest --config src/test/cc3-indexer-tests.config.ts --silent --verbose --runInBand --forceExit --runTestsByPath",
         "test:archiver": "jest --config src/test/archiver-tests.config.ts --silent --verbose --runInBand --forceExit src/test/archiver-tests",
         "test:randomness": "jest --config src/test/blockchain-tests.config.ts --verbose --runInBand --forceExit src/test/blockchain-tests/pallets/randomness"
     },

@@ -54,10 +54,12 @@ pub enum Error {
     ),
     UnsupportedMaturityStrategy(supported_chains_primitives::MaturityStrategy),
 
-    /// Attestation interval / sample size / max-catchup fetch failed at startup.
+    /// A chain parameter could not be read at startup. The `Missing*` pair name storage items
+    /// that were absent; the quorum is derived from `|ActiveAttestors|`, so the only way it fails
+    /// is the read itself.
     MissingAttestationInterval(attestor_primitives::ChainKey),
-    MissingTargetSampleSize(attestor_primitives::ChainKey),
     MissingMaxCatchup(attestor_primitives::ChainKey),
+    QuorumReadFailed(attestor_primitives::ChainKey),
 
     /// Ctrl+C / SIGTERM arrived while we were still in the synchronous startup phase (waiting on
     /// RPC endpoints or election). Not a failure — `run` maps it to a clean exit.
@@ -95,8 +97,8 @@ impl std::fmt::Display for Error {
             Self::MissingAttestationInterval(k) => {
                 write!(f, "missing attestation interval for chain {k}")
             }
-            Self::MissingTargetSampleSize(k) => {
-                write!(f, "missing target sample size for chain {k}")
+            Self::QuorumReadFailed(k) => {
+                write!(f, "could not read the quorum for chain {k}")
             }
             Self::MissingMaxCatchup(k) => {
                 write!(f, "failed to fetch max catchup for chain {k}")

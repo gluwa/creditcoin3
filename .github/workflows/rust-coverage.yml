@@ -59,6 +59,11 @@ jobs:
           components: llvm-tools-preview, rust-src
           targets: wasm32v1-none
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       # Its own key: the coverage build's RUSTFLAGS make its artifacts unusable by any
       # other job, so sharing a key would only evict entries those jobs still need.
       - uses: Swatinem/rust-cache@v2
@@ -66,7 +71,7 @@ jobs:
           shared-key: rust-coverage
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.87.27
         with:
           tool: cargo-llvm-cov@0.6.24
 
@@ -115,6 +120,11 @@ jobs:
           toolchain: ${{ env.RUSTC_VERSION }}
           targets: wasm32v1-none
 
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: rust-test
@@ -133,7 +143,7 @@ jobs:
             simulate
 
       - name: Commit regression files
-        uses: EndBug/add-and-commit@v10
+        uses: EndBug/add-and-commit@v11
         if: always()
         with:
           push: true

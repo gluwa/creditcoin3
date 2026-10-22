@@ -16,12 +16,39 @@ set -euo pipefail
 network="$1"
 base_ref="$2"
 
-diff_output=$(diff -u "/var/tmp/pallet_storage.${network}" /var/tmp/pallet_storage.local || true)
+expected="/var/tmp/pallet_storage.${network}"
+actual=/var/tmp/pallet_storage.local
 
-if [ -z "$diff_output" ]; then
-  echo "Pallet storage versions match ${network}"
-  exit 0
-fi
+# A comparison that could not run is not a match: fail on promotions, warn elsewhere.
+cannot_compare() {
+  echo "$1" >&2
+  case "$base_ref" in
+    usc-testnet | main)
+      echo "::error title=Pallet storage versions::could not compare with ${network}: $1"
+      exit 1
+      ;;
+    *)
+      echo "::warning title=Pallet storage versions::could not compare with ${network}: $1"
+      exit 0
+      ;;
+  esac
+}
+
+for file in "$expected" "$actual"; do
+  [ -s "$file" ] || cannot_compare "${file} is missing or empty"
+done
+
+# diff exits 0 when the files match, 1 when they differ and 2 on trouble.
+diff_status=0
+diff_output=$(diff -u "$expected" "$actual") || diff_status=$?
+case "$diff_status" in
+  0)
+    echo "Pallet storage versions match ${network}"
+    exit 0
+    ;;
+  1) ;;
+  *) cannot_compare "diff failed with status ${diff_status}" ;;
+esac
 
 echo "$diff_output" | colordiff || echo "$diff_output"
 

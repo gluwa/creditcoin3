@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["attestor/vendor/libp2p-gossipsub"]
 members = [
     "archiver",
     "node",
@@ -58,12 +59,13 @@ edition = "2021"
 license = "Unlicense"
 publish = false
 repository = "https://github.com/gluwa/creditcoin3-next/"
-version = "3.138.0"
+version = "3.139.0"
 
 [workspace.dependencies]
 arc-swap = "1.9.1"
 assert_matches = "1.5.0"
 bn = { package = "substrate-bn", version = "0.6", default-features = false }
+finality-grandpa = "0.16.3"
 pretty_assertions = { version = "1.4.1" }
 proptest = "1.10.0"
 rstest = "0.26.1"
@@ -367,3 +369,9 @@ inherits = "release"
 # https://doc.rust-lang.org/rustc/linker-plugin-lto.html
 codegen-units = 1
 lto = "fat"
+
+# Local copy of libp2p-gossipsub 0.47.0 carrying upstream backoff hardening
+# (rust-libp2p 0.49.3/0.49.4). libp2p 0.54 cannot take gossipsub >= 0.48, and
+# sc-network pins libp2p 0.54. Drop once the workspace moves past libp2p 0.54.
+[patch.crates-io]
+libp2p-gossipsub = { path = "attestor/vendor/libp2p-gossipsub" }

@@ -66,7 +66,7 @@ impl frame_system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type BlockWeights = ();
     type BlockLength = ();
-    type DbWeight = ();
+    type DbWeight = frame_support::weights::constants::RocksDbWeight;
     type RuntimeOrigin = RuntimeOrigin;
     type Nonce = u64;
     type RuntimeCall = RuntimeCall;
@@ -304,6 +304,7 @@ impl attestation_poc::Config for Test {
     type Staking = Staking;
     type Reward = ();
     type MaxAttestationsPerBlock = MaxAttestationsPerBlock;
+    type MaxCheckpointingQueueLen = ConstU32<2048>;
     type DefaultAttestationRetentionDuration = DefaultAttestationRetentionDuration;
     type MaxCheckpointsImportedPerCall = MaxCheckpointsImportedPerCall;
     type DefaultAttestationChainGenesisBlockNumber = DefaultAttestationChainGenesisBlockNumber;

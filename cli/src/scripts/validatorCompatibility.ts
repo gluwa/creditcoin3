@@ -10,13 +10,14 @@
  *
  * This script exposes the bits that have no direct CLI equivalent:
  *
- *   onboard --node-url <ws> --version <vX.Y.Z> [--bond <CTC>]
- *       Fund a throwaway stash from sudo, bond, rotate + set keys on the target
- *       node, validate, and set the version identity in one batch.
+ *   onboard-all --sudo-url <ws> --nodes-file <path> --stashes-out <path> [--bond <CTC>]
+ *       Fund a throwaway stash per node from sudo in one batch, then on every
+ *       node in parallel: bond, rotate + set keys on that node, validate, and
+ *       set the version identity in one batch.
  *
- *   wait-eras --node-url <ws> --eras <N>
- *       Block until N staking eras have elapsed (so newly-onboarded validators
- *       get elected into the active set naturally, without forcing a new era).
+ *   wait-elected --node-url <ws> --stashes-file <path> [--max-eras <N>]
+ *       Block until every onboarded stash is in the active validator set (they
+ *       get elected naturally, without forcing a new era).
  *
  *   increase-validators --node-url <ws> --additional <N>
  *       Raise the staking validator ceiling via sudo
@@ -25,9 +26,10 @@
  * All accounts are funded from the genesis sudo key (Alice), so this is only
  * ever meant to run against a throwaway local dev chain.
  */
+import * as fs from 'fs';
 import { Command } from 'commander';
 import { newApi, BN, MICROUNITS_PER_CTC, mnemonicGenerate, ApiPromise, KeyringPair } from '../lib';
-import { CcKeyring, initKeyringPair } from '../lib/account/keyring';
+import { initKeyringPair } from '../lib/account/keyring';
 import { signSendAndWatchCcKeyring, TxStatus } from '../lib/tx';
 
 function aliceSudo(): KeyringPair {
@@ -43,24 +45,44 @@ async function sudoCall(api: ApiPromise, call: any): Promise<void> {
     }
 }
 
-async function onboard(nodeUrl: string, version: string, bondCtc: number): Promise<void> {
-    const { api } = await newApi(nodeUrl);
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    // Fresh stash funded from sudo. The mnemonic is throwaway (dev chain only).
-    const stashSecret = mnemonicGenerate();
-    const stashPair = initKeyringPair(stashSecret);
-    const stash: CcKeyring = { type: 'caller', pair: stashPair };
+interface NodeToOnboard {
+    tag: string;
+    port: number;
+}
+
+// `nodes.txt` written by the workflow: one "<tag> <rpc port>" line per historical node.
+function readNodesFile(nodesFile: string): NodeToOnboard[] {
+    return fs
+        .readFileSync(nodesFile, 'utf8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .map((line) => {
+            const [tag, port] = line.split(/\s+/);
+            return { tag, port: parseInt(port, 10) };
+        });
+}
+
+async function onboardNode(node: NodeToOnboard, stashPair: KeyringPair, bondAmount: BN): Promise<void> {
+    // Node identities read v3.66.0 for the release tag 3.66.0-mainnet.
+    const version = `v${node.tag.replace(/-[^-]*$/, '')}`;
+    const { api } = await newApi(`ws://127.0.0.1:${node.port}`);
     console.log(`INFO: onboarding ${version} with stash ${stashPair.address}`);
 
-    // Fund well above the minimum validator bond so bonding always succeeds.
-    const fundAmount = MICROUNITS_PER_CTC.mul(new BN(bondCtc)).mul(new BN(10));
-    await sudoCall(api, api.tx.balances.forceSetBalance(stashPair.address, fundAmount.toString()));
-
-    const bondAmount = MICROUNITS_PER_CTC.mul(new BN(bondCtc));
+    // The stash was funded through Alice. Wait until this node has imported that block,
+    // otherwise the bond below is checked against an empty account.
+    const fundedBy = Date.now() + 120_000;
+    while ((await api.query.system.account(stashPair.address)).data.free.isZero()) {
+        if (Date.now() > fundedBy) {
+            throw new Error(`${version}: the stash funding never reached this node`);
+        }
+        await sleep(1_000);
+    }
 
     // Generate session keys *on the target node* so the keystore holds them.
     const keys = (await api.rpc.author.rotateKeys()).toString();
-    console.log(`INFO: ${version} rotated session keys`);
 
     // Build a legacy IdentityInfo whose display name is the version string,
     // so each validator is trivially identifiable on-chain. polkadot.js fills
@@ -77,7 +99,7 @@ async function onboard(nodeUrl: string, version: string, bondCtc: number): Promi
         api.tx.identity.setIdentity(identityInfo),
     ]);
 
-    const result = await signSendAndWatchCcKeyring(batch, api, stash);
+    const result = await signSendAndWatchCcKeyring(batch, api, { type: 'caller', pair: stashPair });
     if (result.status !== TxStatus.ok) {
         throw new Error(`onboard batch failed for ${version}: ${result.info}`);
     }
@@ -85,21 +107,63 @@ async function onboard(nodeUrl: string, version: string, bondCtc: number): Promi
     await api.disconnect();
 }
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Onboard every historical node at once: one sudo batch funds a fresh stash per node, then
+// each stash bonds, sets keys and validates through its own node in parallel. One node at
+// a time cost ~30 s each, two finalized transactions apiece. The stash addresses are
+// written to `stashesFile` for `wait-elected`.
+async function onboardAll(sudoUrl: string, nodesFile: string, bondCtc: number, stashesFile: string): Promise<void> {
+    const nodes = readNodesFile(nodesFile);
+    // Connect first: it initialises the crypto WASM that key generation needs.
+    const { api } = await newApi(sudoUrl);
+    // Fresh stashes, throwaway mnemonics (dev chain only).
+    const stashes = nodes.map(() => initKeyringPair(mnemonicGenerate()));
 
-async function waitEras(nodeUrl: string, eras: number): Promise<void> {
+    // Fund well above the minimum validator bond so bonding always succeeds.
+    const fundAmount = MICROUNITS_PER_CTC.mul(new BN(bondCtc)).mul(new BN(10));
+    await sudoCall(
+        api,
+        api.tx.utility.batchAll(
+            stashes.map((stash) => api.tx.balances.forceSetBalance(stash.address, fundAmount.toString())),
+        ),
+    );
+    console.log(`INFO: funded ${stashes.length} stashes`);
+    await api.disconnect();
+
+    const bondAmount = MICROUNITS_PER_CTC.mul(new BN(bondCtc));
+    await Promise.all(nodes.map((node, i) => onboardNode(node, stashes[i], bondAmount)));
+
+    fs.writeFileSync(stashesFile, stashes.map((stash) => stash.address).join('\n') + '\n');
+}
+
+// Block until every onboarded stash is in the active session validator set, so the
+// historical nodes are authoring. Validators that start validating mid-era are elected
+// for the next era or the one after, so `maxEras` bounds the wait.
+async function waitElected(nodeUrl: string, stashesFile: string, maxEras: number): Promise<void> {
+    const stashes = fs
+        .readFileSync(stashesFile, 'utf8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
     const { api } = await newApi(nodeUrl);
-    let eraInfo = await api.derive.session.info();
-    let currentEra = eraInfo.currentEra.toNumber();
-    const targetEra = currentEra + eras;
+    const startEra = (await api.derive.session.info()).currentEra.toNumber();
     const blockTime = api.consts.babe.expectedBlockTime.toNumber();
-    while (currentEra < targetEra) {
-        console.log(`INFO: waiting for era ${targetEra}, currently at ${currentEra}`);
+
+    for (;;) {
+        const active = new Set((await api.query.session.validators()).map((v) => v.toString()));
+        const missing = stashes.filter((stash) => !active.has(stash));
+        const currentEra = (await api.derive.session.info()).currentEra.toNumber();
+        if (missing.length === 0) {
+            console.log(`DONE: all ${stashes.length} onboarded validators active in era ${currentEra}`);
+            break;
+        }
+        if (currentEra - startEra > maxEras) {
+            throw new Error(
+                `${missing.length} of ${stashes.length} onboarded validators still not active after ${maxEras} eras: ${missing.join(', ')}`,
+            );
+        }
+        console.log(`INFO: era ${currentEra}: ${stashes.length - missing.length}/${stashes.length} validators active`);
         await sleep(blockTime);
-        eraInfo = await api.derive.session.info();
-        currentEra = eraInfo.currentEra.toNumber();
     }
-    console.log(`DONE: reached era ${currentEra}`);
     await api.disconnect();
 }
 
@@ -124,21 +188,23 @@ async function main(): Promise<void> {
     program.description('Validator compatibility CI helper (dev chain only)');
 
     program
-        .command('onboard')
-        .requiredOption('--node-url <url>', 'WS RPC url of the node to onboard as validator')
-        .requiredOption('--version <version>', 'Version string used as the on-chain identity (e.g. v3.66.0)')
+        .command('onboard-all')
+        .requiredOption('--sudo-url <url>', 'WS RPC url of the node to send the sudo funding batch to')
+        .requiredOption('--nodes-file <path>', 'File with one "<release tag> <rpc port>" line per node to onboard')
+        .requiredOption('--stashes-out <path>', 'Where to write the onboarded stash addresses')
         .option('--bond <ctc>', 'Amount of CTC to bond', (v) => parseInt(v, 10), 1000)
         .action(async (opts) => {
-            await onboard(opts.nodeUrl, opts.version, opts.bond);
+            await onboardAll(opts.sudoUrl, opts.nodesFile, opts.bond, opts.stashesOut);
             process.exit(0);
         });
 
     program
-        .command('wait-eras')
+        .command('wait-elected')
         .requiredOption('--node-url <url>', 'WS RPC url of the node to query')
-        .requiredOption('--eras <eras>', 'How many eras to wait', (v) => parseInt(v, 10))
+        .requiredOption('--stashes-file <path>', 'Stash addresses written by onboard-all')
+        .option('--max-eras <eras>', 'Fail if not all are active after this many eras', (v) => parseInt(v, 10), 3)
         .action(async (opts) => {
-            await waitEras(opts.nodeUrl, opts.eras);
+            await waitElected(opts.nodeUrl, opts.stashesFile, opts.maxEras);
             process.exit(0);
         });
 
