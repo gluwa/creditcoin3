@@ -561,7 +561,7 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointPruningStates` (r:1 w:0)
+	/// Storage: `Attestation::CheckpointPruningStates` (r:1 w:1)
 	/// Proof: `Attestation::CheckpointPruningStates` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::CheckpointClearingCursors` (r:1 w:0)
 	/// Proof: `Attestation::CheckpointClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -571,6 +571,10 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `Attestation::AttestationClearingCursors` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::Attestations` (r:41 w:40)
 	/// Proof: `Attestation::Attestations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::CheckpointBuckets` (r:101 w:200)
+	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)
+	/// Proof: `Attestation::LastCheckpoint` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -579,27 +583,23 @@ impl<T: frame_system::Config> crate::WeightInfo for WeightInfo<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::LastCheckpoint` (r:1 w:1)
-	/// Proof: `Attestation::LastCheckpoint` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::Checkpoints` (r:0 w:100)
+	/// Storage: `Attestation::Checkpoints` (r:0 w:200)
 	/// Proof: `Attestation::Checkpoints` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::AttestationRemovalQueues` (r:0 w:1)
 	/// Proof: `Attestation::AttestationRemovalQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Attestation::CheckpointBuckets` (r:0 w:100)
-	/// Proof: `Attestation::CheckpointBuckets` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::LastDigest` (r:0 w:1)
 	/// Proof: `Attestation::LastDigest` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Attestation::CheckpointingQueues` (r:0 w:1)
 	/// Proof: `Attestation::CheckpointingQueues` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn forward_patch_checkpoints() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `4221`
-		//  Estimated: `106686`
-		// Minimum execution time: 1_689_228_000 picoseconds.
-		Weight::from_parts(1_890_734_000, 0)
-			.saturating_add(Weight::from_parts(0, 106686))
-			.saturating_add(T::DbWeight::get().reads(51))
-			.saturating_add(T::DbWeight::get().writes(247))
+		//  Measured:  `7168`
+		//  Estimated: `258133`
+		// Minimum execution time: 2_925_371_000 picoseconds.
+		Weight::from_parts(3_303_273_000, 0)
+			.saturating_add(Weight::from_parts(0, 258133))
+			.saturating_add(T::DbWeight::get().reads(152))
+			.saturating_add(T::DbWeight::get().writes(448))
 	}
 	/// Storage: `SupportedChains::SupportedChains` (r:1 w:0)
 	/// Proof: `SupportedChains::SupportedChains` (`max_values`: None, `max_size`: None, mode: `Measured`)
