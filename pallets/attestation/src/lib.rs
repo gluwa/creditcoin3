@@ -961,6 +961,9 @@ pub mod pallet {
         AttestationCleanupInProgress,
         /// The chain already received [`Config::MaxAttestationsPerBlock`] attestations this block.
         TooManyAttestationsInBlock,
+        /// Tried to set per-chain `MaxInvulnerables` to zero or above the runtime-level
+        /// `MaxAttestationNodes` ceiling. Mirrors [`Error::InvalidMaxAttestors`].
+        InvalidMaxInvulnerables,
     }
 
     #[pallet::hooks]
@@ -1222,6 +1225,14 @@ pub mod pallet {
             new_max: u32,
         ) -> DispatchResult {
             T::OperatorsOrigin::ensure_origin(origin)?;
+
+            // Same bounds as `set_max_attestors` and chain registration: non-zero and at most
+            // the runtime-level `MaxAttestationNodes` ceiling.
+            ensure!(new_max > 0, Error::<T>::InvalidMaxInvulnerables);
+            ensure!(
+                new_max <= T::MaxAttestationNodes::get(),
+                Error::<T>::InvalidMaxInvulnerables
+            );
 
             let count = Invulnerables::<T>::iter_prefix_values(chain_key)
                 .collect::<Vec<_>>()
