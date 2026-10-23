@@ -13,6 +13,8 @@ name: BENCHMARKS
       - "pallets/**/benchmarking.rs"
       - "node/src/benchmarking.rs"
       - "runtime/src/ethereum_finalize_benchmarking.rs"
+      - "runtime/src/weights/ethereum/**"
+      - ".github/ethereum-weights.hbs"
   workflow_dispatch:
 
 concurrency:
@@ -77,7 +79,7 @@ jobs:
           fi
           # Fetch first so a failed API call fails the step instead of reading as "no match".
           FILES=$(gh api --paginate "repos/${{ github.repository }}/pulls/$PR_NUMBER/files" --jq '.[].filename')
-          if grep -qxE 'runtime/src/ethereum_finalize_benchmarking\.rs|\.github/workflows/benchmarks\.yml' <<< "$FILES"; then
+          if grep -qxE 'runtime/src/ethereum_finalize_benchmarking\.rs|runtime/src/weights/ethereum/.*|\.github/ethereum-weights\.hbs|\.github/workflows/benchmarks\.yml' <<< "$FILES"; then
               echo "ethereum=true" >> "$GITHUB_OUTPUT"
           else
               echo "ethereum=false" >> "$GITHUB_OUTPUT"
@@ -225,22 +227,29 @@ jobs:
           .github/bench.sh -p randomness -b
           .github/bench.sh -p supported_chains -b
 
-      # pallet_ethereum lives in Frontier, so it has no weights.rs here and isn't run via bench.sh.
-      # Its output goes to an artifact, outside the tree, so the weights bot doesn't commit it.
+      # The runtime consumes these coefficients through its finalization gas envelope.
+      # Use the import heap for individual dimensions and the gas-bounded combination.
+      # Independent maxima exceed a block's gas budget and need a larger diagnostic heap.
       # The five-component full-block benchmark gets fewer steps, or it would run for hours.
       - name: Benchmark pallet_ethereum on_finalize
         if: ${{ needs.should-run.outputs.ethereum == 'true' }}
         run: |
           OUT="$RUNNER_TEMP/pallet-ethereum-weights"
-          mkdir -p "$OUT"
+          WEIGHTS="runtime/src/weights/ethereum"
+          mkdir -p "$OUT" "$WEIGHTS"
           ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=50 --repeat=20 \
-            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=2048 \
             --extrinsic=on_finalize_transactions,on_finalize_logs,on_finalize_topics,on_finalize_log_data,on_finalize_transaction_size,on_finalize_state_root \
-            --output "$OUT/single_component.rs"
+            --template .github/ethereum-weights.hbs --output "$WEIGHTS/single_component.rs"
           ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=10 --repeat=5 \
             --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=10000 \
             --extrinsic=on_finalize_full_block \
-            --output "$OUT/full_block.rs"
+            --template .github/ethereum-weights.hbs --output "$WEIGHTS/full_block.rs"
+          ./target/release/creditcoin3-node benchmark pallet --chain dev --steps=10 --repeat=5 \
+            --pallet pallet_ethereum --wasm-execution=compiled --heap-pages=2048 \
+            --extrinsic=on_finalize_gas_block \
+            --template .github/ethereum-weights.hbs --output "$OUT/gas_block.rs"
+          cp "$WEIGHTS/single_component.rs" "$WEIGHTS/full_block.rs" "$OUT/"
           cat "$OUT"/*.rs
 
       - name: Upload pallet_ethereum weights
@@ -261,6 +270,15 @@ jobs:
         with:
           command: build
           args: --release
+
+      - name: Check regenerated EVM weight envelope
+        if: ${{ needs.should-run.outputs.ethereum == 'true' }}
+        uses: gluwa/cargo@dev
+        env:
+          SKIP_WASM_BUILD: "1"
+        with:
+          command: test
+          args: --release --locked -p creditcoin3-runtime --lib weights::ethereum::tests
 
       - name: Commit changes to current branch
         if: contains(fromJSON('["usc-dev", "dev"]'), github.base_ref)
