@@ -269,6 +269,7 @@ parameter_types! {
     pub const MaxChainAttestationInterval: u64 = 10_000;
     pub const DefaultTargetSampleSize: u32 = 1;
     pub const DefaultMaxCatchup: u32 = 500;
+    // Below the runtime's 2_000: this mock's DB weights make a commit cost more, leaving no headroom.
     pub const MaxCatchupCeiling: u32 = 1_000;
     // The runtime's smallest (devnet) block budget, so the integrity test sees a real limit.
     pub BlockWeights: frame_system::limits::BlockWeights =
