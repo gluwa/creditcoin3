@@ -9,13 +9,14 @@ use frame_support::{
 use sp_core::{Encode, H256};
 use sp_std::vec::Vec;
 
-use attestor_primitives::{ChainId, ChainKey};
+use attestor_primitives::{AttestationCheckpoint, ChainId, ChainKey};
 use pallet_attestation::{
     AttestationChainGenesisBlockNumber, Attestations, CheckpointBuckets, LastCheckpoint,
     LastDigest, Pallet as PalletAttestationPoc, CHECKPOINT_BUCKET_SIZE,
 };
 use pallet_evm::AddressMapping;
 use pallet_supported_chains::SupportedChains;
+use parity_scale_codec::MaxEncodedLen;
 use precompile_utils::{prelude::*, solidity::Codec};
 
 // Gas cost constants
@@ -188,27 +189,28 @@ where
     ) -> EvmResult<HeightHashResult> {
         ensure_chain_supported::<Runtime>(handle, chain_key)?;
 
+        // Each read is charged whether or not the entry exists, at its fixed encoded size.
+        handle.record_db_read::<Runtime>(<(u64, H256)>::max_encoded_len())?;
         if let Some(last_digest) = LastDigest::<Runtime>::get(chain_key) {
-            handle.record_db_read::<Runtime>(last_digest.encoded_size())?;
-
-            Ok(HeightHashResult {
+            return Ok(HeightHashResult {
                 height: last_digest.0,
                 hash: last_digest.1,
                 is_attestation: true,
                 exists: true,
-            })
-        } else if let Some(last_checkpoint) = LastCheckpoint::<Runtime>::get(chain_key) {
-            handle.record_db_read::<Runtime>(last_checkpoint.encoded_size())?;
+            });
+        }
 
-            Ok(HeightHashResult {
+        handle.record_db_read::<Runtime>(AttestationCheckpoint::max_encoded_len())?;
+        if let Some(last_checkpoint) = LastCheckpoint::<Runtime>::get(chain_key) {
+            return Ok(HeightHashResult {
                 height: last_checkpoint.block_number,
                 hash: last_checkpoint.digest,
                 is_attestation: false,
                 exists: true,
-            })
-        } else {
-            Ok(HeightHashResult::default())
+            });
         }
+
+        Ok(HeightHashResult::default())
     }
 
     #[precompile::public("get_latest_checkpoint_height_and_hash(uint64)")]
@@ -219,9 +221,8 @@ where
     ) -> EvmResult<HeightHashResult> {
         ensure_chain_supported::<Runtime>(handle, chain_key)?;
 
+        handle.record_db_read::<Runtime>(AttestationCheckpoint::max_encoded_len())?;
         if let Some(last_checkpoint) = LastCheckpoint::<Runtime>::get(chain_key) {
-            handle.record_db_read::<Runtime>(last_checkpoint.encoded_size())?;
-
             Ok(HeightHashResult {
                 height: last_checkpoint.block_number,
                 hash: last_checkpoint.digest,
