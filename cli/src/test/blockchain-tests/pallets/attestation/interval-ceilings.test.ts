@@ -4,12 +4,13 @@ import { describeIf, dispatchErrorName, sudoInBlock } from '../../../utils';
 
 // The checkpoint interval and the chain attestation interval are capped by runtime ceilings
 // (`MaxAttestationCheckpointInterval`, `MaxChainAttestationInterval`), both in their setters and
-// when a chain is registered with them.
+// when a chain is registered with them. `MaxCatchup` has its own ceiling (`MaxCatchupCeiling`).
 describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceilings', (): void => {
     let api: ApiPromise;
     let root: KeyringPair;
     let maxCheckpointInterval: number;
     let maxAttestationInterval: number;
+    let maxCatchupCeiling: number;
     // The largest attestation interval the setters and registerChain accept: the ceiling, or
     // DefaultMaxCatchup when that is lower.
     let acceptedAttestationInterval: number;
@@ -51,6 +52,7 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceil
         root = (global as any).CREDITCOIN_CREATE_SIGNER('sudo');
         maxCheckpointInterval = api.consts.attestation.maxAttestationCheckpointInterval.toNumber();
         maxAttestationInterval = api.consts.attestation.maxChainAttestationInterval.toNumber();
+        maxCatchupCeiling = api.consts.attestation.maxCatchupCeiling.toNumber();
         acceptedAttestationInterval = Math.min(
             maxAttestationInterval,
             api.consts.attestation.defaultMaxCatchup.toNumber(),
@@ -117,6 +119,32 @@ describeIf(process.env.SKIP_ON_PURPOSE === undefined, 'Attestation interval ceil
             // The setter stages the new interval; it's applied on a later update.
             const pending = await api.query.attestation.pendingAttestationInterval(chainKey);
             expect(pending.unwrap().toNumber()).toEqual(acceptedAttestationInterval);
+        }, 60_000);
+    });
+
+    describe('setMaxCatchup', () => {
+        test('rejects a value above MaxCatchupCeiling', async () => {
+            const { innerError } = await sudoInBlock(
+                api,
+                root,
+                api.tx.attestation.setMaxCatchup(chainKey, maxCatchupCeiling + 1),
+            );
+
+            expect(dispatchErrorName(api, innerError)).toEqual('attestation.InvalidMaxCatchup');
+            expect((await api.query.attestation.pendingMaxCatchup(chainKey)).isNone).toBe(true);
+        }, 60_000);
+
+        test('accepts MaxCatchupCeiling', async () => {
+            const { innerError } = await sudoInBlock(
+                api,
+                root,
+                api.tx.attestation.setMaxCatchup(chainKey, maxCatchupCeiling),
+            );
+
+            expect(dispatchErrorName(api, innerError)).toBeNull();
+            // The setter stages the new bound; it's applied on a later update.
+            const pending = await api.query.attestation.pendingMaxCatchup(chainKey);
+            expect(pending.unwrap().toNumber()).toEqual(maxCatchupCeiling);
         }, 60_000);
     });
 

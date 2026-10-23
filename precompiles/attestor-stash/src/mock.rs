@@ -293,6 +293,8 @@ impl pallet_attestation::Config for Runtime {
     type MaxChainAttestationInterval = ConstU64<10_000>;
     type DefaultTargetSampleSize = DefaultTargetSampleSize;
     type DefaultMaxCatchup = ConstU32<500>;
+    // Below the runtime's 2_000: these DB weights make a commit cost more, leaving no headroom.
+    type MaxCatchupCeiling = ConstU32<1_000>;
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = pallet_attestation::weights::WeightInfo<Runtime>;
     type MaxAttestationNodes = MaxAttestorsDefault;
