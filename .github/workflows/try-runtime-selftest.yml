@@ -1,0 +1,274 @@
+---
+name: Try Runtime Self-Test
+
+# Proves that try-runtime.yml's check fails when it should. Each fixture under
+# .github/try-runtime/fixtures/ is a deliberately broken migration that apply.sh injects
+# into the runtime for this run only. The runtime is then checked against the latest
+# devnet snapshot with the same script try-runtime.yml uses, and each case must end the
+# way it is expected to:
+#
+# - baseline: the unchanged runtime passes both passes.
+# - broken-post-upgrade: a single-block VersionedMigration whose post_upgrade fails. The
+#   check must fail with the fixture's message; this is the case that once slipped through
+#   when the single-block migrations were only checked after the multi-block simulation.
+# - stalled-mbm: a multi-block migration that never finishes. The check must fail on the
+#   --mbm-max-blocks bound.
+#
+# A broken fixture that passes, or that fails for another reason, fails this workflow.
+"on":
+  pull_request:
+    paths:
+      - ".github/try-runtime/**"
+      - ".github/workflows/try-runtime.yml"
+      - ".github/workflows/try-runtime-selftest.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.ref }}-${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions: read-all
+
+# Ubuntu 26.04 ships GCC 15, whose libstdc++ no longer transitively includes
+# <cstdint>. The bundled RocksDB 8.1.1 headers (librocksdb-sys 0.11.0+8.1.1)
+# use uint64_t without including it, so force-include cstdint when compiling C/C++.
+env:
+  CXXFLAGS: "-include cstdint"
+
+jobs:
+  # Devnet's settings from .github/try-runtime/config.json, shared with try-runtime.yml.
+  select:
+    runs-on: ubuntu-26.04
+    outputs:
+      network: ${{ steps.network.outputs.network }}
+      features: ${{ steps.network.outputs.features }}
+      blocktime: ${{ steps.network.outputs.blocktime }}
+      checks: ${{ steps.network.outputs.checks }}
+      cli_repository: ${{ steps.network.outputs.cli_repository }}
+      cli_rev: ${{ steps.network.outputs.cli_rev }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read devnet's settings
+        id: network
+        run: |
+          set -euo pipefail
+          NETWORK=devnet
+          CONFIG=.github/try-runtime/config.json
+          setting() { jq -r --arg n "$NETWORK" ".networks[\$n].$1" "$CONFIG"; }
+          FEATURES=$(setting features)
+          BLOCKTIME=$(setting blocktime_ms)
+          CHECKS=$(setting checks)
+
+          echo "INFO: testing against $NETWORK with features $FEATURES, blocktime ${BLOCKTIME} ms, checks $CHECKS"
+          {
+            echo "network=$NETWORK"
+            echo "features=$FEATURES"
+            echo "blocktime=$BLOCKTIME"
+            echo "checks=$CHECKS"
+            echo "cli_repository=$(jq -r .cli.repository "$CONFIG")"
+            echo "cli_rev=$(jq -r .cli.rev "$CONFIG")"
+          } >> "$GITHUB_OUTPUT"
+
+  # As in try-runtime.yml: the only job with Azure credentials, running no runtime code.
+  # The snapshot reaches the test jobs as an artifact.
+  fetch-snapshot:
+    needs: select
+    runs-on: ubuntu-26.04
+    environment: snapshot
+    permissions:
+      contents: read
+      id-token: write
+    timeout-minutes: 60
+    outputs:
+      spec_version: ${{ steps.fetch.outputs.spec_version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install azure-cli
+        run: |
+          command -v az >/dev/null || sudo .github/install-azure-cli.sh
+
+      - name: Azure Login with OIDC
+        uses: azure/login@v3
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Fetch the latest ${{ needs.select.outputs.network }} snapshot
+        id: fetch
+        env:
+          NETWORK: ${{ needs.select.outputs.network }}
+        run: |
+          .github/try-runtime/fetch-snapshot.sh "$NETWORK" snapshot
+          ls -l snapshot
+
+      - name: Hand the snapshot to the test jobs
+        uses: actions/upload-artifact@v7
+        with:
+          name: try-runtime-snapshot
+          path: snapshot/
+          # Already zstd-compressed.
+          compression-level: 0
+          retention-days: 1
+
+  selftest:
+    needs: [select, fetch-snapshot]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [baseline, broken-post-upgrade, stalled-mbm]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install protobuf
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install libclang
+        run: sudo apt-get update && sudo apt-get install -y libclang-dev
+
+      - name: Configure rustc version
+        run: |
+          RUSTC_VERSION=$(grep channel rust-toolchain.toml | tail -n1 | tr -d " " | cut -f2 -d'"')
+          echo "RUSTC_VERSION=$RUSTC_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUSTC_VERSION }}
+          targets: wasm32v1-none
+          components: rust-src
+
+      # Swatinem/rust-cache keys on every installed toolchain, so the runner image's own
+      # stable, which changes whenever GitHub updates the image, would rotate the key.
+      - name: Remove the runner image's Rust toolchains
+        run: rustup toolchain list | cut -d' ' -f1 | grep -v "^${RUSTC_VERSION:?}-" | xargs -r -n1 rustup toolchain uninstall
+
+      # Same id as build-native.yml's "Identify runner family", whose warmers save the
+      # build-creditcoin-node-<id> entries on dev (cache-warm.yml, hosted and Linode).
+      - name: Identify runner family
+        id: runner-family
+        env:
+          RUNNER_FAMILY: ${{ runner.environment }}
+        run: |
+          ID=$(printf '%s\n' "${RUNNER_FAMILY:-unknown}" "$HOME" | sha256sum | cut -c1-8)
+          echo "id=$ID" >> "$GITHUB_OUTPUT"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Restores the warmer's dependencies and never saves, as in try-runtime.yml.
+          shared-key: build-creditcoin-node-${{ steps.runner-family.outputs.id }}
+          save-if: false
+
+      # Tested as an upgrade from what devnet runs now, like a pull request in try-runtime.yml.
+      - name: Set the candidate's version
+        env:
+          ON_CHAIN_SPEC: ${{ needs.fetch-snapshot.outputs.spec_version }}
+        run: |
+          .github/bump-version.sh "0.$ON_CHAIN_SPEC.0"
+
+      - name: Inject the ${{ matrix.fixture }} fixture
+        if: matrix.fixture != 'baseline'
+        env:
+          FIXTURE: ${{ matrix.fixture }}
+        run: |
+          .github/try-runtime/fixtures/apply.sh "$FIXTURE"
+
+      - name: Build runtime with try-runtime
+        env:
+          FEATURES: ${{ needs.select.outputs.features }}
+        run: |
+          cargo build --release -p creditcoin3-runtime --features "$FEATURES"
+
+      - name: Restore try-runtime-cli
+        id: cli-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/try-runtime
+          key: try-runtime-cli-${{ needs.select.outputs.cli_rev }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install try-runtime-cli
+        if: steps.cli-cache.outputs.cache-hit != 'true'
+        env:
+          CLI_REPOSITORY: ${{ needs.select.outputs.cli_repository }}
+          CLI_REV: ${{ needs.select.outputs.cli_rev }}
+        run: |
+          cargo install --git "$CLI_REPOSITORY" --rev "$CLI_REV" --locked try-runtime-cli
+
+      - name: Download the snapshot
+        uses: actions/download-artifact@v8
+        with:
+          name: try-runtime-snapshot
+          path: snapshot
+
+      - name: Unpack the snapshot
+        run: |
+          .github/try-runtime/unpack-snapshot.sh snapshot
+
+      # The broken fixtures are meant to fail here; the next step judges the outcome.
+      - name: Run try-runtime on-runtime-upgrade
+        id: run
+        continue-on-error: true
+        timeout-minutes: 60
+        env:
+          BLOCKTIME: ${{ needs.select.outputs.blocktime }}
+          CHECKS: ${{ needs.select.outputs.checks }}
+        run: |
+          .github/try-runtime/run.sh \
+            ./target/release/wbuild/creditcoin3-runtime/creditcoin3_runtime.wasm \
+            snapshot/state.snap "$CHECKS" "$BLOCKTIME" try-runtime.log
+
+      # Each case must end its own way, for its own reason. The log lines are the CLI's
+      # (try-runtime-cli at the pinned revision) and the fixtures' own.
+      - name: Check the ${{ matrix.fixture }} outcome
+        env:
+          FIXTURE: ${{ matrix.fixture }}
+          RUN: ${{ steps.run.outcome }}
+        run: |
+          set -euo pipefail
+          expect_outcome() {
+            if [ "$RUN" != "$1" ]; then
+              echo "FAIL: $FIXTURE: try-runtime ended in $RUN, expected $1"
+              exit 1
+            fi
+          }
+          expect_log() {
+            if ! grep -qF -- "$1" try-runtime.log; then
+              echo "FAIL: $FIXTURE: try-runtime.log does not show $2 ('$1')"
+              exit 1
+            fi
+          }
+          case "$FIXTURE" in
+            baseline)
+              expect_outcome success
+              expect_log "Skipping Multi-Block-Migrations" "the single-block pass finishing"
+              expect_log "MBM finished after" "the multi-block pass finishing"
+              ;;
+            broken-post-upgrade)
+              expect_outcome failure
+              expect_log "try-runtime selftest: deliberate post_upgrade failure" "the fixture's post_upgrade failing"
+              ;;
+            stalled-mbm)
+              expect_outcome failure
+              expect_log "Skipping Multi-Block-Migrations" "the single-block pass finishing"
+              expect_log "MBM max blocks reached" "the multi-block pass stopping at its bound"
+              ;;
+            *)
+              echo "FAIL: no expected outcome for fixture '$FIXTURE'"
+              exit 1
+              ;;
+          esac
+          echo "PASS: $FIXTURE ended in $RUN, for the expected reason"
+
+      - name: Upload the try-runtime log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: try-runtime-selftest-${{ matrix.fixture }}-log
+          path: try-runtime.log
+          if-no-files-found: ignore

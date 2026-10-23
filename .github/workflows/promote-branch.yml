@@ -56,6 +56,7 @@ name: Promote Branch (fast-forward)
     paths:
       - '.github/workflows/promote-branch.yml'
       - '.github/check-promotion-is-safe.sh'
+      - '.github/check-promotion-try-runtime.sh'
       - '.github/branch-on-origin.sh'
 
 permissions: read-all
@@ -210,6 +211,20 @@ jobs:
           echo "      then re-run this workflow."
           exit 1
 
+      # Tests passing on dev says nothing about the target network's data: a migration can
+      # be a no-op on devnet and do real work on mainnet. So the exact commit must pass
+      # try-runtime against a recent snapshot of the target network, taken by the
+      # try-runtime-snapshot CronJob, before the label moves.
+      - name: Check the migrations against the target network's state
+        id: gate-try-runtime
+        continue-on-error: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The pull_request self-test only looks for an existing run.
+          MAY_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          .github/check-promotion-try-runtime.sh "$SOURCE_SHA" "$SOURCE_REF" "$TARGET_BRANCH" "$MAY_DISPATCH"
+
       - name: Promote ${{ env.SOURCE_REF }} to ${{ env.TARGET_BRANCH }}
         id: push
         continue-on-error: ${{ github.event_name == 'pull_request' }}
@@ -234,6 +249,7 @@ jobs:
           GATE_SOURCE: ${{ steps.gate-source.outcome }}
           GATE_SAFE: ${{ steps.gate-safe.outcome }}
           GATE_FF: ${{ steps.gate-ff.outcome }}
+          GATE_TRY_RUNTIME: ${{ steps.gate-try-runtime.outcome }}
           GATE_PUSH: ${{ steps.push.outcome }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
@@ -254,9 +270,9 @@ jobs:
           fi
 
           if [[ "$DRY_RUN" == "true" ]]; then
-              PUSH_LABEL="4. dry-run push"
+              PUSH_LABEL="5. dry-run push"
           else
-              PUSH_LABEL="4. push"
+              PUSH_LABEL="5. push"
           fi
 
           {
@@ -269,6 +285,7 @@ jobs:
               echo "| 1. source has cleared the required stages | $GATE_SOURCE |"
               echo "| 2. nothing with content is lost | $GATE_SAFE |"
               echo "| 3. promotion is a fast-forward | $GATE_FF |"
+              echo "| 4. migrations pass against the target network's state | $GATE_TRY_RUNTIME |"
               echo "| $PUSH_LABEL | $GATE_PUSH |"
               echo
               if [[ "$GATE_FF" == "failure" ]]; then
@@ -278,6 +295,10 @@ jobs:
               elif [[ "$GATE_FF" == "skipped" ]]; then
                   echo "Gate 3 never ran, because an earlier gate failed. Fix that"
                   echo "one first, then re-run."
+              elif [[ "$GATE_TRY_RUNTIME" == "failure" ]]; then
+                  echo "Gate 4 did not pass: the commit failed try-runtime against the"
+                  echo "target network's state, or no usable snapshot was available. The"
+                  echo "step's output links the try-runtime run and its report."
               fi
           } >> "$GITHUB_STEP_SUMMARY"
 
