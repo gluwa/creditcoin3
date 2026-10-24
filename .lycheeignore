@@ -39,3 +39,4 @@ https://scout\.docker\.com/(.*)
 https://github\.com/foundry-rs/foundry/releases/download/(.*)
 # Chainstack RPC endpoints require an API key and answer 401 to an anonymous probe
 https://(.*)\.core\.chainstack\.com(.*)
+https://github.com/gluwa/asc-contracts(.*)

@@ -39,6 +39,7 @@ jobs:
       archiver: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.archiver || 'false' }}
       attestor_cli_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_cli_testing || 'false' }}
       attestor_network_testing: ${{ steps.mode.outputs.soak == 'true' && 'true' || steps.filter.outputs.attestor_network_testing }}
+      attestor_base_testing: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.attestor_base_testing || 'false' }}
       cc3_indexer: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.cc3_indexer || 'false' }}
       docs_smart_contract: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.docs_smart_contract || 'false' }}
       integration_test_blockchain: ${{ steps.mode.outputs.soak != 'true' && steps.filter.outputs.integration_test_blockchain || 'false' }}
@@ -100,6 +101,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/archiver-tests/**"
               - "cli/src/test/archiver-tests.config.ts"
               - "cli/src/test/archiverSetup.ts"
@@ -131,6 +133,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/junitReporters.ts"
               - ".github/seal-blocks.sh"
               - ".github/wait-for-creditcoin.sh"
@@ -153,6 +156,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/attestation-tests.config.ts"
               - "cli/src/test/attestationSetup.ts"
               - "cli/src/test/junitReporters.ts"
@@ -160,6 +164,31 @@ jobs:
               - ".github/wait-for-creditcoin.sh"
               - ".github/wait-for-attestors.sh"
               - ".github/wait-for-ethereum.sh"
+            attestor_base_testing:
+              - "attestor/**"
+              - "archiver/**"
+              - "common/**"
+              - "pallets/**"
+              - "precompiles/**"
+              - "primitives/**"
+              - "runtime/**"
+              - "node/**"
+              - "proof-gen-api-server/**"
+              - "query-cli/**"
+              - "scripts/BaseAttestorE2E.js"
+              - "scripts/utils.js"
+              - "scripts/package.json"
+              - "scripts/yarn.lock"
+              - "Cargo.lock"
+              - "Cargo.toml"
+              - "rust-toolchain.toml"
+              - ".github/workflows/ci.yml"
+              - ".github/workflows/attestor-base.yml"
+              - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
+              - ".github/wait-for-creditcoin.sh"
+              - ".github/wait-for-ethereum.sh"
+              - ".github/check-logs-for-error.sh"
             cc3_indexer:
               - "attestor/**"
               - "common/**"
@@ -179,6 +208,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/cc3-indexer-tests.config.ts"
               - "cli/src/test/alphabeticalSequencer.js"
               - "cli/src/test/junitReporters.ts"
@@ -191,6 +221,7 @@ jobs:
               - "docs/smart-contract-development/**"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - ".github/wait-for-creditcoin.sh"
             integration_test_blockchain:
               - "common/**"
@@ -208,6 +239,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/blockchain-tests.config.ts"
               - "cli/src/test/blockchainSetup.ts"
               - "cli/src/test/junitReporters.ts"
@@ -235,6 +267,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
               - "cli/src/test/junitReporters.ts"
               - ".github/seal-blocks.sh"
             # Carried over verbatim from attestor-compatibility.yml's own pull_request
@@ -265,6 +298,7 @@ jobs:
               - "rust-toolchain.toml"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
             # What the runtime's call metadata is built from, including the FRAME pallets
             # that come in through Cargo.lock.
             extrinsics:
@@ -276,11 +310,13 @@ jobs:
               - ".github/check-extrinsics.sh"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
             regenerate_metadata:
               - "**.rs"
               - "**Cargo**"
               - ".github/workflows/ci.yml"
               - ".github/workflows/build-native.yml"
+              - ".github/install-protoc.sh"
 
       - name: Devnet ENV
         id: devnet-env
@@ -372,6 +408,13 @@ jobs:
             release-node.log
             metadata-cmp-with-mainnet.txt
             metadata-cmp-with-testnet.txt
+
+  integration-test-attestor-base:
+    needs:
+      - build-creditcoin-node-for-testing-ci
+      - should-run
+    if: ${{ needs.should-run.outputs.attestor_base_testing == 'true' }}
+    uses: ./.github/workflows/attestor-base.yml
 
   integration-test-attestator-network:
     needs:

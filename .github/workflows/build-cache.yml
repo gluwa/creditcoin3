@@ -21,6 +21,7 @@ name: build-cache
       - "!.cursor/**"
       - "!**.md"
       - ".github/workflows/build-native.yml"
+      - ".github/install-protoc.sh"
       - ".github/workflows/build-cache.yml"
   workflow_dispatch:
 
