@@ -215,6 +215,13 @@ describe('BlockAttested events', (): void => {
             const endBlock_Anvil1 = await provider_Anvil1.getBlockNumber();
             // There are 10013 initial blocks which will result in 20 attestations for each 500
             // until we catch up, then every 10 blocks
+            // The interval the events were actually produced under is the one set now: it moves
+            // while the attestors catch up, so the value cached in beforeAll can be far higher
+            // than the one in force at the tip and the bound comes out an order of magnitude
+            // too tight. Re-read it here instead of trusting the cached copy.
+            chain_Anvil1_AttestationInterval = (
+                await api.query.attestation.chainAttestationInterval(chain_Anvil1_Key)
+            ).toNumber();
             const expectedBlockAttestedEvents_Anvil1 =
                 20 + Math.floor((endBlock_Anvil1 - startBlock_Anvil1) / chain_Anvil1_AttestationInterval);
 
